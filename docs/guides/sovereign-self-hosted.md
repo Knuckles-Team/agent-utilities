@@ -28,7 +28,7 @@ database** — it does compute, in-memory cache, semantic/ontology reasoning,
 | Knowledge graph | one embedded epistemic-graph engine, durable on local disk (`--persist-dir`), no mirror databases |
 | OWL/RDF + reasoning | **on by default** — local OWL-RL inference over the graph, no external triplestore |
 | SPARQL | **local endpoint**, `GET/POST {gateway}/api/sparql` — rdflib materialization + engine `GetTriples` fast path, zero external deps |
-| Engine lifecycle | auto-spun-up, reference-counted local daemon (`ENGINE_MODE=auto`, `ENGINE_LIFECYCLE=refcounted` by default — self-stops ~60s idle; set `ENGINE_LIFECYCLE=persistent` to keep it warm) |
+| Engine lifecycle | auto-spun-up, reference-counted local daemon (leave `GRAPH_SERVICE_ENDPOINTS` unset; `ENGINE_LIFECYCLE=refcounted` by default — self-stops ~60s idle; set `ENGINE_LIFECYCLE=persistent` to keep it warm) |
 | External services | **none required** |
 
 The engine binary runs on Raspberry Pi 4+ (`epistemic-graph/README.md`) — a
@@ -40,8 +40,9 @@ either a hosted API key, or a local OpenAI-compatible endpoint
 Everything graph-side — storage, reasoning, retrieval — is local.
 
 ```dotenv
-# tiny .env — this is genuinely the whole thing
-EPISTEMIC_GRAPH_AUTOSTART=1
+# tiny .env — this is genuinely the whole thing. Leaving GRAPH_SERVICE_ENDPOINTS
+# unset is what selects the packaged local engine (see recipes/unified-self-contained.md);
+# there is no separate autostart flag to set.
 OPENAI_BASE_URL=http://localhost:8000/v1      # your own vLLM/Ollama, not a cloud key
 ```
 
@@ -190,11 +191,11 @@ special mode you opt into.
    set, and turn on air-gap mode:**
 
    ```dotenv
-   EPISTEMIC_GRAPH_AUTOSTART=1
    OPENAI_BASE_URL=http://10.0.0.18:8000/v1   # IP literal, not a DNS name — see §4
    AIRGAP_MODE=1
    # Do not set OPENAI_API_KEY / ANTHROPIC_API_KEY / any hosted provider key —
    # leaving them unset means there is nothing to reach for outbound
+   # (GRAPH_SERVICE_ENDPOINTS stays unset too, so graph-os owns the local engine)
    ```
 
 3. **Configure a durable persist dir** so the engine is a real store, not an

@@ -409,6 +409,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   broken on main for all 13 skills, not caused by this change).
 
 ### Docs
+- **Unified self-contained graph-os across both MCP transports (unified-binary program W-D,
+  CONCEPT:AU-OS.deployment.engine-resolver-auto-provision).** Traced `mcp_server()`
+  (`agent_utilities/mcp/kg_server.py`) end to end and confirmed the engine's
+  local-vs-remote selection is decided **solely** by `GRAPH_SERVICE_ENDPOINTS`
+  (`engine_resolver.resolve_engine`), identically for `--transport stdio` and
+  `--transport streamable-http` — `_get_engine()`/`_start_engine_bootstrap()` sit
+  outside any transport-conditional branch. No code gap found; this is a
+  documentation + validation deliverable. New
+  `docs/recipes/unified-self-contained.md` (wired into `mkdocs.yml`) is the
+  concise how-to for both invocations, including the `GRAPH_SERVICE_PERSIST_DIR`
+  knob, the `EPISTEMIC_GRAPH_*` engine-auth inheritance
+  (`GraphComputeEngine._autostart_engine`), streamable-http's two EXTRA identity
+  requirements the local-engine path doesn't need (a process `KG_AUTH_TOKEN_REF`/
+  `KG_IDENTITY_OAUTH2` plus inbound `AUTH_TYPE`), and the config-precedence trap
+  where a stale `graph_service_endpoints` left in `config.json` keeps winning
+  over an unset/removed environment variable (`core/config.py`
+  `_commit_xdg_environment_projection`) — the key must be deleted from
+  `config.json` itself. New parametrized test
+  (`tests/unit/mcp/test_graphos_bootstrap_isolation.py::test_mcp_server_selects_local_engine_path_for_both_transports`)
+  exercises the real resolver from inside `mcp_server()`'s control flow (only the
+  deepest socket connect mocked) for both transports. Also corrects
+  `docs/architecture/configuration.md`'s §A.1 narrative and its `ENGINE_MODE`/
+  `ENGINE_ENDPOINT`/`EPISTEMIC_GRAPH_AUTOSTART` rows, and
+  `docs/guides/sovereign-self-hosted.md`'s `.env` examples, which all still
+  referenced those three keys as live settings — they are in fact **retired**
+  (`core/config.py` `_RETIRED_CONFIGURATION_KEYS`) and hard-fail boot if present.
+  **Left alone, flagged for a separate follow-up:** the SAME three retired keys
+  are also still shown as live examples in `README.md`'s "Shared engine
+  (split-storage / Keycloak-protected fleet)" section and in
+  `docs/architecture/engine_sharding.md`/`docs/architecture/agent_bus.md`/
+  `docs/reliability_matrix.md` — out of scope here (they document the
+  **remote**-engine shape, not this program's unified/self-contained shape).
+  `docs/examples/config.json` is separately, pre-existingly stale against the
+  current `AgentConfig` schema (8+ retired/unknown keys; its own dedicated
+  freshness test, `tests/unit/test_package_dependency_contract.py::
+  test_documented_config_example_is_current_agent_config`, is already RED on
+  `main`, not caused by this change) — this recipe therefore ships its own
+  minimal, correct config snippet rather than pointing at that file.
+  Regenerating the `docs_contract.py` catalogs to reflect the new page also
+  surfaces two pre-existing, unrelated `env-var-drift` findings from the
+  audit-gap-detector feature (`KG_LOOP_AUDIT`, `AUDIT_REVIEW_TIMEOUT_S`,
+  `core/config.py`/`harness/audit_gap_detector.py`) that predate this change and
+  are not part of the unified-binary program.
 - **Messaging-bundle deployment docs + Phase-10 retirement plan (CONCEPT:AU-ECO.messaging.native-backend-abstraction).**
   The code-level bundling (`graph-os` self-composes messaging as an always-on
   co-service — `agent_utilities/mcp/co_service_supervisor.py`, wired at

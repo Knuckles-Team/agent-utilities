@@ -67,11 +67,11 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `KG_TASKS_PARTITIONS` | `6` | Partitions ensured on the `kg_tasks` topic at startup (grow-only, never shrinks); bounds kg-ingest consumer-group parallelism (CONCEPT:AU-KG.backend.keyed-ingest-partitions) |
 | `AGENT_DISPATCH_BACKEND` | `inline` | How agent turns (goal runs / orchestrator jobs) dispatch: `inline` keeps the in-process execution; `queue` publishes a session-keyed envelope onto the `agent_turns` queue (transport follows `TASK_QUEUE_BACKEND`) and returns a job handle for the `agent-dispatch-worker` fleet (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch) |
 | `AGENT_TURNS_PARTITIONS` | `6` | Partitions ensured on the `agent_turns` topic when Kafka carries dispatched agent turns (grow-only); bounds fleet-wide concurrent-session parallelism (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch) |
-| `ENGINE_MODE` | `auto` | How the ONE resolver (`engine_resolver.resolve_engine`, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) reaches the engine for EVERY entrypoint: `auto` (derive from `graph_service_*` — remote if configured, else share-running-local, else autostart) · `remote` (connect to `ENGINE_ENDPOINT`/configured endpoint, NEVER autostart — "engine deployed elsewhere") · `shared` (reuse a running local engine, autostart if none) · `embedded` (always provision a local engine) |
-| `ENGINE_ENDPOINT` | unset | Explicit remote engine override for `engine_mode=remote` (e.g. `tcp://engine.example.test:9100`); folded into endpoint resolution like a single `GRAPH_SERVICE_ENDPOINTS` entry (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
+| `ENGINE_MODE` | — | **Removed** — a config.json/env value now hard-fails boot as a retired durable key (`core/config.py` `_RETIRED_CONFIGURATION_KEYS`). The ONE resolver (`engine_resolver.resolve_engine`, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) derives the same remote → share-running-local → autostart precedence purely from `GRAPH_SERVICE_ENDPOINTS` below: unset selects the local/self-contained path (share a running local engine, else autostart one); set selects the remote, connect-only path (never autostarted). See `docs/recipes/unified-self-contained.md` |
+| `ENGINE_ENDPOINT` | — | **Removed** — same retired-key contract as `ENGINE_MODE`. Use `GRAPH_SERVICE_ENDPOINTS` for an explicit remote engine contact (e.g. `tcp://engine.example.test:9100`, or `tls://…` for TLS) |
 | `ENGINE_LIFECYCLE` | `refcounted` | Lifecycle of an autostarted local engine (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): `refcounted` = reference-counted idle shutdown (self-stops `ENGINE_IDLE_SHUTDOWN_SECS` after the last client disconnects — the shared-tiny default, auto-stops when idle) · `persistent` = LONG-LIVING, never auto-stops even when idle (runs like a local service; forces idle-shutdown off). A remote/cluster engine is inherently persistent |
 | `ENGINE_IDLE_SHUTDOWN_SECS` | `60` | Idle-shutdown grace (seconds) for a `refcounted` autostarted engine; `>0` passes `--idle-shutdown-secs <secs>` to the engine. `<=0` (or `engine_lifecycle=persistent`) = long-living, no flag passed. Gracefully omitted against an older engine binary that doesn't advertise the flag (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
-| `EPISTEMIC_GRAPH_AUTOSTART` | `1` (auto-bundle) | Local-engine autostart opt-OUT: set `0` for a connect-only process (the resolver's `auto`/`embedded`/`shared` modes autostart a local `unix://` endpoint by default; never remote shards) (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
+| `EPISTEMIC_GRAPH_AUTOSTART` | — | **Removed** — same retired-key contract as `ENGINE_MODE`. Autostart is no longer an independent toggle: it is purely derived from topology (`engine_resolver.setting_autostart`) — ON whenever `GRAPH_SERVICE_ENDPOINTS` is unset, OFF (connect-only) whenever it is set |
 | `GRAPH_SERVICE_ENDPOINTS` | unset | Engine shard endpoints (comma/JSON list). 2+ entries = tenant-partitioned sharding via HRW over graph names; unset/1 = single-engine zero-infra default (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
 | `KG_DEFAULT_GRAPH` | `__bus__` | Default named graph; in sharded mode the ambient ActorContext tenant maps it to `tenant__<t>__<base>` before HRW (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
 | `KG_WATCH_DIRS` | unset | Operator document directories the file-watcher auto-ingests **recursively**, unified with the built-in ScholarX/research download dirs. New files are ingested and modified files re-ingested on the 5s watch tick; unchanged files delta-skip by content hash (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Value is a JSON array or an `os.pathsep`/comma-separated list of paths (`~` expanded), e.g. `~/Documents`. config.json key: `kg_watch_dirs`. Resolved by `sdd/watcher.py:get_watched_directories()` |
@@ -140,19 +140,27 @@ process reaches the ONE engine authority:
 
     remote  →  share-running-local  →  autostart-shared-supervised
 
-- **remote** — `engine_mode=remote` (or any configured `GRAPH_SERVICE_ENDPOINTS` /
-  `ENGINE_ENDPOINT` / multi-shard topology): connect to it, **never** autostart a
-  local stand-in (fail-loud if unreachable). This is the "I deployed the engine in
-  Docker on another host" case. A remote/cluster engine is inherently persistent.
+- **remote** — any configured `GRAPH_SERVICE_ENDPOINTS` (single contact or a
+  multi-shard topology): connect to it, **never** autostart a local stand-in
+  (fail-loud if unreachable). This is the "I deployed the engine in Docker on
+  another host" case (also the horizontal-scale-out shape). A remote/cluster
+  engine is inherently persistent.
 - **shared** — the local endpoint is already serving (a cheap connect probe
   succeeds): reuse it, spawn nothing. Co-located entrypoints on one host share the
-  ONE engine.
+  ONE engine. This is also how the **unified self-contained** deployment behaves
+  once its first process has started the engine — every later `graph-os` on the
+  same host shares it instead of spawning a second one.
 - **autostart** — nothing reachable on a local endpoint: spawn ONE **detached,
   supervised** engine under the per-socket spawn guard (first-one-wins flock, so
   concurrent resolves never start a second engine on the same `--persist-dir`).
-  Detached = it survives the spawner so OTHER entrypoints share it. The autostart
-  default (`engine_mode=auto`/`embedded`/`shared`) is ON; `EPISTEMIC_GRAPH_AUTOSTART=0`
-  forces a connect-only process.
+  Detached = it survives the spawner so OTHER entrypoints share it. Autostart is
+  not an independent toggle — it is purely derived from topology
+  (`engine_resolver.setting_autostart`): unset `GRAPH_SERVICE_ENDPOINTS` keeps it
+  ON (the unified/self-contained default, for **either** MCP transport — see
+  `docs/recipes/unified-self-contained.md`); configuring `GRAPH_SERVICE_ENDPOINTS`
+  switches to connect-only instead. (The now-retired `ENGINE_MODE`/
+  `ENGINE_ENDPOINT`/`EPISTEMIC_GRAPH_AUTOSTART` keys hard-fail boot if a
+  config.json or environment still carries them.)
 
 **Two autostart lifecycles (the `ENGINE_LIFECYCLE` choice):**
 
@@ -167,10 +175,10 @@ process reaches the ONE engine authority:
   when idle. Best when you want a warm engine always ready (no cold-start on the
   next request).
 
-All four reads are typed `AgentConfig` fields (`engine_mode`, `engine_endpoint`,
-`engine_lifecycle`, `engine_idle_shutdown_secs`) — set them in `config.json`, no
-env-sprawl. If the installed engine binary doesn't advertise `--idle-shutdown-secs`
-yet (an older/leaner wheel), the flag is omitted gracefully (the engine then runs
+These are typed `AgentConfig` fields (`graph_service_endpoints`, `engine_lifecycle`,
+`engine_idle_shutdown_secs`) — set them in `config.json`, no env-sprawl. If the
+installed engine binary doesn't advertise `--idle-shutdown-secs` yet (an
+older/leaner wheel), the flag is omitted gracefully (the engine then runs
 persistently); `agent-utilities-doctor --preflight` flags such a lean binary.
 
 ## B. Daemon on/off toggles, all default ON — REMOVED (Phase 3) ✓
