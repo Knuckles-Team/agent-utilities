@@ -149,15 +149,17 @@ def test_per_model_api_key_reference_is_resolved_in_memory(monkeypatch):
     assert _client(model).api_key == "synthetic-runtime-material"
 
 
-def _reasoning_extra_body(model):
+def _reasoning_thinking(model):
+    """The model's reasoning setting now lives on the top-level ``thinking`` key
+    (PA-R0.2), which pydantic-ai translates to the ``reasoning_effort`` request param."""
     settings = getattr(model, "settings", None)
     if not settings:
         return None
-    return dict(settings).get("extra_body")
+    return dict(settings).get("thinking")
 
 
 def test_per_model_reasoning_effort_pins_level(monkeypatch):
-    """A configured reasoning_effort level is threaded into the request (extra_body)."""
+    """A configured reasoning_effort level is threaded via ModelSettings.thinking."""
     monkeypatch.setattr(
         model_factory,
         "get_model_config",
@@ -171,7 +173,7 @@ def test_per_model_reasoning_effort_pins_level(monkeypatch):
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
 
     model = model_factory._create_model_impl(provider="openai", model_id="thinker")
-    assert (_reasoning_extra_body(model) or {}).get("reasoning_effort") == "high"
+    assert _reasoning_thinking(model) == "high"
 
 
 def test_per_model_reasoning_effort_null_opts_into_native_reasoning(monkeypatch):
@@ -195,8 +197,9 @@ def test_per_model_reasoning_effort_null_opts_into_native_reasoning(monkeypatch)
     model = model_factory._create_model_impl(
         provider="openai", model_id="native", reasoning_effort="none"
     )
-    # No reasoning_effort override present (settings is None, or extra_body lacks the key).
-    assert (_reasoning_extra_body(model) or {}).get("reasoning_effort") is None
+    # No thinking override present (settings is None, or lacks the thinking key) -> the
+    # model reasons with its own native default.
+    assert _reasoning_thinking(model) is None
 
 
 def test_reasoning_effort_inherit_keeps_caller_value(monkeypatch):
@@ -216,4 +219,4 @@ def test_reasoning_effort_inherit_keeps_caller_value(monkeypatch):
     model = model_factory._create_model_impl(
         provider="openai", model_id="plain", reasoning_effort="low"
     )
-    assert (_reasoning_extra_body(model) or {}).get("reasoning_effort") == "low"
+    assert _reasoning_thinking(model) == "low"
