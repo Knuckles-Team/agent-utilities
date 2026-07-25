@@ -188,9 +188,14 @@ case itself next time. The goal is orchestrating completely off the harness.
 
 ## Architecture Reference (current)
 
-- **Engine transport.** Python talks to the Rust `epistemic-graph` engine **only**
-  through the out-of-process MessagePack/UDS client (`epistemic_graph.client`,
-  with `pool.py` `ConnectionPool`/`ShardRouter`). There is **no PyO3**. Entry:
+- **Engine transport (two shapes — see epistemic-graph `AGENTS.md`).** By default
+  Python reaches the Rust `epistemic-graph` engine through the **out-of-process**
+  MessagePack/UDS client (`epistemic_graph.client`, `pool.py`
+  `ConnectionPool`/`ShardRouter`) — GIL-free, shared, horizontally scalable. For a
+  **self-contained** deployment the engine is instead embedded **in-process via PyO3**
+  (one unified binary, no socket round-trip) — preferred where it consolidates with no
+  hot-path cost, under the same non-negotiable rule: **batch every engine call** (one
+  call = one batch op over graph-resident data, never a per-element Python loop). Entry:
   `domains/finance/*` and `knowledge_graph/core/graph_compute.py`.
 - **Knowledge graph (one engine authority + mirrors).** `knowledge_graph/facade.py`
   (`KnowledgeGraph`) is the single object the execution plane uses. The
