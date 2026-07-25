@@ -11,30 +11,45 @@ profiles, and image digests through an external deployment profile.
 |---|---|---|---|
 | Epistemic graph engine | packaged Rust server | authoritative graph persistence, compute, cache, semantics, and placement | native UDS or authenticated TLS/TCP; no HTTP |
 | GraphOS host | `graph-os-daemon` | maintenance scheduler, background workers, embedding backfill, and governed mirror fan-out | none |
-| GraphOS MCP | `graph-os` | authenticated MCP, fleet discovery, delegation, and graph tools | stdio or streamable HTTP |
+| GraphOS MCP | `graph-os` | authenticated MCP, fleet discovery, delegation, graph tools, **and the bundled messaging co-service** | stdio or streamable HTTP |
 | REST/API gateway | `python -m agent_utilities` | application and UI API surface | authenticated HTTP |
-| Messaging daemon | `agent-utilities-messaging` | inbound channel routing and GraphOS delegation | provider-specific inbound transport |
+| Messaging (optional isolated scale-out) | `agent-utilities-messaging` | the same inbound-router body, run in its own process only when a deployment wants to move chat load off the GraphOS MCP process | provider-specific inbound transport |
 | Connector fleet | selected `*-mcp` packages | native connection point to one external system per package | registry-declared MCP transport |
 
 The engine is the single source of truth. Optional Neo4j, PostgreSQL/AGE,
 LadybugDB, and other stores are governed mirrors or external ingest sources; they do
 not silently become graph authority.
 
+Messaging is **not a separately deployed service by default.** GraphOS MCP
+self-composes its configured co-services in one process
+(`agent_utilities.mcp.co_service_supervisor`, wired into `kg_server.mcp_server()`):
+whenever a real channel credential (e.g. `TELEGRAM_BOT_TOKEN`) is present in the
+SAME `AgentConfig` GraphOS MCP already reads, the inbound router starts as a
+supervised co-service thread sharing that process's already-verified
+`GraphSession`/identity — no separate `mint_graph_session` call, no second secret
+surface, no manually-run second daemon. The standalone `agent-utilities-messaging`
+process (`Messaging` row above) still exists and reuses the identical serving body
+(`messaging/daemon.run_forever`) for a deployment that deliberately wants to isolate
+chat load onto its own host/pod; it is opt-in scale-out, not the default topology,
+and it must resolve its OWN process identity the same way GraphOS MCP does (a
+correctly configured `AUTH_JWT_AUDIENCE`/`MCP_JWT_AUDIENCE` and
+`KG_POLICY_VERSION`) if it is deployed at all.
+
 ```mermaid
 flowchart TB
     C[Authenticated clients] --> I[Operator TLS ingress]
-    I --> G[GraphOS MCP]
+    Chan["Messaging channels: Telegram / Slack / Teams / …"] --> G
+    I --> G["GraphOS MCP (bundles messaging co-service, default-on)"]
     I --> R[REST/API gateway]
-    M[Messaging daemon] --> G
     G --> F[Approved MCP connector fleet]
     G --> E[(Epistemic graph authority)]
     R --> E
-    M --> E
     H[GraphOS host] --> E
     G --> Q[(Shared durable state/queue)]
     R --> Q
     H --> Q
     H --> X[(Optional governed mirrors)]
+    Mopt["agent-utilities-messaging (optional isolated scale-out)"] -.-> E
 ```
 
 ## Deployment invariants

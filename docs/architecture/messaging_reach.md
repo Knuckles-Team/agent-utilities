@@ -53,8 +53,14 @@ flowchart TD
     end
 ```
 
-The daemon (`gateway/daemon.py`) auto-starts the `InboundRouter` whenever a backend token
-is configured (opt-out, auto-detected). When the user's reply answers a question a loop
+`graph-os` (the GraphOS MCP entrypoint) auto-starts the `InboundRouter` whenever a backend
+token is configured (default-on, no opt-in flag) — as an always-on **co-service** of that
+process (`agent_utilities.mcp.co_service_supervisor.start_co_services`, wired into
+`mcp/kg_server.py`'s `mcp_server()`), sharing that process's already-verified
+`GraphSession`/identity instead of minting a second one. `gateway/daemon.py` (the separate
+KG host daemon, `graph-os-daemon`) deliberately does **not** run it, so the host's CPU-bound
+maintenance (codebase ingestion, relevance sweeps) can never starve the inbound reply loop —
+see [Deployment](#deployment) below. When the user's reply answers a question a loop
 asked, `deliver_reply` resolves the waiting future and the message is **not** re-routed;
 otherwise the chat turn runs the **universal graph agent**.
 
@@ -148,10 +154,47 @@ it appears everywhere.
 ## Multiple services at once
 
 The router runs **every configured backend concurrently** — set tokens for any of
-Telegram, Slack, Teams, Mattermost, Discord, … and `start_messaging_router` connects and
-listens on all of them. Last-active routing stores `platform + channel` per user, so
-`reach_user` follows the user to whichever service they last used; `graph_reach
-action=send` targets a specific service explicitly.
+Telegram, Slack, Teams, Mattermost, Discord, … and the composed serving body
+(`messaging/daemon.py`'s `_serve`, driven by `run_forever`) connects and listens on all of
+them. Last-active routing stores `platform + channel` per user, so `reach_user` follows the
+user to whichever service they last used; `graph_reach action=send` targets a specific
+service explicitly.
+
+## Deployment
+
+Messaging ships as **one serving implementation** (`messaging/daemon.run_forever` +
+`_serve`) reused by two callers:
+
+1. **Bundled (default).** `graph-os` self-composes messaging as an always-on co-service
+   the moment a real channel credential is present — no flag, no second process, no second
+   secret. Detection (`co_service_supervisor.detect_composition` →
+   `messaging.daemon.configured_platforms`) is a pure config read (installed backend +
+   real token/app-id), so the same `AgentConfig` that already configures GraphOS MCP is the
+   only place a channel is turned on. The co-service thread runs under the process's
+   already-verified `GraphSession`/actor (`knowledge_graph.core.engine_tasks._authorized_background_thread`),
+   so it inherits GraphOS MCP's working identity contract instead of independently minting
+   one — this is what fixes the historical `mint_graph_session` "missing audience or policy
+   revision" crash a separately-configured messaging deployment could hit if its own
+   ConfigMap/Secret drifted from GraphOS MCP's.
+2. **Standalone (`agent-utilities-messaging`), opt-in scale-out only.** The identical
+   serving body also ships as its own console script for a deployment that wants to
+   isolate chat load onto a dedicated host/pod. It is not the default topology, is not
+   started by anything automatically, and must independently satisfy the same identity
+   contract (a correctly configured audience + `KG_POLICY_VERSION`) if deployed — see
+   `agent_utilities/messaging/daemon.py`'s `mint_process_identity`.
+
+A deployment that previously ran messaging as its own always-on Deployment/service should
+retire it once GraphOS MCP is redeployed with the bundling code — see
+`deploy/k8s/messaging-bundle-retirement.yaml` for the (not auto-applied) cutover plan and
+`deploy/k8s/graphos.yaml` / `deploy/swarm/graphos.stack.yml` for where channel tokens now
+live (the SAME Secret/ConfigMap GraphOS MCP already reads).
+
+**Replica caution.** A channel that long-polls for updates (Telegram without
+`MESSAGING_WEBHOOK_BASE_URL` configured) opens one exclusive stream per bot token,
+so running the bundling GraphOS MCP deployment at N>1 replicas will 409-conflict across
+replicas sharing that token. Either configure the webhook mode (safe at any replica
+count — any pod behind the load balancer can receive the push) or keep the
+messaging-carrying deployment at a single replica.
 
 ## Configuration
 

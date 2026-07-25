@@ -12,6 +12,19 @@
 #
 #   python scripts/deployment/check_swarm_assets.py --runtime-image "$GRAPHOS_IMAGE_DIGEST"
 #   docker stack deploy -c deploy/swarm/graphos.stack.yml graphos
+#
+# Messaging (Telegram/Slack/…): `graph-os` (the `front` service below) bundles
+# messaging as an always-on co-service the moment a real channel token is present in
+# ITS OWN environment/secrets — no separate service, no separate secret store. This
+# reference stack does not wire a channel token by default (nothing here forces an
+# operator into running a chat bot); to add one, extend `front`'s `secrets:` with the
+# same `<<: *runtime-secret` pattern already used above, targeting the env var the
+# code reads (e.g. `TELEGRAM_BOT_TOKEN` — see `core/config.py`), and update
+# `check_swarm_assets.py`'s `_FRONT_SECRET_TARGETS` to match (it exact-matches the
+# mounted secret set). CAUTION: `front` runs `replicas: 2` below — Telegram long-polls
+# for updates by default and 409-conflicts when two replicas share one bot token.
+# Either set `MESSAGING_WEBHOOK_BASE_URL` (safe at any replica count) or drop `front`
+# to `replicas: 1` before adding a channel token.
 
 version: "3.9"
 
