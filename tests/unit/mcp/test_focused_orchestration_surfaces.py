@@ -59,6 +59,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
         },
         "graph_evolution": {
             "assimilate",
+            "audit_scan",
             "distill_skills",
             "standardize",
             "failure_ingest",
@@ -67,11 +68,14 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
         },
         "graph_governance": {
             "grant_approval",
+            "ownership_apply",
+            "ownership_report",
+            "policy_status",
             "submit_risk_veto",
             "verify_action",
         },
         "graph_jobs": {"dispatch", "status"},
-        "graph_rlm": {"run", "benchmark"},
+        "graph_rlm": {"run", "benchmark", "evolve_prompt"},
         "graph_workflows": {
             "compile",
             "compile_process",
@@ -82,7 +86,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    assert sum(map(len, expected_actions.values())) == 27
+    assert sum(map(len, expected_actions.values())) == 32
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 

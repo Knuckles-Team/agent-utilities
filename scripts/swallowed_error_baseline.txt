@@ -481,7 +481,7 @@ agent_utilities/knowledge_graph/research/change_publisher.py:934
 agent_utilities/knowledge_graph/research/change_publisher.py:1022
 agent_utilities/knowledge_graph/research/change_publisher.py:1077
 agent_utilities/knowledge_graph/research/evolution_state.py:158
-agent_utilities/knowledge_graph/research/loop_controller.py:3311
+agent_utilities/knowledge_graph/research/loop_controller.py:3346
 agent_utilities/knowledge_graph/research/spec_proposals.py:169
 agent_utilities/knowledge_graph/retrieval/active_reconstruction.py:301
 agent_utilities/knowledge_graph/retrieval/capability_index.py:95

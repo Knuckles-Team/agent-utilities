@@ -18,8 +18,11 @@ def register_evolution_tools(mcp: Any) -> None:
         name="graph_evolution",
         description=(
             "Improve the graph and its executable knowledge. Actions: 'assimilate', "
-            "'distill_skills', 'standardize', 'failure_ingest', 'optimize_component', "
-            "and 'publish_proposal'. All proposal-producing actions remain review-gated."
+            "'audit_scan' (Macroscope-class code-correctness/security findings over the "
+            "ingested code KG, each filed as a canonical :Gap via "
+            "harness.audit_gap_detector), 'distill_skills', 'standardize', "
+            "'failure_ingest', 'optimize_component', and 'publish_proposal'. All "
+            "proposal-producing actions remain review-gated."
         ),
         tags=["graph-os", "evolution", "optimization", "skills"],
     )
@@ -27,8 +30,8 @@ def register_evolution_tools(mcp: Any) -> None:
         action: str = Field(
             default="assimilate",
             description=(
-                "assimilate | distill_skills | standardize | failure_ingest | "
-                "optimize_component | publish_proposal"
+                "assimilate | audit_scan | distill_skills | standardize | "
+                "failure_ingest | optimize_component | publish_proposal"
             ),
         ),
         target: str = Field(

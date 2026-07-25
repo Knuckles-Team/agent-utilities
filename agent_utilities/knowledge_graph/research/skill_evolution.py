@@ -475,6 +475,7 @@ def run_reflact_cycle(
         "candidate_score": None,
         "incumbent_score": incumbent_score,
         "gate_action": None,
+        "skill_gate_action": None,
         "action_decision": None,
         "promoted": False,
         "errors": [],
@@ -555,6 +556,18 @@ def run_reflact_cycle(
     report["candidate_score"] = candidate_score
     report["candidate_version_id"] = candidate_id
 
+    # The pure benchmark classification (CONCEPT:AU-AHE.optimization.skillopt-native-reflact):
+    # the ported ``skillopt/evaluation/gate.py::evaluate_gate`` three-way action, kept as
+    # report-only transparency alongside the generalized promotion decision below —
+    # ``skill_gate`` never itself decides whether this cycle promotes (that stays
+    # ``action_policy``-gated through ``artifact_promotion``); it only labels HOW the
+    # candidate compared (a plain win vs. a new all-time best), which
+    # ``best_score=None`` (defaulting to ``incumbent_score``) is the documented
+    # single-generation-cycle reading — this cycle has no separate running-best tracker.
+    from .skill_gate import skill_gate
+
+    report["skill_gate_action"] = skill_gate(candidate_score, incumbent_score).action
+
     from agent_utilities.harness.reward_signal import RewardSignal
     from agent_utilities.orchestration.artifact_promotion import (
         PromotionCandidate,
@@ -564,11 +577,13 @@ def run_reflact_cycle(
     )
 
     # The generalized gate (CONCEPT:AU-AHE.harness.unified-promotion-gate):
-    # evaluate_promotion(strict=True, min_delta=0) is byte-identical to the ported
-    # skill_gate.evaluate_promotion comparison (candidate strictly beats incumbent),
-    # and promote() consults action_policy under the SAME "promote_skill_version"
-    # kind this cycle has always used — the DEFAULT_POLICY entry and its dedicated
-    # regression test need zero changes.
+    # evaluate_promotion(strict=True, min_delta=0) is byte-identical to
+    # skill_gate.evaluate_promotion's own comparison (candidate strictly beats
+    # incumbent — see the ``skill_gate_action`` label just above), and promote()
+    # consults action_policy under the SAME "promote_skill_version" kind this cycle
+    # has always used — the DEFAULT_POLICY entry and its dedicated regression test
+    # need zero changes. This function's PROMOTION decision stays authoritative;
+    # skill_gate contributes only the report-only classification above.
     verdict = promote_gate(
         engine,
         PromotionCandidate(

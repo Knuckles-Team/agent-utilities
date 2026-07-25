@@ -1456,6 +1456,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_evolution",
+        "action": "audit_scan",
+        "name": "graph_evolution_audit_scan",
+    },
+    {
+        "tool": "graph_evolution",
         "action": "distill_skills",
         "name": "graph_evolution_distill_skills",
     },
@@ -1500,6 +1505,21 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_governance",
         "action": "grant_approval",
         "name": "graph_governance_grant_approval",
+    },
+    {
+        "tool": "graph_governance",
+        "action": "ownership_apply",
+        "name": "graph_governance_ownership_apply",
+    },
+    {
+        "tool": "graph_governance",
+        "action": "ownership_report",
+        "name": "graph_governance_ownership_report",
+    },
+    {
+        "tool": "graph_governance",
+        "action": "policy_status",
+        "name": "graph_governance_policy_status",
     },
     {
         "tool": "graph_governance",
@@ -1681,6 +1701,8 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_pipeline", "action": None, "name": "graph_pipeline"},
     {"tool": "graph_loops", "action": "cancel", "name": "graph_loops_cancel"},
     {"tool": "graph_loops", "action": "drive", "name": "graph_loops_drive"},
+    {"tool": "graph_loops", "action": "gap", "name": "graph_loops_gap"},
+    {"tool": "graph_loops", "action": "gaps", "name": "graph_loops_gaps"},
     {"tool": "graph_loops", "action": "list", "name": "graph_loops_list"},
     {
         "tool": "graph_loops",
@@ -1693,6 +1715,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_loops", "action": "specs", "name": "graph_loops_specs"},
     {"tool": "graph_loops", "action": "state", "name": "graph_loops_state"},
     {"tool": "graph_loops", "action": "submit", "name": "graph_loops_submit"},
+    {
+        "tool": "graph_loops",
+        "action": "submit_gap",
+        "name": "graph_loops_submit_gap",
+    },
     {
         "tool": "graph_media_sidecar",
         "action": "ingest_audio",
@@ -1809,6 +1836,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_reach", "action": "status", "name": "graph_reach_status"},
     {"tool": "graph_research", "action": None, "name": "graph_research"},
     {"tool": "graph_rlm", "action": "benchmark", "name": "graph_rlm_benchmark"},
+    {"tool": "graph_rlm", "action": "evolve_prompt", "name": "graph_rlm_evolve_prompt"},
     {"tool": "graph_rlm", "action": "run", "name": "graph_rlm_run"},
     {"tool": "graph_runvcs", "action": "commit", "name": "graph_runvcs_commit"},
     {"tool": "graph_runvcs", "action": "discard", "name": "graph_runvcs_discard"},

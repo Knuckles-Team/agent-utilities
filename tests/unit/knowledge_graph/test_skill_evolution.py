@@ -20,6 +20,7 @@ from agent_utilities.knowledge_graph.research.skill_evolution import (
     SkillTask,
     run_reflact_cycle,
 )
+from agent_utilities.knowledge_graph.research.skill_gate import skill_gate
 
 pytestmark = pytest.mark.concept("AU-AHE.optimization.skillopt-native-reflact")
 
@@ -128,6 +129,38 @@ def test_no_train_failures_is_a_clean_skip():
     assert rep["gate_action"] == "skip_no_patches"
     assert rep["candidate_version_id"] is None
     assert eng.by_type("skill_version") == []
+
+
+# ---------------------------------------------------------------------------
+# (a2) the pure skill_gate classification (CONCEPT:AU-AHE.optimization.
+# skillopt-native-reflact) is reported alongside the generalized action_policy
+# decision above — report-only transparency, never a second promotion path.
+# ---------------------------------------------------------------------------
+
+
+def test_skill_gate_action_reported_for_winning_candidate():
+    eng = _SkillEvoStubEngine()
+    signal = _winning_signal()
+    rep = run_reflact_cycle(eng, "skill:demo", _INCUMBENT, signal=signal)
+
+    # matches the module's own single-generation-cycle reading directly:
+    # best_score defaults to incumbent_score, so a strict win is always the
+    # new best too.
+    assert rep["skill_gate_action"] == (
+        skill_gate(rep["candidate_score"], rep["incumbent_score"]).action
+    )
+    assert rep["skill_gate_action"] == "accept_new_best"
+
+
+def test_skill_gate_action_reported_for_losing_candidate():
+    eng = _SkillEvoStubEngine()
+    signal = _tying_signal()
+    rep = run_reflact_cycle(eng, "skill:demo", _INCUMBENT, signal=signal)
+
+    assert rep["skill_gate_action"] == "reject"
+    # skill_gate's classification tracks the SAME comparison the generalized
+    # gate used to reject the candidate — never a conflicting verdict.
+    assert rep["gate_action"] == "reject"
 
 
 # ---------------------------------------------------------------------------
@@ -264,11 +297,36 @@ def test_rollout_trajectories_persist_as_outcome_evaluation_nodes():
 # ---------------------------------------------------------------------------
 
 
-def test_no_registered_targets_is_a_clean_no_op():
+def test_default_targets_are_the_bundled_skills_via_langfuse_signal_seam():
+    """Live-path proof for the default discovery hook (CONCEPT:AU-AHE.optimization.
+    skillopt-langfuse-signal): with NO injected ``skill_eval_targets_provider``,
+    ``_run_skill_evolution`` now discovers agent-utilities' own
+    :data:`~agent_utilities.skills.BUNDLED_SKILLS` off disk and builds each target's
+    ``signal`` through :func:`~agent_utilities.harness.langfuse_skill_signal.
+    select_skill_signal_provider` — exercising the real seam
+    ``langfuse_skill_signal.py`` was built for (not just importing it). Every
+    target's signal degrades to the zero-infra ``InternalCorpusSignalProvider``
+    (no Langfuse configured in tests) with no seeded train tasks, so each cycle
+    short-circuits cheaply at Reflect — no LLM calls, no promotion."""
+    from agent_utilities.knowledge_graph.research.skill_evolution import (
+        InternalCorpusSignalProvider as ICP,
+    )
+    from agent_utilities.skills import BUNDLED_SKILLS
+
     eng = _SkillEvoStubEngine()
     rep = LoopController(eng)._run_skill_evolution()
-    assert rep["skipped"] is True
-    assert rep["targets"] == 0
+
+    assert rep.get("skipped") is None  # real targets were discovered, not the no-op
+    assert rep["targets"] == len(BUNDLED_SKILLS)
+    assert rep["promoted"] == 0
+    assert rep["errors"] == []
+    assert len(rep["results"]) == len(BUNDLED_SKILLS)
+    assert all(r["gate_action"] == "skip_no_patches" for r in rep["results"])
+
+    targets = LoopController(eng)._discover_skill_evolution_targets()
+    assert {t["skill_id"] for t in targets} == set(BUNDLED_SKILLS)
+    assert all(isinstance(t["signal"], ICP) for t in targets)
+    assert all(t["content"].strip() for t in targets)  # real SKILL.md text, not ""
 
 
 def test_run_one_cycle_wires_skill_evolution_with_injected_targets():
