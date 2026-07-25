@@ -3830,14 +3830,25 @@ def mcp_server() -> None:
             start_co_services,
         )
 
-        bring_up_host_daemon_if_needed()
-        _start_engine_bootstrap(bootstrap_session)
+        # The startup composition below performs graph work under the process's
+        # verified authority: the host-daemon election (bring_up_host_daemon_if_needed)
+        # constructs the engine as the FIRST constructor, and the engine's background
+        # workers capture their session via GraphSession.from_ambient(). Bind the
+        # minted process session (+ its verified actor) as the ambient authority
+        # BEFORE the host daemon constructs the engine — otherwise from_ambient()
+        # fails closed on a served, non-tiny process (CONCEPT:AU-P0-1 session currency).
+        from agent_utilities.knowledge_graph.core.session import use_session
+        from agent_utilities.security.brain_context import use_actor
 
-        # Self-composing co-services, phase 2: messaging (config-detected — real
-        # platform credentials present) now that a real engine exists; agent-webui
-        # is reported (ENABLE_WEB_UI) but is an external Node frontend, never
-        # started in-process.
-        co_service_supervisor = start_co_services(bootstrap_session, _get_engine())
+        with use_actor(bootstrap_session.actor), use_session(bootstrap_session):
+            bring_up_host_daemon_if_needed()
+            _start_engine_bootstrap(bootstrap_session)
+
+            # Self-composing co-services, phase 2: messaging (config-detected — real
+            # platform credentials present) now that a real engine exists; agent-webui
+            # is reported (ENABLE_WEB_UI) but is an external Node frontend, never
+            # started in-process.
+            co_service_supervisor = start_co_services(bootstrap_session, _get_engine())
 
         if transport == "stdio":
             mcp.run(transport="stdio")
