@@ -214,8 +214,8 @@ browser = [
 computer-use = [
     "container-manager-mcp>=2.3.0"]
 acp = [
-    "pydantic-acp>=1.4.0",
-    "acpkit[pydantic]>=1.4.0"
+    "pydantic-acp>=1.5.1",
+    "acpkit[pydantic]>=1.5.1"
 ]
 documents = [
     "llama-index-core>=0.14.23",
@@ -569,18 +569,13 @@ module = [
 disable_error_code = ["attr-defined"]
 
 [tool.uv]
-# pydantic-acp 1.4.0 (the optional `[acp]` extra) declares
-# `pydantic-ai-slim>=2.0.0,<=2.9.1` — no longer the old v1 exact pin (`==1.106.0`),
-# but still short of the 2.14.1 floor the rest of this project runs on. Our own
-# code never imports pydantic_ai symbols through the acp path (only pydantic_acp's
-# own public API: create_acp_agent, AcpSessionContext, …), and the acp integration
-# test suite (tests/integration/protocols/test_acp_adapter.py,
-# test_acp_integration.py) exercises the real thing. Override the transitive cap
-# so `[acp]` co-installs on the current v2 floor instead of being dragged back to
-# 2.9.1. Remove once pydantic-acp ships a release whose own cap admits 2.14.1+.
-# See docs/architecture/pydantic-ai-v2-migration.md.
+# The pydantic-ai-slim transitive-cap override is RETIRED (PA-R0.0). pydantic-acp
+# and acpkit 1.5.1 (the optional `[acp]` extra) lifted their own cap to
+# `pydantic-ai-slim>=2.9.0,<=2.16.0` — the `<=2.9.1` bound the override was written
+# to fight is gone. `[acp]` now co-installs on the project's v2 floor with no
+# override, so the stack re-locks to slim 2.16.0 (acp's cap ceiling). The `[acp]`
+# floors are bumped to >=1.5.1 to match. See docs/architecture/pydantic-ai-v2-migration.md.
 override-dependencies = [
-    "pydantic-ai-slim>=2.14.1,<3.0.0",
     # CONCEPT:PHASE2-RECONCILE — nltk transitively pinned below 3.10 by an older
     # fleet dependency; the ecosystem-wide resolve needs the 3.10+ floor.
     "nltk>=3.10.0",
