@@ -325,6 +325,22 @@ the existing `KG_BRAIN_ENFORCE` flag (OS-5.14 fail-closed semantics), not a new 
 |---|---|---|
 | `KG_WORKFLOW_SHAPE_GATE` | `True` | SHACL-validate stored workflows before execution |
 
+**`KG_GRAPH_OWNERSHIP_ENFORCED` — the W2.8/HG-4 graph-ownership architecture invariant
+(`CONCEPT:AU-KG.audit.graph-ownership-disposition`), read live via `setting()`, default OFF.**
+A one-time migration cutover switch, not a per-deployment tunable: it exists solely to
+gate the epistemic-graph master program's HG-4 human decision (see
+`agent_utilities/knowledge_graph/maintenance/graph_ownership.py::check_invariant`/
+`invariant_enforced`) — "every catalog graph has >=1 covering RBAC grant or an explicit
+public flag." `False` (report-only) until a human applies the tooling's computed
+UNAMBIGUOUS grants and resolves every AMBIGUOUS graph by hand
+(`scripts/graph_ownership_report.py` + `scripts/apply_graph_ownership_grants.py`); flip to
+`True` exactly once, after HG-4, to make the invariant hard-fail on any future
+uncovered graph.
+
+| Flag | Default | Notes |
+|---|---|---|
+| `KG_GRAPH_OWNERSHIP_ENFORCED` | `False` | hard-fail (vs report-only) the graph-ownership coverage invariant — flip only after HG-4 |
+
 **Langfuse (`CONCEPT:AU-AHE.harness.failure-evolution` / `AHE-3.0`) — official SDK variable names only.** The host
 variable is **`LANGFUSE_HOST`** (the non-standard `LANGFUSE_BASE_URL` fallback was removed —
 greenfield). Resolved through `AgentConfig.langfuse_host` / `langfuse_public_key` /
