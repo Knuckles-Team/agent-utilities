@@ -92,21 +92,27 @@ def test_default_template_is_grounded():
     assert "AU-KG.retrieval.memory-first-retrieval" in plan["body"]
 
 
-def test_synthesize_persists_proposal():
+def test_synthesize_folds_into_canonical_gap_and_spec():
+    # Wave-6 D1/WP#5: the research/OSS track now folds into the ONE canonical :Gap +
+    # develop-able :SpecProposal lifecycle, not the old dead-end sdd_plan node.
     engine = _Engine(_nodes())
     # inject a synth_fn so the test does not depend on LLM availability
     proposal = synthesize_plan_for_feature(
         engine, "f1", synth_fn=lambda nb: {"title": "T", "body": "B"}
     )
-    assert proposal.plan_id == "plan:f1"
-    # persisted: plan node + ADDRESSED_BY edge + feature flipped to proposed
+    # plan_id is now the persisted :SpecProposal id (title-derived), not plan:f1.
+    assert proposal.plan_id == "spec_proposal:t"
     data = dict(engine.graph.nodes(data=True))
-    assert data["plan:f1"]["type"] == "sdd_plan"
+    # A canonical :Gap and a :SpecProposal were persisted; NO sdd_plan node.
+    assert data["gap:research:f1"]["type"] == "Gap"
+    assert data["spec_proposal:t"]["type"] == "SpecProposal"
+    assert "plan:f1" not in data
     assert data["f1"]["status"] == "proposed"
+    # The feature is ADDRESSED_BY the spec proposal (not a dead-end plan node).
     addressed = [
         e for e in engine.graph._out["f1"] if e[2].get("_rel") == "ADDRESSED_BY"
     ]
-    assert addressed and addressed[0][1] == "plan:f1"
+    assert addressed and addressed[0][1] == "spec_proposal:t"
 
 
 def test_injected_synth_fn_is_used():
