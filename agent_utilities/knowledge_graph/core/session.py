@@ -291,6 +291,16 @@ class GraphSession:
         (``warn`` observes without changing the wire). The chain is emitted only when its
         ultimate principal matches this session's authenticated principal, so a spawn can never
         forge a principal it does not run under.
+
+        Decision 5 (W2.1-1): when the ambient :class:`SpawnDelegation` also carries an
+        RFC 8693 exchanged ``oidc_token``, forward it onto the envelope's ``oidc_token``
+        claim (the eg client now carries it as an optional claim, mirroring ``node``/
+        ``priority`` — see ``epistemic_graph.client.RequestContextClaims``). The engine
+        independently RSA/JWKS-verifies it and cross-checks its subject/tenant against
+        this SAME context (``server::auth::bind_verified_identity``); it is deliberately
+        NOT MAC-covered on the wire (its own signature is the trust anchor — see
+        ``build_envelope_v2_bytes``'s doc comment), so forwarding it here is a plain
+        pass-through, not a signing concern.
         """
         try:
             from agent_utilities.security.delegation import current_delegation
@@ -307,6 +317,8 @@ class GraphSession:
             return
         context["agent_id"] = delegation.agent_instance_id
         context["delegation"] = list(delegation.chain)
+        if delegation.oidc_token:
+            context["oidc_token"] = delegation.oidc_token
 
     def ensure_authority_current(self, *, minimum_ttl_seconds: int = 0) -> None:
         """Fail closed when the session's validated bearer JWT has expired.

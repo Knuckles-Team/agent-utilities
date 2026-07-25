@@ -10,6 +10,8 @@ CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 
 
 import argparse
+import asyncio
+import contextlib
 import ipaddress
 import logging
 import os
@@ -1318,6 +1320,128 @@ def mcp_network_run_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     return {"middleware": middleware, "uvicorn_config": uvicorn_config}
 
 
+# ── Fleet server registry self-registration (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──
+#
+# Every server built via ``create_mcp_server`` self-registers a REAL, queryable
+# ``:Server`` graph node with the engine at startup and renews its lease on a
+# heartbeat cadence for the server's whole lifetime — wired here (the ONE
+# factory ~62 fleet MCP servers already call), not per-server, so it is native
+# by default with zero per-server opt-in. Killing the process simply stops the
+# heartbeats; the engine's own stale-lease reaper expires the row once the
+# lease lapses (`epistemic-graph` `src/server/registry_reaper.rs`).
+#
+# The au config-file sync (`knowledge_graph.core.engine_ingestion.
+# ingest_mcp_server`) remains a RECONCILER over the SAME `:Server` shape — it
+# repairs a hand-broken or never-self-registered row — but this is now the
+# PRIMARY, live-identity writer.
+_FLEET_REGISTRATION_DEFAULT_TTL_SECS = 300
+_FLEET_REGISTRATION_MIN_TTL_SECS = 60
+
+
+def _fleet_registration_ttl_secs() -> int:
+    """Positive lease TTL, seconds (``MCP_FLEET_REGISTRATION_TTL_SECS`` overrides).
+
+    Heartbeats renew at roughly a third of the TTL (see
+    :func:`_register_and_heartbeat_forever`), so a transient miss or two never
+    expires a healthy server.
+    """
+    try:
+        value = int(
+            setting(
+                "MCP_FLEET_REGISTRATION_TTL_SECS",
+                _FLEET_REGISTRATION_DEFAULT_TTL_SECS,
+            )
+        )
+    except (TypeError, ValueError):
+        return _FLEET_REGISTRATION_DEFAULT_TTL_SECS
+    return (
+        value
+        if value >= _FLEET_REGISTRATION_MIN_TTL_SECS
+        else (_FLEET_REGISTRATION_DEFAULT_TTL_SECS)
+    )
+
+
+def _fleet_registration_endpoint_reference(args: argparse.Namespace, name: str) -> str:
+    """A bounded, privacy-safe reference to how this server is reached.
+
+    Never a raw credentialed URL — an opaque marker the engine and the au
+    reconciler both treat as a reference, not a dereferenceable address (the
+    same convention au's ``persistence_reference``/``mcp-ref://`` values use).
+    """
+    transport = str(getattr(args, "transport", "stdio") or "stdio")
+    if transport in _NETWORK_TRANSPORTS:
+        host = str(getattr(args, "host", "") or DEFAULT_HOST)
+        port = getattr(args, "port", 0) or 0
+        return f"{transport}://{host}:{port}"
+    return f"stdio://{name}"
+
+
+async def _register_and_heartbeat_forever(name: str, url: str, ttl_secs: int) -> None:
+    """Self-register, then renew ``name``'s lease forever on a cadence well
+    inside ``ttl_secs`` (CONCEPT:EG-KG.sharding.server-registry, W2.5).
+
+    Best-effort: an unreachable engine (a ``tiny`` profile with no graph
+    access yet, a dev/test process, a cold start racing the engine's own
+    boot) never crashes or blocks the server — a failed attempt is logged at
+    debug level and retried on the SAME cadence, self-healing the moment the
+    engine becomes reachable.
+    """
+    interval = max(1, ttl_secs // 3)
+    resources = {
+        "transport": str(setting("TRANSPORT", "stdio") or "stdio"),
+        "pid": os.getpid(),
+    }
+    while True:
+        try:
+            from agent_utilities.knowledge_graph.core.graph_compute import (
+                GraphComputeEngine,
+            )
+
+            engine = GraphComputeEngine.get_or_create()
+            await engine.async_client.server_registry.register(
+                name, url, resources=resources, ttl_secs=ttl_secs
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug(
+                "Fleet self-registration attempt failed, will retry "
+                "(exception_type=%s)",
+                type(exc).__name__,
+            )
+        await asyncio.sleep(interval)
+
+
+def _fleet_registration_lifespan_factory(args: argparse.Namespace, name: str):
+    """Build the ``FastMCP(..., lifespan=...)`` ASGI lifespan that starts/stops
+    the self-registration heartbeat task (CONCEPT:EG-KG.sharding.server-registry, W2.5).
+
+    A closure (not a bare module-level lifespan) so it captures THIS server's
+    own ``args``/``name`` without stashing state on the app object. Opt out
+    with ``MCP_FLEET_REGISTRATION=false`` for a run that genuinely has no
+    engine access (e.g. an isolated unit-test harness).
+    """
+
+    @contextlib.asynccontextmanager
+    async def _fleet_registration_lifespan(_app: Any):
+        task: asyncio.Task[None] | None = None
+        if to_boolean(setting("MCP_FLEET_REGISTRATION", "True")):
+            url = _fleet_registration_endpoint_reference(args, name)
+            ttl_secs = _fleet_registration_ttl_secs()
+            task = asyncio.create_task(
+                _register_and_heartbeat_forever(name, url, ttl_secs)
+            )
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+
+    return _fleet_registration_lifespan
+
+
 def create_mcp_server(
     name: str = "MCP Server",
     version: str = __version__,
@@ -1416,7 +1540,13 @@ def create_mcp_server(
     import os
 
     os.environ["FASTMCP_LOG_LEVEL"] = "CRITICAL"
-    mcp = FastMCP(name, version=version, auth=auth, instructions=instructions)
+    mcp = FastMCP(
+        name,
+        version=version,
+        auth=auth,
+        instructions=instructions,
+        lifespan=_fleet_registration_lifespan_factory(args, name),
+    )
 
     # Operational routes live outside the tool authorization path. Health is a
     # generic readiness result. Metrics are local-only unless a remote listener

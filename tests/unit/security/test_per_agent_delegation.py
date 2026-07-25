@@ -281,6 +281,118 @@ def test_spawn_cannot_forge_a_foreign_principal() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Decision 5 / W2.1-1 — the oidc_token forward (SpawnDelegation -> envelope)
+# ---------------------------------------------------------------------------
+
+
+def test_apply_spawn_delegation_forwards_oidc_token_when_enforced() -> None:
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+
+    d = deleg.build_spawn_delegation(
+        agent_name="researcher",
+        run_id="run-1",
+        principal="user:alice",
+        mode=deleg.DelegationMode.ON,
+        oidc_token="eyJhbGciOiJSUzI1NiJ9.fixture.sig",
+    )
+    context = {"principal": "user:alice", "agent_id": "user:alice", "delegation": []}
+    with deleg.use_delegation(d):
+        GraphSession._apply_spawn_delegation(context, "user:alice")
+    assert context["oidc_token"] == "eyJhbGciOiJSUzI1NiJ9.fixture.sig"
+
+
+def test_apply_spawn_delegation_omits_oidc_token_when_delegation_carries_none() -> None:
+    """No `SpawnDelegation.oidc_token` set -> no `oidc_token` key at all (not a
+    ``None``), so a delegation predating decision 5 forwards byte-for-byte
+    as before."""
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+
+    d = deleg.build_spawn_delegation(
+        agent_name="researcher",
+        run_id="run-1",
+        principal="user:alice",
+        mode=deleg.DelegationMode.ON,
+    )
+    assert d.oidc_token is None
+    context = {"principal": "user:alice", "agent_id": "user:alice", "delegation": []}
+    with deleg.use_delegation(d):
+        GraphSession._apply_spawn_delegation(context, "user:alice")
+    assert "oidc_token" not in context
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [deleg.DelegationMode.WARN, deleg.DelegationMode.OFF],
+)
+def test_apply_spawn_delegation_never_forwards_oidc_token_unless_enforced(mode) -> None:
+    """`oidc_token` is a delegation-authority claim, exactly like `agent_id`/
+    `delegation` above -- it must never leak onto the wire outside `on` mode."""
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+
+    d = deleg.build_spawn_delegation(
+        agent_name="researcher",
+        run_id="run-1",
+        principal="user:alice",
+        mode=mode,
+        oidc_token="eyJhbGciOiJSUzI1NiJ9.fixture.sig",
+    )
+    context = {"principal": "user:alice", "agent_id": "user:alice", "delegation": []}
+    with deleg.use_delegation(d):
+        GraphSession._apply_spawn_delegation(context, "user:alice")
+    assert "oidc_token" not in context
+
+
+def test_emitted_oidc_token_passes_engine_wire_validation() -> None:
+    """The oidc_token-carrying envelope must satisfy the real engine client's
+    validation, mirroring `test_emitted_chain_passes_engine_wire_validation`
+    above for decision 5's new claim.
+
+    Cross-repo staging note (W2.1-1): this asserts against WHATEVER
+    ``epistemic_graph`` package is installed in this environment. Until the
+    eg-side ``RequestContextClaims.oidc_token`` claim ships and is installed
+    here, the currently-installed client legitimately rejects it as an
+    unsupported claim — skip (not fail) in that window rather than blocking
+    unrelated au work ahead of the eg/au integration merge.
+    """
+    epistemic_graph_client = pytest.importorskip("epistemic_graph.client")
+    if (
+        "oidc_token"
+        not in getattr(
+            epistemic_graph_client, "RequestContextClaims", object
+        ).__annotations__
+    ):
+        pytest.skip(
+            "installed epistemic_graph.client predates the oidc_token claim "
+            "(W2.1-1) — will activate once the eg/au integration merge lands"
+        )
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+
+    d = deleg.build_spawn_delegation(
+        agent_name="researcher",
+        run_id="run-1",
+        principal="user:alice",
+        mode=deleg.DelegationMode.ON,
+        oidc_token="eyJhbGciOiJSUzI1NiJ9.fixture.sig",
+    )
+    envelope = {
+        "principal": "user:alice",
+        "tenant": "homelab",
+        "audience": "epistemic-graph",
+        "agent_id": "user:alice",
+        "roles": [],
+        "scopes": [],
+        "policy_version": "p1",
+        "delegation": [],
+    }
+    with deleg.use_delegation(d):
+        GraphSession._apply_spawn_delegation(envelope, "user:alice")
+    assert envelope["oidc_token"] == "eyJhbGciOiJSUzI1NiJ9.fixture.sig"
+    # Raises ValueError if the claim is rejected — proves wire-correctness.
+    validated = epistemic_graph_client.validate_request_context(envelope)
+    assert validated["oidc_token"] == "eyJhbGciOiJSUzI1NiJ9.fixture.sig"
+
+
+# ---------------------------------------------------------------------------
 # Decision 4 — ceiling intersection (a spawn can never exceed its principal)
 # ---------------------------------------------------------------------------
 

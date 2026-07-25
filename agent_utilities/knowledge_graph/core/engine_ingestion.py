@@ -10,6 +10,7 @@ MCP servers, A2A agent cards, and agent skills into the KG.
 import typing
 
 if typing.TYPE_CHECKING:
+    from ..backends.base import GraphBackend
     from .._engine_protocol import _EngineProtocol
 
     _Base = _EngineProtocol
@@ -35,6 +36,15 @@ from .context_builder import build_contextual_description
 logger = logging.getLogger(__name__)
 
 _RUNTIME_SECRET_REFERENCE = re.compile(r"^(?:env|secret|vault)://[A-Za-z0-9_./#-]+$")
+
+# CONCEPT:EG-KG.sharding.server-registry (W2.5): the reconciler's own `RegisterServer` lease is
+# long (the engine's own maximum, 24h) -- it exists to keep a server that never
+# self-registers (a third-party/undiscovered MCP server this ingestion path
+# merely discovered) alive across sync cycles, NOT to act as a tight
+# heartbeat. A self-registering fleet server's OWN heartbeat
+# (`mcp/server_factory.py`, a much shorter TTL) is what actually proves
+# liveness; this call simply repairs/refreshes the SAME row idempotently.
+_SERVER_RECONCILE_TTL_SECS = 24 * 60 * 60
 
 
 def _neutral_mcp_alias(*, config_hash: str) -> str:
@@ -121,7 +131,18 @@ class IngestionMixin(_Base):
         tools: list[dict[str, Any]],
         resources: dict[str, Any] | None = None,
     ):
-        """Ingest MCP server tools and metadata as CallableResource nodes."""
+        """Ingest MCP server tools and metadata as CallableResource nodes.
+
+        CONCEPT:EG-KG.sharding.server-registry (W2.5): the `:Server` node's OWN identity/lease
+        fields are reconciled through the engine-native ``RegisterServer`` RPC
+        -- the SAME mechanism a fleet server's own self-registration heartbeat
+        uses (``mcp/server_factory.py``) -- rather than this ingestion path
+        being the sole writer of a raw Cypher ``MERGE``. A third-party server
+        that never self-registers still gets a live row (repaired here, on a
+        long reconciler TTL); a self-registering server's OWN heartbeat is
+        authoritative for its lease and this call is then just an idempotent
+        refresh of the same row.
+        """
         from ...security.persistence_privacy import (
             persistence_reference,
             sanitize_for_persistence,
@@ -135,15 +156,8 @@ class IngestionMixin(_Base):
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         if self.backend:
-            self.backend.execute(
-                "MERGE (s:Server {id: $id}) "
-                "SET s.name = $name, s.url = $url, s.timestamp = $ts",
-                {
-                    "id": server_id,
-                    "name": name,
-                    "url": endpoint_reference,
-                    "ts": ts,
-                },
+            self._reconcile_server_registration(
+                self.backend, name, endpoint_reference, safe_resources
             )
 
             for tool in tools:
@@ -222,6 +236,58 @@ class IngestionMixin(_Base):
                         "MERGE (r)-[:HAS_METADATA]->(m)",
                         {"rid": res_id, "mid": meta_id},
                     )
+
+    def _reconcile_server_registration(
+        self,
+        backend: GraphBackend,
+        name: str,
+        endpoint_reference: str,
+        resources: dict[str, Any],
+    ) -> None:
+        """Repair/refresh ``name``'s ``:Server`` row through the SAME
+        ``RegisterServer`` RPC a self-registering fleet server uses
+        (CONCEPT:EG-KG.sharding.server-registry, W2.5), on a long reconciler TTL
+        (:data:`_SERVER_RECONCILE_TTL_SECS`) so a never-self-registering
+        third-party server's row survives between sync cycles without this
+        ingestion path becoming a tight heartbeat loop itself. Falls back to
+        the legacy Cypher ``MERGE`` only when the engine-native registry
+        client is unreachable through this backend (e.g. a non-engine test
+        double) -- never a hard ingestion failure either way. ``backend`` is
+        the caller's already-None-checked ``self.backend``, passed explicitly
+        rather than re-read here.
+        """
+        server_registry = getattr(
+            getattr(getattr(backend, "graph", None), "client", None),
+            "server_registry",
+            None,
+        )
+        if server_registry is not None:
+            try:
+                server_registry.register(
+                    name,
+                    endpoint_reference,
+                    resources=resources,
+                    ttl_secs=_SERVER_RECONCILE_TTL_SECS,
+                )
+                return
+            except Exception as exc:
+                logger.warning(
+                    "Server-registry reconcile via RegisterServer failed for "
+                    "%r, falling back to legacy MERGE (exception_type=%s)",
+                    name,
+                    type(exc).__name__,
+                )
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        backend.execute(
+            "MERGE (s:Server {id: $id}) "
+            "SET s.name = $name, s.url = $url, s.timestamp = $ts",
+            {
+                "id": f"srv:{name}",
+                "name": name,
+                "url": endpoint_reference,
+                "ts": ts,
+            },
+        )
 
     def ingest_a2a_agent_card(self, url: str, card: dict[str, Any]):
         """Ingest an A2A agent card as a CallableResource node."""
