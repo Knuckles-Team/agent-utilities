@@ -1953,20 +1953,55 @@ class LoopController:
 
     # -- SkillOpt-native ReflACT skill evolution (CONCEPT:AU-AHE.optimization.skillopt-native-reflact) ---- #
     def _discover_skill_evolution_targets(self) -> list[dict[str, Any]]:
-        """Default discovery hook — degrades to ``[]`` with nothing registered.
+        """Default discovery hook — the package's OWN bundled skills, unseeded.
 
-        The foundation ships with NO auto-discovery query: no ``:SkillEvalSuite`` KG
-        type exists yet to enumerate (a real one would query the KG for skills
-        carrying a registered held-out eval suite, mirroring how
+        No ``:SkillEvalSuite`` KG type exists yet to enumerate a fleet-wide held-out
+        eval suite per skill (a real one would query the KG, mirroring how
         ``_run_insight_validation`` is driven by ``mine_discovery``'s output rather
-        than a fresh KG scan of its own). Constructor-injectable via
+        than a fresh KG scan of its own) — that stays a follow-up. In the meantime the
+        default target set is agent-utilities' own :data:`~agent_utilities.skills.
+        BUNDLED_SKILLS` (the ten domain workflow skills this package ships), read
+        straight off disk, with each target's ``signal`` built through
+        :func:`~agent_utilities.harness.langfuse_skill_signal.select_skill_signal_provider`
+        (CONCEPT:AU-AHE.optimization.skillopt-langfuse-signal) — the config/param opt-in
+        seam that degrades to the zero-infra :class:`~.skill_evolution.
+        InternalCorpusSignalProvider` when no Langfuse train dataset is configured.
+        With no curated train/holdout tasks seeded, that default provider's
+        ``train_tasks()``/``holdout_tasks()`` are empty, so a cycle over these targets
+        short-circuits cheaply at Reflect (``gate_action="skip_no_patches"``, no LLM
+        calls) until a caller seeds real tasks — constructor-injectable via
         ``skill_eval_targets_provider`` (mirrors ``develop_runner``/``skill_runner``)
-        so real callers and tests can supply concrete targets without that KG type
-        existing — each target is a dict with keys ``skill_id``, ``content``,
-        ``signal`` (a :class:`~.skill_evolution.SkillSignalProvider`), and optional
-        ``executor``/``edit_fn`` overrides.
+        so a real caller/test can supply concrete tasks/targets instead. Each target is
+        a dict with keys ``skill_id``, ``content``, ``signal`` (a
+        :class:`~.skill_evolution.SkillSignalProvider`), and optional
+        ``executor``/``edit_fn`` overrides. A skill whose ``SKILL.md`` cannot be read
+        is skipped, never raises.
         """
-        return []
+        from ...harness.langfuse_skill_signal import select_skill_signal_provider
+        from ...skills import BUNDLED_SKILLS
+        from ...skills.validation import SKILLS_ROOT
+
+        targets: list[dict[str, Any]] = []
+        for skill_id in BUNDLED_SKILLS:
+            try:
+                content = (SKILLS_ROOT / skill_id / "SKILL.md").read_text(
+                    encoding="utf-8"
+                )
+            except OSError as e:
+                logger.debug(
+                    "[Wave6-signal] skill %s SKILL.md unreadable: %s", skill_id, e
+                )
+                continue
+            targets.append(
+                {
+                    "skill_id": skill_id,
+                    "content": content,
+                    "signal": select_skill_signal_provider(
+                        skill_id, [], [], engine=self.engine
+                    ),
+                }
+            )
+        return targets
 
     def _run_skill_evolution(self) -> dict[str, Any]:
         """Run one ReflACT cycle per registered skill-evolution target (CONCEPT:AU-AHE.optimization.skillopt-native-reflact).

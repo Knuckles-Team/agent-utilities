@@ -64,6 +64,25 @@ graph_loops(action="drive", loop_id="loop:develop:make-ci-green")
 - **`list`** — the active Loops (intake view; in-flight `running` loops are
   excluded so a goal is never double-driven).
 - **`cancel`** — terminate a Loop by `loop_id`.
+- **`gaps`** / **`submit_gap`** / **`gap`** — the unified Gap→SDD→Implement→Promote→Close
+  lifecycle (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle, Wave 6) every discovery
+  track (production-failure, research/OSS, skill-coverage, code-audit) files findings
+  into as ONE canonical `:Gap`. `gaps` lists the open backlog (highest priority
+  first); `submit_gap` files one by hand (`data_json={source,signature,statement,
+  domain,severity,concept_ids}`); `gap` reads one back by id (reuses `loop_id`) plus
+  its provenance — the `SpecProposal` it was `SPECIFIED_BY` and the develop-Loop that
+  `RESOLVES` it, when either hop exists. A gap's derived develop-Loop is driven the
+  same way as any other Loop (`run`/`drive`); publishing it flips the origin gap to
+  `resolved` — the visible end of the chain.
+
+```jsonc
+// file a gap by hand, then watch it show up in the backlog
+graph_loops(action="submit_gap", data_json='{"source":"manual",
+  "signature":"widget-500s-under-load","statement":"The widget endpoint 500s "
+  "under concurrent load.","domain":"reliability","severity":0.9}')
+graph_loops(action="gaps")
+graph_loops(action="gap", loop_id="gap:manual:widget-500s-under-load")
+```
 
 ### 2. MCP — `graph_loops(action="run")`
 

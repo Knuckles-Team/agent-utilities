@@ -7,6 +7,8 @@ modules without changing tool behavior or names.
 from __future__ import annotations
 
 import json
+import logging
+from typing import Any
 
 from pydantic import Field
 from starlette.responses import JSONResponse
@@ -16,6 +18,8 @@ from agent_utilities.security.error_surface import (
     public_error_json,
     public_error_payload,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def register_state_tools(mcp):
@@ -175,14 +179,26 @@ def register_state_tools(mcp):
             "(``apply_placement_change``, fail-closed approval_required by default) -> "
             "engine reshard (the real online-move RPC) -> measured canary -> outcome "
             "recorded back to mining. Opt-in/manual-trigger ONLY — calling this action "
-            "IS the manual trigger; it never runs on import or on any periodic loop."
+            "IS the manual trigger; it never runs on import or on any periodic loop. "
+            "GAP LIFECYCLE (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle, Wave 6 — the "
+            "unified Gap->SDD->Implement->Promote->Close spine every discovery track "
+            "files into): 'gaps' (the open :Gap backlog, highest priority first), "
+            "'submit_gap' (file one canonical :Gap — data_json={source,signature,"
+            "statement,domain,severity,concept_ids}), 'gap' (one :Gap by id — reuses "
+            "loop_id — plus its provenance chain: the SpecProposal it was "
+            "SPECIFIED_BY and the develop-Loop that RESOLVES it, when either exists). "
+            "A gap's derived develop-Loop is driven the SAME way as any other Loop "
+            "('run'/'drive'); publishing it closes the gap (status -> resolved)."
         ),
         tags=["graph-os", "loops"],
     )
     async def graph_loops(
         action: str = Field(
             default="list",
-            description="submit|list|run|drive|cancel|prioritize|state|specs|review|placement_control",
+            description=(
+                "submit|list|run|drive|cancel|prioritize|state|specs|review|"
+                "placement_control|gaps|submit_gap|gap"
+            ),
         ),
         objective: str = Field(default="", description="Objective text (submit)."),
         kind: str = Field(
@@ -233,10 +249,16 @@ def register_state_tools(mcp):
             description="'placement_control' only: fraction the canary metric may "
             "regress by and still be promoted (SLO noise tolerance).",
         ),
+        data_json: str = Field(
+            default="{}",
+            description="'submit_gap' only: JSON object {source, signature, statement, "
+            "domain, severity, concept_ids}. source/signature/statement are required; "
+            "severity (0..1, default 0.5) maps to the shared priority_bucket.",
+        ),
     ) -> str:
         """Submit / list / run / drive / cancel / prioritize Loops + observe & steer
-        the self-evolution flywheel (state / specs / review / placement_control) —
-        the one entrypoint."""
+        the self-evolution flywheel (state / specs / review / placement_control /
+        gaps / submit_gap / gap) — the one entrypoint."""
         import json as _json
 
         from agent_utilities.knowledge_graph.core.engine_tasks import (
@@ -381,6 +403,83 @@ def register_state_tools(mcp):
                             enabled=True,
                         ),
                     },
+                    default=str,
+                )
+            if action == "gaps":
+                # The canonical :Gap backlog (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle,
+                # Wave 6) every discovery track (failure/research/skill/audit) files
+                # into — highest priority (lowest bucket) first, excludes resolved.
+                from agent_utilities.knowledge_graph.research.gaps import open_gaps
+
+                return _json.dumps(
+                    {"action": "gaps", "gaps": open_gaps(engine, limit=limit)},
+                    default=str,
+                )
+            if action == "submit_gap":
+                # The SAME canonical entry point the failure/research/skill/audit
+                # discovery tracks call internally — exposed here so an operator can
+                # file one by hand (e.g. a manually-triaged issue).
+                from agent_utilities.knowledge_graph.research.gaps import submit_gap
+
+                data = _json.loads(data_json) if data_json else {}
+                if not isinstance(data, dict):
+                    return _json.dumps({"error": "data_json must decode to an object"})
+                source = str(data.get("source") or "").strip()
+                signature = str(data.get("signature") or "").strip()
+                statement = str(data.get("statement") or "").strip()
+                if not source or not signature or not statement:
+                    return _json.dumps(
+                        {
+                            "error": "submit_gap needs data_json.source, .signature, "
+                            "and .statement"
+                        }
+                    )
+                gap = submit_gap(
+                    engine,
+                    source=source,
+                    signature=signature,
+                    statement=statement,
+                    domain=str(data.get("domain") or ""),
+                    severity=float(data.get("severity", 0.5) or 0.5),
+                    concept_ids=[str(c) for c in (data.get("concept_ids") or [])],
+                )
+                if gap is None:
+                    return _json.dumps({"error": "submit_gap failed to persist"})
+                return _json.dumps({"action": "submit_gap", "gap": gap}, default=str)
+            if action == "gap":
+                # One :Gap plus its unified provenance chain (D6): the SpecProposal
+                # it was SPECIFIED_BY and the develop-Loop that RESOLVES it, when
+                # either hop exists yet — reuses loop_id as the generic id field,
+                # the same convention 'cancel'/'prioritize'/'drive' already use.
+                from agent_utilities.knowledge_graph.research.gaps import get_gap
+
+                gap_id = loop_id
+                if not gap_id:
+                    return _json.dumps({"error": "gap needs a gap id in loop_id"})
+                gap = get_gap(engine, gap_id)
+                if gap is None:
+                    return _json.dumps(
+                        {"action": "gap", "id": gap_id, "error": "gap not found"}
+                    )
+                provenance: dict[str, Any] = {
+                    "specified_by_spec_id": None,
+                    "resolved_by_loop_id": None,
+                }
+                try:
+                    rows = engine.query_cypher(
+                        "MATCH (g:Gap) WHERE g.id = $id "
+                        "OPTIONAL MATCH (g)-[:SPECIFIED_BY]->(s) "
+                        "OPTIONAL MATCH (l)-[:RESOLVES]->(g) "
+                        "RETURN s.id AS spec_id, l.id AS loop_id LIMIT 1",
+                        {"id": gap_id},
+                    )
+                    row = rows[0] if rows else {}
+                    provenance["specified_by_spec_id"] = row.get("spec_id")
+                    provenance["resolved_by_loop_id"] = row.get("loop_id")
+                except Exception as e:  # noqa: BLE001 — provenance is best-effort
+                    logger.debug("graph_loops gap provenance query failed: %s", e)
+                return _json.dumps(
+                    {"action": "gap", "gap": gap, "provenance": provenance},
                     default=str,
                 )
             return _json.dumps({"error": f"unknown action {action!r}"})

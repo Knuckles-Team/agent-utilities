@@ -59,14 +59,30 @@ extraction, classification, and formatting with an economical model class. Use
 stronger reasoning for comparative judgment, architecture, adversarial review,
 and final synthesis.
 
-Use `graph_evolution` for assimilation, skill distillation, standardization,
-failure ingestion, component optimization, and proposal publication. Use
-`graph_rlm` for confined long-context execution, prompt optimization, and its
-benchmark scoreboard.
+Use `graph_evolution` for assimilation, a code-correctness/security `audit_scan`
+(each Macroscope-class finding files one canonical `:Gap`), skill distillation,
+standardization, failure ingestion, component optimization, and proposal
+publication. Use `graph_rlm` for confined long-context execution, its benchmark
+scoreboard, and `evolve_prompt` (the GEPA reflective, DW-GRPO-weighted evolutionary
+optimizer for an RLM/PredictRLM signature's prompt).
 
 For prompt, skill, routing, or extraction optimization, use the engine-owned
-`ProgramOptimize` job. It is the sole optimization path; record its opaque job and
-candidate references in proposal evidence without provider endpoints or credentials.
+`ProgramOptimize` job. It is the sole optimization path for that generic
+system-prompt/tool-description/skill-content surface; record its opaque job and
+candidate references in proposal evidence without provider endpoints or
+credentials. `graph_rlm`'s `evolve_prompt` is the separate, non-overlapping
+RLM-specific evolutionary optimizer above — the two are not the same mechanism.
+
+Every discovery track (failure/research/skill/audit) files its findings as the
+SAME canonical `:Gap` (the unified Gap->SDD->Implement->Promote->Close spine).
+Use `graph_loops` for the whole lifecycle: `gaps` (the open backlog, highest
+priority first), `submit_gap` (file one by hand), `gap` (one gap plus its
+provenance — the SpecProposal it was specified by, the develop-Loop that resolves
+it), `run`/`drive` to advance a gap's derived Loop, and `state`/`specs`/`review`
+for transparency and steering. Use `graph_governance`'s `ownership_report` /
+`ownership_apply` for the read-only per-graph RBAC-ownership disposition pass
+(W2.8) — the live mutating grant apply itself stays a separate, human-gated CLI
+(HG-4), never this or any other network surface.
 
 Implement approved changes with `agent-utilities-development`. Keep skill,
 prompt, routing, and extraction optimizations tied to a held-out evaluation or
