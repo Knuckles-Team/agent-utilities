@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-539 typed fields · 335 runtime-only call-site inputs.
+539 typed fields · 340 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -751,6 +751,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `EAR_URL` | 1 |
 | `EMERALD_API_KEY` | 1 |
 | `EMERALD_URL` | 1 |
+| `ENABLE_DELEGATED_IDENTITY` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_ADDR` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S` | 1 |
@@ -841,6 +842,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_EVAL_CAPTURE` | 1 |
 | `KG_EXTRACT_MAX_RETRIES` | 1 |
 | `KG_GRAPH_NAME` | 1 |
+| `KG_GRAPH_OWNERSHIP_ENFORCED` | 1 |
 | `KG_INGEST_INFLIGHT` | 1 |
 | `KG_INGEST_PROFILE` | 1 |
 | `KG_LLM_PRIORITY_RESERVE` | 1 |
@@ -892,6 +894,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MCP_DISABLED_TOOLS` | 1 |
 | `MCP_ENABLED_TAGS` | 1 |
 | `MCP_ENABLED_TOOLS` | 1 |
+| `MCP_FLEET_REGISTRATION` | 1 |
+| `MCP_FLEET_REGISTRATION_TTL_SECS` | 1 |
 | `MEDIA_TOOLS` | 1 |
 | `MESSAGING_INBOX_RETRY_S` | 1 |
 | `MESSAGING_REPLY_TIMEOUT` | 2 |
@@ -904,6 +908,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MODEL_BREAKER_FAIL_THRESHOLD` | 1 |
 | `MODEL_BREAKER_MAX_COOLDOWN_S` | 1 |
 | `MODEL_CIRCUIT_BREAKER` | 1 |
+| `MODEL_CONTEXT_COMPILER_ENABLED` | 1 |
 | `MODEL_CONTEXT_ORDERING_VERSION` | 1 |
 | `MODEL_CONTEXT_REDACTION_VERSION` | 1 |
 | `MODEL_CONTEXT_TOKEN_BUDGET` | 1 |

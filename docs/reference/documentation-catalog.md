@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-350 publishable pages · 166 direct nav targets · 116 public capabilities · 712 action rows · 539 typed configuration fields · 335 runtime-only call-site inputs.
+351 publishable pages · 167 direct nav targets · 116 public capabilities · 699 action rows · 539 typed configuration fields · 340 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -220,6 +220,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Orchestrator Migration & Cutover — hard-won hardening (provider-neutral)](../architecture/orchestrator-migration-cutover.md) — direct nav
 - [Runtime Org Dynamics — Recruiter, Work-Item DAG, Self-Grown Staff](../architecture/org-runtime.md) — direct nav
 - [OWL/RDF Layer — always-on, local, fast (CONCEPT:AU-KG.query.vendor-agnostic-traversal)](../architecture/owl_rdf_layer.md) — direct nav
+- [Per-Agent On-Behalf-Of Identity](../architecture/per-agent-delegation.md) — direct nav
 - [Perspectival Inquiry — STORM made native](../architecture/perspectival_inquiry.md) — direct nav
 - [Phased Dependency Release Architecture](../architecture/phased_release_architecture.md) — catalog
 - [Privacy-safe external graph ingestion](../architecture/privacy-safe-external-ingestion.md) — direct nav
