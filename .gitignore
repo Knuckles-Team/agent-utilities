@@ -28,6 +28,12 @@ sdist/
 var/
 wheels/
 share/python-wheels/
+# W-C unified image: build-time-only staging for the eg wheel (hostPath-mounted into the
+# kaniko context at build time, never committed) — see docker/graphos-unified.Dockerfile.
+# Deliberately NOT under docker/ — the .dockerignore above excludes `docker/*` wholesale
+# (the published-wheel Dockerfile builds from no local source), which would silently drop
+# this path from the kaniko build context too.
+/build-artifacts/
 *.egg-info/
 .installed.cfg
 *.egg

@@ -1,0 +1,179 @@
+# W-C — the ONE unified graph-os container image (latest base, self-contained).
+# See reports/unified-binary-program.md (workstream W-C) for full program context.
+#
+# Contains, in a SINGLE image, everything needed for a self-contained graph-os:
+#   - the Rust epistemic-graph engine: epistemic-graph-server (+ lake-fixture-export /
+#     restore / migrate-shards) and the epistemic_graph.numeric kernel, both bundled in
+#     the staged, already-injected wheel (passes scripts/check_wheel_completeness.py).
+#   - the au serving plane (graph-os / kg_server), installed EDITABLE from local source.
+#   - messaging platforms (Telegram + Mattermost) + backends (neo4j/falkordb/postgres/redis).
+#
+# Base: ubuntu:26.04 (glibc 2.43). The current engine binary needs glibc >= 2.43
+# (confirmed via `objdump -T | grep GLIBC_`), which Debian 13 "trixie"/glibc 2.41 — the
+# current knucklessg1/agent-utilities:latest base — cannot satisfy. Hence latest Ubuntu,
+# not a Debian bump.
+#
+# Python: 3.14 — ubuntu:26.04's own native/default python3 (apt-cache shows NO 3.12/3.13
+# candidate on this release, only 3.14). Validated before writing this file: every
+# dependency installed below resolves a prebuilt cp314-linux_x86_64 wheel via
+# `pip download --only-binary=:all:` against this exact base image — no compiler needed,
+# hence no build-essential / multi-stage compile split.
+#
+# Build context = this repo's worktree root. build-artifacts/eg-wheel/*.whl is a
+# git-ignored, build-time-only path — populated by a hostPath/NFS mount at build time
+# (see the kaniko Job manifest alongside this file), never committed to git. It lives at
+# the context ROOT, not under docker/ — this repo's .dockerignore excludes `docker/*`
+# wholesale (the published-wheel Dockerfile builds from no local source), which would
+# silently drop anything staged under docker/ from the kaniko build context too.
+#
+# This is the W-C VALIDATION image: it always installs au EDITABLE from local worktree
+# source (not a published PyPI release), because the fixes this program depends on
+# (session-currency, mattermost event-loop, [serving] messaging bundling) are source-only
+# so far. The official, multi-target, published-wheel Dockerfile (docker/Dockerfile) is a
+# later "official publish" step — out of scope here.
+#
+# Build (kaniko, no dockerd on the hosts — see docker/graphos-unified-kaniko-job.yaml):
+#   kaniko executor --context=dir:///workspace \
+#     --dockerfile=docker/graphos-unified.Dockerfile \
+#     --destination=knucklessg1/graph-os-unified:latest
+
+FROM ubuntu:26.04
+
+ARG HOST=127.0.0.1
+ARG PORT=8000
+ARG TRANSPORT="stdio"
+ARG AUTH_TYPE="none"
+ENV DEBIAN_FRONTEND=noninteractive \
+    HOST=${HOST} \
+    PORT=${PORT} \
+    TRANSPORT=${TRANSPORT} \
+    AUTH_TYPE=${AUTH_TYPE} \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Ubuntu 26.04's own default Python (3.14) + certs for HTTPS (PyPI / registry pushes).
+# `python3` (the dispatch metapackage) guarantees the unversioned /usr/bin/python3
+# symlink; `python3.14` pins the exact interpreter this file was validated against.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3.14 \
+        python3 \
+        python3-pip \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv — fast resolver/installer (same pinned version as docker/Dockerfile, for consistency).
+COPY --from=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a /uv /uvx /usr/local/bin/
+ENV UV_SYSTEM_PYTHON=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_HTTP_TIMEOUT=3600
+
+# 1) The engine. Installed by EXACT local wheel path (not a bare `epistemic-graph>=...`
+#    requirement) so this staged, numeric-kernel-injected artifact is what lands — never a
+#    same-numbered but incomplete build silently resolved from PyPI instead. Installing
+#    this wheel drops epistemic_graph/numeric.abi3.so AND the epistemic-graph-server /
+#    lake-fixture-export / restore / migrate-shards binaries (wheel `data/scripts`)
+#    straight into /usr/local/bin — next to sys.executable, exactly where EngineResolver
+#    (OS-5.63) looks for a co-located engine to autostart.
+COPY build-artifacts/eg-wheel/epistemic_graph-2.23.1-py3-none-linux_x86_64.whl /tmp/wheels/
+RUN uv pip install --system --break-system-packages \
+        "/tmp/wheels/epistemic_graph-2.23.1-py3-none-linux_x86_64.whl[full]" \
+    && rm -rf /tmp/wheels
+
+# 2) au itself — EDITABLE install from the local worktree source (the "editable-source
+#    install model": a deployer can still bind-mount fresher source over
+#    /opt/agent-utilities at runtime, exactly like today's /au NFS mount — but every
+#    dependency is already resolved+installed at BUILD time, so pod start no longer
+#    pip-installs anything).
+#
+#    `serving`'s OWN sub-extras are listed explicitly here (mcp, feeds, embeddings-openai,
+#    neo4j, falkordb, auth, metrics, agent-headless [skills/pydantic-ai/pydantic-monty/
+#    fasta2a], logfire, messaging-telegram, messaging-mattermost) rather than the `serving`
+#    umbrella extra itself, MINUS `langfuse`: that sub-extra pulls
+#    `langfuse-agent>=1.0.3,<2`, which — like epistemic-graph above — has a
+#    `[tool.uv.sources] langfuse-agent = { workspace = true }` entry, i.e. au's own
+#    pyproject expects it from the ecosystem monorepo's sibling checkout, not PyPI; the
+#    latest version actually published to PyPI is only 1.0.1 (< the 1.0.3 floor), so it is
+#    unresolvable in this isolated build (confirmed: first attempt failed with "No matching
+#    distribution found for langfuse-agent"). No pre-staged wheel was provided for it the
+#    way one was for epistemic-graph, and it is not in the task's explicit ask (mcp /
+#    backends / embeddings / messaging-telegram / messaging-mattermost) — so it is dropped
+#    here rather than guessed at. `logfire` (the plain OTel SDK integration, a normal PyPI
+#    package, NOT workspace-sourced) is kept. `postgresql` (psycopg[binary]/psycopg-pool)
+#    and `acp` (pydantic-acp/acpkit) are added on top, same as before.
+# Targeted copy (not `COPY .`): only what `pip install -e` actually needs — the package
+# itself + packaging metadata. Skips deploy/scripts/tests/docs (dev/CI-only; also already
+# outside this repo's .dockerignore-admitted set) and avoids re-pulling in build-artifacts/.
+COPY pyproject.toml build_backend.py README.md LICENSE /opt/agent-utilities/
+COPY agent_utilities/ /opt/agent-utilities/agent_utilities/
+# Plain pip here, NOT uv: agent-utilities' own pyproject.toml declares
+# `[tool.uv.sources] epistemic-graph = { workspace = true }` (+ langfuse-agent) for the
+# ecosystem monorepo's uv workspace — a sibling checkout this isolated build context does
+# not have. uv fails resolving that source outside the full workspace; plain pip ignores
+# uv-only tables entirely and just resolves the standard `epistemic-graph[full]>=2.23.1`
+# PEP 508 requirement from `[project.dependencies]`, already satisfied by step 1's install.
+#
+# ONE pip invocation, not two: the exact `==2.16.0`-family pins below must be visible to
+# the SAME resolution pass as au's own `>=2.14.1,<3.0.0` floor on pydantic-ai-slim, or
+# pip's backtracking resolver first satisfies the loose floor (walked candidates down from
+# 2.18.0), only to have a second, separate `pip install` immediately reinstall it back down
+# to 2.16.0 — slow (pip has no PubGrub-style resolver; it backtracks) and wasteful. One
+# combined requirement set lets it converge on 2.16.0 directly.
+#
+# apt's python3-pip pulls in `packaging` via dpkg rather than pip, which ships no pip
+# RECORD file — pip then refuses to upgrade it in place ("Cannot uninstall packaging 26.0
+# ... no RECORD file was found"). Upgrade JUST that one package first, with a narrowly
+# scoped --ignore-installed (Debian/Ubuntu resolve dist-packages with /usr/local taking
+# precedence over /usr/lib, so this shadows the apt-owned copy at import time without
+# needing to uninstall it). A BLANKET --ignore-installed on the main install below would
+# reintroduce the step-1 problem: it makes pip disregard the already-installed local
+# epistemic-graph wheel too, sending it back to PyPI (which tops out at 2.23.0 < our
+# 2.23.1 floor) — confirmed by hitting exactly that error on the first attempt.
+RUN pip install --break-system-packages --no-cache-dir --ignore-installed "packaging>=26.2.0"
+RUN pip install --break-system-packages --no-cache-dir \
+        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,logfire,messaging-telegram,messaging-mattermost,postgresql,acp]" \
+        "redis>=5.0.0" \
+        "neo4j>=6.2.0" \
+        "falkordb>=1.6.2" \
+        "llama-index-embeddings-openai>=0.6.0" \
+        "python-telegram-bot>=22.8" \
+        "mattermostdriver>=7.3.2" \
+        "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]==2.16.0" \
+        "pydantic-ai==2.16.0" \
+        "pydantic-graph==2.16.0" \
+        "pydantic-acp==1.5.1" \
+        "acpkit==1.5.1" \
+        "pydantic-ai-skills==1.2.0" \
+        "pydantic-monty==0.0.19" \
+        "fasta2a[pydantic-ai]>=0.6.1" \
+    && chmod -R a+rX /opt/agent-utilities
+# ^ this pin list matches the exact stack the CURRENT split-image deploy pip-installs at
+#   pod-start (`kubectl get deploy graph-os -n platform -o yaml`) — most of it
+#   (neo4j/falkordb/telegram/mattermost/embeddings-openai) is already inside [serving];
+#   repeated here explicitly for deploy-artifact parity/robustness against a future
+#   narrowing of that extra. `redis` (no au extra covers it) and the broader
+#   pydantic-ai-slim extras (ag-ui/ui/google/groq) + pydantic-acp/acpkit are the
+#   genuinely new-vs-[serving] additions.
+
+# Build-time self-check: fail the image build itself (not just a later validation pod) if
+# the engine/kernel/serving-plane import chain is broken. `epistemic-graph-server --help`
+# is a plain clap CLI (safe/non-blocking); `graph-os` itself is NOT invoked here — running
+# it would start an MCP server (stdio) rather than return, so only its console-script
+# presence is checked.
+RUN python3 -c "import agent_utilities.mcp.kg_server; import epistemic_graph.numeric" \
+    && epistemic-graph-server --help >/dev/null \
+    && command -v graph-os >/dev/null
+
+# Fixed identity for least-privilege runtime (matches docker/Dockerfile's convention).
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --no-create-home \
+        --home-dir /tmp --shell /usr/sbin/nologin app
+ENV HOME=/tmp \
+    XDG_CONFIG_HOME=/tmp/.config \
+    XDG_CACHE_HOME=/tmp/.cache
+
+USER 10001:10001
+# The graph-os MCP server (console script) — also the MCP fleet gateway. Honors
+# HOST/PORT/TRANSPORT (W-D: stdio for packaged-local, streamable-http for served).
+CMD ["graph-os"]
