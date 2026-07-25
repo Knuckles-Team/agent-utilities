@@ -339,15 +339,24 @@ class AgenticEvolutionEngine:
             "skill_gap": None,
         }
 
-        # Variant evolution
-        if self._variant_pool:
+        # PA-R0.1: checkpoint each cycle stage onto the ONE durable substrate so a
+        # crash (kill -9) mid-cycle RESUMES from the last completed stage instead of
+        # re-running tournament/prune/memory writes. Stages run live and finalize on
+        # the healthy path (behaviour unchanged); only a crash-and-resume replays a
+        # completed stage's recorded result and continues from the interrupted one.
+        from agent_utilities.orchestration.durable_execution import DurableRun
+
+        run = DurableRun(f"evolution:{base_id}")
+
+        def _evolve_stage() -> dict[str, Any]:
+            frag: dict[str, Any] = {}
             winners = self.tournament_select(base_id, top_k=top_k)
-            report["winners"] = winners
-            report["pruned"] = self.prune_losers(base_id, keep=top_k)
+            frag["winners"] = winners
+            frag["pruned"] = self.prune_losers(base_id, keep=top_k)
             # CONCEPT:AU-AHE.harness.evolutionary-aggregation — population-drift / diversity-collapse signal
             health = self._variant_pool.population_health(base_id)
-            report["population_health"] = health
-            report["early_stop_recommended"] = bool(health.get("collapsed"))
+            frag["population_health"] = health
+            frag["early_stop_recommended"] = bool(health.get("collapsed"))
 
             # CONCEPT:AU-KG.memory.tiered-memory-caching — capture the cycle outcome as a reusable INSIGHT.
             if self._memory_store is not None and winners:
@@ -364,11 +373,11 @@ class AgenticEvolutionEngine:
                         "collapsed": bool(health.get("collapsed")),
                     },
                 )
-                report["insight_id"] = insight.id
+                frag["insight_id"] = insight.id
                 # b4-03 merge-generalize: converge paraphrased cycle insights.
                 generalized = self._memory_store.reconcile_similar(MemoryBank.INSIGHT)
                 if generalized:
-                    report["insights_generalized"] = generalized
+                    frag["insights_generalized"] = generalized
 
             # CONCEPT:AU-KG.memory.ahe-record-this-base / AHE-3.33 — record this base's winners as reusable
             # trajectories in ITS OWN exploitation pool, and feed the cycle outcome
@@ -388,9 +397,9 @@ class AgenticEvolutionEngine:
                     self._decentralized_memory.reward(base_id, MemoryPool.EXPLORE, 1.0)
                 else:
                     self._decentralized_memory.reward(base_id, MemoryPool.EXPLOIT, 1.0)
-                report[
-                    "decentralized_router"
-                ] = self._decentralized_memory.router_stats(base_id)
+                frag["decentralized_router"] = self._decentralized_memory.router_stats(
+                    base_id
+                )
 
             # b4-03 F4: push the cycle as a replay state, keyed by base_id so rare
             # (decisive) bases resurface preferentially for re-evaluation.
@@ -404,47 +413,70 @@ class AgenticEvolutionEngine:
                     },
                     key=base_id,
                 )
-                report["replay_buffer_size"] = len(self._replay_buffer)
+                frag["replay_buffer_size"] = len(self._replay_buffer)
+            return frag
 
-        # CONCEPT:AU-AHE.harness.when-task-is-scope — when a task is in scope, run a short self-guided
-        # self-play curriculum for it: the Guide rejects gamed conjectures so the
-        # solver trains on quality tasks, and the plateau-breaker fires if progress
-        # stalls. Surfaces accept/solve rates + plateau flag for the loop.
-        if task_text and self._self_play is not None:
+        def _self_play_stage() -> dict[str, Any]:
+            # CONCEPT:AU-AHE.harness.when-task-is-scope — when a task is in scope, run a short
+            # self-guided self-play curriculum for it: the Guide rejects gamed
+            # conjectures so the solver trains on quality tasks, and the
+            # plateau-breaker fires if progress stalls. Surfaces accept/solve rates.
             play = self._self_play.run(task_text, rounds=6)
-            report["self_play"] = {
-                "accept_rate": play.accept_rate,
-                "solve_rate": play.solve_rate,
-                "plateaued": play.plateaued,
-                "rounds": len(play.rounds),
+            return {
+                "self_play": {
+                    "accept_rate": play.accept_rate,
+                    "solve_rate": play.solve_rate,
+                    "plateaued": play.plateaued,
+                    "rounds": len(play.rounds),
+                }
             }
 
-        # CONCEPT:AU-ORCH.execution.feed-cycle-outcome-fast — feed the cycle outcome to the Fast-Slow controller:
-        # observe it as a trace (keyed by base so recurrence is detectable), run the
-        # FAST harness update now, then a SLOW step that absorbs recurring bases (the
-        # GRPO advantage spine runs; real weight training is the deferred trainer).
-        if self._fast_slow is not None and self._variant_pool:
+        def _fast_slow_stage() -> dict[str, Any]:
+            # CONCEPT:AU-ORCH.execution.feed-cycle-outcome-fast — feed the cycle outcome to the
+            # Fast-Slow controller: observe a trace (keyed by base so recurrence is
+            # detectable), run the FAST harness update, then a SLOW step that absorbs
+            # recurring bases. ``population_health`` is a pure read, recomputed here so
+            # this stage is independent of the evolve stage on a crash-and-resume.
             from .fast_slow_controller import Trace
 
+            health = self._variant_pool.population_health(base_id)
             self._fast_slow.observe(
                 Trace(task_key=base_id, reward=float(health.get("spread", 0.0) or 0.0))
             )
-            report["fast_harness_id"] = self._fast_slow.fast_step()
+            frag: dict[str, Any] = {"fast_harness_id": self._fast_slow.fast_step()}
             slow = self._fast_slow.slow_step()
             if slow:
-                report["slow_updates"] = [u.task_key for u in slow]
+                frag["slow_updates"] = [u.task_key for u in slow]
+            return frag
+
+        def _skill_gap_stage() -> dict[str, Any]:
+            gap = self.detect_skill_gap(task_text)
+            if gap:
+                return {
+                    "skill_gap": {
+                        "task": task_text,
+                        "closest_skill": gap.closest_skill,
+                        "similarity": gap.similarity_score,
+                        "suggested_name": gap.suggested_name,
+                    }
+                }
+            return {}
+
+        # Variant evolution
+        if self._variant_pool:
+            report.update(run.step("evolve", _evolve_stage) or {})
+
+        if task_text and self._self_play is not None:
+            report.update(run.step("self_play", _self_play_stage) or {})
+
+        if self._fast_slow is not None and self._variant_pool:
+            report.update(run.step("fast_slow", _fast_slow_stage) or {})
 
         # Skill gap detection
         if task_text and self._skill_detector:
-            gap = self.detect_skill_gap(task_text)
-            if gap:
-                report["skill_gap"] = {
-                    "task": task_text,
-                    "closest_skill": gap.closest_skill,
-                    "similarity": gap.similarity_score,
-                    "suggested_name": gap.suggested_name,
-                }
+            report.update(run.step("skill_gap", _skill_gap_stage) or {})
 
+        run.finish()
         return report
 
     def evolve_via_graph_search(

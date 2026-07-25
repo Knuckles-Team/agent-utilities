@@ -31,8 +31,10 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+from uuid import uuid4
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.paths import data_dir
 from agent_utilities.orchestration.resilience import (
     DEFAULT_POLICY,
     ResiliencePolicy,
@@ -66,14 +68,16 @@ def _now() -> str:
 
 
 def _default_db_path() -> Path:
-    """Resolve the durable-execution store path (env-overridable, XDG-friendly)."""
+    """Resolve the durable-execution store path (env-overridable, XDG-friendly).
+
+    Defaults under the agent-utilities data dir (``runtime/``), so it inherits
+    the same XDG resolution AND test isolation (``AGENT_UTILITIES_DATA_DIR``) as
+    the rest of the harness's durable state; ``DURABLE_EXECUTION_DB`` overrides.
+    """
     override = setting("DURABLE_EXECUTION_DB")
     if override:
         return Path(override)
-    base = (
-        Path(setting("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-        / "agent_utilities"
-    )
+    base = data_dir() / "runtime"
     base.mkdir(parents=True, exist_ok=True)
     return base / "durable_execution.db"
 
@@ -88,19 +92,21 @@ class CheckpointStore(Protocol):
         state_json: str,
         status: str,
         idempotency_key: str,
-    ) -> None:
+    ) -> None: ...
+
+    def resume_session(self, session_id: str) -> dict[str, Any] | None: ...
+
+    def get_checkpoint(self, session_id: str, node_id: str) -> tuple[str, str] | None:
+        """Return ``(state_json, status)`` for one checkpoint, or ``None``."""
         ...
 
-    def resume_session(self, session_id: str) -> dict[str, Any] | None:
-        ...
-
-    def mark_completed(self, session_id: str, node_id: str, result_json: str) -> None:
-        ...
+    def mark_completed(
+        self, session_id: str, node_id: str, result_json: str
+    ) -> None: ...
 
     def completed_result_raw(
         self, session_id: str, idempotency_key: str
-    ) -> tuple[bool, Any]:
-        ...
+    ) -> tuple[bool, Any]: ...
 
 
 class SQLiteCheckpointStore:
@@ -169,6 +175,19 @@ class SQLiteCheckpointStore:
         if row is None:
             return None
         return {"node_id": row["node_id"], "state": row["state"]}
+
+    def get_checkpoint(self, session_id: str, node_id: str) -> tuple[str, str] | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT state, status FROM durable_checkpoints
+                WHERE session_id = ? AND node_id = ?
+                """,
+                (session_id, node_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return (row["state"], row["status"])
 
     def mark_completed(self, session_id: str, node_id: str, result_json: str) -> None:
         with self._lock:
@@ -244,6 +263,19 @@ class PostgresCheckpointStore:
         if row is None:
             return None
         return {"node_id": row[0], "state": row[1]}
+
+    def get_checkpoint(self, session_id: str, node_id: str) -> tuple[str, str] | None:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT state, status FROM durable_checkpoints
+                WHERE session_id = %s AND node_id = %s
+                """,
+                (session_id, node_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return (row[0], row[1])
 
     def mark_completed(self, session_id: str, node_id: str, result_json: str) -> None:
         with self._pool.connection() as conn:
@@ -322,6 +354,24 @@ class DurableExecutionManager:
     def resume_session(self) -> dict[str, Any] | None:
         """Resume the most recently updated PENDING checkpoint for this session."""
         return self._store.resume_session(self.session_id)
+
+    def get_checkpoint(self, node_id: str) -> dict[str, Any] | None:
+        """Return ``{"node_id","state","status"}`` for ``node_id`` (or ``None``).
+
+        ``state`` is decoded back to a dict. Used by :class:`DurableRun` to
+        recover an in-flight run id after a crash-and-resume.
+        """
+        row = self._store.get_checkpoint(self.session_id, node_id)
+        if row is None:
+            return None
+        raw_state, status = row
+        try:
+            state = json.loads(raw_state) if raw_state else {}
+        except (TypeError, ValueError):
+            state = {}
+        if not isinstance(state, dict):
+            state = {}
+        return {"node_id": node_id, "state": state, "status": status}
 
     def mark_completed(self, node_id: str, result: Any = None) -> None:
         """Mark a checkpoint COMPLETED, recording its result."""
@@ -409,3 +459,90 @@ class DurableExecutionManager:
         result = await run_with_resilience(action, policy or DEFAULT_POLICY)
         self.mark_completed(node_id, result=result)
         return result
+
+
+class DurableRun:
+    """A resumable, crash-safe multi-step run over :class:`DurableExecutionManager`.
+
+    The ONE crash-safe checkpoint substrate for the autonomous evolution / SDD
+    loop. It resolves (or RESUMES) a run id under a stable ``session_id``, runs
+    named steps exactly-once, and finalizes on success. If the process is killed
+    — or a step raises — mid-run, the unfinished run stays ``PENDING``;
+    re-constructing a ``DurableRun`` with the same ``session_id`` resumes it:
+    already-completed steps are skipped and their recorded results replayed, and
+    execution continues from the first incomplete step instead of restarting or
+    losing the run.
+
+    Wired into ``AgenticEvolutionEngine.run_evolution_cycle`` and
+    ``LoopController.run_one_cycle`` (the ``KG_LOOP`` daemon tick), so a crash
+    mid-cycle resumes the cycle rather than re-running completed stages. Backend
+    selection is inherited from :class:`DurableExecutionManager` (embedded SQLite
+    by default; shared Postgres when ``STATE_DB_URI`` is set), so the same run
+    can be resumed on another host in the fleet.
+    """
+
+    _POINTER = "__run__"
+
+    def __init__(
+        self,
+        session_id: str,
+        *,
+        db_path: str | os.PathLike[str] | None = None,
+        store: CheckpointStore | None = None,
+    ) -> None:
+        self.session_id = session_id
+        self._mgr = DurableExecutionManager(session_id, db_path=db_path, store=store)
+        pointer = self._mgr.get_checkpoint(self._POINTER)
+        if (
+            pointer is not None
+            and pointer["status"] == "PENDING"
+            and pointer["state"].get("run_id")
+        ):
+            # An earlier run for this session was interrupted — resume it.
+            self.run_id = str(pointer["state"]["run_id"])
+            self.resumed = True
+        else:
+            self.run_id = (
+                f"run_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex}"
+            )
+            self.resumed = False
+            self._mgr.save_checkpoint(
+                self._POINTER, {"run_id": self.run_id}, status="PENDING"
+            )
+
+    def _key(self, name: str) -> str:
+        return f"{self.run_id}:{name}"
+
+    def is_done(self, name: str) -> bool:
+        """True if ``name`` already completed in this (possibly resumed) run."""
+        applied, _ = self._mgr._completed_result_for(self._key(name))
+        return applied
+
+    def step(
+        self,
+        name: str,
+        action: Callable[[], Any],
+        *,
+        state: dict[str, Any] | None = None,
+    ) -> Any:
+        """Run ``action`` once for this run; on resume, skip it and replay its result.
+
+        Unlike :meth:`DurableExecutionManager.run_durable_action` there is no
+        internal retry: an exception — or a hard crash — propagates and leaves
+        the step un-completed, so the resumed run re-executes exactly that step
+        while every already-completed step stays skipped.
+        """
+        key = self._key(name)
+        applied, prior = self._mgr._completed_result_for(key)
+        if applied:
+            return prior
+        self._mgr.save_checkpoint(
+            key, state or {}, status="PENDING", idempotency_key=key
+        )
+        result = action()
+        self._mgr.mark_completed(key, result=result)
+        return result
+
+    def finish(self) -> None:
+        """Mark the run complete so the next run under this session starts fresh."""
+        self._mgr.mark_completed(self._POINTER)
