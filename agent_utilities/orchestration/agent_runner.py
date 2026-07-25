@@ -1568,9 +1568,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
@@ -2108,15 +2108,17 @@ async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
         bool(getattr(shape, "enable_reasoning", False)) if shape is not None else False
     )
     budget = getattr(shape, "router_timeout", None) if shape is not None else None
-    extra = dict(DEFAULT_EXTRA_BODY or {})
-    ctk = dict(extra.get("chat_template_kwargs") or {})
-    ctk["enable_thinking"] = reason_on
-    extra["chat_template_kwargs"] = ctk
+    # Reasoning rides on core ModelSettings.thinking (True -> reasoning on, False -> off),
+    # retiring the extra_body ``chat_template_kwargs.enable_thinking`` hack. Any genuine
+    # deployment vLLM knobs in DEFAULT_EXTRA_BODY still pass through extra_body.
     agent = create_context_agent(
         model=create_model(model_id=model_id),
         system_prompt="You are a helpful assistant. Respond naturally and concisely.",
         model_settings=ModelSettings(
-            extra_body=extra, max_tokens=1024, timeout=budget or 30.0
+            thinking=reason_on,
+            extra_body=dict(DEFAULT_EXTRA_BODY or {}) or None,
+            max_tokens=1024,
+            timeout=budget or 30.0,
         ),
     )
     res = await agent.run(query)

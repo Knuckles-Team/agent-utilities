@@ -194,11 +194,12 @@ def create_model(
     ``qwen/qwen3.6-27b`` is one): it emits a long ``reasoning`` block and leaves
     ``content`` null until thinking finishes, so a utility call with a modest ``max_tokens``
     gets EMPTY content (``finish_reason=length``) — and a retry-on-empty path then blocks to
-    the 300s router/verifier timeout. Default ``"none"`` turns thinking off so the model
-    returns content directly (verified: only the top-level ``reasoning_effort`` request param
-    works on this vLLM build; ``enable_thinking``/``chat_template_kwargs``/``/no_think`` do
-    not). Pass an effort level (``"low"``/``"medium"``/``"high"``) or ``None`` per call to opt
-    back into reasoning for genuinely hard tasks.
+    the 300s router/verifier timeout. It routes through core ``ModelSettings.thinking``
+    (``clamp_thinking_effort``): default ``"none"`` -> ``thinking=False``, which pydantic-ai
+    translates to the top-level ``reasoning_effort='none'`` request parameter this vLLM build
+    honors, turning thinking off so the model returns content directly. Pass an effort level
+    (``"low"``/``"medium"``/``"high"``) or ``None`` per call to opt back into reasoning for
+    genuinely hard tasks.
 
     ``oauth2`` (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle) wires an OAuth2
     ``client_credentials`` bearer instead of a static ``api_key`` — mutually exclusive with
@@ -228,23 +229,47 @@ def create_model(
     return wrap_model_with_context(model)
 
 
-def _openai_reasoning_settings(effort: str | None) -> Any | None:
-    """Build OpenAI model settings that set ``reasoning_effort`` (or ``None`` for no override).
+def clamp_thinking_effort(effort: str | None) -> Any:
+    """Clamp a reasoning-effort string to a pydantic-ai ``ModelSettings.thinking`` level.
 
-    Threads through ``extra_body`` (merged top-level into the request by the OpenAI client)
-    rather than the typed ``openai_reasoning_effort`` field, because ``"none"`` is outside the
-    OpenAI effort enum pydantic-ai validates but IS the value this vLLM build honors to
-    suppress the reasoning block. Returns ``None`` when ``effort`` is ``None`` (caller keeps
-    the model's own default) or when pydantic-ai's OpenAI settings type is unavailable."""
-    # CONCEPT:AU-ORCH.scheduling.also-fold-vllm-scheduler — also fold the vLLM scheduler `priority` field (lower =
-    # sooner) from the ambient PriorityClass into extra_body, so a server started
-    # with --scheduling-policy priority sees a background-ingestion enrichment call
-    # as lower priority than an interactive/orchestration one. Additive: when no
-    # priority is in context the field is omitted, and the always-on client-side
-    # gate (resource_priority) remains the primary enforcement regardless.
+    Maps the legacy vLLM/OpenAI ``reasoning_effort`` vocabulary onto core's unified
+    ``thinking`` setting (``ThinkingLevel`` = ``bool`` | ``'minimal'|'low'|'medium'|
+    'high'|'xhigh'``): ``"none"`` -> ``False`` (reasoning off), the effort levels pass
+    through, and any unrecognized value clamps to ``False`` so a bad config never
+    silently leaves a reasoning model thinking on for the whole timeout budget (the
+    S4 overrun). ``None`` means "leave the model's own thinking setting untouched" and
+    returns ``None``. pydantic-ai translates ``thinking`` to the top-level
+    ``reasoning_effort`` request parameter this vLLM build honors (``False`` -> ``'none'``)."""
+    if effort is None:
+        return None
+    normalized = str(effort).strip().lower()
+    if normalized in ("", "none", "off", "false"):
+        return False
+    if normalized in ("minimal", "low", "medium", "high", "xhigh"):
+        return normalized
+    logger.warning(
+        "Ignoring unknown reasoning_effort %r; disabling thinking (off)", effort
+    )
+    return False
+
+
+def _openai_reasoning_settings(effort: str | None) -> Any | None:
+    """Build OpenAI model settings for reasoning + the vLLM-only scheduler priority.
+
+    Reasoning goes through core ``ModelSettings.thinking`` (``clamp_thinking_effort``),
+    which pydantic-ai translates to the top-level ``reasoning_effort`` request parameter
+    this vLLM build honors — retiring the old ``extra_body["reasoning_effort"]`` hack.
+    Returns ``None`` when ``effort`` is ``None`` AND no priority is in context (caller
+    keeps the model's own default) or when pydantic-ai's OpenAI settings type is
+    unavailable."""
+    # CONCEPT:AU-ORCH.scheduling.also-fold-vllm-scheduler — the vLLM scheduler `priority` field
+    # (lower = sooner) from the ambient PriorityClass has no core equivalent, so it stays in
+    # extra_body: a server started with --scheduling-policy priority sees a background-ingestion
+    # enrichment call as lower priority than an interactive/orchestration one. Additive: when no
+    # priority is in context the field is omitted, and the always-on client-side gate
+    # (resource_priority) remains the primary enforcement regardless.
+    thinking = clamp_thinking_effort(effort)
     extra: dict[str, Any] = {}
-    if effort is not None:
-        extra["reasoning_effort"] = effort
     try:
         from agent_utilities.core.resource_priority import current_priority
 
@@ -255,13 +280,18 @@ def _openai_reasoning_settings(effort: str | None) -> Any | None:
             extra["priority"] = vllm_priority(prio)
     except Exception:  # noqa: BLE001 — priority hint is best-effort
         pass
-    if not extra:
+    if thinking is None and not extra:
         return None
     try:
         from pydantic_ai.models.openai import OpenAIChatModelSettings
     except Exception:  # pragma: no cover - pydantic-ai shape changed
         return None
-    return OpenAIChatModelSettings(extra_body=extra)
+    settings = OpenAIChatModelSettings()
+    if thinking is not None:
+        settings["thinking"] = thinking
+    if extra:
+        settings["extra_body"] = extra
+    return settings
 
 
 def _create_model_impl(

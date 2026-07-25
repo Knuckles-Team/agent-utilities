@@ -41,6 +41,8 @@ from pydantic_ai.messages import (
     SystemPromptPart,
 )
 
+from agent_utilities.capabilities.compaction._shared import enforce_tool_pair_safety
+
 logger = logging.getLogger(__name__)
 
 
@@ -136,6 +138,22 @@ class MementoCompaction(AbstractCapability[Any]):
         )
         if not evicted_groups:
             return messages, 0
+
+        # CONCEPT:AU-KG.memory.mementified-context — tool-pair safety. The block planner
+        # cuts on semantic boundaries, which can fall between a tool-call (in a ModelResponse)
+        # and its tool-return (in the following ModelRequest). Evicting one half of that
+        # pair leaves an orphaned tool-call/return in the outgoing history → provider
+        # HTTP 400 mid-run. Restrict the eviction to a tool-pair-safe set (both halves
+        # evicted, or neither) before rewriting the message list.
+        planned_idx = {i for grp in evicted_groups for i in grp}
+        safe_idx = enforce_tool_pair_safety(messages, planned_idx)
+        if safe_idx != planned_idx:
+            evicted_groups = [
+                [i for i in grp if i in safe_idx] for grp in evicted_groups
+            ]
+            evicted_groups = [grp for grp in evicted_groups if grp]
+            if not evicted_groups:
+                return messages, 0
 
         group_of = {i: gi for gi, grp in enumerate(evicted_groups) for i in grp}
         evicted_idx = set(group_of)

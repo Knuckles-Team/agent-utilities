@@ -424,6 +424,7 @@ def create_context_agent(
     permissions_kernel: Any | None = None,
     agent_identity: Any | None = None,
     permission_engine: Any | None = None,
+    default_capabilities: bool = True,
     **kwargs: Any,
 ) -> Any:
     """Construct a Pydantic AI agent behind the mandatory context boundary.
@@ -432,12 +433,34 @@ def create_context_agent(
     an explicit model, idempotently installs the transport wrapper, and only then
     instantiates the agent.  Runtime model injection therefore cannot bypass the
     compiler by handing an arbitrary model object directly to ``Agent``.
+
+    This is ALSO the single capability-composition seam.
+    With ``default_capabilities=True`` (the default),
+    every agent it builds — the graph executor, the ~20 KG-internal sites, delegated
+    agents, and ``create_agent`` alike — receives the default-ON reliability capability
+    set (stuck-loop detection, context warnings, tool-output eviction, live Memento
+    compaction, and a hooks capability), merged by concrete type over any capabilities
+    the caller already supplied so nothing is double-added. ``create_agent`` assembles
+    its own richly-configured list from the same
+    :func:`~agent_utilities.capabilities.composition.default_runtime_capabilities` and
+    passes ``default_capabilities=False`` so its explicit opt-out flags win.
     """
 
     if model is _MISSING_MODEL or model is None:
         raise ContextCompilationError(
             "governed agent construction requires an explicit model"
         )
+    if default_capabilities:
+        from agent_utilities.capabilities.composition import (
+            default_runtime_capabilities,
+            merge_capabilities,
+        )
+        from agent_utilities.capabilities.hooks import HooksCapability
+
+        supplied = list(kwargs.get("capabilities", ()) or ())
+        defaults = default_runtime_capabilities()
+        defaults.append(HooksCapability(hooks=[]))
+        kwargs["capabilities"] = merge_capabilities(supplied, defaults)
     toolsets = list(kwargs.get("toolsets", ()) or ())
     raw_mcp_bound = any(
         hasattr(toolset, "list_tools") or hasattr(toolset, "direct_call_tool")

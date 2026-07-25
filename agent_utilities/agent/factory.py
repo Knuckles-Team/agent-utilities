@@ -36,14 +36,8 @@ from agent_utilities.base_utilities import (
     to_boolean,
 )
 from agent_utilities.capabilities import (
-    CheckpointMiddleware,
-    ContextLimitWarner,
     HooksCapability,
-    InMemoryCheckpointStore,
-    MementoCompaction,
-    StuckLoopDetection,
-    TeamCapability,
-    ToolOutputEviction,
+    default_runtime_capabilities,
 )
 from agent_utilities.core.config import (
     DEFAULT_AGENT_NAME,
@@ -77,7 +71,7 @@ from agent_utilities.core.config import (
     DEFAULT_TOP_P,
     DEFAULT_VALIDATION_MODE,
 )
-from agent_utilities.core.model_factory import create_model
+from agent_utilities.core.model_factory import clamp_thinking_effort, create_model
 from agent_utilities.core.workspace import (
     get_skills_path,
 )
@@ -226,33 +220,27 @@ def create_agent_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_agent_extra_body(
-    model: Any, reasoning_effort: str | None
-) -> dict[str, Any]:
-    """Build the AGENT-level ``extra_body``, preserving the model's reasoning settings.
+def _resolve_agent_extra_body(model: Any) -> dict[str, Any]:
+    """Build the AGENT-level ``extra_body``, preserving the model's vLLM-only knobs.
 
-    CONCEPT:AU-ORCH.execution.delegation-reasoning-off — pydantic-ai merges
-    agent-over-model ``ModelSettings`` with a SHALLOW dict union, so the agent-level
-    ``extra_body`` REPLACES (not deep-merges) the model-level one that ``create_model``
-    built. That silently discarded ``create_model``'s ``reasoning_effort="none"``
-    default (and any per-model override) for every ``create_agent``-built agent —
-    leaving the fleet running with the reasoning model thinking ON. Carry the model's
-    ``extra_body`` up to the winning layer, let a deployment ``DEFAULT_EXTRA_BODY`` and
-    an explicit ``reasoning_effort`` arg override, so:
+    pydantic-ai merges agent-over-model ``ModelSettings`` with a SHALLOW dict union, so
+    the agent-level ``extra_body`` REPLACES (not deep-merges) the model-level one that
+    ``create_model`` built. Carry the model's ``extra_body`` (the vLLM scheduler
+    ``priority`` and any deployment ``DEFAULT_EXTRA_BODY`` knobs) up to the winning
+    layer so it is not silently discarded.
 
-    - no per-model config → create_model's ``reasoning_effort="none"`` reaches the
-      request (thinking OFF, the documented default);
-    - a per-model ``reasoning_effort`` override (e.g. ``"high"``) is preserved;
-    - a caller (e.g. a delegated tool loop) can force ``reasoning_effort="none"``.
+    Reasoning no longer travels here: it is a top-level ``ModelSettings.thinking``
+    (CONCEPT:AU-ORCH.execution.delegation-reasoning-off), which — unlike the nested
+    ``extra_body`` dict — is a single key that survives the shallow union on its own, so
+    the model's ``clamp_thinking_effort`` default reaches the request without being
+    carried up. A caller forcing reasoning off/on threads it via the ``reasoning_effort``
+    arg, which sets the agent ``thinking`` level directly (see ``create_agent``).
     """
     model_settings = getattr(model, "settings", None)
     model_extra = (
         dict(dict(model_settings).get("extra_body") or {}) if model_settings else {}
     )
-    merged = {**model_extra, **(DEFAULT_EXTRA_BODY or {})}
-    if reasoning_effort is not None:
-        merged["reasoning_effort"] = reasoning_effort
-    return merged
+    return {**model_extra, **(DEFAULT_EXTRA_BODY or {})}
 
 
 def create_agent(
@@ -305,13 +293,12 @@ def create_agent(
     #     catalog, loaded on demand by the model.
     thinking_effort: str | None = None,
     defer_tool_loading: bool = False,
-    # reasoning_effort: vLLM/OpenAI reasoning override threaded onto the AGENT-level
-    #   ``extra_body`` (e.g. "none" to switch a reasoning chat model's thinking OFF for
-    #   a deterministic tool loop). MUST be applied here, not only at the model
-    #   constructor: pydantic-ai merges agent-over-model ModelSettings with a SHALLOW
-    #   dict union, so an agent-level ``extra_body`` REPLACES (not deep-merges) the
-    #   model-level one — leaving a model-constructor ``reasoning_effort`` silently
-    #   discarded. None = leave the model's own reasoning setting untouched.
+    # reasoning_effort: per-execution reasoning override (e.g. "none" to switch a
+    #   reasoning chat model's thinking OFF for a deterministic tool loop, or a level to
+    #   opt in). Routed through core ``ModelSettings.thinking`` via
+    #   ``clamp_thinking_effort`` — a top-level ModelSettings key that survives the
+    #   agent-over-model shallow union on its own (no ``extra_body`` clobber). None =
+    #   leave the model's own thinking setting untouched.
     reasoning_effort: str | None = None,
 ) -> tuple[Any, list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
@@ -493,10 +480,16 @@ def create_agent(
     )
 
     # Agent-level ``extra_body`` WINS the pydantic-ai settings merge (agent-over-model,
-    # SHALLOW union), so the model's own ``extra_body`` (carrying create_model's
-    # ``reasoning_effort`` default + any per-model override) must be carried UP to the
-    # agent level or it is silently replaced — see the ``reasoning_effort`` param doc.
-    _extra_body = _resolve_agent_extra_body(model, reasoning_effort)
+    # SHALLOW union), so the model's own ``extra_body`` (the vLLM ``priority`` knob) must
+    # be carried UP to the agent level or it is silently replaced. Reasoning rides on the
+    # top-level ``thinking`` key instead, which survives the union on its own.
+    _extra_body = _resolve_agent_extra_body(model)
+
+    # Per-execution reasoning override -> core ModelSettings.thinking. Set ONLY when the
+    # caller passed ``reasoning_effort`` (else omit, so the model's own thinking setting
+    # from create_model survives the agent-over-model merge). ``clamp_thinking_effort``
+    # returns None for a None arg, so the key is dropped in that case.
+    _agent_thinking = clamp_thinking_effort(reasoning_effort)
 
     settings = ModelSettings(
         max_tokens=DEFAULT_MAX_TOKENS,
@@ -511,6 +504,7 @@ def create_agent(
         stop_sequences=DEFAULT_STOP_SEQUENCES,
         extra_headers=DEFAULT_EXTRA_HEADERS,
         extra_body=_extra_body,
+        **({"thinking": _agent_thinking} if _agent_thinking is not None else {}),
     )
 
     from pydantic_ai_skills import SkillsToolset
@@ -591,59 +585,42 @@ def create_agent(
         if "AgentBus" not in system_prompt_str:
             system_prompt_str = f"{system_prompt_str}\n\n{bus_capability_prompt()}"
 
-    # Initialize Capabilities
-    agent_capabilities: list[Any] = []
+    # Assemble the default-ON reliability capabilities (the single composition seam):
+    # stuck-loop / context-warnings / tool-output-eviction /
+    # live Memento compaction, + optional checkpoint / teams) from the SAME shared
+    # factory that create_context_agent applies to every other agent, so a factory-built
+    # agent and a directly-built graph/KG agent can never drift. Build the hooks list
+    # first (incl. the RLM large-output hook) so HooksCapability captures the full set.
+    all_hooks = list(hooks or [])
+    if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
+        try:
+            from agent_utilities.rlm.hook import rlm_large_output_hook
 
-    if stuck_loop_detection:
-        agent_capabilities.append(
-            StuckLoopDetection(
-                max_repeated=stuck_loop_max_repeated,
-                action=stuck_loop_action,
-            )
-        )
+            all_hooks.append(rlm_large_output_hook)
+        except ImportError:
+            pass
 
-    if context_warnings:
-        agent_capabilities.append(
-            ContextLimitWarner(
-                max_tokens=max_context_tokens,
-            )
-        )
-
-    if output_eviction:
-        agent_capabilities.append(
-            ToolOutputEviction(
-                threshold_chars=eviction_threshold_chars,
-            )
-        )
-
-    # CONCEPT:AU-KG.memory.memento-compress-evict — live Memento block-compress-evict sawtooth (default ON). Where
-    # ContextLimitWarner only *warns* and ToolOutputEviction only handles oversized tool results,
-    # this evicts old completed reasoning blocks from the message history, replacing each with a
-    # dense memento, when the running context exceeds budget.
-    if memento_compaction:
-        agent_capabilities.append(
-            MementoCompaction(
-                max_tokens=max_context_tokens,
-            )
-        )
-
-    if include_checkpoints:
-        store = checkpoint_store or InMemoryCheckpointStore()
-        agent_capabilities.append(
-            CheckpointMiddleware(
-                store=store,
-                frequency=checkpoint_frequency,
-            )
-        )
-
-    if include_teams:
-        agent_capabilities.append(TeamCapability())
+    agent_capabilities: list[Any] = default_runtime_capabilities(
+        stuck_loop_detection=stuck_loop_detection,
+        stuck_loop_max_repeated=stuck_loop_max_repeated,
+        stuck_loop_action=stuck_loop_action,
+        context_warnings=context_warnings,
+        max_context_tokens=max_context_tokens,
+        output_eviction=output_eviction,
+        eviction_threshold_chars=eviction_threshold_chars,
+        memento_compaction=memento_compaction,
+        include_checkpoints=include_checkpoints,
+        checkpoint_store=checkpoint_store,
+        checkpoint_frequency=checkpoint_frequency,
+        include_teams=include_teams,
+    )
 
     # CONCEPT:AU-ORCH.routing.sampling-profile-selection (v2 synergy) — native provider-side extended thinking. Opt-in
     # because reasoning is expensive: enabled via the thinking_effort arg or the
     # AGENT_THINKING_EFFORT config setting. It runs natively where the provider supports
     # reasoning and no-ops elsewhere, and composes with the per-call sampling profile
-    # (which still threads vLLM enable_thinking via extra_body) attached below.
+    # attached below (which threads only vLLM sampling knobs via extra_body — reasoning
+    # rides on ModelSettings.thinking, not extra_body).
     _ThinkingEffort = Literal["minimal", "low", "medium", "high", "xhigh"]
     _VALID_THINKING_EFFORTS: tuple[_ThinkingEffort, ...] = (
         "minimal",
@@ -666,17 +643,8 @@ def create_agent(
             _VALID_THINKING_EFFORTS,
         )
 
-    # Unified Hooks
-    all_hooks = hooks or []
+    # Unified Hooks — captures the full hooks list assembled above (incl. RLM).
     agent_capabilities.append(HooksCapability(hooks=all_hooks))
-
-    if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
-        try:
-            from agent_utilities.rlm.hook import rlm_large_output_hook
-
-            all_hooks.append(rlm_large_output_hook)
-        except ImportError:
-            pass
 
     # CONCEPT (v2 synergy) — on-demand tool loading: keep agent-local toolsets out of
     # the prompt as a one-line catalog until the model loads them, cutting prompt bloat
@@ -705,6 +673,10 @@ def create_agent(
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
         deps_type=AgentDeps,
         capabilities=agent_capabilities,
+        # create_agent has already assembled the complete, flag-respecting capability
+        # set (via the shared default_runtime_capabilities factory), so the single
+        # composition seam must not re-add defaults on top of an explicit opt-out.
+        default_capabilities=False,
         # pydantic-ai v2 default; set explicitly. Function tools requested
         # alongside an output/deferred tool now run — side-effecting tools are
         # kept safe by the tool_guard ApprovalRequiredToolset (they become

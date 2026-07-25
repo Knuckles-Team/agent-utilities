@@ -15,6 +15,7 @@ from .checkpointing import (
     RewindRequested,
     fork_from_checkpoint,
 )
+from .composition import default_runtime_capabilities, merge_capabilities
 from .context_warnings import ContextLimitWarner
 from .eviction import ToolOutputEviction
 from .hooks import Hook, HookEvent, HookInput, HookResult, HooksCapability
@@ -42,4 +43,6 @@ __all__ = [
     "ToolOutputEviction",
     "MementoCompaction",
     "TeamCapability",
+    "default_runtime_capabilities",
+    "merge_capabilities",
 ]
