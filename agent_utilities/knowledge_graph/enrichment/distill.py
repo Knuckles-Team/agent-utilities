@@ -12,7 +12,6 @@ codebase's ``.specify/`` for the SDD skill, then plan + implement.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Callable
 
 from pydantic import BaseModel, Field
@@ -212,28 +211,8 @@ def what_specs_could_we_build(
     )
 
 
-def spec_to_markdown(spec: SpecDraft) -> str:
-    """Render an SDD-style spec draft for writing into a codebase's .specify/."""
-    return (
-        f"# Spec: {spec.title}\n\n"
-        f"> Auto-distilled by KG-2.8 from ingested research/documents "
-        f"(value score {spec.value_score}). Concepts: {', '.join(spec.concept_ids) or 'n/a'}\n\n"
-        f"## Problem\n{spec.problem or 'TBD'}\n\n"
-        f"## Approach\n{spec.approach or 'TBD'}\n\n"
-        f"## Value\n{spec.value or 'TBD'}\n"
-    )
-
-
-def write_spec_drafts(specs: list[SpecDraft], codebase_root: str) -> list[str]:
-    """Write spec drafts into ``<codebase_root>/.specify/specs/kg-distilled/``."""
-    from .extractors.document import slug
-
-    out_dir = os.path.join(codebase_root, ".specify", "specs", "kg-distilled")
-    os.makedirs(out_dir, exist_ok=True)
-    paths = []
-    for s in specs:
-        path = os.path.join(out_dir, f"{slug(s.title)}.md")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(spec_to_markdown(s))
-        paths.append(path)
-    return paths
+# NOTE (Wave-6 D2): the raw ``spec_to_markdown``/``write_spec_drafts`` open()/write()
+# writer that dumped a prose file into ``.specify/specs/kg-distilled/`` was removed. The
+# autonomous loop now authors first-class DSTDD Spec+Tasks through the ONE writer,
+# ``agent_utilities.sdd.SDDManager.author_from_draft`` (CONCEPT:AU-AHE.sdd.loop-authored-spec),
+# so ``SpecDraft`` is purely the input adapter — one spec model, one writer, one node family.

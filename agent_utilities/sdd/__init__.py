@@ -29,6 +29,7 @@ from ..models import (
     Task,
     Tasks,
     TaskStatus,
+    UserStory,
 )
 
 T = TypeVar("T", ProjectConstitution, Spec, ImplementationPlan, Tasks, DesignDocument)
@@ -241,6 +242,77 @@ class SDDManager:
         spec = Spec(**data)
         self.save(spec, spec.feature_id)
         return spec
+
+    def author_from_draft(self, draft: Any, *, feature_id: str | None = None) -> Path:
+        """Author a first-class DSTDD Spec + Tasks from an autonomous SpecDraft (Wave-6 D2).
+
+        CONCEPT:AU-AHE.sdd.loop-authored-spec — the loop's distilled
+        :class:`~agent_utilities.knowledge_graph.enrichment.distill.SpecDraft` becomes a
+        typed :class:`~agent_utilities.models.sdd.Spec` (+ :class:`Tasks`) persisted through
+        the ONE writer (:meth:`save` → ``.specify/specs/<feature>/{spec.md,tasks.md}`` + the
+        ``:SDDArtifact`` KG node family), so the autonomous loop's output IS a first-class
+        DSTDD spec the constitution's artifact mandate and the human tooling both
+        understand — not a raw ``open()/write()`` fourth spec shape. ``SpecDraft`` is the
+        input adapter; ``Spec`` is the one spec model. Returns the ``spec.md`` path.
+        """
+        title = str(getattr(draft, "title", "") or "spec").strip() or "spec"
+        fid = feature_id or (re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "spec")
+        target_file = str(getattr(draft, "target_file", "") or "")
+        problem = str(getattr(draft, "problem", "") or "")
+        approach = str(getattr(draft, "approach", "") or "")
+        value = str(getattr(draft, "value", "") or "")
+        story = UserStory(
+            id=f"{fid}-us1",
+            title=title,
+            description=problem or approach or title,
+            acceptance_criteria=[value] if value else ["The approach is implemented and tested."],
+        )
+        spec = Spec(
+            feature_id=fid,
+            title=title,
+            user_stories=[story],
+            non_functional_requirements=[
+                "Zero regression: existing tests continue to pass.",
+                "Pre-commit hooks pass cleanly.",
+            ],
+            metadata={
+                "origin": "kg-distilled",
+                "target_file": target_file,
+                "target_codebase": str(getattr(draft, "target_codebase", "") or ""),
+                "concept_ids": list(getattr(draft, "concept_ids", []) or []),
+                "value_score": float(getattr(draft, "value_score", 0.0) or 0.0),
+            },
+        )
+        spec_path = self.save(spec, fid)
+        files = [target_file] if target_file else []
+        tasks = Tasks(
+            feature_id=fid,
+            tasks=[
+                Task(
+                    id="T1",
+                    title="Write the failing test that captures the acceptance criteria",
+                    file_paths=files,
+                ),
+                Task(
+                    id="T2",
+                    title="Implement the minimal change that makes it pass",
+                    depends_on=["T1"],
+                    file_paths=files,
+                ),
+                Task(
+                    id="T3",
+                    title="Wire the change into its extension point + docs",
+                    depends_on=["T2"],
+                ),
+                Task(
+                    id="T4",
+                    title="Run the full suite + pre-commit; fix all findings",
+                    depends_on=["T3"],
+                ),
+            ],
+        )
+        self.save(tasks, fid)
+        return spec_path
 
     def list_plans(self) -> list[dict[str, Any]]:
         """List all implementation plans in the workspace."""

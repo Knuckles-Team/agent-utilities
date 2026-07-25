@@ -157,6 +157,35 @@ def test_skill_coverage_track_folds_into_canonical_gap():
 
 
 # ---------------------------------------------------------------------------
+# W6.2 — the loop authors a first-class DSTDD Spec+Tasks via SDDManager
+# ---------------------------------------------------------------------------
+
+
+def test_sddmanager_authors_typed_spec_and_tasks_from_draft(tmp_path):
+    from agent_utilities.models import Spec, Tasks
+    from agent_utilities.sdd import SDDManager
+
+    mgr = SDDManager(tmp_path)
+    draft = _Draft(
+        "Add retrieval cache",
+        target_file="agent_utilities/retrieval/cache.py",
+        concept_ids=["c:1"],
+    )
+    spec_path = mgr.author_from_draft(draft)
+    # One writer, first-class DSTDD artifacts (not a raw kg-distilled prose file).
+    assert spec_path.exists() and spec_path.name == "spec.md"
+    assert (spec_path.parent / "tasks.md").exists()
+    # The one spec model round-trips (title/user stories via markdown).
+    loaded = mgr.load(Spec, "add-retrieval-cache")
+    assert loaded and loaded.title == "Add retrieval cache"
+    assert loaded.user_stories and loaded.user_stories[0].title == "Add retrieval cache"
+    # Tasks carry the D3 target_file so code-synthesis has a single-file target.
+    tasks = mgr.load(Tasks, "add-retrieval-cache")
+    assert tasks and len(tasks.tasks) == 4
+    assert tasks.tasks[1].file_paths == ["agent_utilities/retrieval/cache.py"]
+
+
+# ---------------------------------------------------------------------------
 # W6.8 — the 4th track: code-correctness/security-audit detector
 # ---------------------------------------------------------------------------
 

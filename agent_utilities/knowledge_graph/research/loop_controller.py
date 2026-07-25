@@ -3012,8 +3012,10 @@ class LoopController:
 
     def _distill_specs(self, topics: list[dict[str, Any]]) -> list[str]:
         """Distil ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/``."""
+        from agent_utilities.sdd import SDDManager
+
         from ..enrichment.cards import make_lite_llm_fn
-        from ..enrichment.distill import what_specs_could_we_build, write_spec_drafts
+        from ..enrichment.distill import what_specs_could_we_build
         from ..enrichment.extractors.document import Concept
 
         # Bounded inputs: the intake topics as concepts; edges/code maps left
@@ -3027,8 +3029,18 @@ class LoopController:
         )
         if not specs:
             return []
-        # propose_only: write DRAFTS under .specify/ only.
-        paths = write_spec_drafts(specs, self.codebase_root)
+        # W6.2 (D2, CONCEPT:AU-AHE.sdd.loop-authored-spec): author each draft as a
+        # first-class DSTDD Spec+Tasks through the ONE writer (SDDManager) —
+        # .specify/specs/<feature>/{spec.md,tasks.md} + the :SDDArtifact node family —
+        # instead of a raw open()/write() prose file. SpecDraft is now the input adapter.
+        mgr = SDDManager(self.codebase_root)
+        paths: list[str] = []
+        for draft in specs:
+            try:
+                paths.append(str(mgr.author_from_draft(draft)))
+            except Exception as e:  # noqa: BLE001 — authoring is best-effort
+                logger.debug("[W6.2] SDDManager authoring failed: %s", e)
+                paths.append("")
 
         # CONCEPT:AU-KG.research.close-distill-develop-seam — close the distill→develop seam. Persist each draft as a
         # first-class, queryable :SpecProposal (status pending_review) linked to its
