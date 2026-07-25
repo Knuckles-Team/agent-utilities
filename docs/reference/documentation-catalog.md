@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-351 publishable pages · 167 direct nav targets · 116 public capabilities · 699 action rows · 539 typed configuration fields · 340 runtime-only call-site inputs.
+353 publishable pages · 168 direct nav targets · 116 public capabilities · 712 action rows · 540 typed configuration fields · 341 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -123,6 +123,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Recipe — Tiny (all-local, zero-infra)](../recipes/tiny.md) — direct nav
 - [Recipe — Unified RSS ingestion (native RSS + FreshRSS + ScholarX arXiv)](../recipes/unified-feeds.md) — direct nav
 - [Recipe — Unified scheduling, the priority queue, and the ScholarX RSS research feed](../recipes/unified-scheduling.md) — direct nav
+- [Recipe — Unified self-contained graph-os (both MCP transports)](../recipes/unified-self-contained.md) — direct nav
 
 ## Examples
 
@@ -374,6 +375,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 ## Operations
 
 - [Backup, restore and cross-cell recovery](../operations/disaster-recovery.md) — direct nav
+- [Phase-10 cutover runbook — au 638ea524 + eg 2595a24 → live RKE2](../operations/phase10-cutover-runbook.md) — catalog
 - [Production cell runbook](../operations/production-cell-runbook.md) — direct nav
 
 ## Release

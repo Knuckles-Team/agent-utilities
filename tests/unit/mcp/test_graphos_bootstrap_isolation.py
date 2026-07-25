@@ -10,6 +10,8 @@ import time
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
@@ -707,3 +709,105 @@ def test_graphos_startup_failure_releases_process_authority(failure_point: str) 
         fleet.aclose.assert_awaited_once_with()
         mcp.run.assert_not_called()
         assert kg_server._PROCESS_SESSION is None
+
+
+@pytest.mark.parametrize("transport", ["stdio", "streamable-http"])
+def test_mcp_server_selects_local_engine_path_for_both_transports(
+    monkeypatch, tmp_path, transport: str
+) -> None:
+    """The unified/self-contained engine path is transport-agnostic (unified-
+    binary-program W-D). ``--transport`` selects only how ``graph-os`` itself
+    is served (stdio process-identity bootstrap vs. served-profile identity
+    enforcement); whether the ENGINE it uses is local or remote is decided
+    solely by ``GRAPH_SERVICE_ENDPOINTS`` via the one engine resolver
+    (``engine_resolver.resolve_engine``). Nothing in ``mcp_server()`` branches
+    on transport between minting the process session and calling
+    ``_get_engine()`` — this proves it by letting the REAL resolver run (with
+    only the deepest socket-probe location patched to a private tmp_path so
+    the test never depends on ambient engine state) and asserting a
+    non-"remote" resolution for BOTH transports when
+    ``GRAPH_SERVICE_ENDPOINTS`` is unset.
+    """
+    from agent_utilities.knowledge_graph.core import engine_resolver as er
+    from agent_utilities.mcp import kg_server
+
+    monkeypatch.delenv("GRAPH_SERVICE_ENDPOINTS", raising=False)
+    sock_path = str(tmp_path / "unified-local-engine.sock")
+    monkeypatch.setattr(er, "resolve_endpoints", lambda _cfg: [f"unix://{sock_path}"])
+
+    real_resolve_engine = er.resolve_engine
+    resolved_calls: list[Any] = []
+    seen_endpoints_configured: list[bool] = []
+
+    def _spy_get_engine():
+        from agent_utilities.core.config import AgentConfig
+
+        cfg = AgentConfig()
+        seen_endpoints_configured.append(bool(cfg.graph_service_endpoints))
+        resolved_calls.append(real_resolve_engine(cfg, "__commons__"))
+        return SimpleNamespace(backend=None)
+
+    args = MagicMock()
+    args.transport = transport
+    args.host = "127.0.0.1"
+    args.port = 8000
+    args.auth_type = "none"
+    mcp = MagicMock()
+    fleet = MagicMock()
+    fleet.aclose = AsyncMock()
+    session = _verified_session("unified-bootstrap")
+
+    with (
+        patch("agent_utilities.core.config.load_config"),
+        patch.object(kg_server, "_configure_graphos_otel"),
+        patch.object(kg_server, "_build_server", return_value=(args, mcp, [])),
+        patch(
+            "agent_utilities.mcp.multiplexer.attach_fleet_loader",
+            return_value=fleet,
+        ),
+        patch.object(kg_server, "_mint_process_session", return_value=session),
+        patch.object(kg_server, "_start_process_authority_supervisor"),
+        patch.object(kg_server, "_stop_process_authority_supervisor"),
+        patch(
+            "agent_utilities.security.request_identity.apply_served_security_profile"
+        ),
+        patch(
+            "agent_utilities.mcp.server_factory.mcp_network_run_kwargs",
+            return_value={},
+        ),
+        patch.object(kg_server, "_get_engine", side_effect=_spy_get_engine),
+        patch.object(
+            kg_server,
+            "_ensure_bundled_skills_ready",
+            return_value={
+                "required": 0,
+                "already_ready": 0,
+                "ingested": 0,
+                "ready": 0,
+            },
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
+            return_value=MagicMock(),
+        ),
+        patch.object(kg_server, "_PROCESS_SESSION", None),
+    ):
+        kg_server.mcp_server()
+
+    # _get_engine() is reached at least once (the readiness barrier) — for
+    # streamable-http it is reached a second time (start_co_services) too;
+    # every reachable call must see the SAME unset-endpoints, non-remote
+    # resolution, proving the selection is transport-symmetric.
+    assert resolved_calls, "mcp_server() never reached the engine resolver"
+    assert seen_endpoints_configured == [False] * len(seen_endpoints_configured)
+    assert all(resolved.mode != "remote" for resolved in resolved_calls)
+    assert all(
+        resolved.endpoint == f"unix://{sock_path}" for resolved in resolved_calls
+    )
+
+    if transport == "stdio":
+        mcp.run.assert_called_once_with(transport="stdio")
+    else:
+        mcp.run.assert_called_once_with(
+            transport="streamable-http", host="127.0.0.1", port=8000
+        )

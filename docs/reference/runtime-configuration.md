@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-539 typed fields · 341 runtime-only call-site inputs.
+540 typed fields · 341 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -372,6 +372,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `KG_BREADTH_REPO_ROOTS` | `str` | `` |
 | `KG_LOOP` | `bool` | `False` |
 | `KG_LOOP_DISTILL` | `bool` | `False` |
+| `KG_LOOP_AUDIT` | `bool` | `False` |
 | `KG_LOOP_DISCOVER` | `bool` | `False` |
 | `KG_LOOP_BREADTH` | `bool` | `True` |
 | `KG_LOOP_STANDARDIZE` | `bool` | `False` |
@@ -723,6 +724,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `ARPO_MAX_BRANCHES` | 1 |
 | `ASSIMILATION_ENGINE_PAGERANK` | 1 |
 | `ASSIMILATION_SYNTH_TIMEOUT_S` | 1 |
+| `AUDIT_REVIEW_TIMEOUT_S` | 1 |
 | `BACKSTAGE_FILE` | 1 |
 | `BAO_URL` | 1 |
 | `BINANCE_API_KEY` | 1 |
@@ -1020,6 +1022,5 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `WORKSPACE_TOOLS` | 1 |
 | `XDG_CONFIG_HOME` | 2 |
 | `XDG_RUNTIME_DIR` | 2 |
-| `XDG_STATE_HOME` | 1 |
 | `X_TOOLS` | 1 |
 | `kg_trust_hierarchy` | 1 |

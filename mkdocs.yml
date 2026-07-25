@@ -75,6 +75,7 @@ nav:
       - Day-0 Deployment: guides/day0.md
       - Standard Private Repos + CI (per profile): guides/genesis-private-repos.md
       - Recipe — Tiny (all-local): recipes/tiny.md
+      - Recipe — Unified self-contained (both MCP transports): recipes/unified-self-contained.md
       - Sovereign / Self-Hosted (+ air-gap path): guides/sovereign-self-hosted.md
       - Recipe — Single-node prod: recipes/single-node-prod.md
       - Recipe — Enterprise: recipes/enterprise.md
