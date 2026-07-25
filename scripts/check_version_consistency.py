@@ -182,7 +182,13 @@ def validate(root: Path = ROOT) -> list[str]:
     server_markers = {
         "agent_utilities/mcp/server_factory.py": (
             "version: str = __version__",
-            "FastMCP(name, version=version",
+            # Format-robust: the FastMCP(...) call is exploded onto multiple lines
+            # once it carries the fleet-registration ``lifespan=`` arg (>88 cols),
+            # so match the construction + the version kwarg separately rather than
+            # a single brittle contiguous literal. Intent unchanged: the server is
+            # built with ``version=version`` defaulting to ``__version__``.
+            "FastMCP(",
+            "version=version,",
         ),
         "agent_utilities/mcp/kg_server.py": ("version=__version__",),
         "agent_utilities/mcp/harness_server.py": ("version=__version__",),
