@@ -224,36 +224,69 @@ def test_pdf_conformance_artifact_bundle_loci_embeddings_queryable(monkeypatch):
     assert len(result.span_evidence_ids) == 2
     assert len(result.ocr_box_evidence_ids) == 2  # page 1's two boxes only
 
+    # Governed `eg_modality::EvidenceLocus` — W3.3 (au-loci) retired the
+    # externally-tagged `evidence_span` shape in favour of `_governed_locus`'s
+    # `{id, subject, address, policy_ref, derivation_ref}` (identity lives in
+    # `subject`/`about`, so the address carries the variant's OWN fields only —
+    # no `document_id`/`image_id`; the kind is the snake_case `EvidenceAddress`
+    # variant tag). The sidecar producers auto-inherit this via MediaStore.
     page1_evidence = client.nodes.properties(result.page_evidence_ids[0])
-    assert page1_evidence["evidence_span"] == {
-        "PageBox": {
-            "document_id": "doc-quarterly-report",
+    page1_locus_token = result.page_evidence_ids[0].split(":", 1)[1]
+    page1_occurrence_token = page1_evidence["occurrence_id"].split(":", 1)[1]
+    assert page1_evidence["evidence_locus"] == {
+        "id": f"eg:locus:{page1_locus_token}",
+        "subject": {
+            "kind": "occurrence",
+            "id": f"eg:occurrence:{page1_occurrence_token}",
+        },
+        "address": {
+            "kind": "page_region",
             "page": 1,
             "x": 0.0,
             "y": 0.0,
             "width": 612.0,
             "height": 792.0,
-        }
+        },
+        "policy_ref": f"eg:policy:{page1_locus_token}",
+        "derivation_ref": f"eg:derivation:{page1_locus_token}",
     }
 
     span1_evidence = client.nodes.properties(result.span_evidence_ids[0])
-    assert span1_evidence["evidence_span"] == {
-        "DocumentSpan": {
-            "document_id": "doc-quarterly-report",
+    span1_locus_token = result.span_evidence_ids[0].split(":", 1)[1]
+    span1_occurrence_token = span1_evidence["occurrence_id"].split(":", 1)[1]
+    assert span1_evidence["evidence_locus"] == {
+        "id": f"eg:locus:{span1_locus_token}",
+        "subject": {
+            "kind": "occurrence",
+            "id": f"eg:occurrence:{span1_occurrence_token}",
+        },
+        "address": {
+            "kind": "character_range",
             "start": 0,
             "end": len("Quarterly revenue rose 12%."),
-        }
+        },
+        "policy_ref": f"eg:policy:{span1_locus_token}",
+        "derivation_ref": f"eg:derivation:{span1_locus_token}",
     }
 
     box_evidence = client.nodes.properties(result.ocr_box_evidence_ids[0])
-    assert box_evidence["evidence_span"] == {
-        "ImageRegion": {
-            "image_id": "doc-quarterly-report:page1",
+    box_locus_token = result.ocr_box_evidence_ids[0].split(":", 1)[1]
+    box_occurrence_token = box_evidence["occurrence_id"].split(":", 1)[1]
+    assert box_evidence["evidence_locus"] == {
+        "id": f"eg:locus:{box_locus_token}",
+        "subject": {
+            "kind": "occurrence",
+            "id": f"eg:occurrence:{box_occurrence_token}",
+        },
+        "address": {
+            "kind": "image_region",
             "x": 10.0,
             "y": 20.0,
             "width": 100.0,
             "height": 12.0,
-        }
+        },
+        "policy_ref": f"eg:policy:{box_locus_token}",
+        "derivation_ref": f"eg:derivation:{box_locus_token}",
     }
 
     # -- embeddings: page 1's embedding rode through to its PageBox occurrence --

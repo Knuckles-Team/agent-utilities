@@ -225,15 +225,27 @@ def test_jpeg_conformance_artifact_phash_regions_embedding_queryable(monkeypatch
 
     # -- region loci: one ImageRegion per detected region --
     assert len(result.region_evidence_ids) == 2
+    # Governed `eg_modality::EvidenceLocus` — W3.3 (au-loci) retired the
+    # externally-tagged `evidence_span` shape; `image_region` address carries the
+    # box's OWN fields only (image_id identity lives in `subject`/`about`).
     region1 = client.nodes.properties(result.region_evidence_ids[0])
-    assert region1["evidence_span"] == {
-        "ImageRegion": {
-            "image_id": "img-portrait-1",
+    region1_locus_token = result.region_evidence_ids[0].split(":", 1)[1]
+    region1_occurrence_token = region1["occurrence_id"].split(":", 1)[1]
+    assert region1["evidence_locus"] == {
+        "id": f"eg:locus:{region1_locus_token}",
+        "subject": {
+            "kind": "occurrence",
+            "id": f"eg:occurrence:{region1_occurrence_token}",
+        },
+        "address": {
+            "kind": "image_region",
             "x": 5.0,
             "y": 6.0,
             "width": 40.0,
             "height": 40.0,
-        }
+        },
+        "policy_ref": f"eg:policy:{region1_locus_token}",
+        "derivation_ref": f"eg:derivation:{region1_locus_token}",
     }
 
     # -- queryable: both region loci SUPPORT the ONE governed claim --
