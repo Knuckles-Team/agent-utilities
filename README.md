@@ -382,7 +382,7 @@ database, no daemon, no Docker — just the one stdio process:
 }
 ```
 
-That is the whole thing — omitting `ENGINE_MODE`/`ENGINE_ENDPOINT`/`EPISTEMIC_GRAPH_AUTOSTART`
+That is the whole thing — omitting `GRAPH_SERVICE_ENDPOINTS`
 selects the zero-infra path where graph-os provisions the engine itself. (Optional:
 `GRAPH_SERVICE_PERSIST_DIR=/path` to pin the durable store somewhere specific, or
 `MCP_CONFIG` to point at a fleet file so `find_tools`/`load_tools` can mount other `*-mcp`
@@ -415,9 +415,7 @@ and a Keycloak-protected `*-mcp` fleet, set the engine-connection + fleet-auth g
         "MCP_TOOL_MODE": "intent",
         "MCP_CONFIG": "${workspaceFolder}/mcp_config.json",
 
-        "ENGINE_MODE": "remote",
-        "ENGINE_ENDPOINT": "tcp://engine-host.example:9100",
-        "EPISTEMIC_GRAPH_AUTOSTART": "0",
+        "GRAPH_SERVICE_ENDPOINTS": "tcp://engine-host.example:9100",
 
         "MCP_CLIENT_AUTH": "oidc-client-credentials",
         "OIDC_ISSUER": "https://idp.example.com/realms/agent-utilities",
@@ -438,8 +436,8 @@ anymore**.
 > (Claude Code, opencode, agents) use the **single-user stdio** form above: each spawns its
 > *own* local `graph-os` that performs the OIDC client-credentials flow (they can't mint the
 > gateway JWT themselves). Deployed/service clients use the **shared instance** at
-> `https://graph-os.example.com/mcp`. Both are the *same* graph-os where it matters — `ENGINE_MODE=remote`
-> + `ENGINE_ENDPOINT` point every client at the one shared engine, and `MCP_CONFIG` at the one
+> `https://graph-os.example.com/mcp`. Both are the *same* graph-os where it matters — `GRAPH_SERVICE_ENDPOINTS`
+> points every client at the one shared engine, and `MCP_CONFIG` at the one
 > canonical fleet list. See [Consumption Models](docs/guides/consumption-models.md).
 
 Env vars, by group:
@@ -448,10 +446,10 @@ Env vars, by group:
   (`condensed`|`verbose`|`both`), and `MCP_CONFIG` → your **fleet** file (the `mcpServers`
   map of every `*-mcp` server graph-os may mount on demand). Ask
   `find_tools("<what you need>")` then `load_tools(servers=[...])` to pull fleet tools in live.
-- **Engine connection (split-storage / remote engine):** `ENGINE_MODE=remote` +
-  `ENGINE_ENDPOINT=tcp://<engine-host>:9100` + `EPISTEMIC_GRAPH_AUTOSTART=0` point graph-os at a
-  shared `epistemic-graph` engine (e.g. the fast-NVMe node) instead of autostarting a local
-  one. **Omit all three** for the zero-infra default, where graph-os autostarts a local engine.
+- **Engine connection (split-storage / remote engine):** `GRAPH_SERVICE_ENDPOINTS=tcp://<engine-host>:9100`
+  points graph-os at a shared `epistemic-graph` engine (e.g. the fast-NVMe node) instead of
+  autostarting a local one. **Omit it** for the zero-infra default, where graph-os autostarts a
+  local engine.
 - **Fleet auth (only when the `*-mcp` fleet is Keycloak-protected):** graph-os mints a
   **Keycloak client-credentials** bearer and attaches it to every child call —
   `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_ISSUER` (token endpoint auto-discovered),

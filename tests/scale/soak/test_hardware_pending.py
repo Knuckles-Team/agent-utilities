@@ -17,7 +17,7 @@ Run for real (manually, against real infrastructure) with:
         --engine live --scale 1.0 --duration-s <hours-in-seconds> \\
         --workers 800 --report-json soak-report.json
 
-pointed at a deployed fleet (``ENGINE_ENDPOINT`` set, real Kafka/Postgres
+pointed at a deployed fleet (``GRAPH_SERVICE_ENDPOINTS`` set, real Kafka/Postgres
 shards per ``docs/architecture/agent_dispatch.md`` / ``engine_sharding.md``),
 with the specific fault (broker rebalance, node loss, etc.) injected by the
 operator via the platform's own chaos tooling (``container-manager-mcp``

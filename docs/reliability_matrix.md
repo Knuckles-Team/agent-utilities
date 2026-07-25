@@ -238,7 +238,7 @@ DEMONSTRATED one.
 
 **To run these for real** (per each test's docstring, and
 `test_hardware_pending.py`'s module docstring): deploy the fleet with
-`ENGINE_ENDPOINT` set and real Kafka/Postgres shards
+`GRAPH_SERVICE_ENDPOINTS` set and real Kafka/Postgres shards
 (`docs/architecture/agent_dispatch.md` / `engine_sharding.md`), inject the
 specific fault via the platform's own chaos tooling (`container-manager-mcp`
 node/service kill, or the swarm/k8s supervisory plane's pause/kill actions —
