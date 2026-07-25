@@ -36,14 +36,8 @@ from agent_utilities.base_utilities import (
     to_boolean,
 )
 from agent_utilities.capabilities import (
-    CheckpointMiddleware,
-    ContextLimitWarner,
     HooksCapability,
-    InMemoryCheckpointStore,
-    MementoCompaction,
-    StuckLoopDetection,
-    TeamCapability,
-    ToolOutputEviction,
+    default_runtime_capabilities,
 )
 from agent_utilities.core.config import (
     DEFAULT_AGENT_NAME,
@@ -591,53 +585,35 @@ def create_agent(
         if "AgentBus" not in system_prompt_str:
             system_prompt_str = f"{system_prompt_str}\n\n{bus_capability_prompt()}"
 
-    # Initialize Capabilities
-    agent_capabilities: list[Any] = []
+    # Assemble the default-ON reliability capabilities (the single composition seam):
+    # stuck-loop / context-warnings / tool-output-eviction /
+    # live Memento compaction, + optional checkpoint / teams) from the SAME shared
+    # factory that create_context_agent applies to every other agent, so a factory-built
+    # agent and a directly-built graph/KG agent can never drift. Build the hooks list
+    # first (incl. the RLM large-output hook) so HooksCapability captures the full set.
+    all_hooks = list(hooks or [])
+    if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
+        try:
+            from agent_utilities.rlm.hook import rlm_large_output_hook
 
-    if stuck_loop_detection:
-        agent_capabilities.append(
-            StuckLoopDetection(
-                max_repeated=stuck_loop_max_repeated,
-                action=stuck_loop_action,
-            )
-        )
+            all_hooks.append(rlm_large_output_hook)
+        except ImportError:
+            pass
 
-    if context_warnings:
-        agent_capabilities.append(
-            ContextLimitWarner(
-                max_tokens=max_context_tokens,
-            )
-        )
-
-    if output_eviction:
-        agent_capabilities.append(
-            ToolOutputEviction(
-                threshold_chars=eviction_threshold_chars,
-            )
-        )
-
-    # CONCEPT:AU-KG.memory.memento-compress-evict — live Memento block-compress-evict sawtooth (default ON). Where
-    # ContextLimitWarner only *warns* and ToolOutputEviction only handles oversized tool results,
-    # this evicts old completed reasoning blocks from the message history, replacing each with a
-    # dense memento, when the running context exceeds budget.
-    if memento_compaction:
-        agent_capabilities.append(
-            MementoCompaction(
-                max_tokens=max_context_tokens,
-            )
-        )
-
-    if include_checkpoints:
-        store = checkpoint_store or InMemoryCheckpointStore()
-        agent_capabilities.append(
-            CheckpointMiddleware(
-                store=store,
-                frequency=checkpoint_frequency,
-            )
-        )
-
-    if include_teams:
-        agent_capabilities.append(TeamCapability())
+    agent_capabilities: list[Any] = default_runtime_capabilities(
+        stuck_loop_detection=stuck_loop_detection,
+        stuck_loop_max_repeated=stuck_loop_max_repeated,
+        stuck_loop_action=stuck_loop_action,
+        context_warnings=context_warnings,
+        max_context_tokens=max_context_tokens,
+        output_eviction=output_eviction,
+        eviction_threshold_chars=eviction_threshold_chars,
+        memento_compaction=memento_compaction,
+        include_checkpoints=include_checkpoints,
+        checkpoint_store=checkpoint_store,
+        checkpoint_frequency=checkpoint_frequency,
+        include_teams=include_teams,
+    )
 
     # CONCEPT:AU-ORCH.routing.sampling-profile-selection (v2 synergy) — native provider-side extended thinking. Opt-in
     # because reasoning is expensive: enabled via the thinking_effort arg or the
@@ -666,17 +642,8 @@ def create_agent(
             _VALID_THINKING_EFFORTS,
         )
 
-    # Unified Hooks
-    all_hooks = hooks or []
+    # Unified Hooks — captures the full hooks list assembled above (incl. RLM).
     agent_capabilities.append(HooksCapability(hooks=all_hooks))
-
-    if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
-        try:
-            from agent_utilities.rlm.hook import rlm_large_output_hook
-
-            all_hooks.append(rlm_large_output_hook)
-        except ImportError:
-            pass
 
     # CONCEPT (v2 synergy) — on-demand tool loading: keep agent-local toolsets out of
     # the prompt as a one-line catalog until the model loads them, cutting prompt bloat
@@ -705,6 +672,10 @@ def create_agent(
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
         deps_type=AgentDeps,
         capabilities=agent_capabilities,
+        # create_agent has already assembled the complete, flag-respecting capability
+        # set (via the shared default_runtime_capabilities factory), so the single
+        # composition seam must not re-add defaults on top of an explicit opt-out.
+        default_capabilities=False,
         # pydantic-ai v2 default; set explicitly. Function tools requested
         # alongside an output/deferred tool now run — side-effecting tools are
         # kept safe by the tool_guard ApprovalRequiredToolset (they become
