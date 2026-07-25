@@ -690,8 +690,18 @@ def _record_execution(
     publisher_name: str,
     result: PublishResult,
     source: str,
+    *,
+    spec_version_id: str | None = None,
 ) -> str | None:
-    """Stamp the ``ActionExecution`` audit node (mirrors fleet actuation's)."""
+    """Stamp the ``ActionExecution`` audit node (mirrors fleet actuation's).
+
+    Wave-6 D6 (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle): besides the redacted
+    ``target_ref`` display string, write the REAL graph edges that unify the provenance
+    chain — ``(:ActionExecution)-[:EXECUTES]->(:SpecProposal)`` and, closing it,
+    ``(:spec_version)-[:PUBLISHED_AS]->(:ActionExecution)``. A single traversal now
+    answers "which gap produced which commit, and did it close?" instead of
+    string-matching an opaque reference.
+    """
     if engine is None:
         return None
     execution_id = f"action_execution:{uuid.uuid4().hex}"
@@ -724,6 +734,17 @@ def _record_execution(
     except Exception as exc:  # noqa: BLE001
         logger.debug("Execution record failed: error_type=%s", type(exc).__name__)
         return None
+    # D6 provenance edges (graph ids, not secrets — best-effort; never blocks publish).
+    link = getattr(engine, "link_nodes", None)
+    if callable(link):
+        try:
+            link(execution_id, proposal_id, "EXECUTES")
+            if spec_version_id:
+                link(spec_version_id, execution_id, "PUBLISHED_AS")
+        except Exception as exc:  # noqa: BLE001 — edges are best-effort
+            logger.debug(
+                "Execution edge write failed: error_type=%s", type(exc).__name__
+            )
     return execution_id
 
 
@@ -969,11 +990,19 @@ def governed_publish(
 
     # D4: record the SDD/develop vector on the unified matrix (published ⇒ active,
     # reverted ⇒ rejected), linked (:SpecProposal)-[:IMPLEMENTED_BY]->(:spec_version).
+    spec_version_id = None
     if report["status"] in ("published", "reverted"):
-        _record_spec_version(engine, proposal_id, result, report["status"], source)
+        spec_version_id = _record_spec_version(
+            engine, proposal_id, result, report["status"], source
+        )
 
     execution_id = _record_execution(
-        engine, proposal_id, getattr(pub, "name", "?"), result, source
+        engine,
+        proposal_id,
+        getattr(pub, "name", "?"),
+        result,
+        source,
+        spec_version_id=spec_version_id,
     )
     report["execution_ref"] = (
         _reference("action_execution", execution_id) if execution_id else None
