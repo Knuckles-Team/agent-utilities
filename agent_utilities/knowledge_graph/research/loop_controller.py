@@ -2121,6 +2121,14 @@ class LoopController:
 
             res = develop_spec(self.engine, spec_id)
             status = str(res.get("status", ""))
+            # D5 — close the loop: on publish, walk this develop-Loop's RESOLVES edge
+            # back to the origin gap and flip it to resolved (the graph-native seam,
+            # idempotent with develop_spec's property-based close). The chain gets its
+            # visible END.
+            if status == "published":
+                from .gaps import resolve_gaps_for_loop
+
+                resolve_gaps_for_loop(self.engine, loop["id"])
             # 'published'/'approval_queued' = the governed pipeline ran + queued a
             # reviewable branch → the develop step did its job (complete). Hard
             # failures stop the loop rather than retrying a broken synthesis forever.
