@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-07-24T14:48:52Z",
-  "row_count": 365,
+  "cached_at": "2026-07-25T03:53:54Z",
+  "row_count": 372,
   "rows": {
     "AddEdge": {
       "audited": "true",
@@ -133,6 +133,17 @@
       "mutates": "true",
       "note": "state-backed MutationBatch",
       "txn_participation": "Atomic"
+    },
+    "AuditProveInclusion": {
+      "audited": "false",
+      "authz_action": "security:audit",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "AuditProveInclusion",
+      "mutates": "false",
+      "note": "provenance anchoring: Merkle inclusion proof for one node against a prior PROVENANCE_ANCHOR audit-chain entry",
+      "txn_participation": "Snapshot"
     },
     "AuditVerify": {
       "audited": "false",
@@ -2774,6 +2785,61 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "MiningPipelineCompare": {
+      "audited": "false",
+      "authz_action": "mining:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "MiningPipelineCompare",
+      "mutates": "false",
+      "note": "read-only: diffs two model versions' held-out metrics",
+      "txn_participation": "Snapshot"
+    },
+    "MiningPipelineEvaluate": {
+      "audited": "false",
+      "authz_action": "mining:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "MiningPipelineEvaluate",
+      "mutates": "false",
+      "note": "read-only: scores a stored versioned model against a labeled set",
+      "txn_participation": "Snapshot"
+    },
+    "MiningPipelinePredict": {
+      "audited": "true",
+      "authz_action": "mining:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "false",
+      "method": "MiningPipelinePredict",
+      "mutates": "~true",
+      "note": "mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field (materializes :Prediction nodes)",
+      "txn_participation": "Atomic"
+    },
+    "MiningPipelineServe": {
+      "audited": "true",
+      "authz_action": "mining:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "false",
+      "method": "MiningPipelineServe",
+      "mutates": "true",
+      "note": "always writes the :ServedModel pointer to deploy a version",
+      "txn_participation": "Atomic"
+    },
+    "MiningPipelineTrain": {
+      "audited": "true",
+      "authz_action": "mining:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "false",
+      "method": "MiningPipelineTrain",
+      "mutates": "~true",
+      "note": "mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field (persists a versioned :Model artifact)",
+      "txn_participation": "Atomic"
+    },
     "MultiGraphBatchUpdate": {
       "audited": "false",
       "authz_action": "node:write",
@@ -3201,6 +3267,17 @@
       "method": "RegisterIdentity",
       "mutates": "true",
       "note": "RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX",
+      "txn_participation": "Atomic"
+    },
+    "RegisterServer": {
+      "audited": "true",
+      "authz_action": "registry:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "true",
+      "method": "RegisterServer",
+      "mutates": "true",
+      "note": "W2.5 fleet server push-registration/heartbeat: self-translates into Method::AddNode against __commons__ (dispatch.rs), writing a REAL :Server graph node -- unlike NodeInfoUpsert above, this one IS a KG entity the fleet queries",
       "txn_participation": "Atomic"
     },
     "RegisterTrigger": {
