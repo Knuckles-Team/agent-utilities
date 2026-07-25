@@ -320,7 +320,14 @@ def emit_saturation_signal(engine: Any, gauge: dict[str, Any]) -> str | None:
 #: of a label that does not exist on disk. Extend this tuple when a new
 #: ``ArtifactVersionNode`` subclass starts persisting (e.g. a future
 #: ``tool_description_version``).
-ARTIFACT_VERSION_LABELS: tuple[str, ...] = ("skill_version", "prompt_version")
+ARTIFACT_VERSION_LABELS: tuple[str, ...] = (
+    "skill_version",
+    "prompt_version",
+    # Wave-6 D4 (CONCEPT:AU-AHE.harness.unified-promotion-gate): the SDD/develop vector,
+    # written by change_publisher.governed_publish on every publish outcome — so the
+    # cross-vector matrix is no longer blind to spec/develop promotions.
+    "spec_version",
+)
 
 
 def artifact_evolution_summary(

@@ -74,7 +74,9 @@ def test_one_label_query_failure_does_not_block_the_others():
         def query_cypher(self, q, params=None):
             if "skill_version" in q:
                 raise RuntimeError("backend down")
-            return [{"id": "pv1", "status": "active", "artifact_kind": "prompt"}]
+            if "prompt_version" in q:
+                return [{"id": "pv1", "status": "active", "artifact_kind": "prompt"}]
+            return []  # spec_version (and any other scanned label): empty
 
     summary = artifact_evolution_summary(_PartlyBroken())
     assert summary["total"] == 1

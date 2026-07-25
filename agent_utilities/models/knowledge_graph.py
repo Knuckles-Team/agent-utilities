@@ -68,6 +68,10 @@ class RegistryNodeType(StrEnum):
     # a content-addressed revision of a SKILL.md, gated onto "active" only by beating
     # its incumbent on a held-out benchmark AND clearing action_policy.decide().
     SKILL_VERSION = "skill_version"
+    # A published SDD/develop spec version on the unified promotion gate
+    # (CONCEPT:AU-AHE.harness.unified-promotion-gate, Wave-6 D4) — so the evolution
+    # matrix finally sees the spec/develop vector, not just skill/prompt.
+    SPEC_VERSION = "spec_version"
     ENTITY = "entity"
     EVENT = "event"
     REFLECTION = "reflection"
@@ -1631,6 +1635,23 @@ class SkillVersionNode(ArtifactVersionNode):
     # of the design doc); populated by ``record_transfer_score`` — opt-in, not swept
     # automatically.
     transfer_scores: dict[str, float] = Field(default_factory=dict)
+
+
+class SpecVersionNode(ArtifactVersionNode):
+    """A published version of an SDD/develop :SpecProposal (CONCEPT:AU-AHE.harness.unified-promotion-gate).
+
+    Wave-6 D4: ``governed_publish`` writes one on every publish outcome so the unified
+    evolution matrix (``artifact_evolution_summary``) sees the spec/develop vector
+    alongside skill/prompt versions — the blind spot the seam map flagged. It reuses
+    :class:`ArtifactVersionNode`'s lifecycle contract exactly (``status``: ``active``
+    on a published branch, ``rejected`` when the capability ratchet reverted it),
+    keyed by the originating proposal id.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SPEC_VERSION
+    spec_id: str = ""  # the originating :SpecProposal id
+    branch_ref: str = ""  # opaque, redacted reference to the published branch
+    commit_ref: str = ""  # opaque, redacted reference to the published commit
 
 
 class EntityNode(RegistryNode):
