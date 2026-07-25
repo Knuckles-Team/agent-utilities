@@ -93,6 +93,18 @@ metadata:
 # AGENT_UTILITIES_CONFIG_DIR, PYTHON*). Use the `kubectl patch` command above
 # instead — it changes only the two keys that matter and leaves everything
 # else (and every other live resource) untouched.
+#
+# CORRECTED 2026-07-25 (Phase-10 prep, `phase10/prep`): the Keycloak URLs below
+# were stale `http://` (and the internal `keycloak.platform.svc:8080` form) —
+# production has run `https://keycloak.arpa` for AUTH_JWT_ISSUER/_JWKS_URI and
+# OIDC_ISSUER/_TOKEN_URL since before 2026-07-24 (confirmed against the live
+# `graph-os-env` ConfigMap, `kubectl get configmap graph-os-env -n platform`).
+# Using the old scheme/host as a literal apply source would have regressed the
+# issuer and broken JWKS validation for every already-issued token. Values below
+# now match live exactly. NOTE (found during this same verification, left
+# unchanged as out of scope for this fix): `OIDC_CLIENT_ID` below still reads
+# `mcp-multiplexer`; the live ConfigMap uses a dedicated `graph-os` Keycloak
+# client instead — a separate, pre-existing discrepancy in this reference file.
 data:
   # --- THE FIX -----------------------------------------------------------
   AUTH_TYPE: "jwt"                     # was missing (typo'd as MCP_AUTH_TYPE)
@@ -101,11 +113,11 @@ data:
   TRANSPORT: "streamable-http"
   HOST: "0.0.0.0"
   PORT: "8000"
-  AUTH_JWT_JWKS_URI: "http://keycloak.platform.svc:8080/realms/homelab/protocol/openid-connect/certs"
-  AUTH_JWT_ISSUER: "http://keycloak.arpa/realms/homelab"
+  AUTH_JWT_JWKS_URI: "https://keycloak.arpa/realms/homelab/protocol/openid-connect/certs"
+  AUTH_JWT_ISSUER: "https://keycloak.arpa/realms/homelab"
   AUTH_JWT_AUDIENCE: "agent-services"
-  FASTMCP_SERVER_AUTH_JWT_JWKS_URI: "http://keycloak.platform.svc:8080/realms/homelab/protocol/openid-connect/certs"
-  FASTMCP_SERVER_AUTH_JWT_ISSUER: "http://keycloak.arpa/realms/homelab"
+  FASTMCP_SERVER_AUTH_JWT_JWKS_URI: "https://keycloak.arpa/realms/homelab/protocol/openid-connect/certs"
+  FASTMCP_SERVER_AUTH_JWT_ISSUER: "https://keycloak.arpa/realms/homelab"
   FASTMCP_SERVER_AUTH_JWT_AUDIENCE: "agent-services"
   # --- RFC 9728 auto-refresh fix (reports/graphos-oauth-autorefresh.md) --
   # Wraps the jwt verifier in RemoteAuthProvider so graph-os advertises
@@ -120,8 +132,8 @@ data:
   MCP_CLIENT_AUTH: "oidc-client-credentials"
   OIDC_CLIENT_ID: "mcp-multiplexer"
   OIDC_AUDIENCE: "agent-services"
-  OIDC_ISSUER: "http://keycloak.arpa/realms/homelab"
-  OIDC_TOKEN_URL: "http://keycloak.platform.svc:8080/realms/homelab/protocol/openid-connect/token"
+  OIDC_ISSUER: "https://keycloak.arpa/realms/homelab"
+  OIDC_TOKEN_URL: "https://keycloak.arpa/realms/homelab/protocol/openid-connect/token"
   MCP_CONFIG: "/root/.config/agent-utilities/mcp_config.json"
 
 ---
