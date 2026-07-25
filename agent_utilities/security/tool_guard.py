@@ -19,18 +19,151 @@ Two mechanisms are provided:
    deferred request, and ALLOW executes. Missing identity policy is rejected.
    :func:`build_sensitive_tool_names` remains the registry projection helper
    for native tool metadata; it is not an MCP authorization fallback.
+
+CONCEPT:AU-OS.identity.identity-policy-check — PA-R1 adoption note: the per-call verdict
+``flag_mcp_tool_definitions`` feeds into ``ApprovalRequiredToolset`` is now computed by
+:class:`PermissionPolicy`, an adapter shaped like the pydantic-ai-harness
+``permission_policy.PermissionPolicy`` capability (``rules`` + ``default_verdict`` +
+``context_policy``, merged most-restrictive-wins — see ``open-source-libraries/
+pydantic-ai-harness-ppctx`` branch ``contrib/permission-policy-context``, PR #460's
+``context_policy`` contribution). This retires the prior raise-inside-bool hack (a
+``PermissionError`` raised from inside what is otherwise a bool-returning predicate,
+with the ontological-guardrail check, the identity decision, and error handling
+tangled into one branch) in favor of a clean three-way :class:`Decision`
+(``allow``/``ask``/``deny``) computed from two channels — the built-in
+ontological-guardrail check and a ``context_policy`` wrapping ``PermissionsKernel.
+authorize_tool`` — and merged via :func:`more_restrictive`. This is an ADAPTER, not a
+governance rewrite: ``PermissionsKernel.authorize_tool`` (identity/RBAC) and
+``orchestration/action_policy.py`` (the operational ActionPolicy decision point) are
+unchanged, deny-by-default is preserved, and the ``PermissionError``-on-deny /
+``ApprovalRequired``-on-ask / execute-on-allow enforcement contract at the
+``ApprovalRequiredToolset`` boundary — including "authority denial is a terminal
+contract, never retried" (``graph/_router_impl.py``) — is unchanged.
 """
 
 
 import contextlib
+import fnmatch
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+Verdict = Literal["allow", "ask", "deny"]
+"""Three-way tool-call decision. Mirrors the adopted pydantic-ai-harness
+``permission_policy.Verdict`` shape (``'allow' | 'ask' | 'deny'``) so au's gating
+composes with the same merge semantics the harness capability uses."""
+
+_RANK: dict[Verdict, int] = {"allow": 0, "ask": 1, "deny": 2}
+
+
+@dataclass(frozen=True)
+class Decision:
+    """A resolved :data:`Verdict` with its reason and the channel that produced it."""
+
+    verdict: Verdict
+    reason: str
+    source: str  # "rule" | "ontological-guardrail" | "context-policy" | "default"
+
+
+def more_restrictive(current: Decision, other: Decision) -> Decision:
+    """Merge two decisions most-restrictive-wins (``deny > ask > allow``); a tie keeps ``current``.
+
+    Mirrors ``pydantic_ai_harness.permission_policy.more_restrictive`` — the merge law
+    that lets a ``context_policy`` TIGHTEN a decision (deny a call a rule would allow)
+    but never loosen one (an ``allow`` from ``context_policy`` cannot override a rule
+    or default that already says ``deny``/``ask``).
+    """
+    return other if _RANK[other.verdict] > _RANK[current.verdict] else current
+
+
+ContextPolicy = Callable[[Any, str, dict[str, Any]], Verdict | None]
+"""A decision channel keyed on the run context -- caller identity/tenant/role -- for
+access decisions the tool name and args alone can't express. Returns a verdict to
+contribute, or ``None`` to abstain. Merged most-restrictive-wins (:func:`more_restrictive`),
+so it can only TIGHTEN a decision, never loosen one -- PR #460's contribution to
+pydantic-ai-harness's ``PermissionPolicy.context_policy``. Sync-only here: unlike upstream's
+``ContextPolicy`` (which also accepts an ``Awaitable[Verdict | None]``), au's integration
+point (``ApprovalRequiredToolset.approval_required_func``) is itself a synchronous
+predicate, so only the synchronous half of the adopted shape applies."""
+
+
+@dataclass(frozen=True)
+class Rule:
+    """One static allow/ask/deny rule, matched by an ``fnmatch`` glob over the tool name."""
+
+    verdict: Verdict
+    tool: str = "*"
+
+
+@dataclass
+class PermissionPolicy:
+    """Allow/ask/deny decision engine over tool calls (adapted from the pydantic-ai-harness
+    ``permission_policy.PermissionPolicy`` capability's decision shape).
+
+    Unlike the harness capability, this is a plain decision engine, not an
+    ``AbstractCapability``: au already has a native HITL wrap (``ApprovalRequiredToolset``
+    / ``ApprovalRequired``, CONCEPT:AU-OS.state.cognitive-scheduler-preemption) and a
+    KG-durable operational decision point (``orchestration/action_policy.py``) — this class
+    only cleans up HOW a per-call verdict is computed, not how it is enforced or audited.
+
+    Resolution: with no matching ``rules`` entry, the decision falls to
+    ``default_verdict`` (**deny-by-default**). ``context_policy`` is then merged in via
+    :func:`more_restrictive`, so it can only tighten what the rules produced, never
+    loosen it -- an identity/RBAC channel is a restriction layer, not a grant layer.
+    """
+
+    rules: list[Rule] = field(default_factory=list)
+    default_verdict: Verdict = "deny"
+    context_policy: ContextPolicy | None = None
+
+    def _rule_decision(self, tool_name: str) -> Decision | None:
+        """Last-match-wins verdict over ``rules`` (opencode semantics), or ``None`` when none match."""
+        verdict: Verdict | None = None
+        for rule in self.rules:
+            if fnmatch.fnmatchcase(tool_name, rule.tool):
+                verdict = rule.verdict
+        if verdict is None:
+            return None
+        return Decision(
+            verdict, reason=f"matched policy rule (tool={tool_name!r})", source="rule"
+        )
+
+    def decide(
+        self,
+        ctx: Any,
+        tool_name: str,
+        args: dict[str, Any],
+        *,
+        ontological_guardrail: Decision | None = None,
+    ) -> Decision:
+        """Resolve a verdict: ``rules``, the ontological-guardrail channel, and
+        ``context_policy`` -- most-restrictive-wins."""
+        decision = self._rule_decision(tool_name) or Decision(
+            self.default_verdict,
+            reason="no rule matched; using the default verdict",
+            source="default",
+        )
+        if ontological_guardrail is not None:
+            decision = more_restrictive(decision, ontological_guardrail)
+        if self.context_policy is not None:
+            verdict = self.context_policy(ctx, tool_name, args)
+            if verdict is not None:
+                decision = more_restrictive(
+                    decision,
+                    Decision(
+                        verdict,
+                        reason="matched context policy",
+                        source="context-policy",
+                    ),
+                )
+        return decision
 
 
 def is_identity_governed_toolset(toolset: Any) -> bool:
@@ -221,40 +354,79 @@ def flag_mcp_tool_definitions(
     def _requires_approval(
         _ctx: Any, tool_def: Any, _tool_args: dict[str, Any]
     ) -> bool:
+        """Compute the HITL bool for ``approval_required_func`` via :class:`PermissionPolicy`.
+
+        A baseline ``allow *`` rule seeds the policy so ``context_policy`` (identity)
+        can express its full allow/ask/deny range through the tighten-only merge —
+        reproducing the pre-adoption behavior where the identity decision alone
+        determined the outcome. ``default_verdict='deny'`` is the structural
+        deny-by-default floor a caller reaches only by supplying a stricter/empty
+        ``rules`` list (a deliberate lockdown lever this adapter now exposes).
+        """
         name = getattr(tool_def, "name", "")
 
-        # CONCEPT:AU-OS.safety.ontological-guardrail — Ontological Guardrails (real-time argument analysis)
-        if check_ontological_guardrails(name, _tool_args, engine=engine):
-            return True
+        # CONCEPT:AU-OS.safety.ontological-guardrail — real-time argument analysis, unchanged.
+        # A malformed/unavailable policy graph fails closed by raising PermissionError
+        # directly (propagates below, exactly as before this refactor).
+        ontological_hit = check_ontological_guardrails(name, _tool_args, engine=engine)
 
-        # CONCEPT:AU-OS.identity.identity-policy-check — mandatory identity policy.
-        try:
-            metadata = getattr(tool_def, "metadata", None)
-            required_capability = getattr(tool_def, "required_capability", None)
-            if required_capability is None and isinstance(metadata, dict):
-                required_capability = metadata.get("required_capability")
-            decision = permissions_kernel.authorize_tool(
-                agent_identity,
-                name,
-                required_capability=required_capability,
+        metadata = getattr(tool_def, "metadata", None)
+        required_capability = getattr(tool_def, "required_capability", None)
+        if required_capability is None and isinstance(metadata, dict):
+            required_capability = metadata.get("required_capability")
+
+        def _identity_context_policy(
+            _ctx2: Any, _tool_name: str, _args2: dict[str, Any]
+        ) -> Verdict:
+            # CONCEPT:AU-OS.identity.identity-policy-check — mandatory identity policy,
+            # adopted as the ``context_policy`` channel. A hard DENY is raised directly
+            # (not returned as a Decision) so the model-facing/log-facing message stays
+            # the exact, specific text it always was; ALLOW/REQUIRE_APPROVAL map onto
+            # the Verdict the tighten-only merge composes with the other channels.
+            try:
+                decision = permissions_kernel.authorize_tool(
+                    agent_identity,
+                    _tool_name,
+                    required_capability=required_capability,
+                )
+                decision_value = getattr(decision, "value", decision)
+                decision_name = str(decision_value).strip().lower().rsplit(".", 1)[-1]
+                if decision_name == "deny":
+                    # A hard authorization denial is not an approval request.
+                    # Converting it to HITL would let an approver bypass RBAC.
+                    raise PermissionError("Tool execution denied by identity policy")
+                if decision_name == "require_approval":
+                    return "ask"
+                if decision_name == "allow":
+                    return "allow"
+                raise PermissionError("Tool authorization returned no valid decision")
+            except PermissionError:
+                raise
+            except Exception as exc:
+                raise PermissionError(
+                    "Tool authorization unavailable; execution denied"
+                ) from exc
+
+        policy = PermissionPolicy(
+            rules=[Rule("allow", tool="*")],
+            default_verdict="deny",
+            context_policy=_identity_context_policy,
+        )
+        decision = policy.decide(
+            _ctx,
+            name,
+            _tool_args,
+            ontological_guardrail=Decision(
+                "ask",
+                reason="ontological guardrail matched",
+                source="ontological-guardrail",
             )
-            decision_value = getattr(decision, "value", decision)
-            decision_name = str(decision_value).strip().lower().rsplit(".", 1)[-1]
-            if decision_name == "deny":
-                # A hard authorization denial is not an approval request.
-                # Converting it to HITL would let an approver bypass RBAC.
-                raise PermissionError("Tool execution denied by identity policy")
-            if decision_name == "require_approval":
-                return True
-            if decision_name == "allow":
-                return False
-            raise PermissionError("Tool authorization returned no valid decision")
-        except PermissionError:
-            raise
-        except Exception as exc:
-            raise PermissionError(
-                "Tool authorization unavailable; execution denied"
-            ) from exc
+            if ontological_hit
+            else None,
+        )
+        if decision.verdict == "deny":
+            raise PermissionError(decision.reason)
+        return decision.verdict == "ask"
 
     wrapped: list[Any] = []
     for ts in toolsets:

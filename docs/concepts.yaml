@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1025
+total_concepts: 1026
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -734,14 +734,14 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   doc: when the outcome names the agent that produced it
 - id: AU-AHE.harness.when-task-is-scope
-  name: when a task is in scope, run a short self-guided
+  name: when a task is in scope, run a short
   pillar: AU-AHE
   status: live
   code_paths:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/self_guided_play.py
-  doc: when a task is in scope, run a short self-guided
+  doc: when a task is in scope, run a short
 - id: AU-AHE.harness.width-diverse-best-k
   name: width of the *diverse* best-of-k fan-out — harder
   pillar: AU-AHE
@@ -2045,6 +2045,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/mcp/tools/audit_tools.py
   doc: routes to the engine
+- id: AU-KG.audit.kg-native-audit-sink
+  name: PA-R1.7
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/composition.py
+  - agent_utilities/capabilities/kg_audit_sink.py
+  doc: PA-R1.7
 - id: AU-KG.audit.tool-call-acted-on-reverse-index
   name: AU-KG.audit.tool-call-acted-on-reverse-index
   pillar: AU-KG
@@ -4248,18 +4256,19 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/capabilities/compaction/_shared.py
   - agent_utilities/capabilities/memento.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/memory/lifecycle.py
   - agent_utilities/knowledge_graph/memory/memento_compressor.py
   doc: the live block-compress-evict sawtooth
 - id: AU-KG.memory.memento-compress-evict
-  name: live Memento block-compress-evict sawtooth
+  name: the live block-compress-evict sawtooth
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/agent/factory.py
-  doc: live Memento block-compress-evict sawtooth
+  - agent_utilities/capabilities/composition.py
+  doc: the live block-compress-evict sawtooth
 - id: AU-KG.memory.memory-lifecycle-manager
   name: Unified Memory Manager
   pillar: AU-KG
@@ -6526,13 +6535,13 @@ concepts:
   - agent_utilities/orchestration/manager.py
   doc: close the execution seam. This previously constructed a
 - id: AU-ORCH.execution.feed-cycle-outcome-fast
-  name: feed the cycle outcome to the Fast-Slow controller
+  name: feed the cycle outcome to the
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/fast_slow_controller.py
-  doc: feed the cycle outcome to the Fast-Slow controller
+  doc: feed the cycle outcome to the
 - id: AU-ORCH.execution.focused-tools-altitude
   name: the FOCUSED-TOOLS altitude is one agent loop that calls the
   pillar: AU-ORCH
@@ -7535,13 +7544,13 @@ concepts:
   - agent_utilities/rlm/sandboxes/wasm_backend.py
   doc: AU-ORCH.sandbox.wasm-backend
 - id: AU-ORCH.scheduling.also-fold-vllm-scheduler
-  name: also fold the vLLM scheduler
+  name: the vLLM scheduler
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/core/model_factory.py
   - agent_utilities/core/resource_priority.py
-  doc: also fold the vLLM scheduler
+  doc: the vLLM scheduler
 - id: AU-ORCH.scheduling.analysis-lane
   name: the LLM-extraction / deep-analysis phase is its OWN lane
   pillar: AU-ORCH
@@ -8619,7 +8628,7 @@ concepts:
   - agent_utilities/core/corrigibility.py
   doc: objective-level safety primitives for rising autonomy
 - id: AU-OS.safety.ontological-guardrail
-  name: Ontological Guardrail Engine
+  name: real-time argument analysis, unchanged
   pillar: AU-OS
   status: live
   code_paths:
@@ -8627,7 +8636,7 @@ concepts:
   - agent_utilities/gateway/fleet.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/security/tool_guard.py
-  doc: Ontological Guardrail Engine
+  doc: real-time argument analysis, unchanged
 - id: AU-OS.safety.prompt-injection-scanner
   name: Prompt Injection Scanner
   pillar: AU-OS

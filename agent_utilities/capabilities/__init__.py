@@ -19,6 +19,13 @@ from .composition import default_runtime_capabilities, merge_capabilities
 from .context_warnings import ContextLimitWarner
 from .eviction import ToolOutputEviction
 from .hooks import Hook, HookEvent, HookInput, HookResult, HooksCapability
+from .kg_audit_sink import (
+    AuditLog,
+    AuditSink,
+    KgAuditSink,
+    RunAuditRecord,
+    ToolCallRecord,
+)
 from .memento import MementoCompaction
 from .stuck_loop import StuckLoopDetection, StuckLoopError
 from .teams import TeamCapability
@@ -43,6 +50,11 @@ __all__ = [
     "ToolOutputEviction",
     "MementoCompaction",
     "TeamCapability",
+    "AuditLog",
+    "AuditSink",
+    "KgAuditSink",
+    "RunAuditRecord",
+    "ToolCallRecord",
     "default_runtime_capabilities",
     "merge_capabilities",
 ]
