@@ -408,6 +408,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test_prebundled_skill_suite_is_valid` frontmatter/nested-skill_graphs failures (already
   broken on main for all 13 skills, not caused by this change).
 
+### Docs
+- **Messaging-bundle deployment docs + Phase-10 retirement plan (CONCEPT:AU-ECO.messaging.native-backend-abstraction).**
+  The code-level bundling (`graph-os` self-composes messaging as an always-on
+  co-service — `agent_utilities/mcp/co_service_supervisor.py`, wired at
+  `mcp/kg_server.py:3840`) already shipped ahead of this entry
+  (`51183a21`); this closes the remaining deploy/doc gap so it isn't left
+  half-documented. `docs/architecture/containerized-deployment.md`'s service
+  table and diagram no longer show messaging as a standalone production
+  service; `docs/architecture/messaging_reach.md` gains a `#deployment`
+  section (replacing two stale claims — `gateway/daemon.py` does not
+  auto-start messaging, and `start_messaging_router` no longer exists) and a
+  replica/long-polling caution. `deploy/k8s/graphos.yaml` and
+  `deploy/swarm/graphos.stack.yml` now document, in comments, where a channel
+  token goes (the SAME Secret/ConfigMap graph-os already reads — no second
+  secret surface) and the N>1-replica long-poll conflict; the Swarm stack's
+  secret set is intentionally left a comment-only pointer since
+  `check_swarm_assets.py` exact-matches the mounted secret set and messaging
+  is opt-in-by-token, not mandatory. New
+  `deploy/k8s/messaging-bundle-retirement.yaml` gives the operator-run (not
+  auto-applied) verification + cutover commands for retiring a
+  previously-separate `agent-utilities-messaging` Deployment now that its
+  function lives in `graph-os` — including why the separate deployment
+  crash-loops (`mint_graph_session` → "missing audience or policy revision",
+  `security/request_identity.py:160-163`, from a ConfigMap/Secret that never
+  received the same `AUTH_TYPE`/`KG_POLICY_VERSION` fix as
+  `graphos-homelab-live-config-fix.yaml` applied to `graph-os` itself).
+
 ## [1.21.0] - 2026-07-11 — Epistemic OS Hardening: Phase 1–2 + Exceed (X-2/3/4/5/7/8)
 
 Builds on 1.20.0's Phase-0 trustworthy core. Phase 1 unifies Agent-OS work/identity/

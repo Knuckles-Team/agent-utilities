@@ -116,3 +116,16 @@ Create the external secrets and `graphos-engine-data` volume before deployment;
 the stack deliberately contains no environment-specific values. The Swarm
 profile and `postgres/tenant_rls.sql` are not substitutes for the signed,
 HA production-cell release gate.
+
+## Messaging
+
+Messaging (Telegram/Slack/Teams/…) is **not a separately deployed service.**
+`graph-os` bundles it as an always-on co-service the moment a real channel
+credential is present in the same ConfigMap/Secret the manifest above already
+wires — there is no second Deployment, no second Secret, and no new flag to set.
+Cutting an existing deployment over from a separately-run `agent-utilities-messaging`
+service to the bundled co-service is documented, with the exact verification and
+retirement commands (none applied automatically), in
+[`k8s/messaging-bundle-retirement.yaml`](k8s/messaging-bundle-retirement.yaml); the
+behavioral/deployment model is in
+[`docs/architecture/messaging_reach.md`](../docs/architecture/messaging_reach.md#deployment).

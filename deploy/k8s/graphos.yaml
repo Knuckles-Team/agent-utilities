@@ -10,6 +10,18 @@
 # refuses to start without AUTH_JWT_JWKS_URI and turns on auth + enforcement, so
 # every caller is identified and tenant-scoped. Apply deploy/postgres/tenant_rls.sql
 # to the L3 database once for DB-level isolation (KG-2.61).
+#
+# Messaging (Telegram/Slack/…) is NOT rendered into this profile. `graph-os` bundles
+# messaging as an always-on co-service the moment a real channel token is present in
+# its OWN ConfigMap/Secret (agent_utilities.mcp.co_service_supervisor — no separate
+# process, no separate secret) — but a channel that long-polls for updates (Telegram
+# without MESSAGING_WEBHOOK_BASE_URL) opens one exclusive stream per bot token, which
+# 409-conflicts once this autoscaled 3-50 replica front tier scales past one pod. This
+# profile is multi-tenant/autoscaled by design, so it is not the fit for a bundled
+# chat bot; deploy messaging on a single-replica graph-os instead (either the webhook
+# mode, or a dedicated single-replica front) — see graphos-homelab-live-config-fix.yaml
+# and messaging-bundle-retirement.yaml in this directory for the worked example and
+# the cutover plan off a separately-deployed messaging service.
 ---
 apiVersion: v1
 kind: Namespace

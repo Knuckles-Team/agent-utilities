@@ -1,0 +1,92 @@
+# Cutover plan: retire the separately-deployed `agent-utilities-messaging` service
+# now that `graph-os` bundles messaging as an always-on co-service.
+#
+# Companion to graphos-homelab-live-config-fix.yaml — read that file first for the
+# live `platform/graph-os` topology (Deployment/Service/Ingress already serving
+# `/mcp`, replicas=1) and the AUTH_TYPE/KG_POLICY_VERSION fix this plan builds on.
+# This file, like that one, is INFORMATIONAL ONLY: nothing here is auto-applied by
+# any agent or pipeline. An operator (or a reviewed `execute_agent` run against
+# container-manager-mcp) carries out the commands below during the Phase-10
+# coordinated cutover, after confirming the names/namespace against the live
+# cluster (`kubectl get deploy,secret,configmap -A | grep -i messaging`) — this
+# file's `apps/agent-utilities-messaging` naming follows the task's own report of
+# the crash-loop and may not match the live resource's exact namespace.
+#
+# ── WHY THE SEPARATE DEPLOYMENT CRASH-LOOPS ────────────────────────────────────
+#
+# `agent-utilities-messaging` (console entry `agent_utilities.messaging.daemon:main`)
+# mints its OWN process identity independently of `graph-os`
+# (agent_utilities/messaging/daemon.py `mint_process_identity`):
+#
+#   acquire_process_identity_token(config) -> mint_actor_from_token_sync(token)
+#   -> mint_graph_session(actor)
+#
+# `mint_graph_session` (agent_utilities/security/request_identity.py:93) reads
+# `config.auth_jwt_audience`/`config.mcp_jwt_audience` and `config.kg_policy_version`
+# from THIS PROCESS's own AgentConfig and raises
+# `PermissionError("Verified graph authority is missing audience or policy
+# revision")` (request_identity.py:160-163) if either is blank. `platform/graph-os`
+# already carries a correct AUTH_JWT_AUDIENCE and (after
+# graphos-homelab-live-config-fix.yaml is applied) KG_POLICY_VERSION — but the
+# separate `agent-utilities-messaging` Deployment has its OWN ConfigMap/Secret that
+# never received the same fix. Two locations to keep in sync is exactly the class of
+# bug that produced this crash loop; bundling removes the second location entirely.
+#
+# ── WHAT THE BUNDLE FIXES ────────────────────────────────────────────────────────
+#
+# `graph-os` (agent_utilities/mcp/kg_server.py, `mcp_server()`) already mints ONE
+# verified session per process (`_mint_process_session`, kg_server.py:2813) and, after
+# the engine is constructed, calls
+# `start_co_services(bootstrap_session, _get_engine())` (kg_server.py:3840,
+# agent_utilities/mcp/co_service_supervisor.py:283). When a real channel credential
+# is present (`messaging.daemon.configured_platforms`), messaging starts as a
+# supervised co-service THREAD reusing that SAME `bootstrap_session` — it never calls
+# `mint_process_identity`/`mint_graph_session` a second time, so it can never hit the
+# "missing audience or policy revision" failure on its own: it inherits whatever
+# identity `platform/graph-os` already has, verified working.
+#
+# ── STEP 1 — confirm the bundle is live on `platform/graph-os` (read-only) ─────
+#
+#   kubectl logs -n platform deploy/graph-os --since=10m | grep -i "co-service"
+#   # expect: "co-service messaging started." (co_service_supervisor.py:215)
+#   # if messaging isn't configured (no channel token yet — see STEP 2), you will
+#   # instead see nothing, which is correct: composition is a pure config read, not
+#   # a broken feature.
+#
+# ── STEP 2 — move the channel token into `platform/graph-os`'s OWN secret ──────
+#
+# ONE secrets location: add the token to the SAME Secret `platform/graph-os` already
+# mounts (the object graphos-homelab-live-config-fix.yaml patches), not a new one.
+# Confirm the live secret's name first (`kubectl get deploy/graph-os -n platform -o
+# jsonpath='{.spec.template.spec.containers[0].envFrom}'`); it is referred to as
+# `graph-os-secrets`/`graph-os-env` in the sibling reference file in this directory.
+#
+#   kubectl patch secret graph-os-secrets -n platform --type merge -p \
+#     '{"stringData":{"TELEGRAM_BOT_TOKEN":"<the real token, from OpenBao apps/agent-utilities-messaging>"}}'
+#   kubectl rollout restart deployment/graph-os -n platform
+#   kubectl rollout status  deployment/graph-os -n platform
+#   # re-run STEP 1 to confirm the co-service picked up the token.
+#
+# Replica caution (see docs/architecture/messaging_reach.md#deployment): Telegram
+# long-polls for updates unless MESSAGING_WEBHOOK_BASE_URL is set, which 409-conflicts
+# across replicas sharing one bot token. `platform/graph-os` already runs replicas=1
+# today (per graphos-homelab-live-config-fix.yaml) — keep it there while messaging is
+# bundled, or configure the webhook mode before scaling out.
+#
+# ── STEP 3 — retire the separate Deployment (Phase-10, NOT executed here) ──────
+#
+# Only after STEP 1 confirms the bundle is genuinely serving messaging:
+#
+#   kubectl get deployment,secret,configmap -n apps -l app=agent-utilities-messaging
+#   #  (sanity check the exact resource names before deleting anything)
+#   kubectl scale deployment/agent-utilities-messaging -n apps --replicas=0
+#   #  (park it first; confirm no regression for one full operational cycle, THEN:)
+#   kubectl delete deployment/agent-utilities-messaging -n apps
+#   kubectl delete secret     agent-utilities-messaging -n apps   # if a dedicated one exists
+#   kubectl delete configmap  agent-utilities-messaging -n apps   # if a dedicated one exists
+#
+# The `agent-utilities-messaging` console script and its `messaging/daemon.py:main()`
+# entry point are NOT removed from the codebase by this cutover — they remain the
+# supported opt-in path for a deployment that later wants to isolate chat load onto
+# its own host/pod (docs/architecture/messaging_reach.md#deployment). Only the
+# always-on standing Deployment is retired; the code path stays available.
