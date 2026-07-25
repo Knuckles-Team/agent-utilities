@@ -357,6 +357,18 @@ class LoopController:
                 "mine_discovery", self._run_mine_discovery
             )
 
+        # 0a1.5 AUDIT GAPS — the code-correctness/security-audit discovery track
+        # (CONCEPT:AU-AHE.harness.audit-gap-detector, Wave-6 D1-ext). An AI review over
+        # the ALREADY-INGESTED code KG files a canonical :Gap per Macroscope-class finding
+        # (severity → priority), flowing the SAME Gap→SDD→publish→resolved lifecycle. It
+        # sits alongside mining (both are engine-native passes over the KG). Opt-in
+        # (KG_LOOP_AUDIT, default OFF) — a non-opted-in deployment is unaffected; the
+        # flywheel proposes, humans veto.
+        from agent_utilities.core.config import config as _audit_cfg
+
+        if getattr(_audit_cfg, "kg_loop_audit", False):
+            report["audit_gaps"] = _stage("audit_gaps", self._run_audit_gaps)
+
         # 0a1.4 INSIGHT VALIDATION — the Insight Engine closed loop (workstream C4,
         # CONCEPT:AU-KG.evolution.insight-engine-closed-loop): Mine → CandidateInsight →
         # EvidenceBundle → Claim → Validation (REUSES promotion_governance +
@@ -2121,6 +2133,14 @@ class LoopController:
 
             res = develop_spec(self.engine, spec_id)
             status = str(res.get("status", ""))
+            # D5 — close the loop: on publish, walk this develop-Loop's RESOLVES edge
+            # back to the origin gap and flip it to resolved (the graph-native seam,
+            # idempotent with develop_spec's property-based close). The chain gets its
+            # visible END.
+            if status == "published":
+                from .gaps import resolve_gaps_for_loop
+
+                resolve_gaps_for_loop(self.engine, loop["id"])
             # 'published'/'approval_queued' = the governed pipeline ran + queued a
             # reviewable branch → the develop step did its job (complete). Hard
             # failures stop the loop rather than retrying a broken synthesis forever.
@@ -2979,10 +2999,23 @@ class LoopController:
             except Exception as e:  # noqa: BLE001
                 logger.debug("beacon.finish failed: %s", e)
 
+    def _run_audit_gaps(self) -> dict[str, Any]:
+        """Opt-in code-audit discovery pass (CONCEPT:AU-AHE.harness.audit-gap-detector).
+
+        Files a canonical ``:Gap`` per Macroscope-class finding over the ingested code
+        KG. Best-effort + self-gated on ``KG_LOOP_AUDIT``; the specs it produces still
+        sit behind the ``spec_promotion`` veto.
+        """
+        from agent_utilities.harness.audit_gap_detector import run_audit_gap_scan
+
+        return run_audit_gap_scan(self.engine)
+
     def _distill_specs(self, topics: list[dict[str, Any]]) -> list[str]:
         """Distil ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/``."""
+        from agent_utilities.sdd import SDDManager
+
         from ..enrichment.cards import make_lite_llm_fn
-        from ..enrichment.distill import what_specs_could_we_build, write_spec_drafts
+        from ..enrichment.distill import what_specs_could_we_build
         from ..enrichment.extractors.document import Concept
 
         # Bounded inputs: the intake topics as concepts; edges/code maps left
@@ -2996,8 +3029,18 @@ class LoopController:
         )
         if not specs:
             return []
-        # propose_only: write DRAFTS under .specify/ only.
-        paths = write_spec_drafts(specs, self.codebase_root)
+        # W6.2 (D2, CONCEPT:AU-AHE.sdd.loop-authored-spec): author each draft as a
+        # first-class DSTDD Spec+Tasks through the ONE writer (SDDManager) —
+        # .specify/specs/<feature>/{spec.md,tasks.md} + the :SDDArtifact node family —
+        # instead of a raw open()/write() prose file. SpecDraft is now the input adapter.
+        mgr = SDDManager(self.codebase_root)
+        paths: list[str] = []
+        for draft in specs:
+            try:
+                paths.append(str(mgr.author_from_draft(draft)))
+            except Exception as e:  # noqa: BLE001 — authoring is best-effort
+                logger.debug("[W6.2] SDDManager authoring failed: %s", e)
+                paths.append("")
 
         # CONCEPT:AU-KG.research.close-distill-develop-seam — close the distill→develop seam. Persist each draft as a
         # first-class, queryable :SpecProposal (status pending_review) linked to its
@@ -3008,10 +3051,24 @@ class LoopController:
 
         from .spec_proposals import auto_advance_specs, persist_spec_proposal
 
+        # Thread the canonical origin gap (D6): a distilled spec's concept_ids are the
+        # topic ids it drew from; a failure topic now carries its canonical gap_id, so
+        # the persisted spec links (:Gap)-[:SPECIFIED_BY]->(:SpecProposal) and the gap
+        # can be closed on publish. target_file (D3) threads via the SpecDraft field.
+        gap_by_topic = {t["id"]: t.get("gap_id") for t in topics if t.get("gap_id")}
         spec_ids: list[str] = []
         padded_paths = paths + [""] * (len(specs) - len(paths))
         for spec, path in zip(specs, padded_paths, strict=False):
-            sid = persist_spec_proposal(self.engine, spec, spec_path=path)
+            origin_gap = next(
+                (gap_by_topic[c] for c in spec.concept_ids if gap_by_topic.get(c)), ""
+            )
+            sid = persist_spec_proposal(
+                self.engine,
+                spec,
+                spec_path=path,
+                target_file=spec.target_file,
+                gap_id=origin_gap,
+            )
             if sid:
                 spec_ids.append(sid)
         self._beacon and self._beacon.enter(

@@ -105,6 +105,20 @@ def register_evolution_tools(mcp: Any) -> None:
 
                 return json.dumps(run_failure_ingest(engine), indent=2, default=str)
 
+            if action == "audit_scan":
+                # Code-correctness/security-audit gap track (CONCEPT:AU-AHE.harness.audit-gap-detector):
+                # file a canonical :Gap per Macroscope-class finding over the ingested
+                # code KG (opt-in KG_LOOP_AUDIT — self-gated).
+                from agent_utilities.harness.audit_gap_detector import (
+                    run_audit_gap_scan,
+                )
+
+                return json.dumps(
+                    run_audit_gap_scan(engine, limit=max(1, int(limit))),
+                    indent=2,
+                    default=str,
+                )
+
             if action == "optimize_component":
                 from agent_utilities.harness.program_optimization import (
                     run_component_optimization,

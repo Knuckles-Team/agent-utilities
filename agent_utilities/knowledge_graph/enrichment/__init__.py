@@ -16,7 +16,6 @@ from .distill import (
     distill_specs,
     gather_enhancement_candidates,
     what_specs_could_we_build,
-    write_spec_drafts,
 )
 from .execute import (
     execute_agent_spec,
@@ -157,5 +156,4 @@ __all__ = [
     "test_needs_work",
     "tests_needing_work",
     "what_specs_could_we_build",
-    "write_spec_drafts",
 ]

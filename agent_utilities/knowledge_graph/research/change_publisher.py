@@ -690,8 +690,18 @@ def _record_execution(
     publisher_name: str,
     result: PublishResult,
     source: str,
+    *,
+    spec_version_id: str | None = None,
 ) -> str | None:
-    """Stamp the ``ActionExecution`` audit node (mirrors fleet actuation's)."""
+    """Stamp the ``ActionExecution`` audit node (mirrors fleet actuation's).
+
+    Wave-6 D6 (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle): besides the redacted
+    ``target_ref`` display string, write the REAL graph edges that unify the provenance
+    chain — ``(:ActionExecution)-[:EXECUTES]->(:SpecProposal)`` and, closing it,
+    ``(:spec_version)-[:PUBLISHED_AS]->(:ActionExecution)``. A single traversal now
+    answers "which gap produced which commit, and did it close?" instead of
+    string-matching an opaque reference.
+    """
     if engine is None:
         return None
     execution_id = f"action_execution:{uuid.uuid4().hex}"
@@ -724,7 +734,68 @@ def _record_execution(
     except Exception as exc:  # noqa: BLE001
         logger.debug("Execution record failed: error_type=%s", type(exc).__name__)
         return None
+    # D6 provenance edges (graph ids, not secrets — best-effort; never blocks publish).
+    link = getattr(engine, "link_nodes", None)
+    if callable(link):
+        try:
+            link(execution_id, proposal_id, "EXECUTES")
+            if spec_version_id:
+                link(spec_version_id, execution_id, "PUBLISHED_AS")
+        except Exception as exc:  # noqa: BLE001 — edges are best-effort
+            logger.debug(
+                "Execution edge write failed: error_type=%s", type(exc).__name__
+            )
     return execution_id
+
+
+def _record_spec_version(
+    engine: Any,
+    proposal_id: str,
+    result: PublishResult,
+    status: str,
+    source: str,
+) -> str | None:
+    """Persist a ``spec``-kind ``ArtifactVersionNode`` for a publish outcome (D4).
+
+    CONCEPT:AU-AHE.harness.unified-promotion-gate — the evolution matrix
+    (``artifact_evolution_summary``, ``ARTIFACT_VERSION_LABELS``) scans one label per
+    vector; before Wave-6 it saw only skill/prompt. This writes the SDD/develop vector
+    on every publish (``active`` on a live branch, ``rejected`` when the ratchet
+    reverted it) and links ``(:SpecProposal)-[:IMPLEMENTED_BY]->(:spec_version)`` so the
+    unified provenance chain is queryable from the promotion side. Returns the node id.
+    """
+    if engine is None:
+        return None
+    version_id = f"spec_version:{uuid.uuid4().hex}"
+    node_status = "active" if (status == "published" and result.ok) else "rejected"
+    try:
+        from agent_utilities.models.knowledge_graph import SpecVersionNode
+
+        node = SpecVersionNode(
+            id=version_id,
+            name=f"spec@{_reference('proposal', proposal_id)}",
+            artifact_kind="spec",
+            artifact_id=proposal_id,
+            status=node_status,
+            origin="loop_engine",
+            reward_source=source,
+            spec_id=proposal_id,
+            branch_ref=_reference("branch", result.branch) if result.branch else "",
+            commit_ref=(
+                _reference("commit", result.commit_sha) if result.commit_sha else ""
+            ),
+        )
+        props = node.model_dump()
+        props.pop("id", None)
+        props["type"] = str(props.get("type", ""))
+        engine.add_node(version_id, "spec_version", properties=props)
+        link = getattr(engine, "link_nodes", None)
+        if callable(link):
+            link(proposal_id, version_id, "IMPLEMENTED_BY")
+    except Exception as exc:  # noqa: BLE001 — matrix legibility is best-effort
+        logger.debug("Spec version record failed: error_type=%s", type(exc).__name__)
+        return None
+    return version_id
 
 
 def _abandon_branch(repo_path: str, worktree_path: str, branch: str) -> None:
@@ -801,33 +872,42 @@ def governed_publish(
 
     granted_id = _find_granted_approval(engine, proposal_id)
     if granted_id is None:
-        try:
-            from agent_utilities.orchestration.action_policy import (
-                ActionRequest,
-                get_action_policy,
-            )
+        # Wave-6 D4/WP#2 (CONCEPT:AU-AHE.harness.unified-promotion-gate): route the
+        # merge_promotion decision through the SAME generalized gate auto_merge and
+        # run_reflact_cycle use, instead of a hand-built action_policy.decide(). A
+        # publication has no candidate-vs-incumbent held-out score, so
+        # incumbent_reward=None skips the comparison leg and goes straight to
+        # action_policy.decide(kind="merge_promotion") — identical governance, same
+        # per-kind+target approval dedup — but now legible on the unified matrix.
+        # promote() already fails CLOSED (deny) on any gate failure.
+        from agent_utilities.harness.reward_signal import RewardSignal
+        from agent_utilities.orchestration.artifact_promotion import (
+            PromotionCandidate,
+        )
+        from agent_utilities.orchestration.artifact_promotion import (
+            promote as promote_gate,
+        )
 
-            policy = action_policy or get_action_policy(engine)
-            decision = policy.decide(
-                ActionRequest(
-                    kind="merge_promotion",
-                    target=proposal_id,
-                    params={"proposal_id": proposal_id},
-                    source=source,
-                    reason="publish promoted evolution proposal as a reviewable branch",
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 — gate failure ⇒ fail closed
-            logger.warning("Action policy failed: error_type=%s", type(exc).__name__)
-            report["status"] = "denied"
-            report["detail"] = "action policy unavailable; publication denied"
-            return report
-        report["decision"] = decision.decision
-        report["approval_id"] = decision.approval_id
-        if not decision.allowed:
-            report["status"] = "approval_queued" if decision.approval_id else "denied"
+        verdict = promote_gate(
+            engine,
+            PromotionCandidate(
+                artifact_kind="spec",
+                artifact_id=proposal_id,
+                candidate_ref=proposal_id,
+                candidate_reward=RewardSignal(value=0.0, source="governed_publish"),
+                incumbent_reward=None,  # comparison-less — governance is the gate
+                policy_kind="merge_promotion",
+                source=source,
+                reason="publish promoted evolution proposal as a reviewable branch",
+            ),
+            policy=action_policy,
+        )
+        report["decision"] = verdict.decision
+        report["approval_id"] = verdict.approval_id
+        if not verdict.approved:
+            report["status"] = "approval_queued" if verdict.approval_id else "denied"
             report["detail"] = (
-                "approval is required" if decision.approval_id else "publication denied"
+                "approval is required" if verdict.approval_id else "publication denied"
             )
             return report
     else:
@@ -906,8 +986,21 @@ def governed_publish(
                 "Capability ratchet skipped: error_type=%s", type(exc).__name__
             )
 
+    # D4: record the SDD/develop vector on the unified matrix (published ⇒ active,
+    # reverted ⇒ rejected), linked (:SpecProposal)-[:IMPLEMENTED_BY]->(:spec_version).
+    spec_version_id = None
+    if report["status"] in ("published", "reverted"):
+        spec_version_id = _record_spec_version(
+            engine, proposal_id, result, report["status"], source
+        )
+
     execution_id = _record_execution(
-        engine, proposal_id, getattr(pub, "name", "?"), result, source
+        engine,
+        proposal_id,
+        getattr(pub, "name", "?"),
+        result,
+        source,
+        spec_version_id=spec_version_id,
     )
     report["execution_ref"] = (
         _reference("action_execution", execution_id) if execution_id else None

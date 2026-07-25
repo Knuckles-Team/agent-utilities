@@ -83,18 +83,25 @@ def persist_spec_proposal(
     spec_path: str = "",
     status: str = STATUS_PENDING,
     target_file: str = "",
+    gap_id: str = "",
 ) -> str | None:
     """Persist a :class:`SpecDraft` as a queryable ``:SpecProposal`` node.
 
     Stores the full spec in the folded ``metadata`` JSON (backend-safe) and links
-    ``DISTILLED_FROM`` to each source concept so the *why* is traversable. Returns
-    the node id, or ``None`` on persist failure. Idempotent on the title-derived id.
+    ``DISTILLED_FROM`` to each source concept so the *why* is traversable. When
+    ``gap_id`` names the originating canonical ``:Gap`` (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle),
+    a ``(:Gap)-[:SPECIFIED_BY]->(:SpecProposal)`` edge threads the unified provenance
+    chain and the spec carries ``gap_id`` so the develop step can close the origin gap
+    on publish. Returns the node id, or ``None`` on persist failure. Idempotent on the
+    title-derived id.
     """
     title = str(getattr(spec, "title", "") or "").strip()
     if not title:
         return None
     sid = spec_id_for(title)
     concept_ids = list(getattr(spec, "concept_ids", []) or [])
+    # A SpecDraft may itself carry a resolved target_file (D3); an explicit kwarg wins.
+    target_file = target_file or str(getattr(spec, "target_file", "") or "")
     payload = {
         "title": title,
         "problem": str(getattr(spec, "problem", "") or ""),
@@ -105,6 +112,7 @@ def persist_spec_proposal(
         "target_codebase": str(getattr(spec, "target_codebase", "") or ""),
         "spec_path": spec_path,
         "target_file": target_file,
+        "gap_id": gap_id,
         "status": status,
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
@@ -133,6 +141,14 @@ def persist_spec_proposal(
             engine.add_edge(sid, cid, "DISTILLED_FROM")
         except Exception as e:  # noqa: BLE001 — provenance is best-effort
             logger.debug("DISTILLED_FROM edge %s->%s failed: %s", sid, cid, e)
+    # Unified chain hop 1 (D6): (:Gap)-[:SPECIFIED_BY]->(:SpecProposal).
+    if gap_id:
+        try:
+            from .gaps import link_gap_to_spec
+
+            link_gap_to_spec(engine, gap_id, sid)
+        except Exception as e:  # noqa: BLE001 — provenance is best-effort
+            logger.debug("SPECIFIED_BY edge %s->%s failed: %s", gap_id, sid, e)
     return sid
 
 
@@ -351,6 +367,7 @@ def _bind_develop_loop(engine: Any, spec: dict[str, Any]) -> dict[str, Any] | No
 
     spec_id = str(spec.get("id"))
     title = str(spec.get("title") or spec_id)
+    gap_id = str(spec.get("gap_id") or "")
     loop_id = f"loop:develop:{spec_id}"
     loop = submit_loop(
         engine,
@@ -359,12 +376,23 @@ def _bind_develop_loop(engine: Any, spec: dict[str, Any]) -> dict[str, Any] | No
         loop_id=loop_id,
         source="spec_promotion",
     )
-    # Stamp the spec binding so _advance_develop routes this Loop to the spec
-    # develop pipeline (governed_publish) instead of a validation_cmd.
+    # Stamp the spec binding (+ the origin gap) so _advance_develop routes this Loop to
+    # the spec develop pipeline (governed_publish) instead of a validation_cmd, and can
+    # close the origin gap on publish (D5).
+    props = {"spec_id": spec_id}
+    if gap_id:
+        props["gap_id"] = gap_id
     try:
-        engine.add_node(loop_id, "Concept", properties={"spec_id": spec_id})
+        engine.add_node(loop_id, "Concept", properties=props)
     except Exception as e:  # noqa: BLE001
         logger.debug("_bind_develop_loop stamp failed: %s", e)
+    # D5: (develop-Loop)-[:RESOLVES]->(:Gap) — the edge that closes the loop, so a
+    # published branch flips the ORIGIN gap to resolved (a visible END).
+    if gap_id:
+        try:
+            engine.add_edge(loop_id, gap_id, "RESOLVES")
+        except Exception as e:  # noqa: BLE001
+            logger.debug("RESOLVES edge %s->%s failed: %s", loop_id, gap_id, e)
     return loop
 
 
@@ -422,13 +450,25 @@ def develop_spec(
         return {"status": "error", "spec_id": spec_id, "detail": str(e)}
 
     pub_status = str(report.get("status", ""))
+    gap_id = str(spec.get("gap_id") or "")
     if pub_status == "published":
         _set_status(engine, spec_id, STATUS_PUBLISHED, develop_result=report)
+        # D5 — close the loop: a published branch flips the ORIGIN gap to resolved.
+        # This is the single chokepoint every caller (the loop's _advance_develop AND
+        # a direct graph_loops/MCP develop) funnels through, so the gap closes on both.
+        if gap_id:
+            try:
+                from .gaps import mark_gap_resolved
+
+                mark_gap_resolved(engine, gap_id)
+            except Exception as e:  # noqa: BLE001 — closing is best-effort
+                logger.debug("gap close on publish failed: %s", e)
     elif pub_status == "reverted":
         _set_status(engine, spec_id, STATUS_REVERTED, develop_result=report)
     # approval_queued / other governed outcomes leave it 'developing' (a human grant
     # of the merge_promotion approval triggers the one-shot publish).
     report["spec_id"] = spec_id
+    report["gap_id"] = gap_id
     return report
 
 

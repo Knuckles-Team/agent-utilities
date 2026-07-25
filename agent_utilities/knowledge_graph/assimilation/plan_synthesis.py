@@ -12,13 +12,18 @@ is grounded and deduped **by construction**.
 * :func:`hydrate_feature` — pull a feature's neighborhood (sources, synergies, pillar).
 * :func:`synthesize_plan_for_feature` — neighborhood → SDD plan (injectable
   ``synth_fn``; default tries the ORCH-1.27 ``planner`` role, falls back to a
-  deterministic grounded template so it never hard-fails), persisted as a
-  proposal (`SDDPlan` node + ``feature -[ADDRESSED_BY{proposed}]-> plan``) and the
-  feature flipped to ``proposed`` so it is not re-proposed next cycle (idempotent).
+  deterministic grounded template so it never hard-fails), folded into the ONE
+  canonical gap lifecycle (Wave-6 D1/WP#5): a canonical ``:Gap`` + a develop-able
+  ``:SpecProposal`` (``:Gap -[:SPECIFIED_BY]-> :SpecProposal``,
+  ``feature -[ADDRESSED_BY]-> spec``), and the feature flipped to ``proposed`` so it
+  is not re-proposed next cycle (idempotent).
 * :func:`synthesize_plans` — rank → take top-N open gaps → synthesize each.
 
-Propose-only: plans are written as proposals; promotion (proposed→active) reuses
-the existing AHE-3.14 governance gate at apply time.
+Propose-only: the spec sits in ``pending_review`` behind the ``spec_promotion`` tier;
+promotion (review → develop → publish) runs the SAME
+``change_publisher.governed_publish`` path every other gap track uses (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle),
+not a separate apply-time gate. (Previously this wrote a dead-end ``sdd_plan`` node
+that nothing ever advanced past ``proposed``.)
 
 Concept: plan-synthesis
 """
@@ -161,33 +166,51 @@ def synthesize_plan_for_feature(
         plan = synth_fn(nb)
     if plan is None:
         plan = _llm_synth(nb) or _default_synth(nb)
-    plan_id = f"plan:{feature_id}"
     proposal = PlanProposal(
         feature_id=feature_id,
-        plan_id=plan_id,
+        plan_id=f"plan:{feature_id}",
         title=plan.get("title", f"Assimilate: {nb['name']}"),
         body=plan.get("body", ""),
         sources=nb["sources"],
         synergies=nb["synergies"],
     )
     if write:
-        engine.add_node(
-            plan_id,
-            "sdd_plan",
-            properties={
-                "name": proposal.title,
-                "body": proposal.body,
-                "status": "proposed",
-                "feature_id": feature_id,
-                "sources": nb["sources"],
-            },
+        # Wave-6 D1/WP#5 (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle): fold the
+        # research/OSS-capability track into the ONE canonical :Gap + :SpecProposal
+        # lifecycle instead of the old dead-end ``sdd_plan`` node (nothing ever advanced
+        # it past ``proposed``). The feature becomes a canonical gap, the plan becomes a
+        # develop-able, reviewable :SpecProposal (:Gap-[:SPECIFIED_BY]->:SpecProposal),
+        # so open_features() gaps get the same review→develop→publish→resolved path.
+        from ..enrichment.distill import SpecDraft
+        from ..research.gaps import SOURCE_RESEARCH, submit_gap
+        from ..research.spec_proposals import persist_spec_proposal
+
+        gap = submit_gap(
+            engine,
+            source=SOURCE_RESEARCH,
+            signature=feature_id,
+            statement=f"Assimilate capability: {nb['name']}",
+            domain=str(nb.get("pillar") or "research"),
+            severity=0.5,
+            concept_ids=list(nb.get("concept_ids", [])),
         )
-        engine.link_nodes(
-            feature_id,
-            plan_id,
-            RegistryEdgeType.ADDRESSED_BY,
-            properties={"_rel": "ADDRESSED_BY", "status": "proposed"},
+        gap_id = (gap or {}).get("id", "")
+        draft = SpecDraft(
+            title=proposal.title,
+            target_codebase="agent-utilities",
+            problem=f"Assimilate the {nb['name']} capability into agent-utilities.",
+            approach=proposal.body,
+            concept_ids=list(nb.get("concept_ids", [])),
         )
+        sid = persist_spec_proposal(engine, draft, gap_id=gap_id)
+        if sid:
+            proposal.plan_id = sid
+            engine.link_nodes(
+                feature_id,
+                sid,
+                RegistryEdgeType.ADDRESSED_BY,
+                properties={"_rel": "ADDRESSED_BY", "status": "proposed"},
+            )
         set_status(engine, feature_id, "proposed")  # in-flight → not re-proposed
     return proposal
 
