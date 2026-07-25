@@ -3273,6 +3273,12 @@ class AgentConfig(BaseSettings):
     # KG_LOOP*; the separate governed auto-merge gate keeps KG_GOLDEN_AUTO_MERGE.
     kg_loop: bool = Field(default=False, alias="KG_LOOP")
     kg_loop_distill: bool = Field(default=False, alias="KG_LOOP_DISTILL")
+    # Opt-in (LLM cost per code unit): the code-correctness/security-audit gap track
+    # (CONCEPT:AU-AHE.harness.audit-gap-detector, Wave-6 D1-ext) — an AI review over the
+    # already-ingested code KG detects Macroscope finding-classes and files each as a
+    # canonical :Gap flowing the SAME Gap→SDD→publish→resolved lifecycle. Default OFF:
+    # the flywheel proposes, humans veto (no default-on autonomy).
+    kg_loop_audit: bool = Field(default=False, alias="KG_LOOP_AUDIT")
     # Opt-in (external scholarx calls cost): the intake stage discovers + ingests
     # research papers (LLM concept/fact extraction) at the front of the unified
     # research-intelligence cycle, so the matcher then compares the fresh papers

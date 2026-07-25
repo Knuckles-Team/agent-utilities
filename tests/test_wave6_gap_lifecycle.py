@@ -157,6 +157,56 @@ def test_skill_coverage_track_folds_into_canonical_gap():
 
 
 # ---------------------------------------------------------------------------
+# W6.8 — the 4th track: code-correctness/security-audit detector
+# ---------------------------------------------------------------------------
+
+
+def test_audit_detector_files_canonical_gap_per_finding():
+    from agent_utilities.harness.audit_gap_detector import AuditGapDetector
+
+    eng = LifecycleEngine()
+    # A code unit already ingested into the KG, carrying a real durability defect.
+    eng.add_node(
+        "code:pkg::save",
+        "CodeUnit",
+        properties={
+            "name": "save",
+            "file_path": "pkg/store.py",
+            "source": "def save(conn, row):\n    conn.execute(SQL, row)\n"
+            "    # NOTE: never conn.commit()\n",
+        },
+    )
+
+    def fake_review(_prompt):
+        return (
+            '[{"finding_class":"transaction-durability","severity":"critical",'
+            '"statement":"save() executes an INSERT but never commits, so the write '
+            'is silently lost."}]'
+        )
+
+    filed = AuditGapDetector(eng, review_fn=fake_review).detect(limit=5)
+    assert len(filed) == 1
+    gap = filed[0]
+    assert gap["source"] == "audit"
+    assert gap["id"].startswith("gap:audit:transaction-durability")
+    # critical → expedited bucket 0.
+    assert gap["priority_bucket"] == 0
+    # An audit gap starts OPEN like any other track, ready for the SAME lifecycle.
+    assert get_gap(eng, gap["id"])["status"] == gaps.STATUS_OPEN
+
+
+def test_audit_scan_is_opt_in_and_off_by_default(monkeypatch):
+    from agent_utilities.core.config import config
+    from agent_utilities.harness.audit_gap_detector import run_audit_gap_scan
+
+    eng = LifecycleEngine()
+    monkeypatch.setattr(config, "kg_loop_audit", False, raising=False)
+    assert run_audit_gap_scan(eng)["skipped"] is True
+    # Nothing filed when off — a non-opted-in deployment is unaffected.
+    assert not [g for g in eng.nodes.values() if g.get("type") == "Gap"]
+
+
+# ---------------------------------------------------------------------------
 # W6.1/W6.6 — gap → spec SPECIFIED_BY chain hop
 # ---------------------------------------------------------------------------
 

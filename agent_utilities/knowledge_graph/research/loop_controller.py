@@ -357,6 +357,18 @@ class LoopController:
                 "mine_discovery", self._run_mine_discovery
             )
 
+        # 0a1.5 AUDIT GAPS — the code-correctness/security-audit discovery track
+        # (CONCEPT:AU-AHE.harness.audit-gap-detector, Wave-6 D1-ext). An AI review over
+        # the ALREADY-INGESTED code KG files a canonical :Gap per Macroscope-class finding
+        # (severity → priority), flowing the SAME Gap→SDD→publish→resolved lifecycle. It
+        # sits alongside mining (both are engine-native passes over the KG). Opt-in
+        # (KG_LOOP_AUDIT, default OFF) — a non-opted-in deployment is unaffected; the
+        # flywheel proposes, humans veto.
+        from agent_utilities.core.config import config as _audit_cfg
+
+        if getattr(_audit_cfg, "kg_loop_audit", False):
+            report["audit_gaps"] = _stage("audit_gaps", self._run_audit_gaps)
+
         # 0a1.4 INSIGHT VALIDATION — the Insight Engine closed loop (workstream C4,
         # CONCEPT:AU-KG.evolution.insight-engine-closed-loop): Mine → CandidateInsight →
         # EvidenceBundle → Claim → Validation (REUSES promotion_governance +
@@ -2986,6 +2998,17 @@ class LoopController:
                 )
             except Exception as e:  # noqa: BLE001
                 logger.debug("beacon.finish failed: %s", e)
+
+    def _run_audit_gaps(self) -> dict[str, Any]:
+        """Opt-in code-audit discovery pass (CONCEPT:AU-AHE.harness.audit-gap-detector).
+
+        Files a canonical ``:Gap`` per Macroscope-class finding over the ingested code
+        KG. Best-effort + self-gated on ``KG_LOOP_AUDIT``; the specs it produces still
+        sit behind the ``spec_promotion`` veto.
+        """
+        from agent_utilities.harness.audit_gap_detector import run_audit_gap_scan
+
+        return run_audit_gap_scan(self.engine)
 
     def _distill_specs(self, topics: list[dict[str, Any]]) -> list[str]:
         """Distil ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/``."""
