@@ -190,8 +190,8 @@ def _gap_dict(node: dict[str, Any], node_id: str = "") -> dict[str, Any]:
             parsed = json.loads(meta)
             if isinstance(parsed, dict):
                 out.update(parsed)
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            logger.debug("gap metadata is not valid JSON, ignoring: %s", exc)
     elif isinstance(meta, dict):
         out.update(meta)
     for k in ("status", "severity", "source", "name", "priority_bucket"):
