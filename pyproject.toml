@@ -344,7 +344,10 @@ serving = [
     # Include Logfire so the enabled OTel/Langfuse profile can instrument
     # Pydantic-AI calls in the shipped GraphOS process instead of degrading to a
     # configuration-only warning.
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,logfire,langfuse]",
+    # messaging platforms: the serving plane runs the always-on messaging co-service; the
+    # deployed platforms (Telegram + Mattermost) ship their drivers here so a served graph-os
+    # can connect them without an ad-hoc install. Add a platform's extra here when it is wired.
+    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,logfire,langfuse,messaging-telegram,messaging-mattermost]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
