@@ -20,7 +20,8 @@ entrypoints:
   multi_node_skill: agent-utilities-deployment
 profiles:
   tiny:
-    summary: zero-infra, all-local (laptop / Raspberry Pi) — homelab quick start
+    summary: zero-infra, all-local (laptop / Raspberry Pi) — ONE self-contained graph-os binary (engine
+      in-process); homelab quick start
     recipe: docs/recipes/tiny.md
     docker: false
     secrets: engine-encrypted-or-runtime-reference
@@ -33,8 +34,10 @@ profiles:
     engine: autostart
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
+    engine_topology: unified-in-process
   single-node-prod:
-    summary: one durable, secured host (Postgres/pg-age) + the core MCP connectors
+    summary: one durable, secured host — ONE self-contained graph-os container (engine in-process, no
+      separate engine service) + the core MCP connectors
     recipe: docs/recipes/single-node-prod.md
     docker: true
     secrets: openbao-or-engine-encrypted
@@ -47,9 +50,10 @@ profiles:
     engine: container
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
+    engine_topology: unified-in-process
   enterprise:
     summary: multi-host Kubernetes (RKE2), full integration (OpenBao/Vault-protocol secrets + Keycloak
-      SSO/DNS/ingress/observability + all connectors)
+      SSO/DNS/ingress/observability + all connectors); scale-out engine behind N graph-os pods
     recipe: docs/recipes/enterprise.md
     docker: true
     secrets: openbao
@@ -62,6 +66,7 @@ profiles:
     engine: remote
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
+    engine_topology: out-of-process-shared
 run_plan:
   actions:
   - deploy-container
@@ -94,6 +99,9 @@ run_plan:
   - autostart
   - container
   - remote
+  engine_topology:
+  - unified-in-process
+  - out-of-process-shared
   install_modes:
   - deploy-container
   - deploy-baremetal
@@ -142,6 +150,19 @@ engine:
   wheel: one approved platform wheel containing the full server and folded ABI3 numeric kernel; runtime
     installation never compiles
   docker_image: engine-as-a-DB image for container/remote shapes (single-node-prod, enterprise)
+  topology:
+    values:
+    - unified-in-process
+    - out-of-process-shared
+    unified-in-process: 'SELF-CONTAINED DEFAULT (tiny, single-node-prod) — the engine embeds in-process
+      via PyO3 in the SAME binary/process as graph-os (epistemic_graph.engine): one binary, one lifecycle,
+      no socket round-trip, no separate engine service to deploy or drift.'
+    out-of-process-shared: HYPERSCALING shape (enterprise default) — graph-os talks to a shared, independently-scaled
+      engine over UDS/TCP (epistemic_graph.client, GIL-free); build the engine with the eg `cluster` cargo
+      feature (raft, multi-Raft sharding) and run N graph-os client pods behind the gateway, scaled via
+      k8s HPA independently of the engine.
+    rule: both shapes keep engine calls BATCHED (one call = one batch op over graph-resident data, never
+      a per-element Python loop) and the engine's compute internals pure Rust.
   secret_store:
     graph: __secrets__
     label: Secret
