@@ -237,3 +237,38 @@ def test_engine_context_is_verified_and_contains_no_local_metadata():
 def test_engine_context_rejects_incomplete_verified_authority(field):
     with pytest.raises(SessionRequiredError):
         _session(**{field: ""}).engine_verified_context()
+
+
+def test_engine_context_priority_claim_present_only_when_ambient_tagged():
+    """W2.4-2: the optional ``priority`` claim tracks the ambient contextvar.
+
+    Untagged callers get the byte-for-byte eight-claim envelope (no engine
+    deploy-order dependency); a tagged caller's claim carries the exact
+    ``PriorityClass`` wire value the engine's ``QosClass::from_priority_claim``
+    expects.
+    """
+    from agent_utilities.core.resource_priority import PriorityClass, priority_scope
+
+    session = _session()
+
+    # Untagged ambient context ⇒ claim absent, exact eight-key shape preserved.
+    untagged = session.engine_verified_context()
+    assert "priority" not in untagged
+    assert set(untagged) == {
+        "principal",
+        "tenant",
+        "audience",
+        "agent_id",
+        "roles",
+        "scopes",
+        "delegation",
+        "policy_version",
+    }
+
+    for priority in PriorityClass:
+        with priority_scope(priority):
+            tagged = session.engine_verified_context()
+        assert tagged["priority"] == priority.value
+
+    # Scope exit restores the untagged (absent-claim) behavior.
+    assert "priority" not in session.engine_verified_context()

@@ -123,6 +123,94 @@ the **same** gate. A high waiter increments `_high_waiters` *before* it blocks, 
 rule 3a sheds background the instant interactive starts contending — not after it
 has already acquired.
 
+## Cluster-wide backpressure — engine admission is authority, Python pacing is cooperative (W2.4 + W2.9)
+
+> **CONCEPT:AU-ORCH.scheduling.claim-pacing-backpressure** (W2.9 — cluster-wide backpressure
+> unification) · engine-side: **CONCEPT:EG-KG.coordination.backpressure-busy-signal** (W2.4, `epistemic-graph`
+> `src/server/qos.rs`, out of this repo's edit boundary — read-only reference).
+
+The three reserved lanes above all *admit into agent-utilities' own processes* (LLM
+generator, worker pool, plus the engine's reserved interactive read lane already
+referenced in the table). The **engine itself** also runs an independent admission
+gate on every request it serves — a **fourth** lane, and the one whose internals live
+in the `epistemic-graph` repo, not this one:
+
+- **Baseline (always on, every engine version).** `EPISTEMIC_GRAPH_MAX_INFLIGHT` caps
+  total concurrent requests; anything over it is shed `BUSY: server at capacity,
+  retry with backoff`.
+- **Opt-in per-class QoS (`EPISTEMIC_GRAPH_QOS`, W2.4, `src/server/qos.rs`).** When a
+  build carries it, admission is classified by the **SAME** `PriorityClass` this file
+  documents (the wire `priority` claim — `RequestContextClaims.priority`, mapped by
+  `QosClass::from_priority_claim`) and shed **lowest class first**
+  (`Interactive > Orch > Hydration > Ingest`) under a per-class ceiling, plus a
+  per-principal token bucket, fair-share, and hard quota. An absent/untagged claim
+  resolves to `Orch` — the identical "untagged = high, never starved" default this
+  file's edict already uses for the LLM/worker/read lanes.
+
+The engine's admission decision is **authoritative**: agent-utilities never grants
+itself extra capacity, retries past what the engine shed as if it hadn't happened, or
+second-guesses which class the engine chose to shed. What agent-utilities *does* do
+(`agent_utilities/orchestration/claim_pacing.py`, W2.9) is behave as a **cooperative
+participant**. The WorkItem claim loop (`orchestration/work_item.py`'s
+`claim_specific`/`claim_next` — the sole two "claiming" entry points every caller
+already shares, so this is native with zero per-caller wiring) remembers, **per
+`PriorityClass`**, that a class was just shed and stops attempting new claims of that
+class for a computed window (exponential backoff, capped, jittered — reusing
+`orchestration/resilience.compute_backoff`, the same curve every other retry policy in
+this codebase uses) instead of immediately re-issuing the identical request the engine
+just refused.
+
+```mermaid
+sequenceDiagram
+    participant W as WorkItem claim loop<br/>(work_item.claim_next / claim_specific)
+    participant P as claim_pacing<br/>(per-PriorityClass state)
+    participant E as epistemic-graph engine<br/>(admission authority)
+
+    W->>P: raise_if_paced(class C)
+    alt C is inside an active backoff window
+        P-->>W: raise ClaimPaced — engine NOT contacted
+    else not paced
+        W->>E: ClaimWorkItem (class C, carried on the priority claim)
+        alt engine admits, or cleanly answers "nothing to claim"
+            E-->>W: normal response
+            W->>P: record_claim_admitted(C) — backoff cleared immediately
+        else engine sheds
+            E-->>W: BUSY: … (ceiling / quota / fair-share / rate-limited)
+            W->>P: record_claim_shed(C) — window = compute_backoff(attempt)
+        end
+    end
+```
+
+Two properties fall out of this split:
+
+- **Per-class, not global.** Pacing state is keyed by `PriorityClass`, mirroring the
+  engine's own per-class ceilings — an `INTERACTIVE` claim loop is never paced by a
+  `BACKGROUND_INGESTION` flood's backoff (disjoint state, disjoint dict entries). This
+  extends the edict's "one interactive request gets a worker slot **and** an engine
+  read **and** an LLM slot ahead of background ingestion" to "**and** an engine
+  WorkItem claim, ahead of a backed-off ingestion class."
+- **Deploy-order independent (unlike the claim itself).** Shed detection is on the
+  wire message prefix (`BUSY: …`, `claim_pacing.is_busy_shed`), not a W2.4-specific
+  exception type — no dedicated `EngineBusyError`/`ResourceExhaustedError` class
+  exists in `epistemic_graph.client` today, so pacing works against **any** engine
+  version. A pre-W2.4 engine's undifferentiated baseline cap still benefits: au paces
+  by its own notion of which class it was attempting, independent of whether the
+  engine can tell classes apart. The **wire `priority` claim itself** is the one piece
+  with a real deploy-ordering constraint (register **W2.4-2**,
+  `GraphSession.engine_verified_context()`): every `RequestContextClaims` engine
+  struct is `#[serde(deny_unknown_fields)]`, so an engine that predates W2.4 rejects
+  the **entire** request the instant `priority` is present — not just the new field.
+  Every engine reachable from a session must already carry a W2.4 build before an
+  agent-utilities build that sets the claim is deployed against it. Pacing itself
+  carries no such constraint; the claim does.
+
+The pacing policy (`claim_pacing.DEFAULT_CLAIM_PACING_POLICY`, a `ResiliencePolicy`
+instance) is deliberately **data, not an environment knob** — per this codebase's
+configuration discipline, a sensible universal default exists (a much shorter base
+delay than a WorkItem's own post-failure retry backoff: pacing governs "how soon may I
+even attempt to claim again", not "how long does a failed unit of work wait"), so
+tuning it means editing the policy instance, not adding a `KG_*`/`GRAPH_*` flag.
+
 ## Configuration knobs
 
 The edict is **Native-by-default**: it is always on, auto-sized, and needs no

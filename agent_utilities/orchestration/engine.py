@@ -436,6 +436,9 @@ class AgentOrchestrationEngine:
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_capability_ceiling=config.get(
+                "invoker_capability_ceiling"
+            ),  # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation
             invoker_cred_ref=config.get(
                 "invoker_cred_ref"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
@@ -930,6 +933,9 @@ class AgentOrchestrationEngine:
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_capability_ceiling=config.get(
+                "invoker_capability_ceiling"
+            ),  # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation
             invoker_cred_ref=config.get(
                 "invoker_cred_ref"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
@@ -1173,6 +1179,9 @@ class AgentOrchestrationEngine:
             invoker_allowed_tools=config.get(
                 "invoker_allowed_tools"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+            invoker_capability_ceiling=config.get(
+                "invoker_capability_ceiling"
+            ),  # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation
             invoker_cred_ref=config.get(
                 "invoker_cred_ref"
             ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff

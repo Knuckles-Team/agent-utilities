@@ -84,6 +84,22 @@ class FakeEngine:
                 }
                 for n in self._by_label("ActionDecision")
             ]
+        if "skill_version" in q or "prompt_version" in q:
+            label = "skill_version" if "skill_version" in q else "prompt_version"
+            return [
+                {
+                    "id": n.get("id"),
+                    "status": n.get("status"),
+                    "artifact_kind": n.get("artifact_kind"),
+                    "skill_id": n.get("skill_id"),
+                    "prompt_id": n.get("prompt_id"),
+                    "parent_hash": n.get("parent_hash"),
+                    "benchmark_score": n.get("benchmark_score"),
+                    "reward": n.get("reward"),
+                    "timestamp": n.get("timestamp"),
+                }
+                for n in self._by_label(label)
+            ]
         if "governance_rule" in q:
             return []
         if "Concept" in q:
@@ -335,6 +351,20 @@ def test_evolution_state_aggregates_everything():
         "EvolutionCycle",
         {"created_at": "2026-06-28T02", "metadata": json.dumps({"open_gaps": 9})},
     )
+    # a promoted skill version — the unified evolution matrix (CONCEPT:AU-AHE.
+    # harness.unified-promotion-gate) this read now folds in.
+    eng.add_node(
+        "skill_version:demo:abc123",
+        "skill_version",
+        {
+            "status": "active",
+            "artifact_kind": "skill",
+            "skill_id": "skill:demo",
+            "benchmark_score": 0.9,
+            "reward": 0.9,
+            "reward_source": "internal_corpus",
+        },
+    )
 
     state = es.read_evolution_state(eng, include_coverage=False)
     assert state["beacon"]["stage"] == "distill"
@@ -343,3 +373,9 @@ def test_evolution_state_aggregates_everything():
     assert state["open_gaps"]["series"] == [9, 9]
     # steering hints are present (the operator's how-to-steer surface)
     assert "review_spec" in state["steering"]
+    # NEW: the matrix — promotions + their RewardSignal-sourced reward — is
+    # queryable from THIS SAME live surface (graph_loops action=state / REST).
+    assert state["artifact_versions"]["total"] == 1
+    assert state["artifact_versions"]["by_status"] == {"active": 1}
+    assert state["artifact_versions"]["by_kind"] == {"skill": 1}
+    assert state["artifact_versions"]["versions"][0]["reward"] == 0.9

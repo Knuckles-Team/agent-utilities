@@ -191,6 +191,100 @@ def _flatten_exception_group(exc: BaseException) -> str:
     return "; ".join(leaves)
 
 
+def _prepare_spawn_delegation(
+    agent_name: str,
+    run_id: str,
+    config: dict[str, Any],
+) -> Any:
+    """Build the per-agent on-behalf-of delegation for this spawn, or ``None`` when off.
+
+    CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — connects the three primitives for
+    THIS spawn: resolve the ultimate caller principal + ceiling, append ``agent:<name>:<run_id>``
+    to the (possibly nested) delegation chain, RFC 8693-exchange the caller's token, and mint the
+    run-scoped token. Populates ``config['invoker_capability_ceiling']`` so ``apply_tool_scope``
+    can intersect the spawn's tools with the principal ceiling. Every step is best-effort and
+    logged; a missing caller token or IdP simply leaves that leg empty (delegation still records
+    the chain for provenance). Returns ``None`` in ``off`` mode (legacy identity).
+    """
+    from agent_utilities.security import delegation as _deleg
+
+    mode = _deleg.delegation_mode()
+    if mode is _deleg.DelegationMode.OFF:
+        return None
+
+    principal = _deleg.resolve_principal_identity()
+    parent = _deleg.current_delegation()
+    parent_chain = parent.chain if parent is not None else ()
+    ultimate = (
+        principal.principal or (parent.principal if parent else "") or "service:local"
+    )
+
+    # Ceiling flows to the spawned agent's GraphState so apply_tool_scope can narrow tools.
+    if principal.ceiling:
+        config["invoker_capability_ceiling"] = list(principal.ceiling)
+
+    # RFC 8693 on-behalf-of exchange (decision 1) — best-effort; the authoritative chain is the
+    # delegation array below, the exchanged token rides the envelope's oidc_token when supported.
+    label = _deleg.agent_instance_label(agent_name, run_id)
+    oidc_token: str | None = None
+    try:
+        from agent_utilities.mcp.delegated_auth import (
+            exchange_token_for_agent,
+            get_user_token,
+        )
+
+        if get_user_token():
+            oidc_token = exchange_token_for_agent(label)
+    except Exception as exc:  # noqa: BLE001 — exchange is best-effort (no IdP / grant not enabled)
+        logger.info(
+            "[delegation] on-behalf-of token exchange unavailable (%s); "
+            "chain recorded without a delegated OIDC token",
+            type(exc).__name__,
+        )
+
+    # Run-scoped token (decision 3) — endpoint scope from the resolved tool allow-list; fails
+    # closed when delegation is on and no signing secret is configured.
+    run_token = ""
+    expires_at: float | None = None
+    try:
+        run_token, expires_at = _deleg.mint_spawn_run_token(
+            run_id,
+            principal=ultimate,
+            tenant=principal.tenant,
+            allowed_tools=config.get("invoker_allowed_tools"),
+        )
+    except Exception:
+        # In `on` mode a missing secret MUST surface (config-contract); re-raise. In warn/off the
+        # mint uses the ephemeral secret and does not reach here.
+        if mode is _deleg.DelegationMode.ON:
+            raise
+        logger.warning("[delegation] run-token mint skipped", exc_info=False)
+
+    delegation = _deleg.build_spawn_delegation(
+        agent_name=agent_name,
+        run_id=run_id,
+        principal=ultimate,
+        ceiling=principal.ceiling,
+        run_token=run_token,
+        parent_chain=parent_chain,
+        oidc_token=oidc_token,
+        expires_at=expires_at,
+        mode=mode,
+    )
+    logger.info(
+        "[delegation] mode=%s spawn=%s principal=%s chain_len=%d ceiling=%d "
+        "run_token=%s oidc=%s",
+        mode.value,
+        label,
+        "set" if principal.principal else "ambient",
+        len(delegation.chain),
+        len(delegation.ceiling),
+        "minted" if run_token else "none",
+        "exchanged" if oidc_token else "none",
+    )
+    return delegation
+
+
 async def run_agent(
     agent_name: str,
     task: str,
@@ -541,11 +635,26 @@ async def run_agent(
         skill_instruction_digest=_skill_instruction_digest,
     )
 
+    # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — resolve THIS spawn's on-behalf-of
+    # identity (exchange + chain + run-token + ceiling) once, up front. It is bound as ambient
+    # for the execution block below (so the spawn's engine calls carry the delegation envelope in
+    # `on` mode) and passed explicitly to the RunTrace so provenance records the chain regardless
+    # of context scope. `off` mode returns None (legacy identity, zero overhead).
+    _spawn_delegation = _prepare_spawn_delegation(agent_name, run_id, config)
+
     # Step 4: Execute. A resolved single MCP-server agent runs a DETERMINISTIC
     # direct tool loop (bind only that server's toolset, no router); anything else
     # goes through the full multi-agent orchestration graph. Routing a one-server
     # task through the graph let the LLM router/dispatcher mis-route it (e.g. to a
     # verifier that ran on empty results), so the server's tools were never called.
+    from agent_utilities.security.delegation import (
+        enter_delegation as _enter_delegation,
+    )
+    from agent_utilities.security.delegation import (
+        reset_delegation as _reset_delegation,
+    )
+
+    _delegation_token = _enter_delegation(_spawn_delegation)
     try:
         if _is_bound_template_agent(agent_meta, config):
             # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — a KG-bound persona (e.g. agent-utilities-expert)
@@ -673,6 +782,7 @@ async def run_agent(
             model_ref=_model_ref,
             model_class=_model_class,
             model_name=str(config.get("agent_model") or ""),
+            delegation=_spawn_delegation,
         )
         # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
@@ -694,6 +804,13 @@ async def run_agent(
             return_mermaid=return_mermaid,
             channel_id=channel_id,
         )
+    finally:
+        # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — release the spawn's ambient
+        # delegation on EVERY exit of the execution block (success, failure-return, or a
+        # re-raised CancelledError), so it never leaks into the caller's context or a sibling
+        # run. The success-path provenance below runs under legacy identity and receives the
+        # delegation explicitly.
+        _reset_delegation(_delegation_token)
 
     # Step 5: Record provenance. A delegation that fell through to the graph's "no data"
     # sentinel (or returned an empty answer) is a DEGRADED outcome, not a success —
@@ -729,6 +846,7 @@ async def run_agent(
             if isinstance(result, dict) and isinstance(result.get("tool_calls"), list)
             else None
         ),
+        delegation=_spawn_delegation,
     )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
     # node on this run's RunTrace, so the delegated action is fully visible over
@@ -2101,12 +2219,18 @@ async def _execute_graph(
 # ---------------------------------------------------------------------------
 
 
-def _stamp_run_identity(props: dict[str, Any]) -> None:
-    """Add opaque tenant/actor/correlation references to an audit record.
+def _stamp_run_identity(props: dict[str, Any], delegation: Any = None) -> None:
+    """Add opaque tenant/actor/correlation references + the delegation chain to an audit record.
 
     Best-effort: identity and correlation are ambient context, so any failure
     (no actor in scope, observability not wired) leaves the record unstamped
     rather than failing the write.
+
+    CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation (decision 6) — when a spawn runs under
+    a delegation (``warn`` or ``on``), the full principal→…→agent chain is stamped onto the
+    ``:RunTrace`` so provenance answers "which real caller ran this spawn, through which agents?"
+    as a single query. The ultimate principal is referenced opaquely (privacy); the agent-
+    instance ids are not sensitive and are kept verbatim.
     """
     from agent_utilities.security.persistence_privacy import persistence_reference
 
@@ -2126,6 +2250,27 @@ def _stamp_run_identity(props: dict[str, Any]) -> None:
             )
     except Exception as exc:  # pragma: no cover - identity best-effort
         logger.debug("run identity stamp skipped: %s", exc)
+
+    try:
+        from agent_utilities.security.delegation import current_delegation
+
+        deleg = delegation if delegation is not None else current_delegation()
+        if deleg is not None and getattr(deleg, "chain", None):
+            props.setdefault(
+                "delegation_chain",
+                [
+                    persistence_reference(
+                        "actor", deleg.principal, namespace="run-trace"
+                    )
+                    if entry == deleg.principal
+                    else entry
+                    for entry in deleg.chain
+                ],
+            )
+            props.setdefault("delegation_agent_instance", deleg.agent_instance_id)
+            props.setdefault("delegation_mode", deleg.mode.value)
+    except Exception as exc:  # pragma: no cover - delegation stamp best-effort
+        logger.debug("delegation chain stamp skipped: %s", exc)
     try:
         from agent_utilities.observability.correlation import get_correlation_id
 
@@ -2156,6 +2301,7 @@ def _record_execution_trace(
     model_class: str = "",
     model_name: str = "",
     tool_call_count: int | None = None,
+    delegation: Any = None,
 ) -> None:
     """Record an execution trace in the KG for auditability.
 
@@ -2231,7 +2377,7 @@ def _record_execution_trace(
     # Stamp the originating identity + correlation so the audit trail answers
     # "which tenant/actor ran this, and which agents share its run?" as a
     # tenant-scoped graph query (CONCEPT:AU-OS.observability.run-wide-correlation-id + OS-5.14 + KG-2.60).
-    _stamp_run_identity(props)
+    _stamp_run_identity(props, delegation=delegation)
 
     try:
         engine.add_node(trace_id, TRACE_NODE_LABEL, properties=props)

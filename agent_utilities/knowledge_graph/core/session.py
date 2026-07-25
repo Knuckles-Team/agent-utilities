@@ -30,15 +30,19 @@ There is no development bypass, implicit actor, or authority-widening helper.
 """
 
 import contextvars
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from agent_utilities.core.resource_priority import current_priority
 from agent_utilities.security.brain_context import (
     ActorContext,
     CredentialExpiredError,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "GraphSession",
@@ -207,9 +211,25 @@ class GraphSession:
         The engine hashes ``principal`` before persisting ChangeEnvelope
         provenance.  ``agent_id`` remains the authenticated ACL subject used by
         the engine; no filesystem path, workstation username, or caller-supplied
-        display name is introduced here. The native client accepts exactly these
-        eight claims; trace correlation remains in the governed ChangeEnvelope
-        context rather than being smuggled into the authority object.
+        display name is introduced here. The native client accepts exactly
+        these eight base claims, plus two OPTIONAL claims joined in only when
+        applicable: ``node`` (ADR-3 / W1.9 node-bound envelopes; normally
+        supplied by the connection layer, not this method) and ``priority``
+        (W2.4 engine-native QoS lanes — stamped here from the ambient
+        :class:`~agent_utilities.core.resource_priority.PriorityClass`
+        contextvar via :func:`~agent_utilities.core.resource_priority.current_priority`
+        when the calling context is tagged; omitted entirely when untagged, so
+        an unclassified caller is unaffected). Both optional claims are
+        MAC-covered exactly like every other claim. Trace correlation remains
+        in the governed ChangeEnvelope context rather than being smuggled into
+        the authority object.
+
+        Deploy-ordering constraint (register W2.4-2): every ``RequestContextClaims``
+        engine-side struct is ``#[serde(deny_unknown_fields)]``, so an engine
+        that has not yet deployed W2.4 rejects the ENTIRE request the moment
+        ``priority`` is present, not just the new field. Every engine this
+        session can route to MUST be upgraded to a W2.4-carrying build before
+        an agent-utilities build that sets this claim is deployed against it.
         """
         self.ensure_authority_current()
         if not getattr(self.actor, "authenticated", False):
@@ -226,7 +246,7 @@ class GraphSession:
             raise SessionRequiredError(
                 "GraphSession lacks tenant, audience, or policy-version authority"
             )
-        return {
+        context: dict[str, Any] = {
             "principal": actor_id,
             "tenant": tenant,
             "audience": audience,
@@ -244,6 +264,49 @@ class GraphSession:
             "delegation": [],
             "policy_version": policy_version,
         }
+        self._apply_spawn_delegation(context, actor_id)
+        # W2.4 (backpressure unification, register W2.4-2): join the advisory
+        # QoS priority claim in ONLY when the ambient contextvar is tagged —
+        # an untagged caller's envelope is byte-for-byte unchanged from the
+        # eight-claim shape. DEPLOY ORDER: every engine reachable from this
+        # session must already carry W2.4 (`RequestContextClaims` with
+        # `priority`) before an au build that sets this claim is deployed —
+        # an older engine's `#[serde(deny_unknown_fields)]` rejects the whole
+        # request on an unrecognized field, not just this one. See the
+        # docstring above and this wave's runbook notes (W2.4-2).
+        priority = current_priority()
+        if priority is not None:
+            context["priority"] = priority.value
+        return context
+
+    @staticmethod
+    def _apply_spawn_delegation(context: dict[str, Any], principal: str) -> None:
+        """Stamp the per-agent on-behalf-of delegation chain onto the wire envelope.
+
+        CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation (decision 2). When a spawn runs
+        under an ENFORCED delegation (``ENABLE_DELEGATED_IDENTITY=on``), every engine call it
+        makes carries ``delegation: [principal, …, agent:<name>:<run_id>]`` and
+        ``agent_id`` = the per-run agent-instance identity — the wire field already validates
+        principal-first / agent-last / len≥2. In ``off``/``warn`` mode the envelope stays legacy
+        (``warn`` observes without changing the wire). The chain is emitted only when its
+        ultimate principal matches this session's authenticated principal, so a spawn can never
+        forge a principal it does not run under.
+        """
+        try:
+            from agent_utilities.security.delegation import current_delegation
+        except Exception:  # noqa: BLE001 — delegation layer optional at import time
+            return
+        delegation = current_delegation()
+        if delegation is None or not delegation.enforced:
+            return
+        if delegation.principal != principal:
+            logger.warning(
+                "[delegation] spawn delegation principal does not match the session "
+                "principal; keeping legacy envelope (no chain emitted)"
+            )
+            return
+        context["agent_id"] = delegation.agent_instance_id
+        context["delegation"] = list(delegation.chain)
 
     def ensure_authority_current(self, *, minimum_ttl_seconds: int = 0) -> None:
         """Fail closed when the session's validated bearer JWT has expired.

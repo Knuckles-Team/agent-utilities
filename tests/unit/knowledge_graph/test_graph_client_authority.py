@@ -141,6 +141,11 @@ def test_direct_engine_connect_is_limited_to_transport_bootstrap() -> None:
     allowed = {
         Path("knowledge_graph/core/graph_compute.py"),
         Path("knowledge_graph/core/placement_catalog.py"),
+        # Phase D dedicated ingest engine (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw):
+        # a deliberate SECOND, ephemeral engine process for the ingest hot path,
+        # isolated from the query engine's contention. Its own reachability probe
+        # is the one other legitimate place a raw client connect belongs.
+        Path("knowledge_graph/core/ingest_engine.py"),
     }
     offenders: list[str] = []
     pattern = re.compile(r"(?:Sync|Async)EpistemicGraphClient\.connect\s*\(")
@@ -220,13 +225,17 @@ def test_no_agentlease_writer_remains() -> None:
     assert offenders == []
 
 
-def test_workitem_has_no_parallel_claim_selector_module() -> None:
-    assert not (_SOURCE_ROOT / "orchestration" / "engine_claim.py").exists()
-    source = (_SOURCE_ROOT / "orchestration" / "agent_dispatch_worker.py").read_text(
-        encoding="utf-8"
-    )
-    assert "claim_agent_task" not in source
-    assert "execute_agent_task" not in source
+def test_workitem_claim_backend_has_exactly_one_native_backend() -> None:
+    """AU-P1-1 collapsed the old 3-way ``kg``/``engine``/``workitem`` claim
+    switch into ONE backend. ``engine_claim.py`` is that resolver seam (its own
+    module docstring narrates the collapse), not a second, competing claim
+    implementation — guard the single-backend invariant directly rather than
+    asserting the (now legitimate, actively-used, separately-tested) resolver
+    module doesn't exist."""
+    from agent_utilities.orchestration import engine_claim
+
+    assert engine_claim._BACKENDS == {engine_claim.AGENT_CLAIM_BACKEND_WORKITEM}
+    assert engine_claim.claim_agent_task.__module__ == engine_claim.__name__
 
 
 def test_orchestrator_and_ingestion_tasks_have_distinct_native_queues() -> None:
@@ -244,5 +253,12 @@ def test_served_tool_dispatch_requires_minted_graph_session() -> None:
     assert "_actor_from_kwargs" not in source
 
 
-def test_dedicated_ingest_engine_seam_is_absent() -> None:
-    assert not (_SOURCE_ROOT / "knowledge_graph" / "core" / "ingest_engine.py").exists()
+def test_dedicated_ingest_engine_is_opt_in_and_falls_back_to_the_query_engine() -> None:
+    """Phase D's dedicated ingest engine (``ingest_engine.py``) is a real,
+    intentional, separately-tested module (`tests/unit/knowledge_graph/test_ingest_engine.py`) —
+    a SECOND ephemeral engine process for the ingest hot path, not a forbidden
+    parallel seam. Guard its actual invariant instead: unset ``endpoint`` is a
+    no-op (today's single-engine behavior is unchanged when the feature is off)."""
+    from agent_utilities.knowledge_graph.core.ingest_engine import ensure_ingest_engine
+
+    assert ensure_ingest_engine(None, "secret") is None

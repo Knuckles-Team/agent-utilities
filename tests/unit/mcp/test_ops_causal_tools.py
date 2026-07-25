@@ -14,7 +14,10 @@ import json
 import pytest
 
 from agent_utilities.mcp import kg_server
-from agent_utilities.mcp.tools.ops_causal_tools import register_ops_causal_tools
+from agent_utilities.mcp.tools.ops_causal_tools import (
+    _materialize_root_cause_claims,
+    register_ops_causal_tools,
+)
 from tests.kg_recording_backend import RecordingGraphBackend
 
 
@@ -88,7 +91,9 @@ def test_registered_on_graphos_tool_table():
 
 
 def test_root_cause_action(tool):
-    out = json.loads(_call(tool, action="root_cause", node_id="trace:1", links_json=_LINKS))
+    out = json.loads(
+        _call(tool, action="root_cause", node_id="trace:1", links_json=_LINKS)
+    )
     assert out["surface"] == "ops_causal"
     assert out["action"] == "root_cause"
     result = out["result"]
@@ -201,13 +206,19 @@ def test_join_action_without_engine_backend_errors(tool):
 class _ClaimRecordingEngine:
     """Fakes the ``IntelligenceGraphEngine`` surface ``_materialize_root_cause_claims``
     calls: ``add_node`` (claim persist), ``add_edge`` (DERIVED_FROM provenance),
-    ``register_materialization`` (TMS registration)."""
+    ``register_materialization`` (TMS registration), ``query_cypher`` (the SAME
+    ``governance_rule`` override lookup ``action_policy.decide()`` issues —
+    mirrors ``test_skill_evolution.py``'s ``_SkillEvoStubEngine``/
+    ``test_evolution_transparency.py``'s ``FakeEngine`` so a test can relax/lock
+    down the shipped ``promote_mined_claim`` tier without mocking action_policy
+    itself)."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, governance_rules: list[dict] | None = None) -> None:
         self.nodes: dict[str, tuple[str, dict]] = {}
         self.edges: list[tuple[str, str, str]] = []
         self.registered: list[str] = []
         self.backend = None
+        self._governance_rules = governance_rules or []
 
     def add_node(self, node_id, label, properties=None):  # noqa: ANN001
         self.nodes[node_id] = (label, dict(properties or {}))
@@ -218,6 +229,82 @@ class _ClaimRecordingEngine:
     def register_materialization(self, derived_id):  # noqa: ANN001
         self.registered.append(derived_id)
         return {"registered": True}
+
+    def query_cypher(self, q, params=None):  # noqa: ANN001
+        if "governance_rule" in q:
+            return [{"r": dict(r)} for r in self._governance_rules]
+        return []
+
+    def by_label(self, label: str) -> list[dict]:
+        return [dict(props) for lbl, props in self.nodes.values() if lbl == label]
+
+
+# One ranked root_cause_rank()-shaped row: a direct causal edge (path_strength=1.0
+# clears CONFIDENCE_FLOOR=0.6), used by the _materialize_root_cause_claims()
+# DIRECT-call tests below, which exercise the governance fix independent of
+# ops_causal_graph's own (numeric-kernel-backed) causal-model computation.
+_RANKED_ROOT_CAUSE = [
+    {
+        "node_id": "commit:bad123",
+        "is_root": True,
+        "path_strength": 1.0,
+        "hops": 1,
+        "stage": "commit",
+        "score": 1.0,
+        "path": ["commit:bad123", "trace:1"],
+    }
+]
+
+
+def test_materialize_root_cause_claims_direct_consults_action_policy_by_default():
+    """DIRECT unit test of the governed function (bypasses the tool wrapper +
+    ops_causal_graph's causal-model computation, so it exercises the B3 fix in
+    isolation): the shipped default ``promote_mined_claim`` tier
+    (approval_required) queues the promotion — never silently auto-verifies —
+    while the claim proposal itself is still written unconditionally."""
+    engine = _ClaimRecordingEngine()
+    claim_ids, errors, governance = _materialize_root_cause_claims(
+        engine, "trace:1", _RANKED_ROOT_CAUSE
+    )
+    assert errors == []
+    assert len(claim_ids) == 1
+    claim_id = claim_ids[0]
+
+    label, props = engine.nodes[claim_id]
+    assert label == "Claim" and props["status"] == "proposal"
+    assert governance[claim_id]["decision"] == "queue_approval"
+    assert governance[claim_id]["approved"] is False
+
+
+def test_materialize_root_cause_claims_direct_deny_retracts_flywheel():
+    """DIRECT unit test of the deny path: a ``forbidden`` tier denies
+    promotion — the claim NODE stays a proposal (never suppressed), but the
+    flywheel's OWN lifecycle records proposed -> retracted."""
+    engine = _ClaimRecordingEngine(
+        governance_rules=[
+            {
+                "scope": "action_policy",
+                "kind": "promote_mined_claim",
+                "target": "*",
+                "tier": "forbidden",
+            }
+        ]
+    )
+    claim_ids, errors, governance = _materialize_root_cause_claims(
+        engine, "trace:1", _RANKED_ROOT_CAUSE
+    )
+    assert errors == []
+    claim_id = claim_ids[0]
+
+    label, props = engine.nodes[claim_id]
+    assert label == "Claim" and props["status"] == "proposal"  # never suppressed
+    assert governance[claim_id]["decision"] == "deny"
+
+    events = sorted(
+        engine.by_label("ClaimLifecycleEvent"), key=lambda e: e["timestamp"]
+    )
+    claim_events = [e for e in events if e["claim_id"] == claim_id]
+    assert [e["to_state"] for e in claim_events] == ["proposed", "retracted"]
 
 
 def test_root_cause_action_materializes_claims_by_default(monkeypatch):
@@ -252,6 +339,18 @@ def test_root_cause_action_materializes_claims_by_default(monkeypatch):
     )
     assert claim_id in engine.registered
 
+    # B3 CLOSED (program issue register, CONCEPT:AU-AHE.harness.unified-promotion-gate):
+    # the claim was ALSO proposed through the ClaimFlywheel and run through the
+    # unified promote() gate under kind=promote_mined_claim — the shipped
+    # default tier (approval_required) queues it, never silently auto-verifies.
+    assert out["claims_governance"][claim_id]["decision"] == "queue_approval"
+    assert out["claims_governance"][claim_id]["approved"] is False
+    lifecycle_events = engine.by_label("ClaimLifecycleEvent")
+    assert any(
+        e["claim_id"] == claim_id and e["to_state"] == "proposed"
+        for e in lifecycle_events
+    )
+
 
 def test_root_cause_action_materialize_claims_false_skips_write(monkeypatch):
     mcp = _CollectingMCP()
@@ -270,6 +369,7 @@ def test_root_cause_action_materialize_claims_false_skips_write(monkeypatch):
         )
     )
     assert out["claims_materialized"] == []
+    assert "claims_governance" not in out
     assert engine.nodes == {}
 
 
@@ -282,10 +382,132 @@ def test_blast_radius_action_never_materializes_claims(monkeypatch):
     tool_fn = mcp.tools["graph_ops_causal"]
 
     out = json.loads(
-        _call(tool_fn, action="blast_radius", node_id="commit:bad123", links_json=_LINKS)
+        _call(
+            tool_fn, action="blast_radius", node_id="commit:bad123", links_json=_LINKS
+        )
     )
     assert "claims_materialized" not in out
+    assert "claims_governance" not in out
     assert engine.nodes == {}
+
+
+# --------------------------------------------------------------------------- #
+# W2.7 — B3 closed: materialize_claims is no longer an ungoverned write.
+# Every persisted claim is proposed through the ClaimFlywheel AND run through
+# the unified promote() gate (kind=promote_mined_claim) — the SAME governance
+# every other mined claim gets, never a bypass (CONCEPT:AU-AHE.harness.
+# unified-promotion-gate).
+# --------------------------------------------------------------------------- #
+
+
+def test_root_cause_materialize_claims_denied_retracts_flywheel_not_the_proposal(
+    monkeypatch,
+):
+    """A ``forbidden`` tier denies promotion — the claim is STILL recorded as a
+    proposal (never a silent write-suppression: the propose-only floor every
+    other mined-claim producer guarantees), but its flywheel lifecycle is
+    retracted and the denial is surfaced in the response, never swallowed."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine(
+        governance_rules=[
+            {
+                "scope": "action_policy",
+                "kind": "promote_mined_claim",
+                "target": "*",
+                "tier": "forbidden",
+            }
+        ]
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(tool_fn, action="root_cause", node_id="trace:1", links_json=_LINKS)
+    )
+    assert out["claims_materialized"], "the proposal is still recorded"
+    claim_id = out["claims_materialized"][0]
+
+    # The read-only analysis + the proposal write are both intact.
+    label, props = engine.nodes[claim_id]
+    assert label == "Claim"
+    assert props["status"] == "proposal"
+    assert props["is_verified"] is False
+
+    # The denial is real, not swallowed.
+    assert out["claims_governance"][claim_id]["decision"] == "deny"
+    assert out["claims_governance"][claim_id]["approved"] is False
+
+    # The flywheel lifecycle reflects the denial: proposed -> retracted.
+    lifecycle_events = sorted(
+        engine.by_label("ClaimLifecycleEvent"), key=lambda e: e["timestamp"]
+    )
+    claim_events = [e for e in lifecycle_events if e["claim_id"] == claim_id]
+    assert [e["to_state"] for e in claim_events] == ["proposed", "retracted"]
+    assert "action_policy denied" in claim_events[-1]["reason"]
+
+
+def test_root_cause_materialize_claims_allowed_when_policy_relaxed(monkeypatch):
+    """Two-key discipline in the OTHER direction: an operator-relaxed
+    ``promote_mined_claim`` tier lets the gate actually ALLOW — proving the
+    governance path is a real veto, not a permanent block."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine(
+        governance_rules=[
+            {"scope": "action_policy", "kind": "*", "target": "*", "tier": "auto"}
+        ]
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(tool_fn, action="root_cause", node_id="trace:1", links_json=_LINKS)
+    )
+    claim_id = out["claims_materialized"][0]
+    assert out["claims_governance"][claim_id]["decision"] == "allow"
+    assert out["claims_governance"][claim_id]["approved"] is True
+
+    # allow never retracts — the flywheel stays at its initial proposal.
+    claim_events = [
+        e for e in engine.by_label("ClaimLifecycleEvent") if e["claim_id"] == claim_id
+    ]
+    assert [e["to_state"] for e in claim_events] == ["proposed"]
+
+
+def test_root_cause_materialize_claims_denial_is_logged_with_actor_and_action(
+    monkeypatch, caplog
+):
+    """Every governance deny is logged with the actor + the action it denied —
+    never a silent drop (matches the same discipline the KG_AGENT_AUTO_APPLY
+    deny path already logs)."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine(
+        governance_rules=[
+            {
+                "scope": "action_policy",
+                "kind": "promote_mined_claim",
+                "target": "*",
+                "tier": "forbidden",
+            }
+        ]
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    with caplog.at_level(
+        "WARNING", logger="agent_utilities.mcp.tools.ops_causal_tools"
+    ):
+        json.loads(
+            _call(tool_fn, action="root_cause", node_id="trace:1", links_json=_LINKS)
+        )
+
+    denials = [r for r in caplog.records if "governance DENY" in r.message]
+    assert len(denials) == 1
+    assert "kind=promote_mined_claim" in denials[0].message
+    assert "actor=mcp" in denials[0].message
+    assert "claim:insight:ops_causal_root_cause:" in denials[0].message
 
 
 # --------------------------------------------------------------------------- #

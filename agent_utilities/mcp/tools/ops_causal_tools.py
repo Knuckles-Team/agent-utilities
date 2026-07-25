@@ -16,31 +16,46 @@ Mirrors the ``graph_mine``/``graph_code`` action-router shape (single
 
 W3.5 — ``as_claim`` (CONCEPT:AU-KG.enrichment.ops-causal-graph,
 CONCEPT:AU-KG.evolution.mining-flywheel): ``materialize_claims`` above
-(W2 wire-up #3) already writes root-cause findings as raw ``:Claim`` nodes,
+(W2 wire-up #3) used to write root-cause findings as raw ``:Claim`` nodes
 unconditionally, with no governance and no lifecycle audit trail — an
 ops-causal finding could not be challenged/validated/promoted through the
 epistemic machinery the rest of the codebase already has for mined claims.
 The opt-in ``as_claim=true`` parameter on ``root_cause``/``blast_radius``
-closes that gap: it proposes ONE structured, citable, revisable Claim
-summarizing the call's analysis through the SAME governed path
-``graph_claims action="propose"`` uses — the SAME fail-closed
+closes that gap for a SINGLE structured finding per call: it proposes ONE
+citable, revisable Claim summarizing the call's analysis through the SAME
+governed path ``graph_claims action="propose"`` uses — the SAME fail-closed
 ``ActionPolicy`` gate (``kind="claim.propose"``, the ``_gate`` pattern
 ``claim_tools.py``/``secret_tools.py`` already use) and the SAME
 :class:`~agent_utilities.knowledge_graph.research.claim_flywheel.ClaimFlywheel`
 state machine — never a second lifecycle. A denied gate never blocks the
 read-only analysis itself; it only adds a ``claim_denied`` note. See
 :func:`_propose_ops_causal_claim`.
+
+W2.7 (CONCEPT:AU-AHE.harness.unified-promotion-gate, program issue register
+B3 — "ungoverned materialize_claims writes raw :Claims with no
+flywheel/ActionPolicy"): the OLDER ``materialize_claims`` default-on path
+(one Claim per above-floor ranked candidate, not just the top one) got the
+SAME governance closed here — see :func:`_materialize_root_cause_claims`.
+Every persisted claim is now proposed through the SAME ``ClaimFlywheel`` AND
+run through the unified :func:`~agent_utilities.orchestration.
+artifact_promotion.promote` gate under the reserved ``kind=
+"promote_mined_claim"`` (the SAME kind ``loop_controller._run_insight_
+validation`` gates its own mined claims on) — never a bypass, never a second
+governance stack.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import public_error_json
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_links(links_json: str) -> list[Any]:
@@ -82,8 +97,12 @@ def _parse_links(links_json: str) -> list[Any]:
 
 def _materialize_root_cause_claims(
     engine: Any, failure_node: str, ranked: list[dict[str, Any]]
-) -> tuple[list[str], list[str]]:
-    """Persist each above-floor ``root_cause_rank`` finding as a reviewable ``:Claim``.
+) -> tuple[list[str], list[str], dict[str, dict[str, Any]]]:
+    """Persist each above-floor ``root_cause_rank`` finding as a reviewable ``:Claim``,
+    governed by the SAME unified promotion gate every other artifact-mutation
+    vector uses (CONCEPT:AU-AHE.harness.unified-promotion-gate — closes program
+    issue-register item B3: "ungoverned materialize_claims writes raw :Claims
+    with no flywheel/ActionPolicy").
 
     W2 wire-up #3 (CONCEPT:AU-KG.enrichment.ops-causal-graph) — the ops-causal → claim loop.
     Reuses the SAME ``CandidateInsight`` → ``ClaimNode`` → ``register_claim_materialization``
@@ -92,22 +111,51 @@ def _materialize_root_cause_claims(
     ``loop_controller._run_insight_validation``): a finding below
     ``CONFIDENCE_FLOOR`` is skipped (never a low-confidence Claim); every claim persists
     with ``status="proposal"``/``is_verified=False`` — ALWAYS, never self-verifying,
-    same propose-only floor the mining flywheel guarantees. Actual promotion review/
-    veto is the SAME downstream governance gate (``action_policy.decide``, the loop
-    engine's flywheel review surface) other mined claims go through — this function
-    only proposes, exactly like every other ``CandidateInsight`` producer.
+    same propose-only floor the mining flywheel guarantees (a proposal is a cheap,
+    reviewable assertion — governance gates PROMOTION, not whether it is even
+    recorded, exactly like ``_run_insight_validation``'s own contract).
+
+    Governance, now real rather than aspirational: each persisted claim is (a)
+    proposed through the SAME :class:`~.claim_flywheel.ClaimFlywheel` lifecycle
+    ``_propose_ops_causal_claim``'s ``as_claim`` path already uses, then (b) run
+    through the unified :func:`~agent_utilities.orchestration.artifact_promotion.
+    promote` gate (``PromotionCandidate(artifact_kind="claim", ...,
+    incumbent_reward=None, policy_kind="promote_mined_claim")``) — the SAME
+    reserved kind + shipped ``approval_required`` default tier
+    ``loop_controller._run_insight_validation`` gates its own CandidateInsight
+    claims on. ``incumbent_reward=None`` is deliberate: a mined finding has no
+    incumbent to beat, so it is gated on quality (the ``RewardSignal`` wraps the
+    finding's own ``path_strength`` confidence) + governance validity alone —
+    exactly the comparison-less-vector contract :mod:`artifact_promotion`'s own
+    docstring describes. A ``deny`` verdict retracts the claim's FLYWHEEL
+    lifecycle state and is logged (the Claim NODE's own ``status``/
+    ``is_verified`` stay untouched — same propose-only floor every sibling
+    producer guarantees); ``queue_approval``/``allow`` leave it ``PROPOSED``,
+    pending the SAME human/autonomy review path every other mined claim uses.
 
     Best-effort: a single finding's write failure is recorded in the returned
     error list and does not stop the rest — mirrors every other best-effort
-    persist loop in this module family. Returns ``(claim_ids_written, errors)``.
+    persist loop in this module family. Returns ``(claim_ids_written, errors,
+    governance)`` — ``governance`` maps each written claim id to its
+    ``{"decision", "approved", "reason"}`` promotion verdict.
     """
+    from agent_utilities.harness.reward_signal import RewardSignal
     from agent_utilities.knowledge_graph.research.candidate_insight import (
         candidates_from_ops_causal_root_cause,
         register_claim_materialization,
     )
+    from agent_utilities.knowledge_graph.research.claim_flywheel import ClaimFlywheel
+    from agent_utilities.orchestration.artifact_promotion import (
+        PromotionCandidate,
+    )
+    from agent_utilities.orchestration.artifact_promotion import (
+        promote as promote_gate,
+    )
 
     claim_ids: list[str] = []
     errors: list[str] = []
+    governance: dict[str, dict[str, Any]] = {}
+    flywheel = ClaimFlywheel(engine)
     for cand in candidates_from_ops_causal_root_cause(failure_node, ranked):
         if not cand.clears_floor:
             continue
@@ -128,7 +176,50 @@ def _materialize_root_cause_claims(
             continue
         claim_ids.append(claim.id)
         register_claim_materialization(engine, claim, errors, context="ops_causal")
-    return claim_ids, errors
+
+        reason = f"ops_causal root_cause finding for {failure_node}"
+        try:
+            flywheel.propose(claim.id, reason=reason)
+        except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+            errors.append(f"ops_causal:flywheel_propose {claim.id}: {e}")
+
+        verdict = promote_gate(
+            engine,
+            PromotionCandidate(
+                artifact_kind="claim",
+                artifact_id=claim.id,
+                candidate_ref=claim.id,
+                candidate_reward=RewardSignal(
+                    value=cand.confidence, source="ops_causal_path_strength"
+                ),
+                incumbent_reward=None,
+                policy_kind="promote_mined_claim",
+                source="mcp",
+                reason=reason,
+                evidence={"finding_type": cand.finding_type},
+            ),
+        )
+        governance[claim.id] = {
+            "decision": verdict.decision,
+            "approved": verdict.approved,
+            "reason": verdict.reason,
+        }
+        if verdict.decision == "deny":
+            logger.warning(
+                "ops_causal: governance DENY kind=promote_mined_claim actor=mcp "
+                "claim=%s reason=%s",
+                claim.id,
+                verdict.reason,
+            )
+            try:
+                flywheel.reject(
+                    claim.id,
+                    reason=f"action_policy denied: {verdict.reason}",
+                    action_decision=verdict.decision,
+                )
+            except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
+                errors.append(f"ops_causal:flywheel_reject {claim.id}: {e}")
+    return claim_ids, errors, governance
 
 
 def _gate(kind: str, target: str, reason: str) -> tuple[bool, dict]:
@@ -435,7 +526,12 @@ def register_ops_causal_tools(mcp: Any) -> None:
         materialize_claims: bool = Field(
             default=True,
             description="root_cause only: persist each above-floor finding as a "
-            "reviewable :Claim (CONCEPT:AU-KG.enrichment.ops-causal-graph). Default-on when an "
+            "reviewable :Claim (CONCEPT:AU-KG.enrichment.ops-causal-graph), proposed "
+            "through the ClaimFlywheel and gated by the unified promotion gate "
+            "(ActionPolicy kind=promote_mined_claim, shipped default "
+            "approval_required) — a deny retracts the claim's lifecycle state, it "
+            "never blocks the write itself (the proposal is always recorded, "
+            "matching every other mined-claim producer). Default-on when an "
             "engine is active; set False for a pure read with no graph write.",
         ),
         as_claim: bool = Field(
@@ -500,6 +596,7 @@ def register_ops_causal_tools(mcp: Any) -> None:
         model = build_causal_model(links)
         claims_materialized: list[str] = []
         claim_errors: list[str] = []
+        claim_governance: dict[str, dict[str, Any]] = {}
         as_claim_fields: dict[str, Any] = {}
 
         try:
@@ -514,9 +611,11 @@ def register_ops_causal_tools(mcp: Any) -> None:
                     now=now or None,
                 )
                 if materialize_claims and engine is not None:
-                    claims_materialized, claim_errors = _materialize_root_cause_claims(
-                        engine, node_id, result
-                    )
+                    (
+                        claims_materialized,
+                        claim_errors,
+                        claim_governance,
+                    ) = _materialize_root_cause_claims(engine, node_id, result)
                 if as_claim and engine is not None:
                     finding = _root_cause_claim_finding(node_id, result)
                     if finding is not None:
@@ -586,6 +685,8 @@ def register_ops_causal_tools(mcp: Any) -> None:
             response["claims_materialized"] = claims_materialized
             if claim_errors:
                 response["claim_errors"] = claim_errors
+            if claim_governance:
+                response["claims_governance"] = claim_governance
         response.update(as_claim_fields)
         return json.dumps(response, default=str)
 

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1018
+total_concepts: 1020
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -704,16 +704,18 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   doc: skill
 - id: AU-AHE.harness.unified-promotion-gate
-  name: AU-AHE.harness.unified-promotion-gate
+  name: program issue register
   pillar: AU-AHE
   status: live
   code_paths:
   - agent_utilities/harness/evolve_agent.py
   - agent_utilities/knowledge_graph/research/auto_merge.py
+  - agent_utilities/knowledge_graph/research/evolution_state.py
   - agent_utilities/knowledge_graph/research/skill_evolution.py
+  - agent_utilities/mcp/tools/ops_causal_tools.py
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/artifact_promotion.py
-  doc: AU-AHE.harness.unified-promotion-gate
+  doc: program issue register
 - id: AU-AHE.harness.variant-pool
   name: ───────────────────────────────────
   pillar: AU-AHE
@@ -7515,6 +7517,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: the LLM-extraction / deep-analysis phase is its OWN lane
+- id: AU-ORCH.scheduling.claim-pacing-backpressure
+  name: AU-ORCH.scheduling.claim-pacing-backpressure
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/claim_pacing.py
+  - agent_utilities/orchestration/work_item.py
+  doc: AU-ORCH.scheduling.claim-pacing-backpressure
 - id: AU-ORCH.scheduling.connector-sync-lane
   name: external connector delta syncs
   pillar: AU-ORCH
@@ -8324,6 +8334,21 @@ concepts:
   - agent_utilities/security/oauth_client_credentials.py
   - agent_utilities/server/dependencies.py
   doc: Mutually exclusive with a static
+- id: AU-OS.identity.per-agent-on-behalf-delegation
+  name: the *exchange* leg of the per-agent
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/gateway/daemon.py
+  - agent_utilities/graph/executor.py
+  - agent_utilities/graph/state.py
+  - agent_utilities/knowledge_graph/core/session.py
+  - agent_utilities/mcp/delegated_auth.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/engine.py
+  - agent_utilities/orchestration/work_item.py
+  - agent_utilities/security/delegation.py
+  doc: the *exchange* leg of the per-agent
 - id: AU-OS.identity.permissions-kernel
   name: Permissions Kernel
   pillar: AU-OS
@@ -8482,7 +8507,12 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/mcp/kg_server.py
   - agent_utilities/observability/__init__.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/engine.py
+  - agent_utilities/server/app.py
   doc: Telemetry Engine
 - id: AU-OS.observability.unified-health-kernels
   name: AU-OS.observability.unified-health-kernels

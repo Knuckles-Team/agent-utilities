@@ -268,6 +268,11 @@ class GraphState:
     # spawned agent; the spawn assemblers intersect resolved tools/toolsets with this set
     # (None/empty = no restriction).
     invoker_allowed_tools: list[str] | None = None
+    # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — the ULTIMATE principal's capability
+    # ceiling (base_capabilities()) for this spawn. apply_tool_scope intersects the resolved tool
+    # allow-list with this ceiling so a spawn can never exceed its human/service principal.
+    # None = ceiling unresolved (no narrowing). Seeded from config at GraphState construction.
+    invoker_capability_ceiling: list[str] | None = None
     # CONCEPT:AU-ORCH.session.invoker-agent-handoff (Phase 4) — REFERENCE (not the value) to an ephemeral credential the
     # invoker stored in the secrets backend (e.g. an OAuth/delegated token under "cred:{sid}").
     # Resolved to the raw token ONLY at deps-build time onto the transient AgentDeps.auth_token —
