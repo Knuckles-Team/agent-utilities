@@ -423,6 +423,19 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
 — are not present in this codebase and are **not** claimed here.)
 
 ### Fixed
+- **graph-os `jwt` auth now advertises RFC 9728 protected-resource metadata
+  (CONCEPT:AU-OS.identity.protected-resource-metadata).** Plain `AUTH_TYPE=jwt`
+  built a bare `TokenVerifier`, which publishes zero OAuth routes and never adds
+  `resource_metadata` to its 401 challenge — an RFC 9728-aware MCP client (e.g.
+  Claude Code) had no way to discover Keycloak and refresh its own token, so
+  operators were stuck rotating a static ~10h JWT by hand. New `MCP_PUBLIC_BASE_URL`
+  / `--public-base-url` setting (`agent_utilities/mcp/server_factory.py`); when
+  set, `_configure_jwt_auth()`'s new `_wrap_with_resource_metadata()` wraps the
+  same verifier (single- and multi-realm) in `fastmcp`'s `RemoteAuthProvider`,
+  which publishes `/.well-known/oauth-protected-resource` and wires
+  `resource_metadata=` into every 401 — no change to token verification itself.
+  Unset (the default), the verifier returns exactly as before — additive and
+  backward compatible.
 - **Centralized identifier validation across mirror-backend adapters (Wave-0 S10).**
   Several backends f-string-interpolated a label/table/relationship-type/column
   name directly into Cypher/SQL/DDL — bound *values* were parameterized, but
