@@ -1,6 +1,8 @@
 # Spec: Autonomous Code-Synthesis Stage for Promoted Gaps (AHE-3.22)
 
-> Status: **proposed**.
+> Status: **implemented** — `knowledge_graph/research/code_synthesis.py` (`synthesize_code`)
+> is on `main` and reached from `governed_publish`; Wave-6 D3 makes it reachable for the
+> autonomous distill track by giving `SpecDraft`/`:SpecProposal` a resolvable `target_file`.
 > **Wire-First:** extend `knowledge_graph/research/change_synthesis.py:synthesize_change_set`
 > (the existing promotion→ChangeSet hop) so it asks `harness/evolve_agent.py:EvolveAgent`
 > to emit `files` for a component-attributed proposal BEFORE the prose fallback fires —

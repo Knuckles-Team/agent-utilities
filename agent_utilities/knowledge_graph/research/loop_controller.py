@@ -3008,10 +3008,24 @@ class LoopController:
 
         from .spec_proposals import auto_advance_specs, persist_spec_proposal
 
+        # Thread the canonical origin gap (D6): a distilled spec's concept_ids are the
+        # topic ids it drew from; a failure topic now carries its canonical gap_id, so
+        # the persisted spec links (:Gap)-[:SPECIFIED_BY]->(:SpecProposal) and the gap
+        # can be closed on publish. target_file (D3) threads via the SpecDraft field.
+        gap_by_topic = {t["id"]: t.get("gap_id") for t in topics if t.get("gap_id")}
         spec_ids: list[str] = []
         padded_paths = paths + [""] * (len(specs) - len(paths))
         for spec, path in zip(specs, padded_paths, strict=False):
-            sid = persist_spec_proposal(self.engine, spec, spec_path=path)
+            origin_gap = next(
+                (gap_by_topic[c] for c in spec.concept_ids if gap_by_topic.get(c)), ""
+            )
+            sid = persist_spec_proposal(
+                self.engine,
+                spec,
+                spec_path=path,
+                target_file=spec.target_file,
+                gap_id=origin_gap,
+            )
             if sid:
                 spec_ids.append(sid)
         self._beacon and self._beacon.enter(
