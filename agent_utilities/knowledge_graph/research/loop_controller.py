@@ -3055,7 +3055,9 @@ class LoopController:
         # topic ids it drew from; a failure topic now carries its canonical gap_id, so
         # the persisted spec links (:Gap)-[:SPECIFIED_BY]->(:SpecProposal) and the gap
         # can be closed on publish. target_file (D3) threads via the SpecDraft field.
-        gap_by_topic = {t["id"]: t.get("gap_id") for t in topics if t.get("gap_id")}
+        gap_by_topic: dict[str, str] = {
+            t["id"]: gid for t in topics if (gid := t.get("gap_id"))
+        }
         spec_ids: list[str] = []
         padded_paths = paths + [""] * (len(specs) - len(paths))
         for spec, path in zip(specs, padded_paths, strict=False):

@@ -971,11 +971,11 @@ def governed_publish(
             from .capability_ratchet import CapabilityRatchet
 
             ratchet = capability_ratchet or CapabilityRatchet(engine)
-            verdict = ratchet.evaluate(
+            ratchet_verdict = ratchet.evaluate(
                 result.worktree_path, change_set=change_set, proposal_id=proposal_id
             )
-            report["capability_ratchet"] = {"passed": bool(verdict.passed)}
-            if not verdict.passed:
+            report["capability_ratchet"] = {"passed": bool(ratchet_verdict.passed)}
+            if not ratchet_verdict.passed:
                 _abandon_branch(result.repo_path, result.worktree_path, result.branch)
                 result.ok = False
                 report["publish"] = result.to_dict()
