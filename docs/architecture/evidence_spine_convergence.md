@@ -9,16 +9,35 @@ multimodal evidence-graph spine + citation resolver,
 ## The gap this closes
 
 Before this change there were **two parallel evidence chains** for the same
-`EvidenceSpan` shape:
+governed `eg_modality::EvidenceLocus` shape:
 
 * AU stored *that* some bytes occurred — a `:SourceObject -> :AssetOccurrence ->
   :Blob` identity chain (AU-P1-4) — but had no way to say *where inside those
   bytes* a claim's evidence sat.
 * epistemic-graph's own evidence-graph (EG-X1) already resolved a located
-  `EvidenceSpan` locus (`PageBox`/`ImageRegion`/`AudioSegment`/…) off an
-  `:Evidence` node's `evidence_span`/`occurrence_id`/`blob_ref` properties via
-  `Method::ExplainEvidence` / `eg_epistemic::evidence_citations` — but nothing
-  ever wrote an AU-produced occurrence into that shape.
+  `EvidenceLocus` (an `EvidenceAddress` of kind `PageRegion`/`ImageRegion`/
+  `AudioRange`/…, wrapped with `id`/`subject`/`policy_ref`/`derivation_ref`) off
+  an `:Evidence` node's `evidence_locus`/`occurrence_id`/`blob_ref` properties
+  via `Method::ExplainEvidence` / `eg_epistemic::evidence_citations` — but
+  nothing ever wrote an AU-produced occurrence into that shape.
+
+**Correction (this pass):** the first version of this seam wrote the property
+under the WRONG key with the WRONG shape — `evidence_span` holding an
+informal, externally-tagged `{"PageBox": {...}}`-style dict (missing the
+governed `id`/`subject`/`policy_ref`/`derivation_ref` envelope entirely and
+using field names that don't match `eg_modality::EvidenceAddress`, e.g.
+`PageBox` instead of `PageRegion`, `DocumentSpan` instead of `CharacterRange`).
+Every `MediaStore.store_*_evidence` write therefore reached the graph but was
+**silently unresolvable** by `decode_locus`/`evidence_citations`/
+`Method::ExplainEvidence` (which read ONLY `evidence_locus`, confirmed by
+direct grep of the engine source and by `crates/eg-epistemic/tests/
+x1_au_occurrence_chain.rs`, the engine-side contract test this seam always
+claimed to mirror) — despite every `MediaStore` unit test passing, because
+those tests asserted on the same wrong key/shape the code wrote, never
+cross-checked against the engine's real decoder. Every producer below now
+writes the correct `evidence_locus` property in the exact shape
+`x1_au_occurrence_chain.rs` proves the engine decodes (see
+`MediaStore._governed_locus`/`_opaque_hex`).
 
 A citation resolved through AU and a citation resolved through EG were
 answering two different questions from two different graphs of record. Seam 2
@@ -37,9 +56,12 @@ it's storing, this method:
 2. Writes/reuses a `:SourceObject` node for the owning document
    (`sourceobject:<document_id>`, upserted once) plus a structural
    `hasOccurrence` edge to the new occurrence.
-3. Writes an `:Evidence` node carrying the located `PageBox` `EvidenceSpan`
-   locus (the externally-tagged `{"PageBox": {document_id, page, x, y, width,
-   height}}` shape `eg_epistemic::BeliefGraph::from_graph_view` decodes) plus
+3. Writes an `:Evidence` node carrying a governed `eg_modality::EvidenceLocus`
+   (a `PageRegion` `EvidenceAddress` — `{page, x, y, width, height}` — wrapped
+   with `id`/`subject`/`policy_ref`/`derivation_ref`, the exact
+   `{"id", "subject", "address", "policy_ref", "derivation_ref"}` shape
+   `eg_epistemic::BeliefGraph::from_graph_view` decodes off the node's
+   `evidence_locus` property — see `MediaStore._governed_locus`) plus
    `occurrence_id`/`blob_ref` — the SAME identity-chain convention
    `eg_epistemic::evidence` documents — and a structural `extractedFrom` edge
    back to the occurrence.
@@ -70,7 +92,7 @@ flowchart LR
     OC --> BL[":Blob"]
     SD -->|hasOccurrence| SO
     SO --> OC
-    SD -->|AddNode: evidence_span/occurrence_id/blob_ref| EV[":Evidence"]
+    SD -->|AddNode: evidence_locus/occurrence_id/blob_ref| EV[":Evidence"]
     SD -->|extractedFrom| OC
     SD -->|"SUPPORTS (relationship_type)"| CL[":Claim"]
     EV --> CL
@@ -87,21 +109,26 @@ flowchart LR
 
 ## Proof (the vertical slice)
 
-One modality, end-to-end: **document page-box** (`EvidenceSpan::PageBox`).
+One modality, end-to-end: **document page-box** (`EvidenceAddress::PageRegion`).
 
 * AU half (no live engine needed): `tests/unit/knowledge_graph/
   test_media_store_evidence_spine.py` proves `store_document_page_evidence`
-  writes the exact node/edge shape — `evidence_span`/`occurrence_id`/`blob_ref`
-  on the `:Evidence` node, structural `hasOccurrence`/`extractedFrom`/`hasBlob`
-  edges, and the `relationship_type: "SUPPORTS"` edge when a `claim_id` is
-  given.
+  writes the exact node/edge shape — a governed `evidence_locus`/`occurrence_id`/
+  `blob_ref` on the `:Evidence` node (`test_governed_locus_matches_the_engine_
+  contract` pins `_governed_locus`'s output against hardcoded literals — not by
+  comparing the helper to itself — so a regression in the helper can't pass
+  silently), structural `hasOccurrence`/`extractedFrom`/`hasBlob` edges, and the
+  `relationship_type: "SUPPORTS"` edge when a `claim_id` is given.
 * EG half (epistemic-graph repo): `crates/eg-epistemic/tests/
-  x1_au_occurrence_chain.rs` mirrors those EXACT literal values into a real
-  `GraphView`, decodes them through the REAL `BeliefGraph::from_graph_view`,
-  and asserts `evidence_citations`/`resolve_locus` return the exact `PageBox`
-  locus + occurrence/blob identity — the same acceptance shape EG-X1's own
+  x1_au_occurrence_chain.rs` mirrors those EXACT literal values (`page=4,
+  x=72.0, y=120.5, width=400.0, height=18.0`) into a real `GraphView`, decodes
+  them through the REAL `BeliefGraph::from_graph_view`, and asserts
+  `evidence_citations`/`resolve_locus` return the exact `PageRegion` locus +
+  occurrence/blob identity — the same acceptance shape EG-X1's own
   `x1_evidence_chain.rs` established for a hand-built fixture, now keyed off
-  AU's actual write shape.
+  AU's actual write shape. `crates/eg-epistemic/tests/
+  x2_au_locus_kinds_chain.rs` extends the same proof to `TableCellRange`/
+  `CodeSymbol`/`RowVersion`/`MetricWindow`/`TraceSpan` (W3.3).
 
 Together the two prove the round trip without requiring a live server built
 with the (opt-in, non-default) `evidence-graph` Cargo feature in this repo's
@@ -109,21 +136,27 @@ test harness — see "What remains" below.
 
 ## All eleven loci now wired (AU half) — Seam 2 completion
 
-`eg_modality::EvidenceSpan` defines eleven located-locus variants. The
-page-box slice above proved the pattern for `PageBox`; the SAME pattern now
-extends to the remaining ten via a shared private skeleton,
-`MediaStore._store_located_evidence` (`agent_utilities/knowledge_graph/
-memory/media_store.py`) — the generalized form of
-`store_document_page_evidence`'s steps 2-4 (upsert `:SourceObject`, write the
-`:Evidence` node with `evidence_span`/`occurrence_id`/`blob_ref`, the
-`extractedFrom` edge, and the `SUPPORTS` edge when `claim_id` is given),
-parameterized over `about_id` (whichever locus field identifies the owning
-artifact) and the caller-built externally-tagged `evidence_span` dict. Each
-public wrapper below returns the (identically-shaped) `EvidenceLocus`
-dataclass and is opt-in exactly like `store_document_page_evidence` — nothing
-about `store_media`/`store_rendition` changes.
+`eg_modality::EvidenceAddress` defines eleven located-locus variants (plus a
+twelfth, `Point`/`Spatial`, added to the engine after this seam's scope was
+set — see the W3.3 note at the end of this doc). The page-region slice above
+proved the pattern for `PageRegion`; the SAME pattern now extends to the
+remaining ten via a shared private skeleton, `MediaStore._store_located_evidence`
+(`agent_utilities/knowledge_graph/memory/media_store.py`) — the generalized
+form of `store_document_page_evidence`'s steps 2-4 (upsert `:SourceObject`,
+write the `:Evidence` node with a governed `evidence_locus`/`occurrence_id`/
+`blob_ref`, the `extractedFrom` edge, and the `SUPPORTS` edge when `claim_id`
+is given), parameterized over `about_id` (whichever locus field identifies the
+owning artifact) and `locus_kind`/`address` (the Rust `EvidenceAddress`
+variant's own tag + fields — built into the full governed shape by
+`MediaStore._governed_locus`; caller-supplied identifiers that the Rust side
+types as an opaque reference, e.g. `CodeSymbol`'s `revision_ref`/`symbol_ref`
+or `RowVersion`'s `row_ref`, are hashed into a deterministic opaque token by
+`MediaStore._opaque_hex` rather than carried verbatim). Each public wrapper
+below returns the (identically-shaped) `EvidenceLocus` dataclass and is opt-in
+exactly like `store_document_page_evidence` — nothing about `store_media`/
+`store_rendition` changes.
 
-| Locus (`eg_modality::EvidenceSpan`) | `MediaStore` method | Producer wiring |
+| Locus (`eg_modality::EvidenceAddress`) | `MediaStore` method | Producer wiring |
 |---|---|---|
 | `PageBox` | `store_document_page_evidence` | **Wired 2026-07-22 (pass 2)** — `readers_office.read_pptx` (`agent_utilities/knowledge_graph/extraction/readers_office.py`), one locus per slide, boxed to the deck's real `slide_width`/`slide_height`. The PDF text path (`extraction/pdf.py`) was surveyed and genuinely has no computed-and-discarded per-page box to wire: it deliberately isolates parsing in a killable, engine-less subprocess and joins ALL pages into one flat string, by design, for security isolation — no page boundary or box survives the pipe, so wiring it would require new computation, not just plumbing. |
 | `DocumentSpan` | `store_document_span_evidence` | Wired (pass 1, 2026-07-22) — `IngestionEngine._extract_facts_into_graph` (`agent_utilities/knowledge_graph/ingestion/engine.py`), one locus per persisted fact whose `evidence_span` is a real substring of the window it was extracted from. |
@@ -141,9 +174,10 @@ about `store_media`/`store_rendition` changes.
 `test_store_locus_evidence_writes_the_full_identity_chain` /
 `test_store_locus_evidence_links_supports_edge_when_claim_given` are
 parametrized over all ten new loci (`LOCUS_CASES`), each asserting the exact
-`evidence_span` literal plus `occurrence_id`/`blob_ref` and the structural
-`hasOccurrence`/`extractedFrom`/`hasBlob` edges, mirroring the page-box test's
-approach node-for-node.
+governed `evidence_locus` (built via the independently-pinned
+`_governed_locus`) plus `occurrence_id`/`blob_ref` and the structural
+`hasOccurrence`/`extractedFrom`/`hasBlob` edges, mirroring the page-region
+test's approach node-for-node.
 
 ### Producer wiring — 2026-07-22 pass (three more closed)
 
@@ -300,3 +334,35 @@ Still not wired, re-surveyed this pass:
   now) — a pre-existing drift unrelated to this seam, noted here because it's
   exactly what would need fixing (or superseding) to add the live-engine test
   above.
+
+## W3.3 correction — the wire contract itself, and a twelfth locus kind
+
+**The bug.** Every producer this doc describes above was, until this pass,
+writing to the WRONG property (`evidence_span`) in an informal, non-governed
+shape — see the "Correction" note under "The gap this closes". The engine
+never reads `evidence_span`; `decode_locus`/`BeliefGraph::from_graph_view`
+read `evidence_locus` exclusively (grep-confirmed against
+`crates/eg-epistemic/src/{evidence.rs,adapter.rs}` — zero matches for
+`evidence_span` anywhere in the engine). So despite this doc's own prior claim
+of a proven round trip, **zero of the "10/11 wired" loci were actually citable
+through `Method::ExplainEvidence`** — every `MediaStore` unit test passed only
+because it asserted on the same wrong key/shape the code wrote, never against
+the engine's real decoder. `MediaStore._governed_locus`/`_opaque_hex` now
+build the correct governed shape; `test_governed_locus_matches_the_engine_
+contract` pins it against hardcoded literals (not the helper compared to
+itself) so this class of bug cannot recur silently.
+
+**A twelfth `EvidenceAddress` kind.** The engine's `EvidenceAddress` enum
+(`crates/eg-modality/src/artifact.rs`) now has 12 variants, not 11: `Point`
+(mapped to `eg-program`'s `ProgramModality::Spatial`) was added after this
+seam's 11-locus scope was set and after the audit this program's W3.3 task
+cites. No AU producer targets `Point` — out of scope for W3.3 (a spatial/geo
+locus, not one of the named table/code/row/metric/trace kinds), logged in
+`reports/issue-register.md` as a scope note, not a defect.
+
+**Media-decode loci deferred to W4.6.** `PageRegion`/`ImageRegion`/
+`AudioRange` already have live AU producers (readers_office/readers_media/
+messaging router) predating this pass; `VideoTimeRange`/`FrameRange` remain
+unwired (no video-decode capability in AU, as this doc's "Still not wired"
+section above already documents) and pair with the W4.6 media-sidecar
+program rather than being wired here.

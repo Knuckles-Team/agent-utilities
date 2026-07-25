@@ -182,15 +182,27 @@ def test_store_document_page_evidence_writes_the_full_identity_chain():
     assert ev_props["confidence"] == 1.0
     assert ev_props["occurrence_id"] == result.occurrence_id
     assert ev_props["blob_ref"] == result.blob_id
-    assert ev_props["evidence_span"] == {
-        "PageBox": {
-            "document_id": "doc-quarterly-report",
+    # The EXACT `eg_modality::EvidenceLocus` wire shape
+    # `crates/eg-epistemic/tests/x1_au_occurrence_chain.rs` proves the engine
+    # decodes off `evidence_locus` (NOT the former, now-retired `evidence_span`
+    # externally-tagged shape) — same literal page/x/y/width/height as that
+    # Rust test, so the two are directly diffable against each other.
+    assert ev_props["evidence_locus"] == {
+        "id": f"eg:locus:{result.evidence_id.split(':', 1)[1]}",
+        "subject": {
+            "kind": "occurrence",
+            "id": f"eg:occurrence:{result.occurrence_id.split(':', 1)[1]}",
+        },
+        "address": {
+            "kind": "page_region",
             "page": 4,
             "x": 72.0,
             "y": 120.5,
             "width": 400.0,
             "height": 18.0,
-        }
+        },
+        "policy_ref": f"eg:policy:{result.evidence_id.split(':', 1)[1]}",
+        "derivation_ref": f"eg:derivation:{result.evidence_id.split(':', 1)[1]}",
     }
 
     # -- :AssetOccurrence -> :Blob (unchanged AU-P1-4 write) --------------
@@ -292,20 +304,78 @@ def test_repeat_calls_for_the_same_document_reuse_one_source_object():
 
 
 # --------------------------------------------------------------------------- #
+# `_governed_locus` itself — hardcoded expected literals (never built by
+# calling `_governed_locus` again), so a regression in the helper cannot pass
+# by comparing its output to itself. Pinned to the SAME literal values
+# `crates/eg-epistemic/tests/x1_au_occurrence_chain.rs` uses for its
+# `page_region` case, so the two are directly diffable.
+# --------------------------------------------------------------------------- #
+
+
+def test_governed_locus_matches_the_engine_contract():
+    """`MediaStore._governed_locus` must produce the EXACT
+    `eg_modality::EvidenceLocus` wire shape the engine's
+    `BeliefGraph::from_graph_view`/`evidence_citations`/`Method::ExplainEvidence`
+    decode off an `:Evidence` node's `evidence_locus` property — proven
+    engine-side by `crates/eg-epistemic/tests/
+    x1_au_occurrence_chain.rs::externally_authored_locus_uses_the_universal_contract`.
+    """
+    token = "a" * 32
+    occ_token = "b" * 32
+    locus = MediaStore._governed_locus(
+        "page_region",
+        {"page": 4, "x": 72.0, "y": 120.5, "width": 400.0, "height": 18.0},
+        evidence_id=f"evidence:{token}",
+        occurrence_id=f"occurrence:{occ_token}",
+    )
+    assert locus == {
+        "id": f"eg:locus:{token}",
+        "subject": {"kind": "occurrence", "id": f"eg:occurrence:{occ_token}"},
+        "address": {
+            "kind": "page_region",
+            "page": 4,
+            "x": 72.0,
+            "y": 120.5,
+            "width": 400.0,
+            "height": 18.0,
+        },
+        "policy_ref": f"eg:policy:{token}",
+        "derivation_ref": f"eg:derivation:{token}",
+    }
+
+
+def test_opaque_hex_is_deterministic_lowercase_hex():
+    """`_opaque_hex` must always be usable as an `eg_modality::OpaqueRef` token:
+    lowercase hex only, and stable across calls with the same inputs (so
+    re-ingesting the same symbol/row/span yields the SAME opaque reference)."""
+    token = MediaStore._opaque_hex("agent_utilities/foo.py", "_fence_still_valid")
+    assert token == MediaStore._opaque_hex(
+        "agent_utilities/foo.py", "_fence_still_valid"
+    )
+    assert len(token) == 64
+    assert all(c in "0123456789abcdef" for c in token)
+    # Different inputs -> different tokens (no accidental collision from a
+    # naive concatenation without a separator).
+    assert token != MediaStore._opaque_hex("agent_utilities/foo.py_fence_still_valid")
+
+
+# --------------------------------------------------------------------------- #
 # The other ten loci (Seam 2 completion) — one parametrized proof that every
 # ``store_<locus>_evidence`` method writes the SAME chain shape as the shipped
-# `PageBox` seam above, just with a different externally-tagged `evidence_span`
-# variant. See ``docs/architecture/evidence_spine_convergence.md``.
+# `PageRegion` seam above, through the governed `evidence_locus` property,
+# keyed off its own `EvidenceAddress` kind + fields. See
+# ``docs/architecture/evidence_spine_convergence.md``.
 # --------------------------------------------------------------------------- #
 
 LOCUS_BYTES = b"locus-evidence-bytes" + bytes(range(32))
 
-LOCUS_CASES: list[tuple[str, dict, str, dict]] = [
+LOCUS_CASES: list[tuple[str, dict, str, str, dict]] = [
     (
         "store_document_span_evidence",
         {"document_id": "doc-span-1", "start": 10, "end": 42},
         "doc-span-1",
-        {"DocumentSpan": {"document_id": "doc-span-1", "start": 10, "end": 42}},
+        "character_range",
+        {"start": 10, "end": 42},
     ),
     (
         "store_table_cell_evidence",
@@ -317,65 +387,53 @@ LOCUS_CASES: list[tuple[str, dict, str, dict]] = [
             "col_end": 2,
         },
         "table-1",
-        {
-            "TableCellRange": {
-                "table_id": "table-1",
-                "row_start": 1,
-                "row_end": 3,
-                "col_start": 0,
-                "col_end": 2,
-            }
-        },
+        "table_cell_range",
+        {"row_start": 1, "row_end": 3, "col_start": 0, "col_end": 2},
     ),
     (
         "store_image_region_evidence",
         {"image_id": "img-1", "x": 1.0, "y": 2.0, "width": 30.0, "height": 40.0},
         "img-1",
-        {
-            "ImageRegion": {
-                "image_id": "img-1",
-                "x": 1.0,
-                "y": 2.0,
-                "width": 30.0,
-                "height": 40.0,
-            }
-        },
+        "image_region",
+        {"x": 1.0, "y": 2.0, "width": 30.0, "height": 40.0},
     ),
     (
         "store_audio_segment_evidence",
         {"audio_id": "audio-1", "start_ms": 1000, "end_ms": 4500},
         "audio-1",
-        {"AudioSegment": {"audio_id": "audio-1", "start_ms": 1000, "end_ms": 4500}},
+        "audio_range",
+        {"start_ms": 1000, "end_ms": 4500},
     ),
     (
         "store_video_shot_evidence",
         {"video_id": "vid-1", "start_ms": 2000, "end_ms": 5000},
         "vid-1",
-        {"VideoShot": {"video_id": "vid-1", "start_ms": 2000, "end_ms": 5000}},
+        "video_time_range",
+        {"start_ms": 2000, "end_ms": 5000},
     ),
     (
         "store_video_frame_range_evidence",
         {"video_id": "vid-1", "start_frame": 48, "end_frame": 96},
         "vid-1",
-        {
-            "VideoFrameRange": {
-                "video_id": "vid-1",
-                "start_frame": 48,
-                "end_frame": 96,
-            }
-        },
+        "frame_range",
+        {"start_frame": 48, "end_frame": 96},
     ),
     (
         "store_metric_window_evidence",
         {"metric": "cpu.load", "start_ms": 0, "end_ms": 60000},
         "cpu.load",
-        {"MetricWindow": {"metric": "cpu.load", "start_ms": 0, "end_ms": 60000}},
+        "metric_window",
+        {"start_ms": 0, "end_ms": 60000},
     ),
     (
         "store_row_version_evidence",
         {"table": "orders", "row_id": "42", "version": 7},
         "orders:42",
-        {"RowVersion": {"table": "orders", "row_id": "42", "version": 7}},
+        "row_version",
+        {
+            "row_ref": f"eg:row:{MediaStore._opaque_hex('orders', '42')}",
+            "version": 7,
+        },
     ),
     (
         "store_code_symbol_evidence",
@@ -386,36 +444,41 @@ LOCUS_CASES: list[tuple[str, dict, str, dict]] = [
             "end_line": 245,
         },
         "agent_utilities/foo.py",
+        "code_symbol",
         {
-            "CodeSymbol": {
-                "file_path": "agent_utilities/foo.py",
-                "symbol": "_fence_still_valid",
-                "start_line": 210,
-                "end_line": 245,
-            }
+            "revision_ref": f"eg:revision:{MediaStore._opaque_hex('agent_utilities/foo.py')}",
+            "symbol_ref": f"eg:symbol:{MediaStore._opaque_hex('agent_utilities/foo.py', '_fence_still_valid')}",
+            "start_line": 210,
+            "end_line": 245,
         },
     ),
     (
         "store_trace_span_evidence",
         {"trace_id": "trace-1", "span_id": "span-1"},
         "trace-1",
-        {"TraceSpan": {"trace_id": "trace-1", "span_id": "span-1"}},
+        "trace_span",
+        {
+            "trace_ref": f"eg:trace:{MediaStore._opaque_hex('trace-1')}",
+            "span_ref": f"eg:span:{MediaStore._opaque_hex('trace-1', 'span-1')}",
+        },
     ),
 ]
 
 
 @pytest.mark.parametrize(
-    "method_name,kwargs,about_id,expected_span",
+    "method_name,kwargs,about_id,locus_kind,address",
     LOCUS_CASES,
     ids=[c[0] for c in LOCUS_CASES],
 )
 def test_store_locus_evidence_writes_the_full_identity_chain(
-    method_name, kwargs, about_id, expected_span
+    method_name, kwargs, about_id, locus_kind, address
 ):
-    """Every non-PageBox locus method writes the exact same
+    """Every non-PageRegion locus method writes the exact same
     `:SourceObject -> :AssetOccurrence -> :Blob -> :Evidence` chain shape
     `eg_epistemic::BeliefGraph::from_graph_view` decodes, keyed off its own
-    externally-tagged `evidence_span` variant."""
+    governed `EvidenceLocus` (`_governed_locus`'s own contract is pinned
+    independently above — this proves each WRAPPER method feeds it the right
+    `locus_kind`/`address`)."""
     client = _FakeClient()
     store = MediaStore(_FakeCompute(client))
     method = getattr(store, method_name)
@@ -440,7 +503,18 @@ def test_store_locus_evidence_writes_the_full_identity_chain(
     assert ev_props["confidence"] == 1.0
     assert ev_props["occurrence_id"] == result.occurrence_id
     assert ev_props["blob_ref"] == result.blob_id
-    assert ev_props["evidence_span"] == expected_span
+    assert "evidence_span" not in ev_props
+    expected_locus = MediaStore._governed_locus(
+        locus_kind,
+        address,
+        evidence_id=result.evidence_id,
+        occurrence_id=result.occurrence_id,
+    )
+    assert ev_props["evidence_locus"] == expected_locus
+    # Structurally valid per the engine's own governed-identity rules (every
+    # opaque reference is `eg:<namespace>:<16-128 lowercase hex chars>`) —
+    # exercises the same shape `eg_modality::EvidenceLocus::validate()` checks.
+    assert ev_props["evidence_locus"]["address"]["kind"] == locus_kind
 
     occ_props = client.nodes.properties(result.occurrence_id)
     assert occ_props is not None
@@ -469,15 +543,15 @@ def test_store_locus_evidence_writes_the_full_identity_chain(
 
 
 @pytest.mark.parametrize(
-    "method_name,kwargs,about_id,expected_span",
+    "method_name,kwargs,about_id,locus_kind,address",
     LOCUS_CASES,
     ids=[c[0] for c in LOCUS_CASES],
 )
 def test_store_locus_evidence_links_supports_edge_when_claim_given(
-    method_name, kwargs, about_id, expected_span
+    method_name, kwargs, about_id, locus_kind, address
 ):
-    """Same `relationship_type: "SUPPORTS"` convention as the PageBox seam, for
-    every other locus kind."""
+    """Same `relationship_type: "SUPPORTS"` convention as the PageRegion seam,
+    for every other locus kind."""
     client = _FakeClient()
     store = MediaStore(_FakeCompute(client))
     method = getattr(store, method_name)
