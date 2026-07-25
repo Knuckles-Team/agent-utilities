@@ -656,15 +656,13 @@ def load_config(*, reload: bool = False) -> None:
             raise
 
 
-def _capture_projection_state_locked() -> (
-    tuple[
-        bool,
-        dict[str, str],
-        dict[str, bytes],
-        dict[str, Any],
-        dict[str, str | None],
-    ]
-):
+def _capture_projection_state_locked() -> tuple[
+    bool,
+    dict[str, str],
+    dict[str, bytes],
+    dict[str, Any],
+    dict[str, str | None],
+]:
     """Capture only loader-owned state for scoped reload rollback."""
     owned_keys = set(_xdg_injected_environment).union(_xdg_injected_runtime_secrets)
     return (
@@ -5541,9 +5539,9 @@ def _populate_lazy_config(
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
     _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE[
-        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
-    ] = cfg.langfuse_dataset_capture_threshold
+    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
+        cfg.langfuse_dataset_capture_threshold
+    )
 
     _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
     _LAZY_CACHE["DEFAULT_A2A_STORAGE"] = cfg.a2a_storage
@@ -5614,9 +5612,9 @@ def _populate_lazy_config(
         _kg_model.id if _kg_model else None
     ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
     _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE[
-        "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
-    ] = cfg.knowledge_graph_sync_background
+    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
+        cfg.knowledge_graph_sync_background
+    )
     # --- Parallel Engine Defaults ---
     _LAZY_CACHE["DEFAULT_MAX_PARALLEL_AGENTS"] = cfg.max_parallel_agents
     _LAZY_CACHE["DEFAULT_PARALLEL_BATCH_SIZE"] = cfg.parallel_batch_size
@@ -5624,9 +5622,9 @@ def _populate_lazy_config(
     _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
     _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
     _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE[
-        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
-    ] = cfg.enable_progressive_synthesis
+    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
+        cfg.enable_progressive_synthesis
+    )
 
     _LAZY_CACHE["MAX_UPLOAD_SIZE"] = cfg.max_upload_size
 
@@ -6468,14 +6466,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"][
-                            "PYTHONWARNINGS"
-                        ] = "ignore:urllib3 (2.3.0) or chardet"
+                        cfg["env"]["PYTHONWARNINGS"] = (
+                            "ignore:urllib3 (2.3.0) or chardet"
+                        )
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"][
-                                "PYTHONWARNINGS"
-                            ] += ",ignore:urllib3 (2.3.0) or chardet"
+                            cfg["env"]["PYTHONWARNINGS"] += (
+                                ",ignore:urllib3 (2.3.0) or chardet"
+                            )
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.

@@ -52,8 +52,12 @@ def test_aggregates_across_known_labels():
 def test_filters_by_artifact_kind():
     engine = _StubEngine(
         {
-            "skill_version": [{"id": "sv1", "status": "active", "artifact_kind": "skill"}],
-            "prompt_version": [{"id": "pv1", "status": "proposal", "artifact_kind": "prompt"}],
+            "skill_version": [
+                {"id": "sv1", "status": "active", "artifact_kind": "skill"}
+            ],
+            "prompt_version": [
+                {"id": "pv1", "status": "proposal", "artifact_kind": "prompt"}
+            ],
         }
     )
     summary = artifact_evolution_summary(engine, artifact_kind="prompt")
@@ -84,7 +88,9 @@ def test_one_label_query_failure_does_not_block_the_others():
 
 
 def test_limit_bounds_returned_versions_but_not_totals():
-    rows = [{"id": f"sv{i}", "status": "active", "artifact_kind": "skill"} for i in range(5)]
+    rows = [
+        {"id": f"sv{i}", "status": "active", "artifact_kind": "skill"} for i in range(5)
+    ]
     engine = _StubEngine({"skill_version": rows})
     summary = artifact_evolution_summary(engine, limit=2)
     assert summary["total"] == 5

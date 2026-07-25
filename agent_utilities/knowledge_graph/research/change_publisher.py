@@ -907,9 +907,7 @@ def governed_publish(
         if not verdict.approved:
             report["status"] = "approval_queued" if verdict.approval_id else "denied"
             report["detail"] = (
-                "approval is required"
-                if verdict.approval_id
-                else "publication denied"
+                "approval is required" if verdict.approval_id else "publication denied"
             )
             return report
     else:

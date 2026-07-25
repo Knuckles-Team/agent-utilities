@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1025
+total_concepts: 1028
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -302,6 +302,16 @@ concepts:
   code_paths:
   - agent_utilities/harness/memorydata/scoreboard.py
   doc: AU-AHE.harness.ahe-3
+- id: AU-AHE.harness.audit-gap-detector
+  name: Wave-6 D1-ext
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/harness/audit_gap_detector.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/mcp/tools/evolution_tools.py
+  doc: Wave-6 D1-ext
 - id: AU-AHE.harness.callers-feed-back-per
   name: callers feed back a per-query reward so the
   pillar: AU-AHE
@@ -311,6 +321,18 @@ concepts:
   - agent_utilities/harness/memorydata/bakeoff.py
   - agent_utilities/harness/memorydata/router_method.py
   doc: callers feed back a per-query reward so the
+- id: AU-AHE.harness.canonical-gap-lifecycle
+  name: the unified Gap→SDD→Implement→Promote→Close
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+  - agent_utilities/knowledge_graph/adaptation/skill_evolver.py
+  - agent_utilities/knowledge_graph/assimilation/plan_synthesis.py
+  - agent_utilities/knowledge_graph/research/change_publisher.py
+  - agent_utilities/knowledge_graph/research/gaps.py
+  - agent_utilities/knowledge_graph/research/spec_proposals.py
+  doc: the unified Gap→SDD→Implement→Promote→Close
 - id: AU-AHE.harness.capability-ratchet
   name: verified apply-verify-rollback from the ManifestVerifier confirm-or-revert recommendation over
     measured before-and-after capability scores
@@ -654,6 +676,7 @@ concepts:
   pillar: AU-AHE
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/enrichment/distill.py
   - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/knowledge_graph/research/change_synthesis.py
   - agent_utilities/knowledge_graph/research/code_synthesis.py
@@ -704,18 +727,20 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   doc: skill
 - id: AU-AHE.harness.unified-promotion-gate
-  name: program issue register
+  name: the SDD/develop vector
   pillar: AU-AHE
   status: live
   code_paths:
   - agent_utilities/harness/evolve_agent.py
   - agent_utilities/knowledge_graph/research/auto_merge.py
+  - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/knowledge_graph/research/evolution_state.py
   - agent_utilities/knowledge_graph/research/skill_evolution.py
   - agent_utilities/mcp/tools/ops_causal_tools.py
+  - agent_utilities/models/knowledge_graph.py
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/artifact_promotion.py
-  doc: program issue register
+  doc: the SDD/develop vector
 - id: AU-AHE.harness.variant-pool
   name: ───────────────────────────────────
   pillar: AU-AHE
@@ -734,14 +759,14 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   doc: when the outcome names the agent that produced it
 - id: AU-AHE.harness.when-task-is-scope
-  name: when a task is in scope, run a short self-guided
+  name: when a task is in scope, run a short
   pillar: AU-AHE
   status: live
   code_paths:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/self_guided_play.py
-  doc: when a task is in scope, run a short self-guided
+  doc: when a task is in scope, run a short
 - id: AU-AHE.harness.width-diverse-best-k
   name: width of the *diverse* best-of-k fan-out — harder
   pillar: AU-AHE
@@ -982,6 +1007,15 @@ concepts:
   code_paths:
   - agent_utilities/rlm/runner.py
   doc: surface token usage
+- id: AU-AHE.sdd.loop-authored-spec
+  name: author each draft as a
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/distill.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/sdd/__init__.py
+  doc: author each draft as a
 - id: AU-AHE.sdd.recursive-improvement-instrumentation-aggregating
   name: recursive-improvement instrumentation aggregating per-cycle proposal merge and capability-delta
     metrics so the self-evolution loop can measure its own rate and per-mechanism contribution
@@ -4248,18 +4282,19 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/capabilities/compaction/_shared.py
   - agent_utilities/capabilities/memento.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/memory/lifecycle.py
   - agent_utilities/knowledge_graph/memory/memento_compressor.py
   doc: the live block-compress-evict sawtooth
 - id: AU-KG.memory.memento-compress-evict
-  name: live Memento block-compress-evict sawtooth
+  name: the live block-compress-evict sawtooth
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/agent/factory.py
-  doc: live Memento block-compress-evict sawtooth
+  - agent_utilities/capabilities/composition.py
+  doc: the live block-compress-evict sawtooth
 - id: AU-KG.memory.memory-lifecycle-manager
   name: Unified Memory Manager
   pillar: AU-KG
@@ -6526,13 +6561,13 @@ concepts:
   - agent_utilities/orchestration/manager.py
   doc: close the execution seam. This previously constructed a
 - id: AU-ORCH.execution.feed-cycle-outcome-fast
-  name: feed the cycle outcome to the Fast-Slow controller
+  name: feed the cycle outcome to the
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/fast_slow_controller.py
-  doc: feed the cycle outcome to the Fast-Slow controller
+  doc: feed the cycle outcome to the
 - id: AU-ORCH.execution.focused-tools-altitude
   name: the FOCUSED-TOOLS altitude is one agent loop that calls the
   pillar: AU-ORCH
@@ -7535,13 +7570,13 @@ concepts:
   - agent_utilities/rlm/sandboxes/wasm_backend.py
   doc: AU-ORCH.sandbox.wasm-backend
 - id: AU-ORCH.scheduling.also-fold-vllm-scheduler
-  name: also fold the vLLM scheduler
+  name: the vLLM scheduler
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/core/model_factory.py
   - agent_utilities/core/resource_priority.py
-  doc: also fold the vLLM scheduler
+  doc: the vLLM scheduler
 - id: AU-ORCH.scheduling.analysis-lane
   name: the LLM-extraction / deep-analysis phase is its OWN lane
   pillar: AU-ORCH

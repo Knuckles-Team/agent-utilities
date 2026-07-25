@@ -29,8 +29,14 @@ sys.path.insert(0, str(Path(__file__).parent / "unit"))
 
 from test_wave6_gap_lifecycle import LifecycleEngine, _Draft  # noqa: E402
 
-from agent_utilities.knowledge_graph.research import change_publisher, gaps  # noqa: E402
-from agent_utilities.knowledge_graph.research.gaps import get_gap, submit_gap  # noqa: E402
+from agent_utilities.knowledge_graph.research import (  # noqa: E402
+    change_publisher,
+    gaps,
+)
+from agent_utilities.knowledge_graph.research.gaps import (  # noqa: E402
+    get_gap,
+    submit_gap,
+)
 from agent_utilities.knowledge_graph.research.spec_proposals import (  # noqa: E402
     develop_spec,
     persist_spec_proposal,
@@ -61,7 +67,17 @@ def target_repo(tmp_path: Path) -> Path:
     (repo / "w6_widget.py").write_text(_BUGGY, encoding="utf-8")
     _git("init", "-q", "-b", "main", ".", cwd=repo)
     _git("add", "-A", cwd=repo)
-    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "seed", cwd=repo)
+    _git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "-m",
+        "seed",
+        cwd=repo,
+    )
     return repo
 
 
@@ -99,7 +115,12 @@ def _single_traversal(engine: LifecycleEngine, gap_id: str):
     ver = follow(spec[0], "IMPLEMENTED_BY") if spec else []
     exe = follow(ver[0], "PUBLISHED_AS") if ver else []
     if spec and ver and exe:
-        return {"gap": gap_id, "spec": spec[0], "spec_version": ver[0], "execution": exe[0]}
+        return {
+            "gap": gap_id,
+            "spec": spec[0],
+            "spec_version": ver[0],
+            "execution": exe[0],
+        }
     return None
 
 
@@ -137,9 +158,13 @@ def test_end_to_end_gap_to_resolved_chain(target_repo, tmp_path, monkeypatch):
         graph_writer=_writer,
     )
     # (b) research/OSS
-    submit_gap(engine, source=gaps.SOURCE_RESEARCH, signature="feat", statement="add feat")
+    submit_gap(
+        engine, source=gaps.SOURCE_RESEARCH, signature="feat", statement="add feat"
+    )
     # (c) skill-coverage
-    submit_skill_gap(engine, SkillGap(task_text="do a thing", suggested_name="do-thing"))
+    submit_skill_gap(
+        engine, SkillGap(task_text="do a thing", suggested_name="do-thing")
+    )
     # (d) code-audit — the seeded correctness bug in ingested code
     engine.add_node(
         "code:w6_widget::add",
@@ -164,9 +189,13 @@ def test_end_to_end_gap_to_resolved_chain(target_repo, tmp_path, monkeypatch):
     from agent_utilities.sdd import SDDManager
 
     draft = _Draft(
-        "Fix add() to add", target_file="w6_widget.py", concept_ids=["code:w6_widget::add"]
+        "Fix add() to add",
+        target_file="w6_widget.py",
+        concept_ids=["code:w6_widget::add"],
     )
-    SDDManager(target_repo).author_from_draft(draft)  # .specify/specs/<f>/{spec,tasks}.md
+    SDDManager(target_repo).author_from_draft(
+        draft
+    )  # .specify/specs/<f>/{spec,tasks}.md
     assert (target_repo / ".specify/specs/fix-add-to-add/spec.md").exists()
     assert (target_repo / ".specify/specs/fix-add-to-add/tasks.md").exists()
 

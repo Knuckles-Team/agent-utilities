@@ -256,7 +256,9 @@ class SDDManager:
         input adapter; ``Spec`` is the one spec model. Returns the ``spec.md`` path.
         """
         title = str(getattr(draft, "title", "") or "spec").strip() or "spec"
-        fid = feature_id or (re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "spec")
+        fid = feature_id or (
+            re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "spec"
+        )
         target_file = str(getattr(draft, "target_file", "") or "")
         problem = str(getattr(draft, "problem", "") or "")
         approach = str(getattr(draft, "approach", "") or "")
@@ -265,7 +267,9 @@ class SDDManager:
             id=f"{fid}-us1",
             title=title,
             description=problem or approach or title,
-            acceptance_criteria=[value] if value else ["The approach is implemented and tested."],
+            acceptance_criteria=[value]
+            if value
+            else ["The approach is implemented and tested."],
         )
         spec = Spec(
             feature_id=fid,

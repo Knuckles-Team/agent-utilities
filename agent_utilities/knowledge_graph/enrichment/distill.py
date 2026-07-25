@@ -173,9 +173,7 @@ def distill_specs(
         score = round(sum(name_to_score.get(n.lower(), 0.0) for n in names), 3)
         # Never invent a target: accept the LLM's target_file only if it is one of
         # the files the cited candidates actually relate to.
-        allowed = {
-            f for n in names for f in files_by_name.get(n.lower(), [])
-        }
+        allowed = {f for n in names for f in files_by_name.get(n.lower(), [])}
         raw_target = str(it.get("target_file", "") or "").strip().replace("\\", "/")
         target_file = raw_target if raw_target in allowed else ""
         specs.append(

@@ -38,7 +38,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ..knowledge_graph.research.gaps import SOURCE_AUDIT, submit_gap
 
