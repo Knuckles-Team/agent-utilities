@@ -315,8 +315,12 @@ class MattermostBackend(MessagingBackend):
                 loop.call_soon_threadsafe(self._event_queue.put_nowait, event)
 
         def _run_ws() -> None:
-            # init_websocket manages its own asyncio loop on this worker thread.
+            # init_websocket calls asyncio.get_event_loop() internally, which no longer
+            # auto-creates a loop on a non-main worker thread (it raises "no current event
+            # loop in thread ..."). Install a fresh loop for this thread before handing it
+            # to the driver so the websocket consumer starts instead of dying immediately.
             try:
+                asyncio.set_event_loop(asyncio.new_event_loop())
                 self._driver.init_websocket(_on_event)
             except Exception as exc:  # noqa: BLE001 — surface, never crash the daemon
                 logger.error(
