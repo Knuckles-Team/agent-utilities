@@ -78,6 +78,57 @@ flowchart LR
     dev --> branch["reviewable branch\n(never auto-merged)"]
 ```
 
+### Wave 6 — the unified Gap→SDD→Implement→Promote→Close spine (operator surface)
+
+CONCEPT:AU-AHE.harness.canonical-gap-lifecycle. Before Wave 6 the platform had **three
+unrelated notions of "gap"** (a transient `failure_gap` `:Concept` dict — see
+[Failure-Driven Evolution](failure_driven_evolution.md) for that legacy shape — a
+dead-end `sdd_plan` node, an in-memory `SkillGap`), plus a fourth (code-audit
+findings), joined by 7+ disjoint id schemes. `knowledge_graph/research/gaps.py`
+repurposes the existing `KnowledgeGapNode` model as the **single** gap
+representation every discovery track now folds into:
+
+```mermaid
+flowchart LR
+    failure["failure_analyzer\n(production failures)"] -->|submit_gap| gap
+    research["plan_synthesis\n(research/OSS)"] -->|submit_gap| gap
+    skill["skill_evolver\n(skill coverage)"] -->|submit_gap| gap
+    audit["audit_gap_detector\n(code-correctness/security)"] -->|submit_gap| gap
+    manual["operator\n(graph_loops action=submit_gap)"] -->|submit_gap| gap
+    gap((":Gap\nopen")) -->|SPECIFIED_BY| spec[":SpecProposal\n(distill/review gate above)"]
+    spec -->|develop_spec| loop["develop-Loop\nRESOLVES the origin gap"]
+    loop -->|governed_publish| resolved["gap.status = resolved\n(the visible END)"]
+```
+
+Every hop is queryable and steerable through the SAME `graph_loops` MCP tool (+ REST
+twin) the rest of this page documents — no separate gap-management surface:
+
+- **`graph_loops(action="gaps")`** — the open backlog, highest priority
+  (lowest `priority_bucket`, derived from `severity`) first.
+- **`graph_loops(action="submit_gap", data_json={...})`** — file one by hand (an
+  operator-triaged issue) through the exact same `gaps.submit_gap` the four
+  autonomous discovery tracks call — idempotent on the canonical
+  `gap:<source>:<signature>` id, and leased as a first-class `WorkItem` so it is
+  schedulable like any other unit of work.
+- **`graph_loops(action="gap", loop_id="<gap id>")`** — one gap plus its D6
+  provenance chain: the `SpecProposal` it was `SPECIFIED_BY` (once distilled — see
+  the seam above) and the develop-Loop that `RESOLVES` it (once bound), so "which
+  commit closed this gap" is a traversal, not an archaeology exercise.
+- The gap's derived develop-Loop is driven exactly like any other Loop
+  (`run`/`drive`); `spec_proposals.develop_spec` binds a `RESOLVES` edge back to the
+  origin gap, and `gaps.resolve_gaps_for_loop` flips it to `resolved` when that
+  Loop's `governed_publish` lands — the same `merge_promotion` human-approval gate
+  and capability-ratchet regression gate as every other promoted change.
+
+The read-only per-graph RBAC-**ownership** disposition pass (W2.8,
+CONCEPT:AU-KG.audit.graph-ownership-disposition — a different, catalog-level
+governance concern, not the Gap content lifecycle above) is reachable the same
+way, on `graph_governance`: `ownership_report` runs the disposition pass;
+`ownership_apply` previews (always dry-run) the UNAMBIGUOUS grant plan + its
+rollback. The live mutating grant apply stays a separate, human-gated CLI
+(`scripts/apply_graph_ownership_grants.py --apply-unambiguous`, HG-4) —
+deliberately never reachable from MCP/REST.
+
 ---
 
 ## 2. Transparency: live EvolutionState + the saturation gauge
