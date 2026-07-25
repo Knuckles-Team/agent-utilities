@@ -7,8 +7,24 @@ Every Pydantic AI agent is built by :func:`create_context_agent`, which passes i
 model through :func:`wrap_model_with_context` before construction.  The wrapper
 resolves the verified ``GraphSession`` before touching a retriever, compiles an
 evidence bundle, and prepends that bundle to both streaming and non-streaming
-requests.  There is no ``skip_context`` argument: code that genuinely has no
-evidence source receives an explicit empty bundle in local/test profiles and fails
+requests — this is the delegated-run (``execute_agent``/``execute_workflow``,
+CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid) default context-assembly path: every agent the
+orchestration graph constructs (router/dispatcher/planner/specialist/single-server/
+direct-completion — ``agent/factory.py``, ``graph/executor.py``,
+``graph/hierarchical_planner.py``, ``graph/_router_impl.py``,
+``orchestration/agent_runner.py``) is built through :func:`create_context_agent`, so
+its model calls are compiled/cited/provenance-ranked by construction, ON BY
+DEFAULT, with no separate opt-in required (CONCEPT:AU-KG.retrieval.context-compiler, W3.7).
+
+There is no ``skip_context`` ARGUMENT: no per-call/per-agent parameter lets a task
+or prompt disable its own grounding (a malicious or careless caller cannot opt out).
+The one escape hatch is the deployment-level ``MODEL_CONTEXT_COMPILER_ENABLED``
+setting (config-contract style — :func:`agent_utilities.core.config.setting`,
+default ``True``, see :func:`_context_compiler_enabled`): an operator can disable
+compilation for the whole process for a genuine disable case (e.g. a
+cost-sensitive bulk/offline run with no retrieval-worthy KG content), never as a
+per-request bypass. With the escape hatch at its default (on), code that genuinely
+has no evidence source (compilation enabled, no engine registered) still fails
 closed in authenticated production profiles.
 
 The module owns no provider client and stores no prompt, identity, endpoint, or
@@ -16,6 +32,8 @@ filesystem value.  Persisted bundle caching remains the ContextCompiler's job an
 uses only privacy-safe opaque references.
 """
 
+import logging
+import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
@@ -30,6 +48,8 @@ from agent_utilities.knowledge_graph.core.session import (
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.retrieval.context_compiler import ContextBundle
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ContextCompilationError",
@@ -209,9 +229,47 @@ def _already_compiled(messages: list[Any]) -> bool:
     ).lstrip().startswith(_CONTEXT_MARKER)
 
 
-def _compile_messages(messages: list[Any], model_name: str) -> list[Any]:
+def _context_compiler_enabled() -> bool:
+    """The deployment-level escape hatch for the mandatory evidence boundary.
+
+    CONCEPT:AU-KG.retrieval.context-compiler (W3.7 default-on wiring). Config-contract
+    style (:func:`agent_utilities.core.config.setting`) — default ``True``
+    reproduces the pre-existing mandatory-compilation behavior byte-for-byte, so a
+    fresh/default config takes the compiler path with no action required. There is
+    deliberately no per-call parameter: only ``MODEL_CONTEXT_COMPILER_ENABLED`` (an
+    operator-level, whole-process setting sourced from ``config.json``/env, never
+    from request/task content) can flip it off, for a genuine disable case (e.g. a
+    cost-sensitive bulk/offline run against a corpus with no retrieval-worthy KG
+    content yet) — see the module docstring.
+    """
+
+    return bool(setting("MODEL_CONTEXT_COMPILER_ENABLED", True))
+
+
+def _compiled_evidence_and_bundle(
+    messages: list[Any], model_name: str
+) -> tuple[list[Any], ContextBundle | None]:
+    """Compile governed evidence for ``messages`` and return ``(messages, bundle)``.
+
+    The bundle-returning half of :func:`_compile_messages` — a caller that also
+    wants to attribute a metric to THIS call's compiled evidence (Seam-6 TTFT
+    labeling by ``kv_cache_hit``, CONCEPT:AU-KG.retrieval.context-compiler-kv-seam) needs the
+    :class:`~agent_utilities.knowledge_graph.retrieval.context_compiler.ContextBundle`
+    object, not just the rendered messages. ``bundle`` is ``None`` when compilation
+    did not run this call — the messages were already compiled (idempotency
+    marker present), or the :func:`_context_compiler_enabled` escape hatch is off —
+    so "genuinely compiled this call" is distinguishable from "passthrough".
+    """
     if _already_compiled(messages):
-        return messages
+        return messages, None
+    if not _context_compiler_enabled():
+        logger.warning(
+            "[CONCEPT:AU-KG.retrieval.context-compiler] MODEL_CONTEXT_COMPILER_ENABLED=false — "
+            "sending this model request WITHOUT compiled evidence (ungrounded, "
+            "no citations/proof-graph). This is a deployment-level escape hatch, "
+            "not the default; re-enable it unless this run intentionally opted out."
+        )
+        return messages, None
     query = _query_from_messages(messages)
     bundle = compile_model_context(query, model_version=model_name)
     from pydantic_ai.messages import ModelRequest, SystemPromptPart
@@ -228,7 +286,39 @@ def _compile_messages(messages: list[Any], model_name: str) -> list[Any]:
             )
         ]
     )
-    return [evidence, *messages]
+    return [evidence, *messages], bundle
+
+
+def _compile_messages(messages: list[Any], model_name: str) -> list[Any]:
+    return _compiled_evidence_and_bundle(messages, model_name)[0]
+
+
+def _record_delegated_run_ttft(duration_s: float, bundle: ContextBundle | None) -> None:
+    """Seam-6 TTFT surrogate for the delegated-run model-transport boundary (X6).
+
+    CONCEPT:AU-KG.retrieval.context-compiler-kv-seam. Mirrors ``knowledge_graph.retrieval.
+    context_compiler_serving._record_ttft`` — same histogram
+    (``agent_utilities_context_compiler_ttft_seconds``), same best-effort/never-raises
+    posture — but labeled ``path="delegated_run"`` so this interactive
+    execute_agent/execute_workflow call population is never averaged together
+    with the batch/enrichment ``bundle_chat_completion`` population under the same
+    bucket (see that metric's ``path`` label). ``bundle is None`` (passthrough —
+    already-compiled or the escape hatch is off) records nothing: there is no
+    compiled evidence to attribute the call's latency to.
+    """
+    if bundle is None:
+        return
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            CONTEXT_COMPILER_TTFT,
+        )
+
+        CONTEXT_COMPILER_TTFT.labels(
+            kv_cache_hit=str(bool(bundle.kv_cache_hit)).lower(),
+            path="delegated_run",
+        ).observe(duration_s)
+    except Exception as exc:  # noqa: BLE001 — metrics must never break a model call
+        logger.debug("delegated-run ttft metric recording failed: %s", exc)
 
 
 def _wrapper_class() -> Any | None:
@@ -246,8 +336,12 @@ def _wrapper_class() -> Any | None:
         async def request(
             self, messages: list[Any], model_settings: Any, mrp: Any
         ) -> Any:
-            governed = _compile_messages(messages, self.model_name)
-            return await super().request(governed, model_settings, mrp)
+            governed, bundle = _compiled_evidence_and_bundle(messages, self.model_name)
+            start = time.perf_counter()
+            try:
+                return await super().request(governed, model_settings, mrp)
+            finally:
+                _record_delegated_run_ttft(time.perf_counter() - start, bundle)
 
         async def count_tokens(
             self, messages: list[Any], model_settings: Any, mrp: Any
@@ -272,11 +366,15 @@ def _wrapper_class() -> Any | None:
             mrp: Any,
             run_context: Any | None = None,
         ) -> AsyncIterator[Any]:
-            governed = _compile_messages(messages, self.model_name)
-            async with super().request_stream(
-                governed, model_settings, mrp, run_context
-            ) as response:
-                yield response
+            governed, bundle = _compiled_evidence_and_bundle(messages, self.model_name)
+            start = time.perf_counter()
+            try:
+                async with super().request_stream(
+                    governed, model_settings, mrp, run_context
+                ) as response:
+                    yield response
+            finally:
+                _record_delegated_run_ttft(time.perf_counter() - start, bundle)
 
     _WRAPPER_CLASS = _ContextCompiledModel
     return _WRAPPER_CLASS

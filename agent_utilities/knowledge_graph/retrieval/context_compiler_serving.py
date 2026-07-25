@@ -363,7 +363,11 @@ def _record_ttft(duration_s: float, bundle: ContextBundle) -> None:
     treats as the fallback proof of prefix-cache reuse when vLLM's own
     ``/metrics`` isn't reachable; this just makes that signal a standing
     Prometheus histogram instead of a one-off script run, split by whether
-    ``bundle`` itself was served from the Seam-6 KV cache.
+    ``bundle`` itself was served from the Seam-6 KV cache. Labeled
+    ``path="bundle_chat_completion"`` (the background enrichment/extraction call
+    population) to keep it distinct from the interactive delegated-run population
+    ``contextual_model._record_delegated_run_ttft`` records into the SAME series
+    (CONCEPT:AU-KG.retrieval.context-compiler, W3.7).
     """
     try:
         from agent_utilities.observability.gateway_metrics import (
@@ -371,7 +375,8 @@ def _record_ttft(duration_s: float, bundle: ContextBundle) -> None:
         )
 
         CONTEXT_COMPILER_TTFT.labels(
-            kv_cache_hit=str(bool(bundle.kv_cache_hit)).lower()
+            kv_cache_hit=str(bool(bundle.kv_cache_hit)).lower(),
+            path="bundle_chat_completion",
         ).observe(duration_s)
     except Exception as exc:  # noqa: BLE001 — metrics must never break the call
         logger.debug("context-compiler ttft metric recording failed: %s", exc)

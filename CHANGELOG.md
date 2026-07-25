@@ -62,6 +62,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional claim this same wave (W2.1-1), so it no longer rejects it as
   unsupported. A plain pass-through, not a signing concern — the token's own
   RSA/JWKS signature is the trust anchor, verified independently by the engine.
+- **Epistemic RAG as the default delegated-run context path (W3.7, CONCEPT:AU-KG.retrieval.context-compiler).**
+  `execute_agent`/`execute_workflow` already routed every model call through the
+  mandatory `ContextCompiler` boundary (`core/contextual_model.py::create_context_agent`
+  is the sole runtime Pydantic-AI `Agent` construction site — verified by grep; every
+  other agent constructor across `agent/factory.py`, `graph/executor.py`,
+  `graph/hierarchical_planner.py`, `graph/_router_impl.py`, `graph/lifecycle.py` calls
+  it), but had no deployment-level opt-out and no Seam-6 (X6) measurement on that
+  specific path. Both are closed: (1) a new `MODEL_CONTEXT_COMPILER_ENABLED` setting
+  (config-contract style, `core/config.py::setting`, default `True` — reproduces the
+  prior mandatory behavior byte-for-byte) is checked once, in
+  `contextual_model._compiled_evidence_and_bundle` (the bundle-returning half of
+  `_compile_messages`, added so a caller can attribute a metric to the compiled
+  evidence it used); it is process/deployment scoped, never a per-call argument, so
+  no task/prompt content can disable its own grounding. (2) the model-transport
+  wrapper's `request`/`request_stream` now record the Seam-6 TTFT surrogate
+  (`agent_utilities_context_compiler_ttft_seconds`, `contextual_model.
+  _record_delegated_run_ttft`) around every governed model call, labeled
+  `path="delegated_run"`; the pre-existing `context_compiler_serving._record_ttft`
+  emitter (background enrichment/extraction calls via `bundle_chat_completion`) now
+  carries `path="bundle_chat_completion"` on the SAME histogram, so the two latency
+  populations are distinguishable rather than averaged together (`gateway_metrics.
+  CONTEXT_COMPILER_TTFT` gained the `path` label). The Seam-6 KV/prefix-cache
+  hit-rate counter (`agent_utilities_context_compiler_kv_cache_requests_total`) was
+  already unconditionally wired on this path (`compile_model_context` always threads
+  the process `kv_backend` through to `ContextCompiler.compile()`) — it simply had no
+  test proving it fires on the delegated-run call specifically, now added. New tests:
+  `tests/retrieval/test_context_compiler_delegated_run_default.py` (default-on,
+  citation/proof-graph end-to-end on the actual compiled text, flag-off, both
+  metrics, plus a live-path proof through `orchestration.agent_runner.
+  _run_direct_completion` with a `FunctionModel` capturing the literal request the
+  model receives) and `tests/retrieval/test_context_compiler_ab_grounding.py` (a
+  test-level A/B harness measuring citation coverage / provenance density with the
+  compiler on vs off over a fixture corpus, numbers logged, delta asserted
+  directionally). Docs: `docs/reference/metrics.md` gained the ContextCompiler
+  metric family (previously undocumented); `docs/architecture/epistemic-os-hardening.md`'s
+  stale "Seam 6 not yet wired" note is corrected.
 - **TMS live-wiring completion — Seam 3 closes the loop (W3.2, CONCEPT:EG-KG.epistemic.truth-maintenance).**
   The surpass-6mo audit (`reports/surpass-6mo/01-eg-epistemic-core.md` item 2)
   found the engine's truth-maintenance auto-registration real and shipped
