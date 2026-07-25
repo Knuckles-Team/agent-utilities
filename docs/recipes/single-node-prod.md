@@ -16,6 +16,14 @@ machine. The difference from [tiny](tiny.md) is purely lifecycle: instead of an
 embedded child that dies with one agent process, the engine runs as a
 long-lived container that the gateway and connectors share.
 
+> **Topology:** like `tiny`, this profile defaults `engine_topology` to
+> `unified-in-process` — the container/gateway/messaging consolidate into ONE
+> self-contained `graph-os` image with no sidecar engine service to deploy or drift.
+> Graduating to a **shared/scaled** engine (`out-of-process-shared`, the
+> `enterprise` default) is a distinct axis from this page's compose walkthrough —
+> see the `agent-os-genesis` skill's
+> [engine topology + hyperscaling reference](../../agent_utilities/skills/workflows/agent-os-genesis/references/engine-topology-and-hyperscaling.md).
+
 ## What runs
 
 | Component | How |

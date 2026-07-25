@@ -6,7 +6,7 @@ aliases:
   - day0_bootstrap_orchestrator
   - agent-utilities-genesis
 description: >-
-  Day 0 genesis of the entire Agent OS — agent-first, idempotent, and ADAPTIVE: fits any environment from a laptop to an enterprise already running its own Postgres/Vault/ingress/IdP. (Formerly day0_bootstrap_orchestrator; invoke as "day0".) Step 0 resolves a granular run plan per platform-dep and connector (deploy-container / deploy-baremetal / use-existing / skip), plus orchestrator (docker-compose/swarm, podman, kubernetes), engine shape + tier (the ONE epistemic-graph store), IdP (deploy Keycloak or wire existing Okta/OIDC), secrets store (OpenBao/Vault or the engine's encrypted store), optional enterprise root-CA baking, and ontology host. Then SSH mesh, cert trust, hardware placement, ingress, GitOps, tiered deploy, config.json walkthrough, and KG materialization. Triggers on "day0", "bootstrap the homelab", "stand up the Agent OS", "genesis", "deploy into enterprise", "connect to existing services".
+  Day 0 genesis of the entire Agent OS — agent-first, idempotent, and ADAPTIVE: fits any environment from a laptop to an enterprise already running its own Postgres/Vault/ingress/IdP. (Formerly day0_bootstrap_orchestrator; invoke as "day0".) Step 0 resolves a granular run plan per platform-dep and connector (deploy-container / deploy-baremetal / use-existing / skip), plus orchestrator (docker-compose/swarm, podman, kubernetes), engine shape + topology — unified self-contained in-process (the DEFAULT: one binary/pod IS engine+KG+numeric-kernel+messaging+gateway) or out-of-process shared (hyperscaling: a scaled engine + N graph-os client pods, k8s HPA) — IdP (deploy Keycloak or wire existing Okta/OIDC), secrets store (OpenBao/Vault or the engine's encrypted store), optional enterprise root-CA baking, and ontology host. Then SSH mesh, cert trust, hardware placement, ingress, GitOps, tiered deploy, config.json walkthrough, and KG materialization. Triggers on "day0", "bootstrap the homelab", "stand up the Agent OS", "genesis", "deploy into enterprise", "connect to existing services", "hyperscale graph-os".
 domain: infrastructure
 tags:
   - day0
@@ -28,6 +28,9 @@ tags:
   - dns
   - gitops
   - backups
+  - unified-binary
+  - hyperscaling
+  - raft
 requires:
   - systems-manager-mcp
   - container-manager-mcp
@@ -105,27 +108,46 @@ that point directly at a host/macvlan IP are preserved: `adguard.arpa`/Technitiu
 ## Deployment profiles (agent-utilities day-0)
 
 This orchestrator is **profile-driven**. Step 0 selects a profile, which gates
-the remaining steps so the same workflow scales from a laptop to a full swarm:
+the remaining steps so the same workflow scales from a laptop to a full swarm.
+**Every profile also picks an `engine_topology`** — the two-shapes edict (au
+`AGENTS.md` "Engine transport", eg `AGENTS.md` two-shapes,
+`reports/unified-binary-program.md`): `unified-in-process` (the **SELF-CONTAINED
+DEFAULT** — one binary/pod IS engine + KG + numeric kernel + messaging + gateway,
+no separate engine service to deploy or drift) or `out-of-process-shared` (the
+**HYPERSCALING** shape — a separately-scaled engine reached by N graph-os client
+pods). Full depth:
+[`references/engine-topology-and-hyperscaling.md`](references/engine-topology-and-hyperscaling.md).
 
-| Profile | Scope | Engine | Steps run |
+| Profile | Scope | Engine topology (DEFAULT) | Steps run |
 |---|---|---|---|
-| **tiny** | One host, **zero external infra** — the engine is the only moving part. | **`pi-max` tier, auto-started** from a prebuilt wheel (OS-5.63) — a durable, redb-authoritative binary, NOT in-process and NOT a cache. | Step 0 → Step A1 only (collapses to `agent-utilities/scripts/bootstrap.sh`). |
-| **single-node-prod** | One host, durable: the engine container + gateway + the `single-node-prod` connector slice + Caddy; optional pggraph mirror / OpenBao / Langfuse. No swarm — plain `docker compose`. | **`node` tier** (or `full`) — the engine-as-a-DB **container**. | Step 0, a Caddy/Portainer subset of Step 7, Step 8 (OpenBao optional), Steps A1–A4. |
-| **enterprise** | Full multi-node **Kubernetes (RKE2)** + all integrations + the entire `*-mcp` fleet — the reference homelab's live topology (its Swarm→RKE2 cutover is `inventory/k8s-migration/`; Docker Swarm remains available as an `orchestrator` choice for operators who haven't migrated). | **`cluster` tier** — the engine-as-a-DB container reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS`; mirrors fan out. | All steps (1–16 + A1–A6). |
+| **tiny** | One host, **zero external infra** — the engine is the only moving part. | **`unified-in-process`, `autostart`** — the engine embeds in-process (PyO3) in the SAME binary as graph-os; a durable, redb-authoritative store, no separate process to launch or drift. | Step 0 → Step A1 only (collapses to `agent-utilities/scripts/bootstrap.sh`). |
+| **single-node-prod** | One host, durable: **one self-contained graph-os container** (engine + gateway + messaging in-process) + the `single-node-prod` connector slice + Caddy; optional pggraph mirror / OpenBao / Langfuse. No swarm — plain `docker compose`. | **`unified-in-process`, `container`** — the SAME one-image consolidation as tiny, containerized; still no sidecar engine service. | Step 0, a Caddy/Portainer subset of Step 7, Step 8 (OpenBao optional), Steps A1–A4. |
+| **enterprise** | Full multi-node **Kubernetes (RKE2)** + all integrations + the entire `*-mcp` fleet — the reference homelab's live topology (its Swarm→RKE2 cutover is `inventory/k8s-migration/`; Docker Swarm remains available as an `orchestrator` choice for operators who haven't migrated). | **`out-of-process-shared`, `remote`** — the engine runs as its own scaled service (the eg `cluster`/raft build: multi-Raft HA + sharding) reached via `GRAPH_SERVICE_ENDPOINTS`; **N graph-os client pods** behind the gateway (k8s HPA); mirrors fan out. | All steps (1–16 + A1–A6). |
 
 > **The engine is the ONE store at every scale** (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision / AU-KG.backend.backend-modes). The
-> Rust `epistemic-graph` engine (≥1.0.0) is a full multi-model master-of-all —
-> graph + vector/ANN + SQL + RDF/SPARQL + OWL-2 reasoning + time-series + blob +
-> text + multi-Raft + cross-shard 2PC + streaming/CDC + RLS/encryption-at-rest/
-> audit + federation + GraphQL — **durable, redb-authoritative by default** (an
-> acked write survives a crash; it is **not** a rebuildable cache). There is **no
-> SQLite/LadybugDB tiny store and no L0/L1/L2/L3 tier vocabulary**: tiny just
-> auto-starts the lean `pi-max` engine binary; bigger profiles run a bigger tier of
-> the *same* engine. The **`EngineResolver` (OS-5.63)** auto-provisions it on a
-> single precedence — **remote → share-running-local → autostart the pi-tier
-> binary** — refcounted (self-stops when idle) or `persistent`. Prebuilt **multi-arch
-> wheels** (linux x86_64/aarch64, macOS, windows) mean a Pi `pip install`s and
-> **never compiles**; node/cluster also ship as an **engine-as-a-DB Docker image**.
+> Rust `epistemic-graph` engine is a full multi-model master-of-all — graph +
+> vector/ANN + SQL + RDF/SPARQL + OWL-2 reasoning + time-series + blob + text +
+> multi-Raft + cross-shard 2PC + streaming/CDC + RLS/encryption-at-rest/audit +
+> federation + GraphQL — **durable, redb-authoritative by default** (an acked
+> write survives a crash; it is **not** a rebuildable cache), and it now ships
+> **full-by-default** (`pip install epistemic-graph` alone installs the complete
+> engine — numeric kernel, OWL/SPARQL, LMCache — no separate artifact to pick).
+> The **`EngineResolver`** (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) auto-provisions it on a single
+> precedence — **remote → share-running-local → autostart the bundled full
+> binary** — refcounted (self-stops when idle) or `persistent`. Prebuilt
+> **multi-arch wheels** (linux x86_64/aarch64, macOS, windows) mean a Pi
+> `pip install`s and **never compiles**.
+>
+> Orthogonal to that shape-of-provisioning axis is the **process-boundary
+> topology** this program adds: `unified-in-process` embeds the engine via PyO3
+> **inside** graph-os's own process (no socket, no separate service — see Step
+> 0a′); `out-of-process-shared` keeps today's GIL-free UDS/TCP client so one
+> engine (built with the eg `cluster` cargo feature for multi-Raft sharding) can
+> back many independently-scaled graph-os pods. **Status:** the PyO3 binding
+> (`reports/unified-binary-program.md` W-A) is landing; until it ships,
+> `unified-in-process` is realized via the existing autostart/bundled engine —
+> externally the same "nothing separate to operate" contract genesis has always
+> promised for `tiny`/`single-node-prod`.
 
 Each integration is an independent toggle gathered in Step 0 —
 `pggraph`, `kafka`, `openbao`, `keycloak`, `langfuse` — and any step that depends
@@ -247,17 +269,36 @@ pre-fills everything below). Then run the host preflight before touching anythin
 action=preflight config_key=<p>`) — **no Rust needed**: the engine ships as a
 **prebuilt multi-arch wheel** (a Pi never compiles); Docker/Podman/k8s only above tiny.
 
-**0a′. Engine deployment shape + tier** (seeded by the profile, see `genesis.yaml`
-`engine` + per-profile `engine_tier`). The ONE engine is provisioned by the
-`EngineResolver` (OS-5.63) — pick its **shape**: `autostart` (the resolver spins up
-the local binary from the wheel — tiny) · `container` (the engine-as-a-DB Docker
-image — single-node-prod) · `remote` (a shared engine via `GRAPH_SERVICE_ENDPOINTS`
-— enterprise). And its **tier** (which prebuilt feature bundle): `pi` (~6.46MB, lean
-Pi-3) · **`pi-max`** (~6.96MB, all pure-Rust features incl. security/encryption-at-rest;
-the tiny default) · `node` (+SQL/DataFusion/text/wasm-udf; single-node-prod) · `cluster`
-(+raft/pgwire/distributed; enterprise) · `full`. Lifecycle is `refcounted` (auto-stops
-when idle — tiny default) or `persistent` (long-living). A security-feature tier
-(`pi-max`/`node`/`cluster`/`full`) is required for the encrypted secret store (0e).
+**0a′. Engine deployment shape + topology** (seeded by the profile, see `genesis.yaml`
+`engine` + `engine_topology` per-profile fields, and `run_plan.engine_topology`). The
+ONE engine is provisioned by the `EngineResolver` (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) — pick its
+**shape**: `autostart` (the resolver spins up the local binary from the wheel — tiny)
+· `container` (the engine-as-a-DB image, consolidated into the one graph-os
+container — single-node-prod) · `remote` (a shared, independently-scaled engine via
+`GRAPH_SERVICE_ENDPOINTS` — enterprise). The engine ships **full-by-default** (no
+feature-bundle to pick — `pip install epistemic-graph` alone installs the complete
+server: numeric kernel, OWL/SPARQL, LMCache), so the encrypted secret store (0e) is
+available in every shape.
+
+And pick its **topology** — the NEW axis this program adds, the two-shapes edict
+(au `AGENTS.md` "Engine transport", eg `AGENTS.md` two-shapes,
+`reports/unified-binary-program.md`; full depth:
+[`references/engine-topology-and-hyperscaling.md`](references/engine-topology-and-hyperscaling.md)):
+- **`unified-in-process`** (DEFAULT for `tiny`/`single-node-prod`) — the Rust engine
+  is embedded **in-process via PyO3** in the SAME binary/process as graph-os: one
+  binary, one lifecycle, no socket round-trip, no separate engine service to deploy
+  or drift. This is the **self-contained** shape.
+- **`out-of-process-shared`** (DEFAULT + effectively REQUIRED for `enterprise`) —
+  graph-os talks to a shared, independently-scaled engine over UDS/TCP
+  (GIL-free), built with the eg `cluster` cargo feature (raft, multi-Raft sharding)
+  for HA + write-scaling; **N graph-os client pods** run behind the gateway,
+  horizontally scaled via **k8s HPA**, independently of the engine. This is the
+  **hyperscaling** shape.
+
+Both topologies keep engine calls **batched** (one call = one batch op over
+graph-resident data, never a per-element Python loop) — Python never bottlenecks the
+hot path in either shape. Engine `lifecycle` is `refcounted` (auto-stops when idle —
+tiny default) or `persistent` (long-living).
 
 **0b. Per-capability deploy/reuse/skip matrix** — for each **platform dependency**
 (Postgres/pg-age, ontology store, secrets vault, IdP, ingress proxy, DNS,
@@ -296,7 +337,8 @@ no local SQLite/disk fallback) · **`env`** (`.env` fallback). If a Vault is rea
 genesis prefers it and **reads existing secrets** before prompting (Step 8,
 `vault_sync`); otherwise the engine-encrypted store is used. Either way, the engine's
 encryption key (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`) is itself a **genesis-provisioned
-secret** seeded in Step 8 (and the chosen tier must be a security-feature tier — 0a′).
+secret** seeded in Step 8 (the full-by-default engine carries the encryption-at-rest
+feature in every shape/topology — 0a′, so no capability check is needed here).
 
 **0f. Enterprise root-CA bundle** (optional) — a PEM path/content for a corporate /
 self-signed CA. If supplied, the cert-trust step (Step 1b) bakes it in everywhere so
@@ -330,8 +372,8 @@ messaging-setup step (Step A4c).
 
 - Outputs: `deployment_profile`; `run_plan` {deploy_set, reuse_set, skip_set} with a
   per-item `install_mode` + `install_variant` ∈ {prod, dev}; `engine` {shape ∈ {autostart,
-  container, remote}, tier ∈ {pi, pi-max, node, cluster, full}, lifecycle ∈ {refcounted,
-  persistent}}; `orchestrator` ∈ {docker-compose, docker-swarm, podman, podman-compose,
+  container, remote}, topology ∈ {unified-in-process, out-of-process-shared}, lifecycle ∈
+  {refcounted, persistent}}; `orchestrator` ∈ {docker-compose, docker-swarm, podman, podman-compose,
   kubernetes} (+ `podman_rootless` bool); `idp` ∈ {keycloak, okta, other-oidc} (+ existing
   JWKS/issuer when not keycloak); `secrets_store` ∈ {vault, engine, env}; `ca_bundle`
   (optional path); `ontology_host` ∈ {stardog, apache-jena, local}; `messaging` {channels:
@@ -345,7 +387,7 @@ flowchart TD
     P["0a Profile: tiny / single-node / enterprise"] --> Q["0b Per-capability + per-connector: deploy-container / deploy-baremetal / use-existing / skip"]
     Q --> RP[("run_plan: deploy_set / reuse_set / skip_set")]
     P -. seeds defaults .-> Q
-    RP --> EG["0a′ Engine tier+shape: autostart pi-max / node|full container / cluster remote (OS-5.63)"]
+    RP --> EG["0a′ Engine shape+topology: autostart/container/remote × unified-in-process (default) / out-of-process-shared (hyperscaling)"]
     RP --> O["0c Orchestrator: compose / swarm / podman / podman-compose / k8s"]
     RP --> ID["0d IdP: Keycloak deploy or existing Okta/OIDC"]
     RP --> S["0e Secrets: OpenBao/Vault or engine __secrets__ read+seed or .env"]
@@ -603,8 +645,9 @@ the rest of the run** (honor the Step 0 `secrets_store` + `idp` choices):
   in the **`__secrets__` graph**, values sealed by the engine's encryption-at-rest — so no
   local SQLite/`secrets.db` (a one-time `secrets.db → __secrets__` migration runs if a
   legacy file is found). This is the default below `enterprise`; OpenBao stays the fleet
-  source of truth when `secrets_store=vault`. The chosen engine tier must carry the
-  `security` feature (`pi-max`/`node`/`cluster`/`full`, Step 0a′).
+  source of truth when `secrets_store=vault`. The full-by-default engine carries the
+  security/encryption-at-rest feature in every shape and topology (Step 0a′), so no
+  capability check gates this.
 - **IdP:** when `idp=keycloak`, deploy Keycloak (OIDC/SAML); when `idp=okta`/`other-oidc`,
   skip the deploy — only capture the existing issuer/JWKS for Step 14/A4.
 - Requires: `openbao-mcp`, `keycloak-mcp` (keycloak deploy only), `graph-os` (vault_sync)
@@ -983,14 +1026,15 @@ Install agent-utilities dependencies on the target host(s): `uv sync` (or
 redb-authoritative source of truth, no external DB) and run
 `agent-utilities/scripts/bootstrap.sh` (which also runs a KG smoke test) — the
 tiny profile **stops here**.
-- **The engine is a prebuilt wheel, never a compile.** `pip install
-  'agent-utilities[engine]'` pulls `epistemic-graph>=1.0.0` as a **prebuilt multi-arch
-  wheel** (linux x86_64/aarch64, macOS, windows) — even a Raspberry Pi installs in
-  seconds. tiny defaults to the lean **`pi-max`** tier; the `EngineResolver` (OS-5.63)
-  **auto-starts** the engine binary on first use (no separate launch step), shared and
-  reference-counted (`engine_lifecycle=persistent` for a long-living one). Set
-  `EPISTEMIC_GRAPH_ENCRYPTION_KEY` in the `.env` (Step 8) so the engine's encrypted
-  `__secrets__` store (OS-5.66) is active.
+- **The engine is a prebuilt wheel, never a compile.** `pip install agent-utilities`
+  pulls `epistemic-graph[full]>=2.23.1,<3.0.0` as a **hard, full-by-default, prebuilt
+  multi-arch wheel** (linux x86_64/aarch64, macOS, windows — numeric kernel + OWL/SPARQL
+  + LMCache all included, no separate feature-bundle to pick) — even a Raspberry Pi
+  installs in seconds. tiny defaults to the **`unified-in-process`** topology (Step 0a′)
+  — the resolver embeds/**auto-starts** the engine on first use (no separate launch
+  step), shared and reference-counted (`engine_lifecycle=persistent` for a long-living
+  one). Set `EPISTEMIC_GRAPH_ENCRYPTION_KEY` in the `.env` (Step 8) so the engine's
+  encrypted `__secrets__` store (CONCEPT:AU-OS.identity.encrypted-secret-store) is active.
 - **Install mode is per Step 0 `install_mode`:** `deploy-baremetal` → `uv tool install
   agent-utilities` (prod) or `pip/uv install -e ".[all]"` (dev/test, editable);
   `deploy-container` → pull the pre-built `graph-os` image (Step A2). Prefer **pypi for
@@ -1037,26 +1081,79 @@ lazily fronts the whole authenticated `*-mcp` fleet — there is **no separate m
 service** to deploy. Optionally start the REST gateway `graph-os-daemon` (:8100).
 
 **Backend — the engine is the ONE durable multi-model store (CONCEPT:AU-KG.backend.backend-modes /
-OS-5.63).** The epistemic-graph engine is the ONE authority: it serves reads, acks
+AU-OS.deployment.engine-resolver-auto-provision).** The epistemic-graph engine is the ONE authority: it serves reads, acks
 writes, AND persists durably (**redb-authoritative by default** — an acked write
 survives a crash; it is NOT a rebuildable cache), spanning graph + vector + SQL +
 RDF/SPARQL + OWL-2 + time-series + blob + text + streaming + security under one
-process. **Run the right tier as the engine-as-a-DB container** (multi-arch image,
-linux/amd64+arm64): `single-node-prod` → the **`node`** tier (or `full`) container
-on the KG host; `enterprise` → the **`cluster`** tier (multi-Raft + pgwire +
-cross-shard 2PC) reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS`
-(the `EngineResolver` routes to it; it never autostarts a configured remote).
+process. **Deploy per the resolved `engine_topology` (Step 0a′)** — full depth +
+worked manifests: [`references/engine-topology-and-hyperscaling.md`](references/engine-topology-and-hyperscaling.md):
+
+- **`unified-in-process` — `single-node-prod` (default).** ONE image/pod IS
+  graph-os + the engine (in-process via PyO3) + the numeric kernel + messaging +
+  the gateway. There is **no separate engine container to deploy, version, or
+  drift against** — deploying the `graph-os` image on the KG host is the whole
+  engine deployment. (Until the PyO3 binding lands, the same one-thing-to-deploy
+  contract is realized via the bundled/autostarted engine sharing the host with
+  graph-os — externally identical.)
+- **`out-of-process-shared` — `enterprise` (default, the HYPERSCALING shape).**
+  The engine runs as its **own scaled service**, built with the eg `cluster`
+  cargo feature (raft — multi-Raft sharding + HA; see eg `AGENTS.md`
+  "in-engine Raft replication" and `services/epistemic-graph/flavors/cluster.env`),
+  reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS` (the
+  `EngineResolver` routes to it; it never autostarts a configured remote). **N
+  graph-os client pods** run behind the gateway, independently horizontally
+  scaled via **k8s HPA** — see the Hyperscaling section below.
+
 Provision graph-os + agent-utilities-messaging with **`GRAPH_BACKEND=fanout`**
 (engine authority + optional mirrors) — `single-node-prod`/`enterprise` use it; the
 removed `tiered` value fails bootstrap with "Unknown graph backend type 'tiered'".
 For durable profiles add the pggraph **mirror** (`GRAPH_BACKEND=fanout` +
-`GRAPH_MIRROR_TARGETS=age` + `GRAPH_DB_URI` at the pggraph tier, Step A4) for
-interop/BI/DR. Inject **`EPISTEMIC_GRAPH_ENCRYPTION_KEY`** (Step 8) so the engine's
-encrypted `__secrets__` store (OS-5.66) and encryption-at-rest are active.
+`GRAPH_MIRROR_TARGETS=age` + `GRAPH_DB_URI`, Step A4) for interop/BI/DR — mirrors
+are orthogonal to `engine_topology` and fan out from either shape. Inject
+**`EPISTEMIC_GRAPH_ENCRYPTION_KEY`** (Step 8) so the engine's encrypted
+`__secrets__` store (CONCEPT:AU-OS.identity.encrypted-secret-store) and encryption-at-rest are active.
 **First-boot migration:** the engine's persist dir is on a durable volume, and on
 its first authoritative boot it runs a one-time `.mp`→redb migration (minutes on a
 large KG; the socket is not bound until it finishes) — see the engine
 binary-promotion runbook for the deploy-time health-start-period.
+
+**Hyperscaling (`out-of-process-shared`, enterprise) — the distributed setup:**
+1. **Build/pull the eg `cluster` image** (`EG_FEATURES=cluster` or
+   `cargo build --features cluster,ast-extended` — links `openraft`; the plain
+   `default`/`full` build stays single-node and does NOT link raft). This is a
+   **different build of the same engine**, not a separate artifact family —
+   topology/replication are runtime configuration on top of it.
+2. **Stand up the Raft members** — one engine process per voting node
+   (`EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS`/`_BIND_ADDR`, one shared
+   `EPISTEMIC_GRAPH_RAFT_AUTH_SECRET`), peered via a **headless Service** (pod-DNS,
+   never a plain ClusterIP — a ClusterIP's DNAT breaks Raft's long-lived
+   follower↔follower transport). Reference env: `services/epistemic-graph/flavors/cluster.env`;
+   reference k8s: `services/epistemic-graph/k8s/raft-cluster/` (3-voter, one Deployment
+   per node) and `services/epistemic-graph/soak/21-engine-statefulset.yaml` (headless
+   Service + StatefulSet pattern) — both staged designs to adapt, not apply verbatim.
+   3 voters tolerate 1 node failure (the HA sweet spot).
+3. **Shard for write-scaling (optional, orthogonal to HA):** `EPISTEMIC_GRAPH_RAFT_GROUPS`
+   stands up N independent Raft groups (`MultiRaft`), each owning its own redb
+   shard — a graph's consensus group and its durable shard are always co-located.
+   Client-side, this is the SAME tenant-partitioned HRW routing as
+   `docs/architecture/engine_sharding.md` (`GRAPH_SERVICE_ENDPOINTS` as a list,
+   `tenant → named graph → HRW → shard`) — the engine side just now replicates
+   each shard instead of running it single-node.
+4. **N graph-os client pods behind the gateway, k8s HPA.** Every graph-os pod
+   points `GRAPH_SERVICE_ENDPOINTS` at the (possibly multi-member) engine and
+   authenticates with the fleet's ONE `GRAPH_SERVICE_AUTH_SECRET`. Today's staged
+   k8s reference (`services/epistemic-graph/k8s/production-separate.yaml`) already
+   decouples graph-os into its own Deployment reached over loopback TCP; scaling
+   that Deployment past `replicas: 1` needs the documented TLS follow-on (so a
+   second replica on a second node can reach the engine over a non-loopback
+   address) plus session-affinity on the Ingress (the MCP `StreamableHTTPSessionManager`
+   keeps sessions in an in-process dict — cookie-affinity pins a client to its
+   originating pod). Once that's in place, an `autoscaling/v2 HorizontalPodAutoscaler`
+   on the `graph-os` Deployment (CPU/RPS-driven) scales pods independently of the
+   engine's own replica count.
+5. **Verify** per `services/epistemic-graph/soak/README.md`: formation + leader
+   election in logs, a write on the leader read back on a follower, and a killed
+   leader re-electing (~5s) without dropping quorum.
 
 **graph-os fleet-gateway auth (CONCEPT:AU-OS.identity.so-jwt-protected-children) — the DEFAULT, full config in
 [`references/graph-os-fleet-gateway-auth.md`](references/graph-os-fleet-gateway-auth.md):** set on the
@@ -1091,7 +1188,7 @@ is **co-located on the KG host** so the node-local named volume resolves (or bac
 it with a shared/NFS driver). Thin API-wrapper connectors (github, gitlab,
 servicenow, …) do **not** need it — they take their own creds via stack env.
 - Requires: `graph-os`, `container-manager-mcp`, `portainer-mcp`
-- Expected: `graph-os-up, fleet-gateway-ready (MCP_CONFIG+outbound-OIDC+eunomia), config-volume-seeded, engine-tier-deployed`
+- Expected: `graph-os-up, fleet-gateway-ready (MCP_CONFIG+outbound-OIDC+eunomia), config-volume-seeded, engine-topology-realized` (enterprise additionally: `engine-cluster-formed, hpa-armed`)
 
 ### Step A3: mcp-fleet-deploy
 [depends_on: Step A2] (profiles: single-node-prod, enterprise)

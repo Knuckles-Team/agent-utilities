@@ -135,6 +135,23 @@ per-shard health is on the gateway's `GET /api/dashboard/daemon/shards` +
 snapshot migration caveat when re-sharding):
 [engine sharding](../architecture/engine_sharding.md).
 
+### Engine topology: the hyperscaling default (Raft HA + k8s HPA)
+
+`enterprise` is the one profile that defaults `engine_topology` to
+**`out-of-process-shared`** (genesis Step 0a′): the engine runs as its **own
+scaled service** — built with the eg `cluster` cargo feature for **multi-Raft**
+replication (HA — a quorum-committed write survives a node loss) and, combined
+with the sharding above, write-scaling too (group *g* owns shard *g*) — while **N
+graph-os client pods** run behind the gateway, scaled via **k8s
+`HorizontalPodAutoscaler`** independently of the engine's own Raft-group/voter
+count. This is the opposite end of the spectrum from [tiny](tiny.md)/
+[single-node-prod](single-node-prod.md)'s self-contained `unified-in-process`
+default (one binary, nothing to scale independently). Full wiring — the Raft
+cluster build/bring-up, the headless-Service peering requirement, the current
+graph-os-replica limitation and its TLS follow-on, and the staged k8s reference
+manifests — is in the `agent-os-genesis` skill's
+[engine topology + hyperscaling reference](../../agent_utilities/skills/workflows/agent-os-genesis/references/engine-topology-and-hyperscaling.md).
+
 ## Operate
 
 The **agent-webui Fleet Supervisor** (`/api/fleet/*`) is your single pane of
