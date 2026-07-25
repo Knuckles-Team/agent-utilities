@@ -101,16 +101,17 @@ def test_schema_loader_is_catalog_bounded() -> None:
 
 def test_work_item_and_artifact_identity_contracts_are_current_only() -> None:
     work_item = load_schema("work_item")
-    assert work_item["properties"]["state"]["enum"] == [
-        "submitted",
-        "ready",
-        "leased",
-        "running",
-        "succeeded",
-        "failed",
-        "cancelled",
-        "dead_letter",
-    ]
+    # W2.5 statechart migration: WorkItem.state is a validated state-id String,
+    # NOT a closed wire enum. The 8-value lifecycle vocabulary is enforced at
+    # runtime by the native WorkItem state machine (WORK_ITEM_DEF in the engine;
+    # WorkItemStatus in agent_utilities.orchestration.work_item), so the shared
+    # schema binds a non-empty string here and the generated Rust field is
+    # `pub state: String` (no WorkItemState enum). See
+    # reports/w2_5-statechart-migration-design.md section 2.5.
+    state = work_item["properties"]["state"]
+    assert state["type"] == "string"
+    assert state["minLength"] == 1
+    assert "enum" not in state
     artifact = load_schema("artifact")
     for field in (
         "occurrence_ids",

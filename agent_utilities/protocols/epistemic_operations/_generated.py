@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 PROTOCOL_NAME = "epistemic-operations"
 PROTOCOL_VERSION = "1"
-CATALOG_SHA256 = "280b7c386bf71e586788bbdaeb72650c6723996f147507c56ab35f96a7c0b98a"
+CATALOG_SHA256 = "8d0127572c190704ac8de393457de96a0c2f83b29ab9e491892bec88c8eb58ca"
 SCHEMA_VERSION = {
     "request_context": "2",
     "mutation_batch": "1",
@@ -30,7 +30,7 @@ SCHEMA_SHA256 = {
     "request_context": "310b69c8113fd441c99285053e307e84a12e373c32cf56182c5f25273133cd14",
     "mutation_batch": "90f32151cbc2df050dbb031c998e6a08468b87fdf4cbd0612c39551db25ed3ce",
     "change_envelope": "7b12ee69be0d716499c5f5819af12f9f8db9565a0a820bf6d9fd45aa40fdb3fe",
-    "work_item": "53a7f6a1b435d554a76acede91e11eb869210eb75884f7d90232b95fcf5dbcb4",
+    "work_item": "5edd9b24df5318c5d9a80e768601586c0c122a47cbc72a104a9feed4c2dfdbca",
     "artifact": "519c760a226ae93ebf346e29e30aeb03f4f6ce4e632bffeb9bf8302b392b6b80",
     "knowledge_batch": "ec2cf5afc5b7fa3ae0469ed394258f2e4176a310095196db993cf4cea11a9e6f",
     "analytics_job": "d109b74f0fa3013f4cc5b3c6e4df9c82b6fa6e6ce4c32af25b9a4ac0f7ee609c",
@@ -140,16 +140,7 @@ class WorkItem(ProtocolModel):
     work_item_id: Annotated[str, Field(min_length=1)]
     context: RequestContext
     kind: Annotated[str, Field(min_length=1)]
-    state: Literal[
-        "submitted",
-        "ready",
-        "leased",
-        "running",
-        "succeeded",
-        "failed",
-        "cancelled",
-        "dead_letter",
-    ]
+    state: Annotated[str, Field(min_length=1)]
     priority: int
     depends_on: list[Annotated[str, Field(min_length=1)]]
     input_artifact_refs: list[Annotated[str, Field(min_length=1)]]

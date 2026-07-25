@@ -23,16 +23,9 @@
       "minLength": 1
     },
     "state": {
-      "enum": [
-        "submitted",
-        "ready",
-        "leased",
-        "running",
-        "succeeded",
-        "failed",
-        "cancelled",
-        "dead_letter"
-      ]
+      "type": "string",
+      "minLength": 1,
+      "description": "Control-plane work-item state id. The 8-value lifecycle vocabulary (submitted, ready, leased, running, succeeded, failed, cancelled, dead_letter) is enforced at runtime by the native WorkItem state machine (WORK_ITEM_DEF in the engine; WorkItemStatus in agent_utilities.orchestration.work_item), not pinned as a closed wire enum (W2.5 statechart migration, reports/w2_5-statechart-migration-design.md section 2.5)."
     },
     "priority": {
       "type": "integer"
