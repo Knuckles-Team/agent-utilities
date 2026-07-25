@@ -205,8 +205,10 @@ spec:
             - secretRef: {name: graphos-secrets}
           env:
             - {name: KG_DAEMON_ROLE, value: "host"}
-            - {name: EPISTEMIC_GRAPH_AUTOSTART, value: "1"}
-            - {name: GRAPH_SERVICE_TCP_ADDR, value: "0.0.0.0:9090"}
+            # Engine autostarts locally when GRAPH_SERVICE_ENDPOINTS is unset; point it at a
+            # durable store. (The former EPISTEMIC_GRAPH_AUTOSTART / GRAPH_SERVICE_TCP_ADDR env
+            # keys are RETIRED and hard-fail current builds — see core/config._RETIRED_CONFIGURATION_KEYS.)
+            - {name: GRAPH_SERVICE_PERSIST_DIR, value: "/data/graph_snapshots"}
           resources:
             requests: {cpu: "1", memory: "2Gi"}
             limits: {cpu: "4", memory: "8Gi"}
