@@ -184,11 +184,42 @@ def _get_incident(incident_id: str) -> dict[str, Any]:
     }
 
 
+def _related_claims(incident_id: str, limit: int) -> dict[str, Any]:
+    """B17 bridge (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation /
+    CONCEPT:AU-KG.enrichment.ops-causal-graph): the ops-causal ``:Claim``
+    findings that concern the same asset(s) as this incident — see
+    :func:`agent_utilities.observability.incidents.related_causal_claims`."""
+    from agent_utilities.observability.incidents import related_causal_claims
+
+    engine = _incident_engine()
+    if engine is None:
+        return {
+            "surface": "incident",
+            "action": "related_claims",
+            "incident_id": incident_id,
+            "error": "no reachable engine",
+            "claims": [],
+        }
+    claims = related_causal_claims(incident_id, engine=engine, limit=limit)
+    return {
+        "surface": "incident",
+        "action": "related_claims",
+        "incident_id": incident_id,
+        "count": len(claims),
+        "claims": claims,
+    }
+
+
 def _incident_timeline(incident_id: str) -> dict[str, Any]:
     """The incident's anomaly/event sequence: its own opened/acknowledged/
     resolved lifecycle events interleaved with its correlated
-    ``:HealthAnomaly`` group (:func:`_get_incident`'s ``anomalies``), oldest
-    first."""
+    ``:HealthAnomaly`` group (:func:`_get_incident`'s ``anomalies``) AND the
+    ops-causal ``:Claim`` findings the B17 bridge relates to it
+    (:func:`_related_claims` — ``"cites_causal_claim"`` events), oldest
+    first. The claim lookup is best-effort (see
+    ``incidents.related_causal_claims``'s own docstring) — a claimless
+    incident, or one with no reachable engine, gets a timeline byte-identical
+    to before this bridge existed."""
     got = _get_incident(incident_id)
     if "error" in got:
         return {
@@ -235,6 +266,23 @@ def _incident_timeline(incident_id: str) -> dict[str, Any]:
                 "by": incident.get("resolvedBy"),
             }
         )
+    from agent_utilities.knowledge_graph.research.candidate_insight import (
+        _claim_metadata,
+    )
+
+    for claim in _related_claims(incident_id, 20).get("claims") or []:
+        events.append(
+            {
+                "kind": "cites_causal_claim",
+                "at": _claim_metadata(claim).get("generated_at_time")
+                or incident.get("observedAt"),
+                "id": claim.get("id"),
+                "match_kind": claim.get("match_kind"),
+                "matched": claim.get("matched"),
+                "detail": claim.get("claim_text"),
+                "confidence": claim.get("confidence"),
+            }
+        )
     events.sort(key=lambda e: str(e.get("at") or ""))
     return {
         "surface": "incident",
@@ -261,7 +309,15 @@ def register_incident_tools(mcp: Any) -> None:
             "severity='critical', newest first), 'get' (incident_id -> the "
             "full :Incident node PLUS its correlated :HealthAnomaly group and "
             "affected entity ids), 'timeline' (incident_id -> its anomaly/"
-            "event sequence, oldest first), 'ack'/'resolve' (incident_id -> "
+            "event sequence, oldest first — now also cites any related "
+            "ops-causal :Claim findings as 'cites_causal_claim' events, see "
+            "'related_claims'), 'related_claims' (B17 bridge, CONCEPT:AU-KG."
+            "enrichment.ops-causal-graph: incident_id -> the graph_ops_causal "
+            ":Claim findings that concern the same asset(s) this incident is "
+            "about — bridges the two subsystems' different id spaces via "
+            "exact-id-then-shared-asset-key matching; see graph_ops_causal's "
+            "'related_incidents' action for the reverse direction), "
+            "'ack'/'resolve' (incident_id -> "
             "transition the incident's OWN status to acknowledged/resolved — "
             "FIRST passes the fail-closed ActionPolicy gate, kind "
             "incident.ack/incident.resolve; a denied/queued decision blocks "
@@ -275,11 +331,15 @@ def register_incident_tools(mcp: Any) -> None:
     def graph_incident(
         action: str = Field(
             default="list",
-            description="correlate | list | get | timeline | ack | resolve",
+            description=(
+                "correlate | list | get | timeline | related_claims | ack | resolve"
+            ),
         ),
         incident_id: str = Field(
             default="",
-            description="Incident id (required for get/timeline/ack/resolve).",
+            description=(
+                "Incident id (required for get/timeline/related_claims/ack/resolve)."
+            ),
         ),
         window_s: int = Field(
             default=300,
@@ -347,6 +407,16 @@ def register_incident_tools(mcp: Any) -> None:
                     }
                 )
             return json.dumps(_incident_timeline(incident_id), default=str)
+        if action_key == "related_claims":
+            if not incident_id:
+                return json.dumps(
+                    {
+                        "surface": "incident",
+                        "action": action_key,
+                        "error": "incident_id required for related_claims",
+                    }
+                )
+            return json.dumps(_related_claims(incident_id, limit), default=str)
         if action_key in ("ack", "resolve"):
             if not incident_id:
                 return json.dumps(

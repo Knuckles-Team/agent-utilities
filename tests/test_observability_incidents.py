@@ -310,6 +310,222 @@ def test_get_incident_evidence_no_engine_returns_none(monkeypatch):
     assert inc.get_incident_evidence("any") is None
 
 
+# --- B17 bridge: related_causal_claims / incidents_for_causal_claim -------- #
+def _ops_causal_claim_row(
+    claim_id: str,
+    source_ids: list[str],
+    *,
+    extracted_from: str = "",
+    domain: str = "mining_flywheel",
+    confidence: float = 0.5,
+    metadata: dict | None = None,
+) -> tuple[str, dict]:
+    """A stored ``:Claim`` row shaped like ``ops_causal_tools.py``'s two
+    persist paths (governed ``materialize_claims`` -> ``domain=
+    "mining_flywheel"``; opt-in ``as_claim`` -> ``domain="ops_causal"``),
+    both of which set ``metadata.finding_type == "OpsCausalFinding"``."""
+    return (
+        claim_id,
+        {
+            "id": claim_id,
+            "source_ids": source_ids,
+            "extracted_from": extracted_from,
+            "domain": domain,
+            "confidence": confidence,
+            "claim_text": f"finding about {claim_id}",
+            "metadata": {"finding_type": "OpsCausalFinding", **(metadata or {})},
+        },
+    )
+
+
+def test_related_causal_claims_matches_on_exact_entity_id_overlap(monkeypatch):
+    incident_id = "health:incident:storage-node-a:sig1"
+    claim_row = _ops_causal_claim_row(
+        "claim:ops_causal:root_cause:trace:1",
+        source_ids=["commit:bad123", "cm:node:storage-node-a"],
+        extracted_from="trace:1",
+        domain="ops_causal",
+        confidence=0.8,
+    )
+    engine = _FakeEngine(
+        {"Incident": [], "HealthAnomaly": [], "Claim": [claim_row]},
+        neighbors={incident_id: ["cm:node:storage-node-a"]},
+    )
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+
+    matches = inc.related_causal_claims(incident_id)
+    assert len(matches) == 1
+    assert matches[0]["id"] == "claim:ops_causal:root_cause:trace:1"
+    assert matches[0]["match_kind"] == "id"
+    assert matches[0]["matched"] == ["cm:node:storage-node-a"]
+
+
+def test_related_causal_claims_falls_back_to_shared_asset_key(monkeypatch):
+    """Different id SCHEMES for the same physical asset — ops-causal cites
+    ``System:storage-node-a``, the incident's entity is
+    ``fan:host:storage-node-a`` — never an exact id match, only the shared
+    trailing ``storage-node-a`` slug (B17's whole point: the two subsystems
+    never shared an id space)."""
+    incident_id = "health:incident:storage-node-a:sig1"
+    claim_row = _ops_causal_claim_row(
+        "claim:insight:abc123",
+        source_ids=["commit:bad123", "System:storage-node-a"],
+        extracted_from="ops_causal_root_cause:abc123",  # a hash, not a real id
+        domain="mining_flywheel",
+        confidence=0.6,
+    )
+    engine = _FakeEngine(
+        {"Incident": [], "HealthAnomaly": [], "Claim": [claim_row]},
+        neighbors={incident_id: ["fan:host:storage-node-a"]},
+    )
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+
+    matches = inc.related_causal_claims(incident_id)
+    assert len(matches) == 1
+    assert matches[0]["match_kind"] == "asset"
+    assert matches[0]["matched"] == ["storage-node-a"]
+
+
+def test_related_causal_claims_excludes_non_ops_causal_claims(monkeypatch):
+    """A claim from an unrelated mining family (no OpsCausalFinding tag) —
+    even one that happens to cite the SAME entity id — must never surface as
+    an ops-causal citation."""
+    incident_id = "health:incident:storage-node-a:sig1"
+    decoy = (
+        "claim:insight:other",
+        {
+            "id": "claim:insight:other",
+            "source_ids": ["cm:node:storage-node-a"],
+            "domain": "mining_flywheel",
+            "confidence": 0.9,
+            "metadata": {"finding_type": "AssociationRule"},
+        },
+    )
+    engine = _FakeEngine(
+        {"Incident": [], "HealthAnomaly": [], "Claim": [decoy]},
+        neighbors={incident_id: ["cm:node:storage-node-a"]},
+    )
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+    assert inc.related_causal_claims(incident_id) == []
+
+
+def test_related_causal_claims_sorts_highest_confidence_first(monkeypatch):
+    incident_id = "health:incident:storage-node-a:sig1"
+    low = _ops_causal_claim_row(
+        "claim:a", ["cm:node:storage-node-a"], domain="ops_causal", confidence=0.3
+    )
+    high = _ops_causal_claim_row(
+        "claim:b", ["cm:node:storage-node-a"], domain="ops_causal", confidence=0.9
+    )
+    engine = _FakeEngine(
+        {"Incident": [], "HealthAnomaly": [], "Claim": [low, high]},
+        neighbors={incident_id: ["cm:node:storage-node-a"]},
+    )
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+    matches = inc.related_causal_claims(incident_id)
+    assert [m["id"] for m in matches] == ["claim:b", "claim:a"]
+
+
+def test_related_causal_claims_no_engine_returns_empty(monkeypatch):
+    monkeypatch.setattr(hi, "_engine", lambda: None)
+    assert inc.related_causal_claims("health:incident:x:sig1") == []
+
+
+def test_related_causal_claims_unknown_incident_returns_empty(monkeypatch):
+    engine = _FakeEngine({"Incident": [], "HealthAnomaly": [], "Claim": []})
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+    assert inc.related_causal_claims("health:incident:missing:sig1") == []
+
+
+def test_incidents_for_causal_claim_resolves_evidence_from_a_materialized_claim():
+    """``seed`` is a Claim id already on the engine — its ``source_ids``/
+    ``extracted_from`` become the evidence set, matched against the
+    incident's real ``affectsEntity`` neighbors."""
+    incident_id = "health:incident:storage-node-a:sig1"
+    claim_row = _ops_causal_claim_row(
+        "claim:ops_causal:root_cause:trace:1",
+        source_ids=["commit:bad123", "cm:node:storage-node-a"],
+        extracted_from="trace:1",
+        domain="ops_causal",
+    )
+    engine = _FakeEngine(
+        {
+            "Incident": [(incident_id, {"status": "open"})],
+            "HealthAnomaly": [],
+            "Claim": [claim_row],
+        },
+        neighbors={incident_id: ["cm:node:storage-node-a"]},
+    )
+    matches = inc.incidents_for_causal_claim(
+        "claim:ops_causal:root_cause:trace:1", engine=engine
+    )
+    assert [m["id"] for m in matches] == [incident_id]
+    assert matches[0]["match_kind"] == "id"
+
+
+def test_incidents_for_causal_claim_bare_seed_without_a_materialized_claim():
+    """No ``:Claim`` with that id exists — ``seed`` is treated directly as one
+    causal-chain node id (e.g. a bare ``root_cause``/``blast_radius``
+    ``node_id`` the caller never minted a Claim for)."""
+    incident_id = "health:incident:storage-node-a:sig1"
+    engine = _FakeEngine(
+        {
+            "Incident": [(incident_id, {"status": "open"})],
+            "HealthAnomaly": [],
+            "Claim": [],
+        },
+        neighbors={incident_id: ["cm:node:storage-node-a"]},
+    )
+    matches = inc.incidents_for_causal_claim("cm:node:storage-node-a", engine=engine)
+    assert [m["id"] for m in matches] == [incident_id]
+
+
+def test_incidents_for_causal_claim_asset_key_fallback():
+    incident_id = "health:incident:storage-node-a:sig1"
+    engine = _FakeEngine(
+        {
+            "Incident": [(incident_id, {"status": "open"})],
+            "HealthAnomaly": [],
+            "Claim": [],
+        },
+        neighbors={incident_id: ["fan:host:storage-node-a"]},
+    )
+    matches = inc.incidents_for_causal_claim("System:storage-node-a", engine=engine)
+    assert [m["id"] for m in matches] == [incident_id]
+    assert matches[0]["match_kind"] == "asset"
+
+
+def test_incidents_for_causal_claim_excludes_ops_causal_ticket_stage_incidents():
+    """A ServiceNow/Jira/GitLab TICKET-stage node (``incident:INC001``) shares
+    the exact graph label ``"Incident"`` with this module's cross-layer
+    correlation Incident but is a totally different concept/id scheme
+    (``ops_causal_crosswalk.OPS_CAUSAL_NODE_CROSSWALK``) — it must NEVER be
+    returned even though it shares the causal evidence id via a real
+    ``CAUSED_INCIDENT``-style edge, purely because it shares a label."""
+    incident_id = "health:incident:storage-node-a:sig1"
+    engine = _FakeEngine(
+        {
+            "Incident": [
+                (incident_id, {"status": "open"}),
+                ("incident:INC001", {"short_description": "unrelated SoR ticket"}),
+            ],
+            "HealthAnomaly": [],
+            "Claim": [],
+        },
+        neighbors={
+            incident_id: ["cm:node:storage-node-a"],
+            "incident:INC001": ["commit:bad123"],
+        },
+    )
+    matches = inc.incidents_for_causal_claim("commit:bad123", engine=engine)
+    assert matches == []
+
+
+def test_incidents_for_causal_claim_no_engine_or_seed_returns_empty():
+    assert inc.incidents_for_causal_claim("", engine=object()) == []
+    assert inc.incidents_for_causal_claim("commit:bad123", engine=None) == []
+
+
 # --- set_incident_status ---------------------------------------------------- #
 def _open_incident_row(incident_id: str) -> tuple[str, dict]:
     return (

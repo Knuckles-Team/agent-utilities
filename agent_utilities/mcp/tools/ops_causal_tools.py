@@ -486,20 +486,32 @@ def register_ops_causal_tools(mcp: Any) -> None:
             "governed ClaimFlywheel lifecycle `graph_claims propose` uses, gated by "
             "the SAME ActionPolicy claim.propose decision — a denial never blocks "
             "this read-only answer, it only adds a claim_denied note; on success "
-            "the minted claim_id is returned alongside the analysis."
+            "the minted claim_id is returned alongside the analysis. "
+            "'related_incidents' (B17 bridge, CONCEPT:AU-KG.enrichment."
+            "cross-layer-incident-correlation): node_id -> the graph_incident "
+            ":Incident nodes (agent_utilities.observability.incidents' "
+            "cross-layer health correlation) that concern the same asset(s) as "
+            "this ops-causal Claim id or seed node — bridges the two "
+            "subsystems' different id spaces via exact-id-then-shared-asset-key "
+            "matching; see graph_incident's 'related_claims' action for the "
+            "reverse direction."
         ),
         tags=["graph-os", "ops", "causal", "root-cause", "blast-radius"],
     )
     def graph_ops_causal(
         action: str = Field(
             default="root_cause",
-            description="root_cause | blast_radius | change_risk | control_evidence | join",
+            description=(
+                "root_cause | blast_radius | change_risk | control_evidence | "
+                "join | related_incidents"
+            ),
         ),
         node_id: str = Field(
             default="",
             description="Seed node id: the failure/trace (root_cause), the "
-            "change/commit (blast_radius, change_risk), or the control "
-            "(control_evidence).",
+            "change/commit (blast_radius, change_risk), the control "
+            "(control_evidence), or an ops-causal Claim id / bare causal-chain "
+            "node id (related_incidents).",
         ),
         links_json: str = Field(
             default="[]",
@@ -546,6 +558,50 @@ def register_ops_causal_tools(mcp: Any) -> None:
         ),
     ) -> str:
         """Ops causal graph: join + root-cause/blast-radius/change-risk/control-evidence."""
+        action = (action or "root_cause").strip().lower()
+        engine = kg_server._get_engine()
+
+        if action == "related_incidents":
+            # B17 bridge (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation
+            # / CONCEPT:AU-KG.enrichment.ops-causal-graph): a pure Claim/Incident
+            # graph lookup — no StructuralCausalModel involved. Dispatched BEFORE
+            # the causal-model import below (and before _parse_links, which also
+            # unconditionally imports from ops_causal_graph) so this action never
+            # pulls in formal_reasoning_core's numeric-kernel dependency for a
+            # request that has no need of it.
+            if not node_id:
+                return public_error_json(
+                    ValueError("node_id required for related_incidents"),
+                    code="invalid_request",
+                    context={"surface": "ops_causal", "action": action},
+                )
+            if engine is None:
+                return json.dumps(
+                    {
+                        "surface": "ops_causal",
+                        "action": action,
+                        "node_id": node_id,
+                        "error": "no reachable engine",
+                    }
+                )
+            from agent_utilities.observability.incidents import (
+                incidents_for_causal_claim,
+            )
+
+            matches = incidents_for_causal_claim(
+                node_id, engine=engine, limit=max_results
+            )
+            return json.dumps(
+                {
+                    "surface": "ops_causal",
+                    "action": action,
+                    "node_id": node_id,
+                    "count": len(matches),
+                    "result": matches,
+                },
+                default=str,
+            )
+
         from agent_utilities.knowledge_graph.enrichment.ops_causal_graph import (
             blast_radius_analysis,
             build_causal_model,
@@ -555,9 +611,6 @@ def register_ops_causal_tools(mcp: Any) -> None:
             materialize_ops_causal_links,
             root_cause_rank,
         )
-
-        action = (action or "root_cause").strip().lower()
-        engine = kg_server._get_engine()
 
         try:
             links = _parse_links(links_json)

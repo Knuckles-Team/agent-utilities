@@ -737,3 +737,168 @@ def test_as_claim_no_findings_proposes_nothing(monkeypatch):
     assert "claim_id" not in out
     assert "claim_denied" not in out
     assert engine.nodes == {}
+
+
+# --------------------------------------------------------------------------- #
+# B17 — incident<->causal-claim id bridge, reverse direction:
+# 'related_incidents' (agent_utilities.observability.incidents.
+# incidents_for_causal_claim). Dispatched BEFORE ops_causal_graph's
+# StructuralCausalModel import, so — unlike every action above — it runs
+# without the numeric kernel; these are genuinely live-path proofs, not
+# skipped/xfailed in this sandbox.
+# --------------------------------------------------------------------------- #
+
+
+class _BridgeEngine:
+    """Fakes the ``IntelligenceGraphEngine`` surface
+    ``incidents_for_causal_claim`` reads: ``get_nodes_by_label``
+    (Claim/Incident) + ``get_neighbors`` (an Incident's ``affectsEntity``
+    group, via ``incidents.get_incident_evidence``)."""
+
+    def __init__(self, claims=None, incidents=None, neighbors=None):
+        self._claims = claims or []
+        self._incidents = incidents or []
+        self._neighbors = neighbors or {}
+
+    def get_nodes_by_label(self, label, limit=0):
+        if label == "Claim":
+            return list(self._claims)
+        if label == "Incident":
+            return list(self._incidents)
+        if label == "HealthAnomaly":
+            return []
+        return []
+
+    def get_neighbors(self, node_id):
+        return list(self._neighbors.get(node_id, []))
+
+
+def test_related_incidents_action_matches_by_exact_entity_id(monkeypatch):
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    claim_id = "claim:ops_causal:root_cause:trace:1"
+    engine = _BridgeEngine(
+        claims=[
+            (
+                claim_id,
+                {
+                    "source_ids": ["commit:bad123", "cm:node:storage-node-a"],
+                    "extracted_from": "trace:1",
+                    "domain": "ops_causal",
+                },
+            )
+        ],
+        incidents=[
+            (
+                "health:incident:storage-node-a:sig1",
+                {"status": "open", "observedAt": "2026-07-01T00:00:00Z"},
+            )
+        ],
+        neighbors={"health:incident:storage-node-a:sig1": ["cm:node:storage-node-a"]},
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(_call(tool_fn, action="related_incidents", node_id=claim_id))
+    assert out["surface"] == "ops_causal"
+    assert out["action"] == "related_incidents"
+    assert out["count"] == 1
+    assert out["result"][0]["id"] == "health:incident:storage-node-a:sig1"
+    assert out["result"][0]["match_kind"] == "id"
+
+
+def test_related_incidents_action_falls_back_to_asset_key(monkeypatch):
+    """Different id SCHEMES for the same physical asset — the whole point of
+    B17: an ops-causal ``System:storage-node-a`` id and a health-anomaly
+    ``fan:host:storage-node-a`` entity id never literally match, only their
+    shared trailing ``storage-node-a`` slug does."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _BridgeEngine(
+        incidents=[("health:incident:storage-node-a:sig1", {"status": "open"})],
+        neighbors={"health:incident:storage-node-a:sig1": ["fan:host:storage-node-a"]},
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    # No materialized Claim with this id — treated directly as a bare seed
+    # node id (e.g. a root_cause/blast_radius node_id nobody minted a claim
+    # for yet).
+    out = json.loads(
+        _call(tool_fn, action="related_incidents", node_id="System:storage-node-a")
+    )
+    assert out["count"] == 1
+    assert out["result"][0]["match_kind"] == "asset"
+    assert out["result"][0]["matched"] == ["storage-node-a"]
+
+
+def test_related_incidents_excludes_ops_causal_ticket_stage_incidents(monkeypatch):
+    """A ServiceNow/Jira/GitLab TICKET-stage node reuses the exact SAME graph
+    label ``"Incident"`` as the cross-layer correlation Incident this bridges
+    to (see ``ops_causal_crosswalk.OPS_CAUSAL_NODE_CROSSWALK``) but is a
+    completely different id scheme/concept — it must never be returned, even
+    though it shares an evidence id via a real causal edge, purely from
+    sharing a label."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _BridgeEngine(
+        incidents=[("incident:INC001", {"short_description": "unrelated SoR ticket"})],
+        neighbors={"incident:INC001": ["commit:bad123"]},
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(tool_fn, action="related_incidents", node_id="commit:bad123")
+    )
+    assert out["count"] == 0
+    assert out["result"] == []
+
+
+def test_related_incidents_requires_node_id(monkeypatch):
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: _BridgeEngine())
+    tool_fn = mcp.tools["graph_ops_causal"]
+    out = json.loads(_call(tool_fn, action="related_incidents", node_id=""))
+    assert "error" in out
+
+
+def test_related_incidents_no_engine(monkeypatch):
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: None)
+    tool_fn = mcp.tools["graph_ops_causal"]
+    out = json.loads(
+        _call(tool_fn, action="related_incidents", node_id="commit:bad123")
+    )
+    assert out["error"] == "no reachable engine"
+
+
+def test_related_incidents_does_not_import_the_causal_model(monkeypatch):
+    """Regression guard: 'related_incidents' must stay dispatched BEFORE the
+    ops_causal_graph/StructuralCausalModel import — that module is gated on
+    the (heavy, sometimes-absent) numeric kernel, and this action has no
+    structural-causal-model dependency at all. Proven by never even calling
+    _parse_links / build_causal_model: an intentionally invalid links_json
+    that would raise in _parse_links is silently ignored because
+    related_incidents returns before reaching it.
+    """
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _BridgeEngine(
+        incidents=[("health:incident:storage-node-a:sig1", {"status": "open"})],
+        neighbors={"health:incident:storage-node-a:sig1": ["cm:node:storage-node-a"]},
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(
+            tool_fn,
+            action="related_incidents",
+            node_id="cm:node:storage-node-a",
+            links_json="not valid json",
+        )
+    )
+    assert out["count"] == 1

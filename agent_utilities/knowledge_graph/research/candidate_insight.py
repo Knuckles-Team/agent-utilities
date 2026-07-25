@@ -567,6 +567,75 @@ def candidates_from_sequential_patterns(
     return out
 
 
+# ── B17 bridge (CONCEPT:AU-KG.enrichment.ops-causal-graph /
+# CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation) — recognizing an
+# already-PERSISTED ops-causal Claim from its stored properties, the reverse
+# of :func:`candidates_from_ops_causal_root_cause`/``CandidateInsight.
+# to_claim_node``. Lives here (not ``ops_causal_graph.py``) so callers that
+# only need to RECOGNIZE a claim — ``observability.incidents`` and
+# ``mcp/tools/ops_causal_tools.py``'s ``related_incidents`` action — never
+# pull in ``formal_reasoning_core``'s numeric-kernel dependency, which this
+# module deliberately does not import.
+def _claim_metadata(props: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a stored ``:Claim``'s ``metadata`` property to a dict.
+
+    Some write paths round-trip it as a nested map, others (see
+    ``knowledge_graph/core/engine.py``'s explicit ``json.dumps`` convention)
+    as a JSON string — this tolerates either shape and degrades to ``{}`` on
+    anything else, never raising.
+    """
+    metadata = props.get("metadata") if isinstance(props, dict) else None
+    if isinstance(metadata, dict):
+        return metadata
+    if isinstance(metadata, str) and metadata:
+        try:
+            parsed = json.loads(metadata)
+        except (TypeError, ValueError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _is_ops_causal_claim(props: dict[str, Any]) -> bool:
+    """True when a stored ``:Claim``'s properties mark it as an ops-causal
+    root-cause/blast-radius finding — the incident<->causal bridge's
+    discriminator between an ops-causal Claim and every other claim
+    producer's (mining-flywheel, second-brain, ...) claims under the same
+    generic ``:Claim`` label.
+
+    Two persist paths write an ops-causal Claim
+    (``mcp/tools/ops_causal_tools.py``): the default ``materialize_claims``
+    path (via ``CandidateInsight.to_claim_node`` — ``domain=
+    "mining_flywheel"``, the SAME domain string every OTHER mined-finding
+    family shares) and the opt-in ``as_claim`` path (``domain="ops_causal"``
+    directly, built inline in ``ops_causal_tools.py``). Both set
+    ``metadata.finding_type == "OpsCausalFinding"`` — the one field BOTH
+    paths agree on — so that is the primary discriminator; ``domain ==
+    "ops_causal"`` is also accepted for the opt-in path.
+    """
+    if not isinstance(props, dict):
+        return False
+    if str(props.get("domain") or "") == "ops_causal":
+        return True
+    return _claim_metadata(props).get("finding_type") == "OpsCausalFinding"
+
+
+def _claim_evidence_ids(props: dict[str, Any]) -> set[str]:
+    """The real causal-chain node ids a persisted ops-causal Claim cites as
+    evidence: ``source_ids`` (the full causal path for the governed
+    ``materialize_claims`` path, the full touched-node set for the
+    ``as_claim`` path) plus ``extracted_from`` (the literal seed node id for
+    ``as_claim``; a content-addressed finding id — never a real node id —
+    for the governed path, harmless to include since it cannot
+    coincidentally match a real entity id).
+    """
+    ids: set[str] = {str(sid) for sid in (props.get("source_ids") or []) if sid}
+    extracted = props.get("extracted_from")
+    if extracted:
+        ids.add(str(extracted))
+    return ids
+
+
 def candidates_from_ops_causal_root_cause(
     failure_node: str, ranked: list[dict[str, Any]] | None
 ) -> list[CandidateInsight]:

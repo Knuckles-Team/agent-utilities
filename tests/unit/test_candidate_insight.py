@@ -11,6 +11,9 @@ import pytest
 from agent_utilities.knowledge_graph.research.candidate_insight import (
     CONFIDENCE_FLOOR,
     CandidateInsight,
+    _claim_evidence_ids,
+    _claim_metadata,
+    _is_ops_causal_claim,
     candidates_from_anomalies,
     candidates_from_association_rules,
     candidates_from_mine_discovery,
@@ -215,3 +218,84 @@ def test_candidates_from_mine_discovery_degrades_cleanly_on_missing_sections():
     assert candidates_from_mine_discovery(None) == []
     assert candidates_from_mine_discovery({}) == []
     assert candidates_from_mine_discovery({"errors": ["boom"]}) == []
+
+
+# ---------------------------------------------------------------------------
+# B17 bridge helpers — _claim_metadata / _is_ops_causal_claim /
+# _claim_evidence_ids (CONCEPT:AU-KG.enrichment.ops-causal-graph /
+# CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation). Live here (not
+# ops_causal_graph.py) specifically so recognizing an ops-causal Claim never
+# pulls in formal_reasoning_core's numeric-kernel dependency.
+# ---------------------------------------------------------------------------
+
+
+def test_claim_metadata_accepts_a_nested_dict():
+    assert _claim_metadata({"metadata": {"finding_type": "OpsCausalFinding"}}) == {
+        "finding_type": "OpsCausalFinding"
+    }
+
+
+def test_claim_metadata_accepts_a_json_string():
+    """Some write paths round-trip ``metadata`` as a JSON string (see
+    ``knowledge_graph/core/engine.py``'s explicit ``json.dumps`` convention)
+    rather than a nested map — this must be tolerated too."""
+    assert _claim_metadata({"metadata": '{"finding_type": "OpsCausalFinding"}'}) == {
+        "finding_type": "OpsCausalFinding"
+    }
+
+
+def test_claim_metadata_degrades_to_empty_dict_on_anything_else():
+    assert _claim_metadata({}) == {}
+    assert _claim_metadata({"metadata": None}) == {}
+    assert _claim_metadata({"metadata": "not json"}) == {}
+    assert _claim_metadata({"metadata": "[1, 2]"}) == {}  # valid JSON, not a dict
+    assert _claim_metadata("not even a dict") == {}
+
+
+def test_is_ops_causal_claim_true_for_the_opt_in_as_claim_shape():
+    """``domain="ops_causal"`` — the ``as_claim=true`` persist path in
+    ``ops_causal_tools.py``."""
+    assert _is_ops_causal_claim({"domain": "ops_causal", "metadata": {}}) is True
+
+
+def test_is_ops_causal_claim_true_for_the_governed_materialize_claims_shape():
+    """``domain="mining_flywheel"`` (shared with every other mined-finding
+    family) BUT ``metadata.finding_type == "OpsCausalFinding"`` — the default
+    ``materialize_claims=true`` persist path via ``CandidateInsight.
+    to_claim_node``/``candidates_from_ops_causal_root_cause``."""
+    assert (
+        _is_ops_causal_claim(
+            {
+                "domain": "mining_flywheel",
+                "metadata": {"finding_type": "OpsCausalFinding"},
+            }
+        )
+        is True
+    )
+
+
+def test_is_ops_causal_claim_false_for_other_mining_flywheel_families():
+    """A same-``domain`` claim from a DIFFERENT mined-finding family (e.g.
+    AssociationRule) must not be mistaken for an ops-causal one."""
+    assert (
+        _is_ops_causal_claim(
+            {
+                "domain": "mining_flywheel",
+                "metadata": {"finding_type": "AssociationRule"},
+            }
+        )
+        is False
+    )
+    assert _is_ops_causal_claim({"domain": "second_brain", "metadata": {}}) is False
+    assert _is_ops_causal_claim({}) is False
+    assert _is_ops_causal_claim(None) is False
+
+
+def test_claim_evidence_ids_unions_source_ids_and_extracted_from():
+    ids = _claim_evidence_ids({"source_ids": ["a", "b"], "extracted_from": "c"})
+    assert ids == {"a", "b", "c"}
+
+
+def test_claim_evidence_ids_tolerates_missing_fields():
+    assert _claim_evidence_ids({}) == set()
+    assert _claim_evidence_ids({"source_ids": None, "extracted_from": ""}) == set()
