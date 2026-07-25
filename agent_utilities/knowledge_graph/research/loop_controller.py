@@ -38,6 +38,11 @@ from .search import acquire_for_topic_perspectival
 
 logger = logging.getLogger(__name__)
 
+# PA-R0.1: stable durable-run session for the autonomous cycle. The KG_LOOP daemon
+# is one-per-host, so a fixed session lets a crashed cycle RESUME on the next tick
+# (a completed cycle finalizes → the next tick starts a fresh run).
+_RESEARCH_LOOP_SESSION = "research_loop"
+
 # Node types whose (id, status, content_hash) define the assimilation input state —
 # the cycle watermark. If unchanged since the last cycle, the graph-compute middle
 # is skipped (idempotent: cost grows with the delta, not the corpus).
@@ -266,12 +271,29 @@ class LoopController:
         )
         self._beacon.enter("start")
 
+        # PA-R0.1: this daemon tick is long, unattended and crash-exposed — the SDD
+        # develop run + LLM/KG writes happen inside these stages. Route every stage
+        # through the ONE durable substrate so a kill -9 mid-cycle RESUMES from the
+        # last completed stage on the next tick instead of re-running the whole cycle
+        # (re-mining, re-distilling, re-ingesting). Stages run live + finalize on the
+        # healthy path (behaviour unchanged); the triple opt-in (KG_LOOP /
+        # KG_LOOP_DISTILL / KG_LOOP_AUTO_DEVELOP) still decides WHICH stages run —
+        # durable checkpointing only wraps the ones that do.
+        from agent_utilities.orchestration.durable_execution import DurableRun
+
+        run = DurableRun(_RESEARCH_LOOP_SESSION)
+
         def _stage(name: str, fn):
-            """Run a stage best-effort, capture timing + any error."""
+            """Run a stage best-effort, capture timing + any error.
+
+            The stage body is checkpointed on the durable run: on a crash-and-resume
+            an already-completed stage is skipped and its result replayed, so the
+            cycle continues from the interrupted stage.
+            """
             t0 = time.monotonic()
             self._beacon.enter(name)
             try:
-                return fn()
+                return run.step(name, fn)
             except Exception as e:  # noqa: BLE001
                 report["errors"].append(f"{name}: {e}")
                 logger.warning("golden-loop stage %s failed: %s", name, e)
@@ -522,6 +544,9 @@ class LoopController:
             report["tri_evolution"] = _stage("tri_evolution", self._run_tri_evolution)
 
         self._finalize_metrics(report, cycle_start)
+        # PA-R0.1: the cycle completed — finalize the durable run so the next daemon
+        # tick starts fresh (a crash before this leaves the run resumable).
+        run.finish()
         return report
 
     # ------------------------------------------------------------------
