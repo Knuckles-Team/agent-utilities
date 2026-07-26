@@ -506,6 +506,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   received the same `AUTH_TYPE`/`KG_POLICY_VERSION` fix as
   `graphos-homelab-live-config-fix.yaml` applied to `graph-os` itself).
 
+### Fixed
+- **Reasoning-off-by-default silently regressed to thinking-ON for every routine call
+  (CONCEPT:AU-ORCH.execution.delegation-reasoning-off, 73× latency).** `core.model_factory`
+  correctly computed `ModelSettings.thinking=False` by default (the prior S4 fix), but
+  pydantic-ai's `Model.prepare_request()` only forwards `thinking` into the actual request
+  when the model's *profile* is recognized as reasoning-capable
+  (`openai_model_profile()` recognizes only OpenAI's own o-series/gpt-5(.1+) naming) — so
+  for a local/custom reasoning model served through the generic `openai` provider (e.g.
+  `qwen/qwen3.6-27b` via vLLM), `thinking` silently never reached the wire in either
+  direction and the model's own native default (thinking ON) always won. Live-measured
+  impact: a routine call went from the expected ~0.3s to ~22s (~73×), including on the
+  messaging/Telegram reply path (`orchestration/agent_runner._run_direct_completion`,
+  which ALSO independently clobbered its `extra_body` at the agent level). Fixed by also
+  sending the decision as a raw, profile-independent `extra_body` directive
+  (`reasoning_effort` + vLLM's `chat_template_kwargs.enable_thinking`,
+  `core.model_factory.reasoning_wire_directives`) alongside `thinking`, merged — never
+  overwritten — into any existing `extra_body` (`core.model_factory.merge_extra_body`;
+  `agent.factory.create_agent`'s per-execution `reasoning_effort` override now folds its
+  directive into `extra_body` too, so a "high" opt-in on top of a model's own "off" default
+  correctly re-enables thinking on the wire, not just in `thinking`). Also fixes the
+  graph router's own `requires_reasoning` escalation
+  (`graph/_router_impl.py`), which selected a heavier model but never actually asked it to
+  think. Live-verified in the `platform/graph-os` pod against real `vllm.arpa`: routine
+  calls through au's own model client 22s → ~0.3–1.3s with real content; a deliberate
+  `reasoning_effort="high"` call still produces genuine chain-of-thought (~13–20s),
+  confirming the opt-in path is intact.
+
 ## [1.21.0] - 2026-07-11 — Epistemic OS Hardening: Phase 1–2 + Exceed (X-2/3/4/5/7/8)
 
 Builds on 1.20.0's Phase-0 trustworthy core. Phase 1 unifies Agent-OS work/identity/

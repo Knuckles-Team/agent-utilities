@@ -2317,22 +2317,38 @@ async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
 
     from agent_utilities.core.config import DEFAULT_EXTRA_BODY
     from agent_utilities.core.contextual_model import create_context_agent
-    from agent_utilities.core.model_factory import create_model
+    from agent_utilities.core.model_factory import (
+        create_model,
+        merge_extra_body,
+        reasoning_wire_directives,
+    )
 
     model_id = getattr(shape, "model_id", None) if shape is not None else None
     reason_on = (
         bool(getattr(shape, "enable_reasoning", False)) if shape is not None else False
     )
     budget = getattr(shape, "router_timeout", None) if shape is not None else None
-    # Reasoning rides on core ModelSettings.thinking (True -> reasoning on, False -> off),
-    # retiring the extra_body ``chat_template_kwargs.enable_thinking`` hack. Any genuine
-    # deployment vLLM knobs in DEFAULT_EXTRA_BODY still pass through extra_body.
+    # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning rides on core
+    # ModelSettings.thinking (True -> reasoning on, False -> off) AND the raw vLLM
+    # extra_body directive (``reasoning_wire_directives``). ``thinking`` ALONE
+    # regressed silently: pydantic-ai only forwards it into the request when the
+    # model's profile is recognized as reasoning-capable (OpenAI's o-series/gpt-5
+    # naming only), which qwen/qwen3.6-27b served through the generic ``openai``
+    # provider is NOT — so a bare ``thinking=False`` here was dropped on the floor
+    # and the model's own default (thinking ON) won on every direct-complete turn,
+    # costing ~22s instead of sub-second (this is the shape most routine short
+    # replies — e.g. the Telegram messaging path — take). The raw directive is
+    # MERGED into (never replaces) DEFAULT_EXTRA_BODY's own deployment knobs.
+    _reason_effort = "medium" if reason_on else "none"
+    _extra_body = merge_extra_body(
+        dict(DEFAULT_EXTRA_BODY or {}), reasoning_wire_directives(_reason_effort)
+    )
     agent = create_context_agent(
-        model=create_model(model_id=model_id),
+        model=create_model(model_id=model_id, reasoning_effort=_reason_effort),
         system_prompt="You are a helpful assistant. Respond naturally and concisely.",
         model_settings=ModelSettings(
             thinking=reason_on,
-            extra_body=dict(DEFAULT_EXTRA_BODY or {}) or None,
+            extra_body=_extra_body or None,
             max_tokens=1024,
             timeout=budget or 30.0,
         ),

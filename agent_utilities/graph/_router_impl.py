@@ -666,7 +666,15 @@ async def router_step(
                     "Router: pinning reasoning model %s",
                     reasoning_model_id or "local-default",
                 )
-                adaptive_model = create_model(model_id=reasoning_model_id)
+                # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — this branch IS the
+                # opt-in: the router detected the query genuinely needs deliberation
+                # (mathematical/quantitative topology, "think through", etc.), so thinking
+                # must be explicitly turned ON here — create_model's own default is OFF, so
+                # omitting reasoning_effort would silently leave this "reasoning" branch
+                # exactly as fast (and as un-reasoned) as every other one.
+                adaptive_model = create_model(
+                    model_id=reasoning_model_id, reasoning_effort="high"
+                )
                 if reasoning_model_id:
                     ctx.state.pinned_model_id = reasoning_model_id
                 logger.info(

@@ -195,11 +195,17 @@ def create_model(
     ``content`` null until thinking finishes, so a utility call with a modest ``max_tokens``
     gets EMPTY content (``finish_reason=length``) — and a retry-on-empty path then blocks to
     the 300s router/verifier timeout. It routes through core ``ModelSettings.thinking``
-    (``clamp_thinking_effort``): default ``"none"`` -> ``thinking=False``, which pydantic-ai
-    translates to the top-level ``reasoning_effort='none'`` request parameter this vLLM build
-    honors, turning thinking off so the model returns content directly. Pass an effort level
-    (``"low"``/``"medium"``/``"high"``) or ``None`` per call to opt back into reasoning for
-    genuinely hard tasks.
+    (``clamp_thinking_effort``) AND the raw wire-level ``extra_body`` directive
+    (``reasoning_wire_directives`` — ``reasoning_effort`` + vLLM's
+    ``chat_template_kwargs.enable_thinking``): default ``"none"`` -> ``thinking=False`` +
+    the disable directive, turning thinking off so the model returns content directly.
+    Both are sent because pydantic-ai only forwards ``thinking`` to the request when the
+    model's PROFILE is recognized as reasoning-capable (OpenAI's o-series/gpt-5 naming
+    only) — a custom/local model like ``qwen/qwen3.6-27b`` is not, so ``thinking`` alone
+    silently no-ops for it and the model's own default (thinking ON) wins regardless of
+    what was asked for; the raw directive is the model-profile-independent fallback that
+    actually reaches vLLM. Pass an effort level (``"low"``/``"medium"``/``"high"``) or
+    ``None`` per call to opt back into reasoning for genuinely hard tasks.
 
     ``oauth2`` (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle) wires an OAuth2
     ``client_credentials`` bearer instead of a static ``api_key`` — mutually exclusive with
@@ -239,7 +245,9 @@ def clamp_thinking_effort(effort: str | None) -> Any:
     silently leaves a reasoning model thinking on for the whole timeout budget (the
     S4 overrun). ``None`` means "leave the model's own thinking setting untouched" and
     returns ``None``. pydantic-ai translates ``thinking`` to the top-level
-    ``reasoning_effort`` request parameter this vLLM build honors (``False`` -> ``'none'``)."""
+    ``reasoning_effort`` request parameter this vLLM build honors (``False`` -> ``'none'``)
+    ONLY when the model's inferred ``profile.supports_thinking`` is ``True`` — see
+    :func:`reasoning_wire_directives` for why that translation alone is not sufficient."""
     if effort is None:
         return None
     normalized = str(effort).strip().lower()
@@ -253,15 +261,83 @@ def clamp_thinking_effort(effort: str | None) -> Any:
     return False
 
 
+def reasoning_wire_directives(effort: str | None) -> dict[str, Any]:
+    """Translate a reasoning decision into RAW OpenAI-compatible request fields.
+
+    CONCEPT:AU-ORCH.execution.delegation-reasoning-off (regression fix). pydantic-ai's
+    unified ``ModelSettings.thinking`` only reaches the outgoing request when the
+    model's PROFILE declares ``supports_thinking`` / ``thinking_always_enabled``
+    (``pydantic_ai.models.Model.prepare_request``, which silently DROPS the
+    ``thinking`` key otherwise — see ``openai_model_profile()``: it recognizes only
+    OpenAI's own o-series/gpt-5(.1+) naming). A local/custom reasoning model served
+    through the generic ``openai`` provider — e.g. ``qwen/qwen3.6-27b`` behind
+    vLLM — gets ``supports_thinking=False`` from that heuristic, so ``thinking``
+    (whichever way it was set, on the model OR the agent) never becomes a request
+    field: the model's OWN default (thinking ON for a reasoning model) always wins.
+    This is why a "reasoning off by default" call still measured ~22s instead of
+    the ~0.3s a directive-bearing call gets — the disable directive was computed
+    correctly and then dropped on the floor before it reached the wire.
+
+    This function is the model-profile-independent fallback: it returns the SAME
+    decision as raw ``extra_body`` fields (``reasoning_effort`` + vLLM's
+    ``chat_template_kwargs.enable_thinking``) that vLLM honors regardless of what
+    pydantic-ai believes this model supports — the mechanism already proven live by
+    ``knowledge_graph/extraction/fact_extractor.py`` and ``harness/g_eval.py``'s
+    ``_NO_THINK``. Callers merge the result into ``extra_body`` (never replace —
+    see ``agent/factory.py::_resolve_agent_extra_body``) alongside the portable
+    ``thinking`` key, so a provider whose profile IS recognized keeps working
+    through the standard pydantic-ai path too.
+
+    Returns ``{}`` when ``effort`` clamps to ``None`` (explicit "leave the model's
+    native default untouched" — no directive sent either way, on purpose).
+    """
+    thinking = clamp_thinking_effort(effort)
+    if thinking is None:
+        return {}
+    if thinking is False:
+        return {
+            "reasoning_effort": "none",
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+    level = thinking if isinstance(thinking, str) else "medium"
+    return {
+        "reasoning_effort": level,
+        "chat_template_kwargs": {"enable_thinking": True},
+    }
+
+
+def merge_extra_body(
+    base: dict[str, Any] | None, overlay: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Dict-merge two ``extra_body`` payloads, never dropping either side's keys.
+
+    A shallow ``{**base, **overlay}`` would silently replace ``base``'s
+    ``chat_template_kwargs`` sub-dict wholesale if ``overlay`` also sets it (e.g. the
+    reasoning directive alongside RLM's or an operator's own ``chat_template_kwargs``
+    knob) — the exact clobber class CONCEPT:AU-ORCH.execution.delegation-reasoning-off
+    already warns about for ``extra_body`` as a whole. This merges one level deeper for
+    ``chat_template_kwargs`` specifically, and shallow-overlays everything else
+    (``overlay`` wins on scalar conflicts, mirroring ``merge_model_settings``)."""
+    merged: dict[str, Any] = {**(base or {}), **(overlay or {})}
+    base_ctk = (base or {}).get("chat_template_kwargs")
+    overlay_ctk = (overlay or {}).get("chat_template_kwargs")
+    if isinstance(base_ctk, dict) and isinstance(overlay_ctk, dict):
+        merged["chat_template_kwargs"] = {**base_ctk, **overlay_ctk}
+    return merged
+
+
 def _openai_reasoning_settings(effort: str | None) -> Any | None:
     """Build OpenAI model settings for reasoning + the vLLM-only scheduler priority.
 
-    Reasoning goes through core ``ModelSettings.thinking`` (``clamp_thinking_effort``),
-    which pydantic-ai translates to the top-level ``reasoning_effort`` request parameter
-    this vLLM build honors — retiring the old ``extra_body["reasoning_effort"]`` hack.
-    Returns ``None`` when ``effort`` is ``None`` AND no priority is in context (caller
-    keeps the model's own default) or when pydantic-ai's OpenAI settings type is
-    unavailable."""
+    Reasoning is set BOTH ways: the portable core ``ModelSettings.thinking``
+    (``clamp_thinking_effort``) for providers/models pydantic-ai's profile inference
+    recognizes as reasoning-capable, AND the raw ``extra_body`` directive
+    (:func:`reasoning_wire_directives`) that vLLM honors regardless — required for
+    a local/custom reasoning model like ``qwen/qwen3.6-27b`` whose profile is NOT
+    recognized (see that function's docstring for why ``thinking`` alone silently
+    no-ops there). Returns ``None`` when ``effort`` is ``None`` AND no priority is in
+    context (caller keeps the model's own default) or when pydantic-ai's OpenAI
+    settings type is unavailable."""
     # CONCEPT:AU-ORCH.scheduling.also-fold-vllm-scheduler — the vLLM scheduler `priority` field
     # (lower = sooner) from the ambient PriorityClass has no core equivalent, so it stays in
     # extra_body: a server started with --scheduling-policy priority sees a background-ingestion
@@ -280,6 +356,7 @@ def _openai_reasoning_settings(effort: str | None) -> Any | None:
             extra["priority"] = vllm_priority(prio)
     except Exception:  # noqa: BLE001 — priority hint is best-effort
         pass
+    extra = merge_extra_body(extra, reasoning_wire_directives(effort))
     if thinking is None and not extra:
         return None
     try:
