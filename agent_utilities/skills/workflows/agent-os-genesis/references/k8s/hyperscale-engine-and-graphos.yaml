@@ -1,0 +1,377 @@
+# =============================================================================
+# TEMPLATE — agent-os-genesis k8s recipe: out-of-process-shared (hyperscaling)
+# (engine_topology: out-of-process-shared — the DEFAULT for `enterprise`).
+#
+# Two independently-scaled tiers instead of graphos-unified.yaml's one
+# self-contained pod:
+#   1. epistemic-graph ENGINE — its own Deployment/Service, built with the eg
+#      `cluster` cargo feature (EG_FEATURES=cluster or
+#      `cargo build --features cluster,ast-extended` — links openraft; a
+#      DIFFERENT BUILD of the SAME engine, not a separate artifact family).
+#      Ships here as a single instance by default (replicas: 1). Graduate to a
+#      real 3-voter Raft cluster (zero-downtime rolling upgrades thereafter,
+#      quorum survives one node loss) using the staged design in
+#      services/epistemic-graph/k8s/raft-cluster/ (workspace repo) — adapt it,
+#      do not apply it verbatim either; its own README explains why a
+#      per-node-Deployment + headless-Service shape was chosen over a
+#      StatefulSet (deterministic host pinning for the node already holding
+#      the authoritative data).
+#   2. graph-os FRONT pods — N stateless CLIENTS of the engine, scaled
+#      independently via the HorizontalPodAutoscaler at the bottom. This is
+#      the tier that actually "hyperscales graph-os" —
+#      ../engine-topology-and-hyperscaling.md.
+#
+# Replace every <PLACEHOLDER>. Current config contract ONLY — see
+# graphos-unified.yaml's header for the retired-keys list this template also
+# never sets. The defining difference from graphos-unified.yaml:
+# GRAPH_SERVICE_ENDPOINTS IS set below (every graph-os pod is a pure client of
+# the shared engine, never autostarts its own) — that presence/absence is the
+# ENTIRE switch between the two topologies, nothing else.
+#
+# For the full mesh-secured, certification-gated production target (Istio
+# mTLS, exact-digest image pinning, 3-zone spread, disaster recovery) see
+# deploy/k8s/production-cell/ in the workspace repo — a heavier, more mature
+# system than this genesis-default recipe; graduate to it deliberately, not by
+# accident (its own deploy/README.md explains the required render+certify
+# pipeline — the template directory is not meant to be applied directly).
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: graph-os-env
+  namespace: <NAMESPACE> # e.g. "platform" — the engine/graph-os control-plane namespace
+data:
+  TRANSPORT: streamable-http
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  AUTH_TYPE: jwt
+  MCP_TOOL_MODE: condensed # "intent" for a small/local caller LLM (SKILL.md Step A3)
+  KG_DAEMON_ROLE: client # every front pod is a CLIENT — the engine tier below is the host
+
+  # ── engine locality: PRESENT, so every graph-os pod is a stateless client of
+  #    the shared engine below (never autostarts its own local engine). ──────
+  GRAPH_SERVICE_ENDPOINTS: "tcp://epistemic-graph-engine.<NAMESPACE>.svc.cluster.local:9100"
+
+  AUTH_JWT_ISSUER: "<KEYCLOAK_ISSUER_URL>"
+  AUTH_JWT_JWKS_URI: "<KEYCLOAK_JWKS_URI>"
+  AUTH_JWT_AUDIENCE: agent-services
+  FASTMCP_SERVER_AUTH_JWT_ISSUER: "<KEYCLOAK_ISSUER_URL>"
+  FASTMCP_SERVER_AUTH_JWT_JWKS_URI: "<KEYCLOAK_JWKS_URI>"
+  FASTMCP_SERVER_AUTH_JWT_AUDIENCE: agent-services
+  KG_POLICY_VERSION: "<POLICY_VERSION>" # engine and every graph-os pod must read the SAME value
+
+  MCP_CONFIG: /etc/agent-utilities/config/mcp_config.json
+  MCP_CLIENT_AUTH: oidc-client-credentials
+  OIDC_ISSUER: "<KEYCLOAK_ISSUER_URL>"
+  OIDC_TOKEN_URL: "<KEYCLOAK_TOKEN_URL>"
+  OIDC_CLIENT_ID: <OIDC_CLIENT_ID>
+  OIDC_AUDIENCE: agent-services
+
+  AGENT_UTILITIES_CONFIG_DIR: /etc/agent-utilities/config
+  REQUESTS_CA_BUNDLE: /etc/ssl/homelab/ca.crt
+  SSL_CERT_FILE: /etc/ssl/homelab/ca.crt
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: graph-os-secrets
+  namespace: <NAMESPACE>
+spec:
+  dataFrom:
+    - extract:
+        conversionStrategy: Default
+        decodingStrategy: None
+        key: <OPENBAO_SECRET_PATH> # OpenBao KV2 path under apps/, e.g. "graph-os"
+        metadataPolicy: None
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: <CLUSTER_SECRET_STORE_NAME>
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: graph-os-secrets
+    # Expected keys: GRAPH_SERVICE_AUTH_SECRET (the SAME shared HMAC secret the
+    # engine tier's Secret below is given — one secret for the whole fleet),
+    # OIDC_CLIENT_SECRET.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: au-config
+  namespace: <NAMESPACE>
+data:
+  config.json: |
+    {}
+  mcp_config.json: |
+    {"mcpServers": {}}
+---
+# ── FRONT TIER — N stateless graph-os client pods ───────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graph-os
+  namespace: <NAMESPACE>
+  labels:
+    app: graph-os
+    tier: front
+spec:
+  replicas: 3
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: graph-os
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: graph-os
+        tier: front
+    spec:
+      containers:
+        - name: graph-os
+          image: <GRAPH_OS_UNIFIED_IMAGE> # the SAME image as graphos-unified.yaml — it becomes a
+          # pure client the moment GRAPH_SERVICE_ENDPOINTS is set (above)
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: graph-os-env
+            - secretRef:
+                name: graph-os-secrets
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: au-config
+              mountPath: /etc/agent-utilities/config
+              readOnly: true
+            - name: homelab-ca
+              mountPath: /etc/ssl/homelab
+              readOnly: true
+      volumes:
+        - name: au-config
+          configMap:
+            name: au-config
+        - name: homelab-ca
+          configMap:
+            name: <CA_BUNDLE_CONFIGMAP_NAME> # e.g. "homelab-ca-bundle" (Step 1b ca-trust-provisioner)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graph-os
+  namespace: <NAMESPACE>
+  labels:
+    app: graph-os
+spec:
+  selector:
+    app: graph-os
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: graph-os
+  namespace: <NAMESPACE>
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: graph-os
+  minReplicas: 3
+  maxReplicas: 50
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: graph-os
+  namespace: <NAMESPACE>
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # MANDATORY once graph-os has >1 replica: the MCP Python SDK's
+    # StreamableHTTPSessionManager keeps sessions in an in-process dict — a
+    # request continuing a session that lands on a DIFFERENT replica finds
+    # nothing there. Cookie affinity pins a client to the pod that started its
+    # session. It does NOT protect a session across a pod RESTART (that pod's
+    # dict is empty regardless of the cookie) — only spreads live traffic
+    # correctly across replicas.
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+spec:
+  rules:
+    - host: <GRAPH_OS_HOSTNAME> # e.g. graph-os.<YOUR_CLUSTER_DOMAIN>
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: graph-os
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - <GRAPH_OS_HOSTNAME>
+      secretName: graph-os-tls
+---
+# ── ENGINE TIER — the shared, independently-scaled epistemic-graph engine ───
+apiVersion: v1
+kind: Service
+metadata:
+  name: epistemic-graph-engine
+  namespace: <NAMESPACE>
+  labels:
+    app: epistemic-graph-engine
+spec:
+  # headless — required the moment this graduates to a real Raft peer set: a
+  # ClusterIP's DNAT does not reliably carry the engine's long-lived pooled
+  # transport (proven in services/epistemic-graph/soak/ in the workspace
+  # repo). Harmless at replicas: 1; keeping it headless from the start avoids
+  # a breaking Service-type change on the later HA graduation.
+  clusterIP: None
+  selector:
+    app: epistemic-graph-engine
+  ports:
+    - name: engine
+      port: 9100
+      targetPort: engine
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epistemic-graph-engine
+  namespace: <NAMESPACE>
+  labels:
+    app: epistemic-graph-engine
+    tier: kg-engine
+spec:
+  replicas: 1 # single-writer-per-persist-dir; see the file header for the 3-voter Raft graduation path
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: epistemic-graph-engine
+  strategy:
+    type: Recreate # never RollingUpdate a single-writer engine
+  template:
+    metadata:
+      labels:
+        app: epistemic-graph-engine
+        tier: kg-engine
+    spec:
+      containers:
+        - name: epistemic-graph
+          image: <EPISTEMIC_GRAPH_CLUSTER_IMAGE> # built with EG_FEATURES=cluster (links openraft)
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tcp-addr
+            - 0.0.0.0:9100
+            - --persist-dir
+            - /data/graph_snapshots
+          env:
+            - name: GRAPH_SERVICE_PERSIST_DIR
+              value: /data/graph_snapshots
+          envFrom:
+            - secretRef:
+                name: epistemic-graph-engine-secrets
+                # Expected key: GRAPH_SERVICE_AUTH_SECRET — the SAME value as
+                # the front tier's Secret above (one shared HMAC secret).
+          ports:
+            - name: engine
+              containerPort: 9100
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: 9100
+            periodSeconds: 3
+            failureThreshold: 40 # first-boot redb load can take minutes on a large KG
+          readinessProbe:
+            tcpSocket:
+              port: 9100
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 9100
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+            limits:
+              cpu: "6"
+              memory: 24Gi
+          volumeMounts:
+            - name: engine-data
+              mountPath: /data/graph_snapshots
+      volumes:
+        - name: engine-data
+          persistentVolumeClaim:
+            claimName: <ENGINE_DATA_PVC_NAME> # ReadWriteOnce; provision with <STORAGE_CLASS_NAME>
+          # This repo's own homelab instead pins a hostPath volume +
+          # nodeSelector here (bare-metal cluster, no dynamic provisioner) —
+          # see services/epistemic-graph/k8s/production-separate.yaml in the
+          # workspace repo for that variant, including why it also needs
+          # hostNetwork today (loopback-only TCP until the TLS follow-on lands).
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: epistemic-graph-engine-secrets
+  namespace: <NAMESPACE>
+spec:
+  dataFrom:
+    - extract:
+        conversionStrategy: Default
+        decodingStrategy: None
+        key: <OPENBAO_SECRET_PATH_ENGINE> # OpenBao KV2 path under apps/, e.g. "epistemic-graph"
+        metadataPolicy: None
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: <CLUSTER_SECRET_STORE_NAME>
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: epistemic-graph-engine-secrets
