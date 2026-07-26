@@ -46,7 +46,7 @@
 # what the original job used — see docker/graphos-unified-langfuse-kaniko-job.yaml for the
 # variant that adds it and pushes the `:langfuse` validation tag.
 
-FROM ubuntu:26.04
+FROM ubuntu:26.04@sha256:3131b4cc82a783df6c9df078f86e01819a13594b865c2cad47bd1bca2b7063bb
 
 ARG HOST=127.0.0.1
 ARG PORT=8000
