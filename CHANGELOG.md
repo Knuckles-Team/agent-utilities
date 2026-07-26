@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **Messaging-orchestration transparency (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).**
+  Every messaging reply (Telegram and every other backend — they share the universal reply
+  path) now surfaces the agent-graph's routing + failures, translated into concise,
+  actionable chat text, so a failure is a troubleshooting entry point instead of a black box.
+  `agent_runner.run_agent` builds a structured `run_summary`
+  (`{route, outcome, stage_reached, trace_ref, failure?}`) at every terminal outcome —
+  success, `_fleet_server_failed_result`/`_delegation_degraded`, the outer failure handler,
+  and a best-effort `CancelledError` trace write — via new opt-in `run_id`/
+  `include_run_summary` params (additive; the bare-string contract is unchanged for every
+  existing caller). New `orchestration/failure_translation.py`: a data-driven
+  signature → `{translated, category, hint}` registry (the fleet HTTPS gate,
+  `delegated_child_tool_failed`, the retrieval-quality gate, reply-budget timeouts,
+  engine-unreachable, access-denied/RBAC, tool wall-clock timeouts, toolset-bind failures,
+  security blocks), with a privacy-sanitized generic fallback that always keeps a raw error
+  tail — never a bare "failure". `messaging/router.py`'s `_graph_agent_reply` renders it as a
+  concise `⚠️ {translated} — {hint} [stage: {stage_reached}] (trace: {trace_ref})` footer at
+  every exit — including the reply-budget-timeout path (`run_agent` is cancelled mid-flight
+  and hands back nothing, so the router pre-mints the run id and synthesizes the best-known
+  summary from the planned route) and the plain-chat fallback, which previously discarded a
+  real, already-known cause in favor of an unrelated conversational answer. New
+  `MESSAGING_TRANSPARENCY_FOOTER` setting (default on). Also fixes: a hardcoded
+  `_record_execution_trace` error string that discarded the real cause on every degraded
+  outcome; a raw Python-dict-repr fallback (`str(result)`) shown to the user whenever a
+  `GraphResponse`'s cause sat in `error` with empty `results.output`;
+  `engine.execute_graph`'s terminal `error_recovery_step` dict being silently stringified
+  into a fake `status="completed"` answer; and a pre-existing gap in the router's envelope
+  unwrap allow-set that never included `run_id` (always present in a real envelope), which
+  could leak raw JSON into the chat once a native message channel opened.
 - **Cluster-wide backpressure unification + the W2.4 priority claim (W2.9, CONCEPT:AU-ORCH.scheduling.claim-pacing-backpressure).**
   Closes the seam between the engine's admission authority and the Python
   WorkItem claim loop, which used to be disjoint layers — au kept draining
