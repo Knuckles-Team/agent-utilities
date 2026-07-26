@@ -281,7 +281,7 @@ class KGRuleBackend(ProviderBackend):
     def add_rule(self, rule: ProviderRule) -> None:
         self.engine.graph.add_node(
             rule.rule_id,
-            type="provider_prompt_rule",
+            node_type="provider_prompt_rule",
             provider=rule.provider.lower(),
             name=rule.name,
             description=rule.description,

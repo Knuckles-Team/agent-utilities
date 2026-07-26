@@ -225,7 +225,7 @@ class MemoryCache(BaseModel):
         query_anchor_id = f"query:{self.query_hash[:12]}"
         engine.graph.add_node(
             query_anchor_id,
-            type="memory",
+            node_type="memory",
             name=f"Query: {self.query[:60]}",
             description=self.query[:300],
             timestamp=ts,

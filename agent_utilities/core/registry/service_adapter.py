@@ -698,7 +698,7 @@ class ServiceRegistry:
                     {
                         "id": node_id,
                         "name": desc.description,
-                        "type": "callable_resource",
+                        "node_type": "callable_resource",
                         "resource_type": "SERVICE",
                         "module_path": desc.module_path,
                         "entry_point": desc.function_name,

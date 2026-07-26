@@ -124,7 +124,7 @@ class MemoryRetriever:
         # Ensure anchor exists
         self.engine.graph.add_node(
             SELF_MODEL_ANCHOR,
-            type="memory_retriever_anchor",
+            node_type="memory_retriever_anchor",
             name="Self-Model Anchor",
         )
 
@@ -505,7 +505,7 @@ class MemoryRetriever:
             cap_id = f"cap:{domain}"
             self.engine.graph.add_node(
                 cap_id,
-                type="capability",
+                node_type="capability",
                 name=f"Capability: {domain}",
                 confidence=rate,
                 importance_score=rate,
@@ -523,7 +523,7 @@ class MemoryRetriever:
             obs_id = f"fail_pattern:{i}"
             self.engine.graph.add_node(
                 obs_id,
-                type="observation",
+                node_type="observation",
                 name=f"Failure Pattern: {pattern[:50]}",
                 content=pattern,
                 importance_score=0.7,

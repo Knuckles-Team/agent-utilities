@@ -169,7 +169,9 @@ def register_write_ingest_tools(mcp):
                     if not endpoint_url:
                         return "Error: endpoint_url required"
                     engine.add_node(
-                        endpoint_url, "ExternalGraphReference", {"type": graph_type}
+                        endpoint_url,
+                        "ExternalGraphReference",
+                        {"graph_type": graph_type},
                     )
                     return f"Registered external graph at {endpoint_url}"
                 elif action == "bulk_ingest":

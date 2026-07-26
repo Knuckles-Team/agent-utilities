@@ -279,7 +279,7 @@ agent_utilities/knowledge_graph/core/agents_md.py:401
 agent_utilities/knowledge_graph/core/bounded_read.py:99
 agent_utilities/knowledge_graph/core/ecosystem_topology.py:242
 agent_utilities/knowledge_graph/core/engine.py:402
-agent_utilities/knowledge_graph/core/engine.py:852
+agent_utilities/knowledge_graph/core/engine.py:865
 agent_utilities/knowledge_graph/core/engine_ingestion.py:810
 agent_utilities/knowledge_graph/core/engine_ingestion.py:859
 agent_utilities/knowledge_graph/core/engine_ingestion.py:933
@@ -573,7 +573,7 @@ agent_utilities/mcp/tools/analysis_tools.py:590
 agent_utilities/mcp/tools/analysis_tools.py:597
 agent_utilities/mcp/tools/analysis_tools.py:3904
 agent_utilities/mcp/tools/engine_surface_tools.py:1565
-agent_utilities/mcp/tools/write_ingest_tools.py:505
+agent_utilities/mcp/tools/write_ingest_tools.py:507
 agent_utilities/mcp/verbose_tools.py:539
 agent_utilities/mcp/verbose_tools.py:627
 agent_utilities/mcp/verbose_tools.py:662

@@ -337,7 +337,7 @@ def _ensure_topic_node(add_node: Any, add_edge: Any, path: list[str]) -> str:
     label = path[-1]
     add_node(
         node_id,
-        type="Topic",
+        node_type="Topic",
         name=label,
         level=len(path),
         path="/".join(_slugify(p) for p in path),
