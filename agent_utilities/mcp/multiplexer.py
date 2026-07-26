@@ -1608,6 +1608,18 @@ class MCPMultiplexer:
                 continue
             if server_name in skip or cfg.get("disabled", False):
                 continue
+            # Never surface a self-entry as a mountable child, regardless of the name it
+            # is filed under. ``skip`` covers it by NAME ("graph-os"), but a fresh
+            # ``MCPMultiplexer`` built off the raw config (e.g. by ``_fleet_server_url``)
+            # has not had ``attach_fleet_loader`` widen ``skip``. Match by the process's
+            # own advertised identity (config-driven) so the gateway's own endpoint is
+            # never dialed as if it were a fleet child — it is fronted in-process instead.
+            from agent_utilities.base_utilities import (
+                is_loopback_url as _is_self_mcp_url,
+            )
+
+            if _is_self_mcp_url(str(cfg.get("url") or "")):
+                continue
             runtime_materialized = id(cfg) in runtime_materialized_configs
             if not runtime_materialized:
                 try:
@@ -2542,8 +2554,11 @@ def _session_key() -> str:
         sid = get_context().session_id
         if sid:
             return str(sid)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(
+            "No session context (stdio/single-client); trying next key source: %s",
+            exc,
+        )
     try:
         get_http_request()
     except RuntimeError:

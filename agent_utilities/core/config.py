@@ -6457,6 +6457,35 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
             mcp_servers = config_data.get("mcpServers", {})
             modified = False
 
+            # Never mount YOURSELF as a fleet child. A self-entry — an mcp_config entry
+            # whose URL targets this process's own advertised MCP surface — must resolve
+            # to in-process tools, never an outbound HTTP hairpin back to our own gateway.
+            # graph-os fronts the whole fleet in-process (attach_fleet_loader), so its own
+            # ``graph-os`` self-entry here is erroneous to dial: it hits the external
+            # gateway, which rejects the un-JWT'd self-call ``401`` (and in a no-auth or
+            # stdio/self-contained deployment it is still a wrong self-hairpin). Drop it at
+            # this single loader every fleet-config consumer flows through, identity-based
+            # (config-driven via MCP_ALLOWED_HOSTS) and independent of the auth outcome.
+            from agent_utilities.base_utilities import (
+                is_loopback_url as _is_self_mcp_url,
+            )
+
+            _self_entries = [
+                _n
+                for _n, _c in list(mcp_servers.items())
+                if isinstance(_c, dict) and _is_self_mcp_url(str(_c.get("url") or ""))
+            ]
+            for _n in _self_entries:
+                mcp_servers.pop(_n, None)
+                modified = True
+            if _self_entries:
+                logger.info(
+                    "MCP Config: excluded self-referential fleet entr%s %s — graph-os "
+                    "fronts its own tools in-process, never via an HTTP self-connection",
+                    "y" if len(_self_entries) == 1 else "ies",
+                    _self_entries,
+                )
+
             for name, cfg in mcp_servers.items():
                 command = cfg.get("command")
                 if command:
@@ -6509,8 +6538,11 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                                 _sc = create_secrets_client()
                                 _user_token = _sc.get("session_token")
-                            except Exception:  # nosec B110
-                                pass
+                            except Exception as exc:
+                                logger.debug(
+                                    "Optional session-token enrichment unavailable: %s",
+                                    exc,
+                                )
                         if _user_token:
                             cfg["env"]["AGENT_USER_TOKEN"] = _user_token
 
@@ -6562,5 +6594,5 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
     except Exception as e:
-        logger.error("Failed to load MCP configuration (%s)", type(e).__name__)
+        logger.error("Failed to load MCP configuration: %s", e)
         return []

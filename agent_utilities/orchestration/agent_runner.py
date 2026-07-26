@@ -1771,9 +1771,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
@@ -2093,6 +2093,17 @@ async def _execute_single_server(
         base_url=config.get("base_url"),
         api_key=config.get("api_key_ref"),
         mcp_toolsets=toolsets,
+        # CONCEPT:AU-ORCH.execution.focused-tools-altitude — this direct-execution loop
+        # (focused-tools / single-server / bound-template) binds EXACTLY the toolsets
+        # resolved above (server-granular least privilege), each already carrying the
+        # spawn service-account bearer. Pin ``mcp_url``/``mcp_config`` empty so
+        # ``create_agent`` does NOT fall back to the process defaults
+        # (``DEFAULT_MCP_URL`` / ``DEFAULT_MCP_CONFIG``) and silently reload the WHOLE
+        # deployment fleet unauthenticated — that fallback pulled in graph-os's own
+        # ``graph-os`` self-entry and every other child, hairpinning an HTTP client to
+        # our own gateway (``401`` on ``/mcp``) and drowning the least-privilege intent.
+        mcp_url="",
+        mcp_config="",
         enable_skills=False,
         enable_universal_tools=False,
         name=agent_name,

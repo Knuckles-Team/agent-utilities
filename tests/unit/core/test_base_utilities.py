@@ -229,6 +229,87 @@ def test_is_loopback_url_exception_path() -> None:
 
 
 # ---------------------------------------------------------------------------
+# is_loopback_url: config-driven self-recognition (the graph-os self-connection
+# invariant — the gateway must never HTTP-connect to its OWN advertised endpoint;
+# it fronts its own tools in-process instead).
+# ---------------------------------------------------------------------------
+
+
+def _self_hosts_setting(monkeypatch, allowed: str, host: str = "0.0.0.0") -> None:
+    """Pin MCP_ALLOWED_HOSTS + HOST for :func:`advertised_self_hosts`."""
+
+    def fake_setting(key, default=None):
+        return {"MCP_ALLOWED_HOSTS": allowed, "HOST": host}.get(key, default)
+
+    monkeypatch.setattr(base_utilities, "setting", fake_setting)
+
+
+def test_is_loopback_url_advertised_self_host(monkeypatch) -> None:
+    """A URL whose host is one of the process's OWN advertised names
+    (``MCP_ALLOWED_HOSTS``) is self — port-independent and needing NO
+    ``current_host``/``current_port`` threaded. This is what stops graph-os dialing
+    ``http://graph-os.arpa/mcp`` (its own gateway) from inside the pod."""
+    _self_hosts_setting(
+        monkeypatch,
+        "graph-os.arpa,graph-os.platform.svc,graph-os.platform.svc.cluster.local,"
+        "graph-os,localhost,127.0.0.1",
+    )
+    assert base_utilities.is_loopback_url("http://graph-os.arpa/mcp") is True
+    assert base_utilities.is_loopback_url("http://graph-os.platform.svc/mcp") is True
+    assert (
+        base_utilities.is_loopback_url("http://graph-os.platform.svc.cluster.local/mcp")
+        is True
+    )
+    # advertised host is self on ANY port (the gateway owns the whole host)
+    assert base_utilities.is_loopback_url("http://graph-os:8080/mcp") is True
+
+
+def test_is_loopback_url_self_is_auth_independent(monkeypatch) -> None:
+    """Self-recognition is IDENTITY-based, never auth-based. The guard inspects only
+    the URL host vs. the process's advertised identity — so a self-target is skipped
+    even in a no-auth deployment where the self-call would otherwise return 200. There
+    is no 401/auth signal involved in this decision at all."""
+    _self_hosts_setting(monkeypatch, "graph-os.arpa,localhost,127.0.0.1")
+    # Same result whether or not auth is configured — the function never looks at auth.
+    assert base_utilities.is_loopback_url("http://graph-os.arpa/mcp") is True
+    assert base_utilities.is_loopback_url("https://graph-os.arpa/mcp") is True
+
+
+def test_is_loopback_url_other_fleet_child_not_self(monkeypatch) -> None:
+    """A DIFFERENT fleet child is never mistaken for self even though the process
+    advertises graph-os.arpa — normal fleet-child connections are preserved."""
+    _self_hosts_setting(monkeypatch, "graph-os.arpa,graph-os,localhost,127.0.0.1")
+    assert base_utilities.is_loopback_url("http://github-mcp.arpa/mcp") is False
+    assert base_utilities.is_loopback_url("http://ansible-tower-mcp.arpa/mcp") is False
+
+
+def test_is_loopback_url_bind_host_is_self(monkeypatch) -> None:
+    """A concrete bind ``HOST`` is recognized as self even when MCP_ALLOWED_HOSTS is
+    empty (covers minimal / single-node deployments)."""
+    _self_hosts_setting(monkeypatch, "", host="my-node.internal")
+    assert base_utilities.is_loopback_url("http://my-node.internal/mcp") is True
+
+
+def test_is_loopback_url_wildcard_bind_not_self(monkeypatch) -> None:
+    """A wildcard bind (``0.0.0.0``/``::``) is NOT a concrete self-name, so it must not
+    turn an unrelated fleet child into a false self-match."""
+    _self_hosts_setting(monkeypatch, "", host="0.0.0.0")
+    assert base_utilities.is_loopback_url("http://some-fleet.arpa/mcp") is False
+
+
+def test_advertised_self_hosts_config_driven(monkeypatch) -> None:
+    """advertised_self_hosts() is sourced purely from config (no hardcoded domain)."""
+    _self_hosts_setting(
+        monkeypatch, "a.example, b.example ,localhost", host="c.example"
+    )
+    hosts = base_utilities.advertised_self_hosts()
+    assert {"a.example", "b.example", "localhost", "c.example"} <= hosts
+    # wildcard bind is excluded
+    _self_hosts_setting(monkeypatch, "", host="0.0.0.0")
+    assert "0.0.0.0" not in base_utilities.advertised_self_hosts()
+
+
+# ---------------------------------------------------------------------------
 # ensure_package_installed: auto-install paths (lines 293-317)
 # ---------------------------------------------------------------------------
 
