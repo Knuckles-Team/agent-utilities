@@ -224,18 +224,64 @@ def expand_env_vars(text: str) -> str:
     return pattern.sub(replace, text)
 
 
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0" + ".0", "::1"})
+
+
+def advertised_self_hosts() -> set[str]:
+    """The hostnames that address THIS process's own served MCP surface.
+
+    Sourced purely from the running deployment configuration — never a hardcoded
+    domain — so it adapts to any graph-os shape:
+
+    * ``MCP_ALLOWED_HOSTS`` — the server-side allowlist of host headers this process
+      answers to (e.g. ``graph-os.arpa,graph-os.platform.svc[.cluster.local],graph-os,
+      localhost,127.0.0.1``). These are, by definition, the names that route back to us.
+    * the process bind ``HOST`` when it is a concrete name (not a wildcard bind).
+
+    A connection whose target host is any of these is a self-hairpin: graph-os is the
+    gateway that fronts its own tools IN-PROCESS, so it must never open an HTTP client
+    back to itself. This is identity-based, not auth-based — it holds in a no-auth
+    deployment (where the self-call would otherwise 200) exactly as in a JWT-guarded one.
+    """
+    hosts: set[str] = set()
+    raw = str(setting("MCP_ALLOWED_HOSTS", "") or "")
+    for token in re.split(r"[,\s]+", raw):
+        host = token.strip().lower()
+        if host:
+            hosts.add(host)
+    bind = str(setting("HOST", "") or "").strip().lower()
+    if bind and bind not in {"0.0.0.0", "::", "[::]", "*"}:
+        hosts.add(bind)
+    return hosts
+
+
 def is_loopback_url(
     url: str, current_host: str | None = None, current_port: int | None = None
 ) -> bool:
-    """Check if a URL is a loopback to the current agent's process.
+    """True when ``url`` targets THIS process — so in-process tools must be used, never
+    an outbound HTTP client (the self-connection / self-hairpin guard).
+
+    Self is recognized independently of any auth outcome, so the invariant "graph-os
+    never HTTP-connects to itself" holds across EVERY deployment shape and auth mode:
+
+    1. **Advertised self-host** — the URL host is one of the process's own advertised
+       names (:func:`advertised_self_hosts`, config-driven from ``MCP_ALLOWED_HOSTS`` +
+       bind ``HOST``). Port-independent: the gateway answers to the whole host, so
+       ``http://graph-os.arpa/mcp`` is recognized as self from inside graph-os even
+       though no ``current_host``/``current_port`` was threaded to this call.
+    2. **Explicit caller identity** — the URL host equals a ``current_host`` the caller
+       passed (port-matched when both ports are known).
+    3. **Bare loopback + matching port** — the legacy check, kept port-sensitive so a
+       co-located service on ``localhost`` under a *different* port is NOT mistaken for
+       self.
 
     Args:
         url: The candidate MCP URL.
-        current_host: The host addressing the current agent.
-        current_port: The port the current agent is running on.
+        current_host: An explicit host identity for the current process (optional).
+        current_port: The port the current process serves on (optional).
 
     Returns:
-        True if the URL is a loopback to this process, False otherwise.
+        True if the URL is a self-connection to this process, False otherwise.
 
     """
     if not url:
@@ -243,16 +289,25 @@ def is_loopback_url(
 
     try:
         parsed = urlparse(url)
-        if not parsed.port or not current_port or parsed.port != int(current_port):
+        hostname = parsed.hostname.lower() if parsed.hostname else ""
+        if not hostname:
             return False
 
-        hostname = parsed.hostname.lower() if parsed.hostname else ""
-        loopback_hosts = ["localhost", "127.0.0.1", "0.0.0" + ".0", "::1"]
-        if hostname in loopback_hosts:
+        # (1) Own advertised hostname — unambiguously this process, any port.
+        named_self = advertised_self_hosts() - _LOOPBACK_HOSTS
+        if hostname in named_self:
             return True
 
+        # (2) Explicit caller-supplied identity — port-matched when both are known.
         if current_host and hostname == current_host.lower():
+            if current_port and parsed.port and int(parsed.port) != int(current_port):
+                return False
             return True
+
+        # (3) Bare loopback with a matching known port (legacy; avoids over-matching a
+        #     different co-located localhost service).
+        if hostname in _LOOPBACK_HOSTS and current_port and parsed.port:
+            return int(parsed.port) == int(current_port)
 
         return False
     except Exception:
