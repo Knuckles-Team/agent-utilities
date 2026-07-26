@@ -2,7 +2,7 @@
 
 CONCEPT:AU-KG.ingest.skill-workflow-ingestion — Skill-Workflow Ingestion ("Claude drives, graph-os runs").
 
-The ~300 *skill-workflows* under ``universal_skills/workflows/<domain>/<name>/
+The ~300 *skill-workflows* under ``universal_skills/<domain>-workflows/<name>/
 SKILL.md`` are dual-mode artefacts: a YAML frontmatter (``name``/``description``/
 ``domain``/``tags``/``team_config``) plus a body ``## Steps`` section whose
 ``### Step N: <component> [depends_on: ...]`` headings encode the machine DAG.
@@ -23,8 +23,8 @@ Node / edge shape (mirrors ORCH-1.22 ``WorkflowStore`` + ORCH-1.41 compiler)::
     (:WorkflowDefinition {id: "skill_workflow:<name>", name, description,
                           domain, source: "universal-skills", tags_json,
                           nl_spec, step_count, content_hash, ...})
-      -[:HAS_STEP {step_order}]-> (:WorkflowStep {node_id, step_order,
-                          component, depends_on_json, ...})
+      -[:HAS_STEP {step_order}]-> (:WorkflowStep {id: "<wf_id>:step:<n>",
+                          step_order, component, depends_on_json, ...})
     (:WorkflowStep) -[:TRANSITION_TO]-> (:WorkflowStep)   # depends_on edges
     (:WorkflowStep) -[:USES_SKILL]->     (:Skill {id: "skill:<component>", name})
 
@@ -313,34 +313,38 @@ def _resolve_dep(dep: str, comp_to_num: dict[str, int]) -> int | None:
 def discover_workflow_skill_files(root: str | None = None) -> list[Path]:
     """Locate every workflow ``SKILL.md`` under the universal-skills package.
 
-    Uses the installed ``universal_skills`` package path (filtered to
-    ``/workflows/``) and also accepts an explicit ``root`` (a directory that
-    is, or contains, ``workflows/``) for tests and out-of-tree corpora.
+    Uses the installed ``universal_skills`` package path (every enabled skill
+    directory whose *category* is a ``<domain>-workflows`` directory — the
+    shipped convention, e.g. ``finance-workflows/<name>/SKILL.md``; there is
+    no directory literally named ``workflows/`` anywhere in the corpus) and
+    also accepts an explicit ``root``, searched recursively as-is with no
+    further filtering, for tests and out-of-tree corpora whose own convention
+    mixes atomic skills, skill-graphs, and workflows under one root (e.g. a
+    package's own ``skills/`` tree).
     """
     roots: list[Path] = []
     if root:
-        rp = Path(root)
-        roots.append(rp / "workflows" if (rp / "workflows").is_dir() else rp)
+        roots.append(Path(root))
     else:
         try:
             from universal_skills import skill_utilities
 
             for p in skill_utilities.get_universal_skills_path():
-                if "/workflows/" in str(p):
+                if Path(p).parent.name.endswith("-workflows"):
                     roots.append(Path(p))
         except Exception as exc:  # noqa: BLE001 — package may be absent
             logger.warning(
                 "[KG-2.97] universal_skills not importable (%s)", _error_kind(exc)
             )
         # Fallback: resolve the package root directly when the enable-flag
-        # discovery above returns nothing (editable installs can yield []).
+        # discovery above returns nothing (editable installs can yield []) —
+        # scan every ``<domain>-workflows/`` category directory in the package.
         if not roots:
             try:
                 import universal_skills
 
-                pkg = Path(next(iter(universal_skills.__path__))) / "workflows"
-                if pkg.is_dir():
-                    roots.append(pkg)
+                pkg = Path(next(iter(universal_skills.__path__)))
+                roots.extend(sorted(d for d in pkg.glob("*-workflows") if d.is_dir()))
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "[KG-2.97] package discovery fallback failed (%s)",
@@ -385,6 +389,15 @@ def _content_hash(parsed: dict[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+# Flipped on the first chunk/embed side-write failure so a systemic backend issue
+# (observed live: near-100% of files hit an OCC "STALE_GRAPH_VERSION" retry-budget
+# exhaustion, ~30-40s wall clock per file across 8 doomed retries) doesn't silently
+# repeat-and-fail on every remaining file in a bulk run. Best-effort enrichment only:
+# WorkflowDefinition/WorkflowStep/Skill nodes and their edges are unaffected either
+# way — this only gates the *optional* semantic-search-over-body-text side-write.
+_chunk_body_disabled = False
+
+
 def _chunk_workflow_body(
     engine: IntelligenceGraphEngine, wf_id: str, body: str, title: str
 ) -> None:
@@ -393,8 +406,12 @@ def _chunk_workflow_body(
     The shared semantic-search substrate every skill-type object shares (atomic Skill /
     SkillGraph docs / WorkflowDefinition). Best-effort — never raises (enrichment must
     not block workflow registration); embeds are bounded so a flaky GPU can't hang it.
+    Self-gates after the first failure for the rest of the process (module-level
+    ``_chunk_body_disabled``) instead of paying a repeated multi-retry cost for a
+    write that has already proven it cannot land — see KG-2.97 ingestion report.
     """
-    if not body.strip():
+    global _chunk_body_disabled
+    if not body.strip() or _chunk_body_disabled:
         return
     try:
         from ..ontology.document_processing import ChunkingConfig, DocumentProcessor
@@ -417,8 +434,12 @@ def _chunk_workflow_body(
             extra_edges=[{"source": wf_id, "target": body_id, "type": "HAS_BODY"}],
         )
     except Exception as exc:  # noqa: BLE001 — enrichment must not block ingest
-        logger.debug(
-            "[KG-2.97] workflow body chunking skipped for %s (%s)",
+        _chunk_body_disabled = True
+        logger.warning(
+            "[KG-2.97] workflow body chunking disabled for the rest of this run "
+            "after failing for %s (%s) — WorkflowDefinition/WorkflowStep/Skill "
+            "nodes and their edges are unaffected; only semantic body search is "
+            "skipped",
             wf_id,
             _error_kind(exc),
         )
@@ -429,9 +450,27 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
 
     Returns ``"ingested"`` or ``"skipped"`` (unchanged content_hash).
     """
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+    from agent_utilities.models.company_brain import DataClassification
+    from agent_utilities.protocols.source_connectors.base import ExternalAccess
+
     name = parsed["name"]
     wf_id = f"skill_workflow:{_slug(name)}"
     chash = _content_hash(parsed)
+
+    # AU-KG governance stamp (mirrors ingest_runnable_skill() in this same module):
+    # every node/edge below MUST carry classification/external_access or it is
+    # written but permanently invisible to query_cypher/graph_search/graph_query —
+    # secured_reads.permit() denies any node whose ACL never got synced, and
+    # _hydrate_missing_acls() only syncs one from a node's own `external_access`
+    # property. Skill-workflow content is non-sensitive capability metadata, so
+    # PUBLIC matches the sibling function's classification.
+    session = resolve_session(required_scope="kg:write")
+    governance = {
+        "tenant_id": session.tenant,
+        "classification": DataClassification.PUBLIC.value,
+        "external_access": ExternalAccess(is_public=True).model_dump(mode="json"),
+    }
 
     # Idempotent no-op: identical content already present.
     existing = engine.query_cypher(
@@ -455,6 +494,7 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
     nl_spec = parsed["description"] + "\n\nSteps:\n" + "\n".join(nl_lines)
 
     props: dict[str, Any] = {
+        **governance,
         "name": name,
         "description": parsed["description"],
         "domain": parsed["domain"],
@@ -495,7 +535,13 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
         kind = s.get("kind") or "task"
         condition = s.get("condition") or "on_success"
         step_props: dict[str, Any] = {
-            "node_id": step_id,
+            **governance,
+            # NOTE: no "node_id" property here — step_id is already the node's own
+            # identity (the positional arg below becomes its `id` property via
+            # engine.add_node()). A literal "node_id" key in `properties` collides
+            # with the backend's own `add_node(node_id, **properties)` parameter
+            # name, raising "got multiple values for argument 'node_id'" for every
+            # step of every workflow (KG-2.97 ingestion report §5b).
             "step_order": s["step"],
             "component": s["component"],
             "skill_name": s["skill_name"],
@@ -521,7 +567,10 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
             step_props["on_reject"] = on_reject_id
         engine.add_node(step_id, "WorkflowStep", properties=step_props)
         engine.link_nodes(
-            wf_id, step_id, "HAS_STEP", properties={"step_order": s["step"]}
+            wf_id,
+            step_id,
+            "HAS_STEP",
+            properties={**governance, "step_order": s["step"]},
         )
 
         # depends_on → TRANSITION_TO edges (predecessor → this step), carrying the
@@ -536,7 +585,7 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
                 dep_id,
                 step_id,
                 "TRANSITION_TO",
-                properties={"condition": dep_condition},
+                properties={**governance, "condition": dep_condition},
             )
 
         # A gate's on_reject branch — a distinct TRANSITION_TO edge for the deny path.
@@ -545,7 +594,7 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
                 step_id,
                 on_reject_id,
                 "TRANSITION_TO",
-                properties={"condition": "on_reject"},
+                properties={**governance, "condition": "on_reject"},
             )
 
         # Link the step to its atomic Skill node (create-if-absent).
@@ -554,12 +603,13 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
             skill_id,
             "Skill",
             properties={
+                **governance,
                 "name": s["skill_name"],
                 "source": "universal-skills",
                 "source_ref": skill_reference(s["skill_name"]),
             },
         )
-        engine.link_nodes(step_id, skill_id, "USES_SKILL")
+        engine.link_nodes(step_id, skill_id, "USES_SKILL", properties={**governance})
 
     return "ingested"
 
@@ -569,16 +619,19 @@ def ingest_skill_workflows(
 ) -> dict[str, Any]:
     """Ingest every universal-skills workflow into the KG (CONCEPT:AU-KG.ingest.skill-workflow-ingestion).
 
-    For each ``workflows/<domain>/<name>/SKILL.md`` this parses the frontmatter
+    For each ``<domain>-workflows/<name>/SKILL.md`` this parses the frontmatter
     + step DAG and upserts a ``WorkflowDefinition`` (+ ``WorkflowStep`` DAG +
     ``USES_SKILL`` links) in the ``WorkflowStore`` shape ``execute_workflow``
     reads — making the corpus discoverable & dispatchable by graph-os.
 
     Args:
         engine: the live ``IntelligenceGraphEngine``.
-        root: optional explicit corpus root (a dir that is/contains
-            ``workflows/``). Defaults to the installed ``universal_skills``
-            package.
+        root: optional explicit corpus root, searched recursively for every
+            ``SKILL.md`` under it (no ``-workflows`` filtering — an explicit
+            root is trusted as-is, matching corpora like a package's own
+            ``skills/`` tree that mix atomic/workflow/graph skills together).
+            Defaults to the installed ``universal_skills`` package, where
+            only ``<domain>-workflows/`` categories are swept.
 
     Returns:
         Report dict: ``{workflows, steps, skill_links, skipped, errors,
