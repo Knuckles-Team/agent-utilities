@@ -6,10 +6,10 @@
 # preserving logging (pass the exception itself, not type(exc).__name__) while
 # staying best-effort, (b) re-raise where swallowing hides a genuine failure, or
 # (c) document a deliberate best-effort swallow with `# noqa: BLE001 — <reason>`.
-agent_utilities/agent/factory.py:366
-agent_utilities/agent/factory.py:400
-agent_utilities/agent/factory.py:539
-agent_utilities/agent/factory.py:600
+agent_utilities/agent/factory.py:377
+agent_utilities/agent/factory.py:411
+agent_utilities/agent/factory.py:559
+agent_utilities/agent/factory.py:620
 agent_utilities/agent/registry_builder.py:70
 agent_utilities/agent/registry_builder.py:76
 agent_utilities/agent/registry_builder.py:167
@@ -26,9 +26,9 @@ agent_utilities/core/leadership.py:139
 agent_utilities/core/leadership.py:150
 agent_utilities/core/model_capacity_autoscale.py:261
 agent_utilities/core/model_capacity_autoscale.py:805
-agent_utilities/core/model_factory.py:223
-agent_utilities/core/model_factory.py:548
-agent_utilities/core/model_factory.py:570
+agent_utilities/core/model_factory.py:229
+agent_utilities/core/model_factory.py:625
+agent_utilities/core/model_factory.py:647
 agent_utilities/core/provider_materialization.py:324
 agent_utilities/core/provider_materialization.py:328
 agent_utilities/core/provider_materialization.py:361
@@ -143,7 +143,7 @@ agent_utilities/gateway/ws.py:158
 agent_utilities/gateway/ws.py:217
 agent_utilities/gateway/ws.py:240
 agent_utilities/gateway/ws.py:242
-agent_utilities/graph/_router_impl.py:913
+agent_utilities/graph/_router_impl.py:921
 agent_utilities/graph/adaptive_agent_router.py:726
 agent_utilities/graph/adaptive_agent_router.py:747
 agent_utilities/graph/executor.py:292

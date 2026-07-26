@@ -71,7 +71,12 @@ from agent_utilities.core.config import (
     DEFAULT_TOP_P,
     DEFAULT_VALIDATION_MODE,
 )
-from agent_utilities.core.model_factory import clamp_thinking_effort, create_model
+from agent_utilities.core.model_factory import (
+    clamp_thinking_effort,
+    create_model,
+    merge_extra_body,
+    reasoning_wire_directives,
+)
 from agent_utilities.core.workspace import (
     get_skills_path,
 )
@@ -226,21 +231,27 @@ def _resolve_agent_extra_body(model: Any) -> dict[str, Any]:
     pydantic-ai merges agent-over-model ``ModelSettings`` with a SHALLOW dict union, so
     the agent-level ``extra_body`` REPLACES (not deep-merges) the model-level one that
     ``create_model`` built. Carry the model's ``extra_body`` (the vLLM scheduler
-    ``priority`` and any deployment ``DEFAULT_EXTRA_BODY`` knobs) up to the winning
-    layer so it is not silently discarded.
+    ``priority``, ``create_model``'s own reasoning directive — see
+    :func:`agent_utilities.core.model_factory.reasoning_wire_directives` — and any
+    deployment ``DEFAULT_EXTRA_BODY`` knobs) up to the winning layer so none of it is
+    silently discarded.
 
-    Reasoning no longer travels here: it is a top-level ``ModelSettings.thinking``
-    (CONCEPT:AU-ORCH.execution.delegation-reasoning-off), which — unlike the nested
-    ``extra_body`` dict — is a single key that survives the shallow union on its own, so
-    the model's ``clamp_thinking_effort`` default reaches the request without being
-    carried up. A caller forcing reasoning off/on threads it via the ``reasoning_effort``
-    arg, which sets the agent ``thinking`` level directly (see ``create_agent``).
+    Reasoning does NOT travel on ``ModelSettings.thinking`` alone
+    (CONCEPT:AU-ORCH.execution.delegation-reasoning-off): that single key DOES survive the
+    shallow union on its own, but pydantic-ai only forwards it into the actual request when
+    the model's PROFILE is recognized as reasoning-capable (OpenAI's o-series/gpt-5 naming
+    only — see ``Model.prepare_request``), so it silently no-ops for a custom/local
+    reasoning model like ``qwen/qwen3.6-27b`` regardless of whether it was carried up. The
+    model's raw ``extra_body`` directive is what actually reaches the wire for that case,
+    which is why it MUST be carried up here rather than left to ``thinking`` alone. A caller
+    forcing reasoning off/on for this one execution threads it via the ``reasoning_effort``
+    arg, which merges its own raw directive on top of this base (see ``create_agent``).
     """
     model_settings = getattr(model, "settings", None)
     model_extra = (
         dict(dict(model_settings).get("extra_body") or {}) if model_settings else {}
     )
-    return {**model_extra, **(DEFAULT_EXTRA_BODY or {})}
+    return merge_extra_body(model_extra, DEFAULT_EXTRA_BODY or {})
 
 
 def create_agent(
@@ -480,16 +491,25 @@ def create_agent(
     )
 
     # Agent-level ``extra_body`` WINS the pydantic-ai settings merge (agent-over-model,
-    # SHALLOW union), so the model's own ``extra_body`` (the vLLM ``priority`` knob) must
-    # be carried UP to the agent level or it is silently replaced. Reasoning rides on the
-    # top-level ``thinking`` key instead, which survives the union on its own.
+    # SHALLOW union), so the model's own ``extra_body`` (the vLLM ``priority`` knob AND its
+    # reasoning directive) must be carried UP to the agent level or it is silently replaced.
     _extra_body = _resolve_agent_extra_body(model)
 
-    # Per-execution reasoning override -> core ModelSettings.thinking. Set ONLY when the
-    # caller passed ``reasoning_effort`` (else omit, so the model's own thinking setting
-    # from create_model survives the agent-over-model merge). ``clamp_thinking_effort``
-    # returns None for a None arg, so the key is dropped in that case.
+    # Per-execution reasoning override. Set ``thinking`` ONLY when the caller passed
+    # ``reasoning_effort`` (else omit, so the model's own thinking setting from create_model
+    # survives the agent-over-model merge — ``clamp_thinking_effort`` returns None for a
+    # None arg, so the key is dropped in that case). ``thinking`` alone is NOT sufficient
+    # (CONCEPT:AU-ORCH.execution.delegation-reasoning-off): pydantic-ai only forwards it to
+    # the request when the model's profile is recognized as reasoning-capable, which a
+    # custom/local model like ``qwen/qwen3.6-27b`` is not — so the raw wire directive
+    # (``reasoning_wire_directives``) is ALSO merged (never replaced — see
+    # ``core.model_factory.merge_extra_body``) on top of the model's own default, so an
+    # explicit per-execution override actually overrides it (e.g. a "high" opt-in on top of
+    # the model's "off" default re-enables thinking on the wire, not just in ``thinking``).
     _agent_thinking = clamp_thinking_effort(reasoning_effort)
+    _extra_body = merge_extra_body(
+        _extra_body, reasoning_wire_directives(reasoning_effort)
+    )
 
     settings = ModelSettings(
         max_tokens=DEFAULT_MAX_TOKENS,

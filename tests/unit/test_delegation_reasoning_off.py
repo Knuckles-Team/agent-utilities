@@ -1,19 +1,33 @@
 """Reasoning is OFF by default and forced off for delegated tool loops.
 
-CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning rides on core
-``ModelSettings.thinking`` (PA-R0.2, retiring the ``extra_body["reasoning_effort"]``
-hack). ``create_model`` defaults ``reasoning_effort="none"`` -> ``thinking=False``, which
-pydantic-ai translates to the top-level ``reasoning_effort='none'`` request parameter this
-vLLM build honors. Because ``thinking`` is a top-level ``ModelSettings`` key it survives
-the agent-over-model SHALLOW union on its own (no ``extra_body`` clobber). On the reasoning
-chat model, thinking left ON is ~18x per-turn latency that stacks across a delegation's
-model->tool->model turns until it overruns the wall-clock. These tests pin:
+CONCEPT:AU-ORCH.execution.delegation-reasoning-off — regression fix. Reasoning is
+computed on core ``ModelSettings.thinking`` (``clamp_thinking_effort``) AND, since this
+suite was first written, ALSO as a raw wire-level ``extra_body`` directive
+(``reasoning_wire_directives`` — vLLM's ``reasoning_effort`` + ``chat_template_kwargs.
+enable_thinking``). Both are required: pydantic-ai's ``Model.prepare_request()`` only
+forwards ``thinking`` into the actual request when the model's PROFILE is recognized as
+reasoning-capable (``openai_model_profile()`` recognizes only OpenAI's own o-series/
+gpt-5(.1+) naming); a local/custom reasoning model served through the generic ``openai``
+provider — e.g. ``qwen/qwen3.6-27b`` behind vLLM — gets ``supports_thinking=False`` from
+that heuristic, so ``thinking`` silently never reaches the wire regardless of its value,
+and the model's OWN default (thinking ON) always wins. This was a LIVE regression: this
+very test file used to assert ``"reasoning_effort" not in extra_body`` — i.e. it pinned
+the exact behavior that made a "reasoning off by default" call measure ~22s instead of
+~0.3s, because the disable directive was computed correctly and then never sent. These
+tests now pin the corrected contract:
 
 1. ``clamp_thinking_effort`` maps the reasoning vocabulary onto ``thinking`` levels;
-2. ``_resolve_agent_extra_body`` carries the model's vLLM-only knobs up WITHOUT reasoning;
-3. ``create_agent(reasoning_effort=...)`` lands ``thinking`` on the agent settings (off by
-   default, an explicit level opts in); and
-4. delegation leaves reasoning OFF by default (inherits) but is an opt-in CAPABILITY —
+2. ``reasoning_wire_directives`` maps the same vocabulary onto raw wire fields;
+3. ``merge_extra_body`` folds a reasoning directive into ``extra_body`` WITHOUT dropping
+   pre-existing keys (incl. a nested ``chat_template_kwargs``) — the original clobber bug
+   this mechanism must never reintroduce;
+4. ``_resolve_agent_extra_body`` carries the model's vLLM-only knobs AND its reasoning
+   directive up to the agent level;
+5. ``create_agent(reasoning_effort=...)`` lands BOTH ``thinking`` and the raw directive on
+   the agent settings — off by default, an explicit level opts in and correctly
+   RE-ENABLES the directive, and OMITTING it entirely still carries the model's own
+   off-by-default directive through (the regression-pinning case); and
+6. delegation leaves reasoning OFF by default (inherits) but is an opt-in CAPABILITY —
    a run turns it ON per-execution via ``reasoning_effort`` (run_agent/execute_agent).
 """
 
@@ -22,7 +36,12 @@ from __future__ import annotations
 import asyncio
 
 from agent_utilities.agent.factory import _resolve_agent_extra_body, create_agent
-from agent_utilities.core.model_factory import clamp_thinking_effort
+from agent_utilities.core.model_factory import (
+    _openai_reasoning_settings,
+    clamp_thinking_effort,
+    merge_extra_body,
+    reasoning_wire_directives,
+)
 
 
 class _FakeModel:
@@ -44,12 +63,104 @@ def test_clamp_maps_reasoning_vocabulary_to_thinking():
     assert clamp_thinking_effort(None) is None
 
 
-def test_extra_body_carries_vllm_knobs_not_reasoning():
-    """The agent extra_body carries the model's vLLM-only knobs (priority) up; reasoning
-    is NOT here anymore (it lives on the top-level thinking key)."""
+def test_reasoning_wire_directives_disable():
+    """effort='none' -> the raw disable directive (both vLLM spellings), so a call reaches
+    the wire even when pydantic-ai's model-profile inference doesn't recognize this model
+    as reasoning-capable (the regression: ``thinking`` alone silently no-ops there)."""
+    directives = reasoning_wire_directives("none")
+    assert directives == {
+        "reasoning_effort": "none",
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+
+def test_reasoning_wire_directives_enable_level():
+    """An explicit effort level re-enables thinking on the wire, not just in ``thinking``."""
+    directives = reasoning_wire_directives("high")
+    assert directives == {
+        "reasoning_effort": "high",
+        "chat_template_kwargs": {"enable_thinking": True},
+    }
+
+
+def test_reasoning_wire_directives_empty_when_none_effort():
+    """effort=None ('inherit' / leave the model's native default untouched) sends NO
+    directive either way — distinct from 'none', which explicitly disables."""
+    assert reasoning_wire_directives(None) == {}
+
+
+def test_merge_extra_body_does_not_clobber_sibling_keys():
+    """Folding the reasoning directive in must not drop pre-existing extra_body knobs
+    (e.g. the vLLM scheduler ``priority`` hint or sampling-profile knobs) — the original
+    agent-over-model shallow-union clobber this mechanism must never reintroduce."""
+    base = {"priority": 5, "top_k": 20}
+    merged = merge_extra_body(
+        base,
+        {"reasoning_effort": "none", "chat_template_kwargs": {"enable_thinking": False}},
+    )
+    assert merged["priority"] == 5
+    assert merged["top_k"] == 20
+    assert merged["reasoning_effort"] == "none"
+    assert merged["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_merge_extra_body_deep_merges_chat_template_kwargs():
+    """A nested ``chat_template_kwargs`` key already present in the base (e.g. an RLM- or
+    operator-set knob) survives an overlay that ALSO sets ``chat_template_kwargs`` — a
+    naive shallow union (``{**base, **overlay}``) would silently drop it."""
+    base = {"chat_template_kwargs": {"some_other_knob": True}}
+    overlay = {"chat_template_kwargs": {"enable_thinking": False}}
+    merged = merge_extra_body(base, overlay)
+    assert merged["chat_template_kwargs"] == {
+        "some_other_knob": True,
+        "enable_thinking": False,
+    }
+
+
+def test_default_reasoning_settings_carry_thinking_disable_directive_on_the_wire():
+    """THE regression-pinning test: create_model's model-level default
+    (``reasoning_effort="none"``) must reach the wire via ``extra_body``, not rely on
+    ``ModelSettings.thinking`` alone — pydantic-ai silently drops ``thinking`` for a model
+    whose profile isn't recognized as reasoning-capable (a custom/local reasoning model
+    like ``qwen/qwen3.6-27b`` via a generic ``openai`` provider is exactly such a model),
+    which is what made a "reasoning off by default" call measure ~22s instead of ~0.3s."""
+    settings = _openai_reasoning_settings("none")
+    assert settings["thinking"] is False
+    extra = settings["extra_body"]
+    assert extra["reasoning_effort"] == "none"
+    assert extra["chat_template_kwargs"]["enable_thinking"] is False
+
+
+def test_reasoning_opt_in_re_enables_wire_directive():
+    """A per-execution reasoning_effort='high' opt-in correctly RE-ENABLES thinking on the
+    wire (proves the opt-in path isn't broken by the disable-by-default fix)."""
+    settings = _openai_reasoning_settings("high")
+    assert settings["thinking"] == "high"
+    extra = settings["extra_body"]
+    assert extra["reasoning_effort"] == "high"
+    assert extra["chat_template_kwargs"]["enable_thinking"] is True
+
+
+def test_extra_body_carries_vllm_knobs_and_reasoning_directive():
+    """The agent extra_body carries the model's vLLM-only knobs (priority) AND its
+    reasoning directive up — both must survive, since the agent-over-model settings merge
+    REPLACES (not deep-merges) extra_body wholesale if left uncarried."""
     eb = _resolve_agent_extra_body(_FakeModel({"priority": 5}))
     assert eb.get("priority") == 5
-    assert "reasoning_effort" not in eb
+    assert "reasoning_effort" not in eb  # nothing to carry: this fake model set none
+
+    eb_with_reasoning = _resolve_agent_extra_body(
+        _FakeModel(
+            {
+                "priority": 5,
+                "reasoning_effort": "none",
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
+        )
+    )
+    assert eb_with_reasoning.get("priority") == 5
+    assert eb_with_reasoning.get("reasoning_effort") == "none"
+    assert eb_with_reasoning.get("chat_template_kwargs") == {"enable_thinking": False}
 
 
 def test_settings_less_model_yields_empty_extra_body():
@@ -57,10 +168,24 @@ def test_settings_less_model_yields_empty_extra_body():
     assert _resolve_agent_extra_body(_FakeModel(None)) == {}
 
 
-def test_create_agent_threads_reasoning_effort_onto_thinking():
-    """End-to-end: create_agent(reasoning_effort='none') sets thinking=False on the agent
-    settings (NOT reasoning_effort in extra_body); a level opts in; omitting it leaves the
-    model's own thinking to survive the merge (no key set)."""
+def test_create_agent_threads_reasoning_effort_onto_thinking(monkeypatch):
+    """End-to-end: create_agent(reasoning_effort='none') sets BOTH thinking=False AND the
+    raw extra_body directive (reasoning_effort='none' + chat_template_kwargs.
+    enable_thinking=False) — ``thinking`` alone is not sufficient (see module docstring).
+    A level opts in and correctly RE-ENABLES the directive. Omitting reasoning_effort
+    entirely leaves no agent-level ``thinking`` key (the model's own survives the merge)
+    but MUST still carry the model's own off-by-default wire directive through — the
+    regression-pinning case: a routine call with no reasoning_effort anywhere in the call
+    chain must still disable thinking on the wire, not silently send nothing.
+
+    ``AGENT_UTILITIES_TESTING`` is forced off for this test: ``create_model`` short-circuits
+    to a settings-less ``TestModel`` under it (hermetic-by-default for the rest of the
+    suite), which would make the "default" assertions below vacuously pass without
+    actually exercising ``_openai_reasoning_settings`` — ``setting()`` is a LIVE read, and
+    no network call happens at model *construction* time, so this stays a fast, offline
+    unit test while covering the real production model-construction path.
+    """
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
     common = dict(
         provider="openai",
         model_id="qwen/qwen3.6-27b",
@@ -81,14 +206,29 @@ def test_create_agent_threads_reasoning_effort_onto_thinking():
     agent_off, _ = create_agent(name="t-off", reasoning_effort="none", **common)
     s_off = _settings(agent_off)
     assert s_off.get("thinking") is False
-    assert "reasoning_effort" not in (s_off.get("extra_body") or {})
+    eb_off = s_off.get("extra_body") or {}
+    assert eb_off.get("reasoning_effort") == "none"
+    assert eb_off.get("chat_template_kwargs", {}).get("enable_thinking") is False
 
     agent_on, _ = create_agent(name="t-on", reasoning_effort="high", **common)
-    assert _settings(agent_on).get("thinking") == "high"
+    s_on = _settings(agent_on)
+    assert s_on.get("thinking") == "high"
+    eb_on = s_on.get("extra_body") or {}
+    assert eb_on.get("reasoning_effort") == "high"
+    assert eb_on.get("chat_template_kwargs", {}).get("enable_thinking") is True
 
     agent_default, _ = create_agent(name="t-default", **common)
-    # No arg -> no thinking key, so the model's own thinking default survives the merge.
-    assert "thinking" not in _settings(agent_default)
+    s_default = _settings(agent_default)
+    # No explicit override -> no agent-level `thinking` key (the model's own survives the
+    # merge)...
+    assert "thinking" not in s_default
+    # ...but the WIRE-level directive still carries the model's OWN default
+    # (create_model's reasoning_effort="none") up through extra_body. THIS is the fix: a
+    # routine call with NO explicit reasoning_effort anywhere still disables thinking on
+    # the wire instead of silently sending nothing.
+    eb_default = s_default.get("extra_body") or {}
+    assert eb_default.get("reasoning_effort") == "none"
+    assert eb_default.get("chat_template_kwargs", {}).get("enable_thinking") is False
 
 
 def _run_single_server(monkeypatch, config: dict) -> dict:
