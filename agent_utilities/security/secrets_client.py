@@ -163,6 +163,37 @@ class SecretsBackend(abc.ABC):
     def list_keys(self) -> list[str]:
         """List all stored secret keys."""
 
+    def set_if_absent(self, key: str, value: str, **metadata: Any) -> bool:
+        """Provision ``key`` only when it is not already present.
+
+        Returns ``True`` when *this* call created the value, ``False`` when a
+        value already existed (left untouched). This default is a best-effort,
+        non-atomic read-then-write for backends without a native conditional
+        insert; the durable engine backend overrides it with an atomic
+        membership-test-and-insert so two concurrent provisioners converge on one
+        winner. Callers that need the winning value on a ``False`` result must
+        re-read via :meth:`get`.
+        """
+        if self.get(key) is not None:
+            return False
+        self.set(key, value, **metadata)
+        return True
+
+    def compare_and_set(
+        self, key: str, expected: str, value: str, **metadata: Any
+    ) -> bool:
+        """Replace ``key``'s value only when it currently equals ``expected``.
+
+        Returns ``True`` on a successful conditional replace. This default is a
+        best-effort, non-atomic read-check-write; the durable engine backend
+        overrides it with an atomic compare-and-set so a versioned rotation is
+        race-safe. Used by signing-key rotation (new active version, old -> grace).
+        """
+        if self.get(key) != expected:
+            return False
+        self.set(key, value, **metadata)
+        return True
+
 
 # ---------------------------------------------------------------------------
 # Engine-backed Backend (the durable default)
@@ -234,6 +265,49 @@ class InEpistemicGraphBackend(SecretsBackend):
             },
         )
         logger.info("Secret stored in the engine backend")
+
+    def set_if_absent(self, key: str, value: str, **metadata: Any) -> bool:
+        """Atomic, durable provision-once (CONCEPT:AU-OS.identity.encrypted-secret-store).
+
+        Delegates to the engine's native durable membership-test-and-insert
+        (``create_node_if_absent``): exactly one concurrent writer inserts the
+        ``:Secret`` node and gets ``True``; every other racer gets ``False`` and
+        the winner's encrypted value is left untouched. The insert is committed to
+        the durable store before it is acked, so the result survives a restart —
+        this is what lets a signing key self-provision safely without an external
+        secret store.
+        """
+        created = self._graph.create_node_if_absent(
+            _node_id(key),
+            {
+                "label": SECRET_LABEL,
+                "node_type": SECRET_LABEL,
+                "key": key,
+                "value": value,
+                "metadata": json.dumps(metadata) if metadata else "{}",
+            },
+        )
+        if created:
+            logger.info("Secret provisioned atomically in the engine backend")
+        return bool(created)
+
+    def compare_and_set(
+        self, key: str, expected: str, value: str, **metadata: Any
+    ) -> bool:
+        """Atomic conditional value replace via the engine's native field CAS.
+
+        Replaces the encrypted ``value`` property only when it currently equals
+        ``expected``, in one durable server-side compare-and-set under the write
+        guard. This is the race-safe substrate for versioned signing-key rotation.
+        """
+        updates: dict[str, Any] = {"value": value}
+        if metadata:
+            updates["metadata"] = json.dumps(metadata)
+        return bool(
+            self._graph.compare_and_set_node_fields(
+                _node_id(key), {"value": expected}, updates
+            )
+        )
 
     def delete(self, key: str) -> bool:
         nid = _node_id(key)
@@ -575,6 +649,25 @@ class SecretsClient:
     def set(self, key: str, value: str, **metadata: Any) -> None:
         """Store a secret."""
         self._backend.set(key, value, **metadata)
+
+    def set_if_absent(self, key: str, value: str, **metadata: Any) -> bool:
+        """Provision a secret only if absent; ``True`` iff this call created it.
+
+        Durable and atomic on the engine backend (one winner across concurrent
+        provisioners); a ``False`` result means a value already exists — re-read it
+        with :meth:`get`.
+        """
+        return self._backend.set_if_absent(key, value, **metadata)
+
+    def compare_and_set(
+        self, key: str, expected: str, value: str, **metadata: Any
+    ) -> bool:
+        """Conditionally replace ``key`` only if it currently equals ``expected``.
+
+        Atomic on the engine backend; the substrate for versioned signing-key
+        rotation. ``False`` means the stored value moved — re-read with :meth:`get`.
+        """
+        return self._backend.compare_and_set(key, expected, value, **metadata)
 
     def delete(self, key: str) -> bool:
         """Delete a secret."""

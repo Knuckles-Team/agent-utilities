@@ -19,8 +19,8 @@ agent_utilities/automation/file_watcher.py:304
 agent_utilities/core/checkpoint/manager.py:407
 agent_utilities/core/cognitive_scheduler.py:264
 agent_utilities/core/config.py:602
-agent_utilities/core/config.py:6491
-agent_utilities/core/config.py:6543
+agent_utilities/core/config.py:6514
+agent_utilities/core/config.py:6566
 agent_utilities/core/event_loop.py:55
 agent_utilities/core/leadership.py:139
 agent_utilities/core/leadership.py:150
@@ -322,7 +322,7 @@ agent_utilities/knowledge_graph/core/graph_compute.py:828
 agent_utilities/knowledge_graph/core/graph_compute.py:1018
 agent_utilities/knowledge_graph/core/graph_compute.py:2063
 agent_utilities/knowledge_graph/core/graph_compute.py:2117
-agent_utilities/knowledge_graph/core/graph_compute.py:3165
+agent_utilities/knowledge_graph/core/graph_compute.py:3191
 agent_utilities/knowledge_graph/core/host_lock.py:131
 agent_utilities/knowledge_graph/core/host_lock.py:250
 agent_utilities/knowledge_graph/core/host_lock.py:254
@@ -687,7 +687,7 @@ agent_utilities/security/persistence_privacy.py:235
 agent_utilities/security/sidecar_runtime.py:83
 agent_utilities/security/source_credentials.py:239
 agent_utilities/security/source_credentials.py:424
-agent_utilities/security/tool_guard.py:463
+agent_utilities/security/tool_guard.py:482
 agent_utilities/server/__init__.py:250
 agent_utilities/server/__init__.py:252
 agent_utilities/server/__init__.py:270

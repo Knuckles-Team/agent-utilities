@@ -125,7 +125,10 @@ def test_prod_profile_with_file_persistence_fails():
     assert "a2a_storage" in joined
     assert "usage_db_backend" in joined
     assert "persistence_identity_hmac_key_ref" in joined
-    assert "permissions_signing_key_ref" in joined
+    # Reconciliation: an unset permissions_signing_key_ref is NOT a violation when a
+    # durable secrets backend (the default 'engine') can self-provision a stable,
+    # deployment-shared signing key — see test_unset_permission_key_* below.
+    assert "permissions_signing_key_ref" not in joined
     assert "OpenTelemetry" in joined
 
 
@@ -170,12 +173,32 @@ def test_local_production_engine_requires_external_encryption_key_reference():
         ("auth_jwt_issuer", None),
         ("auth_jwt_audience", None),
         ("kg_policy_version", None),
-        ("permissions_signing_key_ref", None),
     ],
 )
 def test_identity_configuration_gaps_fail_under_prod(field, value):
     violations = collect_production_violations(_prod_config(**{field: value}))
     assert any(field in item for item in violations)
+
+
+def test_unset_permission_key_accepted_with_durable_backend():
+    # Reconciliation: production ACCEPTS a durably self-provisioned signing key.
+    # With no explicit ref and the default durable 'engine' secrets backend, the
+    # kernel provisions a stable, deployment-shared key — not a per-process one —
+    # so this is not a production violation.
+    cfg = _prod_config(permissions_signing_key_ref=None)
+    assert not any(
+        "permissions_signing_key_ref" in v for v in collect_production_violations(cfg)
+    )
+
+
+def test_unset_permission_key_flagged_without_durable_store():
+    # A per-process ephemeral authority stays rejected: if no durable secret store
+    # is available to self-provision a shared key, production must flag the gap.
+    cfg = _prod_config(permissions_signing_key_ref=None)
+    cfg.secrets_backend = "none"  # simulate a hypothetical non-durable backend
+    assert any(
+        "permissions_signing_key_ref" in v for v in collect_production_violations(cfg)
+    )
 
 
 def test_dev_profile_unaffected_even_with_toy_settings():

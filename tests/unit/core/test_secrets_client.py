@@ -105,6 +105,64 @@ class TestInEpistemicGraphBackend:
         assert client.delete("gitlab/token") is True
         assert client.get("gitlab/token") is None
 
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
+    def test_set_if_absent_is_atomic_provision_once(self, engine_backend):
+        """Durable create-if-absent: one winner, the loser's value is untouched."""
+        assert engine_backend.set_if_absent("system/key", "winner") is True
+        # A second provisioner never overwrites the winning value.
+        assert engine_backend.set_if_absent("system/key", "loser") is False
+        assert engine_backend.get("system/key") == "winner"
+
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
+    def test_compare_and_set_conditional_replace(self, engine_backend):
+        """Atomic conditional replace — the rotation substrate."""
+        engine_backend.set("system/key", "v1")
+        # Wrong expected value ⇒ no replace.
+        assert engine_backend.compare_and_set("system/key", "WRONG", "v2") is False
+        assert engine_backend.get("system/key") == "v1"
+        # Correct expected value ⇒ atomic replace.
+        assert engine_backend.compare_and_set("system/key", "v1", "v2") is True
+        assert engine_backend.get("system/key") == "v2"
+
+
+class TestSecretsBackendConditionalDefaults:
+    """The base-class best-effort conditional writes (engine-independent)."""
+
+    def _backend(self):
+        from agent_utilities.security.secrets_client import SecretsBackend
+
+        class _DictBackend(SecretsBackend):
+            def __init__(self) -> None:
+                self._data: dict[str, str] = {}
+
+            def get(self, key: str):
+                return self._data.get(key)
+
+            def set(self, key: str, value: str, **_metadata) -> None:
+                self._data[key] = value
+
+            def delete(self, key: str) -> bool:
+                return self._data.pop(key, None) is not None
+
+            def list_keys(self):
+                return sorted(self._data)
+
+        return _DictBackend()
+
+    def test_set_if_absent_default(self):
+        backend = self._backend()
+        assert backend.set_if_absent("k", "first") is True
+        assert backend.set_if_absent("k", "second") is False
+        assert backend.get("k") == "first"
+
+    def test_compare_and_set_default(self):
+        backend = self._backend()
+        backend.set("k", "v1")
+        assert backend.compare_and_set("k", "nope", "v2") is False
+        assert backend.get("k") == "v1"
+        assert backend.compare_and_set("k", "v1", "v2") is True
+        assert backend.get("k") == "v2"
+
 
 # ---------------------------------------------------------------------------
 # SecretsClient (over the engine backend)

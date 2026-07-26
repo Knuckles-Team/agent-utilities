@@ -4966,7 +4966,28 @@ class AgentConfig(BaseSettings):
     permissions_signing_key_ref: str | None = Field(
         default=None, alias="PERMISSIONS_SIGNING_KEY_REF"
     )
-    """Runtime secret reference for stable agent-identity HMAC authority (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)."""
+    """Runtime secret reference for stable agent-identity HMAC authority (CONCEPT:AU-OS.state.cognitive-scheduler-preemption).
+
+    Optional: when unset, governed execution self-provisions a durable, deployment-
+    shared signing key into the engine's durable secret store (idempotent, atomic
+    create-if-absent). Set this to pin an external/rotated key — the explicit
+    reference wins over self-provisioning."""
+
+    permissions_identity_ttl_seconds: float = Field(
+        default=3600.0, alias="PERMISSIONS_IDENTITY_TTL_SECONDS"
+    )
+    """Bounded lifetime (seconds) of a runtime-issued agent permission identity.
+    The stable signing key is long-lived; issued identities carry this TTL and are
+    transparently re-issued on use at the governed-execution boundary before expiry,
+    so a long-running task never dies at TTL (0 disables identity expiry)
+    (CONCEPT:AU-OS.identity.permissions-kernel)."""
+
+    permissions_identity_refresh_skew_seconds: float = Field(
+        default=300.0, alias="PERMISSIONS_IDENTITY_REFRESH_SKEW_SECONDS"
+    )
+    """Refresh-on-use skew (seconds): at the governed-execution boundary an identity
+    within this window of its expiry is re-issued in-process from the stable key
+    (CONCEPT:AU-OS.identity.permissions-kernel)."""
 
     ontology_release_signing_private_key_ref: str | None = Field(
         default=None, alias="ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF"

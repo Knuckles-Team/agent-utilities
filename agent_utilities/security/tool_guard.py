@@ -344,6 +344,25 @@ def flag_mcp_tool_definitions(
     if permissions_kernel is None or agent_identity is None:
         raise PermissionError("Tool identity policy is required")
 
+    # Renewal seam (CONCEPT:AU-OS.identity.permissions-kernel): the signing KEY is
+    # stable/long-lived but an ISSUED identity carries a bounded TTL. A long-running
+    # governed task (multi-hour agent run, KG_LOOP) must not die when that TTL
+    # lapses, so refresh-on-use here — at the per-tool-call authorization boundary —
+    # transparently re-issues the identity from the SAME kernel/stable key when it is
+    # within the refresh-skew of expiry. Cheap, in-process, no external round-trip.
+    # The mutable cell carries the renewed identity forward across calls; concurrent
+    # refreshes are harmless (each re-issue is independently valid under the key).
+    _identity_cell = {"identity": agent_identity}
+
+    def _active_identity() -> Any:
+        refresher = getattr(permissions_kernel, "refresh_identity_if_expiring", None)
+        if not callable(refresher):
+            return _identity_cell["identity"]
+        refreshed = refresher(_identity_cell["identity"])
+        if refreshed is not _identity_cell["identity"]:
+            _identity_cell["identity"] = refreshed
+        return _identity_cell["identity"]
+
     try:
         from pydantic_ai.toolsets.approval_required import ApprovalRequiredToolset
     except ImportError as exc:
@@ -385,7 +404,7 @@ def flag_mcp_tool_definitions(
             # the Verdict the tighten-only merge composes with the other channels.
             try:
                 decision = permissions_kernel.authorize_tool(
-                    agent_identity,
+                    _active_identity(),
                     _tool_name,
                     required_capability=required_capability,
                 )

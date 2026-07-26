@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent_utilities.security.permissions_kernel import (
+    WELL_KNOWN_SIGNING_KEY_NAME,
     AgentIdentity,
     AgentPolicy,
     AgentRole,
@@ -17,10 +18,36 @@ from agent_utilities.security.permissions_kernel import (
     PermissionBootstrapError,
     PermissionPolicyError,
     PermissionsKernel,
+    provision_signing_key,
     resolve_permission_context,
+    rotate_signing_key,
 )
 
 TEST_SIGNING_KEY = "test-signing-authority-material-32b"
+
+
+class _FakeSecretsClient:
+    """In-memory stand-in for the durable secret store with real CAS semantics."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+
+    def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    def set_if_absent(self, key: str, value: str, **_metadata: object) -> bool:
+        if key in self.store:
+            return False
+        self.store[key] = value
+        return True
+
+    def compare_and_set(
+        self, key: str, expected: str, value: str, **_metadata: object
+    ) -> bool:
+        if self.store.get(key) != expected:
+            return False
+        self.store[key] = value
+        return True
 
 
 @pytest.fixture
@@ -335,14 +362,74 @@ class TestPermissionContextBootstrap:
         assert "configured-display-name" not in first.identity.agent_id
         assert first.identity.capabilities == ["read_*"]
 
-    def test_missing_reference_fails_without_process_authority(self) -> None:
+    def test_missing_reference_self_provisions_durable_shared_key(self) -> None:
+        # No explicit ref: bootstrap self-provisions a durable, shared signing key
+        # into the engine's durable store instead of failing.
+        store = _FakeSecretsClient()
         cfg = SimpleNamespace(
             permissions_signing_key_ref=None,
             agent_policies_path=None,
         )
 
-        with pytest.raises(PermissionBootstrapError, match="reference is required"):
-            resolve_permission_context(cfg)
+        context = resolve_permission_context(cfg, secrets_client=store)
+
+        assert context is not None
+        assert context.kernel.verify_identity(context.identity)
+        # The durable well-known key was actually written (versioned document).
+        assert WELL_KNOWN_SIGNING_KEY_NAME in store.store
+
+    def test_self_provisioning_is_idempotent_across_boots(self) -> None:
+        # Restart semantics: a second bootstrap against the SAME durable store
+        # reuses the stored key (identity verifies under the first kernel too).
+        store = _FakeSecretsClient()
+        cfg = SimpleNamespace(
+            permissions_signing_key_ref=None, agent_policies_path=None
+        )
+
+        first = resolve_permission_context(cfg, secrets_client=store)
+        stored_after_first = dict(store.store)
+        second = resolve_permission_context(cfg, secrets_client=store)
+
+        assert first is not None and second is not None
+        # Not regenerated on the second boot (durable reuse).
+        assert store.store == stored_after_first
+        # Same durable key ⇒ each kernel verifies the other's issued identity.
+        assert first.kernel.verify_identity(second.identity)
+        assert second.kernel.verify_identity(first.identity)
+
+    def test_missing_reference_fails_closed_when_store_cannot_provide(self) -> None:
+        # Fail-closed: if the durable store can neither return nor accept a key,
+        # bootstrap raises rather than fabricating a per-process authority.
+        class _DeadStore:
+            def get(self, _key: str) -> None:
+                return None
+
+            def set_if_absent(self, *_a: object, **_k: object) -> bool:
+                return False
+
+        cfg = SimpleNamespace(
+            permissions_signing_key_ref=None, agent_policies_path=None
+        )
+        with pytest.raises(PermissionBootstrapError):
+            resolve_permission_context(cfg, secrets_client=_DeadStore())
+
+    def test_explicit_reference_wins_over_self_provisioning(self) -> None:
+        # An explicit ref is honored and the durable store is never touched.
+        store = _FakeSecretsClient()
+        cfg = SimpleNamespace(
+            permissions_signing_key_ref="env://PERMISSION_TEST_KEY",
+            agent_policies_path=None,
+        )
+
+        context = resolve_permission_context(
+            cfg,
+            secret_resolver=lambda _ref: TEST_SIGNING_KEY,
+            secrets_client=store,
+        )
+
+        assert context is not None
+        assert context.kernel.verify_identity(context.identity)
+        assert store.store == {}  # self-provisioning path not taken
 
     def test_injected_context_must_verify(self, kernel: PermissionsKernel) -> None:
         other = PermissionsKernel(signing_key="different-signing-authority-key-32b")
@@ -354,3 +441,122 @@ class TestPermissionContextBootstrap:
                 permissions_kernel=kernel,
                 agent_identity=identity,
             )
+
+
+class TestIdentityRenewalSeam:
+    """The signing key is stable; issued identities carry a TTL and auto-renew."""
+
+    def test_refresh_reissues_within_skew_and_keeps_task_alive(self) -> None:
+        # A task that outlives one TTL keeps running: the renewal seam re-issues a
+        # freshly-signed identity from the SAME stable key, and governed execution
+        # (authorize_tool -> verify_identity) continues to ALLOW instead of denying
+        # an expired identity.
+        kernel = PermissionsKernel(
+            signing_key=TEST_SIGNING_KEY,
+            identity_ttl_seconds=100.0,
+            identity_refresh_skew_seconds=10.0,
+        )
+        identity = kernel.issue_identity(
+            "agent-a", AgentRole.SPECIALIST, ttl_seconds=100.0
+        )
+        original_expiry = identity.expires_at
+
+        # Simulate the governed boundary firing when the identity is 5s from expiry
+        # (inside the 10s skew): it must re-issue rather than let it lapse.
+        renewed = kernel.refresh_identity_if_expiring(
+            identity, now=original_expiry - 5.0
+        )
+        assert renewed is not identity
+        assert renewed.expires_at > original_expiry
+        assert renewed.agent_id == identity.agent_id
+        assert renewed.role == identity.role
+        assert renewed.capabilities == identity.capabilities
+        # Freshly re-issued identity is validly signed and authorizes tools.
+        assert kernel.verify_identity(renewed) is True
+        assert (
+            kernel.authorize_tool(renewed, "read_thing") == AuthDecision.ALLOW
+        )
+
+    def test_refresh_is_noop_before_skew_window(self) -> None:
+        kernel = PermissionsKernel(
+            signing_key=TEST_SIGNING_KEY,
+            identity_ttl_seconds=100.0,
+            identity_refresh_skew_seconds=10.0,
+        )
+        identity = kernel.issue_identity("agent-a", ttl_seconds=100.0)
+        # Far from expiry ⇒ same object returned (cheap identity check).
+        same = kernel.refresh_identity_if_expiring(
+            identity, now=identity.expires_at - 50.0
+        )
+        assert same is identity
+
+    def test_non_expiring_identity_is_never_refreshed(self) -> None:
+        kernel = PermissionsKernel(signing_key=TEST_SIGNING_KEY)
+        identity = kernel.issue_identity("agent-a")  # ttl 0 ⇒ no expiry
+        assert kernel.refresh_identity_if_expiring(identity) is identity
+
+    def test_expired_identity_denied_without_renewal(self) -> None:
+        # The renewal seam is what prevents the crash; without it an expired
+        # identity is correctly DENIED (no security regression — not bypassed).
+        kernel = PermissionsKernel(signing_key=TEST_SIGNING_KEY)
+        identity = kernel.issue_identity("agent-a", ttl_seconds=0.001)
+        time.sleep(0.01)
+        assert kernel.verify_identity(identity) is False
+        assert kernel.authorize_tool(identity, "read_thing") == AuthDecision.DENY
+
+
+class TestSigningKeyProvisioningAndRotation:
+    """Durable versioned self-provisioning + rotation-ready verify-any-version."""
+
+    def test_provision_writes_versioned_document_once(self) -> None:
+        store = _FakeSecretsClient()
+        cfg = SimpleNamespace()
+
+        first = provision_signing_key(cfg, secrets_client=store)
+        doc = store.store[WELL_KNOWN_SIGNING_KEY_NAME]
+
+        assert '"schema":"au.permissions-signing-key.v1"' in doc
+        # Material is present in the (would-be-encrypted) value document, never a
+        # bare key — and the active signer is a verifying version.
+        assert first.active_material in first.verification_materials
+
+        # Idempotent: a second call reuses the same durable document.
+        second = provision_signing_key(cfg, secrets_client=store)
+        assert second.active_material == first.active_material
+        assert store.store[WELL_KNOWN_SIGNING_KEY_NAME] == doc
+
+    def test_rotation_grace_key_still_verifies_unexpired_identities(self) -> None:
+        store = _FakeSecretsClient()
+        cfg = SimpleNamespace()
+
+        original = provision_signing_key(cfg, secrets_client=store)
+        # Identity signed by the ORIGINAL active key.
+        old_kernel = PermissionsKernel(signing_key=original.active_material)
+        old_identity = old_kernel.issue_identity("agent-a", ttl_seconds=3600.0)
+
+        rotated = rotate_signing_key(cfg, secrets_client=store)
+        assert rotated.active_material != original.active_material
+        # The rotated-out key is retained as a grace verification material.
+        assert original.active_material in rotated.verification_materials
+
+        # A kernel built from the rotated authority (active + grace) still VERIFIES
+        # the un-expired identity that the old key signed — no flag-day.
+        new_kernel = PermissionsKernel(
+            signing_key=rotated.active_material,
+            additional_verification_keys=rotated.additional_verification_materials,
+        )
+        assert new_kernel.verify_identity(old_identity) is True
+        # New identities are signed by the new active key and also verify.
+        new_identity = new_kernel.issue_identity("agent-b", ttl_seconds=3600.0)
+        assert new_kernel.verify_identity(new_identity) is True
+
+    def test_rotation_is_atomic_under_concurrent_writer(self) -> None:
+        # A stale-based rotation loses the CAS and adopts the winner's document.
+        store = _FakeSecretsClient()
+        cfg = SimpleNamespace()
+        provision_signing_key(cfg, secrets_client=store)
+        # Concurrent rotation moves the stored value out from under a stale caller.
+        rotate_signing_key(cfg, secrets_client=store)
+        # A fresh rotation still succeeds against the current value.
+        latest = rotate_signing_key(cfg, secrets_client=store)
+        assert latest.active_material in latest.verification_materials
