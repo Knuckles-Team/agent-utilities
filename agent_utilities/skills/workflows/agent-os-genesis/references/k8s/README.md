@@ -87,8 +87,8 @@ instead of quietly deploying something wrong.
 ## Graduating beyond these recipes
 
 These are **genesis's starting point**, not the ceiling. Once a real deployment needs
-more than the default shape, this repo (in the workspace, outside `agent-utilities`)
-already carries heavier, more mature references — adapt them, don't apply verbatim
+more than the default shape, this `agent-utilities` repo and the surrounding workspace
+already carry heavier, more mature references — adapt them, don't apply verbatim
 (their own file headers say the same):
 
 | Need | Reference |
