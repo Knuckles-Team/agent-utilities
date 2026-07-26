@@ -1,0 +1,222 @@
+# =============================================================================
+# TEMPLATE — agent-os-genesis default k8s recipe: ONE *-mcp fleet connector
+# (any `agents/*` package listed in deploy/mcp-fleet.registry.yml). Copy this
+# file per service (Step A3 mcp-fleet-deploy), replace every <PLACEHOLDER>.
+#
+# Two container variants for the SAME Deployment shape — the active `containers:`
+# block below is OPTION A; OPTION B is a full commented replacement underneath
+# it. Delete whichever you are not using:
+#   OPTION A — dev/editable: source-mount the workspace checkout onto
+#     PYTHONPATH + pip-install-at-start. This is the pattern this repo's own
+#     services/graph-os compose.dev.yml and its live k8s Deployment both use:
+#     edits on the source node go live on the next pod restart, no image rebuild.
+#   OPTION B — prod/baked-deps: the package's own published image
+#     (docker/Dockerfile-built, deps baked at build time), NO source mount and
+#     NO pip-install-at-start — the fleet default per Step A3.
+#
+# A third variant exists in this repo's own live fleet and is worth knowing
+# even though it is not templated below: a READ-ONLY hostPath overlay mounted
+# straight onto the baked image's site-packages dirs (see
+# services/ansible-tower-mcp/k8s/manifests.yaml in the workspace repo) — same
+# "live source, no rebuild" benefit as Option A without the PYTHONPATH
+# indirection, at the cost of the mount paths being Python-version-specific
+# (/usr/local/lib/python3.11/site-packages/...). Option A is preferred here
+# because it is not coupled to a specific interpreter version.
+#
+# Current config contract ONLY (agent_utilities/core/config.py
+# _RETIRED_CONFIGURATION_KEYS) — this template never sets ENGINE_MODE,
+# ENGINE_ENDPOINT, GRAPH_SERVICE_TCP_ADDR, EPISTEMIC_GRAPH_AUTOSTART, or
+# GRAPH_BACKEND. AUTH_TYPE/EUNOMIA_*/FASTMCP_SERVER_AUTH_JWT_* match the
+# env-var canon every genesis-scaffolded connector ships (enforced by
+# `python -m agent_utilities.mcp.check_env_var_drift --check`).
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-common-env
+  namespace: <NAMESPACE> # e.g. "apps" — the *-mcp fleet namespace; shared across every connector
+data:
+  TRANSPORT: streamable-http
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  AUTH_TYPE: jwt
+  FASTMCP_SERVER_AUTH_JWT_ISSUER: "<KEYCLOAK_ISSUER_URL>"
+  FASTMCP_SERVER_AUTH_JWT_JWKS_URI: "<KEYCLOAK_JWKS_URI>"
+  FASTMCP_SERVER_AUTH_JWT_AUDIENCE: agent-services
+  EUNOMIA_TYPE: remote
+  EUNOMIA_REMOTE_URL: "<EUNOMIA_URL>" # e.g. http://eunomia.<NAMESPACE>.svc.cluster.local
+  EUNOMIA_POLICY_FILE: mcp_policies.json
+  MCP_TOOL_MODE: condensed # "intent" for a small/local caller LLM (SKILL.md Step A3)
+  ENABLE_OTEL: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "<OTEL_COLLECTOR_URL>" # e.g. http://langfuse.<NAMESPACE>.svc.cluster.local/api/public/otel
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  PYTHONUNBUFFERED: "1"
+  # Any config-aware connector (one that uses agent-utilities models/KG/secrets —
+  # see SKILL.md Step A2 "Shared agent-utilities config volume") also needs:
+  # AGENT_UTILITIES_CONFIG_DIR: /etc/agent-utilities/config
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    force-sync: now
+  name: <SERVICE_NAME>-secrets
+  namespace: <NAMESPACE>
+spec:
+  dataFrom:
+    - extract:
+        conversionStrategy: Default
+        decodingStrategy: None
+        key: <SERVICE_NAME> # OpenBao KV2 path apps/<SERVICE_NAME> (Step 8/14 vault_sync)
+        metadataPolicy: None
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: <CLUSTER_SECRET_STORE_NAME> # e.g. "openbao"
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: <SERVICE_NAME>-secrets
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <SERVICE_NAME> # e.g. "ansible-tower-mcp" — matches deploy/mcp-fleet.registry.yml
+  namespace: <NAMESPACE>
+  labels:
+    app: <SERVICE_NAME>
+    tier: mcp
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: <SERVICE_NAME>
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: <SERVICE_NAME>
+        tier: mcp
+    spec:
+      # ── OPTION A: dev/editable (source-mounted, PYTHONPATH + pip-install-at-start) ──
+      containers:
+        - name: <SERVICE_NAME>
+          image: <BASE_IMAGE> # a plain Python base is enough — deps install below at start
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - "pip install --no-cache-dir -e /src/agents/<SERVICE_NAME> -e /src/agent-utilities 2>&1 | tail -5; exec <CONSOLE_SCRIPT>"
+          env:
+            - name: PYTHONPATH
+              value: "/src/agents/<SERVICE_NAME>:/src/agent-utilities"
+          envFrom:
+            - configMapRef:
+                name: mcp-common-env
+            - secretRef:
+                name: <SERVICE_NAME>-secrets
+                optional: true
+          ports:
+            - name: http
+              containerPort: <CONTAINER_PORT> # default 8000 — matches deploy/mcp-fleet.registry.yml
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 30
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 6
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: workspace-src
+              mountPath: /src
+              readOnly: true
+      volumes:
+        # OPTION A only — the workspace checkout, read-only. In this repo's own
+        # homelab this is a per-node hostPath (dev loop: edit on the source
+        # node, pod restart picks it up); a shared RWX volume works identically
+        # if more than one candidate node needs the same source.
+        - name: workspace-src
+          hostPath:
+            path: <HOST_PATH_TO_WORKSPACE_CHECKOUT> # the workspace root containing agents/ and agent-utilities/
+            type: Directory
+      # nodeSelector:
+      #   kubernetes.io/hostname: <NODE_NAME>  # OPTION A only — pins the pod to the hostPath's node
+      #
+      # ── OPTION B: prod/baked-deps — delete OPTION A's `containers:` and
+      # `volumes:` above (and the nodeSelector, if enabled) and use this
+      # instead. No source mount, no pip-install-at-start:
+      #
+      # containers:
+      #   - name: <SERVICE_NAME>
+      #     image: <IMAGE>  # e.g. registry.example.com/<SERVICE_NAME>:<TAG>
+      #     imagePullPolicy: Always
+      #     args: ["<CONSOLE_SCRIPT>"]
+      #     envFrom:
+      #       - configMapRef: {name: mcp-common-env}
+      #       - secretRef: {name: <SERVICE_NAME>-secrets, optional: true}
+      #     ports:
+      #       - {name: http, containerPort: <CONTAINER_PORT>, protocol: TCP}
+      #     readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 15, periodSeconds: 20, failureThreshold: 30, timeoutSeconds: 5}
+      #     livenessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 60, periodSeconds: 30, failureThreshold: 6, timeoutSeconds: 5}
+      #     resources:
+      #       requests: {cpu: 50m, memory: 192Mi}
+      #       limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: <SERVICE_NAME>
+  namespace: <NAMESPACE>
+  labels:
+    app: <SERVICE_NAME>
+    tier: mcp
+spec:
+  selector:
+    app: <SERVICE_NAME>
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: <SERVICE_NAME>
+  namespace: <NAMESPACE>
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  rules:
+    - host: <SERVICE_NAME>.<YOUR_CLUSTER_DOMAIN>
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: <SERVICE_NAME>
+                port:
+                  name: http

@@ -1,0 +1,324 @@
+# =============================================================================
+# TEMPLATE — agent-os-genesis default k8s recipe: unified self-contained graph-os
+# (engine_topology: unified-in-process — the DEFAULT shape for `single-node-prod`
+# graduating onto Kubernetes, and any `enterprise` deployment that has not yet
+# adopted the out-of-process-shared hyperscaling shape).
+#
+# ONE pod IS the engine + KG + numeric kernel + messaging + gateway — image
+# <GRAPH_OS_UNIFIED_IMAGE> (e.g. ghcr.io/your-org/graph-os-unified:<TAG>, built
+# from docker/graphos-unified.Dockerfile — the unified-binary program's W-C
+# workstream). There is no separate engine Service/Deployment to apply for this
+# shape; see hyperscale-engine-and-graphos.yaml for the shape that does have one.
+#
+# Replace every <PLACEHOLDER> before applying. This file is intentionally
+# <PLACEHOLDER>-shaped, not envsubst (`${VAR}`)-shaped: a bare `${SERVER}`
+# template in this same repo family once passed `kubectl apply` unexpanded and
+# would have created a DUPLICATE workload next to what was already live — see
+# the reconciliation header at the top of services/graph-os/k8s/manifests.yaml
+# in the workspace repo for the full incident. Applying this file as-is fails
+# closed on the literal placeholder text instead.
+#
+# Current config contract ONLY (agent_utilities/core/config.py
+# _RETIRED_CONFIGURATION_KEYS) — this template never sets ENGINE_MODE,
+# ENGINE_ENDPOINT, GRAPH_SERVICE_TCP_ADDR, EPISTEMIC_GRAPH_AUTOSTART, or
+# GRAPH_BACKEND. Engine locality is decided SOLELY by whether
+# GRAPH_SERVICE_ENDPOINTS is present: it is UNSET below (the packaged local
+# engine is selected) — see hyperscale-engine-and-graphos.yaml for the SET case.
+# Full rationale: docs/recipes/unified-self-contained.md (workspace repo),
+# ../engine-topology-and-hyperscaling.md.
+#
+# graph-os itself reads TRANSPORT/HOST/PORT/AUTH_TYPE straight from the
+# environment (docker/graphos-unified.Dockerfile's CMD is the bare
+# `["graph-os"]` entrypoint) — no container `args:` override is needed for the
+# common case; the ConfigMap below is the single place those live.
+#
+# Sibling recipes in this directory (see ./README.md for the full picture):
+#   mcp-server-editable.yaml            one *-mcp connector (any fleet member)
+#   hyperscale-engine-and-graphos.yaml  out-of-process-shared (enterprise scale-out)
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: graph-os-env
+  namespace: <NAMESPACE> # e.g. "platform" — the engine/graph-os control-plane namespace
+data:
+  # ── transport + surface ───────────────────────────────────────────────────
+  TRANSPORT: streamable-http # stdio variant: see the footer comment block below
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  AUTH_TYPE: jwt # zero-IdP alternative: "static" — see the footer
+  MCP_TOOL_MODE: condensed # "intent" for a small/local caller LLM (SKILL.md Step A3)
+  KG_DAEMON_ROLE: host # this pod owns the one consolidated KG daemon
+
+  # ── engine locality: the ABSENCE of GRAPH_SERVICE_ENDPOINTS is what makes
+  #    this "unified self-contained". Do not add that key to this ConfigMap. ──
+  GRAPH_SERVICE_PERSIST_DIR: /var/lib/agent-utilities/engine
+  ENGINE_LIFECYCLE: persistent # a served pod should stay warm, not refcount-idle
+  ENGINE_IDLE_SHUTDOWN_SECS: "60"
+  DEPLOYMENT_PROFILE: single-node-prod # or "enterprise"; never "tiny" once served over the network
+
+  # ── inbound JWT verification (idp: keycloak default for single-node-prod/
+  #    enterprise — Step 0d/14). Zero-IdP alternative: see the footer. ────────
+  AUTH_JWT_ISSUER: "<KEYCLOAK_ISSUER_URL>" # e.g. https://<KEYCLOAK_HOST>/realms/<REALM>
+  AUTH_JWT_JWKS_URI: "<KEYCLOAK_JWKS_URI>" # e.g. http://<KEYCLOAK_SERVICE>.<NAMESPACE>.svc.cluster.local:8080/realms/<REALM>/protocol/openid-connect/certs
+  AUTH_JWT_AUDIENCE: agent-services
+  FASTMCP_SERVER_AUTH_JWT_ISSUER: "<KEYCLOAK_ISSUER_URL>"
+  FASTMCP_SERVER_AUTH_JWT_JWKS_URI: "<KEYCLOAK_JWKS_URI>"
+  FASTMCP_SERVER_AUTH_JWT_AUDIENCE: agent-services
+  KG_POLICY_VERSION: "<POLICY_VERSION>" # e.g. "genesis-v1" — engine and graph-os must read the SAME value
+
+  # ── outbound fleet-child auth: graph-os fronts the whole *-mcp fleet
+  #    (attach_fleet_loader absorbs the multiplexer — no separate service) ────
+  MCP_CONFIG: /etc/agent-utilities/config/mcp_config.json
+  MCP_CLIENT_AUTH: oidc-client-credentials
+  OIDC_ISSUER: "<KEYCLOAK_ISSUER_URL>"
+  OIDC_TOKEN_URL: "<KEYCLOAK_TOKEN_URL>" # <KEYCLOAK_ISSUER_URL>/protocol/openid-connect/token
+  OIDC_CLIENT_ID: <OIDC_CLIENT_ID> # e.g. "graph-os" (Step 14 keycloak-client-onboarder)
+  OIDC_AUDIENCE: agent-services
+
+  # ── shared XDG config surface (Step A1b; config.json holds *_REF pointers only) ──
+  AGENT_UTILITIES_CONFIG_DIR: /etc/agent-utilities/config
+
+  # ── CA trust (Step 1b ca-trust-provisioner env contract) ─────────────────
+  REQUESTS_CA_BUNDLE: /etc/ssl/homelab/ca.crt
+  SSL_CERT_FILE: /etc/ssl/homelab/ca.crt
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: graph-os-secrets
+  namespace: <NAMESPACE>
+spec:
+  # secrets_store note (Step 0e): this assumes `vault` (OpenBao) is reachable
+  # and External Secrets Operator is installed — the single-node-prod/enterprise
+  # default. If secrets_store=engine (no ESO in the cluster), replace this
+  # whole ExternalSecret with a plain `kind: Secret` carrying the SAME keys
+  # under `stringData:` instead — still never commit real values either way.
+  dataFrom:
+    - extract:
+        conversionStrategy: Default
+        decodingStrategy: None
+        key: <OPENBAO_SECRET_PATH> # OpenBao KV2 path under apps/, e.g. "graph-os"
+        metadataPolicy: None
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: <CLUSTER_SECRET_STORE_NAME> # e.g. "openbao"
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: graph-os-secrets
+    # Expected keys materialized into the Secret (consumed via envFrom below):
+    #   GRAPH_SERVICE_AUTH_SECRET        engine HMAC secret (Step 8 seed)
+    #   EPISTEMIC_GRAPH_ENCRYPTION_KEY   engine __secrets__ store key (Step 8 seed;
+    #                                    bare value, never a _REF — it never
+    #                                    round-trips through config.json either way)
+    #   OIDC_CLIENT_SECRET               the graph-os Keycloak client secret (Step 14)
+    #   KG_AUTH_TOKEN_REF                zero-IdP alternative to the OIDC_*/AUTH_JWT_*
+    #                                    block above — see the footer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: au-config
+  namespace: <NAMESPACE>
+data:
+  # The generated (Step A1b) config.json. Every secret-bearing field in it MUST
+  # be a *_REF (vault://apps/... or env://...), never an inline value. An empty
+  # object is valid — graph-os then falls back entirely to the env vars above.
+  config.json: |
+    {}
+  # The resolved fleet list (Step A3) so the absorbed multiplexer
+  # (attach_fleet_loader) knows what to lazily mount. Empty is valid at first
+  # boot; genesis fills this in as connectors are deployed.
+  mcp_config.json: |
+    {"mcpServers": {}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graph-os
+  namespace: <NAMESPACE>
+  labels:
+    app: graph-os
+    tier: kg-unified
+spec:
+  replicas: 1 # NOT horizontally scaled — see the file header: two self-contained
+  # pods do not share a knowledge graph. Need more capacity? Move
+  # to hyperscale-engine-and-graphos.yaml instead of raising this.
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: graph-os
+  strategy:
+    type: Recreate # single-writer engine sharing one persist dir — never RollingUpdate this
+  template:
+    metadata:
+      labels:
+        app: graph-os
+        tier: kg-unified
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: graph-os
+          image: <GRAPH_OS_UNIFIED_IMAGE> # e.g. ghcr.io/your-org/graph-os-unified:<TAG>
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: graph-os-env
+            - secretRef:
+                name: graph-os-secrets
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          # readinessProbe gates on REAL engine reachability (/health/ready),
+          # not just process liveness — see docs/recipes/unified-self-contained.md
+          # "Verify": /health and /health/ready share the same truthful
+          # observability.runtime_health.collect_health() core.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30 # first-boot redb load can take minutes on a large KG
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health # liveness always 200 — never crash-loops on a dependency a restart can't fix
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 2
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 15"]
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          volumeMounts:
+            - name: engine-data
+              mountPath: /var/lib/agent-utilities/engine
+            - name: au-config
+              mountPath: /etc/agent-utilities/config
+              readOnly: true
+            - name: homelab-ca
+              mountPath: /etc/ssl/homelab
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            # ── OPTIONAL editable-source override (dev only) — uncomment to
+            # bind-mount a live agent-utilities checkout OVER the image's baked
+            # editable install (docker/graphos-unified.Dockerfile installs it at
+            # this exact path). Pins this pod to one node (nodeSelector below)
+            # and trades away the image's reproducibility — never the default.
+            # - name: au-src-override
+            #   mountPath: /opt/agent-utilities/agent_utilities
+            #   readOnly: true
+      volumes:
+        - name: engine-data
+          persistentVolumeClaim:
+            claimName: <ENGINE_DATA_PVC_NAME> # ReadWriteOnce; provision with <STORAGE_CLASS_NAME>
+          # This repo's own homelab instead pins a hostPath volume + nodeSelector
+          # here (bare-metal cluster, no dynamic provisioner):
+          #   hostPath: {path: <HOST_PATH_TO_ENGINE_DATA_DIR>, type: DirectoryOrCreate}
+          # Either is valid; a PVC is the more portable default for genesis.
+        - name: au-config
+          configMap:
+            name: au-config
+        - name: homelab-ca
+          configMap:
+            name: <CA_BUNDLE_CONFIGMAP_NAME> # e.g. "homelab-ca-bundle" (Step 1b ca-trust-provisioner)
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+        # - name: au-src-override
+        #   hostPath:
+        #     path: <HOST_PATH_TO_AGENT_UTILITIES_CHECKOUT>
+        #     type: Directory
+      # nodeSelector:
+      #   kubernetes.io/hostname: <NODE_NAME>  # required only if using the hostPath
+      #                                         # override above, or a hostPath engine-data volume
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graph-os
+  namespace: <NAMESPACE>
+  labels:
+    app: graph-os
+spec:
+  selector:
+    app: graph-os
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: graph-os
+  namespace: <NAMESPACE>
+  annotations:
+    # MCP streamable-http holds a long-lived response stream — keep the proxy
+    # from buffering or timing it out.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  rules:
+    - host: <GRAPH_OS_HOSTNAME> # e.g. graph-os.<YOUR_CLUSTER_DOMAIN>
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: graph-os
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - <GRAPH_OS_HOSTNAME>
+      secretName: graph-os-tls
+
+# =============================================================================
+# stdio variant (reference only — not a k8s Service target; stdio has no
+# network listener for an Ingress to front). Use this exact container shape
+# when embedding graph-os as a subprocess instead of serving it over the
+# Ingress above — e.g. a sidecar container in an agent-harness Pod:
+#
+#   containers:
+#     - name: graph-os
+#       image: <GRAPH_OS_UNIFIED_IMAGE>
+#       command: ["graph-os", "--transport", "stdio"]
+#       stdin: true
+#       tty: false
+#
+# stdio's zero-config identity bootstrap (DEPLOYMENT_PROFILE=tiny, neither
+# KG_AUTH_TOKEN_REF nor KG_IDENTITY_OAUTH2 set) applies ONLY to --transport
+# stdio; the streamable-http Deployment above is a SERVED_TRANSPORT and always
+# needs the AUTH_JWT_*/OIDC_* block or the zero-IdP alternative directly below.
+# Full rule table: docs/recipes/unified-self-contained.md (workspace repo).
+#
+# Zero-IdP alternative (no Keycloak/Okta reachable) — for a genuinely
+# zero-external-IdP served pod: drop the AUTH_JWT_*/OIDC_* keys from the
+# ConfigMap above, set `AUTH_TYPE: static` and add `--static-tokens-ref
+# env://GRAPHOS_STATIC_TOKENS` to an explicit container `args:` override, and
+# replace OIDC_CLIENT_SECRET in the Secret with `KG_AUTH_TOKEN_REF:
+# env://KG_PROCESS_JWT` (a self-issued, secret-store-held static JWT) instead
+# of the OIDC client-credentials block.
+# =============================================================================
