@@ -55,6 +55,71 @@ def _is_control_plane_query(query: str) -> bool:
     return all(lbl.lower() in _CONTROL_PLANE_LABELS for lbl in labels)
 
 
+# CONCEPT:AU-KG.query.query-aggregation — Cypher aggregate functions. A query that
+# calls one of these in a projection collapses many rows into per-group rows that
+# carry no per-row node id to govern (an aggregate/scalar result is not a node
+# projection). Canonical home for this detection: the MCP `graph_query` federation
+# router (`mcp/tools/query_tools.is_aggregation_cypher`, re-exported from here) uses
+# it to decide fan-out eligibility; `QueryMixin.query_cypher` below uses it to route
+# an aggregate read around the per-row ACL post-filter, which requires an
+# identifiable node per row and would otherwise deny EVERY aggregate/scalar read
+# outright (there is no id to check) regardless of caller privilege.
+_AGG_FUNCS = (
+    "count",
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "collect",
+    "stdev",
+    "stdevp",
+    "percentilecont",
+    "percentiledisc",
+    "variance",
+)
+_AGG_CALL_RE = re.compile(r"\b(?:" + "|".join(_AGG_FUNCS) + r")\s*\(", re.IGNORECASE)
+
+
+def is_aggregation_cypher(cypher: str) -> bool:
+    """True when ``cypher`` projects an aggregate (CONCEPT:AU-KG.query.query-aggregation).
+
+    Strips quoted string literals first so a literal like ``'count(*)'`` or a
+    property named ``max_depth`` is not misread as an aggregate call.
+    """
+    no_literals = re.sub(r"'[^']*'|\"[^\"]*\"", "", cypher or "")
+    return bool(_AGG_CALL_RE.search(no_literals))
+
+
+def _describe_secured_read_failure(exc: BaseException) -> str:
+    """Render a secured-read failure WITH its real chained cause(s), untruncated.
+
+    ``secured_reads.visible()``, ``filter_rows()`` (and the ``row_node_ids()`` it
+    calls), and ``audit_read()`` each wrap their OWN internal failure into a
+    distinctly-worded :class:`PermissionError` (e.g. "Graph result contains a row
+    without a governed node id", "Row visibility evaluation failed", "Read audit
+    recording failed") before it reaches :meth:`QueryMixin.query_cypher`'s outer
+    handler — which re-wraps AGAIN into the single generic "Graph row-policy or
+    audit enforcement failed" every caller sees. That is the correct behavior for
+    the PUBLIC/caller-facing surface (exception internals must not leak), but
+    collapsing it identically in the SERVER LOG too made every distinct failure —
+    a denied scope, a missing node id, a bad durable ACL record, an audit
+    infrastructure failure — indistinguishable noise server-side as well
+    (the documented swallowed-error anti-pattern). Mirrors
+    :func:`agent_utilities.knowledge_graph.retrieval.hybrid_retriever._describe_embedding_failure`,
+    extended to walk the FULL cause chain (this boundary wraps up to three deep:
+    e.g. ``permit()``'s own wrap over ``_hydrate_missing_acls``'s over a raw
+    ``ValueError``), not just one level.
+    """
+    parts = [f"{type(exc).__name__}: {exc}"]
+    cause = exc.__cause__
+    seen: set[int] = {id(exc)}
+    while cause is not None and id(cause) not in seen and len(parts) < 6:
+        parts.append(f"{type(cause).__name__}: {cause}")
+        seen.add(id(cause))
+        cause = cause.__cause__
+    return " <- caused by ".join(parts)
+
+
 class QueryMixin(_Base):
     """Query and search capabilities for the KG engine."""
 
@@ -114,6 +179,13 @@ class QueryMixin(_Base):
             "RBAC Interceptor: Executing query with clearance level %d", clearance_level
         )
 
+        # An aggregate/scalar projection (count/sum/avg/collect/...) collapses many
+        # rows into one — the result carries no per-row node id, so the per-row ACL
+        # post-filter below (which needs one) cannot apply to it. Detected once,
+        # up front, from the CALLER'S query text (aggregate-ness is a property of
+        # what was asked, unaffected by scope/visibility injection below).
+        aggregate_query = is_aggregation_cypher(query)
+
         # Tenant scoping + owner/scope visibility on the MCP/orchestration read
         # chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60). Mandatory
         # This isolates ``graph_query`` on a shared backend graph (the named-graph
@@ -122,6 +194,18 @@ class QueryMixin(_Base):
             from agent_utilities.knowledge_graph.core.secured_reads import scope
 
             scoped_query = scope(query, session.actor)
+            if aggregate_query:
+                # CONCEPT:AU-KG.compute.data-is-private-its — an aggregate has no row
+                # to post-filter by owner/scope (below), so that boundary is pushed
+                # INTO the query text instead: the aggregate is computed only over
+                # rows the actor's owner/scope would have kept anyway. This is a
+                # no-op (returns the query unchanged) for a privileged actor, exactly
+                # mirroring `secured_reads.visible`'s own privileged bypass.
+                from agent_utilities.knowledge_graph.core.tenant_sharing import (
+                    apply_visibility,
+                )
+
+                scoped_query = apply_visibility(scoped_query, session.actor)
         except Exception as exc:
             raise PermissionError("Graph query scoping failed") from exc
 
@@ -152,16 +236,47 @@ class QueryMixin(_Base):
                 visible,
             )
 
-            rows = visible(filter_rows(rows, session.actor), session.actor)
-            # The engine also emits its protocol audit. This service-level
-            # record proves the guarded GraphSession/query boundary ran without
-            # persisting raw query text or parameters.
-            audit_read(
-                row_node_ids(rows),
-                summary="native-cypher-read",
-                actor=session.actor,
-            )
+            if aggregate_query:
+                # No per-row node id exists to ACL-check or audit by id (the rows
+                # ARE the aggregate result, e.g. a single {"c": 142} row) — the
+                # owner/scope boundary already ran query-side above, and the
+                # fine-grained per-node classification ACL (KG-2.46) has no row to
+                # apply to. This is a scoped, deliberate trade-off (aggregate reads
+                # are governed by tenant + owner/scope, not per-node classification
+                # ACL — consistent with this query shape already being denied a
+                # cross-graph fan-out elsewhere, CONCEPT:AU-KG.query.query-aggregation),
+                # not a silent bypass of tenant/owner-scope isolation. The read is
+                # still audited, with an empty node-id list (nothing governable to
+                # name).
+                audit_read(
+                    [],
+                    summary="native-cypher-read (aggregate)",
+                    actor=session.actor,
+                )
+            else:
+                rows = visible(filter_rows(rows, session.actor), session.actor)
+                # The engine also emits its protocol audit. This service-level
+                # record proves the guarded GraphSession/query boundary ran without
+                # persisting raw query text or parameters.
+                audit_read(
+                    row_node_ids(rows),
+                    summary="native-cypher-read",
+                    actor=session.actor,
+                )
         except Exception as exc:
+            # Surface the TRUE failing step server-side before collapsing it to the
+            # generic caller-facing message — this exact boundary was a documented
+            # repeat instance of the swallowed-cause anti-pattern (a bare
+            # ``raise PermissionError(...) from exc`` with nothing logged first).
+            # The public PermissionError message is unchanged; only the log gains
+            # detail, and it is still sanitized (endpoints/paths/emails redacted)
+            # before it reaches any handler.
+            from agent_utilities.core.log_privacy import sanitize_log_text
+
+            logger.error(
+                "Graph row-policy or audit enforcement failed: %s",
+                sanitize_log_text(_describe_secured_read_failure(exc)),
+            )
             raise PermissionError(
                 "Graph row-policy or audit enforcement failed"
             ) from exc

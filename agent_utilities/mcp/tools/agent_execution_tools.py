@@ -40,7 +40,8 @@ async def _run_swarm(
     if not swarm_context and context_ref:
         try:
             rows = engine.query_cypher(
-                "MATCH (c:ContextBlob) WHERE c.id = $id RETURN c.content AS content",
+                "MATCH (c:ContextBlob) WHERE c.id = $id "
+                "RETURN c.id AS id, c.content AS content",
                 {"id": context_ref},
             )
             if rows and rows[0].get("content"):

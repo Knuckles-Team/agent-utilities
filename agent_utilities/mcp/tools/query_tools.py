@@ -7,33 +7,25 @@ modules without changing tool behavior or names.
 from __future__ import annotations
 
 import json
-import re as _re
 from typing import Any
 
 from pydantic import Field
 
+from agent_utilities.knowledge_graph.orchestration.engine_query import (
+    is_aggregation_cypher,
+)
 from agent_utilities.mcp import kg_server
 from agent_utilities.models.evidence_bundle import EvidenceBundle
 from agent_utilities.security.error_surface import public_error_json, public_error_text
 
-#: Cypher aggregate functions. A query that calls one of these in a projection
-#: collapses many rows into per-group rows, so it CANNOT be fanned across graphs
-#: and id-deduped — each graph returns its own ``count(*)``/``sum(...)`` row and
-#: naive concatenation repeats every group once per graph (CONCEPT:AU-KG.query.query-aggregation).
-_AGG_FUNCS = (
-    "count",
-    "sum",
-    "avg",
-    "min",
-    "max",
-    "collect",
-    "stdev",
-    "stdevp",
-    "percentilecont",
-    "percentiledisc",
-    "variance",
-)
-_AGG_CALL_RE = _re.compile(r"\b(?:" + "|".join(_AGG_FUNCS) + r")\s*\(", _re.IGNORECASE)
+# CONCEPT:AU-KG.query.query-aggregation — `is_aggregation_cypher` (imported above)
+# is re-exported here so `from agent_utilities.mcp.tools.query_tools import
+# is_aggregation_cypher` keeps working for existing callers/tests. Its canonical
+# definition + detection regex now live in `knowledge_graph.orchestration.
+# engine_query` (single source of truth): the governed read path
+# (`QueryMixin.query_cypher`) needs the SAME aggregate-vs-row detection this
+# federation router uses, and `engine_query` sits below `mcp.tools` in the
+# dependency direction, so it is the correct owner, not this module.
 
 
 def _parse_ranges(spec: str) -> list[tuple[int, int]]:
@@ -104,20 +96,6 @@ def _json_default(obj: Any) -> Any:
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return dataclasses.asdict(obj)
     return str(obj)
-
-
-def is_aggregation_cypher(cypher: str) -> bool:
-    """True when ``cypher`` projects an aggregate (CONCEPT:AU-KG.query.query-aggregation).
-
-    Strips quoted string literals first so a literal like ``'count(*)'`` or a
-    property named ``max_depth`` is not misread as an aggregate call. Used by the
-    unified read path: an aggregation under ingestion graph routing runs against
-    the canonical default graph only (never fanned), because aggregate rows have
-    no node id to dedup on and summing them generically is not safe across
-    avg/min/max/distinct.
-    """
-    no_literals = _re.sub(r"'[^']*'|\"[^\"]*\"", "", cypher or "")
-    return bool(_AGG_CALL_RE.search(no_literals))
 
 
 #: Code-symbol nav actions over the resolved graph (CONCEPT:AU-KG.backend.declared-columns-so-schema).
@@ -975,7 +953,8 @@ def register_query_tools(mcp):
             try:
                 rows = engine.query_cypher(
                     "MATCH (c:ContextBlob) WHERE c.id = $id "
-                    "RETURN c.content AS content, c.session_id AS session_id, "
+                    "RETURN c.id AS id, c.content AS content, "
+                    "c.session_id AS session_id, "
                     "c.created_at AS created_at, c.ttl_s AS ttl_s",
                     {"id": context_id},
                 )
