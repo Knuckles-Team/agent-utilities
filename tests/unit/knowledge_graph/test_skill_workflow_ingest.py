@@ -228,6 +228,32 @@ def test_ingest_links_atomic_skills(corpus):
     assert ("skill_workflow:tiny_pnl:step:1", "skill:data_fetcher") in uses
 
 
+def test_ingest_stamps_governance_on_every_node_and_edge(corpus):
+    """KG-2.97 §4 regression (the ACL-invisibility gap): every node/edge
+    ``ingest_one`` writes must carry ``classification``/``external_access``/
+    ``tenant_id`` or ``secured_reads.permit()`` denies it forever — the write
+    durably lands but is invisible to every ``query_cypher``/``graph_search``
+    read, even though it "succeeded". Mirrors the stamping
+    ``ingest_runnable_skill`` already does in this same module (which is why
+    its nodes were visible while these were not).
+    """
+    eng = FakeEngine()
+    ingest_skill_workflows(eng, root=str(corpus))
+
+    def _assert_governed(props, where):
+        assert props.get("classification") == "public", where
+        access = props.get("external_access")
+        assert isinstance(access, dict) and access.get("is_public") is True, where
+        assert props.get("tenant_id"), where
+
+    assert eng.nodes, "fixture must have produced nodes to check"
+    for node_id, props in eng.nodes.items():
+        _assert_governed(props, node_id)
+    assert eng.edges, "fixture must have produced edges to check"
+    for source, target, rel, props in eng.edges:
+        _assert_governed(props, f"{source}-[{rel}]->{target}")
+
+
 def test_ingest_is_idempotent(corpus):
     eng = FakeEngine()
     first = ingest_skill_workflows(eng, root=str(corpus))
@@ -257,6 +283,38 @@ def test_ingest_one_returns_skipped_on_repeat(corpus):
     parsed = parse_workflow_skill(skill_md)
     assert ingest_one(eng, parsed) == "ingested"
     assert ingest_one(eng, parsed) == "skipped"
+
+
+class CollisionSensitiveEngine(FakeEngine):
+    """Mimics the real native backend's ``add_node(node_id, **properties)``
+    shape (``BrainGuardedBackend``/``EpistemicGraphBackend``), where a literal
+    ``"node_id"`` key inside the properties dict collides with the positional
+    ``node_id`` argument of the same name — the exact production crash
+    (KG-2.97 §5b: ``TypeError: add_node() got multiple values for argument
+    'node_id'``), reproduced here without needing a real backend.
+    """
+
+    def add_node(self, node_id, node_type, properties=None, **props):
+        merged = dict(properties or props or {})
+        if "node_id" in merged:
+            raise TypeError("add_node() got multiple values for argument 'node_id'")
+        super().add_node(node_id, node_type, properties=merged)
+
+
+def test_ingest_step_props_do_not_collide_with_node_id_argument(corpus):
+    """KG-2.97 §5b regression: a WorkflowStep's properties must never carry a
+    literal ``"node_id"`` key — ``step_id`` is already the node's identity via
+    the positional argument. Before the fix this crashed on the FIRST step of
+    every workflow that has one, orphaning the parent WorkflowDefinition with
+    zero real steps and zero USES_SKILL links.
+    """
+    eng = CollisionSensitiveEngine()
+    report = ingest_skill_workflows(eng, root=str(corpus))
+    assert report["errors"] == 0
+    steps = eng.of_type("WorkflowStep")
+    assert len(steps) == 5  # 3 (infra) + 2 (finance), matches the DAG test above
+    skills = eng.of_type("Skill")
+    assert skills  # USES_SKILL-linked Skill nodes also require steps to land
 
 
 def test_delegated_ingest_failure_report_does_not_leak_local_path(corpus):
@@ -317,6 +375,70 @@ def test_discover_accepts_explicit_root(corpus):
     assert names == {"tiny-infra-deploy", "tiny_pnl"}
 
 
+def test_discover_explicit_root_does_not_redirect_into_nested_workflows_dir(tmp_path):
+    """KG-2.97 §5a regression: an explicit root must be searched AS-IS. The old
+    code silently redirected into ``root/workflows/`` whenever that subdir
+    happened to exist, discarding every sibling SKILL.md — exactly the real
+    ``agent_utilities/skills`` shape (13 domain skills + skill_graphs/ + ONE
+    real workflow that happens to live under ``skills/workflows/
+    agent-os-genesis``), which made the explicit-root call find only 1 of 20
+    real files.
+    """
+    root = tmp_path / "skills"
+    # A real workflow living under a nested "workflows/" dir...
+    decoy = root / "workflows" / "agent-os-genesis"
+    decoy.mkdir(parents=True)
+    (decoy / "SKILL.md").write_text(_INFRA_WF, encoding="utf-8")
+    # ...sibling to an atomic skill that must NOT be shadowed by that redirect.
+    sibling = root / "graph-query-and-explanation"
+    sibling.mkdir(parents=True)
+    (sibling / "SKILL.md").write_text(_FINANCE_WF, encoding="utf-8")
+
+    files = discover_workflow_skill_files(root=str(root))
+    names = {f.parent.name for f in files}
+    assert names == {"agent-os-genesis", "graph-query-and-explanation"}
+
+
+def test_discover_default_matches_domain_workflows_convention(monkeypatch, tmp_path):
+    """KG-2.97 §5a regression: the shipped convention is
+    ``<domain>-workflows/<name>/SKILL.md`` (e.g. ``finance-workflows/``) —
+    there is no directory literally named ``workflows/`` anywhere in the real
+    corpus, so the default (no-``root``) call found 0 workflows before the
+    fix. It must now find the ``-workflows`` categories and must NOT sweep in
+    atomic skills from a sibling plain ``<domain>/`` category (that corpus is
+    covered by the separate boot-time ``ingest_runnable_skill`` path).
+    """
+    import sys
+    import types
+
+    pkg_root = tmp_path / "universal_skills"
+    wf_dir = pkg_root / "finance-workflows" / "tiny_pnl"
+    wf_dir.mkdir(parents=True)
+    (wf_dir / "SKILL.md").write_text(_FINANCE_WF, encoding="utf-8")
+    atomic_dir = pkg_root / "finance" / "some-atomic-skill"
+    atomic_dir.mkdir(parents=True)
+    (atomic_dir / "SKILL.md").write_text(
+        "---\nname: some-atomic-skill\n---\nbody", encoding="utf-8"
+    )
+
+    fake_pkg = types.ModuleType("universal_skills")
+    fake_pkg.__path__ = [str(pkg_root)]
+    fake_skill_utilities = types.ModuleType("universal_skills.skill_utilities")
+    fake_skill_utilities.get_universal_skills_path = lambda: [
+        str(wf_dir),
+        str(atomic_dir),
+    ]
+    fake_pkg.skill_utilities = fake_skill_utilities
+    monkeypatch.setitem(sys.modules, "universal_skills", fake_pkg)
+    monkeypatch.setitem(
+        sys.modules, "universal_skills.skill_utilities", fake_skill_utilities
+    )
+
+    files = discover_workflow_skill_files()
+    names = {f.parent.name for f in files}
+    assert names == {"tiny_pnl"}
+
+
 # --------------------------------------------------------------------------- #
 # Background-job path: the worker dispatch branch (CONCEPT:AU-KG.ingest.skill-workflow-corpus)            #
 # --------------------------------------------------------------------------- #
@@ -352,3 +474,65 @@ def test_skill_workflows_is_a_heavy_background_task_type():
 
     src = inspect.getsource(engine_tasks)
     assert '"skill_workflows"' in src and "_HEAVY_TASK_TYPES" in src
+
+
+# --------------------------------------------------------------------------- #
+# Chunk/embed side-write gating (KG-2.97 §5d)                                   #
+# --------------------------------------------------------------------------- #
+
+
+def test_chunk_workflow_body_self_gates_after_first_failure(monkeypatch):
+    """KG-2.97 §5d regression: a systemic chunk/embed failure (observed live:
+    near-100% ``STALE_GRAPH_VERSION`` OCC retry-budget exhaustion, ~30-40s
+    wall clock per file across 8 doomed retries) must not silently repeat a
+    doomed multi-retry write on every remaining file in a bulk run — it
+    disables itself after the first failure and logs clearly instead.
+    """
+    import agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest as swi
+
+    monkeypatch.setattr(swi, "_chunk_body_disabled", False)
+    calls = {"n": 0}
+
+    class _ExplodingProcessor:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def process(self, *_args, **_kwargs):
+            calls["n"] += 1
+            raise RuntimeError(
+                "native ChangeEnvelope OCC retry budget exhausted "
+                "(conflict_sequence=STALE_GRAPH_VERSION*8)"
+            )
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.document_processing.DocumentProcessor",
+        _ExplodingProcessor,
+    )
+
+    swi._chunk_workflow_body(object(), "skill_workflow:x", "some body text", "x")
+    assert calls["n"] == 1
+    assert swi._chunk_body_disabled is True
+
+    # A second call (a later file in the same bulk run) must be a no-op — no
+    # repeated doomed attempt.
+    swi._chunk_workflow_body(object(), "skill_workflow:y", "more body text", "y")
+    assert calls["n"] == 1
+
+
+def test_chunk_workflow_body_failure_never_blocks_workflow_registration(corpus):
+    """Best-effort by design: even with chunking permanently disabled,
+    ``ingest_one``/``ingest_skill_workflows`` must still land the
+    WorkflowDefinition/WorkflowStep/Skill DAG cleanly.
+    """
+    import agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest as swi
+
+    original = swi._chunk_body_disabled
+    swi._chunk_body_disabled = True
+    try:
+        eng = FakeEngine()
+        report = ingest_skill_workflows(eng, root=str(corpus))
+        assert report["workflows"] == 2
+        assert report["errors"] == 0
+        assert eng.of_type("WorkflowStep")
+    finally:
+        swi._chunk_body_disabled = original
