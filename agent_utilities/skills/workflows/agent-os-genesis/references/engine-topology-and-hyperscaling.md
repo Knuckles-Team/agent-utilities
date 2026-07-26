@@ -219,6 +219,7 @@ that actually hyperscales graph-os itself:
 
 | Concern | Source |
 |---|---|
+| **Skill-embedded k8s recipes (genesis DEFAULT, template-shaped, apply directly)** | [`k8s/README.md`](k8s/README.md) — `graphos-unified.yaml` (unified-in-process), `hyperscale-engine-and-graphos.yaml` (out-of-process-shared), `mcp-server-editable.yaml` (fleet) |
 | The edict itself (why two shapes, the batching rule) | au `AGENTS.md` → "Engine transport (two shapes)"; eg `AGENTS.md` → PyO3/in-process section |
 | Program status (what's shipped vs. landing) | `reports/unified-binary-program.md` |
 | In-engine Raft replication, multi-Raft groups, sharded writer | eg `AGENTS.md` → "Sharded K-way durable writer", "Opt-in: in-engine Raft replication", "Multi-Raft groups" |

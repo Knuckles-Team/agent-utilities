@@ -1081,6 +1081,19 @@ standalone `mcp-multiplexer` is **folded in** via the in-process fleet loader
 lazily fronts the whole authenticated `*-mcp` fleet — there is **no separate multiplexer
 service** to deploy. Optionally start the REST gateway `graph-os-daemon` (:8100).
 
+**`orchestrator == kubernetes` — render from the skill's own k8s recipes (the DEFAULT,
+never hand-rolled YAML).** [`references/k8s/`](references/k8s/README.md) ships three
+template-shaped manifest sets, selected by the resolved `engine_topology` below:
+[`references/k8s/graphos-unified.yaml`](references/k8s/graphos-unified.yaml) for
+`unified-in-process`, [`references/k8s/hyperscale-engine-and-graphos.yaml`](references/k8s/hyperscale-engine-and-graphos.yaml)
+for `out-of-process-shared`, and [`references/k8s/mcp-server-editable.yaml`](references/k8s/mcp-server-editable.yaml)
+(one copy per connector — Step A3) for the fleet. All three are written against the
+CURRENT config contract only (engine locality via `GRAPH_SERVICE_ENDPOINTS`
+presence/absence, `GRAPH_SERVICE_PERSIST_DIR` for the store — never a retired key) and
+are `<PLACEHOLDER>`-shaped, not `envsubst`: replace every placeholder, then apply via
+the Step 10 GitOps binding. See that directory's README for how to graduate beyond them
+(3-voter Raft, the certification-gated production cell, …).
+
 **Backend — the engine is the ONE durable multi-model store (CONCEPT:AU-KG.backend.backend-modes /
 AU-OS.deployment.engine-resolver-auto-provision).** The epistemic-graph engine is the ONE authority: it serves reads, acks
 writes, AND persists durably (**redb-authoritative by default** — an acked write
@@ -1095,7 +1108,8 @@ worked manifests: [`references/engine-topology-and-hyperscaling.md`](references/
   drift against** — deploying the `graph-os` image on the KG host is the whole
   engine deployment. (Until the PyO3 binding lands, the same one-thing-to-deploy
   contract is realized via the bundled/autostarted engine sharing the host with
-  graph-os — externally identical.)
+  graph-os — externally identical.) On Kubernetes, [`references/k8s/graphos-unified.yaml`](references/k8s/graphos-unified.yaml)
+  is this shape's default starting manifest.
 - **`out-of-process-shared` — `enterprise` (default, the HYPERSCALING shape).**
   The engine runs as its **own scaled service**, built with the eg `cluster`
   cargo feature (raft — multi-Raft sharding + HA; see eg `AGENTS.md`
@@ -1103,7 +1117,10 @@ worked manifests: [`references/engine-topology-and-hyperscaling.md`](references/
   reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS` (the
   `EngineResolver` routes to it; it never autostarts a configured remote). **N
   graph-os client pods** run behind the gateway, independently horizontally
-  scaled via **k8s HPA** — see the Hyperscaling section below.
+  scaled via **k8s HPA** — see the Hyperscaling section below. On Kubernetes,
+  [`references/k8s/hyperscale-engine-and-graphos.yaml`](references/k8s/hyperscale-engine-and-graphos.yaml)
+  is this shape's default starting manifest (single-instance engine; graduate to
+  the 3-voter Raft cluster below for real HA).
 
 Provision graph-os + agent-utilities-messaging with **`GRAPH_BACKEND=fanout`**
 (engine authority + optional mirrors) — `single-node-prod`/`enterprise` use it; the
@@ -1140,8 +1157,10 @@ binary-promotion runbook for the deploy-time health-start-period.
    `docs/architecture/engine_sharding.md` (`GRAPH_SERVICE_ENDPOINTS` as a list,
    `tenant → named graph → HRW → shard`) — the engine side just now replicates
    each shard instead of running it single-node.
-4. **N graph-os client pods behind the gateway, k8s HPA.** Every graph-os pod
-   points `GRAPH_SERVICE_ENDPOINTS` at the (possibly multi-member) engine and
+4. **N graph-os client pods behind the gateway, k8s HPA.** The genesis-default
+   starting manifest for this whole tier (engine + front pods + HPA in one file)
+   is [`references/k8s/hyperscale-engine-and-graphos.yaml`](references/k8s/hyperscale-engine-and-graphos.yaml).
+   Every graph-os pod points `GRAPH_SERVICE_ENDPOINTS` at the (possibly multi-member) engine and
    authenticates with the fleet's ONE `GRAPH_SERVICE_AUTH_SECRET`. Today's staged
    k8s reference (`services/epistemic-graph/k8s/production-separate.yaml`) already
    decouples graph-os into its own Deployment reached over loopback TCP; scaling
@@ -1200,6 +1219,12 @@ Deploy the `*-mcp` connector fleet from
 for GitOps auto-sync via `portainer-sync-agent`. Apply the missing-image
 Failure-handling policy. (Regenerate the registry with
 `python agent-utilities/scripts/gen_mcp_fleet_registry.py --agents-dir <…>/agents`.)
+
+**`orchestrator == kubernetes`** → render each selected connector from
+[`references/k8s/mcp-server-editable.yaml`](references/k8s/mcp-server-editable.yaml)
+(the skill's default template — dev source-mount + PYTHONPATH + pip-install-at-start,
+or prod baked-deps; parameterized by the service name/image/port from the registry
+above) instead of a compose stack, then apply via the Step 10 GitOps binding.
 
 **Auth + deploy artifact (CONCEPT:AU-OS.identity.so-jwt-protected-children / AU-OS.observability.no-op-without-metrics):** the generated composes ship
 `AUTH_TYPE=jwt` + eunomia by default (from `gen_mcp_service_stacks.py` / `gen_editable_compose.py`),
