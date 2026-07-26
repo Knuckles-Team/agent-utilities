@@ -161,7 +161,16 @@ Every graph-os pod is a **plain, stateless-w.r.t.-the-engine client**: point
 authenticate with the fleet's ONE `GRAPH_SERVICE_AUTH_SECRET`. This is the piece
 that actually hyperscales graph-os itself:
 
-- **Reference (staged, current honest limitation):**
+- **Status update (2026-07-25 — corrects the paragraph below, kept for its still-valid
+  reasoning): TLS is no longer the blocker.** The engine now ships a native TLS
+  listener (`--tcp-tls-cert`/`--tcp-tls-key`) and it is live in production
+  (`reports/HANDOFF-2026-07-22.md` §1, §2e, §7; verified against the running cluster).
+  What still caps `graph-os` at `replicas: 1`, the precise remaining gaps (a host-local
+  config mount, a static-IP TLS identity pin rather than a routable/discovered one, MCP
+  session affinity), and the concrete unblock sequence are now tracked in
+  [`docs/architecture/graphos-horizontal-scaling.md`](../../../../../docs/architecture/graphos-horizontal-scaling.md)
+  — read that page for the current state, not the paragraph below.
+- **Reference (staged, historical — TLS claim superseded above):**
   `services/epistemic-graph/k8s/production-separate.yaml` already decouples graph-os
   into its own Deployment (independent restart/roll from the engine), reached over
   **loopback TCP** — because a non-loopback `tcp://` engine endpoint requires TLS
@@ -231,3 +240,5 @@ that actually hyperscales graph-os itself:
 | Staged k8s: 4 independent Deployments (current k8s production target) | `services/epistemic-graph/k8s/production-separate.yaml` |
 | Staged k8s: 3-voter Raft cluster | `services/epistemic-graph/k8s/raft-cluster/` |
 | Raft soak evidence (headless-Service fix, validation procedure) | `services/epistemic-graph/soak/README.md` |
+| Shape 2 (this shape) — current precise HPA blocker + unblock sequence | `docs/architecture/graphos-horizontal-scaling.md` |
+| Shape 1 (unified-in-process) — the interim self-hosting cutover design, concrete against the live cluster | `docs/architecture/graphos-self-hosting-cutover.md` |

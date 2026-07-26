@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-353 publishable pages · 168 direct nav targets · 116 public capabilities · 712 action rows · 540 typed configuration fields · 341 runtime-only call-site inputs.
+355 publishable pages · 170 direct nav targets · 116 public capabilities · 712 action rows · 540 typed configuration fields · 341 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -185,6 +185,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Graph Authority Convergence](../architecture/graph-authority-convergence.md) — direct nav
 - [Graph Backend Architecture](../architecture/graph_backends_architecture.md) — direct nav
 - [Epistemic Graph Service Layer Architecture](../architecture/graph_service_layer.md) — catalog
+- [graph-os Horizontal Scaling — the HPA Blocker, Precisely](../architecture/graphos-horizontal-scaling.md) — direct nav
+- [graph-os Self-Hosting Cutover — Design (execute-from doc, not yet applied)](../architecture/graphos-self-hosting-cutover.md) — direct nav
 - [Harness Foundry — assimilate + surpass HarnessX (arXiv:2606.14249)](../architecture/harness_foundry.md) — direct nav
 - [IdP-Agnostic Role Inheritance & Identity-Scoped Resource Auto-Load](../architecture/identity-inheritance.md) — direct nav
 - [In-House Training Substrate](../architecture/in_house_training_substrate.md) — direct nav
