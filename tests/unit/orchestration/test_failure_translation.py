@@ -59,6 +59,15 @@ _KNOWN_SIGNATURES: tuple[tuple[str, str], ...] = (
     ("EngineUnreachableError: engine tenants.list() failed", "engine_unreachable"),
     ("ConnectionRefusedError: [Errno 111] Connection refused", "engine_unreachable"),
     ("no KG backend active", "engine_unreachable"),
+    (
+        "PermissionBootstrapError: permission signing key reference is required "
+        "for governed execution",
+        "permission_bootstrap",
+    ),
+    (
+        "PermissionBootstrapError: permission context bootstrap failed",
+        "permission_bootstrap",
+    ),
     ("PermissionError: recursive native GraphOS delegation is forbidden", "access_denied"),
     ("ToolError: Access denied: component is disabled", "access_denied"),
     ("Security: prompt injection detected (confidence=0.91)", "security_blocked"),

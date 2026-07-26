@@ -81,6 +81,27 @@ def _comma_values(value: object) -> tuple[str, ...]:
     return tuple(part.strip() for part in str(value or "").split(",") if part.strip())
 
 
+def _durable_signing_key_self_provisioning(config: AgentConfig) -> bool:
+    """Whether a DURABLE, deployment-shared permission signing key can self-provision.
+
+    Reconciles the permissions kernel's "per-process random authorities are
+    unsupported" intent with turnkey self-provisioning. A self-provisioned key is
+    accepted for production ONLY because it is durable and shared: it is persisted
+    under a well-known name in the engine/vault secret store via an atomic
+    create-if-absent, so every process/replica converges on the SAME key and it
+    survives a restart — a stable shared authority, which is the real requirement.
+    A per-process ephemeral authority is NOT durable and stays rejected; the
+    provisioning path never produces one (a key is returned only once durably
+    stored). Both current secrets backends (``engine``, ``vault``) are durable
+    shared stores; the structural check remains so a future non-durable backend
+    would still be flagged.
+    """
+    backend = (
+        str(getattr(config, "secrets_backend", "engine") or "engine").strip().lower()
+    )
+    return backend in {"engine", "vault"}
+
+
 class ProductionProfileError(RuntimeError):
     """Raised when a production profile is configured with unsafe toy settings.
 
@@ -438,10 +459,12 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
     permission_key_ref = str(
         getattr(config, "permissions_signing_key_ref", "") or ""
     ).strip()
-    if not permission_key_ref:
+    if not permission_key_ref and not _durable_signing_key_self_provisioning(config):
         offending.append(
-            "permissions_signing_key_ref is unset; production agent identities "
-            "require one stable runtime secret reference."
+            "permissions_signing_key_ref is unset and no durable secret store is "
+            "configured to self-provision a stable signing key; production agent "
+            "identities require either a runtime secret reference or a durable "
+            "engine/vault secrets backend."
         )
 
     otel_enabled = bool(getattr(config, "enable_otel", False))

@@ -144,6 +144,26 @@ _SIGNATURES: tuple[_Signature, ...] = (
         hint="Infrastructure issue (the engine process/connection), not a bad query.",
     ),
     _Signature(
+        category="permission_bootstrap",
+        markers=(
+            "permissionbootstraperror",
+            "permission signing key",
+            "permission context bootstrap",
+            "permission context verification",
+            "governed execution",
+        ),
+        translated=(
+            "Governed tool execution could not establish a signed permission "
+            "identity (the permission signing key could not be resolved or "
+            "provisioned)."
+        ),
+        hint=(
+            "The signing key self-provisions into the engine's durable secret store "
+            "by default; if this persists, confirm the engine secret store is "
+            "reachable, or set PERMISSIONS_SIGNING_KEY_REF to an external key."
+        ),
+    ),
+    _Signature(
         category="access_denied",
         markers=(
             "access_denied",

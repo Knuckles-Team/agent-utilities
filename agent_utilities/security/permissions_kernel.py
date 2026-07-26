@@ -34,12 +34,13 @@ import hashlib
 import hmac
 import json
 import logging
+import secrets
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -53,6 +54,44 @@ _MIN_SIGNING_KEY_BYTES = 32
 _MAX_SIGNING_KEY_BYTES = 1_048_576
 _MAX_POLICY_FILE_BYTES = 1_048_576
 _MAX_POLICIES = 64
+
+# ── Self-provisioned signing key (CONCEPT:AU-OS.identity.permissions-kernel) ──
+#
+# When ``permissions_signing_key_ref`` is not configured, governed execution
+# provisions its OWN stable HMAC signing authority instead of failing. The key is
+# generated with a CSPRNG and then persisted DURABLY, under this one well-known
+# name, in the engine's durable secret store via an atomic membership-test-and-
+# insert (``set_if_absent``). Every process/replica converges on the SAME stored
+# key and reuses it across restarts, so it is a durable *shared* authority — NOT a
+# per-process random one (the distinction ``profile_guard`` cares about). A key is
+# never returned to a caller unless it is the durably stored value.
+#
+# One key, one purpose: this authority is DEDICATED to permission-identity signing
+# and is never the engine transport HMAC (``graph_service_auth_secret``), the
+# durable-identity HMAC (``persistence_identity_hmac_key_ref``), or the store's
+# encryption-at-rest key (``EPISTEMIC_GRAPH_ENCRYPTION_KEY``).
+WELL_KNOWN_SIGNING_KEY_NAME = "system:permissions-signing-key"
+
+# The stored value is a small VERSIONED document (not a bare key) so a future key
+# rotation — new active version signs new identities; older versions still VERIFY
+# un-expired identities during a grace window — needs NO data migration. The shape
+# already carries N versions.
+_SIGNING_KEY_DOC_SCHEMA = "au.permissions-signing-key.v1"
+_PROVISIONED_KEY_BYTES = 32
+
+# Version lifecycle: ``active`` signs new identities AND verifies; ``grace`` only
+# verifies (a rotated-out key still validating in-flight identities); ``retired``
+# is retained for the audit trail but never used to sign or verify.
+_VERIFYING_STATUSES = frozenset({"active", "grace"})
+
+# Runtime-issued identities carry a bounded TTL (the signing KEY stays long-lived).
+# A long-running governed task never dies at TTL because the boundary re-issues
+# on use within the refresh skew — see ``refresh_identity_if_expiring``.
+_DEFAULT_IDENTITY_TTL_SECONDS = 3600.0
+_DEFAULT_IDENTITY_REFRESH_SKEW_SECONDS = 300.0
+
+# Emit the "no encryption-at-rest configured" hardening advisory at most once.
+_ENCRYPTION_POSTURE_WARNED = False
 
 
 class PermissionBootstrapError(RuntimeError):
@@ -235,17 +274,29 @@ class PermissionsKernel:
         signing_key: str | bytes,
         policies_path: str | None = None,
         engine: IntelligenceGraphEngine | None = None,
+        additional_verification_keys: Sequence[str | bytes] = (),
+        identity_ttl_seconds: float = 0.0,
+        identity_refresh_skew_seconds: float = _DEFAULT_IDENTITY_REFRESH_SKEW_SECONDS,
     ) -> None:
-        key_bytes = (
-            signing_key.encode("utf-8") if isinstance(signing_key, str) else signing_key
+        # Trust model: identities are HMAC-SHA256 signed. In the self-contained,
+        # single-process posture the SAME kernel both signs and verifies, so a
+        # symmetric secret is the correct, sufficient authority — an identity is
+        # never merely "trusted", it is re-verified against this secret on every
+        # governed-execution check (see ``authorize_tool`` -> ``verify_identity``).
+        # ``signing_key`` is the ACTIVE authority used to SIGN; every key in
+        # ``additional_verification_keys`` (rotated-out ``grace`` versions) can
+        # still VERIFY an un-expired identity, so a rotation needs no flag-day.
+        self._signing_key = self._coerce_key_material(signing_key)
+        verification: list[bytes] = [self._signing_key]
+        for extra in additional_verification_keys or ():
+            material = self._coerce_key_material(extra)
+            if material not in verification:
+                verification.append(material)
+        self._verification_keys: tuple[bytes, ...] = tuple(verification)
+        self._identity_ttl_seconds = max(0.0, float(identity_ttl_seconds or 0.0))
+        self._identity_refresh_skew_seconds = max(
+            0.0, float(identity_refresh_skew_seconds or 0.0)
         )
-        if not isinstance(key_bytes, bytes):
-            raise TypeError("signing_key must be explicit string or bytes material")
-        if not (_MIN_SIGNING_KEY_BYTES <= len(key_bytes) <= _MAX_SIGNING_KEY_BYTES):
-            raise ValueError("signing_key must contain 32 bytes or more")
-        if b"\x00" in key_bytes:
-            raise ValueError("signing_key contains invalid material")
-        self._signing_key = key_bytes
         self._policies: dict[AgentRole, AgentPolicy] = {}
         self._identities: dict[str, AgentIdentity] = {}
         self.engine = engine
@@ -306,6 +357,53 @@ class PermissionsKernel:
         )
         return identity
 
+    def reissue_identity(
+        self, identity: AgentIdentity, *, ttl_seconds: float | None = None
+    ) -> AgentIdentity:
+        """Return a freshly-signed copy of ``identity`` with a renewed TTL window.
+
+        The renewal seam: cheap, IN-PROCESS, and with NO external round-trip — it
+        re-signs with the stable active key and never touches the durable store.
+        Preserves ``agent_id``/``role``/``capabilities`` (so authorization is
+        identical) and only refreshes ``issued_at``/``expires_at``. Used at the
+        governed-execution boundary so a task that outlives one identity TTL keeps
+        running instead of failing verification.
+        """
+        if ttl_seconds is None:
+            span = identity.expires_at - identity.issued_at
+            ttl_seconds = span if span > 0 else self._identity_ttl_seconds
+        now = time.time()
+        fresh = AgentIdentity(
+            agent_id=identity.agent_id,
+            role=identity.role,
+            capabilities=list(identity.capabilities),
+            issued_at=now,
+            expires_at=(now + ttl_seconds) if ttl_seconds > 0 else 0.0,
+        )
+        fresh.signature = self._sign(fresh.payload_string())
+        self._identities[fresh.agent_id] = fresh
+        logger.info("Re-issued identity role=%s (TTL refresh)", fresh.role)
+        return fresh
+
+    def refresh_identity_if_expiring(
+        self, identity: AgentIdentity, *, now: float | None = None
+    ) -> AgentIdentity:
+        """Re-issue ``identity`` iff it is within the refresh-skew of expiry.
+
+        Returns the SAME object when there is nothing to do (non-expiring identity,
+        or comfortably before the skew window), so the caller can cheaply detect a
+        renewal by identity (``is``). This is refresh-on-use — preferred over a
+        background daemon: the renewal happens exactly at the governed-execution
+        boundary that is about to rely on the identity being valid.
+        """
+        expires_at = identity.expires_at
+        if expires_at <= 0:
+            return identity
+        current = time.time() if now is None else now
+        if current >= expires_at - self._identity_refresh_skew_seconds:
+            return self.reissue_identity(identity)
+        return identity
+
     def derive_agent_id(self, subject: str) -> str:
         """Derive a stable opaque agent ID without retaining the source subject."""
 
@@ -334,13 +432,17 @@ class PermissionsKernel:
             logger.warning("Identity expired")
             return False
 
-        # Check signature
-        expected = self._sign(identity.payload_string())
-        if not hmac.compare_digest(identity.signature, expected):
-            logger.warning("Identity signature mismatch")
-            return False
-
-        return True
+        # Check signature against EVERY still-verifying key version (active + any
+        # grace versions from a rotation). A constant-time compare per version
+        # keeps an old-key-signed but un-expired identity valid across a rotation
+        # without ever accepting a tampered or foreign-key signature.
+        payload = identity.payload_string()
+        for key in self._verification_keys:
+            expected = hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()
+            if hmac.compare_digest(identity.signature, expected):
+                return True
+        logger.warning("Identity signature mismatch")
+        return False
 
     def get_identity(self, agent_id: str) -> AgentIdentity | None:
         """Retrieve a cached identity by agent ID.
@@ -665,8 +767,22 @@ class PermissionsKernel:
 
     # ── Private Helpers ────────────────────────────────────────────────
 
+    @staticmethod
+    def _coerce_key_material(signing_key: str | bytes) -> bytes:
+        """Validate and normalize one HMAC key to bounded, NUL-free bytes."""
+        key_bytes = (
+            signing_key.encode("utf-8") if isinstance(signing_key, str) else signing_key
+        )
+        if not isinstance(key_bytes, bytes):
+            raise TypeError("signing_key must be explicit string or bytes material")
+        if not (_MIN_SIGNING_KEY_BYTES <= len(key_bytes) <= _MAX_SIGNING_KEY_BYTES):
+            raise ValueError("signing_key must contain 32 bytes or more")
+        if b"\x00" in key_bytes:
+            raise ValueError("signing_key contains invalid material")
+        return key_bytes
+
     def _sign(self, payload: str) -> str:
-        """Create an HMAC-SHA256 signature of a payload string."""
+        """Create an HMAC-SHA256 signature of a payload string with the active key."""
         return hmac.new(
             self._signing_key,
             payload.encode(),
@@ -748,6 +864,276 @@ class PermissionsKernel:
             logger.debug("Failed to persist identity: %s", e)
 
 
+# ── Durable self-provisioning of the signing authority ─────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class ProvisionedSigningKey:
+    """The resolved signing authority: one active signer + every verifying version."""
+
+    active_material: str
+    active_key_id: str
+    verification_materials: tuple[str, ...]
+
+    @property
+    def additional_verification_materials(self) -> tuple[str, ...]:
+        """Verifying materials other than the active signer (rotation grace keys)."""
+        return tuple(
+            m for m in self.verification_materials if m != self.active_material
+        )
+
+
+def _generate_key_material() -> str:
+    """CSPRNG key material: 64 ASCII hex chars = 32 bytes of entropy, NUL-free."""
+    return secrets.token_hex(_PROVISIONED_KEY_BYTES)
+
+
+def _new_key_version(status: str = "active") -> dict[str, Any]:
+    return {
+        "key_id": secrets.token_hex(8),
+        "material": _generate_key_material(),
+        "created_at": time.time(),
+        "status": status,
+    }
+
+
+def _valid_key_material(value: Any) -> TypeGuard[str]:
+    return (
+        isinstance(value, str)
+        and _MIN_SIGNING_KEY_BYTES
+        <= len(value.encode("utf-8"))
+        <= _MAX_SIGNING_KEY_BYTES
+        and "\x00" not in value
+    )
+
+
+def _render_key_document(versions: list[dict[str, Any]], active_key_id: str) -> str:
+    return json.dumps(
+        {
+            "schema": _SIGNING_KEY_DOC_SCHEMA,
+            "active_key_id": active_key_id,
+            "versions": versions,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _provisioned_from_document(value: Any) -> ProvisionedSigningKey | None:
+    """Parse a stored versioned key document into a ``ProvisionedSigningKey``.
+
+    Defensive: any structural problem, or an absent/invalid active signer, returns
+    ``None`` so the caller (re-)provisions rather than trusting malformed material.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        doc = json.loads(value)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(doc, Mapping) or doc.get("schema") != _SIGNING_KEY_DOC_SCHEMA:
+        return None
+    versions = doc.get("versions")
+    active_key_id = doc.get("active_key_id")
+    if not isinstance(versions, list) or not isinstance(active_key_id, str):
+        return None
+    active_material: str | None = None
+    verifying: list[str] = []
+    for entry in versions:
+        if not isinstance(entry, Mapping):
+            return None
+        material = entry.get("material")
+        status = entry.get("status")
+        key_id = entry.get("key_id")
+        if not _valid_key_material(material) or not isinstance(key_id, str):
+            return None
+        if status in _VERIFYING_STATUSES:
+            verifying.append(material)
+        if key_id == active_key_id and status == "active":
+            active_material = material
+    if active_material is None or active_material not in verifying:
+        return None
+    return ProvisionedSigningKey(
+        active_material=active_material,
+        active_key_id=active_key_id,
+        verification_materials=tuple(dict.fromkeys(verifying)),
+    )
+
+
+def _encryption_at_rest_configured(config: Any) -> bool:
+    """Whether the engine's encryption-at-rest is armed for the durable store.
+
+    The au-canonical signal is ``epistemic_graph_encryption_key_ref`` — the launcher
+    resolves it and injects ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` into the engine, which
+    then seals the redb durable value blobs with its ChaCha20-Poly1305 value cipher.
+    The self-provisioned key is written THROUGH that standard encrypted value path
+    (nothing here re-implements or bypasses it), so when this is true the stored
+    material is sealed at rest (CONCEPT:AU-OS.identity.encrypted-secret-store). This
+    is the same reference ``profile_guard`` requires for a packaged local production
+    engine.
+    """
+    return bool(
+        str(getattr(config, "epistemic_graph_encryption_key_ref", "") or "").strip()
+    )
+
+
+def _warn_encryption_posture_once(config: Any) -> None:
+    """One-time hardening advisory when no encryption-at-rest key is configured.
+
+    Graduated posture: (1) self-contained default — the durable store's own file
+    permissions protect the key; (2) + set ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` to
+    seal it at rest; (3) + set ``PERMISSIONS_SIGNING_KEY_REF`` to an external/KMS
+    reference for a rotated, out-of-band authority.
+    """
+    global _ENCRYPTION_POSTURE_WARNED
+    if _ENCRYPTION_POSTURE_WARNED or _encryption_at_rest_configured(config):
+        return
+    _ENCRYPTION_POSTURE_WARNED = True
+    logger.warning(
+        "Self-provisioned permission signing key is protected only by the durable "
+        "store's file permissions: no encryption-at-rest key is configured. For a "
+        "hardened deployment set EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF (seals the "
+        "stored key at rest via the engine's value cipher) or "
+        "PERMISSIONS_SIGNING_KEY_REF (an external/rotated key). "
+        "(CONCEPT:AU-OS.identity.encrypted-secret-store)"
+    )
+
+
+def _audit_signing_key(action: str, key_id: str, detail: str) -> None:
+    """Structured, material-free audit line for a signing-key lifecycle event.
+
+    Key MATERIAL is never an argument — only the non-secret ``key_id`` (a random
+    public identifier) and counts. The durable ``:Secret`` write itself is
+    additionally captured by the engine's hash-chained audit log.
+    """
+    logger.info(
+        "audit permissions-signing-key action=%s key_id=%s %s", action, key_id, detail
+    )
+
+
+def provision_signing_key(
+    config: Any, *, secrets_client: Any = None
+) -> ProvisionedSigningKey:
+    """Resolve — self-provisioning once if needed — the durable signing authority.
+
+    Idempotent across restarts: an already-provisioned document is reused. A first
+    provision generates a CSPRNG key and writes a v1 versioned document into the
+    engine's durable secret store via an ATOMIC ``set_if_absent`` (a durable
+    compare-and-set), so two racing boots converge on ONE key — the loser reads the
+    winner's document. The returned material is ALWAYS the durably stored value,
+    never a per-process ephemeral one.
+    """
+    if secrets_client is None:
+        from .secrets_client import create_secrets_client
+
+        secrets_client = create_secrets_client()
+
+    name = WELL_KNOWN_SIGNING_KEY_NAME
+
+    # Fast path: already provisioned durably — reuse it (idempotent).
+    provisioned = _provisioned_from_document(secrets_client.get(name))
+    if provisioned is not None:
+        return provisioned
+
+    _warn_encryption_posture_once(config)
+
+    version = _new_key_version()
+    document = _render_key_document([version], version["key_id"])
+    created = secrets_client.set_if_absent(
+        name,
+        document,
+        purpose="permissions-signing-key",
+        provisioned="auto",
+        schema=_SIGNING_KEY_DOC_SCHEMA,
+    )
+    if created:
+        _audit_signing_key(
+            "provision", version["key_id"], "versions=1 provisioned=auto"
+        )
+
+    # Won or lost the race, the authoritative value is now whatever is durably
+    # stored — re-read and adopt it so every process agrees on one key.
+    provisioned = _provisioned_from_document(secrets_client.get(name))
+    if provisioned is not None:
+        return provisioned
+    raise PermissionBootstrapError(
+        "permission signing key could not be durably provisioned"
+    )
+
+
+def rotate_signing_key(
+    config: Any, *, secrets_client: Any = None
+) -> ProvisionedSigningKey:
+    """Rotate the signing authority: new active version, previous active -> grace.
+
+    Rotation-ready by construction — the stored document already carries N
+    versions, so this needs NO data migration. The new active version signs new
+    identities; the demoted (grace) version still VERIFIES un-expired identities
+    until it is later retired. Durable and atomic on the engine backend (a
+    compare-and-set on the stored document); the trigger is deliberately manual.
+    """
+    if secrets_client is None:
+        from .secrets_client import create_secrets_client
+
+        secrets_client = create_secrets_client()
+
+    name = WELL_KNOWN_SIGNING_KEY_NAME
+    current_value = secrets_client.get(name)
+    current = _provisioned_from_document(current_value)
+    if current is None:
+        # Nothing valid to rotate from — provision a fresh authority instead.
+        return provision_signing_key(config, secrets_client=secrets_client)
+
+    doc = json.loads(current_value)
+    versions = [dict(v) for v in doc["versions"] if isinstance(v, Mapping)]
+    for entry in versions:
+        if entry.get("status") == "active":
+            entry["status"] = "grace"
+    new_version = _new_key_version()
+    versions.append(new_version)
+    new_document = _render_key_document(versions, new_version["key_id"])
+
+    applied = secrets_client.compare_and_set(name, current_value, new_document)
+    if not applied:
+        # Lost a concurrent rotation — adopt whatever is now durably stored.
+        latest = _provisioned_from_document(secrets_client.get(name))
+        if latest is not None:
+            return latest
+        raise PermissionBootstrapError("permission signing key rotation conflict")
+    _audit_signing_key(
+        "rotate", new_version["key_id"], f"versions={len(versions)} prior_active=grace"
+    )
+    resolved = _provisioned_from_document(new_document)
+    if resolved is None:  # pragma: no cover - a just-rendered document is always valid
+        raise PermissionBootstrapError("permission signing key rotation failed")
+    return resolved
+
+
+def _resolve_identity_ttl(config: Any) -> float:
+    raw = getattr(
+        config, "permissions_identity_ttl_seconds", _DEFAULT_IDENTITY_TTL_SECONDS
+    )
+    try:
+        ttl = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_IDENTITY_TTL_SECONDS
+    return ttl if ttl >= 0 else _DEFAULT_IDENTITY_TTL_SECONDS
+
+
+def _resolve_identity_refresh_skew(config: Any) -> float:
+    raw = getattr(
+        config,
+        "permissions_identity_refresh_skew_seconds",
+        _DEFAULT_IDENTITY_REFRESH_SKEW_SECONDS,
+    )
+    try:
+        skew = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_IDENTITY_REFRESH_SKEW_SECONDS
+    return skew if skew >= 0 else _DEFAULT_IDENTITY_REFRESH_SKEW_SECONDS
+
+
 def resolve_permission_context(
     config: AgentConfig,
     *,
@@ -759,17 +1145,30 @@ def resolve_permission_context(
     role: AgentRole = AgentRole.SPECIALIST,
     capabilities: Sequence[str] = (),
     secret_resolver: Callable[[object], str] | None = None,
+    secrets_client: Any = None,
 ) -> PermissionContext | None:
     """Return one verified permission context for a runtime execution tree.
 
-    An explicitly injected kernel and identity must be supplied as a pair and
-    must verify against each other. Otherwise, a required context is bootstrapped
-    exclusively from ``AgentConfig.permissions_signing_key_ref`` through the
-    runtime secret resolver. Raw configuration material and per-process random
-    authorities are deliberately unsupported.
+    An explicitly injected kernel and identity must be supplied as a pair and must
+    verify against each other. Otherwise a required context is bootstrapped from the
+    signing authority:
 
-    ``secret_resolver`` is dependency injection for bounded tests. Runtime call
-    sites omit it and therefore always use the central runtime secret resolver.
+    * If ``AgentConfig.permissions_signing_key_ref`` IS configured, that explicit
+      external/rotated key wins and is resolved through the runtime secret resolver
+      — unchanged.
+    * Otherwise the authority is SELF-PROVISIONED durably
+      (:func:`provision_signing_key`): a CSPRNG key stored once, under a well-known
+      name, in the engine's durable secret store via an atomic create-if-absent, and
+      reused across restarts. This durable *shared* authority is accepted precisely
+      because it is not a per-process random one — a per-process ephemeral key is
+      never fabricated; if the durable store cannot provide/accept a key, bootstrap
+      fails closed with :class:`PermissionBootstrapError`.
+
+    The issued identity carries a bounded ``permissions_identity_ttl_seconds`` TTL
+    (transparently re-issued on use at the governed boundary, so a long task never
+    dies at TTL) and is least-privilege — the caller's ``role`` (SPECIALIST by
+    default, never blanket admin). ``secret_resolver``/``secrets_client`` are
+    dependency injection for bounded tests; runtime call sites omit them.
     """
 
     if (permissions_kernel is None) != (agent_identity is None):
@@ -784,26 +1183,41 @@ def resolve_permission_context(
     signing_key_ref = str(
         getattr(config, "permissions_signing_key_ref", "") or ""
     ).strip()
-    if not signing_key_ref:
-        raise PermissionBootstrapError(
-            "permission signing key reference is required for governed execution"
-        )
-    if secret_resolver is None:
-        from .cli_secrets import resolve_runtime_secret_reference
-
-        secret_resolver = resolve_runtime_secret_reference
+    ttl_seconds = _resolve_identity_ttl(config)
+    skew_seconds = _resolve_identity_refresh_skew(config)
     try:
-        signing_key = secret_resolver(signing_key_ref)
+        if signing_key_ref:
+            # Explicit external/rotated key reference — config override WINS,
+            # resolved exactly as before (single active authority).
+            resolver = secret_resolver
+            if resolver is None:
+                from .cli_secrets import resolve_runtime_secret_reference
+
+                resolver = resolve_runtime_secret_reference
+            active_material = resolver(signing_key_ref)
+            additional_materials: tuple[str, ...] = ()
+        else:
+            # No explicit reference: durably self-provision one shared authority
+            # (idempotent, atomic create-if-absent) rather than failing.
+            provisioned = provision_signing_key(config, secrets_client=secrets_client)
+            active_material = provisioned.active_material
+            additional_materials = provisioned.additional_verification_materials
         kernel = PermissionsKernel(
-            signing_key=signing_key,
+            signing_key=active_material,
             policies_path=getattr(config, "agent_policies_path", None),
             engine=engine,
+            additional_verification_keys=additional_materials,
+            identity_ttl_seconds=ttl_seconds,
+            identity_refresh_skew_seconds=skew_seconds,
         )
         identity = kernel.issue_identity(
             agent_id=kernel.derive_agent_id(agent_subject),
             role=role,
             capabilities=list(capabilities),
+            ttl_seconds=ttl_seconds,
         )
+    except PermissionBootstrapError:
+        raise
     except Exception:
         raise PermissionBootstrapError("permission context bootstrap failed") from None
     if not kernel.verify_identity(identity):

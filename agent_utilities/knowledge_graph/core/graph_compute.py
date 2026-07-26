@@ -2207,6 +2207,32 @@ class GraphComputeEngine:
         """
         return bool(self._client.nodes.compare_and_set(node_id, conditions, updates))
 
+    def create_node_if_absent(
+        self, node_id: str, properties: Any = None, **kwargs: Any
+    ) -> bool:
+        """Atomic durable membership-test-and-insert (never overwrites).
+
+        Returns ``True`` only to the writer that actually inserted ``node_id``;
+        concurrent losers get ``False`` and the winner's node is left untouched.
+        The engine runs one durable server-side test-and-insert under its write
+        guard, so this is the backend-agnostic primitive for exactly-once
+        provisioning (e.g. a self-provisioned signing key that two boots race to
+        create — one wins, the other reads the winner's value). Mirrors
+        :meth:`add_node`'s identity stamping; unlike ``add_node`` it does not
+        clobber an existing node.
+        """
+        props = dict(properties or {})
+        props.update(kwargs)
+        if "type" in props:
+            raise ValueError(
+                "node property 'type' is not supported; use canonical 'node_type'"
+            )
+        declared_id = props.get("id")
+        if declared_id is not None and str(declared_id) != str(node_id):
+            raise ValueError("node property 'id' must match the native node identity")
+        props["id"] = str(node_id)
+        return bool(self._client.nodes.create_if_absent(node_id, props))
+
     def claim_work_item(self, request: Any) -> Any:
         """Atomically select and lease one WorkItem in the engine."""
         from agent_utilities.protocols.epistemic_operations import (
