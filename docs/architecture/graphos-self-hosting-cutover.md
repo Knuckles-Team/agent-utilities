@@ -9,16 +9,26 @@
 > Deployment. This document is **design only**; the orchestrator executes it live, on
 > its own schedule, against the real `platform/epistemic-graph` + `platform/graph-os`.
 > **Nothing in this document has been applied.**
+>
+> **Placeholders used below** (this is a public page — the literal values are
+> homelab-specific and deliberately not repeated here; resolve them with the cited
+> `kubectl get` commands, exactly as in
+> [`graphos-horizontal-scaling.md`](graphos-horizontal-scaling.md)):
+> `<ENGINE_NODE>` / `<ENGINE_NODE_IP>` — the node the redb hostPath pins the engine to,
+> and its cluster IP. `<ENGINE_HOST_HOME>` — the operator home directory backing the
+> redb/TLS/config hostPath mounts. `<WORKSPACE_NFS_SERVER>` / `<WORKSPACE_NFS_EXPORT>`
+> — the existing NFS export `au-src`/`eg-wheel` already use. `<REGISTRY>` — wherever
+> the unified image is published.
 
 ## Why this is possible now, and why it wasn't before
 
 `docker/graphos-unified.Dockerfile` (W-C) now bakes the engine binary
 (`epistemic-graph-server`, at `/usr/local/bin/`) **into the same image** as
 `graph-os`/`kg_server` — confirmed live: `platform/graph-os` already runs
-`knucklessg1/graph-os-unified@sha256:…` today. Before this image existed, co-locating
+`<REGISTRY>/graph-os-unified@sha256:…` today. Before this image existed, co-locating
 engine + graph-os in one pod required two *different* container images (see
 `services/epistemic-graph/k8s/bundled-core-pod.yaml` Variant A: an `ubuntu:26.04` engine
-sidecar with a hostPath-mounted binary, alongside a separate `knucklessg1/agent-utilities`
+sidecar with a hostPath-mounted binary, alongside a separate `<REGISTRY>/agent-utilities`
 graph-os container) — the genesis reference already names that shape "a valid stepping
 stone toward the tighter PyO3 embedding, not a competing target." This document is that
 stepping stone made concrete against the current unified image and the real 87-graph
@@ -110,13 +120,13 @@ take it:
 ```
 
 **Out of scope / do not touch:** `platform/epistemic-kvcache` (image
-`registry.arpa/epistemic-graph:kvcache`, runs on `gb10`) shares the engine codebase but
-is an **unrelated** workload (vLLM KV-cache layering, not KG storage) on a different
-node — this cutover does not affect it.
+`registry.arpa/epistemic-graph:kvcache`, runs on the cluster's GPU node) shares the
+engine codebase but is an **unrelated** workload (vLLM KV-cache layering, not KG
+storage) on a different node — this cutover does not affect it.
 
 **Verify-before-cutover item (do not assume):** the live `epistemic-graph` container
 declares `containerPort: 9130 name: kvcache` alongside `9100`, and
-`graph-os-env`'s `EPISTEMIC_GRAPH_KVCACHE_URL=http://10.0.0.10:9130` points at it — but
+`graph-os-env`'s `EPISTEMIC_GRAPH_KVCACHE_URL=http://<ENGINE_NODE_IP>:9130` points at it — but
 the container's actual CLI args (`kubectl get deploy epistemic-graph -o yaml`) show no
 corresponding `--kvcache-addr`-style flag today. Confirm whether anything is really
 listening on 9130 on the CURRENT engine before cutover (e.g. `kubectl exec` a connect
@@ -129,8 +139,8 @@ if nothing is, the port declaration is vestigial and needs no equivalent.
 Mirrors the two techniques that already prevented outages in this exact system
 (`reports/HANDOFF-2026-07-22.md` §"pre-flight techniques"):
 
-1. **Copy the redb store** (`/home/genius/epistemic-graph/graph_snapshots`, hostPath on
-   r510) to a scratch path. Run the new pod spec's engine sidecar command **standalone**
+1. **Copy the redb store** (`<ENGINE_HOST_HOME>/epistemic-graph/graph_snapshots`, hostPath on
+   <ENGINE_NODE>) to a scratch path. Run the new pod spec's engine sidecar command **standalone**
    (a throwaway pod, `--persist-dir` pointed at the COPY, same TLS/signer/auth env)
    against the copy first. Confirm: catalog loads, graph count matches the live store,
    `EPISTEMIC_GRAPH_REQUIRE_OIDC=false` + the shared HMAC secret authenticate a test
@@ -154,7 +164,7 @@ Mirrors the two techniques that already prevented outages in this exact system
 ## The pod spec
 
 Both containers reference the **same** unified image
-(`knucklessg1/graph-os-unified:<tag>` — the validated `latest`/`w-c-validation`, not the
+(`<REGISTRY>/graph-os-unified:<tag>` — the validated `latest`/`w-c-validation`, not the
 `:langfuse` follow-up validation tag from `graphos-unified-kaniko-job.yaml` unless that
 work has separately been promoted). Deltas from today's live `graph-os` Deployment are
 called out inline; everything not mentioned (au-config/au-src/eg-wheel mounts,
@@ -186,7 +196,7 @@ spec:
       # construction — the reason today's SEPARATE Deployments need hostNetwork
       # (reaching a sibling POD's loopback) does not apply to sibling CONTAINERS in the
       # same pod. Only the redb hostPath still forces node pinning.
-      nodeSelector: {kubernetes.io/hostname: r510}
+      nodeSelector: {kubernetes.io/hostname: <ENGINE_NODE>}
       terminationGracePeriodSeconds: 60   # covers the engine's clean shutdown + graph-os preStop
 
       # ── NATIVE SIDECAR (k8s >=1.29; this cluster is 1.35) ─────────────────────────
@@ -198,7 +208,7 @@ spec:
       initContainers:
       - name: engine
         restartPolicy: Always
-        image: knucklessg1/graph-os-unified:<tag>   # SAME image as graph-os below
+        image: <REGISTRY>/graph-os-unified:<tag>   # SAME image as graph-os below
         imagePullPolicy: Always
         command: ["sh", "-c"]
         args:
@@ -248,7 +258,7 @@ spec:
 
       containers:
       - name: graph-os
-        image: knucklessg1/graph-os-unified:<tag>   # SAME image as the sidecar above
+        image: <REGISTRY>/graph-os-unified:<tag>   # SAME image as the sidecar above
         imagePullPolicy: Always
         command: ["python3", "-m", "agent_utilities.mcp.kg_server"]   # unchanged
         env:
@@ -308,7 +318,7 @@ spec:
         - {mountPath: /run/epistemic-graph, name: engine-socket}
 
       volumes:
-      # NEW — was a hostPath (`/run/epistemic-graph` on r510) shared via co-scheduling;
+      # NEW — was a hostPath (`/run/epistemic-graph` on <ENGINE_NODE>) shared via co-scheduling;
       # now an in-pod emptyDir, the SAME simplification bundled-core-pod.yaml already
       # made for the identical reason (makes the coupling explicit: these two
       # containers share a socket because they are IN one pod, not because of an
@@ -317,19 +327,19 @@ spec:
       # UNCHANGED — must stay hostPath, never NFS (redb needs real POSIX advisory
       # locks; see MEMORY.md k8s-swarm-cutover "DBs never NFS").
       - name: redb
-        hostPath: {path: /home/genius/epistemic-graph/graph_snapshots, type: Directory}
+        hostPath: {path: <ENGINE_HOST_HOME>/epistemic-graph/graph_snapshots, type: Directory}
       # RECOMMENDED small deviation from today: mount the k8s Secret directly instead
-      # of the hostPath copy (`/home/genius/eg-tls`) the live Deployment currently
+      # of the hostPath copy (`<ENGINE_HOST_HOME>/eg-tls`) the live Deployment currently
       # uses — one less manually-synced copy of the same material. Revert to the
       # hostPath (unchanged from today) if the operator prefers zero deviation here.
       - name: eg-tls
         secret: {secretName: epistemic-graph-tls}
       # UNCHANGED from today's graph-os Deployment:
-      - {name: au-config, hostPath: {path: /home/genius/.config/agent-utilities-next, type: Directory}}
+      - {name: au-config, hostPath: {path: <ENGINE_HOST_HOME>/.config/agent-utilities-next, type: Directory}}
       - {name: local-data, emptyDir: {}}
       - {name: homelab-ca, configMap: {name: homelab-ca-bundle, defaultMode: 420}}
-      - {name: eg-wheel, nfs: {server: 10.0.0.12, path: /home/apps/eg-wheel, readOnly: true}}
-      - {name: au-src, nfs: {server: 10.0.0.12, path: /home/apps/workspace/agent-packages/agent-utilities, readOnly: true}}
+      - {name: eg-wheel, nfs: {server: <WORKSPACE_NFS_SERVER>, path: <WORKSPACE_NFS_EXPORT>/eg-wheel, readOnly: true}}
+      - {name: au-src, nfs: {server: <WORKSPACE_NFS_SERVER>, path: <WORKSPACE_NFS_EXPORT>/agent-packages/agent-utilities, readOnly: true}}
 ```
 
 **Not shown/unchanged:** the `graph-os` Service (port 80 → container `http`) and
@@ -347,7 +357,7 @@ The redb single-writer lock makes rollback a mirror of cutover, not a special ca
    scales to 0 rather than deleting — keep it, its ConfigMap/Secret refs, and its
    Service around for the whole verification window before deleting anything).
 3. `kubectl rollout undo deployment/graph-os -n platform` (or reapply the pre-cutover
-   manifest) to restore the old pod spec (`GRAPH_SERVICE_ENDPOINTS=tls://10.0.0.10:9100`
+   manifest) to restore the old pod spec (`GRAPH_SERVICE_ENDPOINTS=tls://<ENGINE_NODE_IP>:9100`
    via the durable config, no sidecar).
 4. Confirm `graph-os` reaches `Ready` against the restored separate engine before
    declaring rollback complete.

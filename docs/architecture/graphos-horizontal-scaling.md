@@ -13,6 +13,15 @@
 > Shape 2's graph-os replica count, grounded against the live cluster
 > (`kubectl get`/`-o yaml`, `platform` namespace, 2026-07-25) — not the older staged
 > manifests, which this page corrects in one place below.
+>
+> **Placeholders used below** (this is a public page — the literal values are
+> homelab-specific and deliberately not repeated here; resolve them with the cited
+> `kubectl get` commands): `<ENGINE_NODE>` — the node the engine's redb hostPath pins
+> it to. `<ENGINE_NODE_IP>` — that node's cluster IP (the engine TLS cert's SAN).
+> `<ENGINE_HOST_HOME>` — the operator home directory backing graph-os's host-local
+> config mount (§2). `<WORKSPACE_NFS_SERVER>` / `<WORKSPACE_NFS_EXPORT>` — the NFS
+> export the `au-src`/`eg-wheel` mounts already use. `<REGISTRY>` — wherever the
+> unified image is published.
 
 ## TL;DR
 
@@ -37,12 +46,12 @@ hand-typed IP literal. §5 is the concrete sequence.
 
 | Component | Live fact | Source |
 |---|---|---|
-| `epistemic-graph` (engine) | `--tcp-addr 0.0.0.0:9100 --tcp-tls-cert /etc/eg-tls/eng-tls.crt --tcp-tls-key /etc/eg-tls/eng-tls.key`, `hostNetwork: true`, `nodeSelector: r510`, `replicas: 1`, `strategy: Recreate` | `kubectl get deploy epistemic-graph -n platform -o yaml` |
+| `epistemic-graph` (engine) | `--tcp-addr 0.0.0.0:9100 --tcp-tls-cert /etc/eg-tls/eng-tls.crt --tcp-tls-key /etc/eg-tls/eng-tls.key`, `hostNetwork: true`, `nodeSelector: <ENGINE_NODE>`, `replicas: 1`, `strategy: Recreate` | `kubectl get deploy epistemic-graph -n platform -o yaml` |
 | Engine auth | `GRAPH_SERVICE_AUTH_SECRET` (HMAC) + `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` from Secret `epistemic-graph-secrets`; `EPISTEMIC_GRAPH_REQUIRE_OIDC=false` | same |
 | Engine cert | k8s `Secret epistemic-graph-tls` (`kubernetes.io/tls`), issued off the `homelab-arpa-ca` `ClusterIssuer`, SAN for the engine's node IP | `kubectl get secret epistemic-graph-tls -n platform` (type/keys only — no values read) |
 | Engine Service | `ClusterIP`, ports `9100` (engine RPC) + `9130` (kvcache) — routable in-cluster from any node despite `hostNetwork` (kube-proxy targets the node IP) | `kubectl get svc epistemic-graph -n platform` |
-| `graph-os` (client) | image `knucklessg1/graph-os-unified@sha256:…` (the **unified image**, W-C), command `python3 -m agent_utilities.mcp.kg_server`, **not** `hostNetwork`, but still `nodeSelector: r510`, `replicas: 1`, `strategy: RollingUpdate` (`maxSurge: 1, maxUnavailable: 0`) | `kubectl get deploy graph-os -n platform -o yaml` |
-| graph-os → engine TLS config | ConfigMap `graph-os-env`: `ENGINE_CA_BUNDLE=/etc/ssl/homelab/ca-bundle.pem`, `ENGINE_TLS_SERVER_NAME=10.0.0.10` (the engine's literal node IP) | `kubectl get configmap graph-os-env -n platform -o yaml` |
+| `graph-os` (client) | image `<REGISTRY>/graph-os-unified@sha256:…` (the **unified image**, W-C), command `python3 -m agent_utilities.mcp.kg_server`, **not** `hostNetwork`, but still `nodeSelector: <ENGINE_NODE>`, `replicas: 1`, `strategy: RollingUpdate` (`maxSurge: 1, maxUnavailable: 0`) | `kubectl get deploy graph-os -n platform -o yaml` |
+| graph-os → engine TLS config | ConfigMap `graph-os-env`: `ENGINE_CA_BUNDLE=/etc/ssl/homelab/ca-bundle.pem`, `ENGINE_TLS_SERVER_NAME=<ENGINE_NODE_IP>` (the engine's literal node IP) | `kubectl get configmap graph-os-env -n platform -o yaml` |
 | graph-os auth | Secret `graph-os-secrets` carries the **same** `GRAPH_SERVICE_AUTH_SECRET` key as the engine's secret (shared HMAC, as `engine_sharding.md` requires fleet-wide) | key list only, no values read |
 | Ingress | `graph-os.arpa`, **`nginx.ingress.kubernetes.io/affinity: cookie` already set**, TLS via `graph-os-tls` | `kubectl get ingress graph-os -n platform -o yaml` |
 | Autoscaling objects | **none** — `kubectl get hpa,pdb -n platform` returns nothing | same |
@@ -75,25 +84,25 @@ still accurate.)
 
 ## 2. Blocker #1 — graph-os is still node-pinned, but no longer for a TLS reason
 
-`graph-os`'s `nodeSelector: kubernetes.io/hostname: r510` is not there because of
+`graph-os`'s `nodeSelector: kubernetes.io/hostname: <ENGINE_NODE>` is not there because of
 `hostNetwork` (it doesn't set that field at all — a real change from the staged
 `production-separate.yaml` design). It is there because two of its volumes are plain
-**host-local** `hostPath` mounts on r510, not the NFS mounts the rest of the pod
+**host-local** `hostPath` mounts on <ENGINE_NODE>, not the NFS mounts the rest of the pod
 already uses:
 
 ```yaml
 volumes:
-  - hostPath: {path: /home/genius/.config/agent-utilities-next, type: Directory}
+  - hostPath: {path: <ENGINE_HOST_HOME>/.config/agent-utilities-next, type: Directory}
     name: au-config          # durable AgentConfig dir (config.json) — LOCAL DISK
   - hostPath: {path: /run/epistemic-graph, type: DirectoryOrCreate}
     name: uds                # UDS socket dir — LOCAL DISK, role unconfirmed (see below)
-  - name: au-src              # NFS 10.0.0.12:/home/apps/workspace/.../agent-utilities
-  - name: eg-wheel             # NFS 10.0.0.12:/home/apps/eg-wheel
+  - name: au-src              # NFS <WORKSPACE_NFS_SERVER>:<WORKSPACE_NFS_EXPORT>/agent-packages/agent-utilities
+  - name: eg-wheel             # NFS <WORKSPACE_NFS_SERVER>:<WORKSPACE_NFS_EXPORT>/eg-wheel
 ```
 
 `au-src` and `eg-wheel` were already migrated to NFS (any node can mount them); the
-config directory was not. A second replica scheduled on `r710`/`rw710`/`gb10`/`r820`
-would find no `/home/genius/.config/agent-utilities-next` on that host and boot with an
+config directory was not. A second replica scheduled on any of the cluster's **other**
+nodes would find no `<ENGINE_HOST_HOME>/.config/agent-utilities-next` on that host and boot with an
 empty (or absent) durable config — this is a **config-distribution** gap, unrelated to
 whether the engine speaks TLS. It is also the more mundane of the two Blockers and
 should be fixed first, independent of §3.
@@ -101,7 +110,7 @@ should be fixed first, independent of §3.
 Fix options (either is sufficient — pick one, don't do both):
 
 - **(a) Publish `config.json` onto the same NFS export** `au-src`/`eg-wheel` already
-  use, and mount it read-only from there instead of the r510-local hostPath. Minimal
+  use, and mount it read-only from there instead of the <ENGINE_NODE>-local hostPath. Minimal
   diff from today's shape.
 - **(b) Drop the hostPath entirely.** Per `AGENTS.md` → *Configuration discipline*,
   deployment-varying values belong in `config.json`-via-OpenBao-reference or the typed
@@ -126,8 +135,8 @@ loopback." Loopback is already gone (§1) — what remains is that the TLS ident
 in place today is **hand-wired to one literal address**, not the general mechanism the
 engine already ships for exactly this purpose:
 
-- **Today:** the engine's cert has a SAN for its node's literal IP (`10.0.0.10`), and
-  graph-os is configured with `ENGINE_TLS_SERVER_NAME=10.0.0.10` to match it verbatim.
+- **Today:** the engine's cert has a SAN for its node's literal IP (`<ENGINE_NODE_IP>`), and
+  graph-os is configured with `ENGINE_TLS_SERVER_NAME=<ENGINE_NODE_IP>` to match it verbatim.
   This works — but only because the engine is (and, being a single-writer redb store,
   will structurally remain — see §6) permanently pinned to that one node. Every
   graph-os replica, wherever k8s schedules it, needs the *identical* hardcoded pin;
@@ -138,7 +147,7 @@ engine already ships for exactly this purpose:
   client certificates (`src/main.rs` `Args::tcp_tls_client_ca`), but it is not
   configured on the live Deployment (only `--tcp-tls-cert`/`--tcp-tls-key`). Today the
   ONLY thing distinguishing an authorized caller from anyone who can route to
-  `10.0.0.10:9100` is the app-layer HMAC bearer secret
+  `<ENGINE_NODE_IP>:9100` is the app-layer HMAC bearer secret
   (`GRAPH_SERVICE_AUTH_SECRET`/`eg2.` envelope signing) — TLS here authenticates the
   *server* to the client, not the reverse.
 - **The mechanism that already exists for this, unused so far:** eg `AGENTS.md`'s
@@ -147,12 +156,12 @@ engine already ships for exactly this purpose:
   startup (`Method::NodeInfoUpsert`) and handed back to a discovering client
   (`Method::ClusterMembers`, `epistemic_graph/pool.py`'s `resolve_cluster_endpoints`).
   This is explicitly designed to replace "a static hand-maintained client map" — which
-  is exactly what `ENGINE_TLS_SERVER_NAME=10.0.0.10` is, today, by hand.
+  is exactly what `ENGINE_TLS_SERVER_NAME=<ENGINE_NODE_IP>` is, today, by hand.
 
 **Why this is not an urgent blocker today, and is a correctness gap tomorrow:** with
 one static engine node, the IP pin is functionally sufficient — the cluster's flat
-host network (`MCP_TRUSTED_PROXY_CIDRS` already trusts `10.0.0.0/24`) means any
-graph-os replica on any of the 5 nodes can already reach `10.0.0.10:9100`. Nothing in
+host network (`MCP_TRUSTED_PROXY_CIDRS` already trusts the cluster's own host subnet)
+means any graph-os replica on any cluster node can already reach `<ENGINE_NODE_IP>:9100`. Nothing in
 §2's fix is blocked on this section. It becomes load-bearing the moment either (a) the
 engine adopts the `cluster`/Raft build (the genesis reference's Shape 2 subsections
 "Build the `cluster` engine" / "Stand up the Raft members" — a *different*, larger,
@@ -192,11 +201,11 @@ track already used for checkpoints/queues — see
 
 1. **Fix the config-locality pin (§2).** Either move `config.json` onto the existing
    NFS export or fold its contents into `graph-os-env`/OpenBao references. Verify by
-   scheduling a throwaway pod with the SAME volumes on a non-r510 node and confirming
+   scheduling a throwaway pod with the SAME volumes on a non-<ENGINE_NODE> node and confirming
    `agent_utilities.core.config` builds cleanly.
 2. **Drop `graph-os`'s `nodeSelector`.** With §2's fix in place, nothing left in the
    pod spec is node-local. Confirm a rolling restart lands the single replica on any
-   node (not just r510) before touching replica count.
+   node (not just <ENGINE_NODE>) before touching replica count.
 3. **Add the `HorizontalPodAutoscaler`.** Target the `graph-os` Deployment, CPU- or
    request-rate-driven (the gateway already emits
    `agent_utilities_gateway_in_flight_requests` /
@@ -215,7 +224,7 @@ track already used for checkpoints/queues — see
 ## 6. What this document does NOT change
 
 The engine (`epistemic-graph` Deployment) stays at `replicas: 1`, `strategy: Recreate`,
-pinned to r510, in every step above — that is a **structural** property of a
+pinned to <ENGINE_NODE>, in every step above — that is a **structural** property of a
 single-writer redb store, not a topology choice HPA on graph-os can or should affect.
 Horizontal engine capacity is a separate axis (the `cluster`/Raft build,
 `EPISTEMIC_GRAPH_RAFT_GROUPS` write-sharding — see `docs/architecture/engine_sharding.md`
@@ -232,7 +241,7 @@ to hyperscale here by design" note in the genesis reference).
 
 ## 7. Validation checklist (for whoever executes §5)
 
-- [ ] A graph-os pod with §2's fix applied, scheduled on a node **other than r510**,
+- [ ] A graph-os pod with §2's fix applied, scheduled on a node **other than <ENGINE_NODE>**,
       reaches `Ready` and its `/health` reports the engine reachable.
 - [ ] Two graph-os replicas (`kubectl get deploy graph-os -o jsonpath='{.status.readyReplicas}'`
       → `2`) on **different** nodes, both healthy.
