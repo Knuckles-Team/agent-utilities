@@ -7,6 +7,10 @@
 #     the staged, already-injected wheel (passes scripts/check_wheel_completeness.py).
 #   - the au serving plane (graph-os / kg_server), installed EDITABLE from local source.
 #   - messaging platforms (Telegram + Mattermost) + backends (neo4j/falkordb/postgres/redis).
+#   - langfuse-agent (workspace source) for LLM observability — dropped from an earlier
+#     build of this image (PyPI tops out below au's floor), restored here; see the step-2b
+#     comment below for why it installs as its own package rather than via au's [langfuse]
+#     extra.
 #
 # Base: ubuntu:26.04 (glibc 2.43). The current engine binary needs glibc >= 2.43
 # (confirmed via `objdump -T | grep GLIBC_`), which Debian 13 "trixie"/glibc 2.41 — the
@@ -19,12 +23,13 @@
 # `pip download --only-binary=:all:` against this exact base image — no compiler needed,
 # hence no build-essential / multi-stage compile split.
 #
-# Build context = this repo's worktree root. build-artifacts/eg-wheel/*.whl is a
-# git-ignored, build-time-only path — populated by a hostPath/NFS mount at build time
-# (see the kaniko Job manifest alongside this file), never committed to git. It lives at
-# the context ROOT, not under docker/ — this repo's .dockerignore excludes `docker/*`
-# wholesale (the published-wheel Dockerfile builds from no local source), which would
-# silently drop anything staged under docker/ from the kaniko build context too.
+# Build context = this repo's worktree root. build-artifacts/eg-wheel/*.whl and
+# build-artifacts/langfuse-agent-src/ are git-ignored, build-time-only paths — each
+# populated by its own hostPath/NFS mount at build time (see the kaniko Job manifests
+# alongside this file), never committed to git. Both live at the context ROOT, not under
+# docker/ — this repo's .dockerignore excludes `docker/*` wholesale (the published-wheel
+# Dockerfile builds from no local source), which would silently drop anything staged under
+# docker/ from the kaniko build context too.
 #
 # This is the W-C VALIDATION image: it always installs au EDITABLE from local worktree
 # source (not a published PyPI release), because the fixes this program depends on
@@ -36,6 +41,10 @@
 #   kaniko executor --context=dir:///workspace \
 #     --dockerfile=docker/graphos-unified.Dockerfile \
 #     --destination=knucklessg1/graph-os-unified:latest
+#
+# The langfuse-agent restoration (step 2b below) needs a SECOND hostPath/NFS mount beyond
+# what the original job used — see docker/graphos-unified-langfuse-kaniko-job.yaml for the
+# variant that adds it and pushes the `:langfuse` validation tag.
 
 FROM ubuntu:26.04
 
@@ -91,22 +100,37 @@ RUN uv pip install --system --break-system-packages \
 #    neo4j, falkordb, auth, metrics, agent-headless [skills/pydantic-ai/pydantic-monty/
 #    fasta2a], logfire, messaging-telegram, messaging-mattermost) rather than the `serving`
 #    umbrella extra itself, MINUS `langfuse`: that sub-extra pulls
-#    `langfuse-agent>=1.0.3,<2`, which — like epistemic-graph above — has a
+#    `langfuse-agent[mcp]>=1.0.3,<2`, which — like epistemic-graph above — has a
 #    `[tool.uv.sources] langfuse-agent = { workspace = true }` entry, i.e. au's own
-#    pyproject expects it from the ecosystem monorepo's sibling checkout, not PyPI; the
-#    latest version actually published to PyPI is only 1.0.1 (< the 1.0.3 floor), so it is
-#    unresolvable in this isolated build (confirmed: first attempt failed with "No matching
-#    distribution found for langfuse-agent"). No pre-staged wheel was provided for it the
-#    way one was for epistemic-graph, and it is not in the task's explicit ask (mcp /
-#    backends / embeddings / messaging-telegram / messaging-mattermost) — so it is dropped
-#    here rather than guessed at. `logfire` (the plain OTel SDK integration, a normal PyPI
-#    package, NOT workspace-sourced) is kept. `postgresql` (psycopg[binary]/psycopg-pool)
-#    and `acp` (pydantic-acp/acpkit) are added on top, same as before.
+#    pyproject expects it from the ecosystem monorepo's sibling checkout, not PyPI (the
+#    latest version actually published to PyPI is only 1.0.1, below the 1.0.3 floor). The
+#    package itself is restored below (step 2b) from that same workspace checkout — but
+#    NOT through this `langfuse` extra: the workspace source is now at version 2.0.0, past
+#    au's OWN `<2` ceiling on it, so requesting this extra here would make pip refuse the
+#    very artifact step 2b stages (confirmed). Bumping that ceiling is a separate,
+#    coordinated au change (re-lock + test) out of scope for an image-only fix, so this
+#    extra stays out of the list below; step 2b installs langfuse-agent directly instead.
+#    `logfire` (the plain OTel SDK integration, a normal PyPI package, NOT
+#    workspace-sourced) is kept. `postgresql` (psycopg[binary]/psycopg-pool) and `acp`
+#    (pydantic-acp/acpkit) are added on top, same as before.
 # Targeted copy (not `COPY .`): only what `pip install -e` actually needs — the package
 # itself + packaging metadata. Skips deploy/scripts/tests/docs (dev/CI-only; also already
 # outside this repo's .dockerignore-admitted set) and avoids re-pulling in build-artifacts/.
 COPY pyproject.toml build_backend.py README.md LICENSE /opt/agent-utilities/
 COPY agent_utilities/ /opt/agent-utilities/agent_utilities/
+
+# 2b) langfuse-agent — ALSO workspace-sourced (`[tool.uv.sources] langfuse-agent =
+#     { workspace = true }` in au's own pyproject, same as epistemic-graph in step 1), and
+#     for the same reason unresolvable from a bare `pip install`: PyPI tops out at 1.0.1.
+#     It is a SIBLING repo (agent-packages/agents/langfuse-agent), not part of this
+#     Dockerfile's own worktree, so — exactly like build-artifacts/eg-wheel above — it is
+#     mounted into the build context at build time (see
+#     docker/graphos-unified-langfuse-kaniko-job.yaml) rather than COPYable from a path
+#     this repo owns. Targeted copy, same rationale as au's own source above: the package
+#     + packaging metadata only, never `.git`/caches/tests (already outside
+#     .dockerignore's admitted set, same as agent_utilities/ above).
+COPY build-artifacts/langfuse-agent-src/pyproject.toml build-artifacts/langfuse-agent-src/build_backend.py build-artifacts/langfuse-agent-src/README.md build-artifacts/langfuse-agent-src/LICENSE /tmp/langfuse-agent-src/
+COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/langfuse_agent/
 # Plain pip here, NOT uv: agent-utilities' own pyproject.toml declares
 # `[tool.uv.sources] epistemic-graph = { workspace = true }` (+ langfuse-agent) for the
 # ecosystem monorepo's uv workspace — a sibling checkout this isolated build context does
@@ -133,6 +157,7 @@ COPY agent_utilities/ /opt/agent-utilities/agent_utilities/
 RUN pip install --break-system-packages --no-cache-dir --ignore-installed "packaging>=26.2.0"
 RUN pip install --break-system-packages --no-cache-dir \
         -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,logfire,messaging-telegram,messaging-mattermost,postgresql,acp]" \
+        "/tmp/langfuse-agent-src" \
         "redis>=5.0.0" \
         "neo4j>=6.2.0" \
         "falkordb>=1.6.2" \
@@ -147,21 +172,26 @@ RUN pip install --break-system-packages --no-cache-dir \
         "pydantic-ai-skills==1.2.0" \
         "pydantic-monty==0.0.19" \
         "fasta2a[pydantic-ai]>=0.6.1" \
-    && chmod -R a+rX /opt/agent-utilities
+    && chmod -R a+rX /opt/agent-utilities \
+    && rm -rf /tmp/langfuse-agent-src
 # ^ this pin list matches the exact stack the CURRENT split-image deploy pip-installs at
 #   pod-start (`kubectl get deploy graph-os -n platform -o yaml`) — most of it
 #   (neo4j/falkordb/telegram/mattermost/embeddings-openai) is already inside [serving];
 #   repeated here explicitly for deploy-artifact parity/robustness against a future
 #   narrowing of that extra. `redis` (no au extra covers it) and the broader
 #   pydantic-ai-slim extras (ag-ui/ui/google/groq) + pydantic-acp/acpkit are the
-#   genuinely new-vs-[serving] additions.
+#   genuinely new-vs-[serving] additions. `/tmp/langfuse-agent-src` (step 2b) is a THIRD
+#   category — a workspace-sourced package restored whole, not a [serving] sub-extra —
+#   resolved in this SAME pass so its own `agent-utilities[mcp]>=2.0.0,<3.0.0` requirement
+#   sees the au install this same command is performing, not a second, separate pass; it
+#   also pulls in `langfuse>=4,<5` (the SDK) from PyPI normally.
 
 # Build-time self-check: fail the image build itself (not just a later validation pod) if
 # the engine/kernel/serving-plane import chain is broken. `epistemic-graph-server --help`
 # is a plain clap CLI (safe/non-blocking); `graph-os` itself is NOT invoked here — running
 # it would start an MCP server (stdio) rather than return, so only its console-script
 # presence is checked.
-RUN python3 -c "import agent_utilities.mcp.kg_server; import epistemic_graph.numeric" \
+RUN python3 -c "import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 
