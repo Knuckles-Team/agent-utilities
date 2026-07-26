@@ -2008,12 +2008,25 @@ def _fleet_server_url(server: str) -> str:
         or len(candidate) > 8_192
     ):
         raise RuntimeError("fleet MCP endpoint is invalid")
-    if parsed.scheme.lower() == "http" and parsed.hostname.lower() not in {
-        "localhost",
-        "127.0.0.1",
-        "::1",
-    }:
-        raise RuntimeError("fleet MCP endpoint requires HTTPS outside loopback")
+    if parsed.scheme.lower() == "http":
+        # CONCEPT:AU-ORCH.execution.focused-tools-fleet-egress — this twin of the
+        # multiplexer's egress gate (mcp/multiplexer.py, "Remote MCP child requires
+        # HTTPS outside loopback") previously exempted ONLY loopback, so a fleet reached
+        # over plain HTTP behind a TLS-terminating ingress — legitimately declared via
+        # MCP_HTTP_ALLOWED_PRIVATE_HOSTS, which the multiplexer already honors — still
+        # hard-failed HERE, surfacing as the ORCH-1.74 focused-tools degrade (the agent
+        # graph "couldn't reach github-mcp"). Honor the SAME allowlist so the two gates
+        # agree; a host absent from it still requires HTTPS.
+        from agent_utilities.core.config import config as _agent_config
+
+        _allowed_http_hosts = {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+            *(host.lower() for host in _agent_config.mcp_http_allowed_private_hosts),
+        }
+        if parsed.hostname.lower() not in _allowed_http_hosts:
+            raise RuntimeError("fleet MCP endpoint requires HTTPS outside loopback")
     return candidate
 
 
