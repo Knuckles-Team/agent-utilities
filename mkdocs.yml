@@ -206,6 +206,8 @@ nav:
       - Distributed Multi-GPU Concurrency: architecture/distributed_gpu_concurrency.md
       - Scaling the Gateway: architecture/gateway_scaling.md
       - Authoritative Engine Placement & Sharding: architecture/engine_sharding.md
+      - graph-os Horizontal Scaling (the HPA blocker, precisely): architecture/graphos-horizontal-scaling.md
+      - graph-os Self-Hosting Cutover (design): architecture/graphos-self-hosting-cutover.md
       - Queue-Driven Agent Dispatch: architecture/agent_dispatch.md
       - Non-Blocking Hierarchical Execution: architecture/non-blocking-execution.md
       - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
