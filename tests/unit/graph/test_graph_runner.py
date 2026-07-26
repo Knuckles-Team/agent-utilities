@@ -51,6 +51,37 @@ async def test_run_graph_exception(mock_graph):
 
 
 @pytest.mark.asyncio
+async def test_run_graph_terminal_error_recovery_dict_surfaces_as_failed(mock_graph):
+    """CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — a terminal
+    ``error_recovery_step`` ``End({"error": ..., "results": {...}})`` (retries exhausted /
+    a terminal policy violation) is a REAL failure, not a completed answer. Before this fix
+    it fell through to the catch-all, which stringified the whole dict into
+    ``results.output`` under ``status="completed"`` — presenting a raw Python-dict-repr as if
+    it were a normal reply (the "some sort of failure" black box). It must now surface as a
+    failed GraphResponse with the real cause in `error` and a coherent `results.output`."""
+    mock_graph.run.return_value = {
+        "error": "Execution budget exceeded: max node transitions.",
+        "results": {"specialist_0": "partial finding"},
+    }
+
+    deps = MagicMock()
+    deps.mcp_toolsets = []
+    deps.tag_prompts = {}
+    deps.event_queue = None
+    config = {"deps": deps}
+
+    response = await runner().execute_graph(mock_graph, config, query="hello")
+
+    assert response["status"] == "failed"
+    assert "Execution budget exceeded" in response["error"]
+    assert "Execution budget exceeded" in response["results"]["output"]
+    assert response["metadata"]["degraded"] is True
+    assert response["metadata"]["outcome"] == "graph_terminal_error"
+    # Never the raw Python-dict-repr of the whole terminal payload.
+    assert "'error':" not in response["results"]["output"]
+
+
+@pytest.mark.asyncio
 async def test_execute_graph_constructs_permission_context_on_deps(mock_graph):
     kernel = object()
     identity = object()

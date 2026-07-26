@@ -51,17 +51,25 @@ def _render_agent_result(
     return_mermaid: bool,
     mermaid: Any = None,
     channel_id: str | None = None,
+    run_summary: dict[str, Any] | None = None,
 ) -> str:
-    """Render one agent result through the sole public delegation envelope."""
+    """Render one agent result through the sole public delegation envelope.
+
+    CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — ``run_summary`` (when a
+    caller opts in) rides the SAME envelope as ``mermaid``/``channel_id``: additive, opt-in,
+    and never changes the bare-string contract for a caller that asks for none of the three.
+    """
 
     output_text = str(output)
-    if not return_mermaid and not channel_id:
+    if not return_mermaid and not channel_id and run_summary is None:
         return output_text
     payload: dict[str, Any] = {"output": output_text, "run_id": run_id}
     if return_mermaid:
         payload["mermaid"] = mermaid
     if channel_id:
         payload["channel_id"] = channel_id
+    if run_summary is not None:
+        payload["run_summary"] = run_summary
     return json.dumps(payload, default=str)
 
 
@@ -191,6 +199,75 @@ def _flatten_exception_group(exc: BaseException) -> str:
     return "; ".join(leaves)
 
 
+# ---------------------------------------------------------------------------
+# Internal: run_summary — messaging-orchestration transparency
+# (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency)
+# ---------------------------------------------------------------------------
+
+
+def _extract_failure_text(result: Any) -> str:
+    """Best-effort REAL cause text from a degraded/failed structured result.
+
+    Prefers an explicit ``error`` field (``GraphResponse``-shaped critical failures), then a
+    ``metadata`` error/reason, then the rendered output text — which is where
+    ``_fleet_server_failed_result`` puts its already-composed, truthful failure string. Only
+    when NONE of those carry anything does this fall back to a synthesized "no output"
+    description — so ``raw_failure`` is NEVER empty for a degraded/failed outcome, which is
+    what lets :func:`_build_run_summary` always populate ``failure`` (never a silent drop back
+    to the old hardcoded sentinel).
+    """
+    if not isinstance(result, dict):
+        text = str(result or "").strip()
+        return text or "the run produced no output"
+    err = result.get("error")
+    if err:
+        return str(err)
+    meta = result.get("metadata")
+    if isinstance(meta, dict):
+        m_err = meta.get("error") or meta.get("failure_reason")
+        if m_err:
+            return str(m_err)
+    res = result.get("results")
+    if isinstance(res, dict) and res.get("output"):
+        return str(res["output"])
+    return "the run produced no usable output"
+
+
+def _build_run_summary(
+    *,
+    route: dict[str, Any],
+    outcome: str,
+    stage_reached: str,
+    run_id: str,
+    raw_failure: str | None,
+) -> dict[str, Any]:
+    """Assemble the structured, chat-renderable summary of one delegation's routing + outcome.
+
+    CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — every terminal outcome of
+    ``run_agent`` carries this (via ``_render_agent_result``'s opt-in ``run_summary``) so a
+    failure is a troubleshooting ENTRY POINT: a translated cause plus a ``trace_ref`` into the
+    durable ``RunTrace`` this SAME run already writes (``_record_execution_trace`` /
+    ``observability.trace_ontology``) — never an opaque "something failed". ``outcome`` is one
+    of ``ok`` | ``degraded`` | ``failed`` | ``timeout``; ``failure`` is present iff
+    ``raw_failure`` is given.
+    """
+    from agent_utilities.observability.trace_ontology import trace_id as _trace_id
+
+    summary: dict[str, Any] = {
+        "route": route,
+        "outcome": outcome,
+        "stage_reached": stage_reached,
+        "trace_ref": _trace_id(run_id),
+    }
+    if raw_failure:
+        from agent_utilities.orchestration.failure_translation import (
+            build_failure_detail,
+        )
+
+        summary["failure"] = build_failure_detail(raw_failure)
+    return summary
+
+
 def _prepare_spawn_delegation(
     agent_name: str,
     run_id: str,
@@ -303,6 +380,8 @@ async def run_agent(
     reasoning_effort: str | None = None,
     model_class: str = "standard",
     response_format: ResponseFormat = "text",
+    run_id: str | None = None,
+    include_run_summary: bool = False,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -328,15 +407,28 @@ async def run_agent(
             diagram was produced). Default False preserves the bare-string contract relied on
             by internal callers (e.g. the dynamic-workflow fan-out in
             ``engine.execute_workflow``, which filters on ``isinstance(r, str)``).
+        run_id: CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — an optional
+            caller-minted run handle (``run_identity.new_run_id()``). A caller that wants a
+            ``trace_ref`` to survive even a HARD cancellation of this call (e.g. the messaging
+            router's reply-budget ``asyncio.wait_for`` wall, which tears this coroutine down
+            before it can return anything) pre-generates one and passes it here, then reuses
+            the SAME id to build its own trace reference regardless of how this call ends.
+            ``None`` (the default) mints a fresh one, unchanged from prior behavior.
+        include_run_summary: CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency —
+            when True, the envelope (forced on, like ``return_mermaid``/``channel_id``) carries
+            a ``run_summary`` — ``{route, outcome, stage_reached, trace_ref, failure?}`` — for
+            EVERY terminal outcome (success, degraded, failed, or a best-effort one recorded
+            just before a cancellation re-raises). Opt-in and additive: default False keeps the
+            bare-string contract bit-for-bit for every existing caller.
 
     Returns:
-        The synthesized result string from the graph execution, or, when
-        ``return_mermaid`` is set, a JSON string with unconditional ``output`` and
-        ``mermaid`` keys.
+        The synthesized result string from the graph execution, or, when ``return_mermaid``,
+        ``open_channel``/``session_id``, or ``include_run_summary`` is set, a JSON string with
+        ``output`` plus whichever of ``mermaid``/``channel_id``/``run_summary`` were requested.
 
     """
     response_format = validate_response_format(response_format)
-    run_id = new_run_id()
+    run_id = run_id or new_run_id()
     start_time = time.monotonic()
     logger.info(
         "[ORCH-1.21] Starting agent execution: agent=%s, run_id=%s, task=%.100s...",
@@ -655,6 +747,13 @@ async def run_agent(
     )
 
     _delegation_token = _enter_delegation(_spawn_delegation)
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — tracked alongside the
+    # dispatch below (NOT re-derived from ``agent_meta``/``shape`` after the fact) so
+    # ``route``/``stage_reached`` always reflect the branch that ACTUALLY ran, including a
+    # fallback sub-branch (e.g. bound-template -> full graph). Read by the failure-exit branch
+    # below AND by ``_build_run_summary`` on the success/degraded exit (Step 5).
+    route: dict[str, Any] = {}
+    stage_reached = "dispatch"
     try:
         if _is_bound_template_agent(agent_meta, config):
             # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — a KG-bound persona (e.g. agent-utilities-expert)
@@ -664,6 +763,12 @@ async def run_agent(
             # hallucinated. Takes precedence over the generic focused-tools lexical
             # gate because the template DECLARES its own toolsets. A failure falls
             # through to the full graph (never drops the turn).
+            route = {
+                "agents": [agent_name],
+                "servers": [],
+                "why": "KG-bound persona template with pre-bound toolsets",
+            }
+            stage_reached = f"bound-template: {agent_name}"
             try:
                 result = await _execute_single_server(
                     config=config,
@@ -676,6 +781,9 @@ async def run_agent(
                 logger.warning(
                     "[ORCH-1.101] bound-template path failed (%s); falling through to the full graph.",
                     _flatten_exception_group(e),
+                )
+                stage_reached = (
+                    f"bound-template: {agent_name} (fallback: multi-agent-graph)"
                 )
                 result = await _execute_graph(
                     config=config,
@@ -690,6 +798,13 @@ async def run_agent(
             # server(s), so bind exactly those toolsets and run ONE direct agent loop (parallel
             # tool calls) instead of the planning graph, which over-decomposes a named-tool ask
             # into a multi-step plan + expert fan-out.
+            _focused_servers = list(getattr(shape, "tool_servers", ()) or ())
+            route = {
+                "agents": [],
+                "servers": _focused_servers,
+                "why": "lexical gate matched named fleet server(s) for this task",
+            }
+            stage_reached = f"tool-call: {','.join(_focused_servers)}"
             try:
                 result = await _execute_focused_tools(
                     task=task,
@@ -726,6 +841,12 @@ async def run_agent(
                     agent_name or ",".join(servers), err
                 )
         elif _is_single_server_agent(agent_meta, config):
+            route = {
+                "agents": [],
+                "servers": [agent_name],
+                "why": "resolved as a single KG-registered MCP server",
+            }
+            stage_reached = f"tool-call: {agent_name}"
             result = await _execute_single_server(
                 config=config,
                 task=task,
@@ -734,6 +855,12 @@ async def run_agent(
                 agent_name=agent_name,
             )
         else:
+            route = {
+                "agents": ["multi-agent-graph"],
+                "servers": [],
+                "why": "no named server/template matched; routed to the multi-agent planning graph",
+            }
+            stage_reached = "multi-agent-graph"
             result = await _execute_graph(
                 config=config,
                 query=task,
@@ -756,6 +883,42 @@ async def run_agent(
         # failed: CancelledError". CancelledError is a bare BaseException here (not a
         # group), so re-raise it before the flatten path.
         if isinstance(e, asyncio.CancelledError):
+            # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — this branch
+            # re-raises immediately, so the ordinary failure trace below NEVER runs for a
+            # cancelled run (Step 5 never runs either). Without this, a caller-side wall-clock/
+            # reply-budget timeout (e.g. the messaging router's ``asyncio.wait_for``) leaves
+            # ZERO durable trace for this run_id — a ``trace_ref`` handed to the caller (a
+            # caller that pre-generated one via the ``run_id=`` param specifically so it
+            # survives a cancellation) would resolve to nothing. Best-effort record a
+            # "timeout" RunTrace with whatever route/stage this run reached before it was cut
+            # off, so that trace_ref is a REAL troubleshooting entry point. Synchronous (no
+            # ``await``), so it runs safely to completion even though cancellation has already
+            # been delivered to this coroutine; never allowed to block or convert the re-raise.
+            try:
+                _record_execution_trace(
+                    engine,
+                    run_id,
+                    agent_name,
+                    task,
+                    status="timeout",
+                    duration_ms=(time.monotonic() - start_time) * 1000,
+                    error=(
+                        f"execution cancelled at stage={stage_reached!r} "
+                        "(caller-side wall-clock/reply-budget timeout)"
+                    ),
+                    skill_used=_skill_used,
+                    bound_server=_bound_server,
+                    skill_id=_skill_id,
+                    skill_instruction_digest=_skill_instruction_digest,
+                    model_ref=_model_ref,
+                    model_class=_model_class,
+                    model_name=str(config.get("agent_model") or ""),
+                    delegation=_spawn_delegation,
+                )
+            except Exception as trace_exc:  # noqa: BLE001 — best-effort; never block cancellation
+                logger.debug(
+                    "run_agent: best-effort timeout-trace write failed: %s", trace_exc
+                )
             raise
         if isinstance(e, KeyboardInterrupt | SystemExit) and not isinstance(
             e, BaseExceptionGroup
@@ -803,6 +966,17 @@ async def run_agent(
             run_id=run_id,
             return_mermaid=return_mermaid,
             channel_id=channel_id,
+            run_summary=(
+                _build_run_summary(
+                    route=route,
+                    outcome="failed",
+                    stage_reached=stage_reached,
+                    run_id=run_id,
+                    raw_failure=err_msg,
+                )
+                if include_run_summary
+                else None
+            ),
         )
     finally:
         # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — release the spawn's ambient
@@ -819,6 +993,24 @@ async def run_agent(
     # non-answer, and the failure is fed back so routing self-corrects next time
     # (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome; F2/F5).
     degraded = _delegation_degraded(result)
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the REAL cause of a
+    # degraded outcome (e.g. _fleet_server_failed_result's already-composed truthful message,
+    # or a GraphResponse.error from a critical graph failure) so BOTH the durable RunTrace
+    # below and the run_summary (attached to `result.metadata` + returned to any caller that
+    # asked for it) carry it — never the old hardcoded "delegation produced no usable data"
+    # sentinel, which discarded a real, already-known cause.
+    _raw_failure = _extract_failure_text(result) if degraded else None
+    run_summary = _build_run_summary(
+        route=route,
+        outcome="degraded" if degraded else "ok",
+        stage_reached=stage_reached,
+        run_id=run_id,
+        raw_failure=_raw_failure,
+    )
+    if isinstance(result, dict):
+        _meta = result.setdefault("metadata", {})
+        if isinstance(_meta, dict):
+            _meta["run_summary"] = run_summary
     # CONCEPT:AU-AHE.harness.loop-exit-conditions — ERROR THRESHOLD (exit 7):
     # feed this delegation's outcome into the per-agent consecutive-failure guard
     # (threshold + reset-on-success), so a loop driving repeated run_agent calls
@@ -833,7 +1025,7 @@ async def run_agent(
         status="degraded" if degraded else "completed",
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
-        error="delegation produced no usable data (degraded)" if degraded else None,
+        error=_raw_failure,
         skill_used=_skill_used,
         bound_server=_bound_server,
         skill_id=_skill_id,
@@ -904,6 +1096,14 @@ async def run_agent(
         elif results:
             # Fallback to full results dict
             output_str = str(results)
+        elif result.get("error"):
+            # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — a
+            # GraphResponse-shaped critical failure (engine.execute_graph's catch-all, or a
+            # terminal error_recovery_step) carries its cause in `error`, not
+            # `results.output`. Surface that cause directly rather than falling through to a
+            # raw Python-dict-repr dump of the whole result (`str(result)`) — exactly the
+            # illegible "some sort of failure" a chat user would otherwise see.
+            output_str = f"The request could not be completed: {result['error']}"
         else:
             output_str = str(result)
         # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — surface the routed-graph diagram when requested.
@@ -921,6 +1121,7 @@ async def run_agent(
             return_mermaid=return_mermaid,
             mermaid=mermaid,
             channel_id=channel_id,
+            run_summary=run_summary if include_run_summary else None,
         )
 
     return _render_agent_result(
@@ -928,6 +1129,7 @@ async def run_agent(
         run_id=run_id,
         return_mermaid=return_mermaid,
         channel_id=channel_id,
+        run_summary=run_summary if include_run_summary else None,
     )
 
 
@@ -1568,9 +1770,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts["mementos"] = (
-            f"Past Context Mementos (Compressed State):\n{memento_text}"
-        )
+        tag_prompts[
+            "mementos"
+        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.

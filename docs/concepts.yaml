@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1029
+total_concepts: 1030
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -332,6 +332,7 @@ concepts:
   - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/knowledge_graph/research/gaps.py
   - agent_utilities/knowledge_graph/research/spec_proposals.py
+  - agent_utilities/mcp/tools/state_tools.py
   doc: the unified Gap→SDD→Implement→Promote→Close
 - id: AU-AHE.harness.capability-ratchet
   name: verified apply-verify-rollback from the ManifestVerifier confirm-or-revert recommendation over
@@ -860,12 +861,13 @@ concepts:
     the candidate model behind a monotone capability ratchet, and promotes it only on a non-regressing
     improvement so test-time search converts into a stronger next prior
 - id: AU-AHE.optimization.skillopt-langfuse-signal
-  name: AU-AHE.optimization.skillopt-langfuse-signal
+  name: the config/param opt-in
   pillar: AU-AHE
   status: live
   code_paths:
   - agent_utilities/harness/langfuse_skill_signal.py
-  doc: AU-AHE.optimization.skillopt-langfuse-signal
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  doc: the config/param opt-in
 - id: AU-AHE.optimization.skillopt-native-reflact
   name: Rollout->Reflect->
   pillar: AU-AHE
@@ -2070,6 +2072,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/maintenance/graph_ownership.py
   - agent_utilities/knowledge_graph/maintenance/graph_ownership_apply.py
+  - agent_utilities/mcp/tools/governance_tools.py
   doc: deterministic ownership disposition
 - id: AU-KG.audit.hash-chain-verify
   name: routes to the engine
@@ -6633,6 +6636,17 @@ concepts:
   code_paths:
   - agent_utilities/graph/__init__.py
   doc: Manifest Generators
+- id: AU-ORCH.execution.messaging-orchestration-transparency
+  name: every terminal outcome of
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/engine.py
+  - agent_utilities/orchestration/failure_translation.py
+  - agent_utilities/orchestration/manager.py
+  doc: every terminal outcome of
 - id: AU-ORCH.execution.nl-compilation-pipeline
   name: Semantic Workflow Retrieval
   pillar: AU-ORCH
@@ -7003,6 +7017,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/mcp/tools/rlm_tools.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/rlm/gepa.py
   doc: GEPA Reflective Prompt Optimizer
@@ -8360,12 +8375,13 @@ concepts:
   - agent_utilities/security/secrets_client.py
   doc: Engine-backed encrypted secret store
 - id: AU-OS.identity.identity-policy-check
-  name: mandatory identity policy
+  name: / AU-KG.audit.kg-native-audit-sink
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/mcp/tools/governance_tools.py
   - agent_utilities/security/tool_guard.py
-  doc: mandatory identity policy
+  doc: / AU-KG.audit.kg-native-audit-sink
 - id: AU-OS.identity.identity-scoped-resource-autoload
   name: AU-OS.identity.identity-scoped-resource-autoload
   pillar: AU-OS

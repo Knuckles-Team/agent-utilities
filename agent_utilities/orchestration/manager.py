@@ -285,6 +285,8 @@ class Orchestrator:
         reasoning_effort: str | None = None,
         model_class: str = "standard",
         response_format: ResponseFormat = "text",
+        run_id: str | None = None,
+        include_run_summary: bool = False,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -299,6 +301,10 @@ class Orchestrator:
         per-node timeout budget. A chat-budget profile bounds each LLM round to tens of
         seconds (not 300 s) so a slow/degraded backend fails fast inside the chat budget;
         the messaging reply path passes ``"chat"``.
+        CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — ``run_id``/
+        ``include_run_summary`` forward to :func:`run_agent` verbatim: a caller (the messaging
+        router) that wants a translated route/outcome/failure summary — and a ``trace_ref``
+        that survives even a hard cancellation of this call — opts in via these two.
         """
         response_format = validate_response_format(response_format)
         self._scan_task(task)
@@ -321,6 +327,8 @@ class Orchestrator:
             reasoning_effort=reasoning_effort,
             model_class=model_class,
             response_format=response_format,
+            run_id=run_id,
+            include_run_summary=include_run_summary,
         )
         return result
 

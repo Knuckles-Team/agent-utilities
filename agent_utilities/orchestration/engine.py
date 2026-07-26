@@ -792,6 +792,32 @@ class AgentOrchestrationEngine:
                 tool_calls=list(getattr(state, "tool_calls", []) or []),
             ).model_dump()
 
+        # Guard: a terminal error_recovery_step End({"error": ..., "results": {...}}) is a
+        # REAL failure, not a completed answer (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
+        # Without this branch it fell through to the catch-all below, which stringified this
+        # dict into `results.output` under status="completed" — presenting a raw Python-dict
+        # repr (e.g. "{'error': 'Execution budget exceeded...', 'results': {...}}") as if it
+        # were a normal reply. Surface the real cause in `error` + a coherent output instead.
+        if isinstance(result, dict) and result.get("error"):
+            err_text = str(result.get("error") or "")
+            logger.error(
+                "run_graph: graph terminated via error_recovery with an unrecovered error: %s",
+                err_text[:300],
+            )
+            return GraphResponse(
+                status="failed",
+                error=err_text,
+                results={"output": f"The task could not be completed: {err_text}"},
+                mermaid=mermaid_prefix if mermaid_prefix else None,
+                metadata={
+                    "run_id": run_id,
+                    "domain": state.routed_domain,
+                    "degraded": True,
+                    "outcome": "graph_terminal_error",
+                },
+                tool_calls=list(getattr(state, "tool_calls", []) or []),
+            ).model_dump()
+
         return GraphResponse(
             status="completed",
             results={"output": str(result)},

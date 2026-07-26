@@ -427,7 +427,9 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
 
     sessions: list[str] = []
 
-    async def _fake_reply(_engine, _content, *, session, image_parts=None, budget=None):
+    async def _fake_reply(
+        _engine, _content, *, session, image_parts=None, budget=None, shape=None
+    ):
         sessions.append(session)
         return "ok"
 
@@ -569,3 +571,276 @@ async def test_varied_ack_lite_llm_with_static_fallback(
     monkeypatch.setattr(cards, "make_lite_llm_fn", lambda: None)
     fb = await rt._varied_ack("list my issues", shape)
     assert "github" in fb and "⏳" in fb
+
+
+# ── Messaging-orchestration transparency (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency) ──
+# A failure must be a troubleshooting ENTRY POINT, never a black box: every non-ok run_summary
+# gets a concise, translated footer appended to the reply — including the plain-chat and
+# reply-budget-timeout fallbacks, which previously gave zero indication anything failed.
+
+
+def _degraded_summary(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "route": {"agents": [], "servers": ["github-mcp"], "why": "lexical gate"},
+        "outcome": "degraded",
+        "stage_reached": "tool-call: github-mcp",
+        "trace_ref": "trace:pref_run_deadbeef",
+        "failure": {
+            "raw": "RuntimeError: fleet MCP endpoint requires HTTPS outside loopback",
+            "translated": (
+                "The fleet gateway rejected a plain-HTTP connection outside loopback "
+                "(TLS is required for any non-local endpoint)."
+            ),
+            "category": "fleet_https_gate",
+            "hint": "Ask an operator to put that server behind HTTPS, or run it on loopback.",
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+class TestTransparencyFooter:
+    def test_ok_outcome_produces_no_footer(self) -> None:
+        from agent_utilities.messaging.router import _transparency_footer
+
+        summary = {"outcome": "ok", "route": {}, "stage_reached": "x", "trace_ref": "trace:y"}
+        assert _transparency_footer(summary) == ""
+
+    def test_none_or_non_dict_summary_produces_no_footer(self) -> None:
+        from agent_utilities.messaging.router import _transparency_footer
+
+        assert _transparency_footer(None) == ""
+        assert _transparency_footer("not a dict") == ""  # type: ignore[arg-type]
+        assert _transparency_footer(123) == ""  # type: ignore[arg-type]
+
+    def test_degraded_outcome_renders_translated_hint_and_trace_ref(self) -> None:
+        from agent_utilities.messaging.router import _transparency_footer
+
+        footer = _transparency_footer(_degraded_summary())
+        assert "⚠️" in footer
+        assert "TLS" in footer or "HTTPS" in footer
+        assert "operator" in footer.lower()
+        assert "trace:pref_run_deadbeef" in footer
+
+    def test_failed_and_timeout_outcomes_also_render(self) -> None:
+        from agent_utilities.messaging.router import _transparency_footer
+
+        for outcome in ("failed", "timeout"):
+            footer = _transparency_footer(_degraded_summary(outcome=outcome))
+            assert footer  # non-empty for every non-ok outcome
+
+    def test_missing_failure_detail_still_names_stage_and_outcome(self) -> None:
+        """A degraded/failed run_summary with NO failure sub-dict (e.g. a bare empty
+        output, no captured cause) must still say SOMETHING — never a silent no-op."""
+        from agent_utilities.messaging.router import _transparency_footer
+
+        summary = {
+            "outcome": "degraded",
+            "route": {},
+            "stage_reached": "tool-call: portainer-mcp",
+            "trace_ref": "trace:pref_run_x",
+        }
+        footer = _transparency_footer(summary)
+        assert footer
+        assert "degraded" in footer
+        assert "portainer-mcp" in footer
+
+    def test_footer_respects_the_off_setting(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from agent_utilities.messaging.router import _transparency_footer
+
+        monkeypatch.setenv("MESSAGING_TRANSPARENCY_FOOTER", "false")
+        assert _transparency_footer(_degraded_summary()) == ""
+
+    def test_footer_never_raises_on_malformed_summary(self) -> None:
+        from agent_utilities.messaging.router import _transparency_footer
+
+        for junk in ({"outcome": "degraded", "failure": "not a dict"}, {"outcome": object()}):
+            assert isinstance(_transparency_footer(junk), str)  # never raises
+
+    def test_with_transparency_appends_only_when_non_empty(self) -> None:
+        from agent_utilities.messaging.router import _with_transparency
+
+        assert _with_transparency("hello", None) == "hello"
+        assert _with_transparency("hello", {"outcome": "ok"}) == "hello"
+        combined = _with_transparency("hello", _degraded_summary())
+        assert combined.startswith("hello\n\n⚠️")
+
+
+class TestSyntheticRunSummaries:
+    """The router-side synthesized summaries for the two exits run_agent cannot describe
+    itself: a caller-side reply-budget cancellation, and an exception above run_agent."""
+
+    def test_timeout_run_summary_uses_the_planned_route_when_known(self) -> None:
+        from types import SimpleNamespace
+
+        from agent_utilities.messaging.router import _timeout_run_summary
+
+        shape = SimpleNamespace(tool_servers=("github-mcp", "portainer-mcp"))
+        summary = _timeout_run_summary("run:" + "a" * 32, shape, 45.0)
+        assert summary["outcome"] == "timeout"
+        assert summary["route"]["servers"] == ["github-mcp", "portainer-mcp"]
+        assert summary["stage_reached"] == "tool-call: github-mcp,portainer-mcp"
+        assert summary["failure"]["category"] == "reply_budget_timeout"
+        assert summary["trace_ref"].startswith("trace:")
+
+    def test_timeout_run_summary_falls_back_generically_with_no_shape(self) -> None:
+        from agent_utilities.messaging.router import _timeout_run_summary
+
+        summary = _timeout_run_summary("run:" + "b" * 32, None, 45.0)
+        assert summary["outcome"] == "timeout"
+        assert summary["route"]["servers"] == []
+        assert summary["stage_reached"] == "reply-budget"
+        assert summary["failure"]["category"] == "reply_budget_timeout"
+
+    def test_exception_run_summary_translates_the_real_exception(self) -> None:
+        from agent_utilities.messaging.router import _exception_run_summary
+
+        summary = _exception_run_summary(
+            "run:" + "c" * 32, RuntimeError("delegation exploded")
+        )
+        assert summary["outcome"] == "failed"
+        assert summary["stage_reached"] == "messaging-dispatch"
+        assert "delegation exploded" in summary["failure"]["raw"]
+        assert summary["trace_ref"].startswith("trace:")
+
+
+class TestGraphAgentReplyTransparency:
+    """``_graph_agent_reply`` end to end: every non-ok outcome carries the footer through to
+    the final reply string; an ok outcome is untouched."""
+
+    @pytest.mark.asyncio
+    async def test_ok_result_has_no_footer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from agent_utilities.orchestration import manager as mgr
+
+        class _Orch:
+            def __init__(self, _engine: Any) -> None: ...
+
+            async def execute_agent(self, **kwargs: Any) -> str:
+                assert kwargs["include_run_summary"] is True
+                assert kwargs["run_id"]  # pre-generated by the router
+                import json as _json
+
+                return _json.dumps(
+                    {
+                        "output": "Found 3 running containers.",
+                        "run_id": kwargs["run_id"],
+                        "run_summary": {
+                            "route": {"agents": [], "servers": ["portainer-mcp"], "why": "x"},
+                            "outcome": "ok",
+                            "stage_reached": "tool-call: portainer-mcp",
+                            "trace_ref": "trace:pref_run_ok",
+                        },
+                    }
+                )
+
+        monkeypatch.setattr(mgr, "Orchestrator", _Orch)
+        reply = await _graph_agent_reply(
+            object(), "list my containers", session="messaging:telegram:1"
+        )
+        assert reply == "Found 3 running containers."
+        assert "⚠️" not in reply
+
+    @pytest.mark.asyncio
+    async def test_degraded_fleet_gate_result_reply_is_transparent_end_to_end(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reproduces the reported bug end to end at the ROUTER level: run_agent already
+        composed a truthful failure string AND a degraded run_summary (github-mcp's fleet
+        HTTPS gate); the reply must contain the TRANSLATED cause, the hint, and a trace_ref —
+        not a generic 'some sort of failure'."""
+        from agent_utilities.orchestration import manager as mgr
+
+        class _Orch:
+            def __init__(self, _engine: Any) -> None: ...
+
+            async def execute_agent(self, **kwargs: Any) -> str:
+                import json as _json
+
+                return _json.dumps(
+                    {
+                        "output": (
+                            "Delegation to fleet server 'github-mcp' could not produce a "
+                            "tool-grounded result (RuntimeError: fleet MCP endpoint "
+                            "requires HTTPS outside loopback). Refusing to fall back to a "
+                            "general answer, which would fabricate tool output."
+                        ),
+                        "run_id": kwargs["run_id"],
+                        "run_summary": _degraded_summary(),
+                    }
+                )
+
+        monkeypatch.setattr(mgr, "Orchestrator", _Orch)
+        reply = await _graph_agent_reply(
+            object(),
+            "does my github org have issues/PRs",
+            session="messaging:telegram:1",
+        )
+        # The already-composed truthful output text is preserved...
+        assert "could not produce a tool-grounded result" in reply
+        # ...AND the transparency footer adds the TRANSLATED cause + hint + trace_ref.
+        assert "⚠️" in reply
+        assert "TLS" in reply or "HTTPS" in reply
+        assert "operator" in reply.lower()
+        assert "trace:pref_run_deadbeef" in reply
+
+    @pytest.mark.asyncio
+    async def test_reply_budget_timeout_names_the_planned_route_not_a_bare_message(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CRITICAL path (the originally-reported bug): the run is cancelled by the
+        reply-budget wall before it can return anything. The reply must still name the
+        planned route/stage + a translated cause — never a bare generic message."""
+        from types import SimpleNamespace
+
+        from agent_utilities.orchestration import manager as mgr
+
+        class _SlowOrch:
+            def __init__(self, _engine: Any) -> None: ...
+
+            async def execute_agent(self, **kwargs: Any) -> str:
+                await asyncio.sleep(10)
+                return "never reached"
+
+        monkeypatch.setattr(mgr, "Orchestrator", _SlowOrch)
+        monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
+
+        shape = SimpleNamespace(tool_servers=("github-mcp",), reply_budget_s=0.2)
+        reply = await _graph_agent_reply(
+            object(),
+            "does my github org have issues/PRs",
+            session="messaging:telegram:1",
+            budget=0.2,
+            shape=shape,
+        )
+        # The graceful no-double-LLM-tax message is preserved...
+        assert "slowly" in reply.lower() or "try again" in reply.lower()
+        # ...AND now names the planned route/stage instead of staying silent about it.
+        assert "⚠️" in reply
+        assert "github-mcp" in reply
+        assert "reply time budget" in reply.lower() or "reply budget" in reply.lower()
+
+    @pytest.mark.asyncio
+    async def test_exception_fallback_reply_carries_the_translated_cause(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A genuine exception above run_agent's own structured handling still threads the
+        cause into the plain-chat fallback's reply instead of silently discarding it."""
+        from agent_utilities.core.contextual_model import use_context_compiler_engine
+        from agent_utilities.orchestration import manager as mgr
+
+        class _BoomOrch:
+            def __init__(self, _engine: Any) -> None: ...
+
+            async def execute_agent(self, **kwargs: Any) -> str:
+                raise RuntimeError("fleet MCP endpoint requires HTTPS outside loopback")
+
+        monkeypatch.setattr(mgr, "Orchestrator", _BoomOrch)
+        monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
+
+        with use_context_compiler_engine(_EmptyEvidenceEngine()):
+            reply = await _graph_agent_reply(
+                object(), "hello there", session="messaging:telegram:42"
+            )
+        assert "⚠️" in reply
+        assert "TLS" in reply or "HTTPS" in reply
+        assert "trace:" in reply
