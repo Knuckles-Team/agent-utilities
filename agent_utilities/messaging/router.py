@@ -440,6 +440,7 @@ async def create_planner_handler(
                 session=session,
                 image_parts=image_parts,
                 budget=shape.reply_budget_s,
+                shape=shape,
             )
             # An interactive turn threads its reply to the user's message; a deferred turn
             # already acked there, so its result lands as a fresh follow-up message.
@@ -931,6 +932,154 @@ def _is_backend_timeout(failure_text: str) -> bool:
     )
 
 
+# The graceful, no-double-LLM-tax reply for both shapes of "the backend was too slow": a
+# structured chat-profile timeout returned BY the run, and the caller-side reply-budget wall
+# that cancels the run before it can return anything at all (CONCEPT:AU-ORCH.routing.chat-budget-routing).
+_SLOW_BACKEND_MESSAGE = (
+    "I saved your message, but the assistant backend is responding slowly "
+    "right now, so I couldn't finish a reply in time. Please try again shortly."
+)
+
+
+# ── Messaging-orchestration transparency (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency) ──
+# Renders the ``run_summary`` agent_runner.run_agent attaches to every terminal outcome into a
+# concise, translated chat footer — see failure_translation.py for the translation table this
+# is built on.
+
+
+def _footer_enabled() -> bool:
+    """Whether the transparency footer should be appended.
+
+    Respects ``MESSAGING_TRANSPARENCY_FOOTER`` (default on — always show on a non-ok outcome,
+    terse) — the one messaging-layer knob this feature adds; the translation content and the
+    trace linkage live in ``failure_translation.py``/``agent_runner.py`` and need no separate
+    toggle.
+    """
+    from agent_utilities.core.config import setting
+
+    return bool(setting("MESSAGING_TRANSPARENCY_FOOTER", True))
+
+
+def _transparency_footer(run_summary: dict[str, Any] | None) -> str:
+    """A concise, translated transparency footer for a non-``ok`` ``run_summary``, else ``""``.
+
+    Renders ``{translated} — {hint} [stage: {stage_reached}] (trace: {trace_ref})`` from the
+    structured summary ``agent_runner._build_run_summary`` attaches to every terminal outcome
+    (or the router's own best-known summary for a caller-side timeout/exception ``run_agent``
+    never got to describe itself — see :func:`_timeout_run_summary`/:func:`_exception_run_summary`).
+    ``stage_reached`` is ALWAYS surfaced when known — not only as a fallback when no failure
+    detail exists — because a translated category (e.g. "reply budget exceeded") is a fixed,
+    generic sentence on its own; the stage is what makes THIS run's failure concrete (e.g.
+    "tool-call: github-mcp") instead of a bare templated message. Never raises — a
+    malformed/partial summary degrades to no footer rather than breaking the reply.
+    """
+    try:
+        if not isinstance(run_summary, dict):
+            return ""
+        outcome = str(run_summary.get("outcome") or "ok").strip().lower()
+        if outcome in ("", "ok"):
+            return ""
+        if not _footer_enabled():
+            return ""
+        stage = str(run_summary.get("stage_reached") or "").strip()
+        failure = run_summary.get("failure")
+        translated = ""
+        hint = ""
+        if isinstance(failure, dict):
+            translated = str(failure.get("translated") or "").strip()
+            hint = str(failure.get("hint") or "").strip()
+        if not translated:
+            # No failure detail was attached (e.g. a bare degraded/empty output with no
+            # captured cause) — still name the outcome + stage rather than saying nothing.
+            translated = f"the run ended {outcome}" + (f" at {stage}" if stage else "")
+        line = f"⚠️ {translated}"
+        if hint:
+            line += f" — {hint}"
+        if stage and stage not in line:
+            line += f" [stage: {stage}]"
+        trace_ref = str(run_summary.get("trace_ref") or "").strip()
+        if trace_ref:
+            line += f" (trace: {trace_ref})"
+        return line
+    except Exception:  # noqa: BLE001 — the footer is best-effort; never breaks the reply
+        return ""
+
+
+def _with_transparency(text: str, run_summary: dict[str, Any] | None) -> str:
+    """Append the transparency footer (if any) to an already-composed reply."""
+    footer = _transparency_footer(run_summary)
+    return f"{text}\n\n{footer}" if footer else text
+
+
+def _timeout_run_summary(
+    run_id: str, shape: Any, reply_timeout: float
+) -> dict[str, Any]:
+    """Synthesize a ``run_summary`` for the reply-budget-timeout path.
+
+    ``run_agent`` was CANCELLED mid-flight (the caller-side ``asyncio.wait_for`` wall fired)
+    and hands back nothing — no result, no envelope. This is the one exit ``run_agent`` cannot
+    describe itself, so the router builds the best-known summary from what it already knew
+    BEFORE the call: the planned route (``shape.tool_servers``, when the lexical gate had
+    already named one) plus the timeout itself — so the reply still names a stage and a
+    translated cause instead of a bare generic message. ``trace_ref`` still resolves to a REAL
+    node: ``run_agent``'s own ``CancelledError`` handler best-effort writes a ``"timeout"``
+    RunTrace for this SAME pre-generated ``run_id`` before re-raising.
+    """
+    from agent_utilities.observability.trace_ontology import trace_id
+    from agent_utilities.orchestration.failure_translation import build_failure_detail
+
+    servers = (
+        list(getattr(shape, "tool_servers", ()) or ()) if shape is not None else []
+    )
+    if servers:
+        route = {
+            "agents": [],
+            "servers": servers,
+            "why": "lexical gate matched named fleet server(s) for this task",
+        }
+        stage_reached = f"tool-call: {','.join(servers)}"
+    else:
+        route = {
+            "agents": ["universal-agent"],
+            "servers": [],
+            "why": "no named fleet server matched; a general delegation was attempted",
+        }
+        stage_reached = "reply-budget"
+    raw = f"TimeoutError: the run did not finish inside the {reply_timeout:.0f}s reply budget"
+    return {
+        "route": route,
+        "outcome": "timeout",
+        "stage_reached": stage_reached,
+        "trace_ref": trace_id(run_id),
+        "failure": build_failure_detail(raw),
+    }
+
+
+def _exception_run_summary(run_id: str, exc: BaseException) -> dict[str, Any]:
+    """Synthesize a ``run_summary`` for a genuine exception raised before ``run_agent`` returned.
+
+    Covers the boundary ABOVE ``run_agent`` itself (e.g. ``Orchestrator(engine)`` construction
+    or dispatch raising before the structured result path) so the cause is threaded into the
+    transparency footer instead of being logged and then dropped in favor of an unrelated
+    plain-chat answer that gave no indication anything failed.
+    """
+    from agent_utilities.observability.trace_ontology import trace_id
+    from agent_utilities.orchestration.failure_translation import build_failure_detail
+
+    raw = f"{type(exc).__name__}: {exc}".strip()
+    return {
+        "route": {
+            "agents": ["universal-agent"],
+            "servers": [],
+            "why": "delegation raised before returning a structured result",
+        },
+        "outcome": "failed",
+        "stage_reached": "messaging-dispatch",
+        "trace_ref": trace_id(run_id),
+        "failure": build_failure_detail(raw),
+    }
+
+
 async def _graph_agent_reply(
     engine: Any,
     content: str,
@@ -938,6 +1087,7 @@ async def _graph_agent_reply(
     session: str,
     image_parts: list[Any] | None = None,
     budget: float | None = None,
+    shape: Any = None,
 ) -> str:
     """Draft a reply by running the UNIVERSAL graph agent (CONCEPT:AU-ECO.messaging.universal-graph-agent).
 
@@ -963,8 +1113,18 @@ async def _graph_agent_reply(
     (the run hit the reply-timeout wall) does NOT trigger a second full LLM call to the same
     degraded endpoint — it returns a graceful message. The plain-chat fallback fires only on
     a genuine graph *error* (delegation/structural), where a single short attempt is cheap.
+
+    CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — every non-``ok`` outcome
+    (degraded / failed / timeout) gets a concise, TRANSLATED transparency footer appended to
+    whatever reply text exists — INCLUDING the plain-chat fallback, which previously gave zero
+    indication the graph delegation actually failed. ``shape`` (the per-job execution shape the
+    caller already computed) lets the reply-budget-timeout branch — the one exit ``run_agent``
+    cannot describe itself, since it is cancelled mid-flight — synthesize the best-known
+    summary from the PLANNED route rather than drop the reason. See ``failure_translation.py``
+    for the translation table and ``agent_runner._build_run_summary`` for the summary shape.
     """
     from agent_utilities.core.config import setting
+    from agent_utilities.orchestration.run_identity import new_run_id
 
     # The named agent the universal path routes a chat turn to. Unresolved names still go
     # through the full multi-agent orchestration graph (dynamic delegation) — which is what we
@@ -992,6 +1152,14 @@ async def _graph_agent_reply(
         )
         return await _plain_chat_reply(content, image_parts=image_parts)
 
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — pre-mint the run handle
+    # so a trace_ref (and a translated cause) survive even a hard reply-budget cancellation
+    # below: the coroutine is torn down before it can hand anything back to us, so this is the
+    # ONLY chance to fix a stable id both sides (this function's timeout branch, and
+    # run_agent's own best-effort CancelledError trace write) key off.
+    run_id = new_run_id()
+    fallback_summary: dict[str, Any] | None = None
+
     try:
         from agent_utilities.orchestration.manager import Orchestrator
 
@@ -1002,16 +1170,23 @@ async def _graph_agent_reply(
                 session_id=session,
                 memento_source=session,
                 execution_profile="chat",
+                run_id=run_id,
+                include_run_summary=True,
             ),
             timeout=reply_timeout,
         )
         text = str(out).strip() if out else ""
+        run_summary: dict[str, Any] | None = None
         # CONCEPT:AU-ORCH.session.session-anchored-collections-native/1.37 — when the run opened a native message channel (or carries a
-        # mermaid diagram), run_agent returns a JSON ENVELOPE string
-        # ``{"output", "channel_id"?, "mermaid"?}`` rather than the bare reply. The chat reply
-        # is the ``output`` field; unwrap it so the user sees the rendered text, not raw JSON.
-        # The membership check is exact (keys ⊆ the envelope's) so a genuine JSON reply from the
-        # agent is never mis-unwrapped.
+        # mermaid diagram / run_summary), run_agent returns a JSON ENVELOPE string
+        # ``{"output", "channel_id"?, "mermaid"?, "run_summary"?}`` rather than the bare
+        # reply. The chat reply is the ``output`` field; unwrap it so the user sees the
+        # rendered text, not raw JSON. The membership check is exact (keys ⊆ the envelope's)
+        # so a genuine JSON reply from the agent is never mis-unwrapped. ``run_id`` is ALWAYS
+        # present once ANY envelope trigger fires (_render_agent_result's base payload) — it
+        # was missing from this allow-set before, which meant the unwrap could silently fail
+        # (and leak raw JSON into the chat) the moment a caller actually got an envelope back
+        # (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
         if text.startswith("{") and '"output"' in text:
             import json
 
@@ -1022,11 +1197,13 @@ async def _graph_agent_reply(
             if (
                 isinstance(_env, dict)
                 and "output" in _env
-                and set(_env) <= {"output", "channel_id", "mermaid"}
+                and set(_env) <= {"output", "run_id", "channel_id", "mermaid", "run_summary"}
             ):
                 text = str(_env["output"]).strip()
+                _rs = _env.get("run_summary")
+                run_summary = _rs if isinstance(_rs, dict) else None
         if text and not text.startswith("Agent execution failed"):
-            return text
+            return _with_transparency(text, run_summary)
         # The run completed but returned a failure string. If that failure was a backend
         # timeout (an inner node hit the chat-profile bound), do NOT re-call the same slow
         # endpoint (CONCEPT:AU-ORCH.routing.chat-budget-routing) — surface the graceful message. Only a non-timeout
@@ -1037,38 +1214,48 @@ async def _graph_agent_reply(
                 "(%.80s); skipping the double-LLM plain-chat call.",
                 text,
             )
-            return (
-                "I saved your message, but the assistant backend is responding slowly "
-                "right now, so I couldn't finish a reply in time. Please try again shortly."
-            )
+            return _with_transparency(_SLOW_BACKEND_MESSAGE, run_summary)
         logger.warning(
             "[CONCEPT:AU-ECO.messaging.universal-graph-agent] universal agent returned no usable reply (%.60s); "
             "falling back to a single plain-chat reply.",
             text,
         )
+        # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the run itself may
+        # already carry a real run_summary here (e.g. an "Agent execution failed: ..." text
+        # with outcome="failed") — thread it into the plain-chat fallback below instead of
+        # dropping it, which is what silently discarded a real, already-known cause before.
+        fallback_summary = run_summary
     except TimeoutError:
         # The whole turn hit the reply-timeout wall — the backend is slow/degraded. Making a
         # SECOND full LLM call to the same endpoint is the double-LLM tax that pushed a single
         # turn past 90 s (CONCEPT:AU-ORCH.routing.chat-budget-routing). Return a graceful message instead; the chat
         # profile already bounded each round, so this path is now a fast bound + one message.
+        # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — this is the one exit
+        # run_agent cannot describe itself (cancelled mid-flight, hands back nothing) — the
+        # reason is NOT dropped: synthesize the best-known summary from the planned route.
         logger.warning(
             "[CONCEPT:AU-ORCH.routing.chat-budget-routing] universal agent hit the %ss reply budget — skipping the "
             "plain-chat fallback to avoid a second call to a degraded backend.",
             reply_timeout,
         )
-        return (
-            "I saved your message, but the assistant backend is responding slowly right "
-            "now, so I couldn't finish a reply in time. Please try again shortly."
+        return _with_transparency(
+            _SLOW_BACKEND_MESSAGE, _timeout_run_summary(run_id, shape, reply_timeout)
         )
-    except Exception as e:  # noqa: BLE001 — a genuine graph error → ONE short plain-chat reply
+    except Exception as e:  # noqa: BLE001 — a genuine graph error → ONE short plain-chat reply;
+        # the cause is NOT dropped: it is translated below and appended to the plain-chat text
+        # (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
         logger.warning(
             "[CONCEPT:AU-ECO.messaging.universal-graph-agent] universal agent failed (%s); "
             "falling back to a single plain-chat reply.",
             e,
         )
+        fallback_summary = _exception_run_summary(run_id, e)
     # Plain-chat fallback — a single short bounded attempt, fired ONLY on a genuine graph
-    # error (not a backend timeout), so it never doubles a slow round (CONCEPT:AU-ORCH.routing.chat-budget-routing/4.74).
-    return await _plain_chat_reply(content, image_parts=image_parts)
+    # error or an unusable reply (not a backend timeout — handled above), so it never doubles
+    # a slow round (CONCEPT:AU-ORCH.routing.chat-budget-routing/4.74). The real cause, if any,
+    # still rides along as a transparency footer.
+    reply = await _plain_chat_reply(content, image_parts=image_parts)
+    return _with_transparency(reply, fallback_summary)
 
 
 async def _varied_ack(content: str, shape: Any) -> str:
