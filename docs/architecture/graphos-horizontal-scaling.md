@@ -154,8 +154,9 @@ one static engine node, the IP pin is functionally sufficient — the cluster's 
 host network (`MCP_TRUSTED_PROXY_CIDRS` already trusts `10.0.0.0/24`) means any
 graph-os replica on any of the 5 nodes can already reach `10.0.0.10:9100`. Nothing in
 §2's fix is blocked on this section. It becomes load-bearing the moment either (a) the
-engine adopts the `cluster`/Raft build (§6 of the genesis reference — a *different*,
-larger, separately-scoped program) so its address can legitimately change on failover,
+engine adopts the `cluster`/Raft build (the genesis reference's Shape 2 subsections
+"Build the `cluster` engine" / "Stand up the Raft members" — a *different*, larger,
+separately-scoped program) so its address can legitimately change on failover,
 or (b) an operator wants real client-identity enforcement (mTLS) rather than a shared
 bearer secret. Track it as a named follow-on, not a step in this sequence's critical
 path — see §5 step 4.

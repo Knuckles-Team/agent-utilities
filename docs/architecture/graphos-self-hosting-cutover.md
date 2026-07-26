@@ -46,7 +46,8 @@ SAME unified image**, differing only in `command`.
 **Do not** delete the separate `epistemic-graph` Deployment and simply let graph-os's
 existing `EngineResolver` **autostart** a local engine against the same `--persist-dir`.
 It will start, but it will not be able to serve the 87-graph store, and it will fail in
-one of two ways depending on what happens to already carry today:
+one of two ways depending on whether graph-os's own process already happens to carry an
+`EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` (it does not, today):
 
 - Read `agent_utilities/knowledge_graph/core/graph_compute.py`
   (`_autostart_engine`, ~L1656–1711): when it spawns a child engine, it takes the
