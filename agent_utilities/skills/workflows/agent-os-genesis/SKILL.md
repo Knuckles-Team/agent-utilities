@@ -88,6 +88,19 @@ All `*.arpa` resolve to the **Caddy ingress at `10.0.0.13`** (wildcard `*.arpa` 
 `portainer`), which routes by Host header via its static Caddyfile. Intentional exceptions
 that point directly at a host/macvlan IP are preserved: `adguard.arpa`/Technitium → 10.0.0.199,
 `home-assistant` → its macvlan IP, and per-node `dozzle*`/`container-manager-*` agent records.
+(Post-RKE2-migration the external `.arpa` target is the ingress VIP `10.0.0.240`, not `.13`.)
+
+- **Internal-loopback DNS (in-cluster `.arpa` → in-cluster Service).** The rule above is for
+  *external* clients. **In-cluster** clients must resolve `<name>.arpa` to the **Service
+  ClusterIP**, never the edge VIP — so pod-to-pod agent traffic (graph-os → the ~66
+  `*-mcp.arpa` children + `graph-os.arpa`) stays internal, off the ingress, with no extra
+  TLS/auth hop or edge-502 exposure. Add CoreDNS `rewrite` rules (`*-mcp.arpa` → `apps`
+  Service via one regex; infra names via exact rules) — the full principle, host→Service→ns
+  table, eligibility rule (only rewrite when the in-cluster Service port matches the port the
+  client dials — `keycloak.arpa`/`openbao.arpa` need a client scheme/port reconcile first),
+  and the SPOF-safe ConfigMap-`reload`-not-restart apply/rollback are in
+  [`references/internal-loopback-dns.md`](references/internal-loopback-dns.md). Generalizes the
+  `OIDC_TOKEN_URL` in-cluster-pin from [`references/graph-os-fleet-gateway-auth.md`](references/graph-os-fleet-gateway-auth.md).
 
 > **Troubleshooting:** see [`references/TROUBLESHOOTING.md`](references/TROUBLESHOOTING.md) — a
 > symptom→diagnosis→fix runbook for swarm quorum loss, manager re-IP / advertise-addr,
