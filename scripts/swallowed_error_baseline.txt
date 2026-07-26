@@ -454,7 +454,7 @@ agent_utilities/knowledge_graph/ontology/object_set.py:658
 agent_utilities/knowledge_graph/ontology/object_set.py:924
 agent_utilities/knowledge_graph/ontology/permissioning.py:586
 agent_utilities/knowledge_graph/orchestration/engine_infra.py:142
-agent_utilities/knowledge_graph/orchestration/engine_query.py:1608
+agent_utilities/knowledge_graph/orchestration/engine_query.py:1723
 agent_utilities/knowledge_graph/orchestration/research_subagent.py:129
 agent_utilities/knowledge_graph/pipeline/phases/community_reports.py:94
 agent_utilities/knowledge_graph/pipeline/phases/community_reports.py:129

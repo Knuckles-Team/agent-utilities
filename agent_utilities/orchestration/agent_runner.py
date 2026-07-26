@@ -627,7 +627,8 @@ async def run_agent(
     if context_ref and not context:
         try:
             _rows = engine.query_cypher(
-                "MATCH (c:ContextBlob) WHERE c.id = $id RETURN c.content AS content",
+                "MATCH (c:ContextBlob) WHERE c.id = $id "
+                "RETURN c.id AS id, c.content AS content",
                 {"id": context_ref},
             )
             if _rows and _rows[0].get("content"):
