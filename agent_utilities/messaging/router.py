@@ -1197,7 +1197,8 @@ async def _graph_agent_reply(
             if (
                 isinstance(_env, dict)
                 and "output" in _env
-                and set(_env) <= {"output", "run_id", "channel_id", "mermaid", "run_summary"}
+                and set(_env)
+                <= {"output", "run_id", "channel_id", "mermaid", "run_summary"}
             ):
                 text = str(_env["output"]).strip()
                 _rs = _env.get("run_summary")

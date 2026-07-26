@@ -782,7 +782,9 @@ async def run_agent(
                     "[ORCH-1.101] bound-template path failed (%s); falling through to the full graph.",
                     _flatten_exception_group(e),
                 )
-                stage_reached = f"bound-template: {agent_name} (fallback: multi-agent-graph)"
+                stage_reached = (
+                    f"bound-template: {agent_name} (fallback: multi-agent-graph)"
+                )
                 result = await _execute_graph(
                     config=config,
                     query=task,
@@ -1768,9 +1770,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts["mementos"] = (
-            f"Past Context Mementos (Compressed State):\n{memento_text}"
-        )
+        tag_prompts[
+            "mementos"
+        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
