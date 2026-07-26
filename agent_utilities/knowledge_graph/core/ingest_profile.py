@@ -192,7 +192,7 @@ def record_offqueue_span(engine: Any, kind: str, profile: IngestProfile) -> None
         }
         span_id = f"profilespan:{kind}:{int(_time.time() * 1000)}"
         EpistemicGraphBackend().for_graph("__control__").add_node(
-            span_id, type="ProfileSpan", metadata=_json.dumps(envelope)
+            span_id, node_type="ProfileSpan", metadata=_json.dumps(envelope)
         )
     except Exception:  # noqa: BLE001 — persistence is best-effort; the log remains
         pass

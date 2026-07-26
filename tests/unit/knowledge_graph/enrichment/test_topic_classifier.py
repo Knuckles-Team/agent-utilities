@@ -79,9 +79,10 @@ async def test_classify_and_link_topics_mints_hierarchy_and_edges(monkeypatch) -
     assert result["primary_topic_id"] == sub_id
 
     # :Topic nodes minted for both levels, idempotently addressable by id.
-    assert backend.nodes[top_id]["type"] == "Topic"
+    # `node_type` -- the engine retired the `type` node property.
+    assert backend.nodes[top_id]["node_type"] == "Topic"
     assert backend.nodes[top_id]["is_worldview_domain"] is True
-    assert backend.nodes[sub_id]["type"] == "Topic"
+    assert backend.nodes[sub_id]["node_type"] == "Topic"
     assert backend.nodes[sub_id]["is_worldview_domain"] is False
 
     # BROADER/NARROWER hierarchy edges between the two Topic nodes.

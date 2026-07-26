@@ -329,7 +329,7 @@ class PolicyIngestor:
         project_node_id = f"project:{project_ref}"
         self.engine.graph.add_node(
             project_node_id,
-            type="software_project",
+            node_type="software_project",
             name=project_name,
             vision=parsed["vision"],
             mission=parsed["mission"],

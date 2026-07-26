@@ -408,6 +408,19 @@ class IntelligenceGraphEngine(
         data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
         clean_data = {}
 
+        # Every RegistryNode subclass still carries a Pydantic `type` field, but the
+        # engine retired the 'type' node PROPERTY in favor of 'node_type' (add_node's
+        # own explicit argument) — EpistemicGraphBackend.add_node/GraphComputeEngine.add_node
+        # both raise on a stray 'type' key. Fold it into 'node_type' here, mirroring
+        # the same rename ``core/ogm.py``'s ``KGMapper._serialize`` already performs, so
+        # every caller of this helper (``_upsert_node``/``add_node``-bound) emits the
+        # current property name instead of the retired one.
+        if "type" in data:
+            node_type_value = data.pop("type")
+            data.setdefault(
+                "node_type", getattr(node_type_value, "value", node_type_value)
+            )
+
         # Define fields that Ladybug supports as native arrays
         ARRAY_FIELDS = [
             "capabilities",

@@ -75,7 +75,7 @@ def record_trust(
         try:
             backend.add_node(
                 key,
-                type="TrustScore",
+                node_type="TrustScore",
                 actor_id=actor_id,
                 action_kind=action_kind,
                 total=total,

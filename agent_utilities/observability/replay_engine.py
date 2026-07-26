@@ -61,7 +61,7 @@ class DistributedReplayEngine:
                 self.engine.graph.add_node(
                     manifest.id,
                     name=f"Replay Manifest: {agent_id}",
-                    type="ReplayManifestNode",
+                    node_type="ReplayManifestNode",
                     process_id=process_id,
                     agent_id=agent_id,
                     created_at=manifest.created_at,
@@ -104,7 +104,7 @@ class DistributedReplayEngine:
                 self.engine.graph.add_node(
                     record.step_id,
                     name=f"Step {record.index}: {step_type}",
-                    type="InteractionRecordNode",
+                    node_type="InteractionRecordNode",
                     step_type=step_type,
                     index=record.index,
                     payload_json=payload,

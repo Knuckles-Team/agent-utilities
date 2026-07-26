@@ -248,7 +248,7 @@ class EvalHarness:
         node_id = f"eval_{hashlib.sha256(f'{run_id}:{aggregated.timestamp}'.encode()).hexdigest()[:12]}"
         graph.add_node(
             node_id,
-            type="eval",
+            node_type="eval",
             overall_score=aggregated.overall_score,
             all_passed=aggregated.all_passed,
             scorer_count=len(aggregated.results),
