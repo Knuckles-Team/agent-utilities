@@ -184,6 +184,34 @@ class TestPermissionGate:
         with pytest.raises(PermissionError):
             gate_workflow_execution(engine, "invoice_flow", actor=self._actor())
 
+    def test_durable_governance_rehydrates_acl_after_restart(self, monkeypatch):
+        from agent_utilities.knowledge_graph.core import secured_reads
+        from agent_utilities.models.company_brain import DataClassification
+        from agent_utilities.protocols.source_connectors.base import ExternalAccess
+
+        engine = FakeEngine()
+        wid = _seed_workflow(engine, acl=False)
+        monkeypatch.setattr(
+            secured_reads,
+            "_durable_access_rows",
+            lambda node_ids: {
+                wid: {
+                    "tenant_id": "tenant-a",
+                    "classification": DataClassification.PUBLIC.value,
+                    "external_access": ExternalAccess(is_public=True).model_dump(
+                        mode="json"
+                    ),
+                }
+                if wid in node_ids
+                else {},
+            },
+        )
+
+        gate = gate_workflow_execution(engine, "invoice_flow", actor=self._actor())
+
+        assert gate["allowed"] is True
+        assert gate["workflow_id"] == wid
+
     def test_acl_deny_raises_permission_error(self):
         from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
         from agent_utilities.models.company_brain import DataClassification

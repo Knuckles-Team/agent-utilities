@@ -245,8 +245,16 @@ def gate_workflow_execution(
 
     from ...security.brain_context import current_actor
     from ..ontology.permissioning import enforce
+    from .secured_reads import permit
 
     effective = actor or current_actor()
+    # WorkflowDefinitions ingested from skill corpora persist their governance
+    # descriptor on the node. Rehydrate the process-local ACL from that durable
+    # metadata exactly as every secured graph read does after a cold restart.
+    # Calling ``enforce`` directly would otherwise deny a valid public workflow
+    # simply because the in-memory Company Brain ACL cache starts empty.
+    if wid not in permit([wid], effective):
+        raise PermissionError("Workflow execution denied by object permissioning")
     view = enforce([{"id": wid, "type": "WorkflowDefinition", **props}], effective)
     if not view:
         raise PermissionError("Workflow execution denied by object permissioning")
