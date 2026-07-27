@@ -98,10 +98,46 @@ RuntimeError: Graph process identity acquisition failed        # engine identity
   forbids an inline `OIDC_CLIENT_SECRET`). `compose.dev.yml` / k8s manifests reference everything
   as `${VAR}` so the stack is reproducible.
 
+## Long-running-task authority — auto-renewal (turnkey, no operator action)
+
+Keycloak issues the `graph-os` client a **short-lived access token** (the realm's *Access Token
+Lifespan*, **~5 min by default**). A single delegated agent run, a large ingestion, or any task
+that outlives one token would otherwise **fail closed mid-run** with
+`SessionExpiredError: Verified graph authority has expired` (the GraphSession's
+`ensure_authority_current` gate) — the authority is deliberately never allowed to silently lapse.
+
+graph-os removes that failure automatically: at startup it launches a background renewal
+supervisor — the **`GraphProcessAuthority`** daemon thread
+(`_start_process_authority_supervisor` → `_process_authority_refresh_loop` in
+`agent_utilities/mcp/kg_server.py`). It re-runs the client-credentials grant and renews the
+**shared in-memory lease ~30 s before expiry**, in place, without changing identity/roles/tenant.
+Because the lease is shared, **every** worker/session minted from the process identity (messaging
+delegations, background ingestion, orchestration) stays current for as long as the task runs — so
+long-running tasks **auto-renew and never crash after expiry**. This is fully automatic; the
+operator configures the OIDC client-credentials **once** (below) and nothing else.
+
+- **Requirement:** the OAuth2 process identity (`KG_IDENTITY_OAUTH2` **or** the outbound
+  `OIDC_*` client-credentials) must be set **and** host CA trust must be in place (the renewal
+  POST goes to Keycloak over HTTPS — the same "#1 boot blocker" CA requirement above). If the
+  renewal POST cannot succeed, the run correctly fails closed with `SessionExpiredError`; that
+  signal means **renewal** is broken (OIDC config / CA trust), not the task.
+- **Static-bearer form (`KG_AUTH_TOKEN_REF`):** a static token has no renewable lease, so the
+  supervisor no-ops — a static bearer must therefore be long-lived enough for the longest task,
+  or use the OAuth2 form (recommended) so renewal is automatic.
+- **Optional tuning:** raising the realm/client *Access Token Lifespan* reduces renewal frequency
+  but is **not required** — the supervisor handles the ~5 min default transparently. (Prefer this
+  over any code flag; there is no env knob for the renewal cadence — it is auto-derived from the
+  token's own expiry.)
+- **Transparency:** if it ever surfaces, `SessionExpiredError` now translates to a specific chat/log
+  message + hint via `orchestration/failure_translation.py` (category `session_expired`) instead of
+  an opaque `unknown` failure.
+
 ## Validate (live)
 
 ```bash
 # From inside the graph-os container:
+# 0) Long-running-task authority: the renewal supervisor thread is alive:
+python3 -c 'import threading; print([t.name for t in threading.enumerate() if "GraphProcessAuthority" in t.name] or "NOT RUNNING")'
 # 1) Engine process identity mints (the boot-blocker path) — prints a token length, does NOT raise:
 python3 -c 'from agent_utilities.core.config import config; from agent_utilities.security.oauth_client_credentials import build_provider_from_config; print(len(build_provider_from_config(config.kg_identity_oauth2).get_token()))'
 # 2) Outbound fleet-child bearer is attached (200/400 from a protected child, NOT 401):

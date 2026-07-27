@@ -164,6 +164,26 @@ _SIGNATURES: tuple[_Signature, ...] = (
         ),
     ),
     _Signature(
+        category="session_expired",
+        markers=(
+            "sessionexpirederror",
+            "verified graph authority has expired",
+            "graph authority expires too soon",
+            "bearer credential expired",
+            "credentialexpirederror",
+        ),
+        translated=(
+            "The run's verified graph authority (its short-lived session lease) "
+            "expired before the task finished."
+        ),
+        hint=(
+            "Long-running tasks auto-renew this lease via the background authority "
+            "supervisor (GraphProcessAuthority); if it still expires, the process "
+            "identity's token renewal is failing — confirm the OIDC "
+            "client-credentials config and that the renewal supervisor is running."
+        ),
+    ),
+    _Signature(
         category="access_denied",
         markers=(
             "access_denied",

@@ -273,9 +273,14 @@ class QueryMixin(_Base):
             # before it reaches any handler.
             from agent_utilities.core.log_privacy import sanitize_log_text
 
+            # Include the (sanitized, truncated) QUERY too: the failing site is
+            # otherwise unidentifiable from the log alone — a bare "row without a
+            # governed node id" forced a full call-graph trace to find which
+            # caller's RETURN dropped the id. The query text names it immediately.
             logger.error(
-                "Graph row-policy or audit enforcement failed: %s",
+                "Graph row-policy or audit enforcement failed: %s | query=%s",
                 sanitize_log_text(_describe_secured_read_failure(exc)),
+                sanitize_log_text(str(query))[:240],
             )
             raise PermissionError(
                 "Graph row-policy or audit enforcement failed"

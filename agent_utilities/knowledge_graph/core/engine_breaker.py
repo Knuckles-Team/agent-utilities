@@ -36,6 +36,7 @@ from typing import Any
 
 from agent_utilities.observability.gateway_metrics import (
     ENGINE_BREAKER_STATE,
+    ENGINE_REQUEST_LATENCY,
     ENGINE_REQUESTS,
     ENGINE_SHARD_REQUESTS,
 )
@@ -201,6 +202,35 @@ def _record_outcome(breaker: CircuitBreaker, op: str, outcome: str) -> None:
     ENGINE_SHARD_REQUESTS.labels(endpoint=breaker.endpoint, outcome=outcome).inc()
 
 
+# Slow-engine-call visibility (CONCEPT:AU-OS.observability.no-op-without-metrics).
+# An RPC exceeding this is logged WARN with op+endpoint+duration so a contended
+# engine — the failure mode where lightweight reads (e.g. GetNodeProperties)
+# silently take ~0.5s under load and a retrieval loop then blows its time budget —
+# is diagnosable from logs+metrics alone, not only after a profiler/faulthandler dump.
+_SLOW_ENGINE_CALL_S = 1.0
+
+
+def _observe_latency(op: str, elapsed: float, endpoint: str) -> None:
+    """Record per-op engine-call latency and WARN on a slow call.
+
+    The per-op round-trip time is the missing signal that makes engine
+    contention attributable: instead of a delegation only surfacing an outer
+    wall-clock timeout with no cause, the slow underlying RPC is named here in
+    both the ``ENGINE_REQUEST_LATENCY`` histogram and a WARN log line.
+    """
+    ENGINE_REQUEST_LATENCY.labels(op=op).observe(elapsed)
+    if elapsed >= _SLOW_ENGINE_CALL_S:
+        logger.warning(
+            "slow engine call op=%s endpoint=%s duration=%.2fs (threshold=%.1fs); "
+            "engine likely contended — a retrieval/loop issuing many of these will "
+            "exhaust its time budget",
+            op,
+            endpoint,
+            elapsed,
+            _SLOW_ENGINE_CALL_S,
+        )
+
+
 # Adaptive transient-retry (CONCEPT:AU-KG.compute.single-dropped-connection). A single dropped connection
 # (``ConnectionReset``/``BrokenPipe`` mid-op) is TRANSIENT: the client transparently
 # re-establishes the socket on its next call (``client._reconnect``). Without a retry
@@ -220,9 +250,11 @@ def _guard(fn: Any, breaker: CircuitBreaker, op: str) -> Any:
             _record_outcome(breaker, op, "short_circuited")
             raise
         for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
+            started = time.monotonic()
             try:
                 result = fn(*args, **kwargs)
             except _TRIP_EXCEPTIONS:
+                _observe_latency(op, time.monotonic() - started, breaker.endpoint)
                 if attempt < _MAX_TRANSIENT_RETRIES:
                     # transient drop — let the client reconnect on the retry, and do
                     # NOT count it against the breaker yet (adaptive, KG-2.262).
@@ -235,8 +267,10 @@ def _guard(fn: Any, breaker: CircuitBreaker, op: str) -> Any:
             except Exception:
                 # Application-level error (bad query, missing node...): the engine
                 # answered, so the circuit stays closed.
+                _observe_latency(op, time.monotonic() - started, breaker.endpoint)
                 _record_outcome(breaker, op, "error")
                 raise
+            _observe_latency(op, time.monotonic() - started, breaker.endpoint)
             breaker.record_success()
             _record_outcome(breaker, op, "ok")
             return result

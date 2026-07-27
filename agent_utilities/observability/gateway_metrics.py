@@ -52,6 +52,7 @@ __all__ = [
     "DISPATCH_WORKERS",
     "ENGINE_BREAKER_STATE",
     "ENGINE_REQUESTS",
+    "ENGINE_REQUEST_LATENCY",
     "ENGINE_SHARD_REQUESTS",
     "ENGINE_SHARD_UP",
     "KG_INGEST_CONSUMER_LAG",
@@ -179,6 +180,15 @@ ENGINE_REQUESTS = _counter(
     "epistemic-graph engine client calls by operation and outcome "
     "(ok | connection_error | error | short_circuited).",
     ("op", "outcome"),
+)
+ENGINE_REQUEST_LATENCY = _histogram(
+    "agent_utilities_gateway_engine_request_latency_seconds",
+    "epistemic-graph engine client call latency (seconds) by operation. The "
+    "per-op round-trip time — so a contended engine (slow point-reads like "
+    "GetNodeProperties) or one heavy op dominating the shared connection is "
+    "visible at a glance without a profiler. Pairs with a slow-call WARN log in "
+    "engine_breaker so the same signal reaches logs and metrics.",
+    ("op",),
 )
 ENGINE_BREAKER_STATE = _gauge(
     "agent_utilities_gateway_engine_breaker_state",
