@@ -439,6 +439,51 @@ def _resolve_fleet_config():
     return None
 
 
+def _reconcile_declared_fleet(catalog: dict[str, dict] | None) -> dict[str, Any] | None:
+    """Best-effort reconcile the probed catalog against the DECLARED fleet universe.
+
+    ``deploy/mcp-fleet.registry.yml`` (the ~62-server desired-state manifest) was,
+    until now, read only by the k8s reconciler — ingestion had no notion of "the
+    declared universe" to compare probe coverage against. This makes that
+    coverage visible: a registry entry is *covered* when either its ``name`` or
+    its ``package`` (they diverge for ~half the fleet, e.g. ``github-mcp`` /
+    ``github-agent``) appears as a probed ``mcp_config.json`` server key —
+    mirroring the exact name-or-package membership check
+    :func:`_sync_fleet_connectors` already uses for this same registry/config
+    naming mismatch. Purely additive/informational: never raises, never affects
+    which nodes get written, and returns ``None`` (added onto nothing) when the
+    registry is absent or unparsable so a broken/missing file never blocks a sync.
+    """
+    try:
+        import yaml
+
+        from ...orchestration.fleet_reconciler import resolve_registry_path
+
+        path = resolve_registry_path()
+        if path is None:
+            return None
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        services = [
+            s
+            for s in (data.get("services") or [])
+            if isinstance(s, dict) and s.get("name")
+        ]
+    except Exception:  # noqa: BLE001 — registry reconcile is informational only
+        return None
+
+    probed = set(catalog or {})
+    uncovered = sorted(
+        str(svc["name"])
+        for svc in services
+        if str(svc["name"]) not in probed
+        and str(svc.get("package") or "") not in probed
+    )
+    return {
+        "declared_total": len(services),
+        "declared_uncovered": uncovered,
+    }
+
+
 def _sync_fleet(
     engine: Any, *, mode: str = "full", ids: list[str] | None = None, client: Any = None
 ) -> dict[str, Any]:
@@ -449,7 +494,10 @@ def _sync_fleet(
     capability nodes. ``client`` may inject a pre-probed catalog dict (tests /
     callers that already hold one); otherwise the multiplexer is built from the
     fleet ``mcp_config.json`` and probed. Unreachable servers are recorded, never
-    fatal — coverage is "the currently registered + reachable fleet".
+    fatal — coverage is "the currently registered + reachable fleet". When
+    ``deploy/mcp-fleet.registry.yml`` resolves, the result also carries
+    ``declared_total``/``declared_uncovered`` (:func:`_reconcile_declared_fleet`)
+    so the declared universe is visible alongside what was actually probed.
     """
     catalog = client if isinstance(client, dict) else None
     if catalog is None:
@@ -484,6 +532,7 @@ def _sync_fleet(
         "delta_capable": True,
         "servers_seen": len(catalog or {}),
         **counts,
+        **(_reconcile_declared_fleet(catalog) or {}),
     }
 
 
