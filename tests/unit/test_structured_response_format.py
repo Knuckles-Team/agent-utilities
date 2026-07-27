@@ -65,7 +65,7 @@ async def test_graph_orchestrate_propagates_closed_json_contract(
             context="",
             budget_tokens=0,
             context_ref="",
-            allowed_tools="",
+            allowed_tools=["github-mcp"],
             cred_ref="",
             open_channel=False,
             reasoning_effort="",
@@ -75,6 +75,7 @@ async def test_graph_orchestrate_propagates_closed_json_contract(
     )
 
     assert captured["response_format"] == "json"
+    assert captured["allowed_tools"] == ["github-mcp"]
     assert result["output"] == '{"answer":"ok"}'
     assert result["run_id"] == "run:opaque"
 

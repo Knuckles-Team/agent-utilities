@@ -2458,9 +2458,11 @@ def register_analysis_tools(mcp):
             default="",
             description="Persisted ContextBlob id to resolve and inject.",
         ),
-        allowed_tools: str = Field(
+        allowed_tools: str | list[str] = Field(
             default="",
-            description="Comma-separated least-privilege tool allow-list.",
+            description=(
+                "Least-privilege tool allow-list as a JSON list or comma-separated string."
+            ),
         ),
         cred_ref: str = Field(
             default="",
@@ -2498,6 +2500,11 @@ def register_analysis_tools(mcp):
         try:
             from agent_utilities.orchestration.manager import Orchestrator
 
+            allowed_tool_values = (
+                allowed_tools
+                if isinstance(allowed_tools, list)
+                else allowed_tools.split(",")
+            )
             payload = await Orchestrator(engine).execute_capability(
                 task=task,
                 agent_name=agent_name,
@@ -2506,7 +2513,11 @@ def register_analysis_tools(mcp):
                 budget_tokens=budget_tokens or None,
                 context_ref=context_ref or None,
                 allowed_tools=(
-                    [name.strip() for name in allowed_tools.split(",") if name.strip()]
+                    [
+                        name.strip()
+                        for name in allowed_tool_values
+                        if isinstance(name, str) and name.strip()
+                    ]
                     or None
                 ),
                 cred_ref=cred_ref or None,
