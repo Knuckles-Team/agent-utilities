@@ -156,6 +156,13 @@ class _FakeBackend:
     def add_edge(self, src, dst, rel_type=None, **_):
         self.edges.append((src, dst, rel_type))
 
+    def for_graph(self, _graph: str):
+        # ``_routed_write`` (CONCEPT:AU-KG.ingest.unified-query-routing) routes a
+        # "code" kind to its own ``code:<repo>`` graph unconditionally, so it needs
+        # a graph-view factory even in this single-graph test double. Same test
+        # instance keeps writes visible on ``self.nodes``/``self.edges``.
+        return self
+
 
 class _FakeManifest:
     """Delta ledger stub: nothing seen, records are no-ops (CONCEPT:AU-KG.ingest.writes-go)."""
@@ -233,7 +240,7 @@ class TestCodebaseArtifactRouting:
             result.manifest, str(mixed_repo), result
         )
 
-        by_type: dict[str, list[Path]] = {"skill": [], "prompt": []}
+        by_type: dict[str, list[Path]] = {"skill": [], "prompt": [], "mcp_server": []}
         for m in seen:
             by_type.setdefault(m.content_type.value, []).append(Path(m.source_uri))
         documents = set(doc_seen)
@@ -242,6 +249,11 @@ class TestCodebaseArtifactRouting:
         assert (mixed_repo / "skills" / "myskill") in by_type["skill"]
         # Prompt JSON routed to PROMPT adaptor.
         assert (mixed_repo / "prompts" / "greeting.json") in by_type["prompt"]
+        # mcp_config.json routed to the MCP_SERVER adaptor (previously dropped).
+        assert (mixed_repo / "mcp_config.json") in by_type["mcp_server"]
+        # The plain config.json (model-registry ContentType.CONFIG) is a separate,
+        # still-unrouted gap — it must NOT be routed through this fan-out.
+        assert not any(Path(m.source_uri) == mixed_repo / "config.json" for m in seen)
         # Skills/prompts do NOT take the document path.
         assert not doc_seen or all(
             p.suffix in {".md", ".markdown", ".txt", ".rst"} for p in doc_seen
@@ -257,10 +269,10 @@ class TestCodebaseArtifactRouting:
         assert any(e.get("source_type") == "document" for e in result.enrichable)
 
         # Specs written inline as Spec nodes (no SPEC adaptor).
-        spec_nodes = [n for n in backend.nodes if n[1].get("type") == "Spec"]
+        spec_nodes = [n for n in backend.nodes if n[1].get("label") == "Spec"]
         assert len(spec_nodes) == 2
         # A Repo node was created and links the artifacts via CONTAINS.
-        assert any(n[1].get("type") == "Repo" for n in backend.nodes)
+        assert any(n[1].get("label") == "Repo" for n in backend.nodes)
         assert any(rel == "CONTAINS" for _s, _d, rel in backend.edges)
 
         # Counts surfaced for observability.
@@ -269,6 +281,65 @@ class TestCodebaseArtifactRouting:
         assert classified["prompt"] == 1
         assert classified["document"] == 3
         assert classified["spec"] == 2
+        assert classified["mcp_server"] == 1
+
+    @pytest.mark.asyncio
+    async def test_mcp_config_routes_to_mcp_server_without_live_probe(
+        self, mixed_repo: Path, monkeypatch
+    ):
+        """A discovered ``mcp_config.json`` becomes an ``:MCPServer`` declaration.
+
+        Regression test for the gap where ``plan.configs`` was populated and
+        counted but never routed: previously ``mcp_config.json`` was silently
+        dropped by ``_route_classified_artifacts``. It must now reach the
+        ``ContentType.MCP_SERVER`` adaptor riding the free continuous codebase
+        pass — with live discovery forced OFF (Phase A's dedicated fleet sweep
+        owns that cadence; this pass only ever writes the declaration).
+        """
+        engine = IngestionEngine.__new__(IngestionEngine)
+        backend = _FakeBackend()
+        engine.kg = None
+        engine.backend = backend
+        engine.graph_name = "__commons__"
+        engine._routed_backends = {}
+        engine.manifest = _FakeManifest()
+
+        seen: list[IngestionManifest] = []
+
+        async def _fake_ingest(manifest, **_):
+            seen.append(manifest)
+            return IngestionResult(
+                manifest=manifest,
+                status="success",
+                nodes_created=1,
+                enrichable=[{"source_id": f"{manifest.content_type.value}:x"}],
+            )
+
+        monkeypatch.setattr(engine, "ingest", _fake_ingest)
+        monkeypatch.setattr(
+            engine,
+            "_ingest_document_file",
+            lambda manifest, path_obj: IngestionResult(
+                manifest=manifest, status="success"
+            ),
+        )
+
+        result = IngestionResult(
+            manifest=IngestionManifest(
+                content_type=ContentType.CODEBASE, source_uri=str(mixed_repo)
+            ),
+            status="success",
+        )
+        await engine._route_classified_artifacts(
+            result.manifest, str(mixed_repo), result
+        )
+
+        mcp_manifests = [m for m in seen if m.content_type == ContentType.MCP_SERVER]
+        assert len(mcp_manifests) == 1
+        assert Path(mcp_manifests[0].source_uri) == mixed_repo / "mcp_config.json"
+        # Never live-probes from this free continuous pass.
+        assert mcp_manifests[0].metadata["discover"] is False
+        assert result.details["classified"]["mcp_server"] == 1
 
     @pytest.mark.asyncio
     async def test_documents_use_governed_unit_without_backend_override(
