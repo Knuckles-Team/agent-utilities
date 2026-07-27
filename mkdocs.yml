@@ -154,6 +154,7 @@ nav:
       - agent-utilities-expert (KG-bound delegate): architecture/agent-utilities-expert.md
       - Troubleshooting (cross-layer diagnose): architecture/troubleshooting.md
       - Self-Evolution Flywheel (transparent + steerable): architecture/self-evolution-flywheel.md
+      - Runtime-Reliability Loop (detect→signal→gap→heal): architecture/runtime-reliability-loop.md
       - Chunked Async Drain (full re-ingest, non-blocking): architecture/chunked-async-drain.md
       - KV-Cache-Layering Policy (per-execution cache-worthiness): architecture/kv-cache-layering-policy.md
       - Intelligent Ingestion (classify/commit-history/tail): architecture/intelligent-ingestion.md

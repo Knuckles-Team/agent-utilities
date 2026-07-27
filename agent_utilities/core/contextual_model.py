@@ -309,6 +309,35 @@ def _compile_messages(messages: list[Any], model_name: str) -> list[Any]:
     return _compiled_evidence_and_bundle(messages, model_name)[0]
 
 
+def _record_retrieval_degraded(
+    reason: str, model_name: str, *, error_type: str = ""
+) -> None:
+    """CONCEPT:AU-AHE.harness.runtime-reliability-loop — feed a retrieval degradation into
+    the runtime-reliability detect→gap loop.
+
+    A compilation that keeps timing out / erroring at the model-transport boundary is the
+    event-loop-blocking retrieval that SIGKILLed graph-os — slow, not wrong, so it never
+    penalized a reward and stayed invisible to the run-quality flywheel. Recording it makes
+    a repeated degradation a SOURCE_RUNTIME (recommendation) gap. Fire-and-forget: a buffer
+    append only, all exceptions swallowed, never any engine write on this hot path.
+    """
+    try:
+        from agent_utilities.observability.runtime_signals import (
+            KIND_RETRIEVAL_DEGRADED,
+            record_runtime_signal,
+        )
+
+        detail: dict[str, Any] = {
+            "timeout_s": _CONTEXT_COMPILE_TIMEOUT_S,
+            "reason": reason,
+        }
+        if error_type:
+            detail["error_type"] = error_type
+        record_runtime_signal(KIND_RETRIEVAL_DEGRADED, "model_context_compile", detail)
+    except Exception:  # noqa: BLE001 — emission must never affect the model call
+        pass
+
+
 async def _compiled_evidence_and_bundle_bounded(
     messages: list[Any], model_name: str
 ) -> tuple[list[Any], ContextBundle | None]:
@@ -345,6 +374,7 @@ async def _compiled_evidence_and_bundle_bounded(
             "evidence (ungrounded) to keep the event loop responsive.",
             _CONTEXT_COMPILE_TIMEOUT_S,
         )
+        _record_retrieval_degraded("timeout", model_name)
         return messages, None
     except Exception as exc:  # noqa: BLE001 — best-effort boundary, never block/raise
         logger.warning(
@@ -352,6 +382,7 @@ async def _compiled_evidence_and_bundle_bounded(
             "(%s); sending this model request WITHOUT compiled evidence (ungrounded).",
             type(exc).__name__,
         )
+        _record_retrieval_degraded("error", model_name, error_type=type(exc).__name__)
         return messages, None
 
 

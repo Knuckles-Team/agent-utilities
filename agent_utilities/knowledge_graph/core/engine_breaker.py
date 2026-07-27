@@ -229,6 +229,23 @@ def _observe_latency(op: str, elapsed: float, endpoint: str) -> None:
             elapsed,
             _SLOW_ENGINE_CALL_S,
         )
+        # CONCEPT:AU-AHE.harness.runtime-reliability-loop — feed the slow call into the
+        # runtime-reliability detect→gap loop so repeated slow ops on one op become a
+        # SOURCE_RUNTIME gap. Fire-and-forget (buffer append only, swallows all errors);
+        # deliberately NOT a synchronous engine write — the engine is what's contended.
+        try:
+            from agent_utilities.observability.runtime_signals import (
+                KIND_ENGINE_LATENCY,
+                record_runtime_signal,
+            )
+
+            record_runtime_signal(
+                KIND_ENGINE_LATENCY,
+                op,
+                {"duration_s": round(elapsed, 3), "threshold_s": _SLOW_ENGINE_CALL_S},
+            )
+        except Exception:  # noqa: BLE001 — signal emission must never affect the hot path
+            pass
 
 
 # Adaptive transient-retry (CONCEPT:AU-KG.compute.single-dropped-connection). A single dropped connection

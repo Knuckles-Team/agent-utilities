@@ -353,6 +353,12 @@ _ANOMALY_CONSUMER_INTERVAL = 900.0
 # moderate interval suffices, no env knob needed.
 _TMS_REVALIDATION_INTERVAL = 300.0
 
+# Runtime-reliability detect→gap cadence (CONCEPT:AU-AHE.harness.runtime-reliability-loop):
+# a bounded, LLM-free pass that aggregates recent :RuntimeSignal events into SOURCE_RUNTIME
+# gaps — a few minutes keeps a building pattern fresh without churn. One correct value, not
+# an env knob; the aggregation window (15min) spans several ticks.
+_RUNTIME_RELIABILITY_INTERVAL = 180.0
+
 # Background-daemon cadences (config discipline): each has
 # one correct default and no per-host correctness requirement, so they are named
 # module constants rather than env knobs (replacing KG_*_INTERVAL / KG_TASK_*).
@@ -1209,6 +1215,14 @@ class TaskManagerMixin(GraphEngineProtocol):
         # follow-up, W3.2) — bounded, LLM-free, propose-only; native by default,
         # like ``compaction``/``evolution`` below (no config flag needed).
         _maint("tms_revalidation", "tms_revalidation", _TMS_REVALIDATION_INTERVAL)
+        # Runtime-reliability detect→gap loop (CONCEPT:AU-AHE.harness.runtime-reliability-loop)
+        # — bounded, LLM-free, propose-only; native by default (no flag), background
+        # priority, like ``tms_revalidation``/``anomaly_consumer``. Turns the four runtime
+        # signals (engine latency / listener restart / retrieval degrade / delegation
+        # over-budget) into SOURCE_RUNTIME gaps + safe heals/recommendations.
+        _maint(
+            "runtime_reliability", "runtime_reliability", _RUNTIME_RELIABILITY_INTERVAL
+        )
         _maint(
             "fuseki_publish",
             "fuseki_publish",
@@ -2386,6 +2400,34 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001
             logger.error("tms_revalidation tick error: %s", e)
+
+    def _tick_runtime_reliability(self) -> None:
+        """One runtime-reliability detect→gap pass (CONCEPT:AU-AHE.harness.runtime-reliability-loop).
+
+        Drains the hot-path runtime-signal buffer, persists it as :RuntimeSignal nodes,
+        aggregates recent signals by (kind, subject), and for a pattern crossing threshold
+        OPENS a SOURCE_RUNTIME :Gap through the canonical flywheel — or, for a recognized
+        class, records a resolved heal (listener_restart, already auto-healed by the
+        messaging supervisor) or a config/perf recommendation gap (engine_latency /
+        retrieval_degraded). Bounded, LLM-free, propose-only (never mutates prod); native by
+        default, background priority — like ``anomaly_consumer``/``tms_revalidation`` above.
+        """
+        try:
+            from ..research.runtime_reliability import runtime_reliability_analyzer
+
+            report = runtime_reliability_analyzer(self)
+            if report.get("patterns"):
+                logger.info(
+                    "Runtime reliability: scanned=%s patterns=%s gaps=%s "
+                    "recommendations=%s heals=%s",
+                    report.get("scanned"),
+                    report.get("patterns"),
+                    report.get("gaps_opened"),
+                    report.get("recommendations"),
+                    report.get("heals"),
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.error("runtime_reliability tick error: %s", e)
 
     def _tick_scheduler(self) -> None:
         """Evaluate every durable ``:Schedule`` and ENQUEUE the jobs that are due.

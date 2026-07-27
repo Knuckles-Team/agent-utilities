@@ -275,6 +275,7 @@ class InboundRouter:
         delay = base or 1.0
         while self._running:
             started = time.monotonic()
+            restart_reason: str | None = None
             try:
                 await self._listen_loop(backend)
             except asyncio.CancelledError:
@@ -301,6 +302,7 @@ class InboundRouter:
                     delay,
                     exc_info=True,
                 )
+                restart_reason = "error"
             else:
                 # ``listen()`` returned without error. If we are shutting down, exit;
                 # otherwise the stream closed unexpectedly (a long-poll/websocket backend
@@ -313,9 +315,29 @@ class InboundRouter:
                     backend.id,
                     delay,
                 )
+                restart_reason = "stream_closed"
             ran_for = time.monotonic() - started
             if not self._running:
                 return
+            # CONCEPT:AU-AHE.harness.runtime-reliability-loop — record the self-heal so the
+            # runtime-reliability loop SEES it: a listener that keeps dying+restarting (e.g.
+            # the Telegram 409 race) is auto-healed here, but repeated restarts are a
+            # SOURCE_RUNTIME signal the flywheel should note (the reconciler records them as
+            # a resolved heal). Fire-and-forget; never perturbs the supervisor.
+            if restart_reason:
+                try:
+                    from agent_utilities.observability.runtime_signals import (
+                        KIND_LISTENER_RESTART,
+                        record_runtime_signal,
+                    )
+
+                    record_runtime_signal(
+                        KIND_LISTENER_RESTART,
+                        backend.id,
+                        {"delay_s": round(delay, 2), "ran_for_s": round(ran_for, 2)},
+                    )
+                except Exception:  # noqa: BLE001 — emission must never affect supervision
+                    pass
             # Enforce the backoff so a hard-failing backend never busy-loops; a cancel
             # during the wait is a clean shutdown and propagates out of the coroutine.
             await asyncio.sleep(delay)
