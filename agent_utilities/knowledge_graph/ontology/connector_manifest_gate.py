@@ -31,6 +31,7 @@ __all__ = [
     "native_activation_fingerprints",
     "native_activation_fingerprint_modules",
     "MANDATORY_NAMED_CONNECTOR_SOURCES",
+    "INTERNAL_INTROSPECTION_SOURCES",
     "mandatory_connector_packages",
     "resolve_agents_root",
     "resolve_connector_package",
@@ -481,6 +482,50 @@ MANDATORY_NAMED_CONNECTOR_SOURCES: frozenset[str] = frozenset(
 )
 
 
+# D17 gate exemption — INTERNAL INFRASTRUCTURE INTROSPECTION, not external supply
+# chain (ingestion-hydration-program.md D17 gate fix).
+#
+# The compile-before-sync gate (:func:`precheck_source`/:func:`manifest_required`)
+# exists to defend one specific threat model: an EXTERNAL, third-party data source
+# silently drifting from the tool/field contract that was actually reviewed and
+# signed off (AU-P0-4 fail-closed connector permissions). That model presumes an
+# external maintainer, an external release cadence, and a trust boundary crossed
+# at ingest time — which is exactly why every genuine connector package must carry
+# a signed ``connector_manifest.yml`` before ``sync_source`` will pull its data.
+#
+# ``fleet`` / ``fleet_connectors`` are not that. They are ``source_sync``'s OWN
+# capability-elevation probes (``_sync_fleet`` / ``_sync_fleet_connectors``,
+# ``source_sync.py``): in-process code THIS repo ships, reading tool schemas off
+# MCP servers THIS deployment already runs, so the resulting ``:Tool``/
+# ``:MCPServer`` nodes describe infrastructure WE control. There is no external
+# party to sign a manifest on behalf of, no upstream release to drift from, and no
+# external data payload crossing a trust boundary — only our own already-trusted
+# process introspecting our own already-trusted fleet. Requiring a signed manifest
+# here would not add a security boundary; it would just make internal
+# introspection permanently unsyncable, since no one owns an "external" release to
+# certify.
+#
+# ``manifest_required()`` was widened to universal (commit 274d4c37, "every
+# non-empty source is governed") to close the inverse gap — an unknown EXTERNAL
+# connector being less restricted than an onboarded one. That widening did not
+# consider internal introspection sources at all; it caught them as a side effect,
+# not a considered decision. This set is the explicit, by-name carve-out for that:
+# deliberately small and hand-verified (like :data:`SOURCE_TO_CONNECTOR_PACKAGE`
+# above), NEVER pattern/prefix-matched, so nothing else silently rides along. Any
+# other internal introspection source must be added here explicitly, with the same
+# scrutiny, not inferred.
+INTERNAL_INTROSPECTION_SOURCES: frozenset[str] = frozenset(
+    {
+        # source_sync._sync_fleet — probes the deployed MCP fleet's live tool
+        # schemas into :Tool/:MCPServer nodes (KG-2.9 fleet capability elevation).
+        "fleet",
+        # source_sync._sync_fleet_connectors — the per-package connector-object
+        # capability sweep alongside the fleet tool-schema probe above.
+        "fleet_connectors",
+    }
+)
+
+
 def resolve_agents_root() -> Path:
     """The ``agent-packages/agents`` fleet root (``AGENTS_ROOT`` override, else
     ``WORKSPACE_PATH/agent-packages/agents``, else the dev-checkout-relative default)."""
@@ -891,12 +936,23 @@ def required_connector_sources() -> set[str]:
 def manifest_required(source: str) -> bool:
     """Return whether an external source must carry a certified manifest.
 
-    Every non-empty source is governed.  The former allowlist/pass-through model
-    made an unknown connector less restricted than an onboarded one, which is the
-    inverse of a fail-closed supply-chain boundary.  The enterprise source catalog
-    remains useful for inventory reporting, but it no longer controls enforcement.
+    Every non-empty EXTERNAL source is governed.  The former allowlist/pass-through
+    model made an unknown connector less restricted than an onboarded one, which is
+    the inverse of a fail-closed supply-chain boundary.  The enterprise source
+    catalog remains useful for inventory reporting, but it no longer controls
+    enforcement.
+
+    :data:`INTERNAL_INTROSPECTION_SOURCES` (``fleet``/``fleet_connectors``) are the
+    one explicit carve-out: internal infrastructure self-introspection of our own
+    deployed MCP fleet, never a third-party external data source, so the
+    external-supply-chain threat model this gate defends does not apply to them —
+    see that set's docstring for the full rationale. Every other source, including
+    unknown/unbundled ones, remains governed exactly as before.
     """
-    return bool((source or "").strip())
+    normalized = (source or "").strip().lower()
+    if not normalized:
+        return False
+    return normalized not in INTERNAL_INTROSPECTION_SOURCES
 
 
 def precheck_source(source: str, *, agents_root: Path | None = None) -> dict[str, Any]:
@@ -913,7 +969,24 @@ def precheck_source(source: str, *, agents_root: Path | None = None) -> dict[str
 
     CONCEPT:AU-P0-4 fail-closed connector permissions — missing, unsigned,
     providerless, or schema-drifted bundles all produce the same refusal contract.
+
+    :data:`INTERNAL_INTROSPECTION_SOURCES` short-circuit here to a clean pass:
+    they are our own infrastructure introspecting our own already-deployed MCP
+    fleet, not an external supply chain, so there is no external manifest for
+    them to present and none is required (D17 gate fix, see that set's docstring
+    for the full security rationale).
     """
+    normalized = (source or "").strip().lower()
+    if normalized in INTERNAL_INTROSPECTION_SOURCES:
+        return {
+            "checked": True,
+            "ok": True,
+            "connector": normalized,
+            "manifest_path": None,
+            "violations": [],
+            "exempt_reason": "internal-introspection",
+        }
+
     path = find_connector_manifest(source, agents_root=agents_root)
     if path is None:
         return {
