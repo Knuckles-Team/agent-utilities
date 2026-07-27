@@ -32,6 +32,7 @@ filesystem value.  Persisted bundle caching remains the ContextCompiler's job an
 uses only privacy-safe opaque references.
 """
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator, Iterator
@@ -65,6 +66,21 @@ __all__ = [
 ]
 
 _CONTEXT_MARKER = "[agent-utilities:compiled-evidence:v1]"
+
+# Wall-clock budget for the mandatory evidence compilation at the model-transport
+# boundary. Compilation is a blocking, engine-contended retrieval (hybrid_retriever
+# → graph_compute → the eg client's sync_wrapper → future.result()); running it
+# inline on the asyncio event loop is what SIGKILLed graph-os (a contended
+# retrieval blocked the loop so long that even status-only /health timed out).
+# It is therefore run OFF the loop (asyncio.to_thread) and BOUNDED by this budget:
+# a quick retrieval still returns the full compiled bundle, while a slow/contended
+# one degrades to ungrounded passthrough FAST instead of stalling the delegation
+# (and the whole process) past its wall clock. This is a liveness guard, not an
+# operator tunable, so it is a named module constant per configuration discipline
+# rather than a new env knob. ~10s sits below typical delegation/model timeouts
+# while still letting a genuinely-slow-but-progressing retrieval complete.
+_CONTEXT_COMPILE_TIMEOUT_S = 10.0
+
 _compiler_engine: Any | None = None
 _compiler_cache: Any | None = None
 _WRAPPER_CLASS: Any | None = None
@@ -293,6 +309,56 @@ def _compile_messages(messages: list[Any], model_name: str) -> list[Any]:
     return _compiled_evidence_and_bundle(messages, model_name)[0]
 
 
+async def _compiled_evidence_and_bundle_bounded(
+    messages: list[Any], model_name: str
+) -> tuple[list[Any], ContextBundle | None]:
+    """Non-blocking, bounded wrapper over :func:`_compiled_evidence_and_bundle`.
+
+    The compilation it wraps is a synchronous, engine-contended retrieval whose
+    innermost hop (``graph_compute`` → the eg client's ``sync_wrapper`` →
+    ``future.result()``) BLOCKS the calling thread. On the model-transport
+    boundary that thread is the MAIN asyncio event loop, so a slow/contended
+    retrieval stalls every other coroutine on it — including status-only
+    ``/health`` — which is what SIGKILLed graph-os during a delegation. Running it
+    via :func:`asyncio.to_thread` moves the block off the loop (``to_thread``
+    propagates the ambient contextvars, so the verified ``GraphSession`` and the
+    resource-priority class still reach the retriever), and :func:`asyncio.wait_for`
+    bounds it by :data:`_CONTEXT_COMPILE_TIMEOUT_S`.
+
+    On timeout OR any compilation error the request DEGRADES to the ungrounded
+    passthrough ``(messages, None)`` — byte-for-byte the shape used when the
+    evidence is already compiled or the escape hatch is off — because the evidence
+    boundary is best-effort at the transport edge and liveness must win over a
+    contended retrieval. Degradation is logged loudly so an ungrounded call is
+    always observable. The fast path is unchanged: a quick retrieval returns the
+    full compiled bundle.
+    """
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_compiled_evidence_and_bundle, messages, model_name),
+            timeout=_CONTEXT_COMPILE_TIMEOUT_S,
+        )
+    except TimeoutError:  # asyncio.wait_for's timeout (asyncio.TimeoutError is this alias)
+        logger.warning(
+            "[CONCEPT:AU-KG.retrieval.context-compiler] evidence compilation exceeded "
+            "%.1fs and was abandoned; sending this model request WITHOUT compiled "
+            "evidence (ungrounded) to keep the event loop responsive.",
+            _CONTEXT_COMPILE_TIMEOUT_S,
+        )
+        return messages, None
+    except Exception as exc:  # noqa: BLE001 — best-effort boundary, never block/raise
+        logger.warning(
+            "[CONCEPT:AU-KG.retrieval.context-compiler] evidence compilation failed "
+            "(%s); sending this model request WITHOUT compiled evidence (ungrounded).",
+            type(exc).__name__,
+        )
+        return messages, None
+
+
+async def _compile_messages_bounded(messages: list[Any], model_name: str) -> list[Any]:
+    return (await _compiled_evidence_and_bundle_bounded(messages, model_name))[0]
+
+
 def _record_delegated_run_ttft(duration_s: float, bundle: ContextBundle | None) -> None:
     """Seam-6 TTFT surrogate for the delegated-run model-transport boundary (X6).
 
@@ -336,7 +402,9 @@ def _wrapper_class() -> Any | None:
         async def request(
             self, messages: list[Any], model_settings: Any, mrp: Any
         ) -> Any:
-            governed, bundle = _compiled_evidence_and_bundle(messages, self.model_name)
+            governed, bundle = await _compiled_evidence_and_bundle_bounded(
+                messages, self.model_name
+            )
             start = time.perf_counter()
             try:
                 return await super().request(governed, model_settings, mrp)
@@ -346,13 +414,15 @@ def _wrapper_class() -> Any | None:
         async def count_tokens(
             self, messages: list[Any], model_settings: Any, mrp: Any
         ) -> Any:
-            governed = _compile_messages(messages, self.model_name)
+            governed = await _compile_messages_bounded(messages, self.model_name)
             return await super().count_tokens(governed, model_settings, mrp)
 
         async def compact_messages(
             self, request_context: Any, *, instructions: str | None = None
         ) -> Any:
-            governed = _compile_messages(request_context.messages, self.model_name)
+            governed = await _compile_messages_bounded(
+                request_context.messages, self.model_name
+            )
             return await super().compact_messages(
                 replace(request_context, messages=governed),
                 instructions=instructions,
@@ -366,7 +436,9 @@ def _wrapper_class() -> Any | None:
             mrp: Any,
             run_context: Any | None = None,
         ) -> AsyncIterator[Any]:
-            governed, bundle = _compiled_evidence_and_bundle(messages, self.model_name)
+            governed, bundle = await _compiled_evidence_and_bundle_bounded(
+                messages, self.model_name
+            )
             start = time.perf_counter()
             try:
                 async with super().request_stream(
