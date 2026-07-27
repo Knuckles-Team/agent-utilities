@@ -252,6 +252,47 @@ def test_precheck_source_fails_closed_when_no_manifest(tmp_path: Path):
     assert any("[missing]" in violation for violation in result["violations"])
 
 
+# ── D17 gate fix (ingestion-hydration-program.md §2): internal infrastructure
+# introspection (`fleet`/`fleet_connectors`) is exempt from the signed-manifest
+# requirement — it probes our OWN deployed MCP fleet, never an external supply
+# chain. A genuine external source (even one with no manifest on disk, like
+# "no-such-source" above) must still fail closed exactly as before. ───────────
+
+
+def test_precheck_source_exempts_internal_introspection_sources(tmp_path: Path):
+    """`fleet`/`fleet_connectors` pass the D17 gate with no manifest on disk."""
+    for source in ("fleet", "fleet_connectors"):
+        result = gate.precheck_source(source, agents_root=tmp_path)
+        assert result["checked"] is True
+        assert result["ok"] is True
+        assert result["violations"] == []
+
+    # Case-insensitive, like every other source key normalized in sync_source().
+    result = gate.precheck_source("FLEET", agents_root=tmp_path)
+    assert result["ok"] is True
+
+    # The exemption is by-name only: an unrelated source with no manifest on disk
+    # (including one that merely LOOKS related, e.g. shares "fleet" as a
+    # substring) still fails closed exactly as before.
+    unaffected = gate.precheck_source("fleet-widget", agents_root=tmp_path)
+    assert unaffected["ok"] is False
+    assert any("[missing]" in v for v in unaffected["violations"])
+
+
+def test_manifest_required_false_only_for_internal_introspection_sources():
+    """`manifest_required` mirrors the `precheck_source` exemption exactly."""
+    assert gate.manifest_required("fleet") is False
+    assert gate.manifest_required("fleet_connectors") is False
+    assert gate.manifest_required("FLEET") is False
+    assert gate.manifest_required("  fleet  ") is False
+
+    # A genuine external source is unaffected — still mandatory, unchanged.
+    assert gate.manifest_required("servicenow") is True
+    assert gate.manifest_required("jira") is True
+    assert gate.manifest_required("unbundled-development-source") is True
+    assert gate.manifest_required("") is False
+
+
 def test_precheck_source_ok_on_clean_manifest(tmp_path: Path, monkeypatch):
     _write_clean_manifest(tmp_path, "widget-mcp")
     _install_widget_provider(monkeypatch)

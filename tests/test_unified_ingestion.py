@@ -7,15 +7,18 @@ history tracking, and error handling work as expected.
 
 import json
 import uuid
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
+from agent_utilities.knowledge_graph.ingestion import envelope_ingest
 from agent_utilities.knowledge_graph.ingestion.engine import (
     ContentType,
     IngestionEngine,
     IngestionManifest,
     IngestionResult,
+    register_self_tool_surface_provider,
 )
 
 # ── Fixtures ───────────────────────────────────────────────────────────
@@ -384,6 +387,189 @@ class TestMCPServerIngestion:
             )
         )
         assert result.status == "failed"
+
+    @pytest.mark.anyio
+    async def test_self_entry_still_skipped_in_fleet_config(self, engine, tmp_path):
+        """The pre-existing ``self_names`` exclusion is unchanged: a THIRD-PARTY
+        fleet listing that happens to name graph-os is still never live-probed
+        (only ``_ingest_self_tools`` — a separate, network-free path — writes
+        graph-os's own tools)."""
+        config = {
+            "mcpServers": {
+                "graph-os": {"command": "graph-os", "args": [], "env": {}},
+                "other-srv": {"command": "uvx", "args": ["y"], "env": {}},
+            }
+        }
+        config_file = tmp_path / "mcp_config.json"
+        config_file.write_text(json.dumps(config))
+
+        engine.kg.parse_mcp_config = lambda data: [
+            {
+                "name": "graph-os",
+                "command": "graph-os",
+                "args": [],
+                "env": {},
+                "config_hash": "a" * 64,
+            },
+            {
+                "name": "other-srv",
+                "command": "uvx",
+                "args": ["y"],
+                "env": {},
+                "config_hash": "b" * 64,
+            },
+        ]
+
+        discovered_for: list[str] = []
+
+        async def _record_discovery(entry, timeout=15.0):
+            discovered_for.append(entry["name"])
+            return [{"name": "some_tool", "description": "d"}]
+
+        engine.kg.discover_mcp_tools = _record_discovery
+
+        result = await engine.ingest(
+            IngestionManifest(
+                content_type=ContentType.MCP_SERVER,
+                source_uri=str(config_file),
+            )
+        )
+        assert result.status == "success"
+        # graph-os itself is never handed to the live discovery function...
+        assert "graph-os" not in discovered_for
+        # ...but its sibling in the same fleet config still is.
+        assert discovered_for == ["other-srv"]
+
+
+# ── Self tool-surface ingestion (graph-os self-introspection) ────────
+
+
+class TestSelfToolSurfaceIngestion:
+    """CONCEPT:AU-KG.ingest.self-tool-surface — graph-os ingests its OWN in-process
+    tool registry as ``:MCPServer``/``:Tool`` nodes (ingestion-hydration-program
+    Phase E), never by probing its own live MCP endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_provider(self):
+        """Isolate the module-level registry across tests (last write wins)."""
+        register_self_tool_surface_provider(None)
+        yield
+        register_self_tool_surface_provider(None)
+
+    @pytest.mark.anyio
+    async def test_no_provider_registered_is_a_noop(self, engine):
+        """Outside a live graph-os process (nothing ever registered a provider)
+        this is a cheap, side-effect-free skip — never a network call."""
+        result = await engine._ingest_self_tools()
+        assert result.status == "skipped"
+        assert result.nodes_created == 0
+        engine.kg.discover_mcp_tools.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_writes_mcpserver_and_tool_nodes_from_in_process_registry(
+        self, engine, monkeypatch
+    ):
+        """The core assertion: previously-zero ``:MCPServer``/``:Tool`` writes for
+        graph-os's own tools now happen, sourced entirely from an in-memory
+        provider — no live self-probe, no recursion."""
+        fake_registered_tools = {
+            "graph_query": "Query the knowledge graph.",
+            "engine_broker": "Low-level engine message broker.",
+        }
+        register_self_tool_surface_provider(
+            lambda: [
+                {"name": name, "description": doc}
+                for name, doc in fake_registered_tools.items()
+            ]
+        )
+
+        captured: dict[str, Any] = {}
+
+        def _fake_ingest_graph_slice(
+            engine_obj, connector, entities, relationships, **kwargs
+        ):
+            captured["engine"] = engine_obj
+            captured["connector"] = connector
+            captured["entities"] = entities
+            captured["relationships"] = relationships
+            captured["kwargs"] = kwargs
+            return {"status": "success"}
+
+        monkeypatch.setattr(
+            envelope_ingest, "ingest_graph_slice", _fake_ingest_graph_slice
+        )
+
+        result = await engine._ingest_self_tools()
+
+        assert result.status == "success"
+        assert result.nodes_created == 3  # 1 MCPServer + 2 Tool
+        assert result.edges_created == 2
+
+        # No network path was touched: discovery is the fleet-probe-only method.
+        engine.kg.discover_mcp_tools.assert_not_called()
+
+        # The write went through the same atomic envelope primitive the fleet
+        # prober uses, bound to THIS engine (never a remote/self client).
+        assert captured["engine"] is engine.kg
+
+        entities = captured["entities"]
+        servers = [e for e in entities if e["node_type"] == "MCPServer"]
+        tools = [e for e in entities if e["node_type"] == "Tool"]
+        assert len(servers) == 1
+        assert servers[0]["name"] == "graph-os"
+        assert {t["name"] for t in tools} == {"graph_query", "engine_broker"}
+        assert all(t["mcp_server"] == "graph-os" for t in tools)
+        # Canonical shape only — never the raw 'type'/'rel_type' aliases.
+        assert all("type" not in e for e in entities)
+
+        relationships = captured["relationships"]
+        assert len(relationships) == 2
+        assert all(r["relationship"] == "SERVES" for r in relationships)
+        assert {r["target"] for r in relationships} == {
+            "tool_graph-os_graph_query",
+            "tool_graph-os_engine_broker",
+        }
+
+    @pytest.mark.anyio
+    async def test_empty_tool_list_is_skipped(self, engine):
+        register_self_tool_surface_provider(lambda: [])
+        result = await engine._ingest_self_tools()
+        assert result.status == "skipped"
+
+    @pytest.mark.anyio
+    async def test_broken_provider_fails_closed_without_raising(self, engine):
+        """A buggy provider must not crash ingestion (best-effort, like every
+        other adaptor's per-child error handling in this module)."""
+
+        def _boom():
+            raise RuntimeError("boom")
+
+        register_self_tool_surface_provider(_boom)
+        result = await engine._ingest_self_tools()
+        assert result.status == "failed"
+        assert result.error
+
+    @pytest.mark.anyio
+    async def test_duplicate_tool_names_are_deduplicated(self, engine, monkeypatch):
+        register_self_tool_surface_provider(
+            lambda: [
+                {"name": "graph_query", "description": "first"},
+                {"name": "graph_query", "description": "duplicate"},
+            ]
+        )
+        captured: dict[str, Any] = {}
+        monkeypatch.setattr(
+            envelope_ingest,
+            "ingest_graph_slice",
+            lambda *a, **k: captured.setdefault("call", (a, k)) or {"status": "ok"},
+        )
+
+        result = await engine._ingest_self_tools()
+
+        assert result.status == "success"
+        assert result.nodes_created == 2  # 1 MCPServer + 1 Tool (deduped)
+        entities = captured["call"][0][2]
+        assert sum(1 for e in entities if e["node_type"] == "Tool") == 1
 
 
 # ── Prompt Adaptor ───────────────────────────────────────────────────

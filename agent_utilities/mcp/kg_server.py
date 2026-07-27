@@ -2808,6 +2808,97 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
     # path when an operator wants every live tool schema elevated into the KG.
 
 
+# ── Phase F boot hydration legs (ingestion-hydration-program.md §3) ─────────
+#
+# ``_ingest_capabilities`` above (mcp_config.json / native tools / skills) is
+# the ORIGINAL boot hydration; the two helpers below extend it with the
+# capability legs Phases C and E built but never wired to a boot call. Each is
+# its own best-effort, exception-isolated step — same shape as the ontology
+# federation sync already nested inside :func:`_start_engine_bootstrap`'s
+# background thread — so a failure in one never skips, or blocks serving for,
+# the others. Fleet tool-schema ingestion (Phase A) and the mcp_config.json
+# router (Phase B) need no boot call here: A rides its own hourly
+# ``deploy/schedules.yml`` cadence (``fleet-tool-schema-sync``) and B rides the
+# always-on codebase sweep's ``_route_classified_artifacts`` fan-out.
+
+
+def _ingest_prompts_at_boot() -> None:
+    """Hydrate the ``:Prompt`` corpus at boot (Phase C → Phase F wiring).
+
+    :func:`agent_utilities.agent.registry_builder.ingest_prompts_to_graph` is
+    content-hash incremental (CONCEPT:EG-KG.storage.nonblocking-checkpoint,
+    ``DeltaManifest`` category ``"prompt_base"``), so calling it on every boot
+    is cheap: the first boot upserts every prompt, every later boot skips the
+    unchanged ones. This runs inside the background bootstrap thread, which
+    has no running event loop, so ``asyncio.run`` is the correct, safe way to
+    drive the coroutine (mirrors the existing synchronous callers in
+    ``registry_builder.py``/``package_install_ingest.py``) — never blocks
+    graph-os startup or serving, and a failure here is isolated and logged,
+    never raised into the caller.
+    """
+    try:
+        from agent_utilities.agent.registry_builder import ingest_prompts_to_graph
+
+        asyncio.run(ingest_prompts_to_graph())
+        logger.info("Ingested prompt-base library at boot (Phase C hydration)")
+    except Exception as exc:
+        logger.error(
+            "Prompt-base boot ingestion failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+
+
+def _graphos_self_tool_surface() -> list[dict[str, Any]]:
+    """In-process snapshot of graph-os's own registered MCP tool surface.
+
+    CONCEPT:AU-KG.ingest.self-tool-surface — the exact shape
+    :func:`~agent_utilities.knowledge_graph.ingestion.engine.register_self_tool_surface_provider`
+    expects: a plain, synchronous, zero-argument callable that reads the
+    already-built ``REGISTERED_TOOLS`` dict (populated by
+    ``register_tool_surface`` during :func:`_build_server`, which always runs
+    before this process starts serving). Reading a module-global dict is the
+    entire implementation — no network call, no MCP round-trip, no self-probe.
+    """
+    return [
+        {
+            "name": name,
+            "description": (getattr(func, "__doc__", None) or "").strip(),
+        }
+        for name, func in sorted(REGISTERED_TOOLS.items())
+    ]
+
+
+def _ingest_self_tool_surface_at_boot(engine: Any) -> None:
+    """Ingest graph-os's own ~95 tools as ``:MCPServer``/``:Tool`` nodes at boot.
+
+    CONCEPT:AU-KG.ingest.self-tool-surface (Phase E → Phase F wiring). Registers
+    the in-process provider above, then drives
+    :meth:`~agent_utilities.knowledge_graph.ingestion.engine.IngestionEngine._ingest_self_tools`
+    once. That method is itself purely in-process/synchronous under the hood
+    (no network, no self-probe — see its docstring); this wrapper just adds the
+    same best-effort isolation as every other boot-hydration leg so a failure
+    here never blocks serving.
+    """
+    try:
+        from agent_utilities.knowledge_graph.ingestion.engine import (
+            IngestionEngine,
+            register_self_tool_surface_provider,
+        )
+
+        register_self_tool_surface_provider(_graphos_self_tool_surface)
+        result = asyncio.run(IngestionEngine(kg_engine=engine)._ingest_self_tools())
+        logger.info(
+            "Self tool-surface boot ingestion: status=%s nodes=%d",
+            result.status,
+            result.nodes_created,
+        )
+    except Exception as exc:
+        logger.error(
+            "Self tool-surface boot ingestion failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+
+
 def _mint_process_session(transport: str) -> Any:
     """Mint the process's verified graph authority.
 
@@ -3062,6 +3153,14 @@ def _start_engine_bootstrap(session: Any) -> None:
                 engine,
                 skip_skill_names=frozenset(BUNDLED_SKILLS),
             )
+
+            # Phase F (ingestion-hydration-program.md §3): the two boot-hydration
+            # legs Phases C/E built but never wired to a boot call. Each is its
+            # own isolated, logged, best-effort step (see their docstrings) —
+            # non-blocking and default-on, no new opt-in flag.
+            _ingest_prompts_at_boot()
+            _ingest_self_tool_surface_at_boot(engine)
+
             try:
                 from agent_utilities.knowledge_graph.ontology.lifecycle import (
                     OntologyLifecycle,

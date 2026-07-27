@@ -192,6 +192,32 @@ def test_pinned_egress_allows_exact_configured_private_host(monkeypatch):
         assert client.get("http://model.internal:9000/v1").status_code == 200
 
 
+def test_pinned_egress_allows_k8s_cgnat_cluster_ip(monkeypatch):
+    # RFC 6598 (100.64.0.0/10) is the standard Kubernetes pod/service CIDR; a
+    # `*.arpa` fleet host that CoreDNS resolves to a ClusterIP here must be
+    # private egress, not rejected as public (regression: the whole ~60-server
+    # fleet was blocked fleet-wide with PinnedEgressViolation).
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client.socket.getaddrinfo",
+        lambda *_args, **_kwargs: _dns_answer("100.65.4.63"),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "100.65.4.63"
+        return httpx.Response(
+            200,
+            extensions={"network_stream": _Peer("100.65.4.63")},
+        )
+
+    with create_http_client(
+        transport=httpx.MockTransport(handler),
+        pin_egress=True,
+        allowed_private_hosts=["github-mcp.arpa"],
+        allow_loopback=False,
+    ) as client:
+        assert client.get("http://github-mcp.arpa/mcp").status_code == 200
+
+
 def test_pinned_private_host_rejects_public_dns_rebinding(monkeypatch):
     monkeypatch.setattr(
         "agent_utilities.core.http_client.socket.getaddrinfo",

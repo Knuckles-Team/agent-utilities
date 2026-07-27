@@ -270,6 +270,59 @@ def test_run_scheduled_job_rejects_unbounded_or_non_mapping_payloads() -> None:
     )
 
 
+# ── Fleet tool-schema cadence (ingestion-hydration program, Phase A) ─────────
+# `_sync_fleet` (source_sync.py) is the ONLY path that live-probes the fleet's
+# tool schemas into :Tool/:MCPServer nodes. It has no dedicated `_SKILL_HANDLERS`
+# entry, so a `kind=skill, ref=fleet, action=delta` schedule falls through to the
+# generic `action in SYNC_ACTIONS` branch exactly like every other delta source.
+
+
+def test_run_scheduled_job_skill_dispatches_fleet_source_sync(monkeypatch) -> None:
+    """The dedicated ``fleet-tool-schema-sync`` payload shape reaches the generic
+    skill dispatch: ``sync_source(engine, "fleet", mode="delta")`` — the same
+    entrypoint ``_sync_fleet`` is registered under in ``_DELTA_HANDLERS`` — proving
+    the schedule payload is reachable, without touching a live engine/multiplexer."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    calls = []
+
+    def fake_sync_source(engine, source, *, mode="delta", ids=None, client=None):
+        calls.append((engine, source, mode))
+        return {"status": "ok", "source": source, "mode": mode}
+
+    monkeypatch.setattr(ss, "sync_source", fake_sync_source)
+
+    eng = _FakeEngine()
+    res = se.run_scheduled_job(
+        eng, {"kind": "skill", "ref": "fleet", "action": "delta"}
+    )
+
+    assert calls == [(eng, "fleet", "delta")]
+    assert res["status"] == "ok"
+
+
+def test_fleet_tool_schema_sync_schedule_seeds_from_deploy_yaml() -> None:
+    """The on-disk ``deploy/schedules.yml`` seed round-trips to a live, enabled
+    :Schedule node with the ``fleet``/``delta`` payload and a real hourly cron —
+    the recurring cadence Gap 1 (ingestion-hydration program) was missing."""
+    eng = _FakeEngine()
+    seeded = se.seed_schedules(eng)
+    assert seeded > 0
+
+    spec = se._load_one(eng, "fleet-tool-schema-sync")
+    assert spec is not None
+    assert spec.enabled is True
+    assert spec.trigger == "cron"
+    assert spec.payload["kind"] == "skill"
+    assert spec.payload["ref"] == "fleet"
+    assert spec.payload["action"] == "delta"
+    # Hourly, at minute 5 past — fires once an hour, not every 20 minutes like
+    # the (deliberately fleet-excluding) all-sources-delta-sweep.
+    assert se.cron_matches(spec.cron, _at(0, 5))
+    assert se.cron_matches(spec.cron, _at(13, 5))
+    assert not se.cron_matches(spec.cron, _at(0, 6))
+
+
 def test_set_enabled_and_run_now() -> None:
     eng = _FakeEngine()
     se.register_schedule(

@@ -55,6 +55,10 @@ _ALLOWED_PRIVATE_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
+    # RFC 6598 shared address space — the standard Kubernetes pod/service CIDR
+    # (CGNAT). Cluster-internal ClusterIPs land here, so a `*.arpa` fleet host
+    # that CoreDNS resolves to a ClusterIP is private egress, not a public leak.
+    ipaddress.ip_network("100.64.0.0/10"),
     ipaddress.ip_network("fc00::/7"),
 )
 
@@ -62,7 +66,8 @@ _ALLOWED_PRIVATE_NETWORKS = (
 def _is_allowed_private_address(
     address: ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
-    """Accept only loopback, RFC1918, or IPv6 ULA for private-host egress."""
+    """Accept loopback, RFC1918, RFC6598 (k8s CGNAT), or IPv6 ULA for
+    private-host egress."""
 
     return address.is_loopback or any(
         address in network for network in _ALLOWED_PRIVATE_NETWORKS

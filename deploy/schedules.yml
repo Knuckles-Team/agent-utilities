@@ -43,6 +43,26 @@ schedules:
     dispatch: deterministic
     enabled: true
 
+  # Fleet MCP tool-schema ingestion (ingestion-hydration program, Phase A). `_sync_fleet`
+  # (source_sync.py) live-probes every configured fleet server and writes its real tools
+  # as `:Tool`/`:MCPServer` capability nodes — the ONLY path that does this. It is
+  # deliberately EXCLUDED from `all-sources-delta-sweep` above (probing ~62 servers
+  # every 20 minutes would be too heavy for a slow-changing tool vocabulary), so
+  # without a cadence of its own it never ran on any recurring schedule and no `:Tool`
+  # nodes were ever created. `ref: fleet` + `action: delta` route through the same
+  # generic dispatch as `all` → `source_sync(engine, "fleet", mode="delta")` →
+  # `_sync_fleet`, content-hash deduped (unchanged tools are a no-op re-run) and
+  # internally bounded to 16 concurrent probes (`MCPMultiplexer.probe_catalog`), so an
+  # hourly cadence never storms the fleet.
+  - name: fleet-tool-schema-sync
+    description: Probe the MCP fleet's live tool schemas into :Tool/:MCPServer capability nodes (KG-2.9 fleet capability elevation).
+    cron: "5 * * * *" # hourly, offset from the top of the hour — tool schemas are slow-changing
+    kind: skill
+    ref: fleet
+    action: delta
+    dispatch: deterministic
+    enabled: true
+
   - name: code-health-sweep
     description: Run the code-enhancer liveness analyzer across all workspace repos (CE-038).
     cron: "0 */4 * * *" # every 4 hours, on the hour

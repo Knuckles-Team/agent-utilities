@@ -410,6 +410,178 @@ def test_noncritical_bootstrap_skips_packaged_skill_reingestion() -> None:
     )
 
 
+def test_noncritical_bootstrap_runs_phase_f_hydration_legs() -> None:
+    """Phase F (ingestion-hydration-program.md §3): the background bootstrap
+    thread drives the prompt (C) and self-tool-surface (E) boot-hydration legs,
+    in addition to the pre-existing capability ingest, on every boot."""
+    from agent_utilities.mcp import kg_server
+
+    session = _verified_session()
+    ingest = MagicMock()
+    prompts_leg = MagicMock()
+    self_tools_leg = MagicMock()
+
+    class Engine:
+        backend = object()
+        start_task_workers = MagicMock()
+
+    class ImmediateAuthorizedBackground:
+        def __init__(self, target) -> None:
+            self.target = target
+
+        def start(self) -> None:
+            with use_actor(session.actor), use_session(session):
+                self.target()
+
+    def authorized(_session, target, **_kwargs):
+        return ImmediateAuthorizedBackground(target)
+
+    engine_instance = Engine()
+
+    with (
+        patch.object(kg_server, "_get_engine", return_value=engine_instance),
+        patch.object(
+            kg_server,
+            "_ensure_bundled_skills_ready",
+            return_value={
+                "required": 10,
+                "already_ready": 10,
+                "ingested": 0,
+                "ready": 10,
+            },
+        ),
+        patch.object(kg_server, "_ingest_capabilities", ingest),
+        patch.object(kg_server, "_ingest_prompts_at_boot", prompts_leg),
+        patch.object(kg_server, "_ingest_self_tool_surface_at_boot", self_tools_leg),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
+            side_effect=authorized,
+        ),
+        patch(
+            "agent_utilities.mcp.tools.ontology_tools._sync_package_ontologies",
+            return_value={},
+        ),
+    ):
+        kg_server._start_engine_bootstrap(session)
+
+    prompts_leg.assert_called_once_with()
+    self_tools_leg.assert_called_once_with(engine_instance)
+
+
+def test_prompt_boot_hydration_leg_is_isolated_from_failure(caplog) -> None:
+    """A failure in the Phase C prompt leg is caught, logged, and never raised —
+    it must not prevent the self-tool-surface leg (or ontology sync) from
+    running afterward."""
+    from agent_utilities.mcp import kg_server
+
+    with (
+        patch(
+            "agent_utilities.agent.registry_builder.ingest_prompts_to_graph",
+            side_effect=RuntimeError("boom"),
+        ),
+        caplog.at_level("ERROR", logger="agent_utilities.mcp.kg_server"),
+    ):
+        kg_server._ingest_prompts_at_boot()  # must not raise
+
+    assert "Prompt-base boot ingestion failed" in caplog.text
+
+
+def test_self_tool_surface_boot_hydration_leg_is_isolated_from_failure(caplog) -> None:
+    """A failure in the Phase E self-tool-surface leg is caught and logged, not
+    raised — same best-effort isolation contract as every other boot leg.
+
+    ``IngestionEngine._ingest_self_tools`` already isolates a *provider*
+    exception internally (a buggy provider must not break ingest — see its own
+    docstring), so a raising provider alone would never reach this wrapper's
+    ``except``. Fail the registration call itself instead, to exercise this
+    wrapper's OWN isolation (e.g. a broken import or a bad ``engine`` handle).
+    """
+    from agent_utilities.mcp import kg_server
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.ingestion.engine.register_self_tool_surface_provider",
+            side_effect=RuntimeError("boom"),
+        ),
+        caplog.at_level("ERROR", logger="agent_utilities.mcp.kg_server"),
+    ):
+        kg_server._ingest_self_tool_surface_at_boot(object())  # must not raise
+
+    assert "Self tool-surface boot ingestion failed" in caplog.text
+
+
+def test_self_tool_surface_provider_failure_is_isolated_inside_ingest(caplog) -> None:
+    """A separate, deeper isolation layer: even if the REGISTERED provider
+    itself raises, ``_ingest_self_tools`` catches it internally and returns a
+    ``failed`` :class:`IngestionResult` — the boot wrapper still completes
+    normally (logging the failed status at INFO, not ERROR) because nothing
+    propagates out of ``_ingest_self_tools`` for it to catch."""
+    from agent_utilities.mcp import kg_server
+
+    with (
+        patch.object(
+            kg_server,
+            "_graphos_self_tool_surface",
+            side_effect=RuntimeError("boom"),
+        ),
+        caplog.at_level("INFO", logger="agent_utilities.mcp.kg_server"),
+    ):
+        kg_server._ingest_self_tool_surface_at_boot(object())  # must not raise
+
+    assert "Self tool-surface boot ingestion failed" not in caplog.text
+    assert "status=failed" in caplog.text
+
+
+def test_self_tool_surface_boot_hydration_registers_provider_and_ingests() -> None:
+    """The Phase E leg registers the in-process provider and drives
+    ``IngestionEngine._ingest_self_tools`` exactly once per boot."""
+    from agent_utilities.knowledge_graph.ingestion import engine as ingestion_engine
+    from agent_utilities.mcp import kg_server
+
+    fake_kg_engine = MagicMock()
+    fake_kg_engine.backend = MagicMock()
+    fake_kg_engine.graph_compute = MagicMock()
+
+    try:
+        kg_server._ingest_self_tool_surface_at_boot(fake_kg_engine)
+        # The registered provider must be exactly the module's own closure —
+        # never rebuilt/rewrapped — so re-registration stays idempotent.
+        assert (
+            ingestion_engine._SELF_TOOL_SURFACE_PROVIDER
+            is kg_server._graphos_self_tool_surface
+        )
+    finally:
+        ingestion_engine.register_self_tool_surface_provider(None)
+
+
+def test_graphos_self_tool_surface_reads_registered_tools_in_process() -> None:
+    """The provider closure is a pure, synchronous read of ``REGISTERED_TOOLS`` —
+    no network, no self-probe (CONCEPT:AU-KG.ingest.self-tool-surface)."""
+    from agent_utilities.mcp import kg_server
+
+    def _documented() -> None:
+        """A documented tool."""
+
+    def _undocumented() -> None:
+        pass
+
+    registered_before = dict(kg_server.REGISTERED_TOOLS)
+    try:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.REGISTERED_TOOLS["graph_documented"] = _documented
+        kg_server.REGISTERED_TOOLS["graph_undocumented"] = _undocumented
+
+        surface = kg_server._graphos_self_tool_surface()
+    finally:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.REGISTERED_TOOLS.update(registered_before)
+
+    assert surface == [
+        {"name": "graph_documented", "description": "A documented tool."},
+        {"name": "graph_undocumented", "description": ""},
+    ]
+
+
 def test_graphos_listener_starts_only_after_readiness_barrier() -> None:
     from agent_utilities.mcp import kg_server
 
@@ -507,7 +679,9 @@ async def test_stdio_process_authority_renews_off_the_active_event_loop() -> Non
 
     with (
         patch.object(kg_server, "_PROCESS_SESSION", current),
-        patch.object(kg_server, "_refresh_process_authority", side_effect=renew) as mint,
+        patch.object(
+            kg_server, "_refresh_process_authority", side_effect=renew
+        ) as mint,
         suspend_session(),
         use_actor(current.actor),
     ):

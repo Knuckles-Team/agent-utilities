@@ -337,6 +337,54 @@ def adaptor(content_type: ContentType) -> Callable:
     return decorator
 
 
+# ── Self tool-surface registry (graph-os self-introspection) ─────────────
+#
+# graph-os's own ~95 ``graph_*``/``engine_*`` MCP tools are built entirely
+# in-process at server-build time (``mcp/verbose_tools.py::register_tool_surface``
+# populating ``mcp/kg_server.py``'s ``REGISTERED_TOOLS`` dict) — their
+# names/descriptions are already sitting in memory; nothing needs to be
+# fetched over the wire to know them. The MCP_SERVER adaptor's ``self_names``
+# skip (see :meth:`IngestionEngine._ingest_mcp_server`) exists so a
+# THIRD-PARTY fleet listing that happens to mention graph-os is never
+# live-probed — that path would be recursive (this process asking its own
+# MCP endpoint to answer while it may itself be busy serving the very request
+# that triggered ingestion), a classic self-deadlock. But the historical
+# consequence was that graph-os's own tools were simply never written as
+# ``:MCPServer``/``:Tool`` nodes at all (ingestion-hydration-program gap 6).
+#
+# :meth:`IngestionEngine._ingest_self_tools` closes that gap the SAFE way: it
+# reads an already-built, in-memory tool list handed to it through this
+# registry — a plain synchronous function call, zero I/O — so there is no
+# socket, no MCP round-trip, and therefore no path to a self-probe deadlock.
+# Unset by default; a process that never calls
+# :func:`register_self_tool_surface_provider` (a background worker, a unit
+# test, or any other consumer of this engine that isn't graph-os itself)
+# simply gets a no-op ``skipped`` result — never a network call.
+SELF_MCP_SERVER_NAME = "graph-os"
+
+_SELF_TOOL_SURFACE_PROVIDER: Callable[[], list[dict[str, Any]]] | None = None
+
+
+def register_self_tool_surface_provider(
+    provider: Callable[[], list[dict[str, Any]]] | None,
+) -> None:
+    """Register the in-process supplier of graph-os's own tool descriptors.
+
+    CONCEPT:AU-KG.ingest.self-tool-surface
+
+    ``provider`` is a zero-argument callable returning
+    ``[{"name": ..., "description": ...}, ...]`` for every tool already
+    registered on the running graph-os MCP server (e.g. a closure over
+    ``mcp.kg_server.REGISTERED_TOOLS`` built once ``register_tool_surface``
+    has finished registering the surface). It is read directly, in-process —
+    never called over the network — so wiring this up can never make
+    graph-os a client of itself. Pass ``None`` to clear it (e.g. test
+    teardown). Idempotent: last write wins.
+    """
+    global _SELF_TOOL_SURFACE_PROVIDER
+    _SELF_TOOL_SURFACE_PROVIDER = provider
+
+
 # ── Content-hash registry (durable delta-skip, CONCEPT:AU-KG.ingest.capability-writeback) ─────────────
 
 _HASHERS: dict[ContentType, Callable] = {}
@@ -1745,6 +1793,8 @@ class IngestionEngine:
           * Prompt  → ``ContentType.PROMPT``  (prompt_template node)
           * Document→ ``ContentType.DOCUMENT`` (Document + IdeaBlock chunks + Concepts)
           * Spec    → inline ``Spec`` node (no SPEC adaptor exists) + central enrich
+          * Config  → the ``mcp_config.json`` subset only, ``ContentType.MCP_SERVER``
+            (``:MCPServer`` declaration, discovery forced off — no live probe here)
 
         Every artifact is linked to a ``Repo`` node via ``CONTAINS`` so a repo's
         skills/docs/prompts/specs are reachable from the repo they belong to. The
@@ -1895,12 +1945,46 @@ class IngestionEngine:
         sp_jobs += [(ContentType.SKILL, fc.path) for fc in plan.skills]
         sp_jobs += [(ContentType.PROMPT, fc.path) for fc in plan.prompts]
 
-        sp_routed, doc_routed = await _asyncio.gather(
+        # ── Config (mcp_config.json) → MCP_SERVER adaptor, declaration only ─
+        # ``plan.configs`` also carries the model-registry ``config.json``
+        # (``ContentType.CONFIG``) — that is a separate, still-unrouted gap and
+        # stays out of this fan-out; only the ``mcp_config.json`` entries
+        # (``ContentType.MCP_SERVER``) are routed here. ``discover`` is forced
+        # OFF so this free continuous codebase pass never live-probes a fleet
+        # member — Phase A's dedicated ``_sync_fleet`` sweep owns live tool
+        # discovery on its own cadence; here we only ever write the
+        # ``:MCPServer`` declaration (name + config hash, zero tools) so a
+        # discovered ``mcp_config.json`` is no longer silently dropped.
+        mcp_config_paths = [
+            fc.path for fc in plan.configs if fc.content_type == ContentType.MCP_SERVER
+        ]
+
+        async def _route_config(path: Path) -> IngestionResult | None:
+            sub = IngestionManifest(
+                content_type=ContentType.MCP_SERVER,
+                source_uri=str(path),
+                metadata={
+                    **manifest.metadata,
+                    "repo": repo_name,
+                    "classify": False,
+                    "discover": False,
+                },
+                force=manifest.force,
+            )
+            async with sem:
+                try:
+                    return await self.ingest(sub)
+                except Exception:  # noqa: BLE001
+                    logger.debug("routed mcp_server ingest failed")
+                    return None
+
+        sp_routed, doc_routed, cfg_routed = await _asyncio.gather(
             _asyncio.gather(*(_route(ct, p) for ct, p in sp_jobs)),
             _asyncio.gather(*(_route_document(fc.path) for fc in plan.documents)),
+            _asyncio.gather(*(_route_config(p) for p in mcp_config_paths)),
         )
 
-        counts = {"skill": 0, "prompt": 0, "document": 0}
+        counts = {"skill": 0, "prompt": 0, "document": 0, "mcp_server": 0}
         for (ct, _p), res in zip(sp_jobs, sp_routed, strict=False):
             if isinstance(res, IngestionResult) and res.status == "success":
                 counts[ct.value] = counts.get(ct.value, 0) + 1
@@ -1926,6 +2010,20 @@ class IngestionEngine:
                 # the whole repo's docs in ONE pass (concepts already done in-unit;
                 # the seam adds the canonical-fact layer). (CONCEPT:AU-KG.ingest.writes-go)
                 result.enrichable.extend(res.enrichable)
+
+        for res in cfg_routed:
+            if isinstance(res, IngestionResult) and res.status == "success":
+                counts["mcp_server"] += 1
+                result.nodes_created += res.nodes_created
+                result.edges_created += res.edges_created
+                src = next(
+                    (e.get("source_id") for e in res.enrichable if e.get("source_id")),
+                    "",
+                )
+                _link(str(src))
+                # No enrichable bubble-up here (unlike documents): this routes
+                # through ``self.ingest`` (like skill/prompt), which already ran
+                # its own inline enrichment pass on the declaration text.
 
         classified = {**counts, "spec": specs}
         result.nodes_created += specs
@@ -3273,7 +3371,12 @@ class IngestionEngine:
                 if not isinstance(discover, bool):
                     raise ValueError("MCP discovery policy is invalid")
                 # Skip self (the KG server) — recursive + heavy to start.
-                self_names = {"graph-os", "graph_os"}
+                # (Self-ingestion instead goes through the safe, network-free
+                # path: _ingest_self_tools() + register_self_tool_surface_provider().)
+                self_names = {
+                    SELF_MCP_SERVER_NAME,
+                    SELF_MCP_SERVER_NAME.replace("-", "_"),
+                }
 
                 parse = getattr(self.kg, "parse_mcp_config", None)
                 if not callable(parse):
@@ -3380,6 +3483,136 @@ class IngestionEngine:
                 status="failed",
                 error=f"MCP server ingestion failed ({type(exc).__name__})",
             )
+
+    async def _ingest_self_tools(self) -> IngestionResult:
+        """Ingest graph-os's OWN MCP tool surface as ``:MCPServer``/``:Tool`` nodes.
+
+        CONCEPT:AU-KG.ingest.self-tool-surface
+
+        Closes ingestion-hydration-program gap 6: the MCP_SERVER adaptor's
+        ``self_names`` skip (above) means graph-os is correctly never
+        live-probed as if it were a third-party fleet server, but the
+        consequence was that its own ~95 ``graph_*``/``engine_*`` tools were
+        never written to the graph at all — they were structurally excluded
+        from ingestion, not merely deferred.
+
+        This is **not** a network probe. It reads
+        :data:`_SELF_TOOL_SURFACE_PROVIDER` — a plain, synchronous, in-memory
+        callable the owning graph-os process registers once via
+        :func:`register_self_tool_surface_provider` (typically a closure over
+        ``mcp.kg_server.REGISTERED_TOOLS``, the exact in-process registry
+        ``register_tool_surface`` populates while building the MCP server).
+        There is no socket, no HTTP/MCP client, and no ``await`` on anything
+        outside this process, so there is no scenario where graph-os's own
+        request-handling would need to wait on itself — the self-probe
+        deadlock the ``self_names`` skip was written to avoid simply cannot
+        occur on this path. When no provider is registered (any process that
+        isn't a live graph-os server — a worker, a test, a script importing
+        this engine standalone) this is a cheap, side-effect-free no-op.
+
+        Node/edge shapes intentionally mirror the fleet prober's
+        ``_write_fleet_nodes`` (``knowledge_graph/core/source_sync.py``) —
+        one ``MCPServer`` node named :data:`SELF_MCP_SERVER_NAME`, one
+        ``Tool`` node per surfaced tool linked by a ``SERVES`` edge — so
+        graph-os's own tools are queryable exactly like every other fleet
+        server's, through the same commit primitive
+        (:func:`~.envelope_ingest.ingest_graph_slice`), which is idempotent
+        by content hash: an unchanged tool surface re-ingests as a no-op.
+        """
+        manifest = IngestionManifest(
+            content_type=ContentType.MCP_SERVER,
+            source_uri=f"self://{SELF_MCP_SERVER_NAME}",
+            metadata={"discovery": "in_process_registry"},
+        )
+        provider = _SELF_TOOL_SURFACE_PROVIDER
+        if provider is None:
+            return IngestionResult(
+                manifest=manifest,
+                status="skipped",
+                details={"reason": "no self tool-surface provider registered"},
+            )
+
+        try:
+            tools = provider() or []
+        except Exception as exc:  # noqa: BLE001 — a buggy provider must not break ingest
+            return IngestionResult(
+                manifest=manifest,
+                status="failed",
+                error=f"self tool-surface provider failed ({type(exc).__name__})",
+            )
+
+        server_node_id = f"mcp_server_{SELF_MCP_SERVER_NAME}"
+        entities: list[dict[str, Any]] = [
+            {
+                "id": server_node_id,
+                "node_type": "MCPServer",
+                "name": SELF_MCP_SERVER_NAME,
+                "synonyms": ["graph-os", "graphos", "kg-server"],
+                "disabled": False,
+            }
+        ]
+        relationships: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            name = str(tool.get("name") or "").strip()
+            if not name or name in seen_names:
+                continue
+            seen_names.add(name)
+            tool_node_id = f"tool_{SELF_MCP_SERVER_NAME}_{name}"
+            entities.append(
+                {
+                    "id": tool_node_id,
+                    "node_type": "Tool",
+                    "name": name,
+                    "description": str(tool.get("description") or ""),
+                    "mcp_server": SELF_MCP_SERVER_NAME,
+                    "tags": ["graph-os"],
+                    "relevance_score": 0.5,
+                    "requires_approval": False,
+                    "synonyms": [],
+                    "kind": "mcp_tool",
+                    "tool_mode": str(tool.get("tool_mode") or "condensed"),
+                    "disabled": False,
+                }
+            )
+            relationships.append(
+                {
+                    "source": server_node_id,
+                    "target": tool_node_id,
+                    "relationship": "SERVES",
+                }
+            )
+
+        if not relationships:
+            return IngestionResult(
+                manifest=manifest,
+                status="skipped",
+                details={"reason": "self tool-surface provider returned no tools"},
+            )
+
+        from .envelope_ingest import ingest_graph_slice
+
+        write_result = ingest_graph_slice(
+            self.kg,
+            "graphos-self",
+            entities,
+            relationships,
+            source_instance="in-process-registry",
+        )
+        return IngestionResult(
+            manifest=manifest,
+            status="success",
+            nodes_created=len(entities),
+            edges_created=len(relationships),
+            details={
+                "type": "mcp_server_self",
+                "server": SELF_MCP_SERVER_NAME,
+                "tools_discovered": len(entities) - 1,
+                "write_result": write_result,
+            },
+        )
 
     @adaptor(ContentType.POLICY)
     async def _ingest_policy(self, manifest: IngestionManifest) -> IngestionResult:
