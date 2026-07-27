@@ -61,6 +61,9 @@ from agent_utilities.knowledge_graph.retrieval.capability_power_descriptor impor
     strip_generation_timestamp,
     truncate_at_word,
 )
+from agent_utilities.mcp.optional_tool_features import (  # noqa: E402
+    OPTIONAL_TOOL_FEATURES,
+)
 from agent_utilities.mcp.tool_specs import INTENT_VERBS, TOOL_VERBS  # noqa: E402
 
 MD_PATH = ROOT / "docs" / "capabilities-power.md"
@@ -501,6 +504,54 @@ async def _list_tools(mcp: Any) -> list[Any]:
     return await mcp.list_tools()
 
 
+def _fallback_cpds_for_missing_optional_tools(
+    live_names: set[str],
+) -> list[CapabilityPowerDescriptor]:
+    """Recover a CPD for a declared optional tool that failed to live-register.
+
+    ``canonical_surface=True`` (below) asks ``kg_server._build_server`` to
+    register every condensed domain "regardless of deployment toggles, so an
+    optional/disabled family on THIS box can't silently drop out of the
+    catalog" — but that guarantee only covers an env-var TOGGLE; a genuinely
+    MISSING heavy dependency (e.g. ``quant``'s ``[finance]`` extra — scipy/
+    pandas/statsmodels) still raises ``ImportError`` inside the registrar
+    (``ontology_tools.py``, by design — see its "Dependency discipline" note:
+    a lean serving image must still boot), so the tool never reaches
+    ``mcp.list_tools()`` here regardless of the flag. Silently omitting its
+    CPD in that case previously made ``--write`` DROP a real, shipped
+    capability whenever run from a lean/dev checkout — the exact class of
+    silent-loss ``canonical_surface`` exists to prevent, just one level
+    removed (a hard import failure instead of a toggle).
+
+    Mirrors this same file's own EG-ledger vendored-cache pattern (a live
+    source that is unavailable in THIS environment falls back to the last
+    known-good committed copy, rather than silently omitting the data): for
+    any :data:`OPTIONAL_TOOL_FEATURES` tool missing from the live set, reuse
+    its entry from the already-checked-in ``JSON_PATH`` catalog verbatim
+    (generated in a prior run where the extra WAS installed). If the checked-
+    in catalog has no entry either — e.g. a brand-new optional tool that has
+    never yet been generated with its extra installed — there is nothing to
+    recover, so it is genuinely absent this run: the first ``--write`` for a
+    new optional tool still requires running with that tool's extra
+    installed, exactly like the EG-ledger cache requires one live refresh
+    before it can serve a cache hit.
+    """
+    missing = sorted(set(OPTIONAL_TOOL_FEATURES) - live_names)
+    if not missing:
+        return []
+    try:
+        catalog = json.loads(JSON_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    by_id = {c.get("id"): c for c in catalog.get("capabilities", [])}
+    recovered = []
+    for name in missing:
+        entry = by_id.get(name)
+        if entry is not None:
+            recovered.append(CapabilityPowerDescriptor.from_dict(entry))
+    return recovered
+
+
 def generate(
     eg_ledger_arg: str | None,
     *,
@@ -583,6 +634,14 @@ def generate(
         )
         for t in sorted(tools, key=lambda t: t.name)
     ]
+    # A declared-optional tool (agent_utilities.mcp.optional_tool_features)
+    # whose heavy extra isn't installed in THIS interpreter never reaches
+    # ``mcp.list_tools()`` above — recover its CPD from the checked-in
+    # catalog rather than silently dropping a real, shipped capability.
+    cpds.extend(
+        _fallback_cpds_for_missing_optional_tools({t.name for t in tools})
+    )
+    cpds.sort(key=lambda c: c.id)
     generated_at = generation_timestamp()
     return cpds, generated_at
 
