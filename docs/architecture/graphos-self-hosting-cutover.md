@@ -1,4 +1,19 @@
-# graph-os Self-Hosting Cutover — Design (execute-from doc, not yet applied)
+# graph-os Self-Hosting Cutover — Design (EXECUTED 2026-07-26)
+
+> **✅ EXECUTED 2026-07-26 against `platform/graph-os` + `platform/epistemic-graph`.**
+> Result: one self-contained `graph-os` pod on r510 (engine native-sidecar + graph-os,
+> `2/2 Ready`), engine loaded 87 graphs (matches pre-cutover baseline), graph-os connected
+> `resolved_mode=remote endpoint_count=1 reachable_count=1 breaker=0 latency=0.4ms` over the
+> in-pod unix socket, messaging up (mattermost+telegram). Old `epistemic-graph` Deployment
+> kept scaled to 0 (not deleted) for the rollback/soak window. **One deviation from the spec
+> below:** the sidecar binds `--tcp-addr 0.0.0.0:9100` (not `127.0.0.1:9100`) because a
+> `tcpSocket` startupProbe dials the POD IP, not loopback — a loopback-only bind makes the
+> probe "connection refused" forever. Same TLS+HMAC posture as the pre-cutover engine (which
+> also bound 0.0.0.0), so no security regression. FOLLOW-UP to restore true loopback-only:
+> switch the three probes to an `exec` python `socket.create_connection(('127.0.0.1',9100))`
+> check, then revert the bind to `127.0.0.1`. Live manifest persisted to
+> `services/graph-os/k8s/graph-os.deployment.yaml`.
+
 
 > Scope: the **`unified-in-process`** engine topology (the self-contained default —
 > `reports/unified-binary-program.md`, genesis skill reference
