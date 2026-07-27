@@ -66,12 +66,18 @@ in-cluster via kube-proxy DNAT).
 
 ## The CoreDNS config
 
-Two rules, added to the single `.:53` server block. The `*-mcp → apps` convention is a **regex**
-(one rule for all ~66 children, and every future `-mcp` service is covered automatically);
-non-uniform names get an **exact** rule. Rules run in the CoreDNS `rewrite` plugin, which
-executes **before** `kubernetes` and `forward`, so the rewritten name is answered authoritatively
-by the `kubernetes` plugin from the real ClusterIP (no hardcoded IPs — Service IP changes are
-tracked automatically).
+**Per-host `rewrite name exact` rules** — one per fleet child
+(`<name>-mcp.arpa` → `<name>-mcp.apps.svc.cluster.local`) plus the non-uniform infra names
+(`graph-os.arpa` → `graph-os.platform.svc.cluster.local`). **Use `exact`, not a `regex`**
+(see the verification lesson below): `rewrite name exact` normalizes the trailing dot and
+resolves reliably from a real glibc/`getaddrinfo` workload pod, whereas a `name regex` pattern
+proved **fragile** under that resolver's trailing-dot + `ndots:5` search-domain semantics — it
+passed `nslookup` but returned `gaierror` from the actual graph-os pod. The ~66 fleet rules are
+**generated** from the live fleet (`kubectl -n apps get svc -o name | grep -- -mcp`) so a new
+`-mcp` service just needs a regen, not a hand-edit. Rules run in the CoreDNS `rewrite` plugin,
+which executes **before** `kubernetes` and `forward`, so the rewritten name is answered
+authoritatively by the `kubernetes` plugin from the real ClusterIP (no hardcoded IPs — Service
+IP changes tracked automatically).
 
 ### Before (original Corefile)
 
@@ -99,36 +105,59 @@ tracked automatically).
 
 ```
     ready
-    rewrite stop {
-        name regex (.*)-mcp\.arpa {1}-mcp.apps.svc.cluster.local
-        answer name (.*)-mcp\.apps\.svc\.cluster\.local {1}-mcp.arpa
-    }
-    rewrite stop name exact graph-os.arpa graph-os.platform.svc.cluster.local
+    # internal-loopback DNS: in-cluster <name>.arpa -> in-cluster Service ClusterIP.
+    # EXACT rules (not regex) — trailing-dot-safe from a real getaddrinfo pod under ndots:5.
+    # The 66 fleet lines are generated: kubectl -n apps get svc -o name | grep -- -mcp
+    rewrite stop name exact ansible-tower-mcp.arpa ansible-tower-mcp.apps.svc.cluster.local
+    rewrite stop name exact archimate-mcp.arpa     archimate-mcp.apps.svc.cluster.local
+    # … one line per *-mcp Service in `apps` (66 total) …
+    rewrite stop name exact github-mcp.arpa        github-mcp.apps.svc.cluster.local
+    rewrite stop name exact wger-mcp.arpa          wger-mcp.apps.svc.cluster.local
+    rewrite stop name exact graph-os.arpa          graph-os.platform.svc.cluster.local
     kubernetes  cluster.local  cluster.local in-addr.arpa ip6.arpa {
 ```
 
 Why it is correct and safe:
 
-- **Regex is constrained to the literal `-mcp.arpa`,** so it can **never** match reverse-DNS
-  (`*.in-addr.arpa` / `*.ip6.arpa` contain no `-mcp.arpa` substring) — reverse DNS is untouched.
-- **`answer name` restores the response owner name** to `<name>.arpa` (regex rewrites do not
-  auto-restore, unlike `exact`), so a strict client sees `Name: github-mcp.arpa → <ClusterIP>`,
-  fully consistent.
-- **`exact` for `graph-os.arpa`** (it has no `-mcp`); its answer name is auto-restored by CoreDNS.
-- **`stop`** halts rule evaluation after a match; the rule match-sets are disjoint, so ordering is
-  not load-bearing, but `stop` is explicit and cheap.
-- **Everything else is preserved:** `keycloak.arpa`, `openbao.arpa`, and all non-`-mcp` app names
+- **`exact` is trailing-dot-safe — this is the whole reason it's exact, not regex.**
+  `rewrite name exact` normalizes both sides to the FQDN form, so the pod's **absolute** query
+  `github-mcp.arpa.` matches and rewrites, while the `ndots:5` **search-expanded** probes
+  (`github-mcp.arpa.platform.svc.cluster.local.`, …) do **not** match and correctly fall through
+  to `kubernetes` (NXDOMAIN) — so `getaddrinfo` lands on the absolute name and resolves to the
+  ClusterIP. A `name regex` pattern (`(.*)-mcp\.arpa`) did **not** full-match the trailing-dot
+  qname from a real pod → it fell through to `forward arpa` → `gaierror`, even though `nslookup`
+  (absolute name, no search/ndots) made the regex look fine.
+- **Reverse DNS untouched.** No rule references `in-addr.arpa`/`ip6.arpa`; those hit the
+  `kubernetes` plugin (with `fallthrough`) then `forward arpa` exactly as before.
+- **`exact` auto-restores the answer owner name**, so a strict client sees
+  `Name: github-mcp.arpa → <ClusterIP>` (no separate `answer name` rule needed, unlike regex).
+- **`stop`** halts rule evaluation after a match; match-sets are disjoint, so ordering isn't
+  load-bearing, but `stop` is explicit and cheap.
+- **Everything else is preserved:** `keycloak.arpa`, `openbao.arpa`, and all non-listed app names
   (`jellyfin.arpa`, `gitlab.arpa`, …) fall through to `forward arpa 10.0.0.199` → Technitium →
   `10.0.0.240` exactly as before; `.svc.cluster.local`, external `.`, and reverse DNS are intact.
 
+> **⚠️ Verify from a REAL workload pod with `getaddrinfo`, not `nslookup`/`dig`.** `nslookup` and
+> `dig` query the **absolute** name and skip glibc's `search` + `ndots:5` expansion and
+> trailing-dot handling — so they can report success while the actual application resolver
+> (`getaddrinfo`, what every Python/Go/curl workload uses) fails. That gap is exactly how the
+> first `name regex` cut passed a `netshoot nslookup` check but returned `gaierror` from the
+> graph-os pod. The acceptance test must be, from the real pod:
+> ```bash
+> GP=$(kubectl -n platform get pod -l app=graph-os -o jsonpath='{.items[0].metadata.name}')
+> kubectl -n platform exec "$GP" -c graph-os -- python3 -c \
+>   "import socket; print(socket.getaddrinfo('github-mcp.arpa',80)[0][4][0])"   # → 100.65.4.63
+> ```
+
 ## Host → in-cluster Service map
 
-The `-mcp` regex handles the whole fleet in one rule (host `== ` Service name, namespace
-`apps`, port `80`). Only genuinely non-uniform names need an exact rule.
+Every `*-mcp` Service lives in `apps` and its name equals the host minus `.arpa`, so one
+generated **`exact`** rule per child covers the whole fleet (host `==` Service name, ns `apps`,
+port `80`). Infra names are non-uniform and get their own exact rule.
 
 | `.arpa` name | in-cluster Service | ns | Service port | rewrite | status |
 |---|---|---|---|---|---|
-| `<name>-mcp.arpa` (all ~66: `github-mcp`, `gitlab-mcp`, `keycloak-mcp`, `openbao-mcp`, `repository-manager-mcp`, `container-manager-mcp`, … `technitium-dns-mcp`) | `<name>-mcp` | `apps` | 80 (http) | **regex** → `<name>-mcp.apps.svc.cluster.local` | ✅ applied |
+| `<name>-mcp.arpa` (all 66: `github-mcp`, `gitlab-mcp`, `keycloak-mcp`, `openbao-mcp`, `repository-manager-mcp`, `container-manager-mcp`, … `technitium-dns-mcp`) | `<name>-mcp` | `apps` | 80 (http) | **exact** (one per host, generated) → `<name>-mcp.apps.svc.cluster.local` | ✅ applied |
 | `graph-os.arpa` | `graph-os` | `platform` | 80 (http) | **exact** → `graph-os.platform.svc.cluster.local` | ✅ applied |
 | `keycloak.arpa` (IdP) | `keycloak` | `platform` | **8080 (http-only; ingress terminates :443)** | exact → `keycloak.platform.svc.cluster.local` | ⏸ **deferred** — needs client→in-cluster scheme/port first (see eligibility rule) |
 | `openbao.arpa` | `openbao` | `platform` | **8200 (ingress maps :80→:8200)** | exact → `openbao.platform.svc.cluster.local` | ⏸ **deferred** — port mismatch; graph-os already uses `http://openbao.platform.svc:8200` directly |
@@ -178,24 +207,30 @@ kubectl -n kube-system apply -f /tmp/coredns-ORIGINAL.yaml
 
 **Verify BEFORE and AFTER, for all three name classes** — a fleet `.arpa`, an external name
 (`one.one.one.one`), and a `*.svc.cluster.local` — to prove you broke neither external nor
-cluster-internal resolution. Add the reverse-DNS check (`nslookup <a-cluster-IP>`) since the
-regex sits in front of the reverse zone.
+cluster-internal resolution, and do the fleet `.arpa` check with **`getaddrinfo` from a real
+workload pod** (see the callout above), not just `nslookup`. Add the reverse-DNS check
+(`nslookup <a-cluster-IP>`) since the rewrite rules sit in front of the reverse zone.
 
 ## Genesis (fresh environment) — make it durable from day 0
 
 On a **greenfield** cluster there is no live traffic to protect, so bake the rewrite into the
 **RKE2 `rke2-coredns` HelmChartConfig** (`kube-system`) as structured `servers[].plugins` — this
 is the durable source of truth (a manual ConfigMap edit is reverted on the next Helm reconcile /
-node reboot). Insert the two `rewrite` plugins **before** `kubernetes`:
+node reboot). Insert the per-host `rewrite` plugins **before** `kubernetes` (generate the fleet
+entries from the live Services — do not hand-maintain 66 lines):
 
 ```yaml
 # HelmChartConfig/rke2-coredns  (spec.valuesContent, under the existing servers[0].plugins list)
+# Generate the fleet block:
+#   kubectl -n apps get svc -o name | grep -- -mcp | sed 's|service/||' | while read s; do
+#     printf '      - name: rewrite\n        parameters: stop name exact %s.arpa %s.apps.svc.cluster.local\n' "$s" "$s"
+#   done
       - name: ready
       - name: rewrite
-        parameters: stop
-        configBlock: |-
-          name regex (.*)-mcp\.arpa {1}-mcp.apps.svc.cluster.local
-          answer name (.*)-mcp\.apps\.svc\.cluster\.local {1}-mcp.arpa
+        parameters: stop name exact github-mcp.arpa github-mcp.apps.svc.cluster.local
+      # … one EXACT rule per *-mcp Service in `apps` (66 total) …
+      - name: rewrite
+        parameters: stop name exact wger-mcp.arpa wger-mcp.apps.svc.cluster.local
       - name: rewrite
         parameters: stop name exact graph-os.arpa graph-os.platform.svc.cluster.local
       - name: kubernetes
@@ -205,6 +240,10 @@ node reboot). Insert the two `rewrite` plugins **before** `kubernetes`:
           fallthrough in-addr.arpa ip6.arpa
           ttl 30
 ```
+
+> **EXACT, not regex** (same lesson as the live config): `rewrite name exact` is trailing-dot-safe
+> from a real `getaddrinfo` workload pod under `ndots:5`; a `name regex` cut passed `nslookup` but
+> `gaierror`'d from the graph-os pod.
 
 Genesis ordering: do this in the **DNS/ingress step**, right after Technitium is repointed to the
 ingress VIP and the CoreDNS `forward arpa <technitium>` is in place — so the moment the fleet

@@ -99,11 +99,13 @@ that point directly at a host/macvlan IP are preserved: `adguard.arpa`/Technitiu
   *external* clients. **In-cluster** clients must resolve `<name>.arpa` to the **Service
   ClusterIP**, never the edge VIP — so pod-to-pod agent traffic (graph-os → the ~66
   `*-mcp.arpa` children + `graph-os.arpa`) stays internal, off the ingress, with no extra
-  TLS/auth hop or edge-502 exposure. Add CoreDNS `rewrite` rules (`*-mcp.arpa` → `apps`
-  Service via one regex; infra names via exact rules) — the full principle, host→Service→ns
-  table, eligibility rule (only rewrite when the in-cluster Service port matches the port the
-  client dials — `keycloak.arpa`/`openbao.arpa` need a client scheme/port reconcile first),
-  and the SPOF-safe ConfigMap-`reload`-not-restart apply/rollback are in
+  TLS/auth hop or edge-502 exposure. Add per-host CoreDNS `rewrite name exact` rules (one per
+  `*-mcp` Service → `apps`, generated from `kubectl -n apps get svc`; infra names likewise) —
+  **exact, not regex** (regex `gaierror`s from a real `getaddrinfo` pod under `ndots:5`; verify
+  from a workload pod, not `nslookup`). The full principle, host→Service→ns table, eligibility
+  rule (only rewrite when the in-cluster Service port matches the port the client dials —
+  `keycloak.arpa`/`openbao.arpa` need a client scheme/port reconcile first), and the SPOF-safe
+  ConfigMap-`reload`-not-restart apply/rollback are in
   [`references/internal-loopback-dns.md`](references/internal-loopback-dns.md). Generalizes the
   `OIDC_TOKEN_URL` in-cluster-pin from [`references/graph-os-fleet-gateway-auth.md`](references/graph-os-fleet-gateway-auth.md).
 
