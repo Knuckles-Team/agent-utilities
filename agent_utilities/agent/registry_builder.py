@@ -20,6 +20,7 @@ Markdown fallbacks have been removed. Only ``*.json`` files under
 ``prompts/`` are ingested.
 """
 
+import hashlib
 import json
 import logging
 import time
@@ -118,6 +119,12 @@ def _resolve_fields(data: dict[str, Any], stem: str) -> tuple[str, str, list[str
 _BASE_SOURCE = "agent_utilities"
 # Source label for the operator XDG overlay (``prompts_dir()``).
 _OVERLAY_SOURCE = "__user__"
+# ``DeltaManifest`` category for the per-prompt-file content-hash checkpoint
+# (CONCEPT:EG-KG.storage.nonblocking-checkpoint) — reuses the same durable
+# ledger the codebase git-delta path uses (``knowledge_graph/ingestion/engine.py``),
+# keyed by each prompt file's resolved path so an unchanged file skips its
+# ``_upsert_node`` call on every ingest after the first.
+_PROMPT_HASH_CATEGORY = "prompt_base"
 
 
 def _prompt_id(source_label: str, name: str, data: dict[str, Any]) -> str:
@@ -180,6 +187,23 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
         )
 
     return sources
+
+
+def _prompt_content_hash(pfile: Path) -> str | None:
+    """Return a stable sha256 content hash of a prompt JSON file's raw bytes.
+
+    Used as the ``DeltaManifest`` content identity for the per-file
+    ingest checkpoint (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Returns
+    ``None`` when the file can't be read, so the caller treats it as
+    untracked (never skip an unhashable source — matches
+    ``IngestionEngine._content_identity``'s "None means proceed without a
+    skip decision").
+    """
+    try:
+        return hashlib.sha256(pfile.read_bytes()).hexdigest()
+    except OSError as e:
+        logger.debug("Failed to hash prompt file (%s)", type(e).__name__)
+        return None
 
 
 # CONCEPT:AU-ORCH.dispatch.builtin-agent-templates — Built-in, KG-bound, dispatchable AgentTemplates.
@@ -271,9 +295,19 @@ async def ingest_prompts_to_graph():
     fleet-contributed ``agent_utilities.prompt_providers`` package, and the
     operator XDG overlay (``prompts_dir()``). Later sources override earlier
     ones of the same namespaced id.
+
+    Each prompt source is gated by a durable content-hash checkpoint
+    (CONCEPT:EG-KG.storage.nonblocking-checkpoint, ``DeltaManifest`` category
+    ``"prompt_base"``): the first ingest upserts every prompt; a later ingest
+    skips the ``_upsert_node`` call for any file whose content hash is
+    unchanged since it was last recorded, and re-upserts (then re-records)
+    any new or changed file. The checkpoint is best-effort — if it can't be
+    constructed, every file is treated as untracked and always upserted (the
+    prior full-re-upsert-every-run behavior).
     """
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
     from agent_utilities.models.knowledge_graph import PromptNode
 
     workspace = get_agent_workspace()
@@ -292,9 +326,23 @@ async def ingest_prompts_to_graph():
             logger.warning("Graph backend not available, skipping prompt ingestion.")
             return None
 
+        # Durable per-file delta-skip checkpoint — same ``DeltaManifest``
+        # ledger the codebase git-delta path uses (CONCEPT:EG-KG.storage.nonblocking-checkpoint),
+        # keyed by this engine's tenant graph name.
+        manifest: DeltaManifest | None = None
+        graph_name = "__commons__"
+        try:
+            manifest = DeltaManifest(backend=backend)
+            graph_compute = getattr(engine, "graph_compute", None)
+            graph_name = getattr(graph_compute, "graph_name", None) or graph_name
+        except Exception as exc:  # noqa: BLE001 — checkpoint is best-effort
+            logger.debug("Prompt delta-manifest unavailable (%s)", type(exc).__name__)
+            manifest = None
+
         sources = _iter_prompt_sources()
         logger.debug("Found %d prompt files across all sources", len(sources))
 
+        skipped_unchanged = 0
         for source_label, pfile in sources:
             stem = pfile.stem
             # The reserved-core skip applies only to the packaged base layer;
@@ -303,6 +351,20 @@ async def ingest_prompts_to_graph():
                 continue
             if source_label == _BASE_SOURCE and stem in RESERVED_CORE_NODES:
                 logger.debug(f"Skipping reserved/internal node: {stem}")
+                continue
+
+            # Content-hash checkpoint: skip the upsert entirely when this
+            # file's content hasn't changed since the last successful ingest.
+            source_uri = str(pfile.resolve())
+            content_hash = _prompt_content_hash(pfile)
+            if (
+                manifest is not None
+                and content_hash is not None
+                and manifest.seen(
+                    graph_name, _PROMPT_HASH_CATEGORY, source_uri, content_hash
+                )
+            ):
+                skipped_unchanged += 1
                 continue
 
             data = _load_prompt_metadata(pfile)
@@ -334,6 +396,20 @@ async def ingest_prompts_to_graph():
                 logger.debug("Ingesting prompt %s via engine.upsert", node_id)
                 serialized_data = engine._serialize_node(node, label="Prompt")
                 engine._upsert_node("Prompt", node.id, serialized_data)
+                # Record the new hash only after a successful upsert so a
+                # failed/partial write retries on the next run.
+                if manifest is not None and content_hash is not None:
+                    try:
+                        manifest.record(
+                            graph_name,
+                            _PROMPT_HASH_CATEGORY,
+                            source_uri,
+                            content_hash,
+                        )
+                    except Exception:  # noqa: BLE001 — checkpoint is best-effort
+                        logger.debug(
+                            "Prompt delta-manifest record failed", exc_info=True
+                        )
             except Exception as e:
                 logger.warning("Failed to ingest prompt (%s)", type(e).__name__)
 
@@ -346,7 +422,11 @@ async def ingest_prompts_to_graph():
         except Exception as e:  # noqa: BLE001 — best-effort; never break ingest
             logger.warning("AgentTemplate seeding failed: %s", e)
 
-        logger.info("Prompt library ingested into the Knowledge Graph.")
+        logger.info(
+            "Prompt library ingested into the Knowledge Graph "
+            "(%d unchanged file(s) skipped).",
+            skipped_unchanged,
+        )
     except Exception as e:
         logger.info(f"Failed to ingest prompts: {e}")
     return None
