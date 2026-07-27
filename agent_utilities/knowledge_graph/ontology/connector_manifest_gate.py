@@ -32,6 +32,7 @@ __all__ = [
     "native_activation_fingerprint_modules",
     "MANDATORY_NAMED_CONNECTOR_SOURCES",
     "INTERNAL_INTROSPECTION_SOURCES",
+    "INTERNAL_MANIFEST_EXEMPT_SOURCES",
     "mandatory_connector_packages",
     "resolve_agents_root",
     "resolve_connector_package",
@@ -525,6 +526,14 @@ INTERNAL_INTROSPECTION_SOURCES: frozenset[str] = frozenset(
     }
 )
 
+# Internal, in-process sources that never cross an external connector trust
+# boundary. ``package_install`` only re-drives agent-utilities-owned ingestion
+# primitives over already-installed, locally trusted packages; it has no remote
+# provider, schema preset, or external payload for a connector manifest to pin.
+INTERNAL_MANIFEST_EXEMPT_SOURCES: frozenset[str] = (
+    INTERNAL_INTROSPECTION_SOURCES | frozenset({"package_install"})
+)
+
 
 def resolve_agents_root() -> Path:
     """The ``agent-packages/agents`` fleet root (``AGENTS_ROOT`` override, else
@@ -942,17 +951,17 @@ def manifest_required(source: str) -> bool:
     catalog remains useful for inventory reporting, but it no longer controls
     enforcement.
 
-    :data:`INTERNAL_INTROSPECTION_SOURCES` (``fleet``/``fleet_connectors``) are the
-    one explicit carve-out: internal infrastructure self-introspection of our own
-    deployed MCP fleet, never a third-party external data source, so the
-    external-supply-chain threat model this gate defends does not apply to them —
-    see that set's docstring for the full rationale. Every other source, including
-    unknown/unbundled ones, remains governed exactly as before.
+    :data:`INTERNAL_MANIFEST_EXEMPT_SOURCES` is the explicit carve-out for
+    internal infrastructure self-introspection and the in-process package
+    reconciliation orchestrator. Neither crosses a third-party connector trust
+    boundary, so the external-supply-chain threat model this gate defends does
+    not apply. Every other source, including unknown/unbundled ones, remains
+    governed exactly as before.
     """
     normalized = (source or "").strip().lower()
     if not normalized:
         return False
-    return normalized not in INTERNAL_INTROSPECTION_SOURCES
+    return normalized not in INTERNAL_MANIFEST_EXEMPT_SOURCES
 
 
 def precheck_source(source: str, *, agents_root: Path | None = None) -> dict[str, Any]:
@@ -970,21 +979,23 @@ def precheck_source(source: str, *, agents_root: Path | None = None) -> dict[str
     CONCEPT:AU-P0-4 fail-closed connector permissions — missing, unsigned,
     providerless, or schema-drifted bundles all produce the same refusal contract.
 
-    :data:`INTERNAL_INTROSPECTION_SOURCES` short-circuit here to a clean pass:
-    they are our own infrastructure introspecting our own already-deployed MCP
-    fleet, not an external supply chain, so there is no external manifest for
-    them to present and none is required (D17 gate fix, see that set's docstring
-    for the full security rationale).
+    :data:`INTERNAL_MANIFEST_EXEMPT_SOURCES` short-circuit here to a clean pass:
+    they are owned, in-process operations over already-trusted local state, not
+    an external supply chain, so there is no external manifest to present.
     """
     normalized = (source or "").strip().lower()
-    if normalized in INTERNAL_INTROSPECTION_SOURCES:
+    if normalized in INTERNAL_MANIFEST_EXEMPT_SOURCES:
         return {
             "checked": True,
             "ok": True,
             "connector": normalized,
             "manifest_path": None,
             "violations": [],
-            "exempt_reason": "internal-introspection",
+            "exempt_reason": (
+                "internal-introspection"
+                if normalized in INTERNAL_INTROSPECTION_SOURCES
+                else "internal-orchestration"
+            ),
         }
 
     path = find_connector_manifest(source, agents_root=agents_root)

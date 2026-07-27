@@ -279,12 +279,16 @@ def test_precheck_source_exempts_internal_introspection_sources(tmp_path: Path):
     assert any("[missing]" in v for v in unaffected["violations"])
 
 
-def test_manifest_required_false_only_for_internal_introspection_sources():
+def test_manifest_required_false_only_for_explicit_internal_sources():
     """`manifest_required` mirrors the `precheck_source` exemption exactly."""
     assert gate.manifest_required("fleet") is False
     assert gate.manifest_required("fleet_connectors") is False
+    assert gate.manifest_required("package_install") is False
     assert gate.manifest_required("FLEET") is False
     assert gate.manifest_required("  fleet  ") is False
+    package_gate = gate.precheck_source("package_install")
+    assert package_gate["ok"] is True
+    assert package_gate["exempt_reason"] == "internal-orchestration"
 
     # A genuine external source is unaffected — still mandatory, unchanged.
     assert gate.manifest_required("servicenow") is True
