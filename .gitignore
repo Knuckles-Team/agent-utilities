@@ -289,3 +289,6 @@ scratch/
 *.log
 *.orig
 *.rej
+
+# stray in-repo worktree symlink (never track)
+.wave-worktrees/

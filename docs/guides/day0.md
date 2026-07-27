@@ -53,7 +53,7 @@ agent-utilities doctor --only config auth secrets transport_security graph_conne
 ```bash
 uv sync
 # Published package alternative:
-uvx --refresh --from "agent-utilities[serving]>=2.0.0,<3.0.0" graph-os --help
+uvx --refresh --from "agent-utilities[serving]>=2.1.0,<3.0.0" graph-os --help
 ```
 
 The package always carries the full epistemic-graph engine capability. Add only the

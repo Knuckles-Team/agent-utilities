@@ -33,7 +33,7 @@ on. This page maps the pieces and how a request flows through them.
 
 The provider inventory is defined by repository-manager's `workspace.yml`; package
 discovery must not depend on a separately maintained list. Every declared provider uses
-the publishable range `agent-utilities>=2.0.0,<3.0.0` while local ecosystem development
+the publishable range `agent-utilities>=2.1.0,<3.0.0` while local ecosystem development
 resolves the exact sibling checkout with this uv source:
 
 ```toml

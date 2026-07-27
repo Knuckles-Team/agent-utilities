@@ -43,7 +43,7 @@ components:
       - backup-v3-coordinator-recovery
       - retained-cross-shard-decisions
   agent-utilities:
-    version: "==2.0.0"
+    version: "==2.1.0"
     artifactKind: oci
     dependsOn:
       epistemic-graph: "==2.23.1"
@@ -62,7 +62,7 @@ components:
     version: "==1.0.3"
     artifactKind: oci
     dependsOn:
-      agent-utilities: "==2.0.0"
+      agent-utilities: "==2.1.0"
     requiredCapabilities:
       - provider-profile-runtime
       - verified-private-ca-tls
@@ -75,7 +75,7 @@ components:
     version: "==1"
     artifactKind: catalog
     dependsOn:
-      agent-utilities: "==2.0.0"
+      agent-utilities: "==2.1.0"
       epistemic-graph: "==2.23.1"
     exactEntries: 65
     requiredCapabilities:
@@ -88,7 +88,7 @@ components:
     version: "==1"
     artifactKind: catalog
     dependsOn:
-      agent-utilities: "==2.0.0"
+      agent-utilities: "==2.1.0"
     exactEntries: 13
     requiredCapabilities:
       - graph-os-delegation-validated
