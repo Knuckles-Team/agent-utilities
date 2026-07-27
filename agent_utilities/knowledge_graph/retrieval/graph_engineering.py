@@ -219,7 +219,9 @@ def _graph_compute(engine: Any) -> Any:
     return getattr(engine, "graph_compute", engine)
 
 
-def _batch_node_properties(graph: Any, node_ids: list[str]) -> dict[str, dict[str, Any]]:
+def _batch_node_properties(
+    graph: Any, node_ids: list[str]
+) -> dict[str, dict[str, Any]]:
     """Hydrate MANY node ids in ONE engine round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate).
 
     Mirrors ``GraphComputeEngine._get_node_properties_batch`` (bec40a65):

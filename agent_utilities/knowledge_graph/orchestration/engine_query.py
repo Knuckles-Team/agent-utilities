@@ -984,9 +984,7 @@ class QueryMixin(_Base):
                 node_data["_score"] = round(base_score * (0.8**hop), 4)
 
                 results.append(node_data)
-                next_frontier.append(
-                    (neighbor_id, node_data.get("evidence_path", []))
-                )
+                next_frontier.append((neighbor_id, node_data.get("evidence_path", [])))
 
             frontier = next_frontier
             if not frontier:
