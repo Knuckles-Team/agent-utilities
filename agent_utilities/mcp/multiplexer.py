@@ -2050,7 +2050,10 @@ class MCPMultiplexer:
             await multiplexer.aclose()
 
     async def probe_catalog(
-        self, force: bool = False, timeout: float | None = None
+        self,
+        force: bool = False,
+        timeout: float | None = None,
+        budget: float | None = None,
     ) -> dict[str, dict]:
         """Probe every catalog server concurrently (bounded) and cache the
         result, so find_tools can rank the whole fleet's real tools. Cached, so
@@ -2061,14 +2064,38 @@ class MCPMultiplexer:
         if not targets:
             return self._probe_cache
 
+        if budget is not None and not 0.001 <= budget <= 300.0:
+            raise ValueError("catalog probe budget is outside the safety boundary")
+
         sem = asyncio.Semaphore(16)
 
         async def _guarded(s: str) -> None:
             async with sem:
                 await self.probe_server(s, force=force, timeout=timeout)
 
-        await asyncio.gather(*[_guarded(s) for s in targets], return_exceptions=True)
-        return self._probe_cache
+        tasks = {asyncio.create_task(_guarded(server)): server for server in targets}
+        if budget is None:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            return self._probe_cache
+
+        _done, pending = await asyncio.wait(tasks, timeout=budget)
+        if not pending:
+            return self._probe_cache
+
+        # Interactive capability discovery is latency-sensitive.  Do not make a
+        # caller wait for the slowest of a large fleet: cancel outstanding probes
+        # and return a truthful per-server availability result.  The next explicit
+        # force probe (for example boot ingestion) is allowed to retry them.
+        result = dict(self._probe_cache)
+        for task in pending:
+            server = tasks[task]
+            task.cancel()
+            result[server] = {
+                "tools": [],
+                "error": f"catalog discovery budget exceeded after {budget:g}s",
+            }
+        await asyncio.gather(*pending, return_exceptions=True)
+        return result
 
     @staticmethod
     def _relevance(query: str, text: str) -> float:
@@ -2167,7 +2194,8 @@ class MCPMultiplexer:
         if not top_k or top_k <= 0:
             top_k = agent_config.mcp_dynamic_top_k
         catalog = self.load_catalog()
-        probe = await self.probe_catalog()
+        discovery_timeout = agent_config.mcp_dynamic_discovery_timeout
+        probe = await self.probe_catalog(budget=discovery_timeout)
 
         # Semantic scores keyed by bare tool name. When graph-os injects an in-process
         # embedder (attach_fleet_loader), rank every probed tool by query↔description
@@ -2176,7 +2204,13 @@ class MCPMultiplexer:
         # understand intent ("send a message to a gitlab MR" → the gitlab tools) instead
         # of only matching literal tokens. (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
         semantic: dict[str, float] = {}
-        await self._embed_semantic_scores(query, probe, semantic)
+        try:
+            await asyncio.wait_for(
+                self._embed_semantic_scores(query, probe, semantic),
+                timeout=discovery_timeout,
+            )
+        except TimeoutError:
+            logger.warning("find_tools semantic rerank exceeded its latency budget")
 
         ranked: list[dict] = []
         unavailable: dict[str, str] = {}

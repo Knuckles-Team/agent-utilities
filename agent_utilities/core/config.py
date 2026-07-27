@@ -3020,6 +3020,18 @@ class AgentConfig(BaseSettings):
     caller does not specify ``top_k``. Kept small so the discovery result is
     itself cheap to read; callers can request more explicitly."""
 
+    mcp_dynamic_discovery_timeout: float = Field(
+        default=5.0, ge=0.1, le=60.0, alias="MCP_DYNAMIC_DISCOVERY_TIMEOUT"
+    )
+    """Wall-clock budget for an interactive fleet capability lookup.
+
+    The fleet can contain hundreds of independently deployed MCP servers. A
+    first-use discovery must return partial, explicitly-unavailable results
+    rather than make an interactive GraphOS request wait for every endpoint's
+    per-server probe timeout. Full ingestion remains an explicit, unbounded
+    operation through ``probe_catalog()``.
+    """
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
 
     mcp_client_auth: Literal["none", "oidc-client-credentials", "basic"] = Field(

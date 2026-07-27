@@ -7,6 +7,7 @@ the knowledge-graph are mocked so these run with no processes or live engine.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
 
@@ -363,6 +364,26 @@ async def test_discover_all_unreachable_yields_empty_results(tmp_path):
     discovery = await mux.discover_tools("anything", top_k=5)
     assert discovery["results"] == []
     assert "leanix-mcp" in discovery["unavailable"]
+
+
+async def test_probe_catalog_returns_partial_results_within_budget(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "c")], "slow-mcp": []})
+
+    async def slow_probe(server, **_kwargs):
+        if server == CNT:
+            return {
+                "tools": [{"name": CNT_TOOL, "description": "containers"}],
+                "error": None,
+            }
+        await asyncio.sleep(1)
+        return {"tools": [], "error": None}
+
+    mux.probe_server = AsyncMock(side_effect=slow_probe)  # type: ignore[method-assign]
+    result = await mux.probe_catalog(budget=0.01)
+
+    assert (
+        result["slow-mcp"]["error"] == "catalog discovery budget exceeded after 0.01s"
+    )
 
 
 async def test_discover_marks_mounted(tmp_path):

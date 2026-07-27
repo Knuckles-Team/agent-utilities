@@ -313,7 +313,7 @@ _JAILBREAK_TEMPLATE_PATTERNS: list[ThreatPattern] = [
     ThreatPattern(
         name="dan_jailbreak",
         regex=re.compile(
-            r"(DAN|do\s+anything\s+now|developer\s+mode|jailbreak\s+mode)",
+            r"(\bDAN\b|do\s+anything\s+now|developer\s+mode|jailbreak\s+mode)",
             re.IGNORECASE,
         ),
         risk_level=RiskLevel.HIGH,
@@ -322,7 +322,7 @@ _JAILBREAK_TEMPLATE_PATTERNS: list[ThreatPattern] = [
     ThreatPattern(
         name="aim_jailbreak",
         regex=re.compile(
-            r"(AIM|always\s+intelligent\s+and\s+machiavellian)",
+            r"(\bAIM\b|always\s+intelligent\s+and\s+machiavellian)",
             re.IGNORECASE,
         ),
         risk_level=RiskLevel.HIGH,
@@ -331,7 +331,7 @@ _JAILBREAK_TEMPLATE_PATTERNS: list[ThreatPattern] = [
     ThreatPattern(
         name="ucar_jailbreak",
         regex=re.compile(
-            r"(UCAR|uncondition|no\s+filter|without\s+restrictions|no\s+ethical)",
+            r"(\bUCAR\b|uncondition|no\s+filter|without\s+restrictions|no\s+ethical)",
             re.IGNORECASE,
         ),
         risk_level=RiskLevel.HIGH,
