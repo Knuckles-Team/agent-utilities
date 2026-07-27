@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from agent_utilities.knowledge_graph.core.source_sync import (
+    _reconcile_declared_fleet,
     _sync_fleet,
     _write_fleet_nodes,
     derive_capability_synonyms,
@@ -205,3 +206,80 @@ def test_both_tool_variants_ingested_with_mode():
     assert (
         eng.nodes["tool_github-mcp_github_search_issues"][1]["tool_mode"] == "verbose"
     )
+
+
+# ── declared-vs-probed reconcile against deploy/mcp-fleet.registry.yml ───────
+# The registry's ``name`` (always ``<pkg>-mcp``-shaped) and a probed
+# ``mcp_config.json`` server key frequently diverge (e.g. registry
+# ``github-mcp``/package ``github-agent`` vs. a config key of either) — the
+# reconcile checks a registry entry's ``name`` OR ``package`` against the
+# probed catalog, mirroring ``_sync_fleet_connectors``'s own membership check
+# for this same naming mismatch.
+
+
+def _write_registry(tmp_path, entries: list[tuple[str, str]]):
+    """entries: list of (name, package) -> a minimal mcp-fleet.registry.yml."""
+    lines = ["services:"]
+    for name, package in entries:
+        lines.append(f"  - name: {name}")
+        lines.append(f"    package: {package}")
+    path = tmp_path / "mcp-fleet.registry.yml"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_reconcile_declared_fleet_covers_by_name_or_package(tmp_path, monkeypatch):
+    import agent_utilities.orchestration.fleet_reconciler as fleet_reconciler
+
+    registry = _write_registry(
+        tmp_path,
+        [
+            ("portainer-agent", "portainer-agent"),  # covered: name is a catalog key
+            ("gh-declared-mcp", "github-mcp"),  # covered: package is a catalog key
+            ("never-probed-mcp", "never-probed"),  # covered by neither
+        ],
+    )
+    monkeypatch.setattr(fleet_reconciler, "resolve_registry_path", lambda: registry)
+
+    out = _reconcile_declared_fleet(
+        CATALOG
+    )  # CATALOG keys: portainer-agent/github-mcp/broken-mcp
+
+    assert out == {"declared_total": 3, "declared_uncovered": ["never-probed-mcp"]}
+
+
+def test_reconcile_declared_fleet_none_when_registry_missing(monkeypatch):
+    import agent_utilities.orchestration.fleet_reconciler as fleet_reconciler
+
+    monkeypatch.setattr(fleet_reconciler, "resolve_registry_path", lambda: None)
+    assert _reconcile_declared_fleet(CATALOG) is None
+
+
+def test_reconcile_declared_fleet_none_on_unparsable_registry(tmp_path, monkeypatch):
+    import agent_utilities.orchestration.fleet_reconciler as fleet_reconciler
+
+    broken = tmp_path / "mcp-fleet.registry.yml"
+    broken.write_text("not: [valid, yaml, :::", encoding="utf-8")
+    monkeypatch.setattr(fleet_reconciler, "resolve_registry_path", lambda: broken)
+    assert _reconcile_declared_fleet(CATALOG) is None
+
+
+def test_sync_fleet_merges_declared_reconcile_info(tmp_path, monkeypatch):
+    """``_sync_fleet``'s result carries the reconcile info additively — the
+    existing ``tools_written``/``servers_seen`` contract is unchanged."""
+    import agent_utilities.orchestration.fleet_reconciler as fleet_reconciler
+
+    registry = _write_registry(
+        tmp_path,
+        [("portainer-agent", "portainer-agent"), ("never-probed-mcp", "never-probed")],
+    )
+    monkeypatch.setattr(fleet_reconciler, "resolve_registry_path", lambda: registry)
+
+    engine = FakeEngine()
+    res = _sync_fleet(engine, mode="full", client=CATALOG)
+
+    assert res["status"] == "ok"
+    assert res["tools_written"] == 3
+    assert res["servers_seen"] == 3
+    assert res["declared_total"] == 2
+    assert res["declared_uncovered"] == ["never-probed-mcp"]
