@@ -2,6 +2,7 @@ schema_version: 2
 tier: domain
 claims:
   core:
+    - graph_argument
     - graph_audit
     - graph_compliance
     - graph_configure

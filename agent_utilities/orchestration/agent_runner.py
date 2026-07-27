@@ -1565,28 +1565,30 @@ def _hydrate_skill_runnable(
 def _bind_skill_to_owning_server(
     engine: IntelligenceGraphEngine,
     meta: dict[str, Any],
-    skill_code_path: str,
+    provider_ref: str,
     agent_name: str,
 ) -> None:
     """Upgrade a package-bundled skill to a single-server agent bound to its server.
 
-    CONCEPT:AU-ORCH.execution.skill-bound-server-tools — a skill whose code path is under
-    ``.../agents/<pkg>/.../skills/...`` is authored to drive the ``<pkg>`` MCP server's
-    tools. Resolved as a bare skill it runs prompt-only (no tools) and can only describe
-    a task. This finds the owning ``Server`` node (trying ``<pkg>`` and ``<pkg>-mcp`` —
-    the package dir and the deployed server name can differ, e.g. tunnel-manager →
-    tunnel-manager-mcp), then sets ``type="server"`` + ``url`` + the server's ``tools``
-    so the run routes single-server (F1 task-aware selection applies) while KEEPING the
-    skill's instructions as the system prompt. Best-effort: a miss leaves the skill
-    prompt-only (unchanged behaviour).
+    CONCEPT:AU-ORCH.execution.skill-bound-server-tools — a skill contributed by a fleet
+    provider is authored to drive that provider's MCP server tools. Resolved as
+    a bare skill it runs prompt-only (no tools) and can only describe a task. This uses
+    the privacy-safe ``provider://`` identity persisted at ingestion (filesystem paths
+    are intentionally not retained), trying ``<provider>`` and ``<provider>-mcp``. It
+    then sets ``type="server"`` + the server's tools so the run routes single-server
+    while KEEPING the skill's instructions as the system prompt. Best-effort: a miss
+    leaves the skill prompt-only.
     """
-    import re
-
-    m = re.search(r"/agents/([^/]+)/", str(skill_code_path or ""))
-    if not m or not getattr(engine, "backend", None):
+    provider = str(provider_ref or "").removeprefix("provider://").strip()
+    if (
+        not provider
+        or provider in {"agent-utilities", "configured-overlay", "xdg-local"}
+        or not getattr(engine, "backend", None)
+    ):
         return
-    pkg = m.group(1)
-    candidates = [pkg] if pkg.endswith("-mcp") else [f"{pkg}-mcp", pkg]
+    candidates = (
+        [provider] if provider.endswith("-mcp") else [f"{provider}-mcp", provider]
+    )
     for name in candidates:
         try:
             rows = engine.backend.execute(
@@ -1700,7 +1702,8 @@ def _resolve_agent_from_kg(
             "MATCH (r:CallableResource) WHERE r.name = $name "
             "RETURN r.id AS rid, r.resource_type AS rtype, r.description AS description, "
             "r.system_prompt AS system_prompt, r.instruction_digest AS instruction_digest, "
-            "r.source_ref AS source_ref, r.endpoint AS endpoint_ref",
+            "r.source_ref AS source_ref, r.provider_ref AS provider_ref, "
+            "r.endpoint AS endpoint_ref",
             {"name": agent_name},
         )
         if resource_rows:
@@ -1724,12 +1727,12 @@ def _resolve_agent_from_kg(
                 )
                 # CONCEPT:AU-ORCH.execution.skill-bound-server-tools — a PACKAGE-BUNDLED skill exists to
                 # DRIVE its MCP server's tools; resolved as a bare skill it runs prompt-only
-                # and can only DESCRIBE a task, never execute it. If the skill's code path
+                # and can only DESCRIBE a task, never execute it. If the skill's provider
                 # identifies an owning server, upgrade it to a single-server agent — bind
                 # that server's toolset (task-selected via F1) and run the skill's
                 # instructions AS the system prompt against real tools.
                 _bind_skill_to_owning_server(
-                    engine, meta, row.get("skill_path", "") or "", agent_name
+                    engine, meta, row.get("provider_ref", "") or "", agent_name
                 )
             else:
                 meta["type"] = "resource"

@@ -2426,15 +2426,23 @@ def register_analysis_tools(mcp):
     @mcp.tool(
         name="graph_orchestrate",
         description=(
-            "Execute one named agent against a task through the governed graph-os delegation "
-            "runtime. Returns the output, run/session handles, tool-call provenance linkage, "
-            "and execution-flow Mermaid diagram when available."
+            "Resolve an ingested skill/workflow for a task and execute it on the local vLLM "
+            "through the governed graph-os delegation runtime. An explicit agent_name pins "
+            "the target. Authenticated MCP tools are mounted internally; the bounded result "
+            "includes resolution, run/session handles, tool-call provenance, and any approval "
+            "request."
         ),
         tags=["graph-os", "orchestrate", "agent"],
     )
     async def graph_orchestrate(
         task: str = Field(default="", description="Task for the delegated agent."),
-        agent_name: str = Field(default="", description="Registered agent name."),
+        agent_name: str = Field(
+            default="",
+            description=(
+                "Optional registered agent name. Empty resolves the best ingested "
+                "skill/workflow from the KG."
+            ),
+        ),
         max_steps: int = Field(
             default=30, description="Maximum delegated tool-loop steps."
         ),
@@ -2482,7 +2490,7 @@ def register_analysis_tools(mcp):
             ),
         ),
     ) -> str:
-        """Execute a single governed agent delegation."""
+        """Resolve and execute one governed local-vLLM delegation."""
         response_format = validate_response_format(response_format)
         engine = kg_server._get_engine()
         if engine is None:
@@ -2490,11 +2498,10 @@ def register_analysis_tools(mcp):
         try:
             from agent_utilities.orchestration.manager import Orchestrator
 
-            result = await Orchestrator(engine).execute_agent(
-                agent_name=agent_name,
+            payload = await Orchestrator(engine).execute_capability(
                 task=task,
+                agent_name=agent_name,
                 max_steps=max_steps,
-                return_mermaid=True,
                 context=context or None,
                 budget_tokens=budget_tokens or None,
                 context_ref=context_ref or None,
@@ -2508,12 +2515,6 @@ def register_analysis_tools(mcp):
                 model_class=model_class,
                 response_format=response_format,
             )
-            try:
-                payload = json.loads(result)
-            except (TypeError, ValueError):
-                payload = {"output": str(result), "mermaid": None}
-            if not isinstance(payload, dict):
-                payload = {"output": str(result), "mermaid": None}
             payload.setdefault("output", "")
             payload.setdefault("mermaid", None)
             return json.dumps(payload, default=str)
@@ -3902,7 +3903,7 @@ def register_analysis_tools(mcp):
             # not successful MCP payloads.  Preserve fail-closed dispatch.
             raise PermissionError("configuration operation denied") from None
         except Exception as exc:
-            logger.warning("graph_configure operation failed (%s)", type(exc).__name__)
+            logger.warning("graph_configure operation failed: %s", exc)
             return json.dumps(
                 {
                     "error": "configuration operation failed",

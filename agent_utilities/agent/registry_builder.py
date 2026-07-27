@@ -69,13 +69,13 @@ def _load_prompt_metadata(pfile: Path) -> dict[str, Any] | None:
     try:
         raw = pfile.read_text(encoding="utf-8")
     except OSError as e:
-        logger.warning("Failed to read prompt file (%s)", type(e).__name__)
+        logger.warning("Failed to read prompt file: %s", e)
         return None
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
-        logger.warning("Failed to parse prompt JSON (%s)", type(e).__name__)
+        logger.warning("Failed to parse prompt JSON: %s", e)
         return None
 
     if not isinstance(data, dict):
@@ -172,19 +172,14 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
         try:
             sources += [(provider_name, f) for f in sorted(pdir.glob("*.json"))]
         except OSError as exc:  # pragma: no cover - defensive
-            logger.debug(
-                "Could not list prompt provider (exception_type=%s)",
-                type(exc).__name__,
-            )
+            logger.debug("Could not list prompt provider: %s", exc)
 
     try:
         overlay = prompts_dir()
         if overlay.exists():
             sources += [(_OVERLAY_SOURCE, f) for f in sorted(overlay.glob("*.json"))]
     except Exception as exc:  # pragma: no cover - defensive
-        logger.debug(
-            "Could not list prompt overlay (exception_type=%s)", type(exc).__name__
-        )
+        logger.debug("Could not list prompt overlay: %s", exc)
 
     return sources
 
@@ -202,7 +197,7 @@ def _prompt_content_hash(pfile: Path) -> str | None:
     try:
         return hashlib.sha256(pfile.read_bytes()).hexdigest()
     except OSError as e:
-        logger.debug("Failed to hash prompt file (%s)", type(e).__name__)
+        logger.debug("Failed to hash prompt file: %s", e)
         return None
 
 
@@ -411,7 +406,7 @@ async def ingest_prompts_to_graph():
                             "Prompt delta-manifest record failed", exc_info=True
                         )
             except Exception as e:
-                logger.warning("Failed to ingest prompt (%s)", type(e).__name__)
+                logger.warning("Failed to ingest prompt: %s", e)
 
         # CONCEPT:AU-ORCH.dispatch.builtin-agent-templates — once the prompt nodes exist, seed the built-in
         # AgentTemplates that bind them into dispatchable agents (USES_PROMPT).

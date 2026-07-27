@@ -848,6 +848,7 @@ def _close_abandoned_provider_projection(
     try:
         projection = task.result()
     except Exception:
+        logger.debug("Abandoned provider projection failed", exc_info=True)
         return
     projection.close()
 
@@ -873,7 +874,7 @@ def _provider_child_sandbox_environment(
         try:
             path.chmod(0o700)
         except OSError:
-            pass
+            logger.debug("Provider sandbox permission update failed", exc_info=True)
     return {
         "HOME": str(root),
         "USERPROFILE": str(root),

@@ -152,9 +152,10 @@ def validate(root: Path = ROOT) -> list[str]:
             for package in lock.get("package", [])
             if package.get("name") == "agent-utilities"
         ]
+        source = packages[0].get("source") if len(packages) == 1 else None
         if (
             len(packages) != 1
-            or packages[0].get("source") != {"editable": "."}
+            or source not in ({"editable": "."}, {"editable": "agent-utilities"})
             or packages[0].get("version", version) != version
         ):
             findings.append("lock-version")
@@ -202,7 +203,10 @@ def validate(root: Path = ROOT) -> list[str]:
             findings.append(f"server-version:{relative_path}")
 
     try:
-        if _provider_floor(root) != frozenset({(">=", version), ("<", next_major)}):
+        compatible_major_floor = f"{version.split('.')[0]}.0.0"
+        if _provider_floor(root) != frozenset(
+            {(">=", compatible_major_floor), ("<", next_major)}
+        ):
             findings.append("provider-release-floor")
     except (OSError, SyntaxError, ValueError):
         findings.append("provider-release-floor")

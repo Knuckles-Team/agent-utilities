@@ -23,6 +23,7 @@ mechanism; no second learner is introduced.
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import re
@@ -67,6 +68,7 @@ _PRIMARY_TEXT_PARAM: dict[str, str] = {
     "graph_explain": "query",
     "graph_evaluate": "query",
     "graph_observe": "query",
+    "graph_orchestrate": "task",
 }
 
 #: Safe universal fallback for ``ask`` when the top-ranked candidate needs
@@ -544,6 +546,20 @@ def _operation_is_destructive(tool: str, action: str | None) -> bool:
     return not words.isdisjoint(_DESTRUCTIVE_TERMS)
 
 
+def _tool_accepts_argument(tool: str, argument: str) -> bool:
+    function = kg_server.REGISTERED_TOOLS.get(tool)
+    if function is None:
+        return False
+    try:
+        parameters = inspect.signature(function).parameters
+    except (TypeError, ValueError):
+        return False
+    return argument in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+
+
 def _operation_plan(
     verb: str,
     tool: str,
@@ -915,7 +931,7 @@ async def dispatch_intent(
         call_kwargs = {_PRIMARY_TEXT_PARAM[_ASK_FALLBACK_TOOL]: intent}
         ranked_actions = []
 
-    if chosen_action is not None:
+    if chosen_action is not None and _tool_accepts_argument(chosen_tool, "action"):
         call_kwargs.setdefault("action", chosen_action)
 
     candidate_ambiguity = _ambiguity_evidence(candidates, explicit=explicit_tool)

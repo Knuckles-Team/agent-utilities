@@ -232,6 +232,12 @@ heading (frontmatter, `## Invoke`, and every other section untouched).
 | `kg-write` | `graph_write` | write |
 | `kg-writeback` | `graph_writeback` | write |
 
+`act` seeds its natural-language text into `graph_orchestrate.task`. With no
+`agent_name`, GraphOS resolves an ingested skill/workflow in the KG and delegates the
+whole execution to local vLLM; authenticated child MCP schemas remain internal. The
+non-read preview/`plan_ref` contract still governs the dispatch, and the result returns
+only bounded output, opaque provenance, tool names/statuses, and any approval request.
+
 **Not touched (correctly exempt — `tier: meta`/`surface`, not verb wrappers):** the former
 `kg-capability-builder` (folded into `agent-utilities-development`), `kg-coverage-doctor` and
 `kg-mux-extend`/`kg-mux-use` (folded into `graph-runtime-and-governance`), `kg-delegate`

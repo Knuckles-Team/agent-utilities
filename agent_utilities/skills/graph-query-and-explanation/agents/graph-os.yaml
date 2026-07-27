@@ -11,6 +11,7 @@ claims:
     - graph_code_nav
     - graph_context
     - graph_document_tree
+    - graph_engineering
     - graph_epistemic
     - graph_evaluate
     - graph_explain

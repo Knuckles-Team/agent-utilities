@@ -1,3 +1,5 @@
+import asyncio
+import json
 import logging
 import uuid
 from typing import Any
@@ -18,6 +20,102 @@ from agent_utilities.orchestration.response_format import (
 from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_DELEGATE = "agent-utilities-expert"
+_GATEWAY_OUTPUT_LIMIT = 12_000
+_GATEWAY_MERMAID_LIMIT = 8_000
+_GATEWAY_TRACE_TOOL_LIMIT = 32
+
+
+def _bounded_text(value: Any, limit: int) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}\n…[truncated {len(text) - limit} characters]"
+
+
+def _search_hit_properties(hit: dict[str, Any]) -> dict[str, Any]:
+    node = hit.get("node")
+    if not isinstance(node, dict):
+        return dict(hit)
+    return {**node, **hit}
+
+
+def _search_hit_kind(hit: dict[str, Any]) -> str:
+    props = _search_hit_properties(hit)
+    node_type = str(
+        props.get("node_type")
+        or props.get("type")
+        or props.get("label")
+        or props.get("kind")
+        or ""
+    ).casefold()
+    resource_type = str(props.get("resource_type") or "").casefold()
+    node_id = str(props.get("id") or "").casefold()
+    if node_type == "workflowdefinition" or node_id.startswith(
+        ("workflow:", "skill_workflow:")
+    ):
+        return "workflow"
+    if resource_type == "agent_skill" or node_type in {"skill", "agentskill"}:
+        return "skill"
+    return ""
+
+
+def _search_hit_score(hit: dict[str, Any], rank: int) -> float:
+    for key in ("score", "_score", "similarity", "confidence"):
+        try:
+            value = hit.get(key)
+            if value is not None:
+                return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 1.0 / (rank + 1)
+
+
+def _approval_request(payload: Any) -> dict[str, Any] | None:
+    """Extract the bounded approval handle from a delegated result."""
+
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(payload, dict):
+        return None
+
+    status = str(payload.get("status") or "").casefold()
+    approval_id = payload.get("approval_id")
+    required = bool(payload.get("approval_required")) or bool(approval_id)
+    if status in {"blocked_on_approval", "suspended", "pending_approval"}:
+        required = True
+    if required:
+        return {
+            "required": True,
+            "approval_id": str(approval_id or "") or None,
+            "status": status or "pending",
+            "reason": _bounded_text(
+                payload.get("reason") or payload.get("error") or "", 500
+            )
+            or None,
+        }
+
+    for value in payload.values():
+        if isinstance(value, dict | list):
+            nested = _approval_request_from_collection(value)
+            if nested is not None:
+                return nested
+    return None
+
+
+def _approval_request_from_collection(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return _approval_request(value)
+    if isinstance(value, list):
+        for item in value[:_GATEWAY_TRACE_TOOL_LIMIT]:
+            found = _approval_request(item)
+            if found is not None:
+                return found
+    return None
 
 
 class Orchestrator:
@@ -359,6 +457,243 @@ class Orchestrator:
             )
         return result
 
+    def resolve_capability(self, task: str, agent_name: str = "") -> dict[str, Any]:
+        """Resolve a task to an ingested skill/workflow, or the default expert.
+
+        CONCEPT:AU-ORCH.execution.execution-seam-closure — the GraphOS gateway
+        resolves against the KG's hybrid index before local-vLLM execution. An
+        explicit agent remains authoritative; an unresolved task routes to the
+        KG-bound ``agent-utilities-expert`` instead of exposing skill bodies or
+        fleet tool schemas to the calling harness.
+        """
+        if agent_name.strip():
+            return {
+                "kind": "agent",
+                "name": agent_name.strip(),
+                "id": "",
+                "score": 1.0,
+                "source": "caller",
+                "alternatives": [],
+            }
+
+        try:
+            hits = list(self.engine.search_hybrid(task, top_k=24) or [])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("GraphOS capability resolution degraded: %s", exc)
+            hits = []
+
+        candidates: list[dict[str, Any]] = []
+        for rank, hit in enumerate(hits):
+            if not isinstance(hit, dict):
+                continue
+            kind = _search_hit_kind(hit)
+            if not kind:
+                continue
+            props = _search_hit_properties(hit)
+            if bool(props.get("disabled")):
+                continue
+            name = str(props.get("name") or "").strip()
+            if not name:
+                continue
+            candidates.append(
+                {
+                    "kind": kind,
+                    "name": name,
+                    "id": str(props.get("id") or ""),
+                    "score": _search_hit_score(hit, rank),
+                    "source": "kg_hybrid",
+                }
+            )
+
+        candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
+        if candidates:
+            chosen = dict(candidates[0])
+            chosen["alternatives"] = [
+                {
+                    "kind": candidate["kind"],
+                    "name": candidate["name"],
+                    "score": candidate["score"],
+                }
+                for candidate in candidates[1:4]
+            ]
+            return chosen
+
+        return {
+            "kind": "agent",
+            "name": _DEFAULT_DELEGATE,
+            "id": "",
+            "score": 0.0,
+            "source": "default",
+            "alternatives": [],
+        }
+
+    def _run_provenance(self, run_id: str) -> dict[str, Any]:
+        trace = self.get_run_trace(run_id)
+        calls = trace.get("tool_calls") if isinstance(trace, dict) else []
+        if not isinstance(calls, list):
+            calls = []
+        return {
+            "run_id": run_id,
+            "trace_ref": trace.get("trace_id") if isinstance(trace, dict) else None,
+            "status": trace.get("status") if isinstance(trace, dict) else None,
+            "duration_ms": trace.get("duration_ms")
+            if isinstance(trace, dict)
+            else None,
+            "skill_ref": trace.get("skill_ref") if isinstance(trace, dict) else None,
+            "server_ref": trace.get("server_ref") if isinstance(trace, dict) else None,
+            "model_ref": trace.get("model_ref") if isinstance(trace, dict) else None,
+            "model_class": trace.get("model_class")
+            if isinstance(trace, dict)
+            else None,
+            "tool_call_count": int(
+                trace.get("tool_call_count", len(calls))
+                if isinstance(trace, dict)
+                else len(calls)
+            ),
+            "tool_calls": [
+                {
+                    "sequence": call.get("sequence"),
+                    "tool_name": call.get("tool_name"),
+                    "status": call.get("status"),
+                }
+                for call in calls[:_GATEWAY_TRACE_TOOL_LIMIT]
+                if isinstance(call, dict)
+            ],
+        }
+
+    def _workflow_provenance(self, session_id: str) -> dict[str, Any]:
+        session = self.get_session_runs(session_id)
+        runs = session.get("runs") if isinstance(session, dict) else []
+        if not isinstance(runs, list):
+            runs = []
+        compact_runs = []
+        total_tool_calls = 0
+        for run in runs[:_GATEWAY_TRACE_TOOL_LIMIT]:
+            if not isinstance(run, dict):
+                continue
+            total_tool_calls += int(run.get("tool_call_count") or 0)
+            compact_runs.append(
+                {
+                    "run_id": run.get("run_id"),
+                    "trace_ref": run.get("trace_id"),
+                    "status": run.get("status"),
+                    "tool_call_count": run.get("tool_call_count", 0),
+                }
+            )
+        return {
+            "session_id": session_id,
+            "run_count": int(
+                session.get("run_count", len(runs))
+                if isinstance(session, dict)
+                else len(runs)
+            ),
+            "tool_call_count": total_tool_calls,
+            "runs": compact_runs,
+        }
+
+    async def execute_capability(
+        self,
+        *,
+        task: str,
+        agent_name: str = "",
+        max_steps: int = 30,
+        context: str | None = None,
+        budget_tokens: int | None = None,
+        context_ref: str | None = None,
+        allowed_tools: list[str] | None = None,
+        cred_ref: str | None = None,
+        open_channel: bool = False,
+        reasoning_effort: str | None = None,
+        model_class: str = "standard",
+        response_format: ResponseFormat = "text",
+    ) -> dict[str, Any]:
+        """Resolve and execute one task through the bounded GraphOS skill gateway."""
+        self._scan_task(task)
+        target = await asyncio.to_thread(
+            self.resolve_capability, task, agent_name=agent_name
+        )
+
+        if target["kind"] == "workflow":
+            from agent_utilities.knowledge_graph.core.workflow_gate import (
+                gate_workflow_execution,
+            )
+
+            gate = await asyncio.to_thread(
+                gate_workflow_execution, self.engine, target["name"]
+            )
+            if gate.get("allowed") is not True:
+                return {
+                    "output": "Workflow execution was refused by the ontology/ACL gate.",
+                    "run_id": None,
+                    "mermaid": None,
+                    "resolution": target,
+                    "provenance": {
+                        "workflow_id": gate.get("workflow_id"),
+                        "violations": gate.get("violations", [])[:10],
+                    },
+                    "approval_request": None,
+                }
+            result = await self.execute_workflow(
+                workflow_id=target["name"],
+                task=task,
+                max_steps=max_steps,
+            )
+            run_id = str(result.get("run_id") or result.get("session_id") or "")
+            provenance = await asyncio.to_thread(self._workflow_provenance, run_id)
+            return {
+                "output": _bounded_text(
+                    json.dumps(result, default=str), _GATEWAY_OUTPUT_LIMIT
+                ),
+                "run_id": run_id or None,
+                "mermaid": _bounded_text(
+                    result.get("mermaid") or "", _GATEWAY_MERMAID_LIMIT
+                )
+                or None,
+                "resolution": target,
+                "provenance": provenance,
+                "approval_request": _approval_request(result),
+            }
+
+        raw = await self.execute_agent(
+            agent_name=target["name"],
+            task=task,
+            max_steps=max_steps,
+            return_mermaid=True,
+            context=context,
+            budget_tokens=budget_tokens,
+            context_ref=context_ref,
+            allowed_tools=allowed_tools,
+            cred_ref=cred_ref,
+            open_channel=open_channel,
+            reasoning_effort=reasoning_effort,
+            model_class=model_class,
+            response_format=response_format,
+            include_run_summary=True,
+        )
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
+            payload = {"output": str(raw)}
+        if not isinstance(payload, dict):
+            payload = {"output": str(payload)}
+        run_id = str(payload.get("run_id") or "")
+        provenance = (
+            await asyncio.to_thread(self._run_provenance, run_id) if run_id else {}
+        )
+        return {
+            "output": _bounded_text(payload.get("output"), _GATEWAY_OUTPUT_LIMIT),
+            "run_id": run_id or None,
+            "mermaid": _bounded_text(
+                payload.get("mermaid") or "", _GATEWAY_MERMAID_LIMIT
+            )
+            or None,
+            "channel_id": payload.get("channel_id"),
+            "run_summary": payload.get("run_summary"),
+            "resolution": target,
+            "provenance": provenance,
+            "approval_request": _approval_request(payload),
+        }
+
     async def compile_workflow(self, name: str, task: str) -> str:
         """Compile a workflow topology from a natural language task."""
         self._scan_task(task)
@@ -397,7 +732,7 @@ class Orchestrator:
         logger.info(f"Executing workflow {workflow_id} via WorkflowRunner...")
         from agent_utilities.workflows.runner import WorkflowRunner
 
-        runner = WorkflowRunner()
+        runner = WorkflowRunner(max_steps_per_agent=max_steps)
         result = await runner.execute_by_name(
             workflow_name=workflow_id,
             engine=self.engine,

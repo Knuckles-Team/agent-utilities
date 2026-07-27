@@ -876,7 +876,7 @@ class IngestionEngine:
                     logger.debug("manifest record failed", exc_info=True)
             return self._record_result(result)
         except Exception as e:
-            logger.error("[KG-2.7] Ingestion failed (%s)", type(e).__name__)
+            logger.error("[KG-2.7] Ingestion failed: %s", e)
             result = IngestionResult(
                 manifest=manifest,
                 status="failed",
@@ -1091,6 +1091,7 @@ class IngestionEngine:
                 text, source_id, llm, source_type=source_type, title=title
             )
         except Exception:  # noqa: BLE001
+            logger.debug("Text concept extraction failed", exc_info=True)
             return 0
 
         write_target = writer if writer is not None else self.backend
@@ -1108,14 +1109,14 @@ class IngestionEngine:
                     source_ids=_json.dumps(c.source_ids),
                 )
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("Concept node write failed", exc_info=True)
         add_edge = getattr(write_target, "add_edge", None)
         if callable(add_edge):
             for e in edges:
                 try:
                     add_edge(e.source, e.target, rel_type=e.rel_type)
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.debug("Concept edge write failed", exc_info=True)
 
         # Cross-link concepts → Code/Feature via vector similarity so the graph
         # interweaves (RELATES_TO / REALIZES). Best-effort: needs an embedding
@@ -1152,6 +1153,7 @@ class IngestionEngine:
 
             edges = link_concepts_to_code(concepts, embed_fn, search_fn)
         except Exception:  # noqa: BLE001 — enrichment must never break ingest
+            logger.debug("Concept-to-code linking failed", exc_info=True)
             return 0
         written = 0
         for e in edges:
@@ -1159,7 +1161,7 @@ class IngestionEngine:
                 add_edge(e.source, e.target, rel_type=e.rel_type)
                 written += 1
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("Concept-to-code edge write failed", exc_info=True)
         return written
 
     def _fact_store(self, writer: Any | None = None) -> Any:
@@ -1675,7 +1677,7 @@ class IngestionEngine:
                 try:
                     comm._client.tenants.delete(comm_name)
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.debug("Temporary tenant cleanup failed", exc_info=True)
 
         # Record the new HEAD as the delta watermark on success (best-effort).
         # NOT after an explicit ``only_files`` subset (CONCEPT:AU-KG.ingest.agent-utilities-checkout): a scoped
@@ -1830,14 +1832,16 @@ class IngestionEngine:
                     domain=code_source_id,
                 )
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("Repository node write failed", exc_info=True)
 
         def _link(child_id: str) -> None:
             if child_id and callable(add_edge):
                 try:
                     add_edge(repo_id, child_id, rel_type="CONTAINS")
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.debug(
+                        "Repository containment edge write failed", exc_info=True
+                    )
 
         # ── Specs (inline; no SPEC adaptor) ──────────────────────────────
         specs = 0
@@ -2354,7 +2358,7 @@ class IngestionEngine:
                 try:
                     bin_path.unlink()
                 except OSError:
-                    pass
+                    logger.debug("Fetched document cleanup failed", exc_info=True)
 
         page = resolve_web_fetch(url)
         if page is None:
@@ -2389,7 +2393,7 @@ class IngestionEngine:
             try:
                 doc_path.unlink()
             except OSError:
-                pass
+                logger.debug("Materialized document cleanup failed", exc_info=True)
 
     def _ingest_document_file(
         self,
@@ -3410,10 +3414,7 @@ class IngestionEngine:
                                 False,
                             )
                         except Exception as exc:  # fail one child, not the fleet
-                            logger.warning(
-                                "MCP child discovery unavailable (exception_type=%s)",
-                                type(exc).__name__,
-                            )
+                            logger.warning("MCP child discovery unavailable: %s", exc)
                             return entry, [], True
 
                 results = await _asyncio.gather(*[_disc(e) for e in entries])

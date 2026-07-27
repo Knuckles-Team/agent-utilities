@@ -27,7 +27,7 @@ _RELEASE_RESOURCE_CATALOG = (
     "deploy/release/release-contract-resources.catalog.json"
 )
 _RELEASE_RESOURCE_CATALOG_SHA256 = (
-    "780d3ee67b7f51072923bd395f354be480a87caae52894ae9001d7c2aaf86448"
+    "959e7161e3ff4de5e7a7ef9c8c11a30d328b2e319fc6ac3a39e8045917684f9f"
 )
 _RELEASE_RESOURCE_PATHS = (
     "deploy/release/certification-campaign.schema.json",

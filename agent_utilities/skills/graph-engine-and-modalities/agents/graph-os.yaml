@@ -17,6 +17,7 @@ claims:
     - engine_lifecycle
     - engine_mining
     - engine_nodes
+    - engine_placement
     - engine_query
     - engine_rbac
     - engine_rdf
@@ -27,6 +28,7 @@ claims:
     - engine_timeseries
     - engine_txn
     - graph_domain_ops
+    - graph_pipeline
   features:
     finance:
       - quant

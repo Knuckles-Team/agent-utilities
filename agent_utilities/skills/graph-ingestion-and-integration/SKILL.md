@@ -18,6 +18,7 @@ and verification.
 | Need | Primary operation |
 |---|---|
 | Ingest one artifact | `graph_ingest` |
+| Delegate heavy PDF/JPEG/audio decoding | `graph_media_sidecar` |
 | Register or inspect a source | `source_connector` |
 | Synchronize changed content | `source_sync` |
 | Drain queued source work | `source_drain` |
@@ -38,6 +39,7 @@ backfill, validation, and a scheduled delta flow.
 | Tool | Actions | Notes |
 |---|---|---|
 | `graph_ingest` | ingests one artifact; `content_type` routes explicitly (`config`, `prompt`, `mcp_server`, `skill`, `document`, `conversation`, `codebase`) or auto-classifies; `action="distill"` exports a KG subgraph to a portable skill-graph, `action="import_pack"` round-trips one back in | delta-skip via a durable content-hash manifest — re-ingesting an unchanged source is a no-op |
+| `graph_media_sidecar` | `ingest_pdf`, `ingest_jpeg`, `ingest_audio`; delegates heavyweight decoding/OCR to the governed fleet sidecar and folds located evidence back into the KG | child MCP auth and tool schemas stay inside GraphOS; use `graph_ingest` for ordinary in-process artifact ingestion |
 | `source_sync` | `source=<connector>` + `mode=full\|delta\|reconcile`; `source="all"` fans out one laned `connector_sync` task per candidate across every registered connector — declarative, computed from the registries, never hand-enumerated | see "Full ingest" below for the one-call fleet-wide sweep |
 | `graph_etl` | `action="run"` (pull `source` into the KG and/or load `sink` from the KG — a write-back SoR, a graph store `stardog`/`neo4j`/`age`/`jena_fuseki`, or `sink="table"` for the native engine SQL table), `action="list"` (sources/sinks/backends), `action="lineage"` (recorded runs) | composes ingestion + write-back + graph-store machinery into one source → (ontological transform) → sink flow |
 | `graph_ingest` (hydrate) | `graph_ingest(source=<connector>, mode="full")` re-mirrors one external source; `source="all"` fans to the fleet-wide sweep | a thin alias delegating to the same unified `source_sync` core — use `graph_etl`/`source_sync` directly for delta/reconcile modes |

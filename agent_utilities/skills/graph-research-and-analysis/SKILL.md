@@ -23,6 +23,7 @@ separate measured results from hypotheses.
   discovery over an existing graph.
 - Use `graph_learn` for supported graph-learning tasks.
 - Use `graph_ops_causal` when an operational question requires causal evidence.
+- Use `graph_claims` to inspect or advance the governed claim lifecycle.
 - Use `graph_feedback` to record corrections or outcome signals.
 - Use `research_artifact` to persist an approved report with provenance.
 

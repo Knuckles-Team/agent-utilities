@@ -2842,10 +2842,7 @@ def _ingest_prompts_at_boot() -> None:
         asyncio.run(ingest_prompts_to_graph())
         logger.info("Ingested prompt-base library at boot (Phase C hydration)")
     except Exception as exc:
-        logger.error(
-            "Prompt-base boot ingestion failed (exception_type=%s)",
-            type(exc).__name__,
-        )
+        logger.error("Prompt-base boot ingestion failed: %s", exc)
 
 
 def _graphos_self_tool_surface() -> list[dict[str, Any]]:
@@ -2893,10 +2890,7 @@ def _ingest_self_tool_surface_at_boot(engine: Any) -> None:
             result.nodes_created,
         )
     except Exception as exc:
-        logger.error(
-            "Self tool-surface boot ingestion failed (exception_type=%s)",
-            type(exc).__name__,
-        )
+        logger.error("Self tool-surface boot ingestion failed: %s", exc)
 
 
 def _mint_process_session(transport: str) -> Any:

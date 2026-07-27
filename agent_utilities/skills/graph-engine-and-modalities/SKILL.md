@@ -28,12 +28,12 @@ owns the operation.
 | SQL and relational query or mutation | `engine_query` |
 | SPARQL/RDF query or update | `engine_rdf` |
 | OWL and rule reasoning | `engine_reasoning` |
-| Analytics, graph learning, and data science | `engine_analytics`, `engine_graphlearn`, `engine_datascience` |
+| Analytics, graph learning, and data science | `engine_analytics`, `engine_graphlearn`, `engine_datascience`, `graph_pipeline` |
 | Mining and finance | `engine_mining`, `engine_finance`, `quant` |
 | Persisted enterprise, regime, and RLM actor operations | `graph_domain_ops` |
 | Time series and streaming | `engine_timeseries`, `engine_streaming` |
 | Blobs, ledger, and messaging | `engine_blob`, `engine_ledger`, `engine_channels`, `engine_broker` |
-| Cluster control | `engine_consensus`, `engine_resharding`, `engine_tenants` |
+| Cluster control | `engine_consensus`, `engine_resharding`, `engine_tenants`, `engine_placement` |
 | Administration | `engine_rbac`, `engine_admin` |
 
 Use a direct engine operation for a bounded, well-specified task. Delegate one

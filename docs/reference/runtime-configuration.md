@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-542 typed fields · 347 runtime-only call-site inputs.
+543 typed fields · 347 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -303,6 +303,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | Environment key | Type | Default |
 |---|---|---|
 | `MCP_DYNAMIC_TOP_K` | `int` | `8` |
+| `MCP_DYNAMIC_DISCOVERY_TIMEOUT` | `float` | `5.0` |
 
 ## OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 

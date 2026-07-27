@@ -40,11 +40,13 @@ async def test_graph_orchestrate_propagates_closed_json_contract(
         def __init__(self, _engine: Any) -> None:
             pass
 
-        async def execute_agent(self, **kwargs: Any) -> str:
+        async def execute_capability(self, **kwargs: Any) -> dict[str, Any]:
             captured.update(kwargs)
-            return json.dumps(
-                {"output": '{"answer":"ok"}', "run_id": "run:opaque", "mermaid": None}
-            )
+            return {
+                "output": '{"answer":"ok"}',
+                "run_id": "run:opaque",
+                "mermaid": None,
+            }
 
     monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
     monkeypatch.setattr(manager, "Orchestrator", RecordingOrchestrator)
@@ -177,6 +179,7 @@ async def test_json_contract_bypasses_text_only_direct_completion(
         run_id="run:" + "a" * 32,
         max_steps=3,
         agent_meta={"type": "unknown"},
+        agent_name="json-contract-agent",
     )
 
     assert result["results"]["output"] == '{"answer":"ok"}'

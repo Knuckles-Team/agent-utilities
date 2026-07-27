@@ -32,7 +32,13 @@ async def test_agent_runner_resolution():
     mock_backend = MagicMock()
     engine.backend = mock_backend
 
-    # Mock the backend execution specifically for the CallableResource query
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        runnable_skill_digest,
+    )
+
+    instructions = "Inspect the requested evidence and report grounded findings."
+
+    # Mock the backend execution specifically for the CallableResource query.
     def mock_execute(query, params=None):
         if (
             "CallableResource" in query
@@ -44,7 +50,10 @@ async def test_agent_runner_resolution():
                     "rid": "skill:test-agent",
                     "rtype": "AGENT_SKILL",
                     "description": "A test skill agent",
-                    "skill_path": "",
+                    "system_prompt": instructions,
+                    "instruction_digest": runnable_skill_digest(instructions),
+                    "source_ref": "skill://test-agent",
+                    "provider_ref": "provider://xdg-local",
                 }
             ]
         return []
@@ -54,6 +63,69 @@ async def test_agent_runner_resolution():
     meta = _resolve_agent_from_kg(engine, "test-agent")
 
     assert meta["type"] == "skill"
+
+
+@pytest.mark.asyncio
+async def test_agent_runner_binds_provider_skill_to_authenticated_server():
+    """A provider skill drives its owning fleet server without retaining a path."""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        runnable_skill_digest,
+    )
+    from agent_utilities.orchestration.agent_runner import _resolve_agent_from_kg
+
+    engine = _create_engine()
+
+    from unittest.mock import MagicMock
+
+    mock_backend = MagicMock()
+    engine.backend = mock_backend
+    instructions = "Review the named GitHub pull request using real repository tools."
+
+    def mock_execute(query, params=None):
+        params = params or {}
+        if "MATCH (s:Server)" in query and params.get("name") == "github-review":
+            return []
+        if (
+            "MATCH (r:CallableResource)" in query
+            and params.get("name") == "github-review"
+        ):
+            return [
+                {
+                    "rid": "resource:skill:github-review",
+                    "rtype": "AGENT_SKILL",
+                    "description": "Review a GitHub pull request.",
+                    "system_prompt": instructions,
+                    "instruction_digest": runnable_skill_digest(instructions),
+                    "source_ref": "skill://github-review",
+                    "provider_ref": "provider://github-mcp",
+                }
+            ]
+        if "MATCH (s:Server)" in query and params.get("name") == "github-mcp":
+            return [
+                {
+                    "sid": "srv:github-mcp",
+                    "name": "github-mcp",
+                    "url": "https://github-mcp.example/mcp",
+                    "env": "",
+                }
+            ]
+        if "[:PROVIDES]" in query and params.get("sid") == "srv:github-mcp":
+            return [
+                {
+                    "name": "github_pull_request_read",
+                    "description": "Read pull requests.",
+                }
+            ]
+        return []
+
+    mock_backend.execute.side_effect = mock_execute
+
+    meta = _resolve_agent_from_kg(engine, "github-review")
+
+    assert meta["type"] == "server"
+    assert meta["skill_of_server"] == "github-mcp"
+    assert meta["tools"][0]["name"] == "github_pull_request_read"
+    assert instructions in meta["system_prompt"]
 
 
 @pytest.mark.asyncio

@@ -206,6 +206,43 @@ async def test_non_read_requires_bound_preview_and_surfaces_safety_plan(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_act_routes_plain_intent_to_graphos_skill_gateway(monkeypatch):
+    """The condensed control plane forwards NL task text without a fake action kwarg."""
+    seen: dict = {}
+
+    async def fake_graph_orchestrate(task: str = "") -> str:
+        seen["task"] = task
+        return json.dumps(
+            {
+                "output": "delegated",
+                "resolution": {"kind": "skill", "name": "github-review"},
+                "provenance": {"trace_ref": "trace:opaque"},
+            }
+        )
+
+    monkeypatch.setitem(
+        kg_server.REGISTERED_TOOLS, "graph_orchestrate", fake_graph_orchestrate
+    )
+    hints = {"tool": "graph_orchestrate"}
+    intent = "Review GitHub PR 458 using the appropriate ingested skill."
+    preview = await intent_tools.dispatch_intent(
+        "act", intent, hints=hints, execute=False
+    )
+    plan_ref = preview["routing"]["plan"]["plan_ref"]
+
+    result = await intent_tools.dispatch_intent(
+        "act",
+        intent,
+        hints={**hints, "plan_ref": plan_ref},
+        execute=True,
+    )
+
+    assert result["executed"] is True
+    assert seen == {"task": intent}
+    assert json.loads(result["result"])["provenance"]["trace_ref"] == "trace:opaque"
+
+
+@pytest.mark.asyncio
 async def test_destructive_plan_requires_exact_tool_approval(monkeypatch):
     seen = False
 

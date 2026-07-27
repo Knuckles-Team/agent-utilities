@@ -413,9 +413,7 @@ test = [
     "pytest-asyncio>=1.4.0",
     "pytest-env>=1.7.0",
     "pytest-timeout>=2.4.0",
-    # CONCEPT:PHASE2-RECONCILE — capped under syrupy's own 5.x floor collision
-    # with the rest of the fleet's pytest pins; 4.8-4.x is the resolvable range.
-    "syrupy>=4.8,<5",
+    "syrupy>=5.5.3",
     "opentelemetry-instrumentation-starlette>=0.65b0",
     "opentelemetry-instrumentation-fastapi>=0.65b0",
     "opentelemetry-instrumentation-asgi>=0.65b0",

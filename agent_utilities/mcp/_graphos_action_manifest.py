@@ -1539,6 +1539,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {"tool": "graph_incident", "action": "get", "name": "graph_incident_get"},
     {"tool": "graph_incident", "action": "list", "name": "graph_incident_list"},
+    {
+        "tool": "graph_incident",
+        "action": "related_claims",
+        "name": "graph_incident_related_claims",
+    },
     {"tool": "graph_incident", "action": "resolve", "name": "graph_incident_resolve"},
     {"tool": "graph_incident", "action": "timeline", "name": "graph_incident_timeline"},
     {
@@ -1698,7 +1703,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_kvcache", "action": "put", "name": "graph_kvcache_put"},
     {"tool": "graph_kvcache", "action": "stats", "name": "graph_kvcache_stats"},
     {"tool": "graph_learn", "action": None, "name": "graph_learn"},
-    {"tool": "graph_pipeline", "action": None, "name": "graph_pipeline"},
     {"tool": "graph_loops", "action": "cancel", "name": "graph_loops_cancel"},
     {"tool": "graph_loops", "action": "drive", "name": "graph_loops_drive"},
     {"tool": "graph_loops", "action": "gap", "name": "graph_loops_gap"},
@@ -1715,11 +1719,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_loops", "action": "specs", "name": "graph_loops_specs"},
     {"tool": "graph_loops", "action": "state", "name": "graph_loops_state"},
     {"tool": "graph_loops", "action": "submit", "name": "graph_loops_submit"},
-    {
-        "tool": "graph_loops",
-        "action": "submit_gap",
-        "name": "graph_loops_submit_gap",
-    },
+    {"tool": "graph_loops", "action": "submit_gap", "name": "graph_loops_submit_gap"},
     {
         "tool": "graph_media_sidecar",
         "action": "ingest_audio",
@@ -1814,10 +1814,16 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_ops_causal", "action": "join", "name": "graph_ops_causal_join"},
     {
         "tool": "graph_ops_causal",
+        "action": "related_incidents",
+        "name": "graph_ops_causal_related_incidents",
+    },
+    {
+        "tool": "graph_ops_causal",
         "action": "root_cause",
         "name": "graph_ops_causal_root_cause",
     },
     {"tool": "graph_orchestrate", "action": None, "name": "graph_orchestrate"},
+    {"tool": "graph_pipeline", "action": None, "name": "graph_pipeline"},
     {"tool": "graph_promql", "action": "instant", "name": "graph_promql_instant"},
     {"tool": "graph_promql", "action": "range", "name": "graph_promql_range"},
     {"tool": "graph_query", "action": None, "name": "graph_query"},

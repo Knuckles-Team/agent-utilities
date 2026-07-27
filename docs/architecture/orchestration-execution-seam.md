@@ -19,25 +19,28 @@ wires close it:
 | **AU-ORCH.dispatch.dispatch-half-skill-ingestion** ingested skills weren't executable | a `:Skill` (or cold `AGENT_SKILL`) node was search corpus only | `_resolve_agent_from_kg` hydrates the skill's instruction body as the system prompt + its `USES_TOOL` tools, and binds it into a runnable `CallableResource (AGENT_SKILL)` (reusing the `persist_as_runnable` shape via `persist_skill_as_runnable`) |
 | **KG-2.296** tool calls weren't visible | only a run-level `RunTrace` was written | every tool call the local LLM makes is persisted as a privacy-guarded `:ToolCall` linked `RunTrace -[:USED_TOOL]-> :ToolCall` (tool, content digests/counts, status, sequence) and feeds `action_outcome` (AU-AHE.evaluation.action-outcome-feedback) |
 | **AU-ORCH.execution.rich-result-wrapper** a delegation wasn't trackable | agent output lacked a public handle | `graph_orchestrate` and `graph_workflows` return a `run_id` handle — query its RunTrace + ToolCalls over graph-os |
+| **GraphOS skill gateway** the harness had to name a skill and carry its schema | native clients either installed hundreds of skills or selected an agent themselves | an empty `agent_name` makes `graph_orchestrate` resolve the best ingested `AGENT_SKILL`/`WorkflowDefinition` in the KG, run it on local vLLM, mount authenticated MCP tools internally, and return one bounded evidence envelope |
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    G[goal] --> O["graph_orchestrate<br/>one named agent"]
-    G --> WF["graph_workflows<br/>execute a stored DAG"]
+    G[goal / Codex intent] --> O["graph_orchestrate<br/>KG capability resolution"]
+    O --> PICK{"best ingested target"}
+    PICK --> SKILL["AGENT_SKILL / explicit agent"]
+    PICK --> WF["WorkflowDefinition"]
     WF --> GATE["workflow_gate (AU-ORCH.execution.ontology-validation-execution-path)<br/>SHACL + ACL"]
     GATE --> WR["WorkflowRunner.execute_by_name<br/>(ORCH-1.95): load stored DAG"]
     WR --> WAVE["dependency waves"]
     WAVE --> RA["run_agent (ORCH-1.21)<br/>per step / per agent"]
-    O --> RA
+    SKILL --> RA
     RA --> RES["_resolve_agent_from_kg<br/>Server · CallableResource · Skill→runnable (AU-ORCH.dispatch.dispatch-half-skill-ingestion)"]
-    RES --> BIND["bind real MCP toolset<br/>(stdio / http + OIDC for *.example)"]
+    RES --> BIND["bind real MCP toolset internally<br/>(stdio / HTTP + OIDC client credentials)"]
     BIND --> LLM["LOCAL vLLM (qwen, model_router)"]
     LLM --> TOOL["REAL MCP tool call"]
     TOOL --> TRACE["RunTrace + :ToolCall provenance<br/>(KG-2.296) + action_outcome"]
-    RA --> RID["run_id handle (AU-ORCH.execution.rich-result-wrapper)"]
-    TRACE -.queryable.-> CLAUDE["Claude via graph-os:<br/>'what did the local LLM do?'"]
+    RA --> RID["bounded result + resolution + approval_request<br/>run_id / trace_ref (AU-ORCH.execution.rich-result-wrapper)"]
+    TRACE -.queryable.-> CODEX["Codex control plane:<br/>'what did the local LLM do?'"]
 ```
 
 ## Governance, model, visibility
@@ -145,6 +148,34 @@ the handle is carried by the MCP result contract. `run_id` is exactly `run:` plu
 alternate forms are rejected. It is the key to the run's opaque canonical
 `RunTrace` (resolved by the status action) and the prerequisite for async,
 streaming, and live steering of a delegated run.
+
+When `agent_name` is empty, `graph_orchestrate` is also the skill gateway. It asks the
+engine's hybrid KG index for typed `CallableResource(resource_type=AGENT_SKILL)` and
+`WorkflowDefinition` hits, executes the highest-ranked runnable target, and falls back to
+the KG-bound `agent-utilities-expert` only when no typed target is found. Package skills
+bind to their owning MCP server through the persisted privacy-safe `provider://` identity;
+no filesystem path or child tool schema crosses the Codex boundary.
+
+The returned envelope is deliberately bounded:
+
+```json
+{
+  "output": "<bounded synthesis>",
+  "resolution": {"kind": "skill", "name": "github-review", "source": "kg_hybrid"},
+  "run_id": "run:…",
+  "provenance": {
+    "trace_ref": "trace:…",
+    "tool_call_count": 1,
+    "tool_calls": [{"tool_name": "github_pull_request_read", "status": "completed"}]
+  },
+  "approval_request": null
+}
+```
+
+Only tool names, statuses, opaque references, and attribution refs are returned. Tool
+arguments/results remain behind the GraphOS privacy boundary. A governed action or
+workflow gate that pauses execution populates `approval_request` instead of prompting the
+local model to bypass policy.
 
 ## `:ToolCall` provenance (KG-2.296) — fields and how it's written
 

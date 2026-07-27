@@ -112,7 +112,12 @@ the import is a tolerated superset no-op (registered in
 
 | File (in provider wheel) | IRI | Provider package | Role |
 |------|-----|------------------|------|
+| `archivebox.ttl` (`archivebox_api/ontology/`) | `…/kg/archivebox` | `archivebox-api` | Web-archive snapshots, extractor results, and capture provenance. |
+| `connector.shacl.ttl` (`archivebox_api/ontology/shapes/`) | ArchiveBox SHACL shapes | `archivebox-api` | Required source, tenant, access-policy, and evidence metadata for archived results. |
+| `gramps.ttl` (`gramps_mcp/ontology/`) | `…/kg/gramps` | `gramps-mcp` | Genealogy families, events, places, citations, repositories, and media relations. |
+| `connector.shacl.ttl` (`gramps_mcp/ontology/shapes/`) | Gramps SHACL shapes | `gramps-mcp` | Required source, tenant, access-policy, and evidence metadata for citations. |
 | `servicenow.ttl` (`servicenow_api/ontology/`) | `…/kg/servicenow` | `servicenow-api` | ServiceNow ITSM integration (incidents, changes, CMDB). |
+| `connector.shacl.ttl` (`servicenow_api/ontology/shapes/`) | ServiceNow SHACL shapes | `servicenow-api` | Required source, tenant, access-policy, and evidence metadata for changes. |
 | `leanix.ttl` (`leanix_agent/ontology/`) | `…/kg/leanix` | `leanix-agent` | LeanIX EAM integration. |
 | `erpnext.ttl` (`erpnext_agent/ontology/`) | `…/kg/erpnext` | `erpnext-agent` | ERPNext integration. |
 | `archimate.ttl` (`archimate_mcp/ontology/`) | `…/kg/archimate` | `archimate-mcp` | ArchiMate enterprise-architecture vocabulary. |

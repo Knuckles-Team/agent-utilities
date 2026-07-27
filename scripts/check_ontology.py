@@ -263,7 +263,11 @@ def _provider_ttls(provider_root: Path | None = None) -> list[Path]:
             resolve_provider_ontologies,
         )
 
-        return [p for _provider, p in resolve_provider_ontologies()]
+        assets: list[Path] = []
+        for provider, path in resolve_provider_ontologies():
+            assets.append(path)
+            _SOURCE_LABELS[path] = Path("provider-assets") / provider / path.name
+        return assets
     except Exception:  # noqa: BLE001 — federation is additive; base gate must not break
         return []
 

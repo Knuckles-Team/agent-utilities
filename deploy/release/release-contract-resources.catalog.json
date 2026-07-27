@@ -14,7 +14,7 @@
     },
     {
       "path": "deploy/release/compatibility-matrix.yml",
-      "sha256": "c62eb448bc6d524269202e58885f74f50ef65290ab44daf3fe6334dba8ac5fb6"
+      "sha256": "9db1874a81298033713af615a47d6ace8e5ba1c4c77bf6df2ef30e26d46fe6a4"
     },
     {
       "path": "deploy/release/component-provenance.schema.json",
@@ -90,7 +90,7 @@
     },
     {
       "path": "deploy/release/prebundled-skills.catalog.json",
-      "sha256": "781954dc85f70ec40bdf76f4458be54931abdb9c0566087d16ca94b1b52d5ba3"
+      "sha256": "013bac4c03bf54383b94ced26e04196381e176313a05932ff610b21a58913772"
     },
     {
       "path": "deploy/release/release-assembly.schema.json",

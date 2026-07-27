@@ -58,16 +58,21 @@ not to understand — then close the loop with `graph_feedback correction_type=r
 Hand a task an ingested skill / workflow / agent can already do to the local model:
 
 ```text
+act intent="<task>" tool=graph_orchestrate
+graph_orchestrate task="<task>"                       # KG selects skill/workflow
 graph_orchestrate agent=agent-utilities-expert task="<ecosystem task>"
 graph_orchestrate agent=<ingested-skill> task="…"
 graph_workflows action=execute workflow=<workflow> task="…"
 ```
 
-The **`agent-utilities-expert`** is the default delegate for ecosystem work — a native,
-KG-bound, dispatchable persona that grounds its answers in graph-os instead of
-hallucinating (see [`agent-utilities-expert.md`](agent-utilities-expert.md)). For a task
-that maps cleanly onto one known capability, dispatch that ingested skill / workflow
-directly. Either way the **execution seam**
+The normal Codex path supplies only the intent. `graph_orchestrate` resolves a typed,
+ingested skill or workflow from the KG, runs it on local vLLM, and binds authenticated
+fleet MCP tools inside GraphOS; Codex never installs the skill body or loads the child
+tool schemas. An explicit `agent` remains available as a pin. The
+**`agent-utilities-expert`** is the fallback delegate when the KG has no typed
+skill/workflow hit — a native, KG-bound persona that grounds its answers in graph-os
+instead of hallucinating (see
+[`agent-utilities-expert.md`](agent-utilities-expert.md)). Either way the **execution seam**
 ([`orchestration-execution-seam.md`](orchestration-execution-seam.md)) runs it on the
 local vLLM against real MCP tools and writes full provenance. Reach the rest of the
 ~58-server fleet via the `engine_<domain>` surface + the multiplexer meta-tools
@@ -88,8 +93,9 @@ exhausted, and approve/veto rather than implement by hand.
 flowchart TD
     H["Claude / harness<br/>(orchestrator + exception-resolver)"]
     H -->|understand code| KG["graph_analyze code_context<br/>(KG-2.134/135) → cited answer"]
-    H -->|one agent| EX["graph_orchestrate<br/>agent-utilities-expert / ingested skill"]
-    H -->|workflow DAG| WF["graph_workflows execute<br/>local LLM per step"]
+    H -->|intent only| EX["graph_orchestrate skill gateway<br/>KG resolves skill / workflow"]
+    EX -->|no typed hit| EXP["agent-utilities-expert fallback"]
+    EX -->|workflow DAG| WF["governed WorkflowRunner<br/>local LLM per step"]
     H -->|evolve/manage| LOOP["graph_loops + evolution flywheel<br/>:SpecProposal → AU-OS.config.autonomous-spec-develop-off review-veto"]
     EX --> ENGINE["engine_&lt;domain&gt; surface (AU-ECO.mcp.full-api-mcp-surface)<br/>+ multiplexer meta-tools"]
     EX --> PROV[":ToolCall / RunTrace provenance (KG-2.296)<br/>+ run_id handle (AU-ORCH.execution.rich-result-wrapper)"]

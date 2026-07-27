@@ -77,25 +77,38 @@ def test_marker_v2_is_closed_bounded_path_free_and_atomic(tmp_path: Path) -> Non
     assert raw == marker.payload()
     assert raw["schema_version"] == 2
     assert len(marker_path.read_bytes()) <= MAX_MARKER_BYTES
-    assert read_managed_provider_marker(
-        root, provider="provider-a", leg="prompts"
-    ) == marker
+    assert (
+        read_managed_provider_marker(root, provider="provider-a", leg="prompts")
+        == marker
+    )
     assert list(root.glob(f".{MANAGED_PROVIDER_MARKER}.*")) == []
     assert str(tmp_path) not in marker_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
     "name",
-    ["", ".", "..", "../outside", "nested/provider", "nested\\provider", "CON", "a" * 129],
+    [
+        "",
+        ".",
+        "..",
+        "../outside",
+        "nested/provider",
+        "nested\\provider",
+        "CON",
+        "a" * 129,
+    ],
 )
 def test_marker_rejects_nonportable_provider_names(name: str) -> None:
     with pytest.raises(ValueError):
         write_managed_provider_marker(
-            Path("unused"), inactive_marker(provider=name, leg="skills", registration=REGISTRATION)
+            Path("unused"),
+            inactive_marker(provider=name, leg="skills", registration=REGISTRATION),
         )
 
 
-def test_marker_rejects_v1_extra_oversized_duplicate_and_symlink(tmp_path: Path) -> None:
+def test_marker_rejects_v1_extra_oversized_duplicate_and_symlink(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "provider"
     root.mkdir()
     marker = root / MANAGED_PROVIDER_MARKER
@@ -357,6 +370,17 @@ class _Distribution:
         return self.root / str(path)
 
 
+class _EditableDistribution(_Distribution):
+    def __init__(self, root: Path):
+        super().__init__(root)
+        self.files = (PurePosixPath("__editable__.provider_dist.pth"),)
+
+    def read_text(self, filename: str) -> str | None:
+        if filename != "direct_url.json":
+            return None
+        return json.dumps({"dir_info": {"editable": True}, "url": self.root.as_uri()})
+
+
 def _entry(root: Path, *, name: str = "provider-a", target: str = "pkg.prompts"):
     distribution = _Distribution(root)
     return SimpleNamespace(
@@ -365,6 +389,105 @@ def _entry(root: Path, *, name: str = "provider-a", target: str = "pkg.prompts")
         group=providers.PROMPT_PROVIDER_GROUP,
         dist=distribution,
     )
+
+
+def test_editable_registration_uses_pep610_owned_target_without_import(
+    tmp_path: Path, monkeypatch
+) -> None:
+    owned = tmp_path / "pkg" / "prompts"
+    owned.mkdir(parents=True)
+    (owned / "prompt.json").write_text("{}", encoding="utf-8")
+    entry = SimpleNamespace(
+        name="provider-a",
+        value="pkg.prompts",
+        group=providers.PROMPT_PROVIDER_GROUP,
+        dist=_EditableDistribution(tmp_path),
+    )
+    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+    monkeypatch.setattr(
+        "importlib.import_module",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("must not import")
+        ),
+    )
+
+    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+    assets = providers.current_provider_assets(providers.PROMPT_PROVIDER_GROUP)
+
+    assert registration.source_root == owned
+    assert registration.owned_paths == frozenset({"prompt.json"})
+    assert len(assets) == 1
+    assert assets[0].source_root == owned
+
+
+def test_editable_registration_honors_safe_setuptools_package_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    owned = tmp_path / "agent" / "pkg" / "prompts"
+    owned.mkdir(parents=True)
+    (owned / "prompt.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.setuptools.packages.find]\nwhere = ["agent"]\n',
+        encoding="utf-8",
+    )
+    entry = SimpleNamespace(
+        name="provider-a",
+        value="pkg.prompts",
+        group=providers.PROMPT_PROVIDER_GROUP,
+        dist=_EditableDistribution(tmp_path),
+    )
+    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+
+    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+
+    assert registration.source_root == owned
+    assert registration.owned_paths == frozenset({"prompt.json"})
+
+
+def test_editable_registration_rejects_unsafe_setuptools_package_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    owned = tmp_path / "pkg" / "prompts"
+    owned.mkdir(parents=True)
+    (owned / "prompt.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.setuptools.packages.find]\nwhere = ["../outside"]\n',
+        encoding="utf-8",
+    )
+    entry = SimpleNamespace(
+        name="provider-a",
+        value="pkg.prompts",
+        group=providers.PROMPT_PROVIDER_GROUP,
+        dist=_EditableDistribution(tmp_path),
+    )
+    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+
+    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+
+    assert registration.source_root is None
+
+
+def test_editable_registration_rejects_linked_target(
+    tmp_path: Path, monkeypatch
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "prompt.json").write_text("{}", encoding="utf-8")
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "prompts").symlink_to(outside, target_is_directory=True)
+    entry = SimpleNamespace(
+        name="provider-a",
+        value="pkg.prompts",
+        group=providers.PROMPT_PROVIDER_GROUP,
+        dist=_EditableDistribution(tmp_path),
+    )
+    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+
+    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+
+    assert registration.source_root is None
+    assert providers.current_provider_assets(providers.PROMPT_PROVIDER_GROUP) == ()
 
 
 def test_registration_is_distribution_owned_and_never_imports_provider(
@@ -376,7 +499,9 @@ def test_registration_is_distribution_owned_and_never_imports_provider(
     monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [_entry(tmp_path)])
     monkeypatch.setattr(
         "importlib.import_module",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not import")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("must not import")
+        ),
     )
 
     registrations = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)
@@ -400,16 +525,16 @@ def test_nonmaterialized_data_provider_group_remains_bounded_and_nonimporting(
     ) == [("provider-a", owned)]
 
 
-def test_unowned_target_is_unresolved_and_not_served(tmp_path: Path, monkeypatch) -> None:
+def test_unowned_target_is_unresolved_and_not_served(
+    tmp_path: Path, monkeypatch
+) -> None:
     owned = tmp_path / "different" / "prompts"
     owned.mkdir(parents=True)
     (owned / "prompt.json").write_text("{}", encoding="utf-8")
     entry = _entry(tmp_path, target="pkg.prompts")
     monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
 
-    registration = providers.provider_registrations(
-        providers.PROMPT_PROVIDER_GROUP
-    )[0]
+    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
 
     assert registration.source_root is None
     assert providers.current_provider_assets(providers.PROMPT_PROVIDER_GROUP) == ()
@@ -475,9 +600,7 @@ def test_empty_or_tampered_generation_falls_back_to_current_prompt_source(
     generation = root / "provider-a" / ".generations" / marker.content_digest
     (generation / "prompt.json").write_text("tampered", encoding="utf-8")
     monkeypatch.setattr(providers, "current_provider_assets", lambda _group: (assets,))
-    monkeypatch.setattr(
-        "agent_utilities.core.paths.unified_prompts_dir", lambda: root
-    )
+    monkeypatch.setattr("agent_utilities.core.paths.unified_prompts_dir", lambda: root)
 
     assert providers.resolve_prompt_provider_dirs() == [("provider-a", source)]
 
@@ -519,13 +642,15 @@ def test_every_ontology_runtime_consumer_uses_the_validated_resolver(
         lambda: [("provider-a", ttl)],
     )
 
-    assert OntologyLoader._federated_path_for(
-        "http://knuckles.team/kg/demo", "demo"
-    ) == ttl
+    assert (
+        OntologyLoader._federated_path_for("http://knuckles.team/kg/demo", "demo")
+        == ttl
+    )
 
     lifecycle = SimpleNamespace(
-        load=lambda path, source_type: calls.append((path, source_type))
-        or {"idempotent": False}
+        load=lambda path, source_type: (
+            calls.append((path, source_type)) or {"idempotent": False}
+        )
     )
     result = _sync_package_ontologies(lifecycle)
 
@@ -575,9 +700,7 @@ def test_duplicate_flat_skill_identity_resolves_deterministically(
         roots = providers.resolve_skill_provider_dirs()
 
     matches = [
-        (provider, root)
-        for provider, root in roots
-        if root.name in {"one", "two"}
+        (provider, root) for provider, root in roots if root.name in {"one", "two"}
     ]
     assert matches == [("xdg-local", tmp_path / "one")]
     assert "duplicate-local" in caplog.text.lower()
@@ -599,13 +722,15 @@ def test_skill_coverage_uses_only_the_unified_validated_reader(
     assert skill_coverage._provider_dirs() == [current]
 
 
-def test_install_api_has_no_force_and_result_is_path_free(tmp_path: Path, monkeypatch) -> None:
+def test_install_api_has_no_force_and_result_is_path_free(
+    tmp_path: Path, monkeypatch
+) -> None:
     roots = {leg: tmp_path / leg for leg in ("skills", "prompts", "ontologies")}
-    sources = {
-        leg: _source(tmp_path / "own", leg) for leg in roots
-    }
+    sources = {leg: _source(tmp_path / "own", leg) for leg in roots}
     monkeypatch.setattr(unified_install, "unified_skills_dir", lambda: roots["skills"])
-    monkeypatch.setattr(unified_install, "unified_prompts_dir", lambda: roots["prompts"])
+    monkeypatch.setattr(
+        unified_install, "unified_prompts_dir", lambda: roots["prompts"]
+    )
     monkeypatch.setattr(
         unified_install, "unified_ontologies_dir", lambda: roots["ontologies"]
     )
@@ -613,7 +738,11 @@ def test_install_api_has_no_force_and_result_is_path_free(tmp_path: Path, monkey
     monkeypatch.setattr(
         unified_install,
         "_own_source",
-        lambda leg: (sources[leg], REGISTRATION, build_asset_manifest(sources[leg], leg=leg)),
+        lambda leg: (
+            sources[leg],
+            REGISTRATION,
+            build_asset_manifest(sources[leg], leg=leg),
+        ),
     )
 
     result = unified_install.install_unified()
