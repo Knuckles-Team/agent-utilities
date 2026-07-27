@@ -219,6 +219,39 @@ def _graph_compute(engine: Any) -> Any:
     return getattr(engine, "graph_compute", engine)
 
 
+def _batch_node_properties(
+    graph: Any, node_ids: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Hydrate MANY node ids in ONE engine round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate).
+
+    Mirrors ``GraphComputeEngine._get_node_properties_batch`` (bec40a65):
+    a per-id ``_get_node_properties`` call inside a BFS/candidate loop is an
+    O(N) serialized point-read leg that dominated GraphRAG local-search
+    latency under engine contention. Degrades to the original per-id loop
+    (never raises) if the batch primitive is missing or itself fails, so a
+    transient batch error never drops data the per-id path would recover.
+    """
+    if not node_ids:
+        return {}
+    batch = getattr(graph, "_get_node_properties_batch", None)
+    if callable(batch):
+        try:
+            result = batch(node_ids)
+            if isinstance(result, dict):
+                return result
+        except Exception as exc:  # noqa: BLE001 — degrade to per-id reads
+            logger.debug(
+                "_get_node_properties_batch failed, falling back per-id: %s", exc
+            )
+    out: dict[str, dict[str, Any]] = {}
+    for nid in node_ids:
+        try:
+            out[nid] = graph._get_node_properties(nid) or {}  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            out[nid] = {}
+    return out
+
+
 class _StaticCandidateRetriever:
     """Adapter exposing a fixed candidate list as ``retrieve_hybrid``.
 
@@ -553,14 +586,33 @@ def _fetch_entity_neighborhood(
     frontier = list(dict.fromkeys(seed_ids))
     for hop in range(max(1, depth)):
         next_frontier: list[str] = []
+
+        # Batch-hydrate this hop's frontier + their neighbors in ONE round-trip
+        # up front (CONCEPT:AU-KG.retrieval.batch-hydrate), instead of a per-node
+        # `_get_node_properties` point-read per BFS visit below — this leg feeds
+        # the ContextCompiler's local-search candidates and the per-hit reads
+        # dominated its latency under engine contention. `_MAX_LOCAL_NEIGHBORS`
+        # bounds the total prefetch even when the cap below stops us early.
+        # Edge-property reads (relationship labels) are untouched — no batched
+        # edge-property primitive exists.
+        hop_node_ids = [n for n in frontier if n not in seen]
+        neighbors_by_node: dict[str, list[str]] = {}
+        prefetch_ids: list[str] = []
+        for node_id in hop_node_ids:
+            try:
+                nbrs = graph.get_neighbors(node_id) or []
+            except Exception:  # noqa: BLE001
+                nbrs = []
+            neighbors_by_node[node_id] = nbrs
+            prefetch_ids.append(node_id)
+            prefetch_ids.extend(nbrs)
+        hydrated = _batch_node_properties(graph, prefetch_ids)
+
         for node_id in frontier:
             if node_id in seen:
                 continue
             seen.add(node_id)
-            try:
-                props = graph._get_node_properties(node_id) or {}  # noqa: SLF001
-            except Exception:  # noqa: BLE001
-                props = {}
+            props = hydrated.get(node_id, {})
             candidates.append(
                 _as_candidate(
                     node_id,
@@ -570,10 +622,7 @@ def _fetch_entity_neighborhood(
             )
             if len(candidates) >= _MAX_LOCAL_NEIGHBORS:
                 return candidates
-            try:
-                neighbors = graph.get_neighbors(node_id) or []
-            except Exception:  # noqa: BLE001
-                neighbors = []
+            neighbors = neighbors_by_node.get(node_id, [])
             for neighbor_id in neighbors:
                 if neighbor_id in seen:
                     continue
@@ -582,10 +631,7 @@ def _fetch_entity_neighborhood(
                 except Exception:  # noqa: BLE001
                     edge_props = {}
                 relationship = str(edge_props.get("relationship") or "related_to")
-                try:
-                    neighbor_props = graph._get_node_properties(neighbor_id) or {}  # noqa: SLF001
-                except Exception:  # noqa: BLE001
-                    neighbor_props = {}
+                neighbor_props = hydrated.get(neighbor_id, {})
                 candidates.append(
                     _as_candidate(
                         neighbor_id,

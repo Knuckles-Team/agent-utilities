@@ -81,6 +81,27 @@ _CONTEXT_MARKER = "[agent-utilities:compiled-evidence:v1]"
 # while still letting a genuinely-slow-but-progressing retrieval complete.
 _CONTEXT_COMPILE_TIMEOUT_S = 10.0
 
+# CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker — per-process breaker over
+# the bounded compile call (:func:`_compiled_evidence_and_bundle_bounded`). Paying
+# _CONTEXT_COMPILE_TIMEOUT_S once is a liveness guard; paying it N times in a row
+# when retrieval is CONSISTENTLY too slow/broken is itself what blows a caller's
+# reply budget (e.g. messaging's reply window) — the engine calls were fast, the
+# retrieval LEGS were repeatedly slow. After _CTX_COMPILE_BREAKER_THRESHOLD
+# consecutive degradations (timeout or error) the breaker OPENs: for
+# _CTX_COMPILE_BREAKER_COOLDOWN_S it returns the degraded ``(messages, None)``
+# immediately, skipping the to_thread+wait_for round trip entirely. Once the
+# cooldown elapses the breaker is implicitly HALF-OPEN — the very next call is let
+# through as a single probe: success CLOSES the breaker (streak resets to 0),
+# failure re-OPENs it for another cooldown. Any successful compile at any time
+# resets the streak. Just two module-level primitives + time.monotonic(), no lock:
+# this sits on the hot path and a benign race at the reopen boundary costs at most
+# one extra probe attempt, never incorrect output.
+_CTX_COMPILE_BREAKER_THRESHOLD = 3
+_CTX_COMPILE_BREAKER_COOLDOWN_S = 30.0
+
+_ctx_compile_degradation_streak = 0
+_ctx_compile_breaker_reopen_at = 0.0  # monotonic timestamp; 0.0 == breaker CLOSED
+
 _compiler_engine: Any | None = None
 _compiler_cache: Any | None = None
 _WRAPPER_CLASS: Any | None = None
@@ -338,6 +359,46 @@ def _record_retrieval_degraded(
         pass
 
 
+def _ctx_compile_breaker_is_open() -> bool:
+    """CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker — OPEN check.
+
+    True only while the streak has reached the threshold AND the cooldown set
+    by the last trip/re-trip has not yet elapsed. Once the cooldown elapses this
+    returns False again (implicitly HALF-OPEN) without any state mutation here —
+    the next call through :func:`_compiled_evidence_and_bundle_bounded` is the
+    probe attempt itself.
+    """
+    return (
+        _ctx_compile_degradation_streak >= _CTX_COMPILE_BREAKER_THRESHOLD
+        and time.monotonic() < _ctx_compile_breaker_reopen_at
+    )
+
+
+def _ctx_compile_note_degradation() -> None:
+    """Record one degradation (timeout or error) against the breaker.
+
+    CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker. Increments the
+    consecutive-degradation streak and, once it reaches
+    ``_CTX_COMPILE_BREAKER_THRESHOLD``, (re)opens the breaker for another
+    ``_CTX_COMPILE_BREAKER_COOLDOWN_S`` — this covers both the initial trip and a
+    failed HALF-OPEN probe re-opening it. No lock: a benign race with a
+    concurrent caller costs at most one extra probe attempt.
+    """
+    global _ctx_compile_degradation_streak, _ctx_compile_breaker_reopen_at
+    _ctx_compile_degradation_streak += 1
+    if _ctx_compile_degradation_streak >= _CTX_COMPILE_BREAKER_THRESHOLD:
+        _ctx_compile_breaker_reopen_at = (
+            time.monotonic() + _CTX_COMPILE_BREAKER_COOLDOWN_S
+        )
+
+
+def _ctx_compile_note_success() -> None:
+    """Reset the breaker after a successful compile (CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker)."""
+    global _ctx_compile_degradation_streak, _ctx_compile_breaker_reopen_at
+    _ctx_compile_degradation_streak = 0
+    _ctx_compile_breaker_reopen_at = 0.0
+
+
 async def _compiled_evidence_and_bundle_bounded(
     messages: list[Any], model_name: str
 ) -> tuple[list[Any], ContextBundle | None]:
@@ -361,12 +422,30 @@ async def _compiled_evidence_and_bundle_bounded(
     contended retrieval. Degradation is logged loudly so an ungrounded call is
     always observable. The fast path is unchanged: a quick retrieval returns the
     full compiled bundle.
+
+    CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker: when the breaker is
+    already OPEN (``_CTX_COMPILE_BREAKER_THRESHOLD`` consecutive degradations,
+    cooldown not yet elapsed) this returns the degraded ``(messages, None)``
+    immediately — skipping the to_thread+wait_for round trip — so a persistently
+    broken/contended retrieval is not re-paid ``_CONTEXT_COMPILE_TIMEOUT_S`` on
+    every single call.
     """
+    if _ctx_compile_breaker_is_open():
+        logger.debug(
+            "[CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker] breaker OPEN "
+            "(%d consecutive degradations) — skipping compile, ~%.1fs left in cooldown.",
+            _ctx_compile_degradation_streak,
+            _ctx_compile_breaker_reopen_at - time.monotonic(),
+        )
+        return messages, None
+
     try:
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             asyncio.to_thread(_compiled_evidence_and_bundle, messages, model_name),
             timeout=_CONTEXT_COMPILE_TIMEOUT_S,
         )
+        _ctx_compile_note_success()
+        return result
     except TimeoutError:  # asyncio.wait_for's timeout (asyncio.TimeoutError is this alias)
         logger.warning(
             "[CONCEPT:AU-KG.retrieval.context-compiler] evidence compilation exceeded "
@@ -375,6 +454,7 @@ async def _compiled_evidence_and_bundle_bounded(
             _CONTEXT_COMPILE_TIMEOUT_S,
         )
         _record_retrieval_degraded("timeout", model_name)
+        _ctx_compile_note_degradation()
         return messages, None
     except Exception as exc:  # noqa: BLE001 — best-effort boundary, never block/raise
         logger.warning(
@@ -383,6 +463,7 @@ async def _compiled_evidence_and_bundle_bounded(
             type(exc).__name__,
         )
         _record_retrieval_degraded("error", model_name, error_type=type(exc).__name__)
+        _ctx_compile_note_degradation()
         return messages, None
 
 
