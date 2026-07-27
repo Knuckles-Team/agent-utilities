@@ -1745,6 +1745,8 @@ class IngestionEngine:
           * Prompt  → ``ContentType.PROMPT``  (prompt_template node)
           * Document→ ``ContentType.DOCUMENT`` (Document + IdeaBlock chunks + Concepts)
           * Spec    → inline ``Spec`` node (no SPEC adaptor exists) + central enrich
+          * Config  → the ``mcp_config.json`` subset only, ``ContentType.MCP_SERVER``
+            (``:MCPServer`` declaration, discovery forced off — no live probe here)
 
         Every artifact is linked to a ``Repo`` node via ``CONTAINS`` so a repo's
         skills/docs/prompts/specs are reachable from the repo they belong to. The
@@ -1895,12 +1897,46 @@ class IngestionEngine:
         sp_jobs += [(ContentType.SKILL, fc.path) for fc in plan.skills]
         sp_jobs += [(ContentType.PROMPT, fc.path) for fc in plan.prompts]
 
-        sp_routed, doc_routed = await _asyncio.gather(
+        # ── Config (mcp_config.json) → MCP_SERVER adaptor, declaration only ─
+        # ``plan.configs`` also carries the model-registry ``config.json``
+        # (``ContentType.CONFIG``) — that is a separate, still-unrouted gap and
+        # stays out of this fan-out; only the ``mcp_config.json`` entries
+        # (``ContentType.MCP_SERVER``) are routed here. ``discover`` is forced
+        # OFF so this free continuous codebase pass never live-probes a fleet
+        # member — Phase A's dedicated ``_sync_fleet`` sweep owns live tool
+        # discovery on its own cadence; here we only ever write the
+        # ``:MCPServer`` declaration (name + config hash, zero tools) so a
+        # discovered ``mcp_config.json`` is no longer silently dropped.
+        mcp_config_paths = [
+            fc.path for fc in plan.configs if fc.content_type == ContentType.MCP_SERVER
+        ]
+
+        async def _route_config(path: Path) -> IngestionResult | None:
+            sub = IngestionManifest(
+                content_type=ContentType.MCP_SERVER,
+                source_uri=str(path),
+                metadata={
+                    **manifest.metadata,
+                    "repo": repo_name,
+                    "classify": False,
+                    "discover": False,
+                },
+                force=manifest.force,
+            )
+            async with sem:
+                try:
+                    return await self.ingest(sub)
+                except Exception:  # noqa: BLE001
+                    logger.debug("routed mcp_server ingest failed")
+                    return None
+
+        sp_routed, doc_routed, cfg_routed = await _asyncio.gather(
             _asyncio.gather(*(_route(ct, p) for ct, p in sp_jobs)),
             _asyncio.gather(*(_route_document(fc.path) for fc in plan.documents)),
+            _asyncio.gather(*(_route_config(p) for p in mcp_config_paths)),
         )
 
-        counts = {"skill": 0, "prompt": 0, "document": 0}
+        counts = {"skill": 0, "prompt": 0, "document": 0, "mcp_server": 0}
         for (ct, _p), res in zip(sp_jobs, sp_routed, strict=False):
             if isinstance(res, IngestionResult) and res.status == "success":
                 counts[ct.value] = counts.get(ct.value, 0) + 1
@@ -1926,6 +1962,20 @@ class IngestionEngine:
                 # the whole repo's docs in ONE pass (concepts already done in-unit;
                 # the seam adds the canonical-fact layer). (CONCEPT:AU-KG.ingest.writes-go)
                 result.enrichable.extend(res.enrichable)
+
+        for res in cfg_routed:
+            if isinstance(res, IngestionResult) and res.status == "success":
+                counts["mcp_server"] += 1
+                result.nodes_created += res.nodes_created
+                result.edges_created += res.edges_created
+                src = next(
+                    (e.get("source_id") for e in res.enrichable if e.get("source_id")),
+                    "",
+                )
+                _link(str(src))
+                # No enrichable bubble-up here (unlike documents): this routes
+                # through ``self.ingest`` (like skill/prompt), which already ran
+                # its own inline enrichment pass on the declaration text.
 
         classified = {**counts, "spec": specs}
         result.nodes_created += specs
