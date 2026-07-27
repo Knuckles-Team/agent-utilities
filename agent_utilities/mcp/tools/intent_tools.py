@@ -27,7 +27,9 @@ import inspect
 import json
 import logging
 import re
+import time
 from collections import Counter, OrderedDict
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -163,6 +165,15 @@ _RESOLUTION_CACHE: OrderedDict[tuple[Any, ...], list[CapabilityCandidate]] = (
 )
 _RESOLUTION_CACHE_MAX = 256
 
+#: Short-lived, process-local previews keyed by their opaque plan reference.
+#: The cache makes the documented ``preview -> resubmit plan_ref`` contract
+#: executable without forcing clients to replay every original hint. Entries
+#: remain bound to the verb, intent, tenant/policy partition, and exact
+#: argument digest; a restart or expiry intentionally requires a new preview.
+_PREVIEW_PLAN_CACHE: OrderedDict[str, _PreviewPlan] = OrderedDict()
+_PREVIEW_PLAN_CACHE_MAX = 256
+_PREVIEW_PLAN_TTL_SECONDS = 600.0
+
 #: Soft weight of the learned reward-EMA blend into the lexical score (mirrors
 #: ``CapabilityIndex.designate``'s own ``reward_weight`` default) — early on
 #: (every candidate at the neutral 0.5 prior) the lexical ranking is
@@ -172,6 +183,17 @@ _LEARNED_REWARD_WEIGHT = 0.2
 
 #: Lazily constructed shared learner (CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning).
 _OUTCOME_ROUTER: Any = None
+
+
+@dataclass(frozen=True)
+class _PreviewPlan:
+    """The minimum private state required to replay a reviewed intent plan."""
+
+    created_at: float
+    verb: str
+    intent_ref: str
+    outcome_scope_ref: str | None
+    hints: dict[str, Any]
 
 
 def _outcome_router() -> Any:
@@ -678,9 +700,13 @@ def _operation_plan(
 
 
 def _plan_ref(
-    verb: str, tool: str, action: str | None, call_kwargs: dict[str, Any]
+    verb: str,
+    tool: str,
+    action: str | None,
+    call_kwargs: dict[str, Any],
+    outcome_scope_ref: str | None,
 ) -> str:
-    """Bind a non-read preview to its exact operation and value digest."""
+    """Bind a non-read preview to its policy scope and exact operation."""
 
     payload = json.dumps(
         {
@@ -688,12 +714,72 @@ def _plan_ref(
             "tool": tool,
             "action": action,
             "arguments": call_kwargs,
+            "outcome_scope_ref": outcome_scope_ref,
         },
         sort_keys=True,
         default=str,
         separators=(",", ":"),
     )
     return persistence_reference("intent_plan", payload)
+
+
+def _expire_preview_plans(now: float) -> None:
+    """Drop expired previews before a cache read or write."""
+
+    expired = [
+        ref
+        for ref, preview in _PREVIEW_PLAN_CACHE.items()
+        if now - preview.created_at > _PREVIEW_PLAN_TTL_SECONDS
+    ]
+    for ref in expired:
+        _PREVIEW_PLAN_CACHE.pop(ref, None)
+
+
+def _remember_preview_plan(
+    plan_ref: str,
+    *,
+    verb: str,
+    intent_ref: str,
+    outcome_scope_ref: str | None,
+    hints: dict[str, Any],
+) -> None:
+    """Retain one bounded plan so ``plan_ref`` alone can replay its hints."""
+
+    now = time.monotonic()
+    _expire_preview_plans(now)
+    _PREVIEW_PLAN_CACHE[plan_ref] = _PreviewPlan(
+        created_at=now,
+        verb=verb,
+        intent_ref=intent_ref,
+        outcome_scope_ref=outcome_scope_ref,
+        hints=deepcopy({k: v for k, v in hints.items() if k != "plan_ref"}),
+    )
+    _PREVIEW_PLAN_CACHE.move_to_end(plan_ref)
+    while len(_PREVIEW_PLAN_CACHE) > _PREVIEW_PLAN_CACHE_MAX:
+        _PREVIEW_PLAN_CACHE.popitem(last=False)
+
+
+def _restore_preview_hints(
+    plan_ref: str,
+    *,
+    verb: str,
+    intent_ref: str,
+    outcome_scope_ref: str | None,
+) -> dict[str, Any] | None:
+    """Return reviewed hints only when the caller and policy context match."""
+
+    _expire_preview_plans(time.monotonic())
+    preview = _PREVIEW_PLAN_CACHE.get(plan_ref)
+    if preview is None:
+        return None
+    if (
+        preview.verb != verb
+        or preview.intent_ref != intent_ref
+        or preview.outcome_scope_ref != outcome_scope_ref
+    ):
+        return None
+    _PREVIEW_PLAN_CACHE.move_to_end(plan_ref)
+    return deepcopy(preview.hints)
 
 
 def _ambiguity_evidence(
@@ -863,9 +949,36 @@ async def dispatch_intent(
         }
 
     should_execute = verb in _READ_ONLY_VERBS if execute is None else bool(execute)
+    intent_ref = persistence_reference("intent", intent)
+    outcome_scope_ref = _outcome_scope_ref()
+    supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
+    if verb in _NON_READ_VERBS and should_execute and supplied_plan_ref:
+        restored_hints = _restore_preview_hints(
+            supplied_plan_ref,
+            verb=verb,
+            intent_ref=intent_ref,
+            outcome_scope_ref=outcome_scope_ref,
+        )
+        if restored_hints is None:
+            return {
+                "error": (
+                    "Unknown, expired, or context-mismatched plan_ref; request a "
+                    "new preview before execution."
+                ),
+                "executed": False,
+                "routing": {"verb": verb, "intent_ref": intent_ref},
+            }
+        replayed_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
+        if replayed_hints and replayed_hints != restored_hints:
+            return {
+                "error": "Supplied hints do not match the reviewed preview plan.",
+                "executed": False,
+                "routing": {"verb": verb, "intent_ref": intent_ref},
+            }
+        raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
+
     explicit_tool = bool(raw_hints.get("tool") or raw_hints.get("_tool"))
     explicit_action = raw_hints.get("action")
-    supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
     call_kwargs = {k: v for k, v in raw_hints.items() if k not in _CONTROL_HINT_FIELDS}
 
     candidates = resolve_intent(verb, intent, hints=raw_hints, top_k=max(2, int(top_k)))
@@ -879,7 +992,7 @@ async def dispatch_intent(
             "executed": False,
             "routing": {
                 "verb": verb,
-                "intent_ref": persistence_reference("intent", intent),
+                "intent_ref": intent_ref,
                 "candidates": [],
             },
         }
@@ -939,10 +1052,11 @@ async def dispatch_intent(
         ranked_actions, explicit=explicit_action is not None
     )
     plan = _operation_plan(verb, chosen_tool, chosen_action, call_kwargs)
-    plan_ref = _plan_ref(verb, chosen_tool, chosen_action, call_kwargs)
+    plan_ref = _plan_ref(
+        verb, chosen_tool, chosen_action, call_kwargs, outcome_scope_ref
+    )
     plan["plan_ref"] = plan_ref
 
-    outcome_scope_ref = _outcome_scope_ref()
     reward = (
         _outcome_router().reward_of(
             _reward_task_class(verb, outcome_scope_ref), chosen_tool
@@ -958,7 +1072,7 @@ async def dispatch_intent(
     )
     routing: dict[str, Any] = {
         "verb": verb,
-        "intent_ref": persistence_reference("intent", intent),
+        "intent_ref": intent_ref,
         "chosen_tool": chosen_tool,
         "action": chosen_action,
         "score": round(top.score, 4),
@@ -1018,6 +1132,14 @@ async def dispatch_intent(
 
     read_policy_violation = verb in _READ_ONLY_VERBS and plan["mutates"] is not False
     if not should_execute:
+        if verb in _NON_READ_VERBS:
+            _remember_preview_plan(
+                plan_ref,
+                verb=verb,
+                intent_ref=intent_ref,
+                outcome_scope_ref=outcome_scope_ref,
+                hints=raw_hints,
+            )
         return {"routing": routing, "executed": False}
 
     if read_policy_violation:

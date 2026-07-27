@@ -233,7 +233,7 @@ async def test_act_routes_plain_intent_to_graphos_skill_gateway(monkeypatch):
     result = await intent_tools.dispatch_intent(
         "act",
         intent,
-        hints={**hints, "plan_ref": plan_ref},
+        hints={"plan_ref": plan_ref},
         execute=True,
     )
 
