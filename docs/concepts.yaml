@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1033
+total_concepts: 1036
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -5642,6 +5642,15 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/active_reconstruction.py
   - agent_utilities/knowledge_graph/retrieval/entity_context.py
   doc: assimilated from MRAgent
+- id: AU-KG.retrieval.batch-hydrate
+  name: instead of one point-read per
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/knowledge_graph/retrieval/graph_engineering.py
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+  doc: instead of one point-read per
 - id: AU-KG.retrieval.capability-power-descriptor
   name: AU-KG.retrieval.capability-power-descriptor
   pillar: AU-KG
@@ -5652,6 +5661,13 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/context_plane.py
   - agent_utilities/mcp/tools/analyze_suite.py
   doc: AU-KG.retrieval.capability-power-descriptor
+- id: AU-KG.retrieval.context-compile-circuit-breaker
+  name: per-process breaker over
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/contextual_model.py
+  doc: per-process breaker over
 - id: AU-KG.retrieval.context-compiler
   name: MMR-diversified, evidence/freshness-weighted, token-budgeted, policy-filtered context with citations
     + a proof graph, instead of the plain relevance-sorted text the other modes return
@@ -6248,6 +6264,13 @@ concepts:
   code_paths:
   - agent_utilities/core/registry/service_adapter.py
   doc: Service registry initialized with
+- id: AU-ORCH.dispatch.agents-as-data-activation
+  name: ADR-6 / W2.3
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_activation.py
+  doc: ADR-6 / W2.3
 - id: AU-ORCH.dispatch.builtin-agent-templates
   name: makes the packaged expert personas *dispatchable* agents
   pillar: AU-ORCH
@@ -6664,6 +6687,9 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/messaging/backends/mattermost.py
+  - agent_utilities/messaging/backends/telegram.py
+  - agent_utilities/messaging/base.py
   - agent_utilities/messaging/router.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py

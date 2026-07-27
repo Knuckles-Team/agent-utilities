@@ -149,6 +149,7 @@ nav:
       - Mandatory ContextCompiler Model Boundary: architecture/mandatory-context-compiler.md
       - Graph Authority Convergence (session, client, work state): architecture/graph-authority-convergence.md
       - Per-Agent On-Behalf-Of Identity (delegation chain, ceiling, revocation): architecture/per-agent-delegation.md
+      - Agents-as-Data Activation (dormant rows, worker pool, scale proof): architecture/agents-as-data-activation.md
       - C4 Architecture: pillars/architecture_c4.md
       - Delegation-First Operating Model (orchestrate + resolve): architecture/delegation-first-operating-model.md
       - agent-utilities-expert (KG-bound delegate): architecture/agent-utilities-expert.md
