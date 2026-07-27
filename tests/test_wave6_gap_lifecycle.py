@@ -309,7 +309,7 @@ def test_develop_spec_closes_gap_on_publish(monkeypatch):
     gap = submit_gap(eng, source="research", signature="feat-w", statement="add w")
     sid = persist_spec_proposal(eng, _Draft("Add W"), gap_id=gap["id"])
     review_spec(eng, sid, "approve")
-    # Stub the governed publish so this unit stays git-free; the closure is what we test.
+    # Monkeypatch the governed publish so this unit stays git-free; the closure is what we test.
     # develop_spec imports governed_publish from change_publisher at call time, so patch
     # it there.
     from agent_utilities.knowledge_graph.research import change_publisher

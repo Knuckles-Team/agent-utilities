@@ -676,7 +676,7 @@ class ActivationResult:
 
 #: The pluggable full LLM/tool executor. Production wires a real agent runner (the
 #: ``execute_agent`` orchestration path); when unbound the worker uses
-#: :func:`_default_executor` (a genuine, wired provenance-ack — NOT a stub).
+#: :func:`_default_executor` (a genuine, wired provenance-ack — never a no-op placeholder).
 _EXECUTOR: Callable[[ActivationContext], ActivationResult] | None = None
 
 
