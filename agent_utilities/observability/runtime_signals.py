@@ -251,8 +251,9 @@ def read_recent_runtime_signals(
         props = row.get("n") if isinstance(row, dict) else None
         if not isinstance(props, dict):
             continue
+        _ts_raw = props.get("ts")
         try:
-            ts = float(props.get("ts"))
+            ts = float(_ts_raw) if _ts_raw is not None else None
         except (TypeError, ValueError):
             ts = None
         if ts is not None and ts < cutoff:
