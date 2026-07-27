@@ -6,7 +6,12 @@ aliases:
   - day0_bootstrap_orchestrator
   - agent-utilities-genesis
 description: >-
-  Day 0 genesis of the entire Agent OS — agent-first, idempotent, and ADAPTIVE: fits any environment from a laptop to an enterprise already running its own Postgres/Vault/ingress/IdP. (Formerly day0_bootstrap_orchestrator; invoke as "day0".) Step 0 resolves a granular run plan per platform-dep and connector (deploy-container / deploy-baremetal / use-existing / skip), plus orchestrator (docker-compose/swarm, podman, kubernetes), engine shape + topology — unified self-contained in-process (the DEFAULT: one binary/pod IS engine+KG+numeric-kernel+messaging+gateway) or out-of-process shared (hyperscaling: a scaled engine + N graph-os client pods, k8s HPA) — IdP (deploy Keycloak or wire existing Okta/OIDC), secrets store (OpenBao/Vault or the engine's encrypted store), optional enterprise root-CA baking, and ontology host. Then SSH mesh, cert trust, hardware placement, ingress, GitOps, tiered deploy, config.json walkthrough, and KG materialization. Triggers on "day0", "bootstrap the homelab", "stand up the Agent OS", "genesis", "deploy into enterprise", "connect to existing services", "hyperscale graph-os".
+  Day-0, idempotent Agent OS provisioning for laptops through existing enterprise
+  environments. Resolves a per-component deploy/use-existing/skip plan; selects
+  Compose, Swarm, Podman, or Kubernetes; and wires the engine topology, IdP
+  (Keycloak or OIDC), OpenBao/Vault, root CA, ontology host, SSH mesh, placement,
+  ingress, GitOps, and KG materialization. Invoke as "day0" for homelab bootstrap,
+  enterprise deployment, existing-service connection, or graph-os hyperscaling.
 domain: infrastructure
 tags:
   - day0

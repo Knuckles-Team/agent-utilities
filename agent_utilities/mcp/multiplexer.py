@@ -81,6 +81,10 @@ _MAX_DELEGATED_VALUE_BYTES = 4 * 1024 * 1024
 _MAX_DELEGATED_NODES = 16_384
 _MAX_DELEGATED_DEPTH = 32
 _MAX_DISCOVERED_TOOLS = 2_048
+# A child catalog is metadata, not a single tool invocation.  It legitimately
+# contains hundreds of independently bounded JSON Schemas, so it gets its own
+# aggregate structural allowance while retaining the same byte/depth limits.
+_MAX_CATALOG_NODES = 131_072
 _RUNTIME_CHILD_POLICY_GROUP = "agent_utilities.mcp_child_policies"
 _RUNTIME_CHILD_POLICY_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS = frozenset(
@@ -243,15 +247,15 @@ def _resolve_runtime_value(
     return rendered
 
 
-def _assert_bounded_delegated_value(value: Any) -> None:
-    """Reject oversized or excessively nested MCP tool arguments."""
+def _assert_bounded_json_value(value: Any, *, max_nodes: int) -> None:
+    """Reject oversized or excessively nested JSON-compatible values."""
     stack: list[tuple[Any, int]] = [(value, 0)]
     nodes = 0
     byte_count = 0
     while stack:
         current, depth = stack.pop()
         nodes += 1
-        if nodes > _MAX_DELEGATED_NODES or depth > _MAX_DELEGATED_DEPTH:
+        if nodes > max_nodes or depth > _MAX_DELEGATED_DEPTH:
             raise ToolError("MCP tool arguments exceed the structural boundary")
         if current is None or isinstance(current, bool | int):
             byte_count += 16
@@ -277,6 +281,12 @@ def _assert_bounded_delegated_value(value: Any) -> None:
             raise ToolError("MCP tool arguments must be JSON-compatible")
         if byte_count > _MAX_DELEGATED_VALUE_BYTES:
             raise ToolError("MCP tool arguments exceed the size boundary")
+
+
+def _assert_bounded_delegated_value(value: Any) -> None:
+    """Reject oversized or excessively nested MCP tool arguments."""
+
+    _assert_bounded_json_value(value, max_nodes=_MAX_DELEGATED_NODES)
 
 
 def _child_result_payload(result: Any) -> Any:
@@ -391,7 +401,7 @@ def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
             item["annotations"] = annotations
         tools.append(item)
     try:
-        _assert_bounded_delegated_value(tools)
+        _assert_bounded_json_value(tools, max_nodes=_MAX_CATALOG_NODES)
     except ToolError:
         raise RuntimeError("MCP child tool catalog exceeded its boundary") from None
     return tools

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from fastmcp.exceptions import ToolError
@@ -8,6 +9,7 @@ from fastmcp.exceptions import ToolError
 from agent_utilities.mcp.multiplexer import (
     MCPMultiplexer,
     _assert_bounded_delegated_value,
+    _bounded_tool_catalog,
     _resolve_runtime_value,
     _runtime_materialized,
     _selected_child_provider_profile,
@@ -97,6 +99,21 @@ def test_delegated_arguments_have_depth_and_size_boundaries() -> None:
         _assert_bounded_delegated_value(nested)
     with pytest.raises(ToolError, match="size boundary"):
         _assert_bounded_delegated_value({"value": "x" * (4 * 1024 * 1024 + 1)})
+
+
+def test_large_but_bounded_child_catalog_is_admitted() -> None:
+    """Catalog schemas need more aggregate nodes than one tool-call payload."""
+
+    schema = {
+        "type": "object",
+        "properties": {f"field_{index}": {"type": "string"} for index in range(2048)},
+    }
+    tools = [
+        SimpleNamespace(name=f"tool_{index}", description="catalog tool", inputSchema=schema)
+        for index in range(5)
+    ]
+
+    assert len(_bounded_tool_catalog(tools)) == 5
 
 
 def test_catalog_symlink_is_not_executed(tmp_path) -> None:
