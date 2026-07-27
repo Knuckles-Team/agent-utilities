@@ -194,6 +194,41 @@ class MattermostBackend(MessagingBackend):
                 success=False, platform=PlatformId.MATTERMOST, error=str(e)
             )
 
+    async def edit_message(
+        self,
+        channel_id: str,
+        message_id: str,
+        text: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        """Edit a Mattermost post in place (Markdown-native). CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency
+
+        Uses the driver's post PATCH (``PUT /posts/{id}/patch``) so ONE status message can
+        EVOLVE as a long delegation streams checkpoints, instead of N separate posts. The
+        blocking driver call is offloaded via ``to_thread`` (matching :meth:`send_message`).
+        A failed edit NEVER raises — it returns an unsuccessful ``SendResult`` so the caller
+        can fall back to sending the final reply as a new post.
+        """
+        try:
+            await asyncio.to_thread(
+                self._driver.posts.patch_post, message_id, {"message": text}
+            )
+            return SendResult(
+                success=True,
+                message_id=message_id,
+                platform=PlatformId.MATTERMOST,
+                channel_id=channel_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug(
+                "[CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency] Mattermost edit failed: %s",
+                e,
+            )
+            return SendResult(
+                success=False, platform=PlatformId.MATTERMOST, error=str(e)
+            )
+
     async def send_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
         """Add a reaction (CONCEPT:AU-ECO.messaging.messaging-renderer-core-reaction/4.81 — the messaging renderer of a core reaction)."""
         user_id = self._bot_user_id

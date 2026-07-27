@@ -10,7 +10,7 @@ from agent_utilities.observability.trace_ontology import (
 from agent_utilities.observability.trace_ontology import (
     trace_id as canonical_trace_id,
 )
-from agent_utilities.orchestration.agent_runner import run_agent
+from agent_utilities.orchestration.agent_runner import ProgressSink, run_agent
 from agent_utilities.orchestration.response_format import (
     ResponseFormat,
     validate_response_format,
@@ -287,6 +287,7 @@ class Orchestrator:
         response_format: ResponseFormat = "text",
         run_id: str | None = None,
         include_run_summary: bool = False,
+        progress_sink: ProgressSink | None = None,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -305,6 +306,11 @@ class Orchestrator:
         ``include_run_summary`` forward to :func:`run_agent` verbatim: a caller (the messaging
         router) that wants a translated route/outcome/failure summary — and a ``trace_ref``
         that survives even a hard cancellation of this call — opts in via these two.
+        ``progress_sink`` forwards the SAME way: an optional async sink that receives the
+        checkpoint-by-checkpoint :class:`~agent_utilities.orchestration.agent_runner.ProgressEvent`
+        stream so a long delegation is transparent step-by-step. Default ``None`` is a strict
+        no-op (the run is byte-for-byte unchanged); every emission is fire-and-forget and
+        exception-isolated, so a slow/failing sink can never stall or fail the run.
         """
         response_format = validate_response_format(response_format)
         self._scan_task(task)
@@ -349,6 +355,7 @@ class Orchestrator:
                 response_format=response_format,
                 run_id=run_id,
                 include_run_summary=include_run_summary,
+                progress_sink=progress_sink,
             )
         return result
 

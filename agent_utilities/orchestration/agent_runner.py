@@ -28,6 +28,8 @@ import json
 import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
@@ -268,6 +270,113 @@ def _build_run_summary(
     return summary
 
 
+# ---------------------------------------------------------------------------
+# Internal: ProgressEvent stream — checkpoint-by-checkpoint execution transparency
+# (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency)
+# ---------------------------------------------------------------------------
+#
+# A LONG delegation is otherwise a black box: the caller sees nothing between "started"
+# and the final answer. ``run_agent`` therefore emits a small ``ProgressEvent`` at each of
+# its EXISTING checkpoints (routing decision, focused-tool binding, each fleet tool result,
+# the evidence/retrieval-quality gate, the durable RunTrace write, final synthesis, and the
+# terminal done/failure) to an OPTIONAL, caller-supplied ``progress_sink``. An entrypoint
+# (the messaging router — Telegram/Mattermost/Teams) renders that stream into a live,
+# edit-in-place status message so a long run is transparent step-by-step. This is the
+# core-side half of the Universal-capability split: the STREAM is built once here; every
+# entrypoint only RENDERS it.
+#
+# Two invariants make this strictly additive and safe on the just-stabilized delegation
+# path: (1) ``progress_sink`` defaults to ``None`` and :func:`_emit` returns IMMEDIATELY on
+# ``None`` — constructing no event and touching nothing — so a run with no sink behaves
+# byte-for-byte as before; (2) every sink invocation is fire-and-forget: bounded by a short
+# wall-clock and fully exception-isolated, so a slow or failing sink can NEVER stall or fail
+# the actual run (only a genuine cancellation of the RUN itself propagates).
+
+ProgressStage = str  # one of: start route evidence_gate tool_call tool_result
+#                       synthesis checkpoint done failure
+ProgressStatus = str  # one of: started ok degraded failed
+
+# Defensive wall-clock ceiling for ONE sink invocation. A well-behaved sink (the messaging
+# renderer coalesces edits and returns fast) never approaches this; it exists only so a
+# misbehaving/hung sink cannot pause the run indefinitely.
+_PROGRESS_SINK_TIMEOUT_S = 5.0
+
+
+@dataclass(frozen=True)
+class ProgressEvent:
+    """One checkpoint in a ``run_agent`` execution, streamed to an optional sink.
+
+    CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the additive, opt-in
+    progress channel. Fields:
+
+    * ``run_id``   — the run this event belongs to (the same handle used for ``trace_ref``).
+    * ``stage``    — ``start`` | ``route`` | ``evidence_gate`` | ``tool_call`` |
+      ``tool_result`` | ``synthesis`` | ``checkpoint`` | ``done`` | ``failure``.
+    * ``status``   — ``started`` | ``ok`` | ``degraded`` | ``failed``.
+    * ``detail``   — short human string (a server name, the route ``why``, a translated
+      failure), safe to render straight into a chat surface.
+    * ``evidence`` — small structured extras (servers, trace_ref, failure category, …);
+      the paper's "evidence gating / checkpoint traces" surfaced as data.
+    * ``ts``       — wall-clock emit time (``time.time()``).
+    """
+
+    run_id: str
+    stage: ProgressStage
+    status: ProgressStatus
+    detail: str = ""
+    evidence: dict[str, Any] = field(default_factory=dict)
+    ts: float = 0.0
+
+
+# A sink is any async callable taking one ProgressEvent. ``None`` means "no streaming".
+ProgressSink = Callable[[ProgressEvent], Awaitable[None]]
+
+
+async def _emit(
+    sink: ProgressSink | None,
+    *,
+    run_id: str,
+    stage: ProgressStage,
+    status: ProgressStatus,
+    detail: str = "",
+    evidence: dict[str, Any] | None = None,
+) -> None:
+    """Fire-and-forget one :class:`ProgressEvent` to ``sink``. No-op when ``sink`` is None.
+
+    CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the ONE choke point for
+    progress emission, so the two safety invariants live in a single place:
+
+    * **No-op default.** ``sink is None`` (the default for every existing caller) returns
+      before constructing a ``ProgressEvent`` or importing anything — the run is byte-for-byte
+      unchanged.
+    * **Cannot break the run.** The sink call is bounded by ``_PROGRESS_SINK_TIMEOUT_S`` and
+      every exception it raises (including a sink-side timeout) is swallowed. The SOLE thing
+      that propagates is a genuine :class:`asyncio.CancelledError` of the surrounding run — a
+      progress sink must never mask the run's own cancellation semantics.
+    """
+    if sink is None:
+        return
+    try:
+        event = ProgressEvent(
+            run_id=run_id,
+            stage=stage,
+            status=status,
+            detail=detail,
+            evidence=evidence or {},
+            ts=time.time(),
+        )
+        await asyncio.wait_for(sink(event), timeout=_PROGRESS_SINK_TIMEOUT_S)
+    except asyncio.CancelledError:
+        # The RUN is being cancelled — never swallow that (it drives the timeout trace path).
+        raise
+    except BaseException as exc:  # noqa: BLE001 — a sink must NEVER affect the run outcome
+        logger.debug(
+            "run_agent: progress_sink emit swallowed (stage=%s, exc=%s)",
+            stage,
+            type(exc).__name__,
+        )
+
+
 def _record_delegation_over_budget(
     agent_name: str, elapsed_s: float, outcome: str
 ) -> None:
@@ -413,6 +522,7 @@ async def run_agent(
     response_format: ResponseFormat = "text",
     run_id: str | None = None,
     include_run_summary: bool = False,
+    progress_sink: ProgressSink | None = None,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -451,6 +561,15 @@ async def run_agent(
             EVERY terminal outcome (success, degraded, failed, or a best-effort one recorded
             just before a cancellation re-raises). Opt-in and additive: default False keeps the
             bare-string contract bit-for-bit for every existing caller.
+        progress_sink: CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — an
+            OPTIONAL async callable ``(ProgressEvent) -> Awaitable[None]`` that receives a
+            checkpoint-by-checkpoint stream of this run (routing, focused-tool binding, each
+            fleet tool result, the evidence/retrieval-quality gate, the durable trace write,
+            synthesis, and the terminal done/failure) so a long delegation is transparent
+            step-by-step in a chat surface. Strictly additive and default ``None``: with no
+            sink the run behaves byte-for-byte as before (see :func:`_emit`). Every emission
+            is fire-and-forget and fully exception-isolated — a slow or failing sink can never
+            stall or fail the run.
 
     Returns:
         The synthesized result string from the graph execution, or, when ``return_mermaid``,
@@ -466,6 +585,17 @@ async def run_agent(
         agent_name,
         run_id,
         task,
+    )
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — first checkpoint of the
+    # progress stream (no-op when progress_sink is None). Lets a chat surface post its "working
+    # on it…" status the instant the delegation begins, not only when the answer lands.
+    await _emit(
+        progress_sink,
+        run_id=run_id,
+        stage="start",
+        status="started",
+        detail=agent_name,
+        evidence={"agent": agent_name},
     )
     # CONCEPT:AU-OS.observability.telemetry-observability (X2) — one OTel span per
     # run_agent execution, closed by _record_execution_trace on EVERY exit path
@@ -801,6 +931,14 @@ async def run_agent(
                 "why": "KG-bound persona template with pre-bound toolsets",
             }
             stage_reached = f"bound-template: {agent_name}"
+            await _emit(
+                progress_sink,
+                run_id=run_id,
+                stage="route",
+                status="ok",
+                detail=str(route["why"]),
+                evidence={"agents": route["agents"], "servers": route["servers"]},
+            )
             try:
                 result = await _execute_single_server(
                     config=config,
@@ -837,6 +975,26 @@ async def run_agent(
                 "why": "lexical gate matched named fleet server(s) for this task",
             }
             stage_reached = f"tool-call: {','.join(_focused_servers)}"
+            await _emit(
+                progress_sink,
+                run_id=run_id,
+                stage="route",
+                status="ok",
+                detail=str(route["why"]),
+                evidence={"servers": _focused_servers},
+            )
+            # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — surface the
+            # ORCH-1.74 focused-tools binding ("binding N server(s)") as a tool_call checkpoint,
+            # so the chat surface shows WHICH fleet tools this run is about to reach before the
+            # (possibly slow) parallel tool loop runs.
+            await _emit(
+                progress_sink,
+                run_id=run_id,
+                stage="tool_call",
+                status="started",
+                detail=", ".join(_focused_servers),
+                evidence={"servers": _focused_servers},
+            )
             try:
                 result = await _execute_focused_tools(
                     task=task,
@@ -879,6 +1037,22 @@ async def run_agent(
                 "why": "resolved as a single KG-registered MCP server",
             }
             stage_reached = f"tool-call: {agent_name}"
+            await _emit(
+                progress_sink,
+                run_id=run_id,
+                stage="route",
+                status="ok",
+                detail=str(route["why"]),
+                evidence={"servers": [agent_name]},
+            )
+            await _emit(
+                progress_sink,
+                run_id=run_id,
+                stage="tool_call",
+                status="started",
+                detail=agent_name,
+                evidence={"servers": [agent_name]},
+            )
             result = await _execute_single_server(
                 config=config,
                 task=task,
@@ -893,6 +1067,14 @@ async def run_agent(
                 "why": "no named server/template matched; routed to the multi-agent planning graph",
             }
             stage_reached = "multi-agent-graph"
+            await _emit(
+                progress_sink,
+                run_id=run_id,
+                stage="route",
+                status="ok",
+                detail=str(route["why"]),
+                evidence={"agents": ["multi-agent-graph"]},
+            )
             result = await _execute_graph(
                 config=config,
                 query=task,
@@ -999,6 +1181,30 @@ async def run_agent(
             latency_s=time.monotonic() - start_time,
             shape=shape,
         )
+        # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — stream the terminal
+        # failure using the SAME translated text the run_summary carries, so the transparency
+        # the user gets in-flight matches the final footer (never a bare "something failed").
+        from agent_utilities.observability.trace_ontology import (
+            trace_id as _trace_id_fail,
+        )
+        from agent_utilities.orchestration.failure_translation import (
+            translate_failure as _translate_failure,
+        )
+
+        _fail_xlate = _translate_failure(err_msg)
+        await _emit(
+            progress_sink,
+            run_id=run_id,
+            stage="failure",
+            status="failed",
+            detail=_fail_xlate.translated,
+            evidence={
+                "category": _fail_xlate.category,
+                "hint": _fail_xlate.hint,
+                "stage_reached": stage_reached,
+                "trace_ref": _trace_id_fail(run_id),
+            },
+        )
         return _render_agent_result(
             f"Agent execution failed: {err_msg}",
             run_id=run_id,
@@ -1049,6 +1255,43 @@ async def run_agent(
         _meta = result.setdefault("metadata", {})
         if isinstance(_meta, dict):
             _meta["run_summary"] = run_summary
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — stream each fleet tool
+    # invocation this run actually made (the SAME per-:ToolCall provenance persisted just
+    # below), so a chat surface shows tools resolving one by one during a long parallel loop.
+    # Guarded on ``progress_sink is not None`` so the None default skips the loop entirely.
+    if progress_sink is not None and isinstance(result, dict):
+        for _tc in result.get("tool_calls") or []:
+            if not isinstance(_tc, dict):
+                continue
+            _tc_name = str(_tc.get("tool_name") or "tool")
+            _tc_err = str(_tc.get("error") or "")
+            await _emit(
+                progress_sink,
+                run_id=run_id,
+                stage="tool_result",
+                status="failed" if _tc_err else "ok",
+                detail=_tc_name,
+                evidence={"error": _tc_err[:200]} if _tc_err else {},
+            )
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the evidence gate (the
+    # paper's evidence-gating) SURFACED: when a degraded outcome translates to the
+    # retrieval-quality signature, the run was blocked because nothing cleared the relevance
+    # bar. Reuse the EXISTING failure_translation so the streamed text matches the footer.
+    if _raw_failure:
+        from agent_utilities.orchestration.failure_translation import (
+            translate_failure as _translate_gate,
+        )
+
+        _gate = _translate_gate(_raw_failure)
+        if _gate.category == "retrieval_quality":
+            await _emit(
+                progress_sink,
+                run_id=run_id,
+                stage="evidence_gate",
+                status="failed",
+                detail=_gate.translated,
+                evidence={"category": _gate.category, "hint": _gate.hint},
+            )
     # CONCEPT:AU-AHE.harness.loop-exit-conditions — ERROR THRESHOLD (exit 7):
     # feed this delegation's outcome into the per-agent consecutive-failure guard
     # (threshold + reset-on-success), so a loop driving repeated run_agent calls
@@ -1084,6 +1327,23 @@ async def run_agent(
         ),
         delegation=_spawn_delegation,
     )
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the paper's
+    # "checkpointing / traces" surfaced: the durable RunTrace this run just wrote IS its
+    # checkpoint. Stream it with the trace_ref so the caller can deep-link into the run's
+    # provenance while it is still fresh.
+    if progress_sink is not None:
+        from agent_utilities.observability.trace_ontology import (
+            trace_id as _trace_id_ck,
+        )
+
+        await _emit(
+            progress_sink,
+            run_id=run_id,
+            stage="checkpoint",
+            status="degraded" if degraded else "ok",
+            detail="run trace recorded",
+            evidence={"trace_ref": _trace_id_ck(run_id)},
+        )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
     # node on this run's RunTrace, so the delegated action is fully visible over
     # graph-os ("what tools, what args, what result"). Best-effort, never breaks.
@@ -1129,6 +1389,34 @@ async def run_agent(
         run_id,
         duration_ms,
     )
+
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the run has produced its
+    # result and is about to render the final answer. Stream a synthesis milestone, then the
+    # terminal ``done`` (carrying the same outcome + trace_ref the run_summary holds). Both
+    # precede — and so cover — BOTH return shapes below (the dict envelope and the bare string).
+    if progress_sink is not None:
+        from agent_utilities.observability.trace_ontology import (
+            trace_id as _trace_id_done,
+        )
+
+        await _emit(
+            progress_sink,
+            run_id=run_id,
+            stage="synthesis",
+            status="degraded" if degraded else "ok",
+            detail="composing the final answer",
+        )
+        await _emit(
+            progress_sink,
+            run_id=run_id,
+            stage="done",
+            status="degraded" if degraded else "ok",
+            detail=((_raw_failure or "")[:200] if degraded else "completed"),
+            evidence={
+                "outcome": "degraded" if degraded else "ok",
+                "trace_ref": _trace_id_done(run_id),
+            },
+        )
 
     # Extract the output string from the GraphResponse
     if isinstance(result, dict):
