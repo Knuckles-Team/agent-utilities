@@ -20,7 +20,7 @@ repos:
   - id: end-of-file-fixer
     exclude: \.ttl$
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.16.0
+  rev: cb8c523fd4835aba42af70f4cad5568db4df0b6c # v0.16.0
   hooks:
   - id: ruff-check
     args: ["--fix", "--unsafe-fixes", "--ignore=E402"]
