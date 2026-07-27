@@ -294,7 +294,7 @@ Shipped but lightly documented (real code, importable today):
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **1036 canonical concepts** across **9 pillars**.
+Synthesized from concept markers in the codebase into **1037 canonical concepts** across **9 pillars**.
 
 > This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
@@ -302,7 +302,7 @@ Synthesized from concept markers in the codebase into **1036 canonical concepts*
 |:------|:---------|:---:|:------|
 | **AU-AHE** AU-AHE | AU-AHE.assimilation.baseline-overfit-gate – AU-AHE.harness.ahe-3 | 114 | the expert agent writes one per decision; a nightly distill, empirical parity evidence for the assimilation program, merge entities, closes the priors→weights loop, consider promoting the team, microstructure, trading, pricing, grade every ingested research source against the, concrete subclasses |
 | **AU-ECO** AU-ECO | AU-ECO.bus.agent-bus-awareness – AU-ECO.messaging.eco-2 | 119 | agent-to-agent messaging. Governed by the ActionPolicy, graph_bus MCP tool and REST twin for agent-to-agent messaging, AgentBus federated agent-to-agent communication bus over the KG, auto-register + online presence on any bus touch, bus register under the served auth profile, ────────────────────────, required engine-broker or Kafka log, the AgentBus is a NATIVE capability, not an opt-in persona |
-| **AU-KG** AU-KG | AU-KG.audit.graph-ownership-disposition – AU-KG.backend.cache-lives-as-248 | 442 | deterministic ownership disposition, routes to the engine, PA-R1.7, the durable PostgreSQL graph tier executed via a bounded regex, the authority is the single shared, The authority has already acked; this must not wait on the, vector search competes for the same pool under load;, redb-authoritative persistence is the DEFAULT backend mode (THE FLIP to durable-by-default) |
+| **AU-KG** AU-KG | AU-KG.audit.graph-ownership-disposition – AU-KG.backend.cache-lives-as-248 | 443 | deterministic ownership disposition, routes to the engine, PA-R1.7, the durable PostgreSQL graph tier executed via a bounded regex, the authority is the single shared, The authority has already acked; this must not wait on the, vector search competes for the same pool under load;, redb-authoritative persistence is the DEFAULT backend mode (THE FLIP to durable-by-default) |
 | **AU-ORCH** AU-ORCH | AU-ORCH.adapter.adapter-registry-path-detection – AU-ORCH.twin.agent-digital-twin | 197 | Adapter registry + non-blocking PATH detection, Built-in adapter definitions, BYOK custom endpoint. The provider proxy emits OpenAI-compatible, Composable Skills + Generic Environment Adapter, Invalidate hot cache so routing reflects new self-knowledge, inject mounted composable-Skill instructions, Session ID of the parent graph if this state was forked, additive multi-CLI adapter dispatch. When a manifest requests an external runtime |
 | **AU-OS** AU-OS | AU-OS.audit.config-staleness-auditor – AU-OS.deployment.os-4 | 133 | Configuration Staleness Auditor, recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags a non-positive derivative as a research-gets-harder signal, Agent OS Infrastructure, Agent Registry, autonomous spec→develop. OFF by default = review-first, Data Type Conversion, Desired-state fleet reconciler, Env-var drift guard |
 | **EG-AHE** EG-AHE | EG-AHE.harness.online-exploit-explore-reference | 1 | one online exploit/explore bandit router per agent |
