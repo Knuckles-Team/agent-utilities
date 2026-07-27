@@ -204,9 +204,9 @@ class AgentOrchestrationEngine:
         restricted to agents authorised for it (CONCEPT:AU-ORCH.execution.execution-budget-caps governance).
         """
         logger.info(f"Synthesizing team for {domain} (complexity: {complexity})")
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for team synthesis"
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for team synthesis"
+        )
 
         from agent_utilities.models.knowledge_graph import TeamComposition
 
@@ -293,9 +293,9 @@ class AgentOrchestrationEngine:
         Replaces KGDrivenExecutionEngine routing logic.
         """
         # Call into rust to evaluate next hops based on semantic edges
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for node determination"
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for node determination"
+        )
         successors = self.engine.graph_compute.get_successors(current_node)
         return successors[0] if successors else "END"
 

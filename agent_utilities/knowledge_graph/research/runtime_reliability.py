@@ -66,8 +66,12 @@ _DEFAULT_MIN_COUNT = 5
 
 #: Disposition per recognized class (the reconciler's policy). Everything NOT listed here
 #: is an unrecognized/flywheel class the analyzer opens a plain investigate-gap for.
-_HEAL = "heal"  # already auto-healed elsewhere → record a resolved, closed-loop annotation
-_RECOMMEND = "recommend"  # a safe config/perf recommendation → open a recommendation gap
+_HEAL = (
+    "heal"  # already auto-healed elsewhere → record a resolved, closed-loop annotation
+)
+_RECOMMEND = (
+    "recommend"  # a safe config/perf recommendation → open a recommendation gap
+)
 _RECONCILE_DISPOSITION: dict[str, str] = {
     runtime_signals.KIND_LISTENER_RESTART: _HEAL,
     runtime_signals.KIND_ENGINE_LATENCY: _RECOMMEND,
@@ -176,9 +180,7 @@ _FIX_SITES: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
-def _resolve_code_anchors(
-    engine: Any, kind: str, subject: str
-) -> list[dict[str, Any]]:
+def _resolve_code_anchors(engine: Any, kind: str, subject: str) -> list[dict[str, Any]]:
     """Best-effort resolve the fix-site symbol(s) + the subject to REAL ingested ``:Code``
     nodes (``{id, symbol, file, line}``) so the gap carries precise, traversable code
     references. ``[]`` when the code isn't ingested / unresolvable / the retriever is absent.
@@ -276,7 +278,9 @@ def _submit_runtime_gap(
     return gap
 
 
-def _open_flywheel_gap(engine: Any, agg: dict[str, Any], open_ids: set[str]) -> str | None:
+def _open_flywheel_gap(
+    engine: Any, agg: dict[str, Any], open_ids: set[str]
+) -> str | None:
     """Open a plain investigate ``:Gap`` for an UNRECOGNIZED runtime pattern, deduped."""
     statement = (
         f"runtime: {agg['kind']} on '{agg['subject']}' recurred {agg['count']}× within "

@@ -46,7 +46,9 @@ RUNTIME_SIGNAL_LABEL = "RuntimeSignal"
 #: The four recognized signal kinds — each maps to one existing detection site.
 KIND_ENGINE_LATENCY = "engine_latency"  # engine_breaker slow-call path
 KIND_LISTENER_RESTART = "listener_restart"  # messaging router self-healing supervisor
-KIND_RETRIEVAL_DEGRADED = "retrieval_degraded"  # contextual_model bounded-compile degrade
+KIND_RETRIEVAL_DEGRADED = (
+    "retrieval_degraded"  # contextual_model bounded-compile degrade
+)
 KIND_DELEGATION_OVER_BUDGET = "delegation_over_budget"  # agent_runner over wall-clock
 _KINDS = frozenset(
     {

@@ -1280,9 +1280,7 @@ class _ProgressChecklist:
 
     def _apply(self, event: Any) -> None:
         stage = str(getattr(event, "stage", "") or "")
-        glyph = _PROGRESS_STATUS_GLYPH.get(
-            str(getattr(event, "status", "") or ""), "…"
-        )
+        glyph = _PROGRESS_STATUS_GLYPH.get(str(getattr(event, "status", "") or ""), "…")
         detail = str(getattr(event, "detail", "") or "")
         if stage in ("tool_call", "tool_result"):
             # Key per tool/server name so a call and its result collapse onto ONE line.
@@ -1328,9 +1326,7 @@ class _ProgressChecklist:
                     self._channel_id, self._message_id, self._render()
                 )
             except Exception as exc:  # noqa: BLE001 — a failed edit must never break the run
-                logger.debug(
-                    "progress checklist: edit failed (%s)", type(exc).__name__
-                )
+                logger.debug("progress checklist: edit failed (%s)", type(exc).__name__)
 
     async def finalize(self, final_text: str) -> bool:
         """Replace the status message with the final answer. Returns True iff it delivered it.

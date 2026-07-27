@@ -1300,7 +1300,10 @@ async def run_agent(
     duration_ms = (time.monotonic() - start_time) * 1000
     # CONCEPT:AU-AHE.harness.runtime-reliability-loop — a run that ate most of its wall-clock
     # budget is a slow-not-wrong signal the reward flywheel can't see. Fire-and-forget.
-    if duration_ms >= _DELEGATION_BUDGET_WARN_FRACTION * _EXECUTE_AGENT_WALL_CLOCK_S * 1000:
+    if (
+        duration_ms
+        >= _DELEGATION_BUDGET_WARN_FRACTION * _EXECUTE_AGENT_WALL_CLOCK_S * 1000
+    ):
         _record_delegation_over_budget(
             agent_name, duration_ms / 1000.0, "degraded" if degraded else "ok"
         )

@@ -49,8 +49,8 @@ import logging
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Iterator, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
@@ -577,7 +577,11 @@ def deliver_activation(
         )
     tenant = tenant or str(node.get("tenant") or "")
     origin_principal = origin_principal or str(node.get("origin_principal") or "")
-    src = ActivationSource(str(source)) if not isinstance(source, ActivationSource) else source
+    src = (
+        ActivationSource(str(source))
+        if not isinstance(source, ActivationSource)
+        else source
+    )
     priority_class = activation_priority_class(src)
 
     msg_id = _append_mailbox_message(
@@ -592,7 +596,9 @@ def deliver_activation(
     current_depth = int(node.get("mailbox_depth") or 0)
     _set_mailbox_depth(engine, instance_id, current_depth + 1)
 
-    work_item_id = f"workitem:{WORK_ITEM_KIND}:{instance_id.split(':')[-1]}:{uuid.uuid4().hex}"
+    work_item_id = (
+        f"workitem:{WORK_ITEM_KIND}:{instance_id.split(':')[-1]}:{uuid.uuid4().hex}"
+    )
     item_id = _wi.submit_work_item(
         engine,
         kind=WORK_ITEM_KIND,
@@ -728,7 +734,9 @@ def _write_provenance(
     chain = list(ctx.delegation.chain) if ctx.delegation is not None else []
     principal = ctx.delegation.principal if ctx.delegation is not None else ""
     agent_instance_id = (
-        ctx.delegation.agent_instance_id if ctx.delegation is not None else ctx.agent_name
+        ctx.delegation.agent_instance_id
+        if ctx.delegation is not None
+        else ctx.agent_name
     )
     authority.add_node(
         trace_id,
@@ -851,7 +859,9 @@ def process_one_activation(
     item = _wi.get_work_item(engine, work_item_id) or {}
     raw_metadata = item.get("metadata")
     metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
-    instance_id = str(metadata.get("agent_instance_id") or item.get("payload_ref") or "")
+    instance_id = str(
+        metadata.get("agent_instance_id") or item.get("payload_ref") or ""
+    )
     node = get_agent_instance(engine, instance_id) if instance_id else None
     if node is None:
         # The activation references an instance that no longer exists — commit failed,
@@ -882,7 +892,11 @@ def process_one_activation(
     # after the holder deactivates, rather than double-running the instance.
     if sc_instance_id:
         activated = engine.statechart.send_event(sc_instance_id, EV_ACTIVATE, {})
-        fired = bool(activated.get("fired")) if isinstance(activated, dict) else bool(activated)
+        fired = (
+            bool(activated.get("fired"))
+            if isinstance(activated, dict)
+            else bool(activated)
+        )
         if not fired and _statechart_state(activated) == STATE_ACTIVE:
             logger.info(
                 "[agents-as-data] instance %s already active (concurrent activation); "
@@ -906,7 +920,9 @@ def process_one_activation(
         agent_name=agent_name,
         run_id=run_id,
         tenant=tenant,
-        origin_principal=str(metadata.get("origin_principal") or node.get("origin_principal") or ""),
+        origin_principal=str(
+            metadata.get("origin_principal") or node.get("origin_principal") or ""
+        ),
         tool_ids=node.get("tool_ids") or (),
     )
 
@@ -968,8 +984,18 @@ def process_one_activation(
         work_item_id,
         claim,
         outcome=outcome,
-        result_ref=result.result_ref or (f"outcome:agent_activation:{instance_id}" if outcome == "succeeded" else None),
-        error_ref=result.error_ref or (None if outcome == "succeeded" else f"agent_activation:{instance_id}:{outcome}"),
+        result_ref=result.result_ref
+        or (
+            f"outcome:agent_activation:{instance_id}"
+            if outcome == "succeeded"
+            else None
+        ),
+        error_ref=result.error_ref
+        or (
+            None
+            if outcome == "succeeded"
+            else f"agent_activation:{instance_id}:{outcome}"
+        ),
         retryable=result.retryable,
         now=now,
     )

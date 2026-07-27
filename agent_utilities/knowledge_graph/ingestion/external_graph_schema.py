@@ -83,11 +83,9 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 class SecretStore(Protocol):
     """Small secret-store surface used by the proposal workflow."""
 
-    def get(self, key: str) -> str | None:
-        ...
+    def get(self, key: str) -> str | None: ...
 
-    def set(self, key: str, value: str, **metadata: Any) -> None:
-        ...
+    def set(self, key: str, value: str, **metadata: Any) -> None: ...
 
 
 class RemoteEpistemicGraphReadAdapter:
@@ -267,8 +265,7 @@ class GraphQLDiscoveredSchema:
 class GraphQLExecutor(Protocol):
     def __call__(
         self, document: str, variables: Mapping[str, Any]
-    ) -> Mapping[str, Any]:
-        ...
+    ) -> Mapping[str, Any]: ...
 
 
 _GRAPHQL_INTROSPECTION = """
@@ -659,13 +656,11 @@ class DiscoveryAdapter(Protocol):
 
     capabilities: BackendCapabilities
 
-    def discover(self, engine: Any, *, max_types: int) -> DiscoveredSchema:
-        ...
+    def discover(self, engine: Any, *, max_types: int) -> DiscoveredSchema: ...
 
     def generated_queries(
         self, *, identity_property: str | None = None
-    ) -> tuple[str, str]:
-        ...
+    ) -> tuple[str, str]: ...
 
 
 def _rows(value: Any) -> list[dict[str, Any]]:

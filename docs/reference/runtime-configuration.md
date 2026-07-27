@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-540 typed fields · 342 runtime-only call-site inputs.
+542 typed fields · 347 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -606,6 +606,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `PREEMPTION_THRESHOLD_PCT` | `float` | `0.85` |
 | `AGENT_POLICIES_PATH` | `Union` | `unset` |
 | `PERMISSIONS_SIGNING_KEY_REF` | `Union` | `unset` |
+| `PERMISSIONS_IDENTITY_TTL_SECONDS` | `float` | `3600.0` |
+| `PERMISSIONS_IDENTITY_REFRESH_SKEW_SECONDS` | `float` | `300.0` |
 | `ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF` | `Union` | `unset` |
 | `ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS` | `str` | `` |
 | `SPECIALIST_REGISTRY_PATH` | `Union` | `unset` |
@@ -901,6 +903,11 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MCP_PUBLIC_BASE_URL` | 1 |
 | `MEDIA_TOOLS` | 1 |
 | `MESSAGING_INBOX_RETRY_S` | 1 |
+| `MESSAGING_LISTEN_BACKOFF_BASE_S` | 1 |
+| `MESSAGING_LISTEN_BACKOFF_MAX_S` | 1 |
+| `MESSAGING_LISTEN_HEALTHY_RESET_S` | 1 |
+| `MESSAGING_LOG_LEVEL` | 1 |
+| `MESSAGING_PROGRESS_STREAMING` | 1 |
 | `MESSAGING_REPLY_TIMEOUT` | 2 |
 | `MESSAGING_TRANSPARENCY_FOOTER` | 1 |
 | `MODEL_AUTOSCALE_UPDATE_INTERVAL_S` | 1 |

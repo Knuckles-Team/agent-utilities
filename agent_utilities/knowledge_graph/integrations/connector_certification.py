@@ -274,8 +274,7 @@ class CertificationBundle:
 class CertificationDriver(Protocol):
     """Minimal live/runtime adapter; every response must be JSON-compatible."""
 
-    async def invoke(self, request: Mapping[str, Any]) -> dict[str, Any]:
-        ...
+    async def invoke(self, request: Mapping[str, Any]) -> dict[str, Any]: ...
 
 
 @dataclass(slots=True)

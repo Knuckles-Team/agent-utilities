@@ -446,7 +446,9 @@ async def _compiled_evidence_and_bundle_bounded(
         )
         _ctx_compile_note_success()
         return result
-    except TimeoutError:  # asyncio.wait_for's timeout (asyncio.TimeoutError is this alias)
+    except (
+        TimeoutError
+    ):  # asyncio.wait_for's timeout (asyncio.TimeoutError is this alias)
         logger.warning(
             "[CONCEPT:AU-KG.retrieval.context-compiler] evidence compilation exceeded "
             "%.1fs and was abandoned; sending this model request WITHOUT compiled "

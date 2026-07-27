@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-355 publishable pages · 170 direct nav targets · 116 public capabilities · 712 action rows · 540 typed configuration fields · 342 runtime-only call-site inputs.
+357 publishable pages · 172 direct nav targets · 117 public capabilities · 721 action rows · 542 typed configuration fields · 347 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -147,6 +147,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — direct nav
 - [Agent Communication Bus (AgentBus)](../architecture/agent_bus.md) — direct nav
 - [Queue-Driven Agent Dispatch](../architecture/agent_dispatch.md) — direct nav
+- [Agents-as-data activation layer (ADR-6 / W2.3)](../architecture/agents-as-data-activation.md) — direct nav
 - [AIF Argumentation (I-nodes/S-nodes → Dung acceptability)](../architecture/aif-argumentation.md) — direct nav
 - [Agentic Resource Discovery (ARD) interop](../architecture/ard-interop.md) — direct nav
 - [Graph-Native Assimilation Engine](../architecture/assimilation_engine.md) — direct nav
@@ -186,7 +187,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Graph Backend Architecture](../architecture/graph_backends_architecture.md) — direct nav
 - [Epistemic Graph Service Layer Architecture](../architecture/graph_service_layer.md) — catalog
 - [graph-os Horizontal Scaling — the HPA Blocker, Precisely](../architecture/graphos-horizontal-scaling.md) — direct nav
-- [graph-os Self-Hosting Cutover — Design (execute-from doc, not yet applied)](../architecture/graphos-self-hosting-cutover.md) — direct nav
+- [graph-os Self-Hosting Cutover — Design (EXECUTED 2026-07-26)](../architecture/graphos-self-hosting-cutover.md) — direct nav
 - [Harness Foundry — assimilate + surpass HarnessX (arXiv:2606.14249)](../architecture/harness_foundry.md) — direct nav
 - [IdP-Agnostic Role Inheritance & Identity-Scoped Resource Auto-Load](../architecture/identity-inheritance.md) — direct nav
 - [In-House Training Substrate](../architecture/in_house_training_substrate.md) — direct nav
@@ -230,6 +231,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Pydantic AI v2 migration](../architecture/pydantic-ai-v2-migration.md) — direct nav
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — direct nav
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — direct nav
+- [Runtime-Reliability Loop — detect → signal → gap → heal](../architecture/runtime-reliability-loop.md) — direct nav
 - [Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)](../architecture/sampling_profiles.md) — direct nav
 - [The Self-Evolution Flywheel — transparent, steerable, governed](../architecture/self-evolution-flywheel.md) — direct nav
 - [Self-Improving Reasoning Substrate](../architecture/self_improving_reasoning_substrate.md) — direct nav

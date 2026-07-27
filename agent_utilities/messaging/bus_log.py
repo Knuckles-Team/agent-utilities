@@ -166,8 +166,7 @@ class BusLogBackend(ABC):
         payload: str,
         meta_json: str,
         created: float,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
     @abstractmethod
     def publish_topic(
@@ -180,8 +179,7 @@ class BusLogBackend(ABC):
         payload: str,
         meta_json: str,
         created: float,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
     @abstractmethod
     def receive(
@@ -191,8 +189,7 @@ class BusLogBackend(ABC):
         agent_id: str,
         topics: list[str],
         max_messages: int = 200,
-    ) -> list[dict[str, Any]]:
-        ...
+    ) -> list[dict[str, Any]]: ...
 
     @abstractmethod
     def ack(self, message: dict[str, Any]) -> bool:
@@ -205,12 +202,12 @@ class BusLogBackend(ABC):
         ...
 
     @abstractmethod
-    def read_dlq(self, *, tenant: str, max_messages: int = 50) -> list[dict[str, Any]]:
-        ...
+    def read_dlq(
+        self, *, tenant: str, max_messages: int = 50
+    ) -> list[dict[str, Any]]: ...
 
     @abstractmethod
-    def stats(self) -> dict[str, Any]:
-        ...
+    def stats(self) -> dict[str, Any]: ...
 
 
 # ══════════════════════════════════════════════════════════════════════════
