@@ -920,18 +920,33 @@ def _execute_goal_turn(spec: dict[str, Any]) -> str:
     """Run the claimed goal via the EXISTING ``run_goal_loop`` body."""
     import asyncio
 
+    from agent_utilities.core.resource_priority import (
+        PriorityClass,
+        priority_scope,
+    )
     from agent_utilities.core.sessions import run_goal_loop
 
-    asyncio.run(
-        run_goal_loop(
-            session_id=spec["session_id"],
-            goal_id=spec["goal_id"],
-            objective=spec["objective"],
-            validation_cmd=spec.get("validation_cmd", ""),
-            max_iterations=int(spec.get("max_iterations", 20)),
-            constraints=list(spec.get("constraints", [])),
+    # CONCEPT:AU-ORCH.scheduling.resource-priority-edict — the autonomous goal loop is
+    # BACKGROUND work: run_goal_loop → LoopController.run_loop issues per-tick engine
+    # writes (work_items.claim / lifecycle.batch_update) against the single-writer engine
+    # every ~2s. UNTAGGED, that context resolves to ORCHESTRATION (high, never yields), so
+    # the loop saturates the write lock and starves interactive delegations' RAG reads.
+    # Tag the whole loop BACKGROUND_INGESTION so every engine call it makes stamps the
+    # yielding priority claim (session.engine_verified_context → the engine's reserved-read
+    # QoS lane keys off it) and its shared-LLM calls yield the reserved headroom. asyncio.run
+    # copies this context into the loop coroutine; mirrors engine_tasks.py's per-task
+    # priority_scope for background KG work.
+    with priority_scope(PriorityClass.BACKGROUND_INGESTION):
+        asyncio.run(
+            run_goal_loop(
+                session_id=spec["session_id"],
+                goal_id=spec["goal_id"],
+                objective=spec["objective"],
+                validation_cmd=spec.get("validation_cmd", ""),
+                max_iterations=int(spec.get("max_iterations", 20)),
+                constraints=list(spec.get("constraints", [])),
+            )
         )
-    )
     return "completed"
 
 

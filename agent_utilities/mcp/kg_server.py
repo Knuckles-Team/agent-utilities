@@ -234,6 +234,23 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
                 "degraded": True,
             }
 
+    # CONCEPT:AU-ORCH.scheduling.resource-priority-edict — an MCP tool call is the
+    # INTERACTIVE entry boundary (a live Claude / end-user request). Tag the whole
+    # dispatch INTERACTIVE so its engine reads — including a delegation's RAG
+    # context-compilation GetNodeProperties point-reads, which run on the ``to_thread``
+    # worker that inherits this context — carry the top QoS class and claim the engine's
+    # reserved read lane ahead of a saturating background-ingestion write storm. Tag ONLY
+    # when the context is UNTAGGED: a re-entrant call from a delegated agent (ORCHESTRATION)
+    # or a background task (BACKGROUND_INGESTION) keeps its own, lower class — never upgraded.
+    from agent_utilities.core.resource_priority import (
+        PriorityClass,
+        current_priority,
+        priority_scope,
+    )
+
+    if current_priority() is None:
+        with priority_scope(PriorityClass.INTERACTIVE):
+            return await _guarded()
     return await _guarded()
 
 
@@ -298,7 +315,7 @@ def get_existing_disabled(engine, node_id: str) -> bool:
                 return engine.graph_compute.graph.nodes[node_id].get("disabled", False)
         # 2. Try Cypher match as a fallback
         res = engine.query_cypher(
-            "MATCH (n) WHERE n.id = $node_id RETURN n.disabled AS disabled",
+            "MATCH (n) WHERE n.id = $node_id RETURN n.id AS id, n.disabled AS disabled",
             {"node_id": node_id},
         )
         if res and isinstance(res, list) and len(res) > 0:
@@ -3825,11 +3842,6 @@ def mcp_server() -> None:
         # BEFORE the engine is constructed below so it can win (or lose) the
         # host-lock race as the first constructor (see co_service_supervisor's
         # module docstring for the exact "client role + no live host" detection).
-        from agent_utilities.mcp.co_service_supervisor import (
-            bring_up_host_daemon_if_needed,
-            start_co_services,
-        )
-
         # The startup composition below performs graph work under the process's
         # verified authority: the host-daemon election (bring_up_host_daemon_if_needed)
         # constructs the engine as the FIRST constructor, and the engine's background
@@ -3838,6 +3850,10 @@ def mcp_server() -> None:
         # BEFORE the host daemon constructs the engine — otherwise from_ambient()
         # fails closed on a served, non-tiny process (CONCEPT:AU-P0-1 session currency).
         from agent_utilities.knowledge_graph.core.session import use_session
+        from agent_utilities.mcp.co_service_supervisor import (
+            bring_up_host_daemon_if_needed,
+            start_co_services,
+        )
         from agent_utilities.security.brain_context import use_actor
 
         with use_actor(bootstrap_session.actor), use_session(bootstrap_session):

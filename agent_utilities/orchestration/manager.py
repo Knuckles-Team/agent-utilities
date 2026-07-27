@@ -309,27 +309,47 @@ class Orchestrator:
         response_format = validate_response_format(response_format)
         self._scan_task(task)
         logger.info(f"Executing agent {agent_name} for task: {task[:50]}...")
-        result = await run_agent(
-            agent_name=agent_name,
-            task=task,
-            engine=self.engine,
-            max_steps=max_steps,
-            return_mermaid=return_mermaid,
-            context=context,
-            budget_tokens=budget_tokens,
-            context_ref=context_ref,
-            allowed_tools=allowed_tools,
-            cred_ref=cred_ref,
-            session_id=session_id,
-            open_channel=open_channel,
-            memento_source=memento_source,
-            execution_profile=execution_profile,
-            reasoning_effort=reasoning_effort,
-            model_class=model_class,
-            response_format=response_format,
-            run_id=run_id,
-            include_run_summary=include_run_summary,
+        # CONCEPT:AU-ORCH.scheduling.resource-priority-edict — a delegation is
+        # ORCHESTRATION-tier work (rank below a live interactive read, above background
+        # ingestion). Tag the run so run_agent's tool loop and its RAG reads carry the Orch
+        # QoS class — which reserves the very top INTERACTIVE lane for the caller's OWN direct
+        # reads (a live-client graph_orchestrate call entered INTERACTIVE via the MCP dispatch
+        # is downgraded to ORCHESTRATION here). The ONE exception: a delegation spawned BY a
+        # background job (the autonomous loop, ambient BACKGROUND_INGESTION) is NEVER upgraded —
+        # it must keep yielding — so its class passes through unchanged.
+        from agent_utilities.core.resource_priority import (
+            PriorityClass,
+            current_priority,
+            priority_scope,
         )
+
+        _delegation_prio = (
+            PriorityClass.BACKGROUND_INGESTION
+            if current_priority() is PriorityClass.BACKGROUND_INGESTION
+            else PriorityClass.ORCHESTRATION
+        )
+        with priority_scope(_delegation_prio):
+            result = await run_agent(
+                agent_name=agent_name,
+                task=task,
+                engine=self.engine,
+                max_steps=max_steps,
+                return_mermaid=return_mermaid,
+                context=context,
+                budget_tokens=budget_tokens,
+                context_ref=context_ref,
+                allowed_tools=allowed_tools,
+                cred_ref=cred_ref,
+                session_id=session_id,
+                open_channel=open_channel,
+                memento_source=memento_source,
+                execution_profile=execution_profile,
+                reasoning_effort=reasoning_effort,
+                model_class=model_class,
+                response_format=response_format,
+                run_id=run_id,
+                include_run_summary=include_run_summary,
+            )
         return result
 
     async def compile_workflow(self, name: str, task: str) -> str:
