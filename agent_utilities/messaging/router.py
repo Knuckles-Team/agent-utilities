@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -421,6 +422,11 @@ async def create_planner_handler(
 
         shape = plan_execution_shape(combined, profile_hint="chat", engine=engine)
 
+        # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — decide ONCE whether to
+        # stream a live progress checklist for this burst: opt-in flag AND a backend that can
+        # edit a message in place. When off, the reply path is byte-for-byte the existing one.
+        _progress_on = _progress_streaming_enabled() and _backend_supports_edit(backend)
+
         async def _send(text: str, *, threaded: bool) -> None:
             try:
                 if threaded and event.message and event.message.id:
@@ -434,17 +440,30 @@ async def create_planner_handler(
                 )
 
         async def _run_and_deliver(*, deferred: bool) -> None:
-            reply = await _graph_agent_reply(
-                engine,
-                combined,
-                session=session,
-                image_parts=image_parts,
-                budget=shape.reply_budget_s,
-                shape=shape,
+            # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — render the core
+            # ProgressEvent stream into ONE evolving status message (entrypoint-only render).
+            # ``progress_sink`` is passed ONLY when streaming is active, so the off-path call to
+            # _graph_agent_reply is byte-for-byte the existing one.
+            checklist = (
+                _ProgressChecklist(backend, event.channel_id) if _progress_on else None
             )
-            # An interactive turn threads its reply to the user's message; a deferred turn
-            # already acked there, so its result lands as a fresh follow-up message.
-            await _send(reply, threaded=not deferred)
+            _reply_kwargs: dict[str, Any] = {
+                "session": session,
+                "image_parts": image_parts,
+                "budget": shape.reply_budget_s,
+                "shape": shape,
+            }
+            if checklist is not None:
+                _reply_kwargs["progress_sink"] = checklist.sink
+            reply = await _graph_agent_reply(engine, combined, **_reply_kwargs)
+            # Finalize the live status IN PLACE to the answer (one evolving message). If nothing
+            # was posted or the edit fails, finalize returns False and we send the reply as a
+            # normal message instead — the answer is NEVER lost (also the no-streaming default).
+            delivered = await checklist.finalize(reply) if checklist else False
+            if not delivered:
+                # An interactive turn threads its reply to the user's message; a deferred turn
+                # already acked there, so its result lands as a fresh follow-up message.
+                await _send(reply, threaded=not deferred)
             # CONCEPT:AU-ECO.messaging.durable-inbound-pending — the real reply was delivered → close the durable inbox entry.
             # If _run_and_deliver crashed BEFORE this (engine down), it stays pending → retried.
             mark_answered(engine, _inbox_id)
@@ -476,7 +495,12 @@ async def create_planner_handler(
                 _kind,
                 shape.reply_budget_s,
             )
-            await _send(await _varied_ack(combined, shape), threaded=True)
+            # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — when the live
+            # checklist is active its own "working on it…" status IS the acknowledgement (and it
+            # evolves into the answer), so skip the static ack to avoid a duplicate message.
+            # Without streaming, keep the existing ack-now / deliver-later behavior verbatim.
+            if not _progress_on:
+                await _send(await _varied_ack(combined, shape), threaded=True)
             _spawn_bg(_run_and_deliver(deferred=True))
 
     coalescer = BurstCoalescer(
@@ -1080,6 +1104,164 @@ def _exception_run_summary(run_id: str, exc: BaseException) -> dict[str, Any]:
     }
 
 
+# ── Live progress checklist (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency) ──
+# The messaging entrypoint's ONLY per-surface progress code: it RENDERS the core ProgressEvent
+# stream (built once in ``agent_runner.run_agent``) into a SINGLE status message that evolves in
+# place as a long delegation streams checkpoints. All capability — the event stream, editing a
+# message in place — lives in core; this is pure output-rendering for a chat medium, exactly the
+# Universal-capability split (entrypoints render, they do not re-implement capability).
+
+
+def _progress_streaming_enabled() -> bool:
+    """Whether to drive the live-checklist render for a reply (default OFF — opt-in).
+
+    ``MESSAGING_PROGRESS_STREAMING`` gates this NEW surface behavior so the messaging path stays
+    byte-for-byte unchanged until an operator opts in — the surface-level mirror of the core
+    ``progress_sink=None`` no-op default. Even when on it engages ONLY for a backend that can
+    edit in place (see :func:`_backend_supports_edit`); otherwise the run streams nothing extra
+    and the user gets the single final reply exactly as today.
+    """
+    from agent_utilities.core.config import setting
+
+    return bool(setting("MESSAGING_PROGRESS_STREAMING", False))
+
+
+def _backend_supports_edit(backend: Any) -> bool:
+    """True only when ``backend`` provides a NATIVE in-place edit (overrides the base default).
+
+    The base ``MessagingBackend.edit_message`` is a safe send-fallback; a backend that has not
+    overridden it cannot evolve a status message, so a live checklist would spam N messages. In
+    that case the router degrades to a single final reply.
+    """
+    try:
+        from agent_utilities.messaging.base import MessagingBackend
+
+        return type(backend).edit_message is not MessagingBackend.edit_message
+    except Exception:  # noqa: BLE001 — never let capability-sniffing break the reply path
+        return False
+
+
+# Per-stage glyphs for the compact checklist. Stage → (emoji, short label).
+_PROGRESS_STAGE_LABEL: dict[str, tuple[str, str]] = {
+    "start": ("🔎", "context"),
+    "route": ("🧭", "route"),
+    "evidence_gate": ("📚", "evidence"),
+    "tool_call": ("🔧", "tools"),
+    "synthesis": ("✍️", "writing"),
+    "checkpoint": ("📍", "trace"),
+    "done": ("✅", "done"),
+    "failure": ("⚠️", "failed"),
+}
+_PROGRESS_STATUS_GLYPH: dict[str, str] = {
+    "started": "…",
+    "ok": "✓",
+    "degraded": "⚠",
+    "failed": "✗",
+}
+_PROGRESS_HEADER = "🔎 Working on it…"
+
+
+class _ProgressChecklist:
+    """Render the core ProgressEvent stream into ONE evolving status message for a chat surface.
+
+    CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the per-surface renderer.
+    On the FIRST event it posts a "working on it…" status; on each later event it updates an
+    in-memory checklist and, THROTTLED to ≥ ``min_interval_s`` apart, edits that message in
+    place (coalescing bursts so the platform API is never hammered). :meth:`finalize` replaces
+    the status with the real answer. Every platform call is exception-isolated, so the render
+    can never break the run or the reply; when nothing was posted (or an edit fails)
+    :meth:`finalize` returns ``False`` and the caller sends the reply as a normal message so the
+    answer is never lost.
+    """
+
+    def __init__(
+        self, backend: Any, channel_id: str, *, min_interval_s: float = 1.0
+    ) -> None:
+        self._backend = backend
+        self._channel_id = channel_id
+        self._min_interval = min_interval_s
+        self._message_id = ""
+        self._posted = False
+        self._last_edit = 0.0
+        # Ordered step_key -> (emoji+label, glyph); dict insertion order = display order.
+        self._steps: dict[str, tuple[str, str]] = {}
+        self._lock = asyncio.Lock()
+
+    def _apply(self, event: Any) -> None:
+        stage = str(getattr(event, "stage", "") or "")
+        glyph = _PROGRESS_STATUS_GLYPH.get(
+            str(getattr(event, "status", "") or ""), "…"
+        )
+        detail = str(getattr(event, "detail", "") or "")
+        if stage in ("tool_call", "tool_result"):
+            # Key per tool/server name so a call and its result collapse onto ONE line.
+            name = (detail.split(",")[0].strip() or "tool")[:24]
+            self._steps[f"tool:{name}"] = (f"🔧 {name}", glyph)
+        else:
+            emoji, label = _PROGRESS_STAGE_LABEL.get(stage, ("•", stage or "step"))
+            self._steps[stage] = (f"{emoji} {label}", glyph)
+
+    def _render(self) -> str:
+        # Compact one-liner, capped so it never grows unbounded on a tool-heavy run.
+        parts = [f"{lbl} {g}" for (lbl, g) in list(self._steps.values())[-8:]]
+        body = " · ".join(parts)
+        return f"{_PROGRESS_HEADER}\n{body}" if body else _PROGRESS_HEADER
+
+    async def _post_initial(self) -> None:
+        try:
+            res = await self._backend.send_message(self._channel_id, self._render())
+            if getattr(res, "success", False):
+                self._message_id = str(getattr(res, "message_id", "") or "")
+        except Exception as exc:  # noqa: BLE001 — a failed status post must never break the run
+            logger.debug(
+                "progress checklist: initial post failed (%s)", type(exc).__name__
+            )
+
+    async def sink(self, event: Any) -> None:
+        """The ``progress_sink`` handed to the core run — fast, throttled, and never raises."""
+        async with self._lock:
+            self._apply(event)
+            now = time.monotonic()
+            if not self._posted:
+                self._posted = True
+                await self._post_initial()
+                self._last_edit = now
+                return
+            if not self._message_id:
+                return  # the initial post failed — nothing to edit
+            if now - self._last_edit < self._min_interval:
+                return  # coalesce: a later event (or finalize) flushes the newest state
+            self._last_edit = now
+            try:
+                await self._backend.edit_message(
+                    self._channel_id, self._message_id, self._render()
+                )
+            except Exception as exc:  # noqa: BLE001 — a failed edit must never break the run
+                logger.debug(
+                    "progress checklist: edit failed (%s)", type(exc).__name__
+                )
+
+    async def finalize(self, final_text: str) -> bool:
+        """Replace the status message with the final answer. Returns True iff it delivered it.
+
+        A ``False`` return (nothing was posted, or the edit failed) tells the caller to send the
+        reply as a normal message, so the answer is NEVER lost.
+        """
+        async with self._lock:
+            if not self._message_id:
+                return False
+            try:
+                res = await self._backend.edit_message(
+                    self._channel_id, self._message_id, final_text
+                )
+                return bool(getattr(res, "success", False))
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "progress checklist: finalize failed (%s)", type(exc).__name__
+                )
+                return False
+
+
 async def _graph_agent_reply(
     engine: Any,
     content: str,
@@ -1088,6 +1270,7 @@ async def _graph_agent_reply(
     image_parts: list[Any] | None = None,
     budget: float | None = None,
     shape: Any = None,
+    progress_sink: Callable[[Any], Awaitable[None]] | None = None,
 ) -> str:
     """Draft a reply by running the UNIVERSAL graph agent (CONCEPT:AU-ECO.messaging.universal-graph-agent).
 
@@ -1172,6 +1355,7 @@ async def _graph_agent_reply(
                 execution_profile="chat",
                 run_id=run_id,
                 include_run_summary=True,
+                progress_sink=progress_sink,
             ),
             timeout=reply_timeout,
         )

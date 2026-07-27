@@ -225,6 +225,67 @@ class TelegramBackend(MessagingBackend):
                     success=False, platform=PlatformId.TELEGRAM, error=str(e2)
                 )
 
+    async def edit_message(
+        self,
+        channel_id: str,
+        message_id: str,
+        text: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        """Edit a Telegram message in place via ``editMessageText``. CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency
+
+        Mirrors :meth:`send_message`'s Markdown→HTML rendering and its plain-text retry, so a
+        live-updating status message renders the same way a fresh reply would. A failed edit
+        NEVER raises — it returns an unsuccessful ``SendResult`` so the caller can fall back to
+        sending the final reply as a new message.
+        """
+        parse_mode = (metadata or {}).get("parse_mode", "HTML")
+        if parse_mode == "HTML" and not (metadata or {}).get("preformatted"):
+            from agent_utilities.messaging.render import markdown_to_telegram_html
+
+            send_text = markdown_to_telegram_html(text)
+        else:
+            send_text = text
+
+        base: dict[str, Any] = {
+            "chat_id": int(channel_id),
+            "message_id": int(message_id),
+        }
+        try:
+            msg = await self._app.bot.edit_message_text(
+                text=send_text, parse_mode=parse_mode, **base
+            )
+            return SendResult(
+                success=True,
+                message_id=str(getattr(msg, "message_id", message_id)),
+                platform=PlatformId.TELEGRAM,
+                channel_id=channel_id,
+            )
+        except Exception as e:
+            # A formatting parse error must never lose the update — retry once as plain text.
+            logger.warning(
+                "[CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency] Telegram %s edit failed (%s); retrying as plain text.",
+                parse_mode,
+                e,
+            )
+            try:
+                msg = await self._app.bot.edit_message_text(text=text, **base)
+                return SendResult(
+                    success=True,
+                    message_id=str(getattr(msg, "message_id", message_id)),
+                    platform=PlatformId.TELEGRAM,
+                    channel_id=channel_id,
+                )
+            except Exception as e2:  # noqa: BLE001
+                logger.debug(
+                    "[CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency] Telegram edit failed: %s",
+                    e2,
+                )
+                return SendResult(
+                    success=False, platform=PlatformId.TELEGRAM, error=str(e2)
+                )
+
     async def send_media(
         self,
         channel_id: str,

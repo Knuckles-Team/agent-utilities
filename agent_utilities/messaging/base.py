@@ -257,6 +257,40 @@ class MessagingBackend(ABC):
             self.id,
         )
 
+    async def edit_message(
+        self,
+        channel_id: str,
+        message_id: str,
+        text: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        """Edit an already-sent message IN PLACE (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
+
+        This is the capability that lets ONE status message EVOLVE — e.g. a live
+        "working on it…" checklist a long delegation updates checkpoint-by-checkpoint —
+        instead of spamming N separate messages as a run progresses.
+
+        The default implementation is a SAFE fallback: a platform that cannot edit simply
+        sends a NEW message, so a caller may invoke ``edit_message`` unconditionally without
+        first checking support. Backends with a native edit (Telegram ``editMessageText``,
+        Mattermost post update) OVERRIDE this to edit ``message_id`` in place. The messaging
+        router drives its live-checklist render ONLY for backends that override this method
+        (detected via ``type(backend).edit_message is not MessagingBackend.edit_message``); a
+        non-overriding backend degrades to a single final reply.
+
+        Args:
+            channel_id: Channel/conversation containing the message.
+            message_id: Platform message id to edit (from a prior ``SendResult.message_id``).
+            text: The new full text for the message.
+            metadata: Platform-specific options (e.g. ``parse_mode``).
+
+        Returns:
+            ``SendResult`` — ``message_id`` is the edited message on platforms that edit in
+            place, or the NEW message id on the send fallback.
+        """
+        return await self.send_message(channel_id, text, metadata=metadata)
+
     # ── Threading ────────────────────────────────────────────────────
 
     async def reply_to(
