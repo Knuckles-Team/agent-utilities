@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = ROOT / "docker" / "Dockerfile"
 DOCKERIGNORE = ROOT / ".dockerignore"
 PYTHON_IMAGE = (
-    "python:3.12-slim@sha256:"
-    "57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
+    "python:3.14-slim@sha256:"
+    "cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6"
 )
 
 
@@ -31,7 +31,7 @@ def test_agent_local_is_closed_hash_locked_and_path_origin_free() -> None:
         'shutil.which("graph-os")',
         'glob("*.dist-info/direct_url.json")',
         "import epistemic_graph.numeric",
-        "sys.version_info[:2] == (3, 12)",
+        "sys.version_info[:2] == (3, 14)",
     ):
         assert required in local_stage
 
