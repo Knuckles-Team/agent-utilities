@@ -1102,6 +1102,9 @@ def test_focused_tools_reply_budget_is_tighter_than_full() -> None:
     one = replace(full, tool_servers=("portainer-mcp",))
     two = replace(full, tool_servers=("portainer-mcp", "github-mcp"))
     assert full.reply_budget_s >= 150.0  # full apparatus
-    assert one.reply_budget_s == 55.0  # 35 + 20*1
-    assert two.reply_budget_s == 75.0  # 35 + 20*2
+    # A single server's REAL tool loop can run ~2 min under load (measured ~117 s live),
+    # so the focused budget must be generous enough to DELIVER it over messaging — while
+    # staying capped just below the full apparatus (see reply_budget_s).
+    assert one.reply_budget_s == 130.0  # 90 + 40*1
+    assert two.reply_budget_s == 170.0  # 90 + 40*2
     assert two.reply_budget_s < full.reply_budget_s

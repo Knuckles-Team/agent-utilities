@@ -141,9 +141,15 @@ class ExecutionProfile:
         if self.tool_servers:
             # CONCEPT:AU-ORCH.execution.focused-tools-altitude — the FOCUSED-TOOLS altitude is one agent loop that calls the
             # bound servers' tools (in parallel), with NO planner / discovery / agent resolution
-            # / verifier / expert fan-out. So the budget grows mildly with the number of bound
-            # servers (each adds tool round-trips), not the full-graph apparatus (~190 s).
-            return min(35.0 + 20.0 * len(self.tool_servers), 190.0)
+            # / verifier / expert fan-out. Even so, a single server's REAL tool loop (a failed
+            # tool attempt + a fallback + a large result + summarization, all under engine
+            # load) can run ~2 min — measured: a live github tool turn grounded in ~117 s. The
+            # budget must therefore be generous enough to DELIVER such a turn over messaging
+            # rather than cut it off at an optimistic ceiling; it grows with the number of
+            # bound servers (each adds tool round-trips), capped just BELOW the full-graph
+            # budget (190 s) so a focused turn stays lighter than a full one. A fast turn
+            # completes early and never waits the full budget.
+            return min(90.0 + 40.0 * len(self.tool_servers), 180.0)
         budget = 45.0  # a single resolved-specialist turn
         if self.run_discovery:
             budget += 30.0  # the router's KG discovery + planning bundle
