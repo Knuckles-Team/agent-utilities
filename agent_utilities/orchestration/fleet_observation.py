@@ -94,7 +94,7 @@ class KGFleetObserver:
             return []
         try:
             rows = self.engine.query_cypher(
-                "MATCH (e:FleetEvent) RETURN e.subject AS subject, "
+                "MATCH (e:FleetEvent) RETURN e.id AS id, e.subject AS subject, "
                 "e.status AS status, e.severity AS severity, "
                 f"e.received_at AS received_at LIMIT {_EVENT_SCAN_LIMIT}"
             )

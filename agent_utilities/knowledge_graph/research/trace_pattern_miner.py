@@ -95,7 +95,7 @@ def _gather_failure_tool_sequences(
                 f"MATCH (r:RunTrace)-[:{TRACE_PRODUCED_OUTCOME_EDGE}]->(o:OutcomeEvaluation) "
                 "WHERE o.reward < $threshold AND r.event_sequence > $after_sequence "
                 f"MATCH (r)-[:{TRACE_USED_TOOL_EDGE}]->(t:ToolCall) "
-                "RETURN r.id AS trace_id, r.event_sequence AS event_sequence, "
+                "RETURN r.id AS id, r.id AS trace_id, r.event_sequence AS event_sequence, "
                 "t.tool_name AS tool_name, t.sequence AS tool_sequence "
                 "ORDER BY event_sequence, trace_id, tool_sequence "
                 f"LIMIT {int(limit)}",

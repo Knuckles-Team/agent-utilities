@@ -91,7 +91,7 @@ def build_schema_context(engine: Any, *, max_labels: int = 60) -> dict[str, Any]
     labels: list[str] = []
     try:
         rows = engine.query_cypher(
-            "MATCH (n) RETURN n.node_type AS nt, n.type AS t, n.label AS lb "
+            "MATCH (n) RETURN n.id AS id, n.node_type AS nt, n.type AS t, n.label AS lb "
             f"LIMIT {max(max_labels * 20, 2000)}"
         )
         seen: dict[str, None] = {}

@@ -137,7 +137,7 @@ def read_beacon(engine: Any) -> dict[str, Any]:
         return {}
     try:
         rows = engine.query_cypher(
-            "MATCH (n:EvolutionBeacon) RETURN n.status AS status, "
+            "MATCH (n:EvolutionBeacon) RETURN n.id AS id, n.status AS status, "
             "n.stage AS stage, n.timestamp AS timestamp, n.metadata AS metadata LIMIT 1"
         )
     except Exception as e:  # noqa: BLE001
@@ -170,7 +170,7 @@ def _open_gaps_trend(engine: Any, *, window: int = 8) -> dict[str, Any]:
         return {"series": [], "recent": 0, "prior": 0}
     try:
         rows = engine.query_cypher(
-            "MATCH (n:EvolutionCycle) RETURN n.created_at AS ts, n.metadata AS metadata"
+            "MATCH (n:EvolutionCycle) RETURN n.id AS id, n.created_at AS ts, n.metadata AS metadata"
         )
     except Exception as e:  # noqa: BLE001
         logger.debug("_open_gaps_trend query failed: %s", e)

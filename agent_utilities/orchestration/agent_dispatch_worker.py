@@ -121,7 +121,7 @@ def load_goal_run(
         return None
     try:
         rows = engine.query_cypher(
-            "MATCH (c:Concept) WHERE c.id = $id RETURN c.id AS goal_id, "
+            "MATCH (c:Concept) WHERE c.id = $id RETURN c.id AS id, c.id AS goal_id, "
             "c.session_id AS session_id, c.objective AS objective, "
             "c.validation_cmd AS validation_cmd, c.max_iterations AS max_iterations, "
             "c.updated_at AS updated_at",
@@ -396,7 +396,8 @@ def _fence_still_valid(
         return True
     try:
         rows = engine.query_cypher(
-            "MATCH (l:AgentLease {resource_id: $rid}) RETURN l.owner_token AS owner_token, "
+            "MATCH (l:AgentLease {resource_id: $rid}) RETURN l.id AS id, "
+            "l.owner_token AS owner_token, "
             "l.lease_epoch AS lease_epoch ORDER BY l.acquired_at DESC LIMIT 1",
             {"rid": task_id},
         )

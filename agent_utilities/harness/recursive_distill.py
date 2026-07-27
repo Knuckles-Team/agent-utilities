@@ -157,7 +157,7 @@ class RecursiveDistiller:
         try:
             rows = self.engine.query_cypher(
                 "MATCH (n:DistilledModelBaseline) "
-                "RETURN n.scores_json AS scores, n.recorded_at AS ts"
+                "RETURN n.id AS id, n.scores_json AS scores, n.recorded_at AS ts"
             )
         except Exception:  # noqa: BLE001
             return None

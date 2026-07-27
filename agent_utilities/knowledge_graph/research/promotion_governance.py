@@ -250,7 +250,7 @@ class PromotionGovernanceValidator:
         try:
             rows = self.engine.query_cypher(
                 "MATCH (r:RegressionGateResult) WHERE r.proposal_id = $pid "
-                "RETURN r.result AS result, r.timestamp AS timestamp",
+                "RETURN r.id AS id, r.result AS result, r.timestamp AS timestamp",
                 {"pid": proposal_id},
             )
         except Exception as exc:  # noqa: BLE001 — no gate store yet

@@ -1180,7 +1180,7 @@ class AgentContextManager:
 
         # Get partition from thread
         thread_data = engine.query_cypher(
-            "MATCH (t {id: $tid}) RETURN t.partition AS partition",
+            "MATCH (t {id: $tid}) RETURN t.id AS id, t.partition AS partition",
             {"tid": thread_id},
         )
         partition = ""
@@ -1255,7 +1255,7 @@ class AgentContextManager:
 
         # Get the summary itself
         summary_data = engine.query_cypher(
-            "MATCH (s {id: $sid}) RETURN s.content AS content, s.level AS level, "
+            "MATCH (s {id: $sid}) RETURN s.id AS id, s.content AS content, s.level AS level, "
             "s.thread_id AS thread_id, s.strategy AS strategy",
             {"sid": summary_id},
         )
@@ -1347,7 +1347,7 @@ class AgentContextManager:
 
         summary = engine.query_cypher(
             "MATCH (s {id: $sid}) "
-            "RETURN s.content AS content, s.level AS level, "
+            "RETURN s.id AS id, s.content AS content, s.level AS level, "
             "s.thread_id AS thread_id, s.strategy AS strategy, "
             "s.tokens_before AS tokens_before, s.tokens_after AS tokens_after, "
             "s.timestamp AS timestamp, s.partition AS partition, "

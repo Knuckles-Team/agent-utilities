@@ -174,7 +174,7 @@ def transitions_from_engine(engine: Any, *, limit: int = 2000) -> list[Transitio
     try:
         rows = engine.query_cypher(
             "MATCH (t:WorldModelTransition) "
-            "RETURN t.state AS state, t.action AS action, t.next_state AS next_state "
+            "RETURN t.id AS id, t.state AS state, t.action AS action, t.next_state AS next_state "
             f"LIMIT {int(limit)}"
         )
     except Exception:  # noqa: BLE001 — no engine/query support ⇒ no transitions

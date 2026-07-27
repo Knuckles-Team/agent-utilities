@@ -1194,7 +1194,7 @@ class StartupContextBuilder:
             results = self.engine.query_cypher(
                 "MATCH (t) WHERE (t.node_type = 'team_config' OR "
                 "t.node_type = 'TeamConfigNode') AND t.name CONTAINS $team "
-                "RETURN t.name as name, t.description as desc, "
+                "RETURN t.id as id, t.name as name, t.description as desc, "
                 "t.conventions as conventions, t.preferences as prefs",
                 {"team": team},
             )

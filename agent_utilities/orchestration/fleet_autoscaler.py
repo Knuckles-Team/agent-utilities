@@ -192,7 +192,7 @@ class FleetAutoscaler:
         try:
             rows = self.engine.query_cypher(
                 "MATCH (d:ActionDecision {kind: $kind, target: $target}) "
-                "RETURN d.decision AS decision, d.params_json AS params_json, "
+                "RETURN d.id AS id, d.decision AS decision, d.params_json AS params_json, "
                 f"d.decided_unix AS ts LIMIT {_LEDGER_SCAN_LIMIT}",
                 {"kind": "scale_service", "target": service},
             )
@@ -206,7 +206,7 @@ class FleetAutoscaler:
         try:
             rows = self.engine.query_cypher(
                 "MATCH (x:ActionExecution {kind: $kind, target: $target}) "
-                "RETURN x.ok AS ok, x.executed_unix AS ts "
+                "RETURN x.id AS id, x.ok AS ok, x.executed_unix AS ts "
                 f"LIMIT {_LEDGER_SCAN_LIMIT}",
                 {"kind": "scale_service", "target": service},
             )

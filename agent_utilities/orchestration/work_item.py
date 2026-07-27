@@ -1238,7 +1238,7 @@ def ensure_agent_task_work_item(
         return item_id
 
     rows = engine.query_cypher(
-        "MATCH (t:AgentTask {id: $id}) RETURN t.status AS status, "
+        "MATCH (t:AgentTask {id: $id}) RETURN t.id AS id, t.status AS status, "
         "t.depends_on_task_ids AS depends_on_task_ids, t.dag_id AS dag_id, "
         "t.checkpoint_id AS checkpoint_id",
         {"id": task_id},
@@ -1339,7 +1339,7 @@ def claim_agent_task_via_work_item(
     checkpoint_id = None
     try:
         legacy_rows = engine.query_cypher(
-            "MATCH (t:AgentTask {id: $id}) RETURN t.dag_id AS dag_id, t.checkpoint_id AS checkpoint_id",
+            "MATCH (t:AgentTask {id: $id}) RETURN t.id AS id, t.dag_id AS dag_id, t.checkpoint_id AS checkpoint_id",
             {"id": task_id},
         )
         if legacy_rows:
