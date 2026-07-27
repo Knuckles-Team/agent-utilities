@@ -524,18 +524,24 @@ class QueryMixin(_Base):
         # full-node scan the `MATCH (n) WHERE … CONTAINS` path below degrades to on the
         # engine (which does not evaluate the WHERE server-side and returns every node).
         # Per the dependency edict, keyword/vector ranking belongs on the engine, never
-        # an O(N) Python loop. Hydrate each hit for RBAC + soft-delete enforcement
-        # (discover returns only id/name/description/type/score).
+        # an O(N) Python loop. Hydrate the hits for RBAC + soft-delete enforcement
+        # (discover returns only id/name/description/type/score) in ONE round-trip —
+        # a per-hit read here was O(N) serialized point-reads that dominated retrieval
+        # latency under engine contention (blew the delegation's time budget).
         disc = getattr(self.graph, "discover", None)
         if callable(disc):
             try:
-                for item in disc(keywords, [], max(top_k * 4, top_k)) or []:
-                    if not isinstance(item, dict):
-                        continue
-                    node_id = str(item.get("id", ""))
-                    if not node_id:
-                        continue
-                    data = self.graph._get_node_properties(node_id) or dict(item)
+                hits = [
+                    item
+                    for item in (disc(keywords, [], max(top_k * 4, top_k)) or [])
+                    if isinstance(item, dict) and str(item.get("id", ""))
+                ]
+                hydrated = self.graph._get_node_properties_batch(
+                    [str(item["id"]) for item in hits]
+                )
+                for item in hits:
+                    node_id = str(item["id"])
+                    data = hydrated.get(node_id) or dict(item)
                     data["id"] = node_id
                     req_class = data.get("requiresClassification", 0)
                     if isinstance(req_class, int) and req_class > clearance_level:
