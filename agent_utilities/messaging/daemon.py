@@ -24,10 +24,76 @@ import asyncio
 import logging
 import os
 import signal
+import sys
 import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Marks the one dedicated stderr handler this module attaches to the messaging
+# package logger so :func:`_ensure_messaging_log_visibility` stays idempotent
+# (never stacks a second handler across repeated calls / co-service restarts).
+_MESSAGING_LOG_HANDLER_MARK = "_au_messaging_visibility_handler"
+
+
+def _ensure_messaging_log_visibility() -> None:
+    """Guarantee the bundled messaging co-service's lifecycle/error logs are visible.
+
+    CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs
+
+    Root cause this fixes: when messaging runs as an in-process ``graph-os`` co-service
+    (:func:`agent_utilities.mcp.co_service_supervisor.start_co_services` → :func:`run_forever`)
+    it inherits the graph-os process's ROOT logger, which ``create_mcp_server`` pins to
+    ``WARNING`` at build time (``agent_utilities/mcp/server_factory.py`` →
+    ``logging.basicConfig(stream=sys.stderr, level=logging.WARNING, force=True)``). The
+    standalone daemon's :func:`main` calls its own ``basicConfig(level=logging.INFO)`` and
+    so is fine, but the co-service never raises the level for ``agent_utilities.messaging.*``
+    — so every INFO lifecycle line ("Starting inbound router", "Listening for events on
+    …", "Telegram polling started", the 409 restart-race WARNING, the listener
+    death/restart) is filtered out before reaching any handler, and a messaging poller
+    failure is invisible in ``kubectl logs``.
+
+    Fix (minimal, correct — NOT ``basicConfig`` from a library co-service, which would be a
+    no-op or double-log once the root already has handlers): attach ONE dedicated
+    ``StreamHandler`` to the ``agent_utilities.messaging`` PACKAGE logger at INFO and stop
+    its propagation. That decouples messaging visibility from whatever level/handlers the
+    root logger ends up with (server_factory, then FastMCP/uvicorn at serve time), so the
+    messaging lifecycle + errors are ALWAYS emitted, exactly once, with no dependence on
+    root configuration and no double-logging.
+
+    It writes to **stderr**, never stdout: under the ``stdio`` transport stdout IS the
+    JSON-RPC channel, so a stdout handler would corrupt the protocol
+    (``co_service_supervisor`` documents this constraint). ``kubectl logs`` captures both
+    streams, so stderr satisfies the "always visible" bar. Idempotent and safe to call
+    from both the standalone daemon and the co-service. The level is overridable via
+    ``MESSAGING_LOG_LEVEL`` (default INFO).
+    """
+    from agent_utilities.core.config import setting
+
+    pkg_logger = logging.getLogger("agent_utilities.messaging")
+    level_name = str(setting("MESSAGING_LOG_LEVEL", "INFO")).strip().upper()
+    level = getattr(logging, level_name, logging.INFO)
+    if not isinstance(level, int):  # unknown name → safe INFO default
+        level = logging.INFO
+    pkg_logger.setLevel(level)
+    # Defend against any dictConfig(disable_existing_loggers=True) pass at serve time.
+    pkg_logger.disabled = False
+
+    if not any(
+        getattr(h, _MESSAGING_LOG_HANDLER_MARK, False) for h in pkg_logger.handlers
+    ):
+        handler = logging.StreamHandler(stream=sys.stderr)
+        handler.setLevel(level)
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        setattr(handler, _MESSAGING_LOG_HANDLER_MARK, True)
+        pkg_logger.addHandler(handler)
+
+    # Our dedicated handler is now the guaranteed sink for messaging records, so stop
+    # propagation to the root logger: this both makes visibility independent of the root
+    # level/handlers AND prevents double emission when the root does admit a record.
+    pkg_logger.propagate = False
 
 
 async def _serve(engine: Any, platforms: list[str]) -> None:
@@ -125,6 +191,10 @@ def run_forever(engine: Any, platforms: list[str], stop_event: threading.Event) 
     supervisor's own shutdown event) — the serving/shutdown logic is defined exactly
     once and shared by both callers.
     """
+    # Guarantee this co-service's lifecycle/error logs reach stderr (→ kubectl logs)
+    # regardless of the graph-os root logger being pinned to WARNING at build time. Safe
+    # + idempotent for the standalone daemon too (whose main() already set INFO).
+    _ensure_messaging_log_visibility()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     stop: asyncio.Future[None] = loop.create_future()
