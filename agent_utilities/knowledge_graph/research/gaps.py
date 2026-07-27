@@ -46,11 +46,12 @@ STATUS_RESOLVED = "resolved"
 STATUS_DEFERRED = "deferred"
 _TERMINAL = frozenset({STATUS_RESOLVED})
 
-#: The four discovery tracks fold into ONE gap type, distinguished only by ``source``.
+#: The discovery tracks fold into ONE gap type, distinguished only by ``source``.
 SOURCE_FAILURE = "failure"  # adaptation/failure_analyzer.file_gap_topic
 SOURCE_RESEARCH = "research"  # assimilation/plan_synthesis.synthesize_plan_for_feature
 SOURCE_SKILL = "skill"  # adaptation/skill_evolver.SkillGap
 SOURCE_AUDIT = "audit"  # harness/audit_gap_detector (Macroscope-class findings)
+SOURCE_RUNTIME = "runtime"  # research/runtime_reliability (RUNTIME reliability signals)
 
 #: Provenance edge names of the unified chain (D6).
 REL_SPECIFIED_BY = "SPECIFIED_BY"  # (:Gap)-[:SPECIFIED_BY]->(:SpecProposal)
@@ -323,6 +324,7 @@ __all__ = [
     "SOURCE_RESEARCH",
     "SOURCE_SKILL",
     "SOURCE_AUDIT",
+    "SOURCE_RUNTIME",
     "REL_SPECIFIED_BY",
     "REL_RESOLVES",
     "canonical_gap_id",

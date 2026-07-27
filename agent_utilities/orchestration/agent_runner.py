@@ -377,6 +377,37 @@ async def _emit(
         )
 
 
+def _record_delegation_over_budget(
+    agent_name: str, elapsed_s: float, outcome: str
+) -> None:
+    """CONCEPT:AU-AHE.harness.runtime-reliability-loop — feed a delegation that ran over (a
+    fraction of) its wall-clock budget into the runtime-reliability detect→gap loop.
+
+    A run that is slow-but-not-wrong — an O(N) retrieval regression, engine contention — is
+    invisible to the reward flywheel (success × speed still scores it a success), and a hard
+    timeout is a caller-side cancellation that never becomes a graded run. Recording the
+    over-budget elapsed makes a repeated pattern on one agent a SOURCE_RUNTIME gap. This is a
+    buffer append only (all exceptions swallowed); no engine write on the run's hot path.
+    """
+    try:
+        from agent_utilities.observability.runtime_signals import (
+            KIND_DELEGATION_OVER_BUDGET,
+            record_runtime_signal,
+        )
+
+        record_runtime_signal(
+            KIND_DELEGATION_OVER_BUDGET,
+            agent_name or "unknown",
+            {
+                "elapsed_s": round(float(elapsed_s), 1),
+                "budget_s": _EXECUTE_AGENT_WALL_CLOCK_S,
+                "outcome": outcome,
+            },
+        )
+    except Exception:  # noqa: BLE001 — emission must never affect the run
+        pass
+
+
 def _prepare_spawn_delegation(
     agent_name: str,
     run_id: str,
@@ -1102,6 +1133,12 @@ async def run_agent(
                 logger.debug(
                     "run_agent: best-effort timeout-trace write failed: %s", trace_exc
                 )
+            # CONCEPT:AU-AHE.harness.runtime-reliability-loop — a caller-side wall-clock
+            # timeout is a delegation definitively over budget that never becomes a graded
+            # run; record it (fire-and-forget) so a repeated pattern surfaces as a gap.
+            _record_delegation_over_budget(
+                agent_name, time.monotonic() - start_time, "timeout"
+            )
             raise
         if isinstance(e, KeyboardInterrupt | SystemExit) and not isinstance(
             e, BaseExceptionGroup
@@ -1261,6 +1298,12 @@ async def run_agent(
     # can halt to error_threshold_exceeded. Tracking only — never aborts this run.
     _record_agent_outcome(agent_name, degraded=degraded)
     duration_ms = (time.monotonic() - start_time) * 1000
+    # CONCEPT:AU-AHE.harness.runtime-reliability-loop — a run that ate most of its wall-clock
+    # budget is a slow-not-wrong signal the reward flywheel can't see. Fire-and-forget.
+    if duration_ms >= _DELEGATION_BUDGET_WARN_FRACTION * _EXECUTE_AGENT_WALL_CLOCK_S * 1000:
+        _record_delegation_over_budget(
+            agent_name, duration_ms / 1000.0, "degraded" if degraded else "ok"
+        )
     _record_execution_trace(
         engine,
         run_id,
@@ -2198,6 +2241,12 @@ _MAX_BOUND_TOOLS = 20
 # blocking tool fails loud in minutes instead of hanging for the full client budget
 # (CONCEPT:AU-ORCH.execution.delegation-wall-clock). One correct value, not a knob.
 _EXECUTE_AGENT_WALL_CLOCK_S = 300.0
+
+# Fraction of the wall-clock budget above which a COMPLETED run is still recorded as a
+# runtime-reliability "over budget" signal (CONCEPT:AU-AHE.harness.runtime-reliability-loop).
+# A run that succeeds but eats ~most of its budget is a slow-not-wrong regression the reward
+# flywheel never penalizes; this makes a repeated pattern visible. Named constant, not a knob.
+_DELEGATION_BUDGET_WARN_FRACTION = 0.8
 
 
 def _fleet_server_failed_result(agent_name: str, error: str) -> dict[str, Any]:

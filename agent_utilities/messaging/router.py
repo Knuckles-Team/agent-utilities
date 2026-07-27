@@ -164,7 +164,7 @@ class InboundRouter:
                 )
                 continue
             task = asyncio.create_task(
-                self._listen_loop(backend),
+                self._supervise_backend(backend),
                 name=f"messaging-router-{backend.id}",
             )
             self._tasks.append(task)
@@ -239,13 +239,122 @@ class InboundRouter:
             "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Inbound router stopped."
         )
 
-    async def _listen_loop(self, backend: MessagingBackend) -> None:
-        """Internal listener loop for a single backend.
+    async def _supervise_backend(self, backend: MessagingBackend) -> None:
+        """Keep a backend's listener ALIVE across recoverable failures (self-healing).
 
         CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
-        Consumes the backend's ``listen()`` async iterator and
-        dispatches each event to the appropriate handler.
+        Runs :meth:`_listen_loop` (one ``listen()`` attempt) inside a supervision loop.
+        On an unexpected exception — anything that is NOT ``asyncio.CancelledError``
+        (clean shutdown) and NOT ``NotImplementedError`` (the backend genuinely cannot
+        listen) — it logs the failure clearly and RESTARTS ``listen()`` after an
+        exponential backoff (base → ×2 → … capped). This is the durability fix: a
+        transient error such as a Telegram ``getUpdates`` 409 restart race (a new pod's
+        poller colliding with the old pod's still-expiring long-poll) used to be caught,
+        logged, and left to END the listener task permanently — so Telegram never
+        recovered until a full process restart, which raced again. Now it recovers
+        automatically within seconds.
+
+        The backoff is BOUNDED (never busy-loops) and is RESET to the base after a
+        sustained healthy run, so a brief blip does not leave the backend slow to retry
+        while a persistently-failing backend still backs off toward the cap. Tunables
+        (all read live): ``MESSAGING_LISTEN_BACKOFF_BASE_S`` (default 1s),
+        ``MESSAGING_LISTEN_BACKOFF_MAX_S`` (default 60s),
+        ``MESSAGING_LISTEN_HEALTHY_RESET_S`` (default 60s — a run that stayed up at least
+        this long is deemed healthy and resets the backoff).
+
+        Args:
+            backend: The messaging backend to supervise.
+        """
+        from agent_utilities.core.config import setting
+
+        base = max(0.0, float(setting("MESSAGING_LISTEN_BACKOFF_BASE_S", "1")))
+        cap = max(base, float(setting("MESSAGING_LISTEN_BACKOFF_MAX_S", "60")))
+        healthy_reset = float(setting("MESSAGING_LISTEN_HEALTHY_RESET_S", "60"))
+        # A zero base would busy-loop on a hard-failing backend; floor the delay.
+        delay = base or 1.0
+        while self._running:
+            started = time.monotonic()
+            restart_reason: str | None = None
+            try:
+                await self._listen_loop(backend)
+            except asyncio.CancelledError:
+                # Clean shutdown (router.stop cancelled us) — never restart; propagate.
+                logger.debug(
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener cancelled for '%s'.",
+                    backend.id,
+                )
+                raise
+            except NotImplementedError:
+                # The backend cannot listen (outbound-only) — giving up is correct.
+                logger.warning(
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Backend '%s' does not support "
+                    "inbound listening — not restarting.",
+                    backend.id,
+                )
+                return
+            except Exception as e:  # noqa: BLE001 — supervise: log + backed-off restart, never die
+                logger.error(
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener for '%s' failed: %s "
+                    "— restarting in %.1fs (self-healing supervisor).",
+                    backend.id,
+                    e,
+                    delay,
+                    exc_info=True,
+                )
+                restart_reason = "error"
+            else:
+                # ``listen()`` returned without error. If we are shutting down, exit;
+                # otherwise the stream closed unexpectedly (a long-poll/websocket backend
+                # should not) — treat it as recoverable and restart after the backoff.
+                if not self._running:
+                    return
+                logger.warning(
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener for '%s' ended "
+                    "unexpectedly (stream closed without error) — restarting in %.1fs.",
+                    backend.id,
+                    delay,
+                )
+                restart_reason = "stream_closed"
+            ran_for = time.monotonic() - started
+            if not self._running:
+                return
+            # CONCEPT:AU-AHE.harness.runtime-reliability-loop — record the self-heal so the
+            # runtime-reliability loop SEES it: a listener that keeps dying+restarting (e.g.
+            # the Telegram 409 race) is auto-healed here, but repeated restarts are a
+            # SOURCE_RUNTIME signal the flywheel should note (the reconciler records them as
+            # a resolved heal). Fire-and-forget; never perturbs the supervisor.
+            if restart_reason:
+                try:
+                    from agent_utilities.observability.runtime_signals import (
+                        KIND_LISTENER_RESTART,
+                        record_runtime_signal,
+                    )
+
+                    record_runtime_signal(
+                        KIND_LISTENER_RESTART,
+                        backend.id,
+                        {"delay_s": round(delay, 2), "ran_for_s": round(ran_for, 2)},
+                    )
+                except Exception:  # noqa: BLE001 — emission must never affect supervision
+                    pass
+            # Enforce the backoff so a hard-failing backend never busy-loops; a cancel
+            # during the wait is a clean shutdown and propagates out of the coroutine.
+            await asyncio.sleep(delay)
+            # Reset the backoff after a sustained healthy run; otherwise grow it (capped).
+            delay = (base or 1.0) if ran_for >= healthy_reset else min(delay * 2.0, cap)
+
+    async def _listen_loop(self, backend: MessagingBackend) -> None:
+        """One ``listen()`` attempt for a single backend — consumes its event stream.
+
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction
+
+        Consumes the backend's ``listen()`` async iterator and dispatches each event to
+        the appropriate handler. Exceptions are deliberately NOT swallowed here (they
+        were before, which permanently killed the listener on the first error): this
+        method is driven by :meth:`_supervise_backend`, so ``CancelledError`` propagates
+        for a clean shutdown, ``NotImplementedError`` signals "backend can't listen", and
+        every other exception propagates to the supervisor for a backed-off restart.
 
         Args:
             backend: The messaging backend to listen on.
@@ -254,28 +363,10 @@ class InboundRouter:
             "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listening for events on '%s'...",
             backend.id,
         )
-        try:
-            async for event in backend.listen():
-                if not self._running:
-                    break
-                await self._dispatch(event, backend)
-        except asyncio.CancelledError:
-            logger.debug(
-                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener cancelled for '%s'.",
-                backend.id,
-            )
-        except NotImplementedError:
-            logger.warning(
-                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Backend '%s' does not support inbound listening.",
-                backend.id,
-            )
-        except Exception as e:
-            logger.error(
-                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Error in listener for '%s': %s",
-                backend.id,
-                e,
-                exc_info=True,
-            )
+        async for event in backend.listen():
+            if not self._running:
+                break
+            await self._dispatch(event, backend)
 
     async def _dispatch(self, event: InboundEvent, backend: MessagingBackend) -> None:
         """Dispatch an event to registered handlers.

@@ -159,6 +159,29 @@ class TelegramBackend(MessagingBackend):
             await self._app.shutdown()
         await super().disconnect()
 
+    async def _stop_polling_quietly(self) -> None:
+        """Best-effort stop of the Telegram updater so a failed or retried intake never
+        leaks a half-open ``getUpdates`` poller (which would itself 409 the next attempt).
+
+        CONCEPT:AU-ECO.messaging.native-backend-abstraction — guarded so it is safe to call
+        whether or not the updater actually started: python-telegram-bot raises if
+        ``stop()`` is called on a non-running updater, so we check ``running`` first and
+        swallow any residual cleanup error, always clearing ``_polling``.
+        """
+        self._polling = False
+        updater = getattr(self._app, "updater", None)
+        if updater is None:
+            return
+        try:
+            if getattr(updater, "running", False):
+                await updater.stop()
+        except Exception as e:  # noqa: BLE001 — cleanup must never mask the original failure
+            logger.debug(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram updater stop during "
+                "cleanup skipped: %s",
+                e,
+            )
+
     async def send_message(
         self,
         channel_id: str,
@@ -393,7 +416,31 @@ class TelegramBackend(MessagingBackend):
                 url_path,
             )
         else:
-            await self._app.updater.start_polling()
+            from telegram.error import Conflict
+
+            try:
+                await self._app.updater.start_polling()
+            except Conflict as exc:
+                # HTTP 409: another ``getUpdates`` poller is active for this bot. This is
+                # almost always a RESTART RACE — a new pod's poller colliding with the old
+                # pod's still-expiring long-poll — which clears on its own within the poll
+                # timeout; occasionally it is a genuine second instance. Either way, do NOT
+                # swallow it into a dead generator: stop cleanly (so we never leak a
+                # half-open updater that would 409 the next attempt), log a clear WARNING,
+                # and let it propagate to the router's supervisor for a backed-off retry.
+                await self._stop_polling_quietly()
+                bot_ref = (
+                    self.config.token.split(":", 1)[0] if self.config.token else "?"
+                )
+                logger.warning(
+                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram getUpdates conflict "
+                    "(409) for bot id %s — another getUpdates poller is active (restart race across "
+                    "pods, or a second instance). Stopped cleanly; the supervisor will retry with "
+                    "backoff. Detail: %s",
+                    bot_ref,
+                    exc,
+                )
+                raise
             self._polling = True
             logger.info(
                 "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Telegram polling started."

@@ -3268,6 +3268,38 @@ class GraphComputeEngine:
                 return {}
         return {}
 
+    def _get_node_properties_batch(
+        self, node_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Hydrate MANY nodes' properties in ONE engine round-trip.
+
+        The per-node :meth:`_get_node_properties` is O(N) round-trips when a caller
+        hydrates a candidate set (e.g. the keyword-retrieval leg over a discover()
+        result), which dominated retrieval latency under load — one contended
+        point-read is cheap, but dozens serialized are not. This batches them into a
+        single ``nodes.properties_batch`` call. Missing/unparseable entries map to an
+        empty dict so callers can uniformly ``.get(id, {})``.
+        """
+        if not node_ids:
+            return {}
+        raw = self._client.nodes.properties_batch(node_ids)
+        out: dict[str, dict[str, Any]] = {}
+        if not isinstance(raw, dict):
+            return out
+        for nid, props in raw.items():
+            key = str(nid)
+            if isinstance(props, dict):
+                out[key] = props
+            elif isinstance(props, str):
+                try:
+                    parsed = json.loads(props)
+                    out[key] = parsed if isinstance(parsed, dict) else {}
+                except Exception:
+                    out[key] = {}
+            else:
+                out[key] = {}
+        return out
+
     def _get_all_edges(self) -> list[tuple[str, str]]:
         return [(src, tgt) for src, tgt, _ in self._client.edges.list()]
 

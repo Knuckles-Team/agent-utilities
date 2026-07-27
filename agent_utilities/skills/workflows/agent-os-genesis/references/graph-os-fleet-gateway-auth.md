@@ -132,6 +132,43 @@ operator configures the OIDC client-credentials **once** (below) and nothing els
   message + hint via `orchestration/failure_translation.py` (category `session_expired`) instead of
   an opaque `unknown` failure.
 
+## Interactive-vs-background priority + delegation resilience
+
+The self-hosted engine is a **single-writer** process, so an unbounded background workload (the
+autonomous evolution loop's per-tick writes) can starve a live delegation's reads on the same
+connection. This is the failure this session hardened: a delegation's reads were starved by
+background writes and stalled, and a synchronous retrieval blocking the event loop turned a
+`/health` liveness timeout into a SIGKILL.
+
+- **`EPISTEMIC_GRAPH_QOS=1`** (set on the engine sidecar/initContainer) turns on the engine's
+  **QoS admission scheduler** — reserved `interactive` / `orch` / `hydration` lanes — so the
+  autonomous evolution loop's background writes **yield** to interactive delegation reads on the
+  single-writer engine. Without it, a delegation's reads are starved and it stalls.
+- **au tags every call's priority** via `resource_priority.priority_scope`
+  (`agent_utilities/core/resource_priority.py`, `PriorityClass`, highest→lowest: `INTERACTIVE`,
+  then `ORCHESTRATION`/`HYDRATION` (tied), then `BACKGROUND_INGESTION` — the only class that
+  yields):
+  - a live MCP call → **`INTERACTIVE`** (`kg_server._execute_tool`, the entry boundary for a
+    live Claude/end-user request — also covers a delegation's RAG context-compilation reads,
+    since they run on a `to_thread` worker that inherits this context);
+  - delegated agent work → **`ORCHESTRATION`** (`manager.execute_agent`) — except a delegation
+    spawned BY the background loop, which keeps `BACKGROUND_INGESTION` and is never upgraded;
+  - the autonomous goal loop → **`BACKGROUND_INGESTION`** (`agent_dispatch_worker._execute_goal_turn`),
+    so its per-tick engine writes always yield.
+
+  The class rides to the engine as a **signed request claim** — `session.engine_verified_context()`
+  stamps the optional `priority` claim from the ambient `PriorityClass` (covered by the same MAC as
+  every other claim; omitted entirely for an untagged caller, so this is purely additive).
+- **RAG context-compilation is bounded + offloaded** (`core/contextual_model.py`): the compile runs
+  off the event loop via `asyncio.to_thread(...)`, capped by `asyncio.wait_for(..., 10.0)`
+  (`_CONTEXT_COMPILE_TIMEOUT_S`). On timeout or any compile error it **degrades to ungrounded**
+  rather than blocking — so a contended retrieval can **never** block graph-os's asyncio event
+  loop. This is what removes the `/health`-timeout → SIGKILL a synchronous retrieval previously caused.
+- **Validate:** a `graph_orchestrate` delegation completes (observed ~46s) with graph-os stable
+  (`/health` responsive, 0 restarts). Confirm via the `ENGINE_REQUEST_LATENCY` histogram +
+  `"slow engine call"` WARN lines (`knowledge_graph/core/engine_breaker.py`, ≥1.0s/op threshold) —
+  background ops running slow is **correct shedding**; interactive reads should stay fast.
+
 ## Validate (live)
 
 ```bash

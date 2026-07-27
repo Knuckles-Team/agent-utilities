@@ -80,6 +80,7 @@ _MAINTENANCE_REF_ALLOWLIST = frozenset(
         "optimize_components",
         "package_install_ingest",
         "reconcile_mirrors",
+        "runtime_reliability",
         "sai_factory",
         "tenant_gc",
         "tms_revalidation",
