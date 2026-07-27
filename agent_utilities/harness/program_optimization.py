@@ -591,13 +591,13 @@ def gather_optimization_data(
     if target == "extraction":
         rows = _rows(
             f"MATCH (d:Document) WHERE d.content IS NOT NULL "
-            f"RETURN d.content AS content LIMIT {limit}"
+            f"RETURN d.id AS id, d.content AS content LIMIT {limit}"
         )
         return {"documents": [str(r.get("content")) for r in rows if r.get("content")]}
     if target == "concept_match":
         rows = _rows(
             f"MATCH (c:Concept)-[:ADDRESSED_BY]->(s) "
-            f"RETURN c.name AS concept, coalesce(s.content, s.name) AS article "
+            f"RETURN c.id AS id, c.name AS concept, coalesce(s.content, s.name) AS article "
             f"LIMIT {limit}"
         )
         positives = [
@@ -618,7 +618,7 @@ def gather_optimization_data(
     if target == "routing":
         rows = _rows(
             f"MATCH (t:ExecutionTrace) "
-            f"RETURN t.task_text AS task_text, t.primitive_used AS primitive_used, "
+            f"RETURN t.id AS id, t.task_text AS task_text, t.primitive_used AS primitive_used, "
             f"t.success AS success LIMIT {limit}"
         )
         return {"traces": rows}

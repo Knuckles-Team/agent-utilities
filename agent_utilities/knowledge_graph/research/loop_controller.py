@@ -666,7 +666,7 @@ class LoopController:
         if callable(q):
             try:
                 rows = q(
-                    "MATCH (n) WHERE n.id = $id RETURN n.hash AS hash LIMIT 1",
+                    "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.hash AS hash LIMIT 1",
                     {"id": _WATERMARK_NODE},
                 )
             except Exception:  # noqa: BLE001 - fall back to the full scan
@@ -2321,7 +2321,7 @@ class LoopController:
             return []
         try:
             rows = q(
-                "MATCH (n) WHERE n.id = $id RETURN n.hashes AS hashes LIMIT 1",
+                "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.hashes AS hashes LIMIT 1",
                 {"id": self._progress_window_node_id(loop_id)},
             )
         except Exception:  # noqa: BLE001

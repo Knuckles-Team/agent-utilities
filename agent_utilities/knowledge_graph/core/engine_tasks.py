@@ -1073,7 +1073,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         try:
             results = self.query_cypher(
                 "MATCH (c:Code) WHERE c.file_path IS NOT NULL "
-                "RETURN c.file_path AS path LIMIT 500"
+                "RETURN c.id AS id, c.file_path AS path LIMIT 500"
             )
             if not results:
                 return None
@@ -4648,7 +4648,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         # ── Step 1: Compute target codebase centroid embedding ──
         target_articles = self.query_cypher(
             "MATCH (c:Code) WHERE c.file_path CONTAINS $name "
-            "RETURN c.embedding AS emb LIMIT 200",
+            "RETURN c.id AS id, c.embedding AS emb LIMIT 200",
             {"name": target_codebase},
         )
 
@@ -4662,7 +4662,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             # Fallback: try Article nodes related to the target
             target_articles = self.query_cypher(
                 "MATCH (a:Article) WHERE a.target_path CONTAINS $name "
-                "RETURN a.embedding AS emb LIMIT 100",
+                "RETURN a.id AS id, a.embedding AS emb LIMIT 100",
                 {"name": target_codebase},
             )
             for row in target_articles:
@@ -4695,7 +4695,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         # ── Step 3: Gather all unique repositories (grouped by file_path prefix) ──
         code_rows = self.query_cypher(
             "MATCH (c:Code) WHERE c.file_path IS NOT NULL "
-            "RETURN c.file_path AS path LIMIT 2000"
+            "RETURN c.id AS id, c.file_path AS path LIMIT 2000"
         )
         repo_set: set[str] = set()
         for row in code_rows:
@@ -4721,7 +4721,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # Get all chunks for this paper
                 chunks = self.query_cypher(
                     "MATCH (a:Article) WHERE a.target_path = $path "
-                    "RETURN a.embedding AS emb, a.content AS content LIMIT 50",
+                    "RETURN a.id AS id, a.embedding AS emb, a.content AS content LIMIT 50",
                     {"path": paper_path},
                 )
 
@@ -4864,7 +4864,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             try:
                 repo_chunks = self.query_cypher(
                     "MATCH (c:Code) WHERE c.file_path CONTAINS $name "
-                    "RETURN c.embedding AS emb, c.content AS content LIMIT 100",
+                    "RETURN c.id AS id, c.embedding AS emb, c.content AS content LIMIT 100",
                     {"name": repo_name},
                 )
 

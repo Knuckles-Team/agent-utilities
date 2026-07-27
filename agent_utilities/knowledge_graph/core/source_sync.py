@@ -292,7 +292,8 @@ def _existing_disabled(engine: Any, node_id: str) -> bool:
         if graph is not None and node_id in graph:
             return bool(graph.nodes[node_id].get("disabled", False))
         rows = engine.query_cypher(
-            "MATCH (n) WHERE n.id = $id RETURN n.disabled AS disabled", {"id": node_id}
+            "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.disabled AS disabled",
+            {"id": node_id},
         )
         if rows and isinstance(rows, list):
             return bool(rows[0].get("disabled", False))

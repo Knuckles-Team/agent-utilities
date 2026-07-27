@@ -469,7 +469,7 @@ class ActionPolicy:
         try:
             rows = self.engine.query_cypher(
                 "MATCH (d:ActionDecision {kind: $kind}) "
-                "RETURN d.target AS target, d.decision AS decision, "
+                "RETURN d.id AS id, d.target AS target, d.decision AS decision, "
                 f"d.decided_unix AS ts LIMIT {_LEDGER_SCAN_LIMIT}",
                 {"kind": kind},
             )

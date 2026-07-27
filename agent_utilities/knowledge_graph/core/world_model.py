@@ -272,7 +272,7 @@ class WorldModel:
         try:
             rows = engine.query_cypher(
                 "MATCH (t:WorldModelTransition) "
-                "RETURN t.state AS state, t.action AS action, "
+                "RETURN t.id AS id, t.state AS state, t.action AS action, "
                 "t.next_state AS next_state, t.reward AS reward "
                 f"LIMIT {int(limit)}"
             )

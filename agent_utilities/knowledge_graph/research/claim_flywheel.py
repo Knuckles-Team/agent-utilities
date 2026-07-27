@@ -190,7 +190,7 @@ class ClaimFlywheel:
             rows = (
                 self.engine.query_cypher(
                     "MATCH (e:ClaimLifecycleEvent) WHERE e.claim_id = $id RETURN "
-                    "e.from_state AS from_state, e.to_state AS to_state, "
+                    "e.id AS id, e.from_state AS from_state, e.to_state AS to_state, "
                     "e.reason AS reason, e.actor AS actor, "
                     "e.governance_valid AS governance_valid, "
                     "e.action_decision AS action_decision, "
@@ -555,7 +555,7 @@ def list_claims(
         rows = (
             engine.query_cypher(
                 "MATCH (e:ClaimLifecycleEvent) RETURN "
-                "e.claim_id AS claim_id, e.to_state AS to_state, "
+                "e.id AS id, e.claim_id AS claim_id, e.to_state AS to_state, "
                 "e.reason AS reason, e.timestamp AS timestamp "
                 "ORDER BY e.timestamp"
             )

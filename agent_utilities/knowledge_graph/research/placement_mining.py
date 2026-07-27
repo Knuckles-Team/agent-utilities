@@ -266,7 +266,7 @@ def gather_access_records(
                 f"MATCH (r:RunTrace)-[:{TRACE_USED_TOOL_EDGE}]->(t:ToolCall) "
                 "WHERE r.event_sequence > $after_sequence "
                 "OPTIONAL MATCH (t)-[:ACTED_ON]->(en:Entity) "
-                "RETURN r.id AS trace_id, r.event_sequence AS event_sequence, "
+                "RETURN r.id AS id, r.id AS trace_id, r.event_sequence AS event_sequence, "
                 "t.tool_name AS tool_name, t.args AS args, "
                 "t.tenant_ref AS tenant_ref, en.id AS entity_id, "
                 "en.node_type AS entity_type ORDER BY event_sequence, trace_id, t.sequence "

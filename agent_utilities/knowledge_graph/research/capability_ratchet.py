@@ -167,7 +167,7 @@ class CapabilityRatchet:
         try:
             rows = self.engine.query_cypher(
                 "MATCH (n:CapabilityScoreVector) "
-                "RETURN n.scores_json AS scores, n.recorded_at AS ts"
+                "RETURN n.id AS id, n.scores_json AS scores, n.recorded_at AS ts"
             )
         except Exception:  # noqa: BLE001 — no engine/query support ⇒ no baseline
             return None
@@ -340,7 +340,7 @@ def latest_ratchet_result(engine: Any, proposal_id: str) -> str | None:
     try:
         rows = engine.query_cypher(
             "MATCH (r:CapabilityRatchetResult) WHERE r.proposal_id = $pid "
-            "RETURN r.result AS result, r.recorded_at AS ts",
+            "RETURN r.id AS id, r.result AS result, r.recorded_at AS ts",
             {"pid": proposal_id},
         )
     except Exception:  # noqa: BLE001

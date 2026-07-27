@@ -104,15 +104,15 @@ class ImprovementLedger:
         """
         cycles = sorted(
             self._rows(
-                "MATCH (n:EvolutionCycle) RETURN n.created_at AS ts, n.metadata AS metadata"
+                "MATCH (n:EvolutionCycle) RETURN n.id AS id, n.created_at AS ts, n.metadata AS metadata"
             ),
             key=lambda r: str(r.get("ts") or ""),
         )
         pubs = self._rows(
-            "MATCH (n:ProposalPublication) RETURN n.kind AS kind, n.ok AS ok, n.published_at AS ts"
+            "MATCH (n:ProposalPublication) RETURN n.id AS id, n.kind AS kind, n.ok AS ok, n.published_at AS ts"
         )
         ratchet = self._rows(
-            "MATCH (n:CapabilityRatchetResult) RETURN n.result AS result, n.recorded_at AS ts"
+            "MATCH (n:CapabilityRatchetResult) RETURN n.id AS id, n.result AS result, n.recorded_at AS ts"
         )
 
         v = ImprovementVelocity(cycles=len(cycles))
