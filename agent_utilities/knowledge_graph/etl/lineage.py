@@ -200,7 +200,7 @@ def record_connector_sync_activity(
     ts = at if at is not None else time.time()
     activity_id = activity_id or (
         f"activity:{connector}:{source_instance or '_'}:"
-        f"{int(ts * 1000)}:{uuid.uuid4().hex[:8]}"
+        f"{int(ts * 1000)}:{uuid.uuid4().hex}"
     )
     props: dict[str, Any] = {
         "kind": _CONNECTOR_SYNC_KIND,
@@ -329,7 +329,7 @@ def record_media_sidecar_activity(
     ts = at if at is not None else time.time()
     activity_id = activity_id or (
         f"activity:{_MEDIA_SIDECAR_KIND}:{sidecar}:{modality}:"
-        f"{int(ts * 1000)}:{uuid.uuid4().hex[:8]}"
+        f"{int(ts * 1000)}:{uuid.uuid4().hex}"
     )
     props: dict[str, Any] = {
         "kind": _MEDIA_SIDECAR_KIND,
