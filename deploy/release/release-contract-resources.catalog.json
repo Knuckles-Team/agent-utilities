@@ -14,7 +14,7 @@
     },
     {
       "path": "deploy/release/compatibility-matrix.yml",
-      "sha256": "88639921f68f3207772f7d15d75384bd8438c2f85fe9902874b698568ba2468a"
+      "sha256": "c62eb448bc6d524269202e58885f74f50ef65290ab44daf3fe6334dba8ac5fb6"
     },
     {
       "path": "deploy/release/component-provenance.schema.json",
