@@ -724,7 +724,16 @@ class HybridRetriever:
                             for f_node in sorted(frontier):
                                 if f_node not in all_discovered:
                                     all_discovered.append(f_node)
-                        # Collect all discovered nodes
+                        # Collect all discovered nodes — hydrate the whole batch in ONE
+                        # engine round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate) instead
+                        # of a per-node point-read per BFS hit inside this loop: with
+                        # multi_hop_depth hops fanning out per base node, the old per-nid
+                        # `_get_node_properties` call serialized O(N) single-node reads and
+                        # dominated retrieval latency under engine contention. Same id set,
+                        # same guard, same per-node semantics below — only the fetch is batched.
+                        hydrated = self._batch_node_properties(
+                            [nid for nid in all_discovered if nid not in visited]
+                        )
                         for nid in all_discovered:
                             if nid not in visited:
                                 visited.add(nid)
@@ -735,14 +744,10 @@ class HybridRetriever:
                                     # properties (e.g. type) it lacks rather than
                                     # refetching a bare graph projection.
                                     d = dict(node)
-                                    for k, v in self.engine.graph._get_node_properties(
-                                        nid
-                                    ).items():
+                                    for k, v in hydrated.get(nid, {}).items():
                                         d.setdefault(k, v)
                                 else:
-                                    d = dict(
-                                        self.engine.graph._get_node_properties(nid)
-                                    )
+                                    d = dict(hydrated.get(nid, {}))
                                 d["id"] = nid
                                 if self._boost_strategy == "context_only":
                                     d["_context_boost"] = self._backlink_boost(nid)

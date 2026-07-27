@@ -601,10 +601,15 @@ class QueryMixin(_Base):
                     logger.debug(f"Backend keyword search failed: {e}")
 
         # 3. Last-resort O(N) GCE scan for name/ID matches — only when neither the
-        # engine discover nor a Cypher-evaluating backend returned anything.
+        # engine discover nor a Cypher-evaluating backend returned anything. Every
+        # node's type must be inspected to match, so this can't skip hydration —
+        # batch-hydrate the WHOLE id list in ONE round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate)
+        # rather than one `_get_node_properties` point-read per node scanned.
         if not results:
-            for node_id in self.graph.node_ids():
-                data = self.graph._get_node_properties(node_id)
+            all_node_ids = self.graph.node_ids()
+            hydrated_all = self.graph._get_node_properties_batch(all_node_ids)
+            for node_id in all_node_ids:
+                data = hydrated_all.get(str(node_id), {})
                 # RBAC Enforcement Fallback
                 req_class = data.get("requiresClassification", 0)
                 if isinstance(req_class, int) and req_class > clearance_level:
@@ -939,6 +944,14 @@ class QueryMixin(_Base):
         for hop in range(1, max_hops + 1):
             next_frontier: list[tuple[str, list]] = []
 
+            # Collect this hop's neighbor expansion in ONE pass (preserving the
+            # existing `seen`-dedup order across every frontier node), THEN
+            # hydrate every discovered neighbor in a SINGLE batched engine
+            # round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate) rather than one
+            # `_get_node_properties` point-read per neighbor — the old per-neighbor
+            # call serialized O(N) engine reads per hop and dominated this
+            # multi-hop retrieval leg's latency under engine contention.
+            pending: list[tuple[str, list]] = []
             for node_id, path in frontier:
                 if not self.graph.has_node(node_id):
                     continue
@@ -952,23 +965,28 @@ class QueryMixin(_Base):
                     if neighbor_id in seen:
                         continue
                     seen.add(neighbor_id)
+                    pending.append((neighbor_id, path))
 
-                    # Get node data
-                    node_data = dict(self.graph._get_node_properties(neighbor_id))
-                    node_data["id"] = neighbor_id
-                    node_data["hop_depth"] = hop
+            hydrated = self.graph._get_node_properties_batch(
+                [neighbor_id for neighbor_id, _path in pending]
+            )
+            for neighbor_id, path in pending:
+                # Get node data
+                node_data = dict(hydrated.get(neighbor_id, {}))
+                node_data["id"] = neighbor_id
+                node_data["hop_depth"] = hop
 
-                    if evidence_chain:
-                        node_data["evidence_path"] = path + [(neighbor_id, "RELATED")]
+                if evidence_chain:
+                    node_data["evidence_path"] = path + [(neighbor_id, "RELATED")]
 
-                    # Score decay: further hops get lower scores
-                    base_score = float(node_data.get("importance_score", 0.5))
-                    node_data["_score"] = round(base_score * (0.8**hop), 4)
+                # Score decay: further hops get lower scores
+                base_score = float(node_data.get("importance_score", 0.5))
+                node_data["_score"] = round(base_score * (0.8**hop), 4)
 
-                    results.append(node_data)
-                    next_frontier.append(
-                        (neighbor_id, node_data.get("evidence_path", []))
-                    )
+                results.append(node_data)
+                next_frontier.append(
+                    (neighbor_id, node_data.get("evidence_path", []))
+                )
 
             frontier = next_frontier
             if not frontier:
@@ -988,9 +1006,11 @@ class QueryMixin(_Base):
         """Calculate the topological impact set for a code entity."""
         target_id = symbol_or_file
         if not self.graph.has_node(target_id):
-            # Try fuzzy match by name
-            for node in self.graph.node_ids():
-                data = self.graph._get_node_properties(node)
+            # Try fuzzy match by name — every node must be inspected to compare
+            # names, so hydrate the WHOLE graph in ONE round-trip
+            # (CONCEPT:AU-KG.retrieval.batch-hydrate) via the id+properties bulk
+            # scan rather than one `_get_node_properties` point-read per node.
+            for node, data in self.graph._get_all_nodes_with_properties():
                 if data.get("name") == symbol_or_file:
                     target_id = node
                     break
@@ -1008,7 +1028,12 @@ class QueryMixin(_Base):
                     ancestors.add(n)
                     next_frontier.update(self.graph.get_predecessors(n))
             frontier = next_frontier - ancestors
-        return [{"id": n, **self.graph._get_node_properties(n)} for n in ancestors]
+        # Batch-hydrate the whole ancestor set in ONE round-trip
+        # (CONCEPT:AU-KG.retrieval.batch-hydrate) instead of one point-read per
+        # ancestor.
+        ancestor_ids = list(ancestors)
+        hydrated = self.graph._get_node_properties_batch(ancestor_ids)
+        return [{"id": n, **hydrated.get(n, {})} for n in ancestor_ids]
 
     def find_path(self, source: str, target: str) -> list[str]:
         """Find the shortest logical path between two nodes.
@@ -1141,9 +1166,12 @@ class QueryMixin(_Base):
         if query:
             results = self.search_hybrid(query, top_k=top_k * 2)
         else:
+            # Full-graph scan — bulk id+properties in ONE round-trip
+            # (CONCEPT:AU-KG.retrieval.batch-hydrate) instead of one
+            # `_get_node_properties` point-read per node.
             results = [
-                {"id": nid, **self.graph._get_node_properties(nid)}
-                for nid in self.graph.node_ids()
+                {"id": nid, **props}
+                for nid, props in self.graph._get_all_nodes_with_properties()
             ]
 
         for r in results:
@@ -1204,8 +1232,10 @@ class QueryMixin(_Base):
     def list_callable_resources(self) -> list[dict[str, Any]]:
         """List all callable resources (MCP tools, A2A agents, skills)."""
         resources = []
-        for n in self.graph.node_ids():
-            data = self.graph._get_node_properties(n)
+        # Full-graph scan — bulk id+properties in ONE round-trip
+        # (CONCEPT:AU-KG.retrieval.batch-hydrate) instead of one
+        # `_get_node_properties` point-read per node.
+        for n, data in self.graph._get_all_nodes_with_properties():
             if data.get("type") == RegistryNodeType.CALLABLE_RESOURCE:
                 resources.append({"id": n, **data})
         return resources
@@ -1388,10 +1418,12 @@ class QueryMixin(_Base):
                         contra_node["_target_claim"] = claim_id
                         contradicting.append(contra_node)
         else:
-            # GCE fallback
+            # GCE fallback — every node's type must be inspected to match, so
+            # hydrate the WHOLE graph in ONE round-trip
+            # (CONCEPT:AU-KG.retrieval.batch-hydrate) rather than one
+            # `_get_node_properties` point-read per node scanned.
             query_lower = query.lower()
-            for node_id in self.graph.node_ids():
-                data = self.graph._get_node_properties(node_id)
+            for node_id, data in self.graph._get_all_nodes_with_properties():
                 node_type = str(data.get("type", "")).lower()
                 if node_type in ("claim", "evidence"):
                     claim_text = str(
@@ -1406,26 +1438,36 @@ class QueryMixin(_Base):
                         if len(beliefs) >= top_k:
                             break
 
-            # Find supporting/contradicting edges for found beliefs
+            # Find supporting/contradicting edges for found beliefs — collect
+            # every (belief, predecessor) pair FIRST, then hydrate every
+            # predecessor in ONE batched round-trip
+            # (CONCEPT:AU-KG.retrieval.batch-hydrate) instead of one point-read
+            # per predecessor per belief.
+            pending_preds: list[tuple[str, str]] = []
             for belief in beliefs:
                 belief_id = belief.get("id", "")
                 for u in self.graph.get_predecessors(belief_id):
-                    edge_type = "related"  # Default when edge props unavailable
-                    source_data = dict(self.graph._get_node_properties(u))
-                    source_data["id"] = u
-                    source_data["_target_claim"] = belief_id
+                    pending_preds.append((belief_id, u))
+            hydrated_preds = self.graph._get_node_properties_batch(
+                [u for _belief_id, u in pending_preds]
+            )
+            for belief_id, u in pending_preds:
+                edge_type = "related"  # Default when edge props unavailable
+                source_data = dict(hydrated_preds.get(u, {}))
+                source_data["id"] = u
+                source_data["_target_claim"] = belief_id
 
-                    if edge_type in ("builds_on", "exemplifies", "cites"):
+                if edge_type in ("builds_on", "exemplifies", "cites"):
+                    source_data["_relationship"] = edge_type
+                    supporting.append(source_data)
+                elif edge_type in (
+                    "contradicts",
+                    "contradicts_belief",
+                    "contradicts_kb",
+                ):
+                    if include_contradictions:
                         source_data["_relationship"] = edge_type
-                        supporting.append(source_data)
-                    elif edge_type in (
-                        "contradicts",
-                        "contradicts_belief",
-                        "contradicts_kb",
-                    ):
-                        if include_contradictions:
-                            source_data["_relationship"] = edge_type
-                            contradicting.append(source_data)
+                        contradicting.append(source_data)
 
         logger.debug(
             "Epistemic view for %r: %d beliefs, %d supporting, %d contradicting",
