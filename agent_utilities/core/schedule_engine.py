@@ -531,10 +531,7 @@ def _is_due(spec: ScheduleSpec, now: datetime, now_unix: float) -> bool:
             if not cron_matches(spec.cron, now):
                 return False
         except ValueError as exc:
-            logger.warning(
-                "schedule cron validation failed (exception_type=%s)",
-                type(exc).__name__,
-            )
+            logger.warning("schedule cron validation failed: %s", exc)
             return False
         minute_key = int(now.replace(second=0, microsecond=0).timestamp())
         return spec.last_minute < minute_key
@@ -555,10 +552,8 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     if not getattr(engine, "_schedules_seeded", False):
         try:
             seed_schedules(engine)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "schedule seed failed (exception_type=%s)", type(exc).__name__
-            )
+        except Exception as exc:  # noqa: BLE001 — schedule seeding is best-effort
+            logger.warning("schedule seed failed: %s", exc)
         engine._schedules_seeded = True
 
     # Curb/recover any duplicate interval-tick backlog before evaluating due
@@ -566,10 +561,8 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     # tick; never raises into the tick.
     try:
         collapse_stale_ticks(engine)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug(
-            "collapse_stale_ticks failed (exception_type=%s)", type(exc).__name__
-        )
+    except Exception as exc:  # noqa: BLE001 — stale-tick collapse is best-effort
+        logger.debug("collapse_stale_ticks failed: %s", exc)
 
     now = now or datetime.now()
     now_unix = time.time()
@@ -619,10 +612,8 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
                 extra_meta={"schedule": spec.name, "payload": spec.payload},
             )
             fired.append(spec.name)
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "schedule enqueue failed (exception_type=%s)", type(exc).__name__
-            )
+        except Exception as exc:  # noqa: BLE001 — one schedule's enqueue failure never blocks the tick
+            logger.error("schedule enqueue failed: %s", exc)
     if fired:
         logger.info("scheduler fired schedule(s) (count=%d)", len(fired))
     logger.info("[OS-5.44] scheduler tick: end (fired=%d)", len(fired))

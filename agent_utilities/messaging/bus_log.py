@@ -523,10 +523,7 @@ class EngineBrokerBusLog(BusLogBackend):
                     prefetch=max_messages,
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "[AU-P1-2] engine broker DLQ read failed (%s)",
-                    type(exc).__name__,
-                )
+                logger.debug("[AU-P1-2] engine broker DLQ read failed: %s", exc)
                 break
             if claimed is None:
                 break
@@ -672,9 +669,7 @@ class KafkaBusLog(BusLogBackend):
                 try:
                     fut.result(timeout=_PROBE_TIMEOUT_S)
                 except Exception as e:  # noqa: BLE001
-                    logger.warning(
-                        "create_partitions(%s) failed (%s)", topic, type(e).__name__
-                    )
+                    logger.warning("create_partitions(%s) failed: %s", topic, e)
 
     def _producer_client(self) -> Any:
         if self._producer is None:

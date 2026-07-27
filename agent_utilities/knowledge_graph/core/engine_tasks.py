@@ -790,8 +790,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         try:
             from llama_index.core import SimpleDirectoryReader  # noqa: F401
             from llama_index.core.embeddings import BaseEmbedding  # noqa: F401
-        except ImportError:
-            pass
+        except ImportError as exc:
+            logger.debug("LlamaIndex pre-import skipped (optional dependency): %s", exc)
 
         # Initialize pluggable persistent task queue
         from agent_utilities.core.config import config
@@ -981,8 +981,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             q = getattr(self, "_submission_queue", None)
             if q is not None:
                 status["queue_depth"] = q.get_queue_size()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 — status surface stays best-effort
+            logger.debug("queue depth probe failed: %s", exc)
         # Engine shard topology + per-shard reachability (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw /
         # CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
         # The flock host role above governs only the LOCAL engine; remote
@@ -1356,7 +1356,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "Reaped %d idle dev-workspace container(s).", len(workspaces)
                 )
         except Exception as e:  # noqa: BLE001
-            logger.debug("dev-workspace reap skipped (%s)", type(e).__name__)
+            logger.debug("dev-workspace reap skipped: %s", e)
 
     def _tick_package_install_ingest(self) -> None:
         """Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest).
@@ -1848,8 +1848,10 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                 if get_throttle().should_yield_background:
                     return
-            except ImportError:
-                pass
+            except ImportError as exc:
+                logger.debug(
+                    "background-throttle check skipped (optional dependency): %s", exc
+                )
 
             # Select nodes STILL needing a card: no summary AND not yet attempted
             # (``card_status`` is set to 'ok'/'skip' once a node is resolved, so a trivial
@@ -2169,9 +2171,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             try:
                 items = self._collect_unembedded_rows(conn_factory, tbl, take)
             except Exception as e:  # noqa: BLE001
-                logger.debug(
-                    "embed backfill query failed (error_type=%s)", type(e).__name__
-                )
+                logger.debug("embed backfill query failed: %s", e)
                 continue
 
             if not items:
@@ -2198,9 +2198,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 remaining -= len(items)
                 self._embed_circuit_record(True, now)  # healthy → close breaker
             except Exception as e:  # noqa: BLE001
-                logger.debug(
-                    "embed backfill store failed (error_type=%s)", type(e).__name__
-                )
+                logger.debug("embed backfill store failed: %s", e)
                 # An embed/store failure means the endpoint is likely down for
                 # every table — record it and stop hammering the rest this tick.
                 self._embed_circuit_record(False, now)
@@ -2296,7 +2294,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 summary.get("transitions"),
             )
         except Exception as e:  # noqa: BLE001
-            logger.error("sai_factory tick failed (%s)", type(e).__name__)
+            logger.error("sai_factory tick failed: %s", e)
 
     def _tick_failure_ingest(self) -> None:
         """Ingest Langfuse failures → gap topics → regression-gated remediation.
@@ -2350,7 +2348,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     report.get("duration_s"),
                 )
         except Exception as e:  # noqa: BLE001
-            logger.error("optimization tick error (%s)", type(e).__name__)
+            logger.error("optimization tick error: %s", e)
 
     def _tick_anomaly_consumer(self) -> None:
         """Drain unconsumed PerformanceAnomaly nodes into failure_gap topics.
@@ -2543,8 +2541,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                     if get_throttle().should_yield_background:
                         time.sleep(busy)
                         continue
-                except ImportError:
-                    pass
+                except ImportError as exc:
+                    logger.debug(
+                        "background-throttle check skipped (optional dependency): %s",
+                        exc,
+                    )
                 embedded = self._tick_embedding_backfill()
                 # Full batch ⇒ likely more to do ⇒ loop fast; else back off.
                 time.sleep(busy if embedded >= batch else idle)
@@ -2889,8 +2890,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                 self._submission_queue.ack_staged_graph(item_id)
             except Exception as exc:
                 logger.error(
-                    "Error persisting staged graph; will retry: error_type=%s",
-                    type(exc).__name__,
+                    "Error persisting staged graph; will retry: %s",
+                    exc,
                 )
                 time.sleep(2.0)
 
@@ -3631,8 +3632,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # ORCH-1.81: ensure the worker is freed even on the error path.
                 try:
                     self._worker_registry().finish(worker_id)
-                except Exception:  # noqa: BLE001
-                    pass  # nosec B110
+                except Exception as exc:  # noqa: BLE001 — worker-registry cleanup is best-effort
+                    logger.debug(
+                        "worker registry finish() failed for %s: %s", worker_id, exc
+                    )  # nosec B110
                 time.sleep(5)
 
     def _execute_claimed_task(
@@ -3787,9 +3790,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             try:
                 bundle = ParsedSessionBundle.model_validate(item)
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "session_upload_bad_bundle error_type=%s", type(exc).__name__
-                )
+                logger.warning("session_upload_bad_bundle: %s", exc)
                 continue
             if up_tenant:
                 bundle.session.tenant_id = up_tenant
@@ -4682,8 +4683,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "(will retry next cycle)."
                 )
                 return {"status": "deferred", "reason": "bulk_ingest_or_foreground"}
-        except ImportError:
-            pass
+        except ImportError as exc:
+            logger.debug(
+                "background-throttle check skipped (optional dependency): %s", exc
+            )
 
         logger.info(f"RelevanceSweep: starting sweep against '{target_codebase}'")
 
@@ -4897,9 +4900,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
 
             except Exception as e:
-                logger.warning(
-                    "RelevanceSweep: paper scoring failed (%s)", type(e).__name__
-                )
+                logger.warning("RelevanceSweep: paper scoring failed: %s", e)
 
         # ── Step 5: Score each repository ──
         for repo_name in repo_set:
@@ -5255,8 +5256,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                         )
                         if completed < cutoff:
                             continue
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as exc:
+                        logger.debug(
+                            "ingest metrics: unparseable completed_at %r, not window-filtered: %s",
+                            ca,
+                            exc,
+                        )
             cat = meta.get("type") or meta.get("content_type") or "unknown"
             c = cats.setdefault(
                 cat,
@@ -5377,8 +5382,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                     )
                     if completed_dt < cutoff:
                         continue
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    logger.debug(
+                        "ingest tail tasks: unparseable completed_at %r, not window-filtered: %s",
+                        ca,
+                        exc,
+                    )
             g = (
                 meta.get(key)
                 or meta.get("type")
@@ -5466,8 +5475,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                             if isinstance(ts, int | float)
                             else datetime.fromisoformat(str(ts)).timestamp()
                         )
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as exc:
+                        logger.debug(
+                            "ingest metrics: unparseable timestamp %r, excluded from bucket: %s",
+                            ts,
+                            exc,
+                        )
 
         for grp in groups.values():
             durs = sorted(grp.pop("_durations"))

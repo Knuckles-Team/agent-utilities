@@ -536,7 +536,7 @@ def _link(engine: Any, source_id: str, target_id: str, rel_type: str) -> None:
             source_id,
             target_id,
             rel_type,
-            type(exc).__name__,
+            exc,
         )
 
 
@@ -1065,7 +1065,7 @@ def _start_heartbeat(
                 logger.warning(
                     "[agents-as-data] heartbeat error for %s: %s",
                     work_item_id,
-                    type(exc).__name__,
+                    exc,
                 )
                 return
             if not renewed:

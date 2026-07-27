@@ -888,7 +888,7 @@ async def _persist_media(
                 except Exception as e:  # noqa: BLE001
                     logger.debug(
                         "[CONCEPT:AU-KG.ingest.list-durable-media] media download failed: %s",
-                        type(e).__name__,
+                        e,
                     )
                     continue
                 media_type = str(getattr(att, "media_type", ""))
@@ -1015,7 +1015,7 @@ async def _fetch_image_parts(urls: list[str]) -> list[Any]:
                 raise ValueError("attachment is not a supported image")
             parts.append(BinaryContent(data=content, media_type=media))
         except Exception as e:  # noqa: BLE001
-            logger.debug("[ECO-4.67] image fetch failed (%s)", type(e).__name__)
+            logger.debug("[ECO-4.67] image fetch failed: %s", e)
     return parts
 
 
@@ -1343,9 +1343,7 @@ class _ProgressChecklist:
                 )
                 return bool(getattr(res, "success", False))
             except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "progress checklist: finalize failed (%s)", type(exc).__name__
-                )
+                logger.debug("progress checklist: finalize failed: %s", exc)
                 return False
 
 

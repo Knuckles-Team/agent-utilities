@@ -1056,7 +1056,7 @@ def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
             ):
                 logger.info("Cancelled expired goal WorkItem %s", item_id)
         except Exception as e:  # noqa: BLE001
-            logger.error("Failed to expire goal (%s)", type(e).__name__)
+            logger.error("Failed to expire goal: %s", e)
     elif envelope.kind == KIND_ORCHESTRATOR_TASK and engine is not None:
         try:
             from agent_utilities.orchestration import work_item as _wi

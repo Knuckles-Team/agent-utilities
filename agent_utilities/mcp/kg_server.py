@@ -320,8 +320,8 @@ def get_existing_disabled(engine, node_id: str) -> bool:
         )
         if res and isinstance(res, list) and len(res) > 0:
             return bool(res[0].get("disabled", False))
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — disabled-state lookup is best-effort
+        logger.debug("get_existing_disabled(%s) lookup failed: %s", node_id, exc)
     return False
 
 
@@ -331,8 +331,8 @@ def safe_json_load(s: Any) -> Any:
     if isinstance(s, str):
         try:
             return json.loads(s)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 — non-JSON string is a normal input, not a failure
+            logger.debug("safe_json_load: input is not JSON, returned as-is: %s", exc)
     return s
 
 
@@ -402,10 +402,7 @@ def get_toggle_state(engine, item_type: str, item_id: str) -> bool:
         if res and len(res) > 0:
             return res[0].get("value") == "enabled"
     except Exception as exc:
-        logger.error(
-            "Failed to query toggle state (exception_type=%s)",
-            type(exc).__name__,
-        )
+        logger.error("Failed to query toggle state: %s", exc)
     return True  # Enabled by default
 
 
@@ -454,10 +451,7 @@ def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
                 if node_id in engine.graph_compute.graph.nodes:
                     engine.graph_compute.graph.nodes[node_id]["disabled"] = not enabled
     except Exception as exc:
-        logger.error(
-            "Failed to save toggle state (exception_type=%s)",
-            type(exc).__name__,
-        )
+        logger.error("Failed to save toggle state: %s", exc)
 
 
 from starlette.requests import Request
@@ -2173,10 +2167,9 @@ def get_connection_registry():
                 value["role"] = "read"
                 try:
                     registry.register(name, value)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 — one bad declaration never blocks the rest
                     logger.warning(
-                        "Skipping invalid external source declaration (%s)",
-                        type(exc).__name__,
+                        "Skipping invalid external source declaration: %s", exc
                     )
 
             for spec in _cfg.kg_connections or []:
@@ -2185,10 +2178,9 @@ def get_connection_registry():
                 if name:
                     try:
                         registry.register(name, spec)
-                    except Exception as e:  # noqa: BLE001
+                    except Exception as e:  # noqa: BLE001 — one bad declaration never blocks the rest
                         logger.warning(
-                            "Skipping invalid graph connection declaration (%s)",
-                            type(e).__name__,
+                            "Skipping invalid graph connection declaration: %s", e
                         )
         except Exception as exc:  # noqa: BLE001 — config-less environments
             logger.debug(
@@ -2598,8 +2590,7 @@ def _ready_bundled_skill_names(
         # let the caller ingest; a genuine engine fault still surfaces there.
         logger.info(
             "bundled-skill readiness probe found no existing skill graph "
-            "(%s: %s); treating every bundled skill as not yet ingested",
-            type(exc).__name__,
+            "(%s); treating every bundled skill as not yet ingested",
             exc,
         )
         return frozenset()
@@ -2685,8 +2676,7 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
         # not diagnosable. Keep the message and the chained traceback so the
         # actual reason a skill could not be ingested is visible in the log.
         logger.error(
-            "GraphOS packaged-skill readiness check failed (%s: %s)",
-            type(exc).__name__,
+            "GraphOS packaged-skill readiness check failed (%s)",
             exc,
             exc_info=True,
         )
@@ -2752,10 +2742,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                 ingested += 1
             logger.info("Ingested %d MCP capability declarations", ingested)
     except Exception as exc:
-        logger.error(
-            "Failed to ingest MCP configuration (exception_type=%s)",
-            type(exc).__name__,
-        )
+        logger.error("Failed to ingest MCP configuration: %s", exc)
 
     # 2. Native Tools
     try:
@@ -2787,16 +2774,10 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                                 },
                             )
                 except Exception as exc:
-                    logger.debug(
-                        "Failed to ingest a native-tool module (exception_type=%s)",
-                        type(exc).__name__,
-                    )
+                    logger.debug("Failed to ingest a native-tool module: %s", exc)
         logger.info("Ingested Native Tools")
     except Exception as exc:
-        logger.error(
-            "Failed to scan native tools (exception_type=%s)",
-            type(exc).__name__,
-        )
+        logger.error("Failed to scan native tools: %s", exc)
 
     # 3. Skills
     try:
@@ -2902,7 +2883,7 @@ def _refresh_process_authority(session: Any) -> Any:
         try:
             session.ensure_authority_current(minimum_ttl_seconds=30)
             return session
-        except SessionExpiredError:
+        except SessionExpiredError:  # noqa: BLE001 — expected: falls through to the renewal path below
             pass
         token = acquire_process_identity_token(config)
         renewed_actor = mint_actor_from_token_sync(token)
@@ -3038,8 +3019,7 @@ def _start_engine_bootstrap(session: Any) -> None:
         # ability to diagnose the very problem — the failure mode is far worse
         # than running degraded. Record it, surface it in /health, keep serving.
         logger.error(
-            "GraphOS packaged-skill bootstrap failed; SERVING DEGRADED (%s: %s)",
-            type(exc).__name__,
+            "GraphOS packaged-skill bootstrap failed; SERVING DEGRADED (%s)",
             exc,
             exc_info=True,
         )
@@ -3097,15 +3077,9 @@ def _start_engine_bootstrap(session: Any) -> None:
                         report["providers_loaded"],
                     )
             except Exception as exc:
-                logger.error(
-                    "Ontology federation sync at boot failed (exception_type=%s)",
-                    type(exc).__name__,
-                )
+                logger.error("Ontology federation sync at boot failed: %s", exc)
         except Exception as exc:
-            logger.error(
-                "KG engine background bootstrap failed (exception_type=%s)",
-                type(exc).__name__,
-            )
+            logger.error("KG engine background bootstrap failed: %s", exc)
 
     try:
         _authorized_background_thread(
@@ -3116,10 +3090,7 @@ def _start_engine_bootstrap(session: Any) -> None:
     except Exception as exc:
         # Packaged delegation is already ready. Optional workers, provider
         # discovery, and ontology federation remain retryable operational work.
-        logger.error(
-            "GraphOS noncritical bootstrap launch failed (exception_type=%s)",
-            type(exc).__name__,
-        )
+        logger.error("GraphOS noncritical bootstrap launch failed: %s", exc)
 
 
 def _build_server(
@@ -3796,9 +3767,7 @@ def mcp_server() -> None:
         )
     except Exception as exc:
         logger.error(
-            "graph-os fleet loader attach failed; fleet tools disabled "
-            "(exception_type=%s)",
-            type(exc).__name__,
+            "graph-os fleet loader attach failed; fleet tools disabled: %s", exc
         )
 
     transport = getattr(args, "transport", "stdio")
@@ -3887,10 +3856,7 @@ def mcp_server() -> None:
             try:
                 asyncio.run(fleet_mux.aclose())
             except Exception as exc:
-                logger.debug(
-                    "fleet loader close failed (exception_type=%s)",
-                    type(exc).__name__,
-                )
+                logger.debug("fleet loader close failed: %s", exc)
 
 
 if __name__ == "__main__":

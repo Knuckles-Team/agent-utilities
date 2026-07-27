@@ -1586,7 +1586,7 @@ def _checkpoint_order(value: Any) -> tuple[int, int, float | str]:
     raw = str(value)
     try:
         return (1, 0, float(raw))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # noqa: BLE001 — ordinary format-detection fallthrough: not a float, try ISO-8601 next
         pass
     try:
         from datetime import UTC, datetime

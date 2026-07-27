@@ -1772,9 +1772,7 @@ class QueryMixin(_Base):
                         len(assimilated_paths),
                     )
             except Exception as exc:
-                logger.warning(
-                    "Failed to load assimilated paths (%s)", type(exc).__name__
-                )
+                logger.warning("Failed to load assimilated paths: %s", exc)
 
         # 1. Run hybrid vector search with low threshold to cast wide net
         raw_results = self.search_hybrid(

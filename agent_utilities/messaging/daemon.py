@@ -280,8 +280,12 @@ def main() -> None:
             except (
                 ValueError,
                 OSError,
-            ):  # pragma: no cover — not main thread / unsupported
-                pass
+            ) as exc:  # pragma: no cover — not main thread / unsupported
+                logger.debug(
+                    "messaging daemon: signal handler for %s not installed: %s",
+                    sig,
+                    exc,
+                )
 
         logger.info(
             "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] isolated messaging daemon started."

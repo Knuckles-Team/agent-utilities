@@ -155,8 +155,12 @@ class GpuSlotScheduler:
             self._worker_task.cancel()
             try:
                 await self._worker_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            except asyncio.CancelledError:  # noqa: BLE001 — expected: we just cancelled this task ourselves
                 pass
+            except Exception as exc:  # noqa: BLE001 — worker-task shutdown is best-effort
+                logger.debug(
+                    "gpu slot scheduler worker task raised during stop(): %s", exc
+                )
             self._worker_task = None
 
     async def _reconcile_on_startup(self) -> None:
