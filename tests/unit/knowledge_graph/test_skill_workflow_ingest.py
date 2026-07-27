@@ -124,7 +124,18 @@ class FakeEngine:
         params = params or {}
         if "content_hash" in query and "$wid" in query:
             n = self.nodes.get(params.get("wid"))
-            return [{"h": n["content_hash"]}] if n else []
+            return (
+                [
+                    {
+                        "h": n["content_hash"],
+                        "tenant_id": n.get("tenant_id"),
+                        "classification": n.get("classification"),
+                        "external_access": n.get("external_access"),
+                    }
+                ]
+                if n
+                else []
+            )
         return []
 
     # convenience accessors for assertions
@@ -283,6 +294,19 @@ def test_ingest_one_returns_skipped_on_repeat(corpus):
     parsed = parse_workflow_skill(skill_md)
     assert ingest_one(eng, parsed) == "ingested"
     assert ingest_one(eng, parsed) == "skipped"
+
+
+def test_ingest_one_repairs_governance_drift_even_when_content_is_unchanged(corpus):
+    eng = FakeEngine()
+    skill_md = corpus / "workflows" / "infra" / "tiny-infra-deploy" / "SKILL.md"
+    parsed = parse_workflow_skill(skill_md)
+    assert ingest_one(eng, parsed) == "ingested"
+    workflow = eng.nodes["skill_workflow:tiny_infra_deploy"]
+    expected_tenant = workflow["tenant_id"]
+    workflow["tenant_id"] = "stale-local-tenant"
+
+    assert ingest_one(eng, parsed) == "ingested"
+    assert eng.nodes["skill_workflow:tiny_infra_deploy"]["tenant_id"] == expected_tenant
 
 
 class CollisionSensitiveEngine(FakeEngine):

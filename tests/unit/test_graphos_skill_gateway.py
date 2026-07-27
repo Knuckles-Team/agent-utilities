@@ -17,7 +17,12 @@ def _orchestrator(engine: MagicMock) -> Orchestrator:
     return orchestrator
 
 
-def test_resolve_capability_prefers_typed_kg_skill() -> None:
+def test_resolve_capability_prefers_typed_kg_skill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities.knowledge_graph.core import secured_reads
+
+    monkeypatch.setattr(secured_reads, "permit", lambda node_ids: node_ids)
     engine = MagicMock()
     engine.search_hybrid.return_value = [
         {"id": "chunk:unrelated", "type": "Chunk", "score": 0.99},
@@ -42,6 +47,29 @@ def test_resolve_capability_prefers_typed_kg_skill() -> None:
     assert resolved["name"] == "github-review"
     assert resolved["source"] == "kg_hybrid"
     assert resolved["alternatives"][0]["kind"] == "workflow"
+
+
+def test_resolve_capability_hides_unpermitted_cross_tenant_hits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities.knowledge_graph.core import secured_reads
+
+    monkeypatch.setattr(secured_reads, "permit", lambda _node_ids: [])
+    engine = MagicMock()
+    engine.search_hybrid.return_value = [
+        {
+            "id": "skill_workflow:stale-local-workflow",
+            "node_type": "WorkflowDefinition",
+            "name": "stale-local-workflow",
+            "score": 0.99,
+        }
+    ]
+
+    resolved = _orchestrator(engine).resolve_capability("review a pull request")
+
+    assert resolved["kind"] == "agent"
+    assert resolved["name"] == "agent-utilities-expert"
+    assert resolved["source"] == "default"
 
 
 def test_resolve_capability_falls_back_to_kg_bound_expert() -> None:

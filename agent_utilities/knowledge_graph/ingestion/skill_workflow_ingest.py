@@ -474,11 +474,34 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
 
     # Idempotent no-op: identical content already present.
     existing = engine.query_cypher(
-        "MATCH (w:WorkflowDefinition) WHERE w.id = $wid RETURN w.content_hash AS h",
+        "MATCH (w:WorkflowDefinition) WHERE w.id = $wid "
+        "RETURN w.content_hash AS h, w.tenant_id AS tenant_id, "
+        "w.classification AS classification, w.external_access AS external_access",
         {"wid": wf_id},
     )
     if existing and existing[0].get("h") == chash:
-        return "skipped"
+        row = existing[0]
+        raw_access = row.get("external_access")
+        if isinstance(raw_access, str):
+            try:
+                raw_access = json.loads(raw_access)
+            except (TypeError, ValueError):
+                raw_access = None
+        try:
+            access_matches = isinstance(
+                raw_access, dict
+            ) and ExternalAccess.model_validate(raw_access) == ExternalAccess(
+                is_public=True
+            )
+        except (TypeError, ValueError):
+            access_matches = False
+        governance_matches = (
+            str(row.get("tenant_id") or "") == session.tenant
+            and str(row.get("classification") or "") == DataClassification.PUBLIC.value
+            and access_matches
+        )
+        if governance_matches:
+            return "skipped"
 
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     steps = parsed["steps"]

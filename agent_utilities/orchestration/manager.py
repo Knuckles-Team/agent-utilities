@@ -505,6 +505,23 @@ class Orchestrator:
                 }
             )
 
+        if candidates:
+            from agent_utilities.knowledge_graph.core.secured_reads import permit
+
+            candidate_ids = [
+                str(candidate["id"]) for candidate in candidates if candidate["id"]
+            ]
+            try:
+                permitted_ids = set(permit(candidate_ids))
+            except PermissionError as exc:
+                logger.warning("GraphOS capability permission filter denied: %s", exc)
+                permitted_ids = set()
+            candidates = [
+                candidate
+                for candidate in candidates
+                if candidate["id"] and candidate["id"] in permitted_ids
+            ]
+
         candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
         if candidates:
             chosen = dict(candidates[0])
