@@ -382,7 +382,7 @@ def test_posture_doctor_slice_degrades_on_import_failure(monkeypatch):
 # --------------------------------------------------------------------------- #
 
 _FAKE_SECRET = "sk-live-fake-9f3e2b7a1c4d6e8f0a2b4c6d8e0f1a2b3c4d"  # nosec B105 - test fixture, not a real credential  # sanitizer:ignore — synthetic value, verifies compliance export redacts it
-_FAKE_HOST_IDENTITY = "r510-prod.internal.arpa"
+_FAKE_HOST_IDENTITY = "example-host-prod.internal.arpa"
 
 
 class _LevelAwareQuery:

@@ -1,7 +1,7 @@
 # graph-os Self-Hosting Cutover — Design (EXECUTED 2026-07-26)
 
 > **✅ EXECUTED 2026-07-26 against `platform/graph-os` + `platform/epistemic-graph`.**
-> Result: one self-contained `graph-os` pod on r510 (engine native-sidecar + graph-os,
+> Result: one self-contained `graph-os` pod on `<ENGINE_NODE>` (engine native-sidecar + graph-os,
 > `2/2 Ready`), engine loaded 87 graphs (matches pre-cutover baseline), graph-os connected
 > `resolved_mode=remote endpoint_count=1 reachable_count=1 breaker=0 latency=0.4ms` over the
 > in-pod unix socket, messaging up (mattermost+telegram). Old `epistemic-graph` Deployment
