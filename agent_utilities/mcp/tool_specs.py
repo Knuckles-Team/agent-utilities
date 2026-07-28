@@ -158,6 +158,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 #: reviewed as non-mutating.
 READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
+        "graph_context": frozenset({"get", "list"}),
         "graph_ingest": frozenset({"jobs", "job_status", "status"}),
     }
 )

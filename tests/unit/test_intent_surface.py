@@ -211,9 +211,103 @@ async def test_ask_still_rejects_mutating_ingest_action(monkeypatch):
     )
 
     assert result["executed"] is False
-    assert result["routing"]["plan"]["mutates"] is not False
-    assert "Read-only intent policy" in result["error"]
+    assert result["error"] == "Read-only intent action is not declared read-only."
     assert called is False
+
+
+@pytest.mark.asyncio
+async def test_ask_graph_context_ambiguous_read_actions_require_an_explicit_action(
+    monkeypatch,
+):
+    """An ambiguous context read must not fall through to the default ``put``."""
+    seen: list[str] = []
+
+    async def fake_graph_context(action: str = "put", **_kw) -> str:
+        seen.append(action)
+        return json.dumps({"action": action})
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_context", fake_graph_context)
+    result = await intent_tools.dispatch_intent(
+        "ask",
+        "Show current verified GraphOS graph session context",
+        hints={"tool": "graph_context"},
+    )
+
+    assert result["executed"] is False
+    assert result["error"] == "Ambiguous read-only action requires an explicit action."
+    assert result["routing"]["declared_read_actions"] == ["get", "list"]
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_ask_mixed_actions_uses_the_selected_action_policy(monkeypatch):
+    """A generic mixed-action tool may execute only its reviewed read actions."""
+    seen: list[str] = []
+
+    async def fake_mixed(action: str = "put", **_kw) -> str:
+        seen.append(action)
+        return json.dumps({"action": action})
+
+    cpds = dict(intent_tools._load_cpds_required())
+    cpds["fake_mixed"] = {
+        "id": "fake_mixed",
+        "one_line": "Inspect or modify a synthetic mixed-action resource.",
+        "intent_verbs": ["ask"],
+        "does": [
+            {"action": "get", "mutates": "false"},
+            {"action": "list", "mutates": "false"},
+            {"action": "put", "mutates": "true"},
+        ],
+        "examples": [],
+        "policy": {"approval_class": "auto"},
+        "scopes": ["kg:read"],
+        "cost": {},
+        "latency": {},
+    }
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "fake_mixed", fake_mixed)
+    monkeypatch.setattr(
+        intent_tools, "TOOL_VERBS", {**intent_tools.TOOL_VERBS, "fake_mixed": ("ask",)}
+    )
+    monkeypatch.setattr(
+        intent_tools,
+        "READ_ONLY_ACTIONS",
+        {**intent_tools.READ_ONLY_ACTIONS, "fake_mixed": frozenset({"get", "list"})},
+    )
+    monkeypatch.setattr(intent_tools, "_load_cpds_required", lambda: cpds)
+    monkeypatch.setattr(
+        intent_tools, "_actions_by_tool", lambda: {"fake_mixed": ["get", "list", "put"]}
+    )
+    intent_tools._CANDIDATES_CACHE = None
+
+    assert (
+        intent_tools._operation_plan("ask", "fake_mixed", "put", {})["execution_class"]
+        == "mutation"
+    )
+
+    ambiguous = await intent_tools.dispatch_intent(
+        "ask", "show synthetic mixed resource", hints={"tool": "fake_mixed"}
+    )
+    assert ambiguous["executed"] is False
+    assert "requires an explicit action" in ambiguous["error"]
+    assert seen == []
+
+    read = await intent_tools.dispatch_intent(
+        "ask",
+        "show synthetic mixed resource",
+        hints={"tool": "fake_mixed", "action": "get"},
+    )
+    assert read["executed"] is True
+    assert read["routing"]["plan"]["execution_class"] == "read_only"
+    assert seen == ["get"]
+
+    write = await intent_tools.dispatch_intent(
+        "ask",
+        "store synthetic mixed resource",
+        hints={"tool": "fake_mixed", "action": "put"},
+    )
+    assert write["executed"] is False
+    assert write["error"] == "Read-only intent action is not declared read-only."
+    assert seen == ["get"]
 
 
 @pytest.mark.asyncio

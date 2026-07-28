@@ -630,16 +630,19 @@ def _operation_plan(
     )
     action_prefix = str(action or "").split("_", 1)[0]
     action_is_declared_read = action in READ_ONLY_ACTIONS.get(tool, frozenset())
-    tool_has_non_read_policy = bool(set(TOOL_VERBS.get(tool, ())) & _NON_READ_VERBS)
     if declared_mutation is not None:
         mutates: bool | None = declared_mutation
     elif destructive:
         mutates = True
     elif action_is_declared_read:
         mutates = False
+    elif action is not None and tool in READ_ONLY_ACTIONS:
+        # The reviewed allowlist is the action policy for a mixed surface:
+        # anything not explicitly declared read-only is non-read.
+        mutates = True
     elif action_prefix in read_prefixes:
         mutates = False
-    elif verb in _READ_ONLY_VERBS and not tool_has_non_read_policy:
+    elif action is None and verb in _READ_ONLY_VERBS:
         mutates = False
     elif verb in _NON_READ_VERBS:
         mutates = True
@@ -1014,6 +1017,37 @@ async def dispatch_intent(
             },
         }
     ranked_actions = _rank_actions(chosen_tool, intent)
+    read_actions = READ_ONLY_ACTIONS.get(chosen_tool)
+    if verb in _READ_ONLY_VERBS and read_actions is not None:
+        if explicit_action is not None and explicit_action not in read_actions:
+            return {
+                "error": "Read-only intent action is not declared read-only.",
+                "executed": False,
+                "routing": {
+                    "verb": verb,
+                    "chosen_tool": chosen_tool,
+                    "declared_read_actions": sorted(read_actions),
+                },
+            }
+        ranked_actions = [
+            (action, score)
+            for action, score in ranked_actions
+            if action in read_actions
+        ]
+        read_action_ambiguity = _action_ambiguity_evidence(
+            ranked_actions, explicit=explicit_action is not None
+        )
+        if explicit_action is None and read_action_ambiguity["ambiguous"]:
+            return {
+                "error": "Ambiguous read-only action requires an explicit action.",
+                "executed": False,
+                "routing": {
+                    "verb": verb,
+                    "chosen_tool": chosen_tool,
+                    "declared_read_actions": sorted(read_actions),
+                    "ambiguity": {"action": read_action_ambiguity},
+                },
+            }
     chosen_action = (
         explicit_action
         or top.action
