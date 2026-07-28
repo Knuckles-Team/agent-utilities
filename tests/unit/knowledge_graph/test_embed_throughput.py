@@ -51,15 +51,6 @@ class _FakeEmbedModel:
                 self._inflight -= 1
 
 
-@pytest.fixture(autouse=True)
-def _reset_embed_cache(monkeypatch):
-    # The cpu/load-derived concurrency is memoized at module scope — reset it so
-    # each test controls it explicitly.
-    monkeypatch.setattr(semantic, "_EMBED_CONCURRENCY", None)
-    yield
-    monkeypatch.setattr(semantic, "_EMBED_CONCURRENCY", None)
-
-
 def _install_fake(monkeypatch, model):
     import agent_utilities.core.embedding_utilities as eu
 
