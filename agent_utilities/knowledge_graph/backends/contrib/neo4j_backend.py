@@ -22,18 +22,18 @@ from ..base import GraphBackend, coerce_cypher_property
 logger = logging.getLogger(__name__)
 
 try:
-    from neo4j import (
-        ClientCertificate as _ClientCertificate,
-    )
-    from neo4j import (
-        ClientCertificateProviders as _ClientCertificateProviders,
-    )
     from neo4j import GraphDatabase as _GraphDatabase
     from neo4j import (
         TrustCustomCAs as _TrustCustomCAs,
     )
     from neo4j import (
         TrustSystemCAs as _TrustSystemCAs,
+    )
+    from neo4j.auth_management import (
+        ClientCertificate as _ClientCertificate,
+    )
+    from neo4j.auth_management import (
+        ClientCertificateProviders as _ClientCertificateProviders,
     )
 
     GraphDatabase: Any = _GraphDatabase

@@ -8,6 +8,15 @@ import pytest
 from agent_utilities.knowledge_graph.backends.contrib import neo4j_backend as module
 
 
+def test_neo4j_62_imports_keep_the_driver_available() -> None:
+    """Certificate imports must not disable the otherwise available Neo4j driver."""
+    assert module.GraphDatabase is not None
+    assert module.ClientCertificate is not None
+    assert module.ClientCertificateProviders is not None
+    assert module.TrustCustomCAs is not None
+    assert module.TrustSystemCAs is not None
+
+
 def _trust(tmp_path, **overrides):
     values = {
         "configured": True,
@@ -100,9 +109,7 @@ def test_neo4j_execute_read_uses_driver_read_transaction(tmp_path, monkeypatch) 
         database="domain-graph",
     )
 
-    assert backend.execute_read("MATCH (n) RETURN n") == [
-        {"n": {"id": "node-1"}}
-    ]
+    assert backend.execute_read("MATCH (n) RETURN n") == [{"n": {"id": "node-1"}}]
     session.execute_read.assert_called_once()
     transaction.run.assert_called_once_with("MATCH (n) RETURN n", {})
     driver.session.assert_called_with(database="domain-graph")
