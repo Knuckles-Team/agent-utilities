@@ -1861,6 +1861,23 @@ def _configured_fleet_server_names() -> frozenset[str]:
     return frozenset()
 
 
+def _configured_fleet_server_prefix(server_name: str) -> str:
+    """Return the collision-safe public prefix for one configured server."""
+    try:
+        from agent_utilities.mcp.multiplexer import (
+            MCPMultiplexer,
+            _resolve_config_path,
+        )
+
+        config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
+        mux = MCPMultiplexer(config_path)
+        if server_name in mux.load_catalog():
+            return mux.server_prefix(server_name)
+    except Exception as exc:  # noqa: BLE001 — raw tool names still work
+        logger.debug("Live MCP fleet prefix lookup failed for %s: %s", server_name, exc)
+    return ""
+
+
 def _configured_model_for_class(model_class: str) -> Any:
     """Resolve an explicit runtime class to one exact AgentConfig model tier."""
     from agent_utilities.core.config import config as agent_config
@@ -2505,6 +2522,7 @@ async def _execute_single_server(
     allowed = config.get("invoker_allowed_tools")
     if allowed:
         allow_set = {str(t).strip() for t in allowed if str(t).strip()}
+        public_prefix = _configured_fleet_server_prefix(agent_name)
         filtered: list[Any] = []
         for ts in toolsets:
             _filter = getattr(ts, "filtered", None)
@@ -2514,7 +2532,18 @@ async def _execute_single_server(
                     f"cannot enforce allowed_tools={sorted(allow_set)} for agent "
                     f"'{agent_name}'"
                 )
-            filtered.append(_filter(lambda _ctx, td, _a=allow_set: td.name in _a))
+            if public_prefix:
+                from agent_utilities.mcp.multiplexer import clean_tool_name
+
+                filtered.append(
+                    _filter(
+                        lambda _ctx, td, _a=allow_set, _p=public_prefix, _s=agent_name: (
+                            td.name in _a or clean_tool_name(_p, _s, td.name) in _a
+                        )
+                    )
+                )
+            else:
+                filtered.append(_filter(lambda _ctx, td, _a=allow_set: td.name in _a))
         toolsets = filtered
 
     # An agent resolved as a single MCP server but left with no toolset would have
