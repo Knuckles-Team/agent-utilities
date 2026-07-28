@@ -14,7 +14,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from agent_utilities.core.config import setting
 from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
@@ -756,14 +756,17 @@ def _sync_client_view(sync_client: Any, *, graph: str | None = None) -> Any:
         route_endpoints=route_endpoints,
         transport_endpoint=transport_endpoint,
     )
-    view = SyncEpistemicGraphClient(async_view, sync_client._loop, sync_client._thread)
-    view._au_route_config = route_config
-    view._au_route_endpoints = route_endpoints
-    view._au_route_endpoint = transport_endpoint
+    view = SyncEpistemicGraphClient(
+        cast(Any, async_view), sync_client._loop, sync_client._thread
+    )
+    dynamic_view = cast(Any, view)
+    dynamic_view._au_route_config = route_config
+    dynamic_view._au_route_endpoints = route_endpoints
+    dynamic_view._au_route_endpoint = transport_endpoint
     # A scoped view never owns the shared loop/thread. SyncEpistemicGraphClient
     # normally stops both from close()/context-manager exit, so shadow close on
     # this instance with an explicit no-op.
-    view.close = lambda: None
+    dynamic_view.close = lambda: None
     return view
 
 

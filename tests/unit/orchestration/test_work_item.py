@@ -1165,6 +1165,21 @@ def test_claim_next_filters_by_resource_class(cas_engine: CasEngine) -> None:
     assert claim["work_item_id"] == gpu_id
 
 
+def test_claim_next_without_resource_class_searches_all_lanes(
+    cas_engine: CasEngine,
+) -> None:
+    maintenance_id = wi.submit_work_item(
+        cas_engine,
+        kind="ingest_task",
+        payload_ref="maintenance-1",
+        resource_class="maintenance",
+    )
+
+    claim = wi.claim_next(cas_engine, now=1000.0)
+
+    assert claim["work_item_id"] == maintenance_id
+
+
 def test_cas_backend_unavailable_fails_loud_not_silent() -> None:
     no_cas = NoCasEngine()
     no_cas.add_node(

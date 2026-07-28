@@ -302,7 +302,11 @@ def _claim_request(
         resource_class=(
             resource_class
             if resource_class is not None
-            else str(row.get("resource_class") or "default")
+            else (
+                str(row.get("resource_class") or "default")
+                if item is not None
+                else None
+            )
         ),
         fairness_group=(
             fairness_group

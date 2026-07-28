@@ -240,7 +240,11 @@ async def execute_parse(
     # therefore an invalid installation, not an optional degradation path.
     from epistemic_graph.parser import RustASTParser
 
-    parser: Any = RustASTParser()
+    from ...core.session import GraphSession
+
+    parser: Any = RustASTParser(
+        verified_context=GraphSession.from_ambient().engine_verified_context()
+    )
 
     for file_path in files:
         try:
