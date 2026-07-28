@@ -123,7 +123,7 @@ sync:
     doc_type: clarity-insight
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - clarity_api/connectors/mcp_source_presets.json
@@ -135,8 +135,8 @@ provenance:
     triple_count: 58
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: -YapCx_Zqyaj1X3pQrXKWUSXFtVkvMTPLn0_xhO-S9Y97DY-Gm0b9GYgJ0hf55VIDFw-nMEBVFmrJ79qz_VVAg
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: 3_ItOQi6BahHZUx_4A68C8sEpwa5cl0DpY4M4LsTCl6qaytJckqqOnnzMSyisj6MsCz4228-KdGfVZMZUs-lBA
 policy:
   pii_fields: {}
   tenant_boundary: null

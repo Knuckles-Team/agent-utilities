@@ -110,7 +110,7 @@ sync:
     doc_type: secret-mount
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - openbao_mcp/connectors/mcp_source_presets.json
   - openbao_mcp/connectors/tool_schema_fingerprints.json
@@ -121,8 +121,8 @@ provenance:
     triple_count: 49
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: MgqYj_h0AH0ZXhvZ0k4qtSwvoghmant1myPKxDzg_AqZ5b2UDfk9kcSG8INBgO-C4Y-UJl_W_j9me_ZzmASiCg
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: zoM6FIJXzQOxwOV-bmlnudPA8Iw6LaNvvGVjgBln5qAol7ak26OItrjPtIvSi4M7V0GbGgJsTMsBW7qsWlYbBQ
 policy:
   pii_fields: {}
   tenant_boundary: null

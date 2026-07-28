@@ -122,7 +122,7 @@ sync:
     doc_type: caddy-upstream
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - caddy_mcp/connectors/mcp_source_presets.json
   - caddy_mcp/connectors/tool_schema_fingerprints.json
@@ -133,8 +133,8 @@ provenance:
     triple_count: 59
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: PziVwOxEquL6Kl-5k-ycxx06Jh14reXYVH0vM6SgG7smnop1InxrJcuRGZTPUpOmtlBLvCQ2aaRXouk4fFpnDg
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: XJhjJNXcmQWpKAfjyrEZJeqJ3hzyqntwsSoRv8wv-NKORTxrSTkBAoq-3npa7mSz4WgYnjdKkq6U07dlRkajCA
 policy:
   pii_fields: {}
   tenant_boundary: null

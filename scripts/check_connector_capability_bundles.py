@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from agent_utilities.core.workspace_config import get_workspace_yml_path  # noqa: E402
 from agent_utilities.knowledge_graph.integrations.connector_source_attestation import (  # noqa: E402
     source_attestation_violations,
 )
@@ -213,6 +214,13 @@ def _provider_owned_names(agents_root: Path) -> tuple[str, ...]:
 
 
 def _default_workspace() -> Path:
+    for parent in (ROOT, *ROOT.parents):
+        canonical = parent / "workspace.yml"
+        if canonical.is_file():
+            return canonical
+    xdg_workspace = get_workspace_yml_path()
+    if xdg_workspace.is_file():
+        return xdg_workspace
     return (
         ROOT.parent
         / "agents"
@@ -220,6 +228,16 @@ def _default_workspace() -> Path:
         / "repository_manager"
         / "workspace.yml"
     )
+
+
+def _default_agents_root() -> Path:
+    workspace_path = _default_workspace()
+    try:
+        workspace = yaml.safe_load(workspace_path.read_text(encoding="utf-8")) or {}
+        workspace_root = Path(str(workspace["path"])).expanduser()
+    except (KeyError, OSError, TypeError, yaml.YAMLError):
+        return ROOT.parent / "agents"
+    return workspace_root / "agent-packages" / "agents"
 
 
 def check_one(
@@ -380,6 +398,12 @@ def check_one(
     return violations
 
 
+def _release_privacy_guard() -> PersistencePrivacyGuard:
+    """Return the machine-independent privacy policy for signed source artifacts."""
+
+    return PersistencePrivacyGuard(deny_terms=())
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agents-root", type=Path, required=True)
@@ -398,7 +422,7 @@ def main() -> int:
         help="Check only this connector (repeatable); defaults to the complete fleet.",
     )
     args = parser.parse_args()
-    privacy = PersistencePrivacyGuard()
+    privacy = _release_privacy_guard()
     selected = set(args.connector)
     try:
         configured = set(_configured_provider_names(args.workspace))

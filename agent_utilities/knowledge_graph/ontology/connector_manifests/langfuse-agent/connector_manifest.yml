@@ -335,7 +335,7 @@ sync:
     doc_type: trace
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-19T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - langfuse_agent/connectors/mcp_source_presets.json
@@ -347,8 +347,8 @@ provenance:
     triple_count: 107
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: og_h_qFaZsA0Pb-HDbSFTirN2Af2T1_N6x03YWQpFGM
-  signature: HH9kFMkYYTHv2aYA2dX7d39HmxzfWCuFBc4Dls2jg2IQjIHm2Wj_hsntbBfbYcSEjsVjoW32XlUhlrrcSCqlCQ
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: CnXDutUvlf5Krqwj66xRGt6RpZ_4LBJORLejk1tftOmKb0BtG3T2fEOXdzhnE-UpYolicr664R-Zts6vu3jZDQ
 policy:
   pii_fields: {}
   tenant_boundary: null
@@ -382,28 +382,3 @@ review_todos:
   \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
 - "schema_mappings.Trace.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
   \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "auth: API key pair (public/secret) sent as HTTP Basic auth. Env: LANGFUSE_BASE_URL (alias LANGFUSE_HOST),\
-  \ LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, AUTH_TYPE=key|delegated|none. required_scopes: Langfuse's\
-  \ native two key-scopes (organization-scoped vs project-scoped) \u2014 README tags some tools as requiring\
-  \ an organization-scoped key. Shape: single shared key pair for the whole server; OIDC delegation (when\
-  \ enabled) only audit-logs caller identity, it does not change the actual Langfuse call auth."
-- "change_support: snapshot/poll only, via mcp_source_presets.json (hydrate \u2014 see docs/architecture/kg_connectors_and_ingestion.md\
-  \ section 8 connector inventory for the real, already-shipped wiring). cdc: none (no change-data-capture/replication-log\
-  \ path). webhook: none (any 'webhook' hits in this package's source manage webhooks IN THE REMOTE SYSTEM\
-  \ as a tool capability \u2014 there is no inbound webhook RECEIVER wired to source_sync ingestion for\
-  \ this connector today)."
-- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
-  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
-  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
-  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
-  \ above for the one heuristic that IS populated)."
-- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
-  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
-  \ SLA is authored and referenced here."
-- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
-  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
-  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
-  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
-  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
-  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
-  \ manifest should be treated as fully authoritative."

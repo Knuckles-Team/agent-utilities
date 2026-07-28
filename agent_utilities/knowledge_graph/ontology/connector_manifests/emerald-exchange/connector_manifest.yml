@@ -25675,7 +25675,7 @@ sync:
     doc_type: position
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - emerald_exchange/connectors/mcp_source_presets.json
   - emerald_exchange/connectors/tool_schema_fingerprints.json
@@ -25689,8 +25689,8 @@ provenance:
     triple_count: 1515
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: AGwMJgHt0UWBGBzISPUdGZQvCoVq4MVodHRFrsl8r1pu_7iCpHRAYze98udL145EIwwu0d-fh5KBCSTi-lcaBQ
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: 5UG4e92pMzcvoOZOrePgfZ-eoQ8AVDs41e4IiSP2DnLDzeym-GJ_e7s7qvKqaGcLTOIsHjF1bZKH3O0iqEkdBg
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -139,7 +139,7 @@ sync:
     doc_type: jira_issue
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - atlassian_agent/connectors/mcp_source_presets.json
   - atlassian_agent/connectors/tool_schema_fingerprints.json
@@ -150,8 +150,8 @@ provenance:
     triple_count: 49
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: _L-LSzs7ahhpnMpxGw4SFGVkGZeX3dQKGcKo8UGtGCzW4jWwHRoPEv_51eyAk5ZxZbxjnn-vsG1rB_7tuHd7Cg
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: t7bXOcaLGwtmz4jdaRAhBa1BsyUmYaMZQIFMEYF37DeJqNLtH6se94iAeSyZWUehlOhO5o4-EUdApP9UJETPDQ
 policy:
   pii_fields: {}
   tenant_boundary: null

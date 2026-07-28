@@ -220,15 +220,14 @@ def validate(root: Path = ROOT) -> list[str]:
         components = compatibility["components"]
         release_order = tuple(compatibility["releaseTrain"]["assemblyOrder"])
         exact_versions = {
-            name: str(component["version"])
-            for name, component in components.items()
+            name: str(component["version"]) for name, component in components.items()
         }
         if (
             set(components) != set(RELEASE_ORDER)
             or release_order != RELEASE_ORDER
             or exact_versions["agent-utilities"] != f"=={version}"
             or any(not value.startswith("==") for value in exact_versions.values())
-            or components["connector-bundles"].get("exactEntries") != 65
+            or components["connector-bundles"].get("exactEntries") != 68
             or "langfuse-agent" not in components
         ):
             findings.append("compatibility-matrix-version")

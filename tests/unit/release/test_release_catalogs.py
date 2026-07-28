@@ -96,9 +96,7 @@ def test_retained_prebundled_skill_catalog_is_exact_and_deterministic() -> None:
     assert payload == retained.read_bytes()
     document = json.loads(payload)
     _validator("prebundled-skill-catalog.schema.json").validate(document)
-    assert [entry["skill"] for entry in document["entries"]] == sorted(
-        BUNDLED_SKILLS
-    )
+    assert [entry["skill"] for entry in document["entries"]] == sorted(BUNDLED_SKILLS)
     assert document["membershipDigest"] == canonical_value_digest(
         sorted(BUNDLED_SKILLS)
     )
@@ -110,11 +108,13 @@ def test_retained_connector_catalog_is_exact_workspace_membership() -> None:
     document = _load("connector-bundles.catalog.json")
     _validator("connector-bundle-catalog.schema.json").validate(document)
     configured = sorted(
-        connector_catalog._configured_provider_names(connector_catalog.DEFAULT_WORKSPACE)
+        connector_catalog._configured_provider_names(
+            connector_catalog.DEFAULT_WORKSPACE
+        )
     )
 
     assert [entry["connector"] for entry in document["entries"]] == configured
-    assert len(configured) == len(set(configured)) == 65
+    assert len(configured) == len(set(configured)) == 68
     assert document["membershipDigest"] == canonical_value_digest(configured)
     assert all(
         _DIGEST.fullmatch(entry[field])
@@ -228,7 +228,9 @@ def test_connector_catalog_rejects_duplicate_or_missing_membership(
         connector_catalog, "_provider_owned_names", lambda _path: ("provider-a",)
     )
 
-    with pytest.raises(ReleaseCatalogError, match="connector_catalog_membership_not_exact"):
+    with pytest.raises(
+        ReleaseCatalogError, match="connector_catalog_membership_not_exact"
+    ):
         connector_catalog.connector_bundle_catalog(
             agents_root=tmp_path,
             workspace_path=tmp_path / "workspace.yml",
@@ -257,9 +259,9 @@ def test_connector_catalog_rejects_any_bundle_gate_failure(
     monkeypatch.setattr(
         connector_catalog,
         "check_one",
-        lambda repo, **_kwargs: ["certified artifact hash differs"]
-        if repo.name == "provider-b"
-        else [],
+        lambda repo, **_kwargs: (
+            ["certified artifact hash differs"] if repo.name == "provider-b" else []
+        ),
     )
     monkeypatch.setattr(
         connector_catalog, "_entry", lambda repo: _synthetic_entry(repo.name)
@@ -310,7 +312,9 @@ def _stub_resource_catalog_gate(
     monkeypatch.setattr(release_gate, "SKILL_OUTPUT", skill_path)
     monkeypatch.setattr(release_gate, "_RESOURCE_CATALOG", resource_path)
     monkeypatch.setattr(release_gate, "_validate_matrix", lambda: "sha256:" + "1" * 64)
-    monkeypatch.setattr(release_gate, "render_connector_catalog", lambda **_kwargs: connector)
+    monkeypatch.setattr(
+        release_gate, "render_connector_catalog", lambda **_kwargs: connector
+    )
     monkeypatch.setattr(release_gate, "render_skill_catalog", lambda **_kwargs: skill)
     monkeypatch.setattr(release_gate, "_resource_catalog_bytes", lambda: payload)
     monkeypatch.setattr(release_gate, "_validate_release_documents", lambda: None)

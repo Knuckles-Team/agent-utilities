@@ -294,7 +294,7 @@ sync:
     doc_type: ansible_job
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - ansible_tower_mcp/connectors/mcp_source_presets.json
   - ansible_tower_mcp/connectors/tool_schema_fingerprints.json
@@ -305,8 +305,8 @@ provenance:
     triple_count: 100
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: vK3FTawFsYQ6Jy0Rhi_5UfVJ2HbQM-cv1AADboKUACLU5qySGyO4JX3gROtae23dXZVwq2q6_cXlBNqSlMK4CQ
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: AhpZORlRSRQLWzPckHLrk-DdrnqarYVWEbs3kssLO_N4jwAa13vAXMrb-TOtsjkiIMjEALnDC5bN_1NSOmZlAA
 policy:
   pii_fields: {}
   tenant_boundary: null

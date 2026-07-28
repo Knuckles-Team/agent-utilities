@@ -94,7 +94,7 @@ sync:
     doc_type: web_snapshot
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - archivebox_api/connectors/mcp_source_presets.json
   - archivebox_api/connectors/tool_schema_fingerprints.json
@@ -105,8 +105,8 @@ provenance:
     triple_count: 47
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: CmncblY3NiezsPvX_mtxvQ4CslwPQ1k5GxjqQV4ZYjrPoPUOj6p02FKapdjTU2ZE0ULJs_I0ORDzAmvQhF7ICw
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: 0sLh--qXGgNAEswmd-ZmzdUNjCyTyYgXCFKDPKbj7HBh_FJKeDQFqBbvbTyeUqDJB0a0aMtc74-8bcRhAOjKCQ
 policy:
   pii_fields: {}
   tenant_boundary: null

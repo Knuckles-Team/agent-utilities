@@ -2,7 +2,7 @@
 """Fail when an ecosystem package defaults outbound TLS verification off.
 
 The scanner is intentionally lexical and dependency-free so it can run before
-installing the 65-package connector fleet. It reports package-relative paths
+installing the 68-package connector fleet. It reports package-relative paths
 only; machine paths, endpoints, and matched source text are never emitted.
 Explicit test fixtures are excluded, but production code, generators,
 examples, environment templates, skills, and documentation are all governed.

@@ -129,7 +129,7 @@ def test_source_attestation_never_claims_live_execution(
         "manifest_integrity": "passed",
     }
     assert attestation["compatibility"] == {
-        "agent_utilities": ">=1.27.1,<2",
+        "agent_utilities": ">=2.1.0,<3",
         "epistemic_graph": ">=2.23.1,<3",
         "bundle_schema": "2",
     }
@@ -240,6 +240,28 @@ def test_staging_validates_rotated_manifest_against_current_signer(
     certification = json.loads(certification_path.read_text(encoding="utf-8"))
     assert checks == [False]
     assert certification["signing_public_key"] == signer.public_key
+
+
+def test_staging_is_independent_of_local_account_name(
+    tmp_path: Path,
+    signer: ontology_integrity.ReleaseSigner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider name matching the release runner is not persisted identity."""
+
+    repo = _provider(tmp_path / "agents", "genius-agent")
+    monkeypatch.setenv("USER", "genius")
+    monkeypatch.setenv("LOGNAME", "genius")
+
+    publications = generator._stage_one(
+        repo,
+        bundled_output=tmp_path / "bundled",
+        staging_root=tmp_path / "staging",
+        now=datetime(2026, 7, 18, tzinfo=UTC),
+        release_signer=signer,
+    )
+
+    assert publications
 
 
 def test_staging_failure_never_publishes_earlier_provider(

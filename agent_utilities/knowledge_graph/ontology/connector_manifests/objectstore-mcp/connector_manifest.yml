@@ -111,7 +111,7 @@ sync:
     doc_type: objectstore_object
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - objectstore_mcp/connectors/mcp_source_presets.json
@@ -123,8 +123,8 @@ provenance:
     triple_count: 52
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: S2mcSVEAFqfJq6Vodal96cO1yEUD_PA5gelCe1-FF7AKrUhBAIzsxaR8yQC_8H7Z1JtjDfqWIwOVXJrf0iE3Bw
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: NR-4VDdOFdLPgE5kxJcKlGhz6CDYBQB3ooPGPydDsyx-XLxAMorVZjpVBVKmqkM31PYQqj8J6jGBSeZnnLw3Bw
 policy:
   pii_fields: {}
   tenant_boundary: null

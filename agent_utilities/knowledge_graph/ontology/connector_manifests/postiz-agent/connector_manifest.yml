@@ -323,7 +323,7 @@ sync:
     doc_type: social_post
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - postiz_agent/connectors/mcp_source_presets.json
@@ -335,8 +335,8 @@ provenance:
     triple_count: 136
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: zr2CyJOY8dnjSA035AS930YZC5I0HnT4pijPtWnTIqj77YM-H8mX-Jn_Yo-UGB6ITy8ULyoBwj6oeu5N-76GDw
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: 95lFN047u7W2tPwBZQOBDi82bB7BnQfczYUao6sLicWdwno34CF7X-EC2Wpe8F_kLPe_XlpJ9kiNXXKOEPpRAg
 policy:
   pii_fields: {}
   tenant_boundary: null

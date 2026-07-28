@@ -262,7 +262,7 @@ sync:
     doc_type: risk_scenario
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T14:21:05Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - ciso_assistant_api/connectors/mcp_source_presets.json
@@ -274,8 +274,8 @@ provenance:
     triple_count: 80
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: XLHAudvslqe0N9bfDLBPGnyJIyByjkLa0gha8qp8oG5veufaH2I90ACFkF1pYaFqXmK85iXzg6MIxsgKF26wBA
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: KzcTyqxGhxrXwRn8mxiM56jG2veGpPNsfVrtQdQuMDcjpYlDBw7WCCQOKSSbQryfB__tJnBuVT7Yi_Q7lYTDDQ
 policy:
   pii_fields: {}
   tenant_boundary: null

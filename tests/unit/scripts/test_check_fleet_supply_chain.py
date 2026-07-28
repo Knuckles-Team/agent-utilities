@@ -96,7 +96,7 @@ def test_source_snapshot_mode_uses_exact_workspace_membership_without_git(
 ) -> None:
     providers_root = tmp_path / "agents"
     workspace = _snapshot_tree(providers_root)
-    assert POLICY.EXPECTED_SNAPSHOT_PROVIDERS == 65
+    assert POLICY.EXPECTED_SNAPSHOT_PROVIDERS == 68
     monkeypatch.setattr(POLICY, "EXPECTED_SNAPSHOT_PROVIDERS", 2)
 
     def unexpected_git(*args: object, **kwargs: object) -> None:

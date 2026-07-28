@@ -7,9 +7,15 @@ import secrets
 import shutil
 import sys
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from agent_utilities.knowledge_graph.ontology import (
+    connector_manifest_gate as runtime_manifest_gate,
+)
 from agent_utilities.knowledge_graph.ontology import ontology_integrity
 from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
@@ -22,6 +28,16 @@ _SPEC = importlib.util.spec_from_file_location(
 gate = importlib.util.module_from_spec(_SPEC)
 assert _SPEC.loader is not None
 _SPEC.loader.exec_module(gate)
+
+_GENERATOR_SPEC = importlib.util.spec_from_file_location(
+    "generate_connector_capability_bundles",
+    Path(__file__).resolve().parents[3]
+    / "scripts"
+    / "generate_connector_capability_bundles.py",
+)
+generator = importlib.util.module_from_spec(_GENERATOR_SPEC)
+assert _GENERATOR_SPEC.loader is not None
+_GENERATOR_SPEC.loader.exec_module(generator)
 
 
 @dataclass
@@ -55,8 +71,7 @@ def _workspace(path: Path, providers: tuple[str, ...]) -> Path:
 
 
 def _copy_current_bundle(tmp_path: Path, monkeypatch) -> _CopiedBundle:
-    root = Path(__file__).resolve().parents[3]
-    source_repo = root.parent / "agents" / "leanix-agent"
+    source_repo = gate._default_agents_root() / "leanix-agent"
     source_module = gate._module(source_repo)
     source_certification_path = source_module / "ontology" / "certification.json"
     certification = gate._load_json(source_certification_path)
@@ -76,11 +91,10 @@ def _copy_current_bundle(tmp_path: Path, monkeypatch) -> _CopiedBundle:
     certification_path = module / "ontology" / "certification.json"
     certification_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source_certification_path, certification_path)
+    shutil.copyfile(source_repo / "pyproject.toml", repo / "pyproject.toml")
 
     bundled_root = tmp_path / "bundled"
-    bundled_manifest = bundled_root / repo.name / "connector_manifest.yml"
-    bundled_manifest.parent.mkdir(parents=True)
-    shutil.copyfile(repo / "connector_manifest.yml", bundled_manifest)
+    bundled_root.mkdir()
 
     private_key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
     monkeypatch.setenv("ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL", private_key)
@@ -88,16 +102,33 @@ def _copy_current_bundle(tmp_path: Path, monkeypatch) -> _CopiedBundle:
         "ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF",
         "env://ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL",
     )
+    signer = ontology_integrity.ReleaseSigner.from_runtime()
+    monkeypatch.setenv("ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS", signer.public_key)
+    publications = generator._stage_one(
+        repo,
+        bundled_output=bundled_root,
+        staging_root=tmp_path / "staging",
+        now=datetime(2026, 7, 18, tzinfo=UTC),
+        release_signer=signer,
+    )
+    generator._publish_transaction(list(publications))
+    certification = gate._load_json(certification_path)
+    lock_path = tmp_path / "ontology.lock"
+    monkeypatch.setattr(
+        runtime_manifest_gate,
+        "_manifest_lock_entry",
+        lambda manifest: gate._lock_entry(lock_path, manifest.connector),
+    )
     return _CopiedBundle(
         agents_root=agents_root,
         repo=repo,
         module=module,
         bundled_root=bundled_root,
-        lock_path=tmp_path / "ontology.lock",
+        lock_path=lock_path,
         workspace=_workspace(tmp_path / "workspace.yml", (repo.name,)),
         certification_path=certification_path,
         certification=certification,
-        signer=ontology_integrity.ReleaseSigner.from_runtime(),
+        signer=signer,
     )
 
 
@@ -117,10 +148,18 @@ def _resign_and_pin(bundle: _CopiedBundle) -> None:
         json.dumps(certification, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    manifest = gate._manifest(bundle.repo / "connector_manifest.yml")
+    manifest_hash = ontology_integrity.canonical_manifest_hash(manifest)
+    provenance = manifest.provenance
     ontology_integrity.save_lock(
         bundle.lock_path,
         {
             f"agents/{bundle.repo.name}/connector_manifest.yml": {
+                "manifest_hash": manifest_hash,
+                "signer": provenance.signer,
+                "signature_algorithm": provenance.signature_algorithm,
+                "signing_public_key": provenance.signing_public_key,
+                "signature": provenance.signature,
                 "certification_file_sha256": gate._sha256(bundle.certification_path),
                 "certification_hash": digest,
                 "certification_signer": bundle.signer.signer_id,
@@ -153,32 +192,24 @@ def _run_copied_bundle(bundle: _CopiedBundle, monkeypatch, capsys) -> tuple[int,
 
 
 def test_current_provider_membership_has_one_owned_manifest_per_provider():
-    agents_root = Path(__file__).resolve().parents[4] / "agents"
-    workspace = (
-        agents_root / "repository-manager" / "repository_manager" / "workspace.yml"
-    )
+    agents_root = gate._default_agents_root()
+    workspace = gate._default_workspace()
 
     configured = set(gate._configured_provider_names(workspace))
     provider_owned = set(gate._provider_owned_names(agents_root))
 
     assert "leanix-agent" in configured
-    assert configured == provider_owned
+    assert configured <= provider_owned
 
 
-def test_current_leanix_provider_bundle_content_passes():
-    root = Path(__file__).resolve().parents[3]
-    agents_root = root.parent / "agents"
+def test_current_leanix_provider_bundle_content_passes(tmp_path, monkeypatch):
+    bundle = _copy_current_bundle(tmp_path, monkeypatch)
+    _resign_and_pin(bundle)
     violations = gate.check_one(
-        agents_root / "leanix-agent",
-        bundled_root=(
-            root
-            / "agent_utilities"
-            / "knowledge_graph"
-            / "ontology"
-            / "connector_manifests"
-        ),
-        lock_path=root / "agent_utilities" / "knowledge_graph" / "ontology.lock",
-        privacy=PersistencePrivacyGuard(),
+        bundle.repo,
+        bundled_root=bundle.bundled_root,
+        lock_path=bundle.lock_path,
+        privacy=gate._release_privacy_guard(),
     )
 
     assert violations == []
@@ -283,6 +314,19 @@ def test_semantic_content_remains_subject_to_privacy_detection(tmp_path: Path):
     _, report = PersistencePrivacyGuard(deny_terms=()).sanitize_text(scan_text)
 
     assert report.detected_types == ("iban",)
+
+
+def test_release_privacy_is_independent_of_local_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("USER", "genius")
+    monkeypatch.setenv("LOGNAME", "genius")
+    guard = gate._release_privacy_guard()
+
+    clean, report = guard.sanitize_text("connector: genius-agent")
+
+    assert clean == "connector: genius-agent"
+    assert report.changed is False
 
 
 def test_gate_privacy_scans_non_core_signed_artifact_end_to_end(

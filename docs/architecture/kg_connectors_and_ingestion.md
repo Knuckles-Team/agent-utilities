@@ -268,12 +268,19 @@ connector reports **nothing**:
    providerless, schema-drifted, or code-fingerprint-drifted
    `connector_manifest.yml` before any source record is read. Provider-owned
    presets and exact live MCP schema fingerprints are part of the signed
-   contract; the hub does not retain a second copy of a provider preset.
-   FreshRSS, for example, contributes the sole `freshrss` preset from
-   `freshrss-agent`, while the in-package native connector bundle signs the
-   local-module closure for `rss`, `web`, `filesystem`, and the other
-   zero-infrastructure sources. Only the explicit internal-introspection
-   sources documented by the gate bypass this external supply-chain boundary.
+   contract. An installed connector distribution is checked directly; when the
+   connector runs as a remote Kubernetes MCP service, GraphOS resolves the same
+   data from the complete-manifest signature and `ontology.lock`-pinned bundled
+   snapshot. The resolved preset always enables live MCP schema verification
+   before pulling records. A broken installed provider never falls back to its
+   bundled snapshot, while a genuinely absent remote-only distribution can use
+   that signed snapshot without being installed into GraphOS. Boot sweeps likewise
+   enqueue an in-process materializer only when its provider module is installed;
+   known-but-absent instances are not reported as contract failures. The
+   in-package native connector bundle signs the local-module closure for `rss`,
+   `web`, `filesystem`, and the other zero-infrastructure sources. Only the
+   explicit internal-introspection sources documented by the gate bypass this
+   external supply-chain boundary.
 3. **A reconcile pass can't mistake a failed fetch for "everything was
    deleted."** `source_sync._reconcile` distinguishes a live-id fetch that
    errored or was skipped (`fetch_ok=False` — always skips, regardless of

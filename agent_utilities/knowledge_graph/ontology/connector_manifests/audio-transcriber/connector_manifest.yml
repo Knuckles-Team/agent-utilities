@@ -84,7 +84,7 @@ sync:
     doc_type: transcript
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - audio_transcriber/connectors/mcp_source_presets.json
   - audio_transcriber/connectors/tool_schema_fingerprints.json
@@ -95,8 +95,8 @@ provenance:
     triple_count: 43
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: zrGcMqljCS5xmO5dVzMdgw9ApN_J1DVp-slW0GpbCGvTbzvFdQ-JgFizTQZZfYhKnPHnYC_pW0OA1hMkFVXGDw
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: DQWBFp4BxVopeutyrNXCi6fvadV6kaWySSrca52JIMBM0Z7LeliTgqRXRZulB_EdpZ4b3RZeakBzNDopKfp3CQ
 policy:
   pii_fields: {}
   tenant_boundary: null

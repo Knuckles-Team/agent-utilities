@@ -129,7 +129,7 @@ sync:
     doc_type: team
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - mattermost_mcp/connectors/mcp_source_presets.json
   - mattermost_mcp/connectors/tool_schema_fingerprints.json
@@ -140,8 +140,8 @@ provenance:
     triple_count: 39
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: GKk86YZcZDpMKhDDhqtthcSQ9UKPGUQ6aDHVvi1dH1DcTlsuWHDn_ZeVVMaboYSvnB1x0OvJK5h5ABqweDbcBw
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: Y__Ubs3ZwTccBkB3qa5nZVYpFPBFBZfwLu5KNZAdSy_Ih2S7QqCwq_gEALpwjbMtr6FGGSgXvQz7V5g_q8jBCQ
 policy:
   pii_fields: {}
   tenant_boundary: null

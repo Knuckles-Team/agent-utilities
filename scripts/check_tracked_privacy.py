@@ -32,6 +32,7 @@ _GENERIC_IDENTIFIERS = frozenset(
         "apps",
         "build",
         "developer",
+        "genius",
         "home",
         "localhost",
         "maintainer",

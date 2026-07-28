@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
@@ -34,6 +35,7 @@ __all__ = [
     "INTERNAL_INTROSPECTION_SOURCES",
     "INTERNAL_MANIFEST_EXEMPT_SOURCES",
     "mandatory_connector_packages",
+    "bundled_provider_contract",
     "resolve_agents_root",
     "resolve_connector_package",
     "find_connector_manifest",
@@ -608,6 +610,68 @@ def mandatory_connector_packages() -> frozenset[str]:
         for path in root.iterdir()
         if path.is_dir() and (path / "connector_manifest.yml").is_file()
     )
+
+
+def bundled_provider_contract(
+    provider: str,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]] | None:
+    """Return one release-pinned remote provider's preset/schema contract.
+
+    GraphOS reaches the connector fleet over MCP; the connector distributions are
+    therefore normally *not* installed in the GraphOS image.  The bundled signed
+    manifest is the deployment-independent provider snapshot for that topology.
+    Its complete-manifest signature and ``ontology.lock`` pin cover every raw
+    preset and exact live-tool schema digest.  An installed provider remains
+    authoritative and is checked separately by ``mcp_tool``; this fallback exists
+    only when no local distribution owns the provider.
+
+    ``None`` means no bundled provider exists.  A present but invalid bundle raises
+    ``ValueError`` so callers fail closed rather than silently using a central
+    compatibility preset.
+    """
+
+    normalized = (provider or "").strip().casefold()
+    if not normalized:
+        return None
+    path = bundled_manifests_root() / normalized / "connector_manifest.yml"
+    if not path.is_file():
+        return None
+
+    import yaml
+
+    from .connector_manifest import ConnectorManifest
+
+    try:
+        manifest = ConnectorManifest.model_validate(
+            yaml.safe_load(path.read_text(encoding="utf-8"))
+        )
+    except Exception as exc:  # noqa: BLE001 - path-free fail-closed boundary
+        raise ValueError("bundled provider manifest is invalid") from exc
+    if manifest.connector.casefold() != normalized:
+        raise ValueError("bundled provider identity differs from its directory")
+    signature_violations = _signature_violations(
+        manifest,
+        label=_manifest_label(path),
+    )
+    if signature_violations:
+        raise ValueError("bundled provider manifest is not release-pinned")
+
+    presets: dict[str, dict[str, Any]] = {}
+    fingerprints: dict[str, str] = {}
+    for sync in manifest.sync:
+        preset = str(sync.preset or "")
+        tool = str(sync.tool or "")
+        digest = str(sync.tool_schema_sha256 or "").strip().lower()
+        if not preset or not tool or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("bundled provider sync contract is incomplete")
+        if preset in presets:
+            raise ValueError("bundled provider declares a duplicate preset")
+        existing = fingerprints.get(tool)
+        if existing is not None and existing != digest:
+            raise ValueError("bundled provider declares conflicting tool fingerprints")
+        presets[preset] = dict(sync.raw)
+        fingerprints[tool] = digest
+    return presets, fingerprints
 
 
 def find_connector_manifest(
