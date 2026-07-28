@@ -281,6 +281,12 @@ owl = [
     "rdflib>=7.6.0",
     "pyshacl>=0.40.0"
 ]
+# RDF parsing is needed by the GraphOS ingestion runtime to materialize skill and
+# ontology metadata.  Keep this smaller than ``owl``: the served gateway does not
+# need Python OWL-DL reasoning or SHACL validation to ingest a reviewed corpus.
+rdf = [
+    "rdflib>=7.6.0"
+]
 stardog = [
     "agent-utilities[owl]",
     "pystardog>=0.20.0"
@@ -328,12 +334,10 @@ serving = [
     # serving dependency for RSS ingestion. Code parsing is delegated to the engine's native
     # tree-sitter — no Python tree-sitter is added to the serving plane.
     #
-    # `owl` (rdflib/owlready2/pyshacl) is DELIBERATELY EXCLUDED from the serving plane
-    # (CONCEPT:KG-2.242): the semantic-web stack — SPARQL, OWL DL reasoning, SHACL — is
-    # demoted to the engine's native RDF/SPARQL/OWL surface (`client.rdf.*`), which ships
-    # in every profile. rdflib/owlready2/pyshacl are now a
-    # true last-resort Python fallback in the `[owl]` extra only, kept import-lazy so
-    # `import agent_utilities` + a kg_server boot pull none of them. See AGENTS.md dep rule.
+    # OWL-DL reasoning and SHACL remain excluded: GraphOS delegates those to the engine's
+    # native RDF/SPARQL/OWL surface.  The light ``rdf`` extra is different: workflow and
+    # ontology ingestion need rdflib parsing at runtime, while owlready2/pyshacl remain a
+    # last-resort Python fallback in the explicit `[owl]` extra.
     # CONCEPT:KG-2.3 — the serving/host plane RUNS ingestion + enrichment, so it needs the
     # CANONICAL embedder, not the bare `embeddings` core. `embeddings` pulls only
     # `llama-index-core` (no provider), so `create_embedding_model()` / `make_embed_fn()`
@@ -347,7 +351,7 @@ serving = [
     # messaging platforms: the serving plane runs the always-on messaging co-service; the
     # deployed platforms (Telegram + Mattermost) ship their drivers here so a served graph-os
     # can connect them without an ad-hoc install. Add a platform's extra here when it is wired.
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,logfire,langfuse,messaging-telegram,messaging-mattermost]",
+    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
