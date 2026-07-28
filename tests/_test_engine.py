@@ -36,6 +36,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
+from typing import BinaryIO
 
 #: Shared HMAC secret the test engine runs under. The engine REFUSES to start
 #: without one (CONCEPT:AU-OS.identity.authenticated-identity-enforcement); every client authenticates with this exact
@@ -76,13 +77,19 @@ def bootstrap_context() -> dict[str, object]:
 
 
 def strict_server_env(state_dir: str, *, auth_secret: str) -> dict[str, str]:
-    """Build the complete current-protocol server environment for tests."""
+    """Build the complete authenticated local-server environment for tests.
+
+    The production engine requires OIDC identity binding by default.  This
+    isolated test server deliberately opts out of that external verifier while
+    retaining transport HMAC authentication and signed request identities.
+    """
 
     return {
         "GRAPH_SERVICE_AUTH_SECRET": auth_secret,
         "EPISTEMIC_GRAPH_AUDIENCE": TEST_AUDIENCE,
         "EPISTEMIC_GRAPH_TENANT": TEST_TENANT,
         "EPISTEMIC_GRAPH_POLICY_VERSION": TEST_POLICY_VERSION,
+        "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
         "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": state_dir,
         "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
             {TEST_AGENT_ID: TEST_SIGNER_KEY}
@@ -184,7 +191,7 @@ class EphemeralEngine:
         self._security_dir: str | None = None
         self.socket_path: str | None = None
         self._proc: subprocess.Popen[bytes] | None = None
-        self._log: tempfile._TemporaryFileWrapper[bytes] | None = None
+        self._log: BinaryIO | None = None
 
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> EphemeralEngine:
