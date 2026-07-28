@@ -30,12 +30,14 @@ def _fresh_candidate_cache():
     intent_tools._OUTCOME_ROUTER = None
     intent_tools._REWARD_EPOCH = 0
     intent_tools._RESOLUTION_CACHE.clear()
+    intent_tools._PREVIEW_PLAN_CACHE.clear()
     yield
     intent_tools._CANDIDATES_CACHE = None
     intent_tools._ACTIONS_BY_TOOL_CACHE = None
     intent_tools._OUTCOME_ROUTER = None
     intent_tools._REWARD_EPOCH = 0
     intent_tools._RESOLUTION_CACHE.clear()
+    intent_tools._PREVIEW_PLAN_CACHE.clear()
 
 
 def _install_test_capability(
@@ -236,6 +238,105 @@ async def test_explicit_action_must_belong_to_selected_tool(monkeypatch):
         result["error"]
         == "Requested action is not declared for the selected capability."
     )
+
+
+@pytest.mark.asyncio
+async def test_manage_lifecycle_plan_ref_replays_exact_preview_hints(monkeypatch):
+    """A plan-ref-only lifecycle execute uses the reviewed load parameters."""
+    mcp = type("Mcp", (), {"_fleet_mux": object()})()
+    seen: dict[str, object] = {}
+
+    async def fake_load(mcp, mux, *, tools, servers, auto_unload):
+        seen.update(
+            mcp=mcp,
+            mux=mux,
+            tools=tools,
+            servers=servers,
+            auto_unload=auto_unload,
+        )
+        return {"loaded": tools}
+
+    from agent_utilities.mcp import multiplexer
+
+    monkeypatch.setattr(multiplexer, "load_session_tools", fake_load)
+    intent = "load the reviewed tool for this task"
+    preview = await intent_tools._manage_lifecycle(
+        mcp,
+        intent,
+        {"action": "load", "tools": ["github_review"], "auto_unload": True},
+    )
+    assert preview is not None
+
+    result = await intent_tools._manage_lifecycle(
+        mcp,
+        intent,
+        {"plan_ref": preview["plan"]["plan_ref"]},
+        execute=True,
+    )
+
+    assert result == {"loaded": ["github_review"]}
+    assert seen == {
+        "mcp": mcp,
+        "mux": mcp._fleet_mux,
+        "tools": ["github_review"],
+        "servers": None,
+        "auto_unload": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_manage_lifecycle_plan_ref_is_context_bound(monkeypatch):
+    """A lifecycle plan cannot be replayed under another authority context."""
+    mcp = type("Mcp", (), {"_fleet_mux": object()})()
+    monkeypatch.setattr(intent_tools, "_outcome_scope_ref", lambda: "scope-a")
+    preview = await intent_tools._manage_lifecycle(
+        mcp, "unload reviewed tools", {"action": "unload", "tools": ["a"]}
+    )
+    assert preview is not None
+
+    monkeypatch.setattr(intent_tools, "_outcome_scope_ref", lambda: "scope-b")
+    result = await intent_tools._manage_lifecycle(
+        mcp,
+        "unload reviewed tools",
+        {"plan_ref": preview["plan"]["plan_ref"]},
+        execute=True,
+    )
+
+    assert result is not None
+    assert result["executed"] is False
+    assert "context-mismatched lifecycle plan_ref" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_replay_does_not_consume_normal_manage_plan(monkeypatch):
+    """A normal manage preview still falls through to dispatch_intent replay."""
+
+    async def fake_manage(**_kw) -> str:
+        return "ok"
+
+    _install_test_capability(
+        monkeypatch,
+        "fake_manage_tool",
+        fake_manage,
+        verbs=("manage",),
+        one_line="Manage the synthetic service configuration.",
+        mutates=True,
+        idempotent=True,
+    )
+    intent = "manage the synthetic service configuration"
+    preview = await intent_tools.dispatch_intent(
+        "manage", intent, hints={"tool": "fake_manage_tool"}, execute=False
+    )
+    mcp = type("Mcp", (), {"_fleet_mux": object()})()
+
+    lifecycle = await intent_tools._manage_lifecycle(
+        mcp,
+        intent,
+        {"plan_ref": preview["routing"]["plan"]["plan_ref"]},
+        execute=True,
+    )
+
+    assert lifecycle is None
 
 
 @pytest.mark.asyncio

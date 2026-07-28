@@ -1262,7 +1262,7 @@ _RECLAIM_ACTIONS = frozenset({"unload", "reclaim", "load"})
 
 
 async def _manage_lifecycle(
-    mcp: Any, hints: dict[str, Any], *, execute: bool = False
+    mcp: Any, intent: str, hints: dict[str, Any], *, execute: bool = False
 ) -> dict[str, Any] | None:
     """Handle a ``manage`` lifecycle action (load/unload/reclaim) directly.
 
@@ -1272,10 +1272,44 @@ async def _manage_lifecycle(
     intent surface without a seventh verb: ``manage`` already owns
     configure/tenants/lifecycle, and reclaiming context IS a lifecycle op.
     """
-    action = str(hints.get("action") or "").strip().lower()
+    raw_hints = dict(hints)
+    intent_ref = persistence_reference("intent", intent)
+    outcome_scope_ref = _outcome_scope_ref()
+    supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
+    action = str(raw_hints.get("action") or "").strip().lower()
+    if execute and supplied_plan_ref and not action:
+        _expire_preview_plans(time.monotonic())
+        cached = _PREVIEW_PLAN_CACHE.get(supplied_plan_ref)
+        if (
+            cached is not None
+            and cached.verb == "manage"
+            and str(cached.hints.get("action") or "") in _RECLAIM_ACTIONS
+        ):
+            restored_hints = _restore_preview_hints(
+                supplied_plan_ref,
+                verb="manage",
+                intent_ref=intent_ref,
+                outcome_scope_ref=outcome_scope_ref,
+            )
+            if restored_hints is None:
+                return {
+                    "executed": False,
+                    "error": (
+                        "Unknown, expired, or context-mismatched lifecycle plan_ref; "
+                        "request a new preview before execution."
+                    ),
+                }
+            replayed_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
+            if replayed_hints and replayed_hints != restored_hints:
+                return {
+                    "executed": False,
+                    "error": "Supplied hints do not match the reviewed lifecycle plan.",
+                }
+            raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
+            action = str(raw_hints["action"]).strip().lower()
     if action not in _RECLAIM_ACTIONS:
         return None
-    plan_hints = {k: v for k, v in hints.items() if k != "plan_ref"}
+    plan_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
     plan_ref = persistence_reference(
         "intent_plan",
         json.dumps(
@@ -1296,8 +1330,15 @@ async def _manage_lifecycle(
         "approval": {"required": False, "route": "dynamic_tool_policy"},
     }
     if not execute:
+        _remember_preview_plan(
+            plan_ref,
+            verb="manage",
+            intent_ref=intent_ref,
+            outcome_scope_ref=outcome_scope_ref,
+            hints=plan_hints,
+        )
         return {"executed": False, "plan": plan}
-    if str(hints.get("plan_ref") or "") != plan_ref:
+    if str(raw_hints.get("plan_ref") or "") != plan_ref:
         return {
             "executed": False,
             "error": (
@@ -1314,17 +1355,17 @@ async def _manage_lifecycle(
         }
     from agent_utilities.mcp.multiplexer import load_session_tools, unload_session_tools
 
-    tools = hints.get("tools")
-    servers = hints.get("servers")
+    tools = raw_hints.get("tools")
+    servers = raw_hints.get("servers")
     if action == "load":
         return await load_session_tools(
             mcp,
             mux,
             tools=tools,
             servers=servers,
-            auto_unload=bool(hints.get("auto_unload", False)),
+            auto_unload=bool(raw_hints.get("auto_unload", False)),
         )
-    toolsets = hints.get("toolsets")
+    toolsets = raw_hints.get("toolsets")
     return await unload_session_tools(
         mcp, mux, tools=tools, servers=servers, toolsets=toolsets
     )
@@ -1367,7 +1408,7 @@ def register_intent_tools(mcp: Any) -> list[str]:
                 security_failure = _intent_security_failure(intent, hints)
                 if security_failure is not None:
                     return json.dumps(security_failure, default=str)
-                lifecycle = await _manage_lifecycle(mcp, hints, execute=execute)
+                lifecycle = await _manage_lifecycle(mcp, intent, hints, execute=execute)
                 if lifecycle is not None:
                     return json.dumps({"lifecycle": lifecycle}, default=str)
             result = await dispatch_intent(verb, intent, hints=hints, execute=execute)
