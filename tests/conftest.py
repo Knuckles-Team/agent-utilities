@@ -2,6 +2,7 @@
 
 import os
 import sys
+from typing import Any
 
 # Make this directory importable so ``_test_engine`` (the ephemeral real-engine
 # lifecycle helper, CONCEPT:AU-KG.memory.provides-real-ephemeral-one) resolves regardless of pytest import-mode /
@@ -143,9 +144,7 @@ def _isolate_registered_tools():
     # correctly and clears whatever it registered.
     module_name = "agent_utilities.mcp.kg_server"
     kg_server = sys.modules.get(module_name)
-    tools_snapshot = (
-        dict(kg_server.REGISTERED_TOOLS) if kg_server is not None else None
-    )
+    tools_snapshot = dict(kg_server.REGISTERED_TOOLS) if kg_server is not None else None
     routes_snapshot = (
         dict(kg_server.ACTION_TOOL_ROUTES) if kg_server is not None else None
     )
@@ -265,6 +264,32 @@ def cleanup_build_artifacts():
 import uuid
 
 
+def _close_created_graph_transports(engines: list[Any]) -> None:
+    """Close each test-created root transport exactly once.
+
+    ``GraphComputeEngine`` owns a synchronous native client only on its process
+    root.  Graph-scoped views deliberately share that transport and must never
+    close it.  The test-isolation fixture temporarily clears the process
+    singleton for every test, so failing to close each newly-created root leaves
+    its UDS socket, event loop, and daemon thread alive until process exit.
+    """
+    closed_roots: set[int] = set()
+    for engine in engines:
+        root = getattr(engine, "_process_root", engine)
+        if root is not engine or id(root) in closed_roots:
+            continue
+        closed_roots.add(id(root))
+        client = getattr(engine, "_client", None)
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                # Test cleanup must not hide the test's own failure.  The
+                # fixture still restores its task-local session below.
+                pass
+
+
 @pytest.fixture(autouse=True)
 def isolate_graph_compute_engine(monkeypatch):
     """Give each test a unique graph namespace to prevent cross-test state leakage.
@@ -364,6 +389,7 @@ def isolate_graph_compute_engine(monkeypatch):
                 except Exception:
                     pass
             break
+        _close_created_graph_transports(_created_engines)
         reset_session(token)
         reset_actor(actor_token)
 
@@ -449,7 +475,9 @@ def _session_engine():
         # the SAME hermetic-skip mode as an unavailable engine: tests that
         # request the real engine skip; pure
         # gate/meta tests (tests/gates, the prod-profile guard) are unaffected.
-        print(f"[session-engine] engine Python layer unavailable (kernel absent): {exc}")
+        print(
+            f"[session-engine] engine Python layer unavailable (kernel absent): {exc}"
+        )
         engine.stop()
         yield None
         return
