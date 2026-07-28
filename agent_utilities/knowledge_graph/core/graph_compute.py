@@ -1543,67 +1543,72 @@ class GraphComputeEngine:
                     "running or enable local autostart in AgentConfig."
                 ) from initial_e
 
-        # A packaged local engine can authoritatively route a tenant partition
-        # before that partition's graph has been materialized.  Establish the
-        # process session's one configured graph while the raw client is still
-        # available, regardless of whether this process connected to an already
-        # running local engine or started a fresh one.  Remote/sharded engines
-        # retain lifecycle authority and are never provisioned here.
-        local_graph_name = str(graph_name or "__commons__")
-        if autostart_allowed and local_graph_name != "__commons__":
-            from .session import current_session
+        # From this point construction owns a real native transport.  Every
+        # later setup step (graph readiness, wrapper creation, event-bridge
+        # startup, and the final singleton race check) is transactional: a
+        # rejection must close the socket and its client-owned event loop before
+        # the exception escapes.  In particular, the final duplicate check used
+        # to raise after creating both resources, which made failed constructors
+        # invisible to test cleanup that records only successful instances.
+        transport_client = self._client
+        self._transport_client = transport_client
+        try:
+            # A packaged local engine can authoritatively route a tenant partition
+            # before that partition's graph has been materialized.  Establish the
+            # process session's one configured graph while the raw client is still
+            # available, regardless of whether this process connected to an already
+            # running local engine or started a fresh one.  Remote/sharded engines
+            # retain lifecycle authority and are never provisioned here.
+            local_graph_name = str(graph_name or "__commons__")
+            if autostart_allowed and local_graph_name != "__commons__":
+                from .session import current_session
 
-            session = current_session()
-            if session is None:
-                raise RuntimeError(
-                    "local engine graph readiness requires verified process authority"
-                )
-            try:
+                session = current_session()
+                if session is None:
+                    raise RuntimeError(
+                        "local engine graph readiness requires verified process authority"
+                    )
                 self._ensure_local_session_graph(
-                    self._client,
+                    transport_client,
                     local_graph_name,
                     session,
                 )
-            except Exception:
-                with contextlib.suppress(Exception):
-                    self._client.close()
-                raise
 
-        # Connected: close/reset the breaker and guard every subsequent call
-        # with it. The proxy is attribute-transparent, and the raw client
-        # stays reachable via ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
-        breaker.record_success()
-        record_shard_connect(endpoint, True)
+            # Connected: close/reset the breaker and guard every subsequent call
+            # with it. The proxy is attribute-transparent, and the raw client
+            # stays reachable via ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
+            breaker.record_success()
+            record_shard_connect(endpoint, True)
 
-        # Keep the connected transport private and expose only a routed view.
-        # This adds no socket/thread: it reconstructs namespace wrappers around
-        # the same async client and event loop so concurrent GraphSessions can
-        # safely target different tenant graphs.
-        transport_client = self._client
-        transport_client._au_route_config = config
-        transport_client._au_route_endpoints = tuple(endpoints)
-        transport_client._au_route_endpoint = endpoint
-        self._transport_client = transport_client
+            # Keep the connected transport private and expose only a routed view.
+            # This adds no socket/thread: it reconstructs namespace wrappers around
+            # the same async client and event loop so concurrent GraphSessions can
+            # safely target different tenant graphs.
+            transport_client._au_route_config = config
+            transport_client._au_route_endpoints = tuple(endpoints)
+            transport_client._au_route_endpoint = endpoint
+            self._client = wrap_client_with_breaker(
+                _sync_client_view(transport_client), breaker
+            )
 
-        self._client = wrap_client_with_breaker(
-            _sync_client_view(transport_client), breaker
-        )
+            logger.info("Connected to configured epistemic-graph service")
 
-        logger.info("Connected to configured epistemic-graph service")
+            # Bridging local events to the rust service when kafka isn't running
+            if (
+                setting("KAFKA_BOOTSTRAP_SERVERS") is None
+                or setting("KAFKA_BOOTSTRAP_SERVERS") == ""
+            ):
+                self._start_event_bridge()
 
-        # Bridging local events to the rust service when kafka isn't running
-        if (
-            setting("KAFKA_BOOTSTRAP_SERVERS") is None
-            or setting("KAFKA_BOOTSTRAP_SERVERS") == ""
-        ):
-            self._start_event_bridge()
-
-        with self._PROCESS_ENGINE_LOCK:
-            active = self._PROCESS_ENGINE
-            if active is None:
-                type(self)._PROCESS_ENGINE = self
-            elif active is not self and graph_session_required():
-                raise RuntimeError("Concurrent duplicate graph transport rejected")
+            with self._PROCESS_ENGINE_LOCK:
+                active = self._PROCESS_ENGINE
+                if active is None:
+                    type(self)._PROCESS_ENGINE = self
+                elif active is not self and graph_session_required():
+                    raise RuntimeError("Concurrent duplicate graph transport rejected")
+        except BaseException:
+            self.close()
+            raise
 
     def _autostart_engine(
         self,
@@ -2132,7 +2137,10 @@ class GraphComputeEngine:
                 # otherwise a close in that startup window can strand a worker.
                 loop.call_soon_threadsafe(async_stop.set)
             except RuntimeError:
-                pass
+                logger.debug(
+                    "Event bridge loop closed before stop signal could be queued",
+                    exc_info=True,
+                )
         if worker is not None and worker is not threading.current_thread():
             worker.join(timeout=2.0)
         with self._PROCESS_ENGINE_LOCK:
