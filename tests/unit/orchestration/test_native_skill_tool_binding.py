@@ -101,6 +101,7 @@ def test_skill_binds_exact_caller_allowed_and_declared_native_tools(
     kernel = Mock()
     kernel.authorize_tool.return_value = "allow"
     identity = object()
+    kernel.refresh_identity_if_expiring.return_value = identity
     guarded = flag_mcp_tool_definitions(
         [native],
         permissions_kernel=kernel,
@@ -123,6 +124,7 @@ def test_skill_binds_exact_caller_allowed_and_declared_native_tools(
         "graph_write_record",
         required_capability=None,
     )
+    kernel.refresh_identity_if_expiring.assert_called_once_with(identity)
 
 
 def test_skill_rejects_caller_allowed_tool_not_declared_by_skill(
