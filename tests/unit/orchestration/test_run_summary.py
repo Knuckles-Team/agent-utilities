@@ -13,7 +13,6 @@ the old hardcoded "delegation produced no usable data" sentinel), with a resolva
 from __future__ import annotations
 
 import json
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -214,6 +213,75 @@ async def test_run_agent_fleet_gate_failure_produces_a_transparent_run_summary()
     assert kwargs["status"] == "degraded"
     assert "requires HTTPS outside loopback" in kwargs["error"]
     assert kwargs["error"] != "delegation produced no usable data (degraded)"
+
+
+@pytest.mark.asyncio
+async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenance() -> None:
+    """A caller pin wins over a task lexical match for another fleet server.
+
+    This is the live-shaped regression: a github-mcp request with a repository-manager
+    lexical shape must bind github-mcp, and a fenced pseudo-tool call without an actual
+    executor ``tool_calls`` record is a degraded result rather than a success.
+    """
+    from types import SimpleNamespace
+
+    fake_engine = AsyncMock()
+    fake_engine.backend = None
+    shape = SimpleNamespace(
+        tool_servers=("repository-manager-mcp",),
+        resolve_agent=False,
+        direct_complete=False,
+    )
+
+    with (
+        patch.object(agent_runner, "_get_or_create_engine", return_value=fake_engine),
+        patch(
+            "agent_utilities.orchestration.execution_profile.plan_execution_shape",
+            return_value=shape,
+        ),
+        patch.object(
+            agent_runner,
+            "_resolve_agent_from_kg",
+            return_value={"type": "server", "tools": [{"name": "gith__repos"}]},
+        ),
+        patch.object(
+            agent_runner,
+            "_build_execution_config",
+            return_value={"mcp_toolsets": [object()]},
+        ),
+        patch.object(
+            agent_runner,
+            "_execute_single_server",
+            new=AsyncMock(
+                return_value={
+                    "status": "completed",
+                    "results": {
+                        "output": "```json\n{\"tool\": \"repository-manager\"}\n```"
+                    },
+                    "tool_calls": [],
+                }
+            ),
+        ) as execute_server,
+        patch.object(agent_runner, "_record_execution_trace") as mock_trace,
+        patch.object(agent_runner, "_write_step_credit"),
+    ):
+        raw = await agent_runner.run_agent(
+            agent_name="github-mcp",
+            task="list repositories",
+            allowed_tools=["gith__repos"],
+            include_run_summary=True,
+            run_id="run:" + "2" * 32,
+        )
+
+    payload = json.loads(raw)
+    assert payload["run_summary"]["route"]["servers"] == ["github-mcp"]
+    assert payload["run_summary"]["outcome"] == "degraded"
+    assert "without recorded ToolCall provenance" in payload["output"]
+    assert "repository-manager-mcp" not in payload["run_summary"]["route"]["servers"]
+    assert execute_server.await_args.kwargs["agent_name"] == "github-mcp"
+    _, trace_kwargs = mock_trace.call_args
+    assert trace_kwargs["status"] == "degraded"
+    assert trace_kwargs["tool_call_count"] == 0
 
 
 @pytest.mark.asyncio

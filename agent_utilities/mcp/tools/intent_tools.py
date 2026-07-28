@@ -37,7 +37,7 @@ from pydantic import Field
 
 from agent_utilities.knowledge_graph.retrieval.capability_context import load_cpds
 from agent_utilities.mcp import kg_server
-from agent_utilities.mcp.tool_specs import INTENT_VERBS, TOOL_VERBS
+from agent_utilities.mcp.tool_specs import INTENT_VERBS, READ_ONLY_ACTIONS, TOOL_VERBS
 from agent_utilities.security.error_surface import public_error_payload
 from agent_utilities.security.persistence_privacy import persistence_reference
 from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
@@ -629,14 +629,20 @@ def _operation_plan(
         }
     )
     action_prefix = str(action or "").split("_", 1)[0]
-    tool_has_non_read_policy = bool(set(TOOL_VERBS.get(tool, ())) & _NON_READ_VERBS)
+    action_is_declared_read = action in READ_ONLY_ACTIONS.get(tool, frozenset())
     if declared_mutation is not None:
         mutates: bool | None = declared_mutation
     elif destructive:
         mutates = True
+    elif action_is_declared_read:
+        mutates = False
+    elif action is not None and tool in READ_ONLY_ACTIONS:
+        # The reviewed allowlist is the action policy for a mixed surface:
+        # anything not explicitly declared read-only is non-read.
+        mutates = True
     elif action_prefix in read_prefixes:
         mutates = False
-    elif verb in _READ_ONLY_VERBS and not tool_has_non_read_policy:
+    elif action is None and verb in _READ_ONLY_VERBS:
         mutates = False
     elif verb in _NON_READ_VERBS:
         mutates = True
@@ -1000,13 +1006,9 @@ async def dispatch_intent(
     top = candidates[0]
     chosen_tool = top.tool
     available_actions = _actions_by_tool().get(chosen_tool, [])
-    if (
-        explicit_action is not None
-        and available_actions
-        and explicit_action not in available_actions
-    ):
+    if explicit_action is not None and explicit_action not in available_actions:
         return {
-            "error": "Requested action is not declared for the pinned capability.",
+            "error": "Requested action is not declared for the selected capability.",
             "executed": False,
             "routing": {
                 "verb": verb,
@@ -1015,6 +1017,37 @@ async def dispatch_intent(
             },
         }
     ranked_actions = _rank_actions(chosen_tool, intent)
+    read_actions = READ_ONLY_ACTIONS.get(chosen_tool)
+    if verb in _READ_ONLY_VERBS and read_actions is not None:
+        if explicit_action is not None and explicit_action not in read_actions:
+            return {
+                "error": "Read-only intent action is not declared read-only.",
+                "executed": False,
+                "routing": {
+                    "verb": verb,
+                    "chosen_tool": chosen_tool,
+                    "declared_read_actions": sorted(read_actions),
+                },
+            }
+        ranked_actions = [
+            (action, score)
+            for action, score in ranked_actions
+            if action in read_actions
+        ]
+        read_action_ambiguity = _action_ambiguity_evidence(
+            ranked_actions, explicit=explicit_action is not None
+        )
+        if explicit_action is None and read_action_ambiguity["ambiguous"]:
+            return {
+                "error": "Ambiguous read-only action requires an explicit action.",
+                "executed": False,
+                "routing": {
+                    "verb": verb,
+                    "chosen_tool": chosen_tool,
+                    "declared_read_actions": sorted(read_actions),
+                    "ambiguity": {"action": read_action_ambiguity},
+                },
+            }
     chosen_action = (
         explicit_action
         or top.action
@@ -1263,7 +1296,7 @@ _RECLAIM_ACTIONS = frozenset({"unload", "reclaim", "load"})
 
 
 async def _manage_lifecycle(
-    mcp: Any, hints: dict[str, Any], *, execute: bool = False
+    mcp: Any, intent: str, hints: dict[str, Any], *, execute: bool = False
 ) -> dict[str, Any] | None:
     """Handle a ``manage`` lifecycle action (load/unload/reclaim) directly.
 
@@ -1273,10 +1306,44 @@ async def _manage_lifecycle(
     intent surface without a seventh verb: ``manage`` already owns
     configure/tenants/lifecycle, and reclaiming context IS a lifecycle op.
     """
-    action = str(hints.get("action") or "").strip().lower()
+    raw_hints = dict(hints)
+    intent_ref = persistence_reference("intent", intent)
+    outcome_scope_ref = _outcome_scope_ref()
+    supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
+    action = str(raw_hints.get("action") or "").strip().lower()
+    if execute and supplied_plan_ref and not action:
+        _expire_preview_plans(time.monotonic())
+        cached = _PREVIEW_PLAN_CACHE.get(supplied_plan_ref)
+        if (
+            cached is not None
+            and cached.verb == "manage"
+            and str(cached.hints.get("action") or "") in _RECLAIM_ACTIONS
+        ):
+            restored_hints = _restore_preview_hints(
+                supplied_plan_ref,
+                verb="manage",
+                intent_ref=intent_ref,
+                outcome_scope_ref=outcome_scope_ref,
+            )
+            if restored_hints is None:
+                return {
+                    "executed": False,
+                    "error": (
+                        "Unknown, expired, or context-mismatched lifecycle plan_ref; "
+                        "request a new preview before execution."
+                    ),
+                }
+            replayed_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
+            if replayed_hints and replayed_hints != restored_hints:
+                return {
+                    "executed": False,
+                    "error": "Supplied hints do not match the reviewed lifecycle plan.",
+                }
+            raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
+            action = str(raw_hints["action"]).strip().lower()
     if action not in _RECLAIM_ACTIONS:
         return None
-    plan_hints = {k: v for k, v in hints.items() if k != "plan_ref"}
+    plan_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
     plan_ref = persistence_reference(
         "intent_plan",
         json.dumps(
@@ -1297,8 +1364,15 @@ async def _manage_lifecycle(
         "approval": {"required": False, "route": "dynamic_tool_policy"},
     }
     if not execute:
+        _remember_preview_plan(
+            plan_ref,
+            verb="manage",
+            intent_ref=intent_ref,
+            outcome_scope_ref=outcome_scope_ref,
+            hints=plan_hints,
+        )
         return {"executed": False, "plan": plan}
-    if str(hints.get("plan_ref") or "") != plan_ref:
+    if str(raw_hints.get("plan_ref") or "") != plan_ref:
         return {
             "executed": False,
             "error": (
@@ -1315,17 +1389,17 @@ async def _manage_lifecycle(
         }
     from agent_utilities.mcp.multiplexer import load_session_tools, unload_session_tools
 
-    tools = hints.get("tools")
-    servers = hints.get("servers")
+    tools = raw_hints.get("tools")
+    servers = raw_hints.get("servers")
     if action == "load":
         return await load_session_tools(
             mcp,
             mux,
             tools=tools,
             servers=servers,
-            auto_unload=bool(hints.get("auto_unload", False)),
+            auto_unload=bool(raw_hints.get("auto_unload", False)),
         )
-    toolsets = hints.get("toolsets")
+    toolsets = raw_hints.get("toolsets")
     return await unload_session_tools(
         mcp, mux, tools=tools, servers=servers, toolsets=toolsets
     )
@@ -1368,7 +1442,7 @@ def register_intent_tools(mcp: Any) -> list[str]:
                 security_failure = _intent_security_failure(intent, hints)
                 if security_failure is not None:
                     return json.dumps(security_failure, default=str)
-                lifecycle = await _manage_lifecycle(mcp, hints, execute=execute)
+                lifecycle = await _manage_lifecycle(mcp, intent, hints, execute=execute)
                 if lifecycle is not None:
                     return json.dumps({"lifecycle": lifecycle}, default=str)
             result = await dispatch_intent(verb, intent, hints=hints, execute=execute)

@@ -150,6 +150,46 @@ async def test_execute_capability_runs_resolved_skill_and_returns_bounded_eviden
 
 
 @pytest.mark.asyncio
+async def test_execute_capability_refuses_ungrounded_tool_required_envelope() -> None:
+    """The result wrapper must not turn pseudo tool-call text into gateway success."""
+    engine = MagicMock()
+    orchestrator = _orchestrator(engine)
+    orchestrator.resolve_capability = MagicMock(  # type: ignore[method-assign]
+        return_value={
+            "kind": "agent",
+            "name": "github-mcp",
+            "id": "",
+            "score": 1.0,
+            "source": "caller",
+            "alternatives": [],
+        }
+    )
+    orchestrator.execute_agent = AsyncMock(  # type: ignore[method-assign]
+        return_value=json.dumps(
+            {
+                "output": "```json\n{\"tool\": \"repository-manager\"}\n```",
+                "run_id": "run:0123456789abcdef0123456789abcdef",
+                "run_summary": {"outcome": "ok"},
+            }
+        )
+    )
+    orchestrator._run_provenance = MagicMock(  # type: ignore[method-assign]
+        return_value={"status": "completed", "tool_call_count": 0, "tool_calls": []}
+    )
+
+    result = await orchestrator.execute_capability(
+        task="List repositories.",
+        agent_name="github-mcp",
+        allowed_tools=["gith__repos"],
+    )
+
+    assert result["resolution"]["name"] == "github-mcp"
+    assert result["run_summary"]["outcome"] == "degraded"
+    assert result["provenance"]["status"] == "degraded"
+    assert "no recorded ToolCall provenance" in result["output"]
+
+
+@pytest.mark.asyncio
 async def test_execute_capability_runs_governed_workflow_and_surfaces_gate_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

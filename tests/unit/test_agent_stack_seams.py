@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -32,6 +33,30 @@ from agent_utilities.orchestration.engine import (
     AgentOrchestrationEngine,
     _is_agent_error,
 )
+
+
+def test_explicit_fleet_catalog_pin_bypasses_semantic_server_rebinding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A configured server remains authoritative when its KG node is absent."""
+    from agent_utilities.orchestration import agent_runner
+
+    engine = MagicMock()
+    engine.backend.execute.return_value = []
+    engine.search_hybrid.return_value = [{"name": "repository-manager-mcp"}]
+    monkeypatch.setattr(
+        agent_runner,
+        "_configured_fleet_server_names",
+        lambda: frozenset({"github-mcp"}),
+    )
+
+    resolved = agent_runner._resolve_agent_from_kg(engine, "github-mcp")
+
+    assert resolved["type"] == "server"
+    assert resolved["server_id"] == "srv:github-mcp"
+    assert resolved["toolset_id"] == "github-mcp"
+    engine.search_hybrid.assert_not_called()
+
 
 # --------------------------------------------------------------------------- #
 # Symptom 1 — wall-clock timeout on spawned agents
@@ -187,8 +212,8 @@ async def test_allowed_tools_bound_as_real_callable_toolset():
         captured.update(kwargs)
         return (AsyncMock(), [])
 
-    fake_agent_run = AsyncMock()
-    fake_agent_run.run.return_value.output = "ok"
+    fake_agent_run = MagicMock()
+    fake_agent_run.run = AsyncMock(return_value=SimpleNamespace(output="ok"))
 
     with patch("agent_utilities.agent.factory.create_agent") as mock_ca:
         mock_ca.side_effect = lambda **kw: captured.update(kw) or (fake_agent_run, [])
@@ -210,6 +235,44 @@ async def test_allowed_tools_bound_as_real_callable_toolset():
     assert len(bound) == 1
     assert isinstance(bound[0], _FakeToolset)
     assert bound[0].applied_filter is not None  # filtering actually applied
+
+
+@pytest.mark.asyncio
+async def test_prefixed_fleet_allow_name_maps_to_raw_direct_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public discovery names and raw child names enforce the same allow-list."""
+    from agent_utilities.orchestration import agent_runner
+
+    monkeypatch.setattr(
+        agent_runner,
+        "_configured_fleet_server_prefix",
+        lambda _server: "gith",
+    )
+    captured: dict = {}
+    fake_agent_run = MagicMock()
+    fake_agent_run.run = AsyncMock(return_value=SimpleNamespace(output="ok"))
+
+    with patch("agent_utilities.agent.factory.create_agent") as mock_ca:
+        mock_ca.side_effect = lambda **kw: captured.update(kw) or (fake_agent_run, [])
+        await _execute_single_server(
+            config={
+                "mcp_toolsets": [_FakeToolset("github-mcp")],
+                "invoker_allowed_tools": ["gith__repos"],
+                "provider": "openai",
+                "agent_model": "openai:gpt-4o-mini",
+            },
+            task="get a repository",
+            max_steps=5,
+            agent_meta={},
+            agent_name="github-mcp",
+        )
+
+    predicate = captured["mcp_toolsets"][0].applied_filter
+    repo_tool = type("Tool", (), {"name": "github_repos"})()
+    issue_tool = type("Tool", (), {"name": "github_issues"})()
+    assert predicate(None, repo_tool) is True
+    assert predicate(None, issue_tool) is False
 
 
 @pytest.mark.asyncio

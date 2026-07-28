@@ -256,6 +256,11 @@ async def test_graph_ingest_job_status(mock_engine, server_tools):
     mock_engine.get_task_status.return_value = {
         "status": "running",
         "metadata": {"target": "source-a"},
+        "attempt": 2,
+        "max_attempts": 3,
+        "resource_class": "ingestion",
+        "lease_expires_at": 12345.0,
+        "heartbeat_at": 12315.0,
     }
 
     res_str = await graph_ingest(
@@ -269,6 +274,9 @@ async def test_graph_ingest_job_status(mock_engine, server_tools):
         description="",
     )
     assert "running" in res_str
+    assert '"attempt": 2' in res_str
+    assert '"resource_class": "ingestion"' in res_str
+    assert '"lease_expires_at": 12345.0' in res_str
 
 
 @pytest.mark.asyncio

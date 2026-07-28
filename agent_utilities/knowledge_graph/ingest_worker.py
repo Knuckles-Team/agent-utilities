@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any
 
 from .core.engine_tasks import (
+    _TASK_WORK_ITEM_LEASE_SEC,
     _authorized_background_thread,
     _capture_verified_background_session,
     _resolve_task_target,
@@ -60,7 +61,7 @@ from .core.kafka_queue_backend import INGEST_GROUP, TASKS_TOPIC
 logger = logging.getLogger(__name__)
 
 #: Long-running parse/LLM tasks must not trip a group rebalance mid-task.
-_MAX_POLL_INTERVAL_MS = 3_600_000  # 1h — below the native WorkItem lease cap
+_MAX_POLL_INTERVAL_MS = 3_600_000  # 1h; independent from the fenced WorkItem lease
 
 
 def claim_task_envelope(
@@ -84,7 +85,7 @@ def claim_task_envelope(
         engine._work_item_engine,
         item_id,
         token=token,
-        lease_ttl_s=_MAX_POLL_INTERVAL_MS / 1000.0,
+        lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
     )
     if claim is None:
         logger.debug("Duplicate delivery of %s skipped by ClaimWorkItem.", job_id)

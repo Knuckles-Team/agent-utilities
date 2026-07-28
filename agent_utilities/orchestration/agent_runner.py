@@ -747,7 +747,13 @@ async def run_agent(
     # resolution-exempt regardless of the shape: it is a prompt-only universal entrypoint that
     # is MEANT to flow through the full multi-agent graph as itself, and resolving it both
     # wastes a ~21 s semantic search and mis-binds it to an unrelated tag (``prepare_messages``).
-    if shape.resolve_agent and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
+    # An explicit agent is a routing constraint, not a hint for the task lexical
+    # planner.  In particular, the focused-tools shape is planned from ``task``
+    # independently of ``agent_name``; skipping resolution here let that shape bind
+    # a different server even when the caller had pinned one.
+    if (
+        shape.resolve_agent or agent_name.strip()
+    ) and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
         agent_meta = await asyncio.to_thread(_resolve_agent_from_kg, engine, agent_name)
     else:
         agent_meta = _unresolved_agent_meta()
@@ -780,6 +786,7 @@ async def run_agent(
         recent_mementos=recent_mementos,
         code_context_prime=code_context_prime,
         model_class=model_class,
+        allowed_tools=allowed_tools,
     )
     config["response_format"] = response_format
     # CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context + token budget into the spawn.
@@ -824,8 +831,6 @@ async def run_agent(
         effective_budget_tokens = DEFAULT_TOKEN_BUDGET
     if effective_budget_tokens:
         config["invoker_budget_tokens"] = int(effective_budget_tokens)
-    if allowed_tools:
-        config["invoker_allowed_tools"] = list(allowed_tools)
     _bind_native_skill_toolset(
         config=config,
         agent_meta=agent_meta,
@@ -963,7 +968,7 @@ async def run_agent(
                     agent_meta=agent_meta,
                     agent_name=agent_name,
                 )
-        elif getattr(shape, "tool_servers", ()):
+        elif getattr(shape, "tool_servers", ()) and agent_meta.get("type") != "server":
             # CONCEPT:AU-ORCH.execution.focused-tools-altitude — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
             # server(s), so bind exactly those toolsets and run ONE direct agent loop (parallel
             # tool calls) instead of the planning graph, which over-decomposes a named-tool ask
@@ -1034,7 +1039,7 @@ async def run_agent(
             route = {
                 "agents": [],
                 "servers": [agent_name],
-                "why": "resolved as a single KG-registered MCP server",
+                "why": "resolved as a single configured MCP server",
             }
             stage_reached = f"tool-call: {agent_name}"
             await _emit(
@@ -1229,6 +1234,16 @@ async def run_agent(
         # run. The success-path provenance below runs under legacy identity and receives the
         # delegation explicitly.
         _reset_delegation(_delegation_token)
+
+    # A caller that requested tools, or explicitly selected a server, must be grounded
+    # by a real captured ToolCall.  Text that merely *looks* like a tool invocation is
+    # model output, not provenance, and must never be reported as a successful run.
+    tool_required = bool(allowed_tools) or agent_meta.get("type") == "server"
+    if tool_required and not _has_grounded_tool_call(result):
+        result = _fleet_server_failed_result(
+            agent_name,
+            "tool-required execution finished without recorded ToolCall provenance",
+        )
 
     # Step 5: Record provenance. A delegation that fell through to the graph's "no data"
     # sentinel (or returned an empty answer) is a DEGRADED outcome, not a success —
@@ -1788,6 +1803,21 @@ def _resolve_agent_from_kg(
     except Exception as e:
         logger.debug("AgentTemplate lookup failed for '%s': %s", agent_name, e)
 
+    # An explicit server pin must remain authoritative even while the durable
+    # capability graph is being refreshed. The live fleet catalog is already the
+    # transport authority used by the multiplexer, so an exact configured name is
+    # a safe fallback identity; semantic search must never rebound it to a
+    # different server named in the task text.
+    if agent_name in _configured_fleet_server_names():
+        meta["type"] = "server"
+        meta["server_id"] = f"srv:{agent_name}"
+        meta["toolset_id"] = agent_name
+        logger.info(
+            "[ORCH-1.21] Resolved explicit '%s' from the live MCP fleet catalog",
+            agent_name,
+        )
+        return meta
+
     # --- Search 3: Hybrid semantic search ---
     try:
         results = engine.search_hybrid(agent_name, top_k=3)
@@ -1808,6 +1838,44 @@ def _resolve_agent_from_kg(
 # ---------------------------------------------------------------------------
 # Internal: Config Construction
 # ---------------------------------------------------------------------------
+
+
+def _configured_fleet_server_names() -> frozenset[str]:
+    """Return exact server identities from the active multiplexer catalog."""
+    try:
+        from agent_utilities.mcp.multiplexer import (
+            MCPMultiplexer,
+            _resolve_config_path,
+        )
+
+        config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
+        catalog = MCPMultiplexer(config_path).load_catalog()
+        if isinstance(catalog, dict):
+            return frozenset(
+                str(name).strip()
+                for name in catalog
+                if isinstance(name, str) and name.strip()
+            )
+    except Exception as exc:  # noqa: BLE001 — KG resolution remains available
+        logger.debug("Live MCP fleet catalog lookup failed: %s", exc)
+    return frozenset()
+
+
+def _configured_fleet_server_prefix(server_name: str) -> str:
+    """Return the collision-safe public prefix for one configured server."""
+    try:
+        from agent_utilities.mcp.multiplexer import (
+            MCPMultiplexer,
+            _resolve_config_path,
+        )
+
+        config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
+        mux = MCPMultiplexer(config_path)
+        if server_name in mux.load_catalog():
+            return mux.server_prefix(server_name)
+    except Exception as exc:  # noqa: BLE001 — raw tool names still work
+        logger.debug("Live MCP fleet prefix lookup failed for %s: %s", server_name, exc)
+    return ""
 
 
 def _configured_model_for_class(model_class: str) -> Any:
@@ -1846,13 +1914,20 @@ def _spawn_auth_headers() -> dict[str, str]:
     return child_auth_header(None)
 
 
-def _toolset_for_id(_engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
+def _toolset_for_id(
+    _engine: IntelligenceGraphEngine,
+    toolset_id: str,
+    *,
+    allowed_tools: list[str] | None = None,
+) -> Any:
     """Resolve ONE AgentTemplate ``toolset_id`` to a live MCP toolset.
 
     CONCEPT:AU-ORCH.adapter.transport-toolset-factory — the binding seam that turns a KG-bound persona's declared
     toolsets into tools the local LLM can actually call. Resolution reuses the
     existing Server/mcp_config + fleet-URL machinery (no new binder, no new
-    transport code):
+    transport code). ``graph-os`` is the one deliberate exception: it is this
+    process, so it binds only the caller-granted native tools and never opens a
+    self-HTTP connection.
 
     Resolution uses only the active AgentConfig URL template or the live fleet
     configuration. KG ``Server.url`` values are opaque provenance references,
@@ -1865,6 +1940,32 @@ def _toolset_for_id(_engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
     tid = (toolset_id or "").strip()
     if not tid:
         return None
+
+    if tid == "graph-os":
+        requested = [
+            str(name).strip() for name in allowed_tools or [] if str(name).strip()
+        ]
+        if not requested:
+            raise PermissionError(
+                "graph-os AgentTemplate binding requires an explicit bounded tool allow-list"
+            )
+        if len(requested) != len(set(requested)):
+            raise ValueError("GraphOS tool allow-list contains duplicates")
+
+        from agent_utilities.mcp.kg_server import (
+            REGISTERED_TOOLS,
+            build_native_graphos_toolset,
+            ensure_tools_registered,
+        )
+
+        ensure_tools_registered()
+        if "graph_orchestrate" in requested:
+            raise PermissionError("recursive native GraphOS delegation is forbidden")
+        if any(name not in REGISTERED_TOOLS for name in requested):
+            raise PermissionError(
+                "GraphOS tool allow-list contains a tool not declared by graph-os"
+            )
+        return build_native_graphos_toolset(requested, toolset_id=tid)
 
     from agent_utilities.mcp.toolset_factory import build_http_toolset
 
@@ -1884,7 +1985,10 @@ def _toolset_for_id(_engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
 
 
 def _resolve_toolset_ids(
-    engine: IntelligenceGraphEngine, toolset_ids: list[str]
+    engine: IntelligenceGraphEngine,
+    toolset_ids: list[str],
+    *,
+    allowed_tools: list[str] | None = None,
 ) -> list[Any]:
     """Bind an AgentTemplate's ``toolset_ids`` into a list of live MCP toolsets.
 
@@ -1894,7 +1998,7 @@ def _resolve_toolset_ids(
     """
     bound: list[Any] = []
     for tid in toolset_ids or []:
-        ts = _toolset_for_id(engine, tid)
+        ts = _toolset_for_id(engine, tid, allowed_tools=allowed_tools)
         if ts is None:
             raise RuntimeError("declared toolset could not be bound")
         bound.append(ts)
@@ -2045,6 +2149,7 @@ def _build_execution_config(
     recent_mementos: list[str] | None = None,
     code_context_prime: str | None = None,
     model_class: str = "standard",
+    allowed_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build a graph execution config dict from KG-resolved agent metadata.
 
@@ -2165,6 +2270,8 @@ def _build_execution_config(
         "enable_llm_validation": False,
         "discovery_metadata": {},
     }
+    if allowed_tools:
+        config["invoker_allowed_tools"] = list(allowed_tools)
 
     # Bind a server only through the live fleet configuration. KG server nodes
     # carry capability identity and opaque provenance, never executable transport.
@@ -2184,7 +2291,19 @@ def _build_execution_config(
     # fleet and GROUND its answers (query-the-KG-then-answer). Reuses the same
     # Server/fleet-URL resolution + toolset_factory — no new binder.
     if agent_meta.get("type") == "agent_template":
-        bound = _resolve_toolset_ids(engine, agent_meta.get("capabilities", []))
+        declared_tools = {
+            str(tool.get("name") or "").strip()
+            for tool in agent_meta.get("tools") or []
+            if isinstance(tool, dict) and str(tool.get("name") or "").strip()
+        }
+        requested_tools = set(config.get("invoker_allowed_tools") or [])
+        if declared_tools and not requested_tools.issubset(declared_tools):
+            raise PermissionError("AgentTemplate requested an undeclared tool")
+        bound = _resolve_toolset_ids(
+            engine,
+            agent_meta.get("capabilities", []),
+            allowed_tools=config.get("invoker_allowed_tools"),
+        )
         if bound:
             config["mcp_toolsets"].extend(bound)
             logger.info(
@@ -2272,6 +2391,10 @@ def _fleet_server_failed_result(agent_name: str, error: str) -> dict[str, Any]:
                 f"answer, which would fabricate tool output."
             )
         },
+        # Keep the zero explicit: the RunTrace writer distinguishes a known
+        # ungrounded tool-required execution from a legacy result with no
+        # provenance field at all.
+        "tool_calls": [],
         "metadata": {"degraded": True, "outcome": "fleet_server_failed"},
     }
 
@@ -2399,6 +2522,7 @@ async def _execute_single_server(
     allowed = config.get("invoker_allowed_tools")
     if allowed:
         allow_set = {str(t).strip() for t in allowed if str(t).strip()}
+        public_prefix = _configured_fleet_server_prefix(agent_name)
         filtered: list[Any] = []
         for ts in toolsets:
             _filter = getattr(ts, "filtered", None)
@@ -2408,7 +2532,18 @@ async def _execute_single_server(
                     f"cannot enforce allowed_tools={sorted(allow_set)} for agent "
                     f"'{agent_name}'"
                 )
-            filtered.append(_filter(lambda _ctx, td, _a=allow_set: td.name in _a))
+            if public_prefix:
+                from agent_utilities.mcp.multiplexer import clean_tool_name
+
+                filtered.append(
+                    _filter(
+                        lambda _ctx, td, _a=allow_set, _p=public_prefix, _s=agent_name: (
+                            td.name in _a or clean_tool_name(_p, _s, td.name) in _a
+                        )
+                    )
+                )
+            else:
+                filtered.append(_filter(lambda _ctx, td, _a=allow_set: td.name in _a))
         toolsets = filtered
 
     # An agent resolved as a single MCP server but left with no toolset would have
@@ -3048,6 +3183,25 @@ def _tool_call_errored(tc: Any) -> bool:
     if tc.get("error"):
         return True
     return _result_looks_like_error(str(tc.get("result") or ""))
+
+
+def _has_grounded_tool_call(result: Any) -> bool:
+    """Return whether execution captured at least one real ToolCall record.
+
+    A fenced JSON snippet such as ``{"tool": "repos"}`` is only model text.  The
+    executor's tool loop is the authority: it records actual invocations in the
+    structured ``tool_calls`` list that is later persisted as ``:ToolCall`` nodes.
+    """
+    if not isinstance(result, dict):
+        return False
+    calls = result.get("tool_calls")
+    return bool(
+        isinstance(calls, list)
+        and any(
+            isinstance(call, dict) and str(call.get("tool_name") or "").strip()
+            for call in calls
+        )
+    )
 
 
 def _delegation_degraded(result: Any) -> bool:

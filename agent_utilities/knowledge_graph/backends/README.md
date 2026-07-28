@@ -57,6 +57,9 @@ Configured via environment variables:
 - `GRAPH_DB_CONNECTION_PROFILE_REF`: Runtime secret reference resolving to a JSON
   connection profile. The profile carries the selected backend's URI, host, port,
   database, identity, credential, local path, and TLS profile fields.
+- Mirror entries in `KG_CONNECTIONS` may use runtime references such as
+  `env://FALKOR_TEAM_HOST` and `env://FALKOR_TEAM_PORT`; they are resolved before
+  backend construction, and a resolved port must be numeric.
 - `GRAPH_POOL_MIN` / `GRAPH_POOL_MAX`: PostgreSQL connection pool sizing.
 - `GRAPH_PGGRAPH_SCHEMA`: Schema for pg-age table registration (default: `public`).
 
