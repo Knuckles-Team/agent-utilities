@@ -263,14 +263,17 @@ connector reports **nothing**:
    falling through to default-allow. `CONNECTOR_DEFAULT_PUBLIC=true` is the
    explicit dev/local opt-in back to the old public-by-default behavior
    (default `false` — fail closed).
-2. **A missing manifest can be made to block activation.**
-   `connector_manifest_gate.precheck_source` still silently passes a source
-   with no `connector_manifest.yml` (most of the ~40 fleet sources aren't onto
-   the manifest yet, and this must never regress an existing dev/local sync) —
-   UNLESS the source is named in `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` (a
-   comma-separated allowlist, empty by default), in which case a missing
-   manifest now fails closed (`checked=True, ok=False`) exactly like a
-   tampered manifest would.
+2. **Every external source is compile-before-sync governed.**
+   `connector_manifest_gate.precheck_source` rejects a missing, unsigned,
+   providerless, schema-drifted, or code-fingerprint-drifted
+   `connector_manifest.yml` before any source record is read. Provider-owned
+   presets and exact live MCP schema fingerprints are part of the signed
+   contract; the hub does not retain a second copy of a provider preset.
+   FreshRSS, for example, contributes the sole `freshrss` preset from
+   `freshrss-agent`, while the in-package native connector bundle signs the
+   local-module closure for `rss`, `web`, `filesystem`, and the other
+   zero-infrastructure sources. Only the explicit internal-introspection
+   sources documented by the gate bypass this external supply-chain boundary.
 3. **A reconcile pass can't mistake a failed fetch for "everything was
    deleted."** `source_sync._reconcile` distinguishes a live-id fetch that
    errored or was skipped (`fetch_ok=False` — always skips, regardless of
