@@ -237,6 +237,10 @@ heading (frontmatter, `## Invoke`, and every other section untouched).
 whole execution to local vLLM; authenticated child MCP schemas remain internal. The
 non-read preview/`plan_ref` contract still governs the dispatch, and the result returns
 only bounded output, opaque provenance, tool names/statuses, and any approval request.
+For pinned orchestration intents, the `agent` and `server` hint aliases normalize to
+`agent_name`; do not provide an alias and `agent_name` with different values. Every
+other hint must be a documented parameter of the selected tool and is rejected before
+a preview is stored.
 
 **Not touched (correctly exempt — `tier: meta`/`surface`, not verb wrappers):** the former
 `kg-capability-builder` (folded into `agent-utilities-development`), `kg-coverage-doctor` and

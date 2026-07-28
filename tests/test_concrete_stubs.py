@@ -106,7 +106,9 @@ def test_zero_day_immunity():
     # Test with code in prompt (should invoke AST fallback parser)
     code_prompt = "def my_func(): pass"
     sub_code = zdi._parse_to_subgraph(code_prompt, {})
-    assert len(sub_code["nodes"]) > 0
+    assert "code:prompt" in sub_code["nodes"]
+    assert "function:my_func" in sub_code["nodes"]
+    assert ("code:prompt", "function:my_func") in sub_code["edges"]
 
 
 # 3. Test Ontological Turtle Import

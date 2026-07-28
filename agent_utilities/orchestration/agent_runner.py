@@ -1039,7 +1039,7 @@ async def run_agent(
             route = {
                 "agents": [],
                 "servers": [agent_name],
-                "why": "resolved as a single KG-registered MCP server",
+                "why": "resolved as a single configured MCP server",
             }
             stage_reached = f"tool-call: {agent_name}"
             await _emit(
@@ -1803,6 +1803,21 @@ def _resolve_agent_from_kg(
     except Exception as e:
         logger.debug("AgentTemplate lookup failed for '%s': %s", agent_name, e)
 
+    # An explicit server pin must remain authoritative even while the durable
+    # capability graph is being refreshed. The live fleet catalog is already the
+    # transport authority used by the multiplexer, so an exact configured name is
+    # a safe fallback identity; semantic search must never rebound it to a
+    # different server named in the task text.
+    if agent_name in _configured_fleet_server_names():
+        meta["type"] = "server"
+        meta["server_id"] = f"srv:{agent_name}"
+        meta["toolset_id"] = agent_name
+        logger.info(
+            "[ORCH-1.21] Resolved explicit '%s' from the live MCP fleet catalog",
+            agent_name,
+        )
+        return meta
+
     # --- Search 3: Hybrid semantic search ---
     try:
         results = engine.search_hybrid(agent_name, top_k=3)
@@ -1825,6 +1840,44 @@ def _resolve_agent_from_kg(
 # ---------------------------------------------------------------------------
 
 
+def _configured_fleet_server_names() -> frozenset[str]:
+    """Return exact server identities from the active multiplexer catalog."""
+    try:
+        from agent_utilities.mcp.multiplexer import (
+            MCPMultiplexer,
+            _resolve_config_path,
+        )
+
+        config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
+        catalog = MCPMultiplexer(config_path).load_catalog()
+        if isinstance(catalog, dict):
+            return frozenset(
+                str(name).strip()
+                for name in catalog
+                if isinstance(name, str) and name.strip()
+            )
+    except Exception as exc:  # noqa: BLE001 — KG resolution remains available
+        logger.debug("Live MCP fleet catalog lookup failed: %s", exc)
+    return frozenset()
+
+
+def _configured_fleet_server_prefix(server_name: str) -> str:
+    """Return the collision-safe public prefix for one configured server."""
+    try:
+        from agent_utilities.mcp.multiplexer import (
+            MCPMultiplexer,
+            _resolve_config_path,
+        )
+
+        config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
+        mux = MCPMultiplexer(config_path)
+        if server_name in mux.load_catalog():
+            return mux.server_prefix(server_name)
+    except Exception as exc:  # noqa: BLE001 — raw tool names still work
+        logger.debug("Live MCP fleet prefix lookup failed for %s: %s", server_name, exc)
+    return ""
+
+
 def _configured_model_for_class(model_class: str) -> Any:
     """Resolve an explicit runtime class to one exact AgentConfig model tier."""
     from agent_utilities.core.config import config as agent_config
@@ -1843,22 +1896,23 @@ def _configured_model_for_class(model_class: str) -> Any:
     return matches[0]
 
 
-def _spawn_auth_headers() -> dict[str, str]:
-    """Outbound service-account auth for a spawned agent's REMOTE MCP toolsets.
+def _spawn_auth() -> Any:
+    """Refresh-capable service-account auth for spawned REMOTE MCP toolsets.
 
     CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap / OS-5.32 — a spawned agent that binds a jwt-protected
     fleet server over SSE/streamable-HTTP must carry the same
-    service-account bearer the multiplexer attaches to its children, or the
-    call is rejected ``401`` (the toolset connected unauthenticated). Reuses the
-    one minting path (``client_credentials.child_auth_header``): opt-in via
-    ``MCP_CLIENT_AUTH=oidc-client-credentials`` (Bearer) or ``basic`` (Basic), and
-    an inert ``{}`` only when authentication is explicitly disabled. Credential
-    or minting failures propagate so a protected toolset is never spawned
-    anonymously.
+    service-account identity the multiplexer attaches to its children, or the
+    call is rejected ``401``. Reuse ``client_credentials.child_auth`` so a
+    long-lived streamable-HTTP session pulls a current token per request and
+    force-refreshes once on ``401``. A static Authorization header is invalid
+    here: it freezes the token minted when the toolset was built and makes
+    delegated calls fail after that token expires. Authentication disabled
+    explicitly returns ``None``; configuration and mint failures remain
+    fail-closed.
     """
-    from agent_utilities.mcp.client_credentials import child_auth_header
+    from agent_utilities.mcp.client_credentials import child_auth
 
-    return child_auth_header(None)
+    return child_auth(None)
 
 
 def _toolset_for_id(
@@ -1880,8 +1934,9 @@ def _toolset_for_id(
     configuration. KG ``Server.url`` values are opaque provenance references,
     never transport endpoints.
 
-    The toolset carries the OIDC service-account bearer (:func:`_spawn_auth_headers`)
-    so JWT-protected servers don't reject the call ``401``. Returns the
+    The toolset carries refresh-capable OIDC service-account auth
+    (:func:`_spawn_auth`) so JWT-protected servers do not reject calls after the
+    initial token expires. Returns the
     bound ``MCPToolset`` (id-tagged for filtering), or ``None`` for an empty id.
     """
     tid = (toolset_id or "").strip()
@@ -1925,7 +1980,7 @@ def _toolset_for_id(
 
     return build_http_toolset(
         url,
-        headers=_spawn_auth_headers() or None,
+        auth=_spawn_auth(),
         timeout=60,
         toolset_id=tid,
     )
@@ -2469,6 +2524,7 @@ async def _execute_single_server(
     allowed = config.get("invoker_allowed_tools")
     if allowed:
         allow_set = {str(t).strip() for t in allowed if str(t).strip()}
+        public_prefix = _configured_fleet_server_prefix(agent_name)
         filtered: list[Any] = []
         for ts in toolsets:
             _filter = getattr(ts, "filtered", None)
@@ -2478,7 +2534,18 @@ async def _execute_single_server(
                     f"cannot enforce allowed_tools={sorted(allow_set)} for agent "
                     f"'{agent_name}'"
                 )
-            filtered.append(_filter(lambda _ctx, td, _a=allow_set: td.name in _a))
+            if public_prefix:
+                from agent_utilities.mcp.multiplexer import clean_tool_name
+
+                filtered.append(
+                    _filter(
+                        lambda _ctx, td, _a=allow_set, _p=public_prefix, _s=agent_name: (
+                            td.name in _a or clean_tool_name(_p, _s, td.name) in _a
+                        )
+                    )
+                )
+            else:
+                filtered.append(_filter(lambda _ctx, td, _a=allow_set: td.name in _a))
         toolsets = filtered
 
     # An agent resolved as a single MCP server but left with no toolset would have
@@ -2703,7 +2770,7 @@ async def _execute_focused_tools(
         toolsets.append(
             build_http_toolset(
                 url,
-                headers=_spawn_auth_headers() or None,
+                auth=_spawn_auth(),
                 timeout=60,
             )
         )

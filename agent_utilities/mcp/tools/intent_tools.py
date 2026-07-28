@@ -92,6 +92,12 @@ _CALLER_OUTCOME_FIELDS = frozenset(
     }
 )
 _CONTROL_HINT_FIELDS = frozenset({"tool", "_tool", "action", "plan_ref"})
+#: Kept at the intent boundary rather than adding duplicate public parameters to
+#: the underlying tool.  A delegation target is an ``agent_name`` regardless of
+#: whether a caller describes it as an agent or its backing MCP server.
+_DOCUMENTED_HINT_ALIASES: dict[str, dict[str, str]] = {
+    "graph_orchestrate": {"agent": "agent_name", "server": "agent_name"},
+}
 _DESTRUCTIVE_TERMS = frozenset(
     {
         "clear",
@@ -582,6 +588,79 @@ def _tool_accepts_argument(tool: str, argument: str) -> bool:
     )
 
 
+def _normalize_documented_hint_aliases(hints: dict[str, Any]) -> dict[str, Any]:
+    """Normalize only documented aliases for an explicitly pinned tool.
+
+    Conflicting names are denied rather than silently choosing a target.  The
+    normalized form is what preview storage and plan references bind, so a
+    plan-ref-only replay remains exact while callers may use either spelling.
+    """
+
+    tool = hints.get("tool") or hints.get("_tool")
+    aliases = _DOCUMENTED_HINT_ALIASES.get(str(tool or ""), {})
+    normalized = dict(hints)
+    for alias, canonical in aliases.items():
+        if alias not in normalized:
+            continue
+        alias_value = normalized.pop(alias)
+        if canonical in normalized and normalized[canonical] != alias_value:
+            raise ValueError(
+                f"Conflicting intent hints {alias!r} and {canonical!r}; "
+                f"use only {canonical!r}."
+            )
+        normalized[canonical] = alias_value
+    return normalized
+
+
+def _unsupported_hint_arguments(tool: str, call_kwargs: dict[str, Any]) -> list[str]:
+    """Return unsupported direct-call arguments for a selected tool.
+
+    A ``**kwargs`` tool explicitly owns its open-ended schema.  All other
+    tools are closed at this façade, avoiding a raw Python ``TypeError`` after
+    a reviewed plan has been produced.
+    """
+
+    function = kg_server.REGISTERED_TOOLS.get(tool)
+    if function is None:
+        return sorted(call_kwargs)
+    try:
+        parameters = inspect.signature(function).parameters.values()
+    except (TypeError, ValueError):
+        # An opaque callable has no inspectable public input contract.
+        return sorted(call_kwargs)
+    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters):
+        return []
+    accepted = {
+        parameter.name
+        for parameter in parameters
+        if parameter.kind
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    return sorted(set(call_kwargs) - accepted)
+
+
+def _hint_argument_error(tool: str, unsupported: list[str]) -> str:
+    """Give callers a stable correction path without exposing raw exceptions."""
+
+    function = kg_server.REGISTERED_TOOLS.get(tool)
+    try:
+        parameters = inspect.signature(function).parameters.values() if function else ()
+        accepted = sorted(
+            parameter.name
+            for parameter in parameters
+            if parameter.kind
+            in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        )
+    except (TypeError, ValueError):
+        accepted = []
+    names = ", ".join(repr(name) for name in unsupported)
+    supported = ", ".join(accepted) or "the tool's documented schema"
+    return (
+        f"Unsupported intent hint argument(s) for {tool!r}: {names}. "
+        f"Use documented parameters: {supported}."
+    )
+
+
 def _operation_plan(
     verb: str,
     tool: str,
@@ -932,7 +1011,10 @@ async def dispatch_intent(
     Outcome learning consumes only the verified tool result of an unpinned,
     unambiguous execution in the current tenant/policy partition.
     """
-    raw_hints = dict(hints or {})
+    try:
+        raw_hints = _normalize_documented_hint_aliases(dict(hints or {}))
+    except ValueError as exc:
+        return {"error": str(exc), "executed": False}
     if verb not in _DISPATCH_VERBS:
         return {
             "error": "Unsupported GraphOS intent verb.",
@@ -1005,6 +1087,16 @@ async def dispatch_intent(
 
     top = candidates[0]
     chosen_tool = top.tool
+    # A non-pinned resolver result can still be the orchestration façade.  It
+    # is safe to normalize its two documented target aliases only after the
+    # resolver has selected that tool.
+    if chosen_tool in _DOCUMENTED_HINT_ALIASES:
+        try:
+            raw_hints = _normalize_documented_hint_aliases(
+                {**raw_hints, "tool": chosen_tool}
+            )
+        except ValueError as exc:
+            return {"error": str(exc), "executed": False}
     available_actions = _actions_by_tool().get(chosen_tool, [])
     if explicit_action is not None and explicit_action not in available_actions:
         return {
@@ -1079,6 +1171,19 @@ async def dispatch_intent(
 
     if chosen_action is not None and _tool_accepts_argument(chosen_tool, "action"):
         call_kwargs.setdefault("action", chosen_action)
+
+    unsupported_hints = _unsupported_hint_arguments(chosen_tool, call_kwargs)
+    if unsupported_hints:
+        return {
+            "error": _hint_argument_error(chosen_tool, unsupported_hints),
+            "executed": False,
+            "routing": {
+                "verb": verb,
+                "intent_ref": intent_ref,
+                "chosen_tool": chosen_tool,
+                "unsupported_hint_arguments": unsupported_hints,
+            },
+        }
 
     candidate_ambiguity = _ambiguity_evidence(candidates, explicit=explicit_tool)
     action_ambiguity = _action_ambiguity_evidence(

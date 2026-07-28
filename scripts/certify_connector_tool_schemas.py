@@ -36,6 +36,7 @@ from agent_utilities.protocols.source_connectors.tool_schema import (  # noqa: E
     canonical_input_schema,
     compatibility_fingerprint,
 )
+from scripts.generate_connector_manifests import connector_project_name  # noqa: E402
 
 
 def _module_dir(connector_root: Path) -> Path:
@@ -80,14 +81,18 @@ async def _discover(connector_root: Path) -> dict[str, str]:
     del module_dir
     server_names = {str(preset.get("server") or "") for preset in presets.values()}
     if "" in server_names or len(server_names) != 1:
-        raise RuntimeError("one connector bundle must resolve to exactly one MCP server")
+        raise RuntimeError(
+            "one connector bundle must resolve to exactly one MCP server"
+        )
     server = next(iter(server_names))
     config = _load_mcp_config()
 
     try:
         from fastmcp import Client
     except ImportError as exc:
-        raise RuntimeError("install agent-utilities[mcp] to certify live MCP schemas") from exc
+        raise RuntimeError(
+            "install agent-utilities[mcp] to certify live MCP schemas"
+        ) from exc
 
     async with Client(_target(server, config)) as client:
         result = await client.list_tools()
@@ -127,7 +132,11 @@ def _local_factory_target(connector_root: Path, server: str) -> str:
 
     candidates: list[tuple[int, str]] = []
     for name, target in scripts.items():
-        if not isinstance(name, str) or not isinstance(target, str) or ":" not in target:
+        if (
+            not isinstance(name, str)
+            or not isinstance(target, str)
+            or ":" not in target
+        ):
             continue
         lowered = name.lower()
         score = 0
@@ -157,7 +166,9 @@ async def _discover_local(connector_root: Path) -> dict[str, str]:
     _, presets = _presets(connector_root)
     server_names = {str(preset.get("server") or "") for preset in presets.values()}
     if "" in server_names or len(server_names) != 1:
-        raise RuntimeError("one connector bundle must resolve to exactly one MCP server")
+        raise RuntimeError(
+            "one connector bundle must resolve to exactly one MCP server"
+        )
     server = next(iter(server_names))
     required = sorted({str(preset.get("tool") or "") for preset in presets.values()})
     if any(not name for name in required):
@@ -242,16 +253,19 @@ async def _local_worker() -> int:
 
 
 def _render(connector: str, tools: dict[str, str]) -> str:
-    return json.dumps(
-        {
-            "schema_version": "1",
-            "connector": connector,
-            "algorithm": "agent-utilities:mcp-tool-schema-compat:v1",
-            "tools": dict(sorted(tools.items())),
-        },
-        indent=2,
-        sort_keys=True,
-    ) + "\n"
+    return (
+        json.dumps(
+            {
+                "schema_version": "1",
+                "connector": connector,
+                "algorithm": "agent-utilities:mcp-tool-schema-compat:v1",
+                "tools": dict(sorted(tools.items())),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
 
 
 async def _one(connector_root: Path, *, check: bool, local: bool) -> None:
@@ -263,17 +277,18 @@ async def _one(connector_root: Path, *, check: bool, local: bool) -> None:
         if local
         else await _discover(connector_root)
     )
-    rendered = _render(connector_root.name, discovered)
+    connector = connector_project_name(connector_root)
+    rendered = _render(connector, discovered)
     if check:
         if not output.is_file() or output.read_text(encoding="utf-8") != rendered:
             raise RuntimeError(
-                f"{connector_root.name}: committed tool-schema fingerprints differ from live MCP"
+                f"{connector}: committed tool-schema fingerprints differ from live MCP"
             )
-        print(f"verified {connector_root.name}: live schema pins match", flush=True)
+        print(f"verified {connector}: live schema pins match", flush=True)
         return
     output.write_text(rendered, encoding="utf-8")
     print(
-        f"certified {connector_root.name}: "
+        f"certified {connector}: "
         f"wrote {len(json.loads(rendered)['tools'])} tool pin(s)",
         flush=True,
     )

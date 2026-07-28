@@ -23,7 +23,6 @@ reimplementation) — the exact method that crashed.
 from __future__ import annotations
 
 import asyncio
-import json
 
 import pandas as pd
 
@@ -197,8 +196,8 @@ def test_strategy_engine_record_backtest_persists_and_promotes():
     assert len(engine.cypher_calls) == 1
 
 
-def test_graph_analyze_quant_strategy_live_path(monkeypatch):
-    """The FULL live path: ``graph_analyze(action='quant_strategy', ...)`` —
+def test_graph_evaluate_quant_strategy_live_path(monkeypatch):
+    """The FULL live path: ``graph_evaluate(action='quant_strategy', ...)`` —
     exactly the call site in ``mcp/tools/analysis_tools.py`` that hit the same
     ``add_node(id=...)`` kwarg drift."""
     from agent_utilities.mcp import kg_server
@@ -207,11 +206,11 @@ def test_graph_analyze_quant_strategy_live_path(monkeypatch):
     engine = _StrictRealSignatureEngine()
     monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
 
-    tool = kg_server.REGISTERED_TOOLS["graph_analyze"]
+    tool = kg_server.REGISTERED_TOOLS["graph_evaluate"]
     out = asyncio.run(tool(action="quant_strategy", query="Strat_Y", top_k=10))
 
-    assert "Error" not in out, out
-    payload = json.loads(out)
+    assert not out.next_actions, out
+    payload = out.claims[0]
     assert payload["strategy_id"] == "Strat_Y"
     assert len(engine.nodes) == 1
     assert engine.nodes[0]["node_type"] == "BacktestResult"

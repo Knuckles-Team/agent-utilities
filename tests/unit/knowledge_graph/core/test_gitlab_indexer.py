@@ -251,9 +251,9 @@ def test_sync_source_routes_to_gitlab_handler(monkeypatch: pytest.MonkeyPatch):
     res = sync_source(engine, "gitlab", mode="full", client=_source())
     assert res["status"] == "ok"
     assert res["source"] == "gitlab"
-    assert res["calls_resolved"] == 1
-    assert res["projects_indexed"] == 1
-    assert engine.batches and engine.batches[0][0] == "gitlab:gitlab"
+    assert res["details"]["calls_resolved"] == 1
+    assert res["details"]["projects_indexed"] == 1
+    assert engine.batches and engine.batches[0][0] == "gitlab"
 
 
 def test_sync_source_fails_when_engine_lacks_index_repository(

@@ -4297,7 +4297,6 @@ def _dispatch_sync_source(
                     "not found in mcp_config",
                     "not configured",
                     "no client",
-                    "missing",
                     "credential",
                     "unconfigured",
                 )

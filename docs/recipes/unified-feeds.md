@@ -35,7 +35,7 @@ flowchart TB
 | Source | How | When to use |
 |---|---|---|
 | **native `rss`** | `@register_source("rss")` `RssConnector` (feedparser); feeds in `KG_RSS_FEEDS` or added via `graph_feeds`. | Ingest any RSS/Atom URL with **nothing deployed** — the zero-infra default. |
-| **FreshRSS** | `freshrss` `mcp_tool` preset over the GReader API. | A managed aggregator of many curated feeds (subscriptions, read-state). |
+| **FreshRSS** | Provider-owned, signed `freshrss` `mcp_tool` preset from `freshrss-agent`, pinned to the live GReader MCP schema. | A managed aggregator of many curated feeds (subscriptions, read-state). |
 | **ScholarX arXiv** | `scholarx_feed_documents` maps `Paper`s (its specialized arXiv parser stays in scholarx) to the unified shape. | arXiv daily announcements → the research path. |
 
 ## The one gate (content-routed)

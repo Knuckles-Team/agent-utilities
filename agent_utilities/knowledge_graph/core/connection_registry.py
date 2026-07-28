@@ -215,7 +215,7 @@ def _resolve_secret(value: Any) -> Any:
         raise ValueError("connection secret reference could not be resolved") from None
 
 
-def resolve_connection_runtime_fields(spec: Mapping[str, Any]) -> dict[str, Any]:
+def _resolve_connection_runtime_fields(spec: Mapping[str, Any]) -> dict[str, Any]:
     """Resolve transient connection fields and validate a numeric port.
 
     Named registry connections and fan-out mirrors share the same durable
@@ -663,7 +663,7 @@ class ConnectionRegistry:
             build_spec = {**build_spec, **runtime_auth}
             if selector:
                 build_spec["backend_type"] = selector
-        build_spec = resolve_connection_runtime_fields(build_spec)
+        build_spec = _resolve_connection_runtime_fields(build_spec)
 
         backend_kind = (
             str(build_spec.get("backend_type") or "").lower().replace("-", "_")

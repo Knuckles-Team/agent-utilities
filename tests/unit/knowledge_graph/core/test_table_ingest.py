@@ -138,9 +138,9 @@ def test_ingest_connector_to_table_mirrors_documents(monkeypatch):
     eng = _FakeEngine()
     out = table_ingest.ingest_connector_to_table(eng, "rest", table="my_tbl", limit=2)
     assert out["status"] == "ok"
-    assert out["table"] == "my_tbl"
-    assert out["rows_seen"] == 2  # limit honored
-    assert out["rows_written"] == 2
+    assert out["details"]["table"] == "my_tbl"
+    assert out["details"]["rows_seen"] == 2  # limit honored
+    assert out["details"]["rows_written"] == 2
     assert any(
         "CREATE TABLE IF NOT EXISTS my_tbl" in s for s in eng.graph_compute.statements
     )

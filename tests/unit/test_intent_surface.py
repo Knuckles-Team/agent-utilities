@@ -511,6 +511,91 @@ async def test_act_routes_plain_intent_to_graphos_skill_gateway(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("alias", ("agent", "server"))
+async def test_orchestration_target_alias_replays_as_agent_name(monkeypatch, alias):
+    """Documented target aliases bind the same reviewed orchestration plan."""
+    seen: dict[str, str] = {}
+
+    async def fake_graph_orchestrate(task: str = "", agent_name: str = "") -> str:
+        seen.update(task=task, agent_name=agent_name)
+        return "delegated"
+
+    monkeypatch.setitem(
+        kg_server.REGISTERED_TOOLS, "graph_orchestrate", fake_graph_orchestrate
+    )
+    intent = "delegate the reviewed task"
+    preview = await intent_tools.dispatch_intent(
+        "act",
+        intent,
+        hints={"tool": "graph_orchestrate", alias: "repository-manager"},
+        execute=False,
+    )
+
+    result = await intent_tools.dispatch_intent(
+        "act",
+        intent,
+        hints={"plan_ref": preview["routing"]["plan"]["plan_ref"]},
+        execute=True,
+    )
+
+    assert result["executed"] is True
+    assert seen == {"task": intent, "agent_name": "repository-manager"}
+
+
+@pytest.mark.asyncio
+async def test_intent_rejects_unknown_hint_before_creating_preview(monkeypatch):
+    """Closed tool schemas return a correction, never a raw call TypeError."""
+
+    async def fake_graph_orchestrate(task: str = "", agent_name: str = "") -> str:
+        return "delegated"
+
+    monkeypatch.setitem(
+        kg_server.REGISTERED_TOOLS, "graph_orchestrate", fake_graph_orchestrate
+    )
+    result = await intent_tools.dispatch_intent(
+        "act",
+        "delegate the task",
+        hints={"tool": "graph_orchestrate", "agent_typo": "repository-manager"},
+        execute=False,
+    )
+
+    assert result["executed"] is False
+    assert (
+        "Unsupported intent hint argument(s) for 'graph_orchestrate': 'agent_typo'"
+        in result["error"]
+    )
+    assert "agent_name" in result["error"]
+    assert "plan" not in result.get("routing", {})
+
+
+@pytest.mark.asyncio
+async def test_orchestration_target_alias_conflict_fails_closed(monkeypatch):
+    """Target aliases never silently override the canonical public parameter."""
+
+    async def fake_graph_orchestrate(task: str = "", agent_name: str = "") -> str:
+        return "delegated"
+
+    monkeypatch.setitem(
+        kg_server.REGISTERED_TOOLS, "graph_orchestrate", fake_graph_orchestrate
+    )
+    result = await intent_tools.dispatch_intent(
+        "act",
+        "delegate the task",
+        hints={
+            "tool": "graph_orchestrate",
+            "agent": "repository-manager",
+            "agent_name": "github-review",
+        },
+        execute=False,
+    )
+
+    assert result == {
+        "error": "Conflicting intent hints 'agent' and 'agent_name'; use only 'agent_name'.",
+        "executed": False,
+    }
+
+
+@pytest.mark.asyncio
 async def test_destructive_plan_requires_exact_tool_approval(monkeypatch):
     seen = False
 

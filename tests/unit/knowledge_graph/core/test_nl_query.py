@@ -29,7 +29,10 @@ def _patch_llm(monkeypatch, payload: str):
         def run_sync(self, prompt):
             return _FakeResult(payload)
 
-    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.contextual_model.create_context_agent",
+        lambda **_kwargs: _FakeAgent(),
+    )
     monkeypatch.setattr(
         "agent_utilities.core.model_factory.create_model", lambda **k: object()
     )
@@ -40,9 +43,7 @@ class _FakeEngine:
         self.sql_seen = self.cypher_seen = self.sparql_seen = None
 
     def query_cypher(self, query, *a, **k):
-        if query.startswith("MATCH (n) RETURN n.type") or query.startswith(
-            "MATCH (n) RETURN n.node_type"
-        ):
+        if query.startswith("MATCH (n) RETURN") and "n.node_type AS nt" in query:
             return [{"t": "Agent", "nt": None, "lb": None}, {"t": "Service"}]
         self.cypher_seen = query
         return [{"id": "n1", "name": "alpha"}]
@@ -176,7 +177,10 @@ def test_concept_count_question_grounds_on_type_column(monkeypatch):
                 '{"dialect": "sql", "query": "SELECT COUNT(*) FROM nodes WHERE type = \'Concept\'"}'
             )
 
-    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.contextual_model.create_context_agent",
+        lambda **_kwargs: _FakeAgent(),
+    )
     monkeypatch.setattr(
         "agent_utilities.core.model_factory.create_model", lambda **k: object()
     )
@@ -223,7 +227,10 @@ def test_nl_to_query_survives_call_from_inside_a_running_event_loop(monkeypatch)
 
             return asyncio.run(_inner())
 
-    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.contextual_model.create_context_agent",
+        lambda **_kwargs: _FakeAgent(),
+    )
     monkeypatch.setattr(
         "agent_utilities.core.model_factory.create_model", lambda **k: object()
     )
