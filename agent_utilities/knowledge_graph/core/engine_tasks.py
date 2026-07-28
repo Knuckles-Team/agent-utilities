@@ -5552,6 +5552,12 @@ class TaskManagerMixin(GraphEngineProtocol):
             "job_id": job_id,
             "status": status,
             "metadata": dict(item.get("metadata") or {}),
+            "attempt": item.get("attempt"),
+            "max_attempts": item.get("max_attempts"),
+            "resource_class": item.get("resource_class"),
+            "lease_expires_at": item.get("lease_expires_at"),
+            "heartbeat_at": item.get("heartbeat_at"),
+            "updated_at": item.get("updated_at"),
         }
 
     def list_tasks(self) -> dict:

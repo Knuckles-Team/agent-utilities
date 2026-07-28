@@ -34,6 +34,9 @@ Trigger full AST parsing and semantic chunking of a repository.
   "job_id": "job-3d73bbc4"
 }
 ```
+Running jobs include their attempt, resource lane, heartbeat, and lease-expiry
+timestamps. These fields distinguish live progress from a worker whose renewable
+lease is waiting to expire after a crash.
 
 ## 2. `mcp_graph-os_graph_search`
 

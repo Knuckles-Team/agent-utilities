@@ -724,6 +724,16 @@ def register_write_ingest_tools(mcp):
                     )
                     if k in meta
                 }
+                for key in (
+                    "attempt",
+                    "max_attempts",
+                    "resource_class",
+                    "lease_expires_at",
+                    "heartbeat_at",
+                    "updated_at",
+                ):
+                    if job.get(key) is not None:
+                        metrics[key] = job[key]
                 return f"Job {job_id} status: {status}\n" + _json.dumps(
                     metrics, indent=2
                 )
