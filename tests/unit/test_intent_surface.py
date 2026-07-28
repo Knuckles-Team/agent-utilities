@@ -166,6 +166,79 @@ async def test_explicit_tool_hint_cannot_elevate_ask_into_write(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("action", ("jobs", "job_status", "status"))
+async def test_ask_routes_explicit_ingest_status_actions_as_reads(monkeypatch, action):
+    """Queue inspection stays executable through ask without a write preview."""
+    seen: dict[str, str] = {}
+
+    async def fake_graph_ingest(action: str = "", **_kw) -> str:
+        seen["action"] = action
+        return json.dumps({"action": action, "read_only": True})
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_ingest", fake_graph_ingest)
+    result = await intent_tools.dispatch_intent(
+        "ask",
+        f"show ingestion {action}",
+        hints={"tool": "graph_ingest", "action": action},
+    )
+
+    assert result["executed"] is True
+    assert result["routing"]["chosen_tool"] == "graph_ingest"
+    assert result["routing"]["action"] == action
+    assert result["routing"]["plan"]["execution_class"] == "read_only"
+    assert result["routing"]["plan"]["mutates"] is False
+    assert result["routing"]["plan"]["preview_required"] is False
+    assert seen == {"action": action}
+
+
+@pytest.mark.asyncio
+async def test_ask_still_rejects_mutating_ingest_action(monkeypatch):
+    """The read verb must not turn an ingestion submission into a read."""
+    called = False
+
+    async def fake_graph_ingest(**_kw) -> str:
+        nonlocal called
+        called = True
+        return "ok"
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_ingest", fake_graph_ingest)
+    result = await intent_tools.dispatch_intent(
+        "ask",
+        "ingest this document",
+        hints={"tool": "graph_ingest", "action": "ingest"},
+    )
+
+    assert result["executed"] is False
+    assert result["routing"]["plan"]["mutates"] is not False
+    assert "Read-only intent policy" in result["error"]
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_explicit_action_must_belong_to_selected_tool(monkeypatch):
+    """A supplied action is a route pin, never an ignored suggestion."""
+
+    async def fake_graph_orchestrate(task: str = "") -> str:
+        return task
+
+    monkeypatch.setitem(
+        kg_server.REGISTERED_TOOLS, "graph_orchestrate", fake_graph_orchestrate
+    )
+    result = await intent_tools.dispatch_intent(
+        "act",
+        "delegate this task",
+        hints={"tool": "graph_orchestrate", "action": "execute_agent"},
+        execute=False,
+    )
+
+    assert result["executed"] is False
+    assert (
+        result["error"]
+        == "Requested action is not declared for the selected capability."
+    )
+
+
+@pytest.mark.asyncio
 async def test_non_read_requires_bound_preview_and_surfaces_safety_plan(monkeypatch):
     seen: dict = {}
 

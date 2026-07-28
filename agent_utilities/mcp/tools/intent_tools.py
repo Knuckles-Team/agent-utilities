@@ -37,7 +37,7 @@ from pydantic import Field
 
 from agent_utilities.knowledge_graph.retrieval.capability_context import load_cpds
 from agent_utilities.mcp import kg_server
-from agent_utilities.mcp.tool_specs import INTENT_VERBS, TOOL_VERBS
+from agent_utilities.mcp.tool_specs import INTENT_VERBS, READ_ONLY_ACTIONS, TOOL_VERBS
 from agent_utilities.security.error_surface import public_error_payload
 from agent_utilities.security.persistence_privacy import persistence_reference
 from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
@@ -629,11 +629,14 @@ def _operation_plan(
         }
     )
     action_prefix = str(action or "").split("_", 1)[0]
+    action_is_declared_read = action in READ_ONLY_ACTIONS.get(tool, frozenset())
     tool_has_non_read_policy = bool(set(TOOL_VERBS.get(tool, ())) & _NON_READ_VERBS)
     if declared_mutation is not None:
         mutates: bool | None = declared_mutation
     elif destructive:
         mutates = True
+    elif action_is_declared_read:
+        mutates = False
     elif action_prefix in read_prefixes:
         mutates = False
     elif verb in _READ_ONLY_VERBS and not tool_has_non_read_policy:
@@ -1000,13 +1003,9 @@ async def dispatch_intent(
     top = candidates[0]
     chosen_tool = top.tool
     available_actions = _actions_by_tool().get(chosen_tool, [])
-    if (
-        explicit_action is not None
-        and available_actions
-        and explicit_action not in available_actions
-    ):
+    if explicit_action is not None and explicit_action not in available_actions:
         return {
-            "error": "Requested action is not declared for the pinned capability.",
+            "error": "Requested action is not declared for the selected capability.",
             "executed": False,
             "routing": {
                 "verb": verb,

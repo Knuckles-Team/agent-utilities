@@ -74,7 +74,10 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_argument": ("why", "write", "ask"),
         # ── writes / ingest / persist ──
         "graph_write": ("write",),
-        "graph_ingest": ("write",),
+        # Ingestion submits are writes, but polling its queue is a read.  The
+        # intent dispatcher enforces the action-level read allowlist below, so
+        # this does not make ingest submissions reachable through ``ask``.
+        "graph_ingest": ("write", "ask"),
         "graph_writeback": ("write",),
         "graph_etl": ("write",),
         "source_sync": ("write",),
@@ -146,6 +149,16 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_observe": ("why", "ask"),
         "graph_memory": ("write", "ask"),
         "engine_reasoning": ("why",),
+    }
+)
+
+#: Exact read-only actions exposed by otherwise non-read tool families.  This
+#: is intentionally an allowlist rather than an action-name heuristic: an
+#: action is available through ``ask`` only after its implementation has been
+#: reviewed as non-mutating.
+READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "graph_ingest": frozenset({"jobs", "job_status", "status"}),
     }
 )
 
