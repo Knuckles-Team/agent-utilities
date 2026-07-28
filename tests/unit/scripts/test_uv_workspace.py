@@ -120,7 +120,48 @@ def test_uv_invocation_selects_worktree_package_and_environment(
         "agent-utilities",
     ]
     assert environment["UV_PROJECT_ENVIRONMENT"] == str(worktree / ".venv")
+    assert environment["EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"] == str(
+        Path.home() / ".cache" / "epistemic-graph" / "native-artifacts" / "v1"
+    )
     assert "PYTHONPATH" not in environment
+
+
+def test_uv_invocations_share_native_cache_across_hermetic_worktrees(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+    user_home = tmp_path / "user-home"
+    monkeypatch.setenv("HOME", str(user_home))
+
+    environments: list[dict[str, str]] = []
+    for identity in ("first", "second"):
+        worktree = tmp_path / identity / "worktree"
+        shadow = tmp_path / identity / "xdg-state" / "shadow"
+        monkeypatch.setenv("XDG_CACHE_HOME", str(shadow / "cache"))
+        monkeypatch.setenv(
+            "EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE",
+            str(worktree / "unsafe-inherited-cache"),
+        )
+
+        _command, environment = uv_workspace.uv_invocation(
+            ["run", "python", "-c", "pass"],
+            worktree=worktree,
+            shadow=shadow,
+        )
+        environments.append(environment)
+
+    expected = user_home / ".cache" / "epistemic-graph" / "native-artifacts" / "v1"
+    assert {
+        environment["EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"]
+        for environment in environments
+    } == {str(expected)}
+    assert all(
+        not Path(environment["EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"]).is_relative_to(
+            tmp_path / identity
+        )
+        for identity, environment in zip(("first", "second"), environments, strict=True)
+    )
 
 
 def test_doctor_evidence_proves_worktree_and_lock_provenance(
