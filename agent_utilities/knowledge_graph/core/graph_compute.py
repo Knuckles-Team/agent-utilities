@@ -13,7 +13,7 @@ import re
 import threading
 import time
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from agent_utilities.core.config import setting
@@ -384,6 +384,7 @@ class _SessionRoutedAsyncClient:
         route_config: Any = None,
         route_endpoints: tuple[str, ...] = (),
         transport_endpoint: str | None = None,
+        placement_client_factory: Callable[[str], Any] | None = None,
     ) -> None:
         self._base = base
         self._graph_name = fixed_graph or str(getattr(base, "_graph_name", ""))
@@ -391,6 +392,7 @@ class _SessionRoutedAsyncClient:
         self._route_config = route_config
         self._route_endpoints = route_endpoints
         self._transport_endpoint = transport_endpoint
+        self._placement_client_factory = placement_client_factory
         self._server_ops: set[str] | None = None
         for name in _CLIENT_NAMESPACES:
             namespace = getattr(base, name)
@@ -542,6 +544,7 @@ class _SessionRoutedAsyncClient:
             target,
             self._route_endpoints,
             self._route_config,
+            client_factory=self._placement_client_factory,
         )
         routed_session = session.with_route(
             endpoint=route.endpoint,
@@ -580,6 +583,7 @@ class _SessionRoutedAsyncClient:
                     self._route_endpoints,
                     self._route_config,
                     force_refresh=True,
+                    client_factory=self._placement_client_factory,
                 )
                 fresh_session = session.with_route(
                     endpoint=fresh.endpoint,
@@ -626,6 +630,7 @@ class _SessionRoutedAsyncClient:
                     self._route_endpoints,
                     self._route_config,
                     force_refresh=True,
+                    client_factory=self._placement_client_factory,
                 )
                 routed_session = session.with_route(
                     endpoint=route.endpoint,
@@ -740,7 +745,13 @@ class _AsyncProcessClientView(_AsyncFromSyncView):
 
 
 def _sync_client_view(sync_client: Any, *, graph: str | None = None) -> Any:
-    """Create a sync graph/session view while reusing transport, loop and thread."""
+    """Create a sync graph/session view while reusing transport, loop and thread.
+
+    A single configured endpoint is also the only placement-catalog contact.
+    Reuse this authenticated, session-routed view for that catalog RPC instead
+    of opening a second client. Multi-contact topologies keep the independent
+    connector so catalog failover can try every configured coordinator.
+    """
     from epistemic_graph.client import SyncEpistemicGraphClient
 
     async_client = sync_client._client
@@ -759,6 +770,18 @@ def _sync_client_view(sync_client: Any, *, graph: str | None = None) -> Any:
     view = SyncEpistemicGraphClient(
         cast(Any, async_view), sync_client._loop, sync_client._thread
     )
+    if (
+        len(route_endpoints) == 1
+        and transport_endpoint
+        and route_endpoints[0] == transport_endpoint
+    ):
+
+        def reuse_single_endpoint(contact: str) -> Any:
+            if contact != transport_endpoint:
+                raise ConnectionError("placement contact is not the managed endpoint")
+            return view
+
+        async_view._placement_client_factory = reuse_single_endpoint
     dynamic_view = cast(Any, view)
     dynamic_view._au_route_config = route_config
     dynamic_view._au_route_endpoints = route_endpoints

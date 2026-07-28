@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+from tests.unit.capability_fakes import TypedGraphEngine
 
 # ---------------------------------------------------------------------------
 # TeamCapability
@@ -48,13 +48,13 @@ async def test_team_create_team_with_engine() -> None:
 
     cap = TeamCapability()
     ctx = MagicMock()
-    engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
+    engine = TypedGraphEngine()
     engine.graph.add_node("a1")
     engine.graph.add_node("a2")
     ctx.deps = MagicMock(graph_engine=engine)
     team_id = await cap.create_team(ctx, "MyTeam", ["a1", "a2"])
     assert team_id in engine.graph.nodes
+    assert len(engine.node_writes) == 1
 
 
 @pytest.mark.asyncio
@@ -87,14 +87,14 @@ async def test_team_add_task_with_engine_and_team() -> None:
 
     cap = TeamCapability(team_id="team_1")
     ctx = MagicMock()
-    engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
+    engine = TypedGraphEngine()
     engine.graph.add_node("team_1")
     engine.graph.add_node("agent_x")
     ctx.deps = MagicMock(graph_engine=engine, agent_id="orch")
     task_id = await cap.add_task(ctx, "Task1", assigned_to="agent_x")
     assert team_work_item_id(task_id) in engine.graph.nodes
     assert task_id not in engine.graph.nodes
+    assert engine.node_writes
 
 
 @pytest.mark.asyncio
@@ -212,13 +212,13 @@ async def test_context_warner_at_critical_threshold() -> None:
     ctx = MagicMock()
     usage = MagicMock(total_tokens=95)
     ctx.usage = usage
-    engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
+    engine = TypedGraphEngine()
     ctx.deps = MagicMock(graph_engine=engine)
     req = MagicMock(parts=[])
     await w.before_model_run(ctx, req)
     # Graph node was added
     assert len(engine.graph.nodes) == 1
+    assert len(engine.node_writes) == 1
 
 
 @pytest.mark.asyncio
@@ -231,7 +231,7 @@ async def test_context_warner_graph_exception_handled() -> None:
     usage = MagicMock(total_tokens=95)
     ctx.usage = usage
     engine = MagicMock()
-    engine.graph.add_node.side_effect = RuntimeError("oops")
+    engine.add_node.side_effect = RuntimeError("oops")
     ctx.deps = MagicMock(graph_engine=engine)
     req = MagicMock(parts=[])
     # Must not raise
@@ -308,13 +308,13 @@ async def test_hooks_before_tool_with_graph_engine() -> None:
 
     cap = HooksCapability()
     ctx = MagicMock()
-    engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
+    engine = TypedGraphEngine()
     ctx.deps = MagicMock(graph_engine=engine, episode_id="ep1")
     call = MagicMock(tool_name="t", tool_call_id="id1")
     tool_def = MagicMock()
     await cap.before_tool_execute(ctx, call=call, tool_def=tool_def, args={"x": 1})
     assert "id1" not in engine.graph.nodes
+    assert engine.node_writes == []
 
 
 @pytest.mark.asyncio

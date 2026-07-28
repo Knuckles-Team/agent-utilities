@@ -78,12 +78,11 @@ class ToolOutputEviction(AbstractCapability[Any]):
                     },
                 )
                 try:
-                    engine.graph.add_node(node.id, **node.model_dump())
-                    # In a real backend, we might write to a blob store or dedicated KB table
-                    if engine.backend:
-                        await engine.backend.upsert_node(
-                            RegistryNodeType.RAW_SOURCE, node.id, node.model_dump()
-                        )
+                    engine.add_node(
+                        node.id,
+                        str(node.type),
+                        properties=node.model_dump(exclude={"id", "type"}),
+                    )
                 except Exception as e:
                     logger.error(f"Failed to evict content to graph: {e}")
 

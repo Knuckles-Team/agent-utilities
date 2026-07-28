@@ -13,6 +13,7 @@ from agent_utilities.knowledge_graph.core import placement_catalog
 from agent_utilities.knowledge_graph.core.graph_compute import (
     _CLIENT_NAMESPACES,
     _SessionRoutedAsyncClient,
+    _sync_client_view,
 )
 from agent_utilities.knowledge_graph.core.placement_catalog import PlacementResult
 from agent_utilities.knowledge_graph.core.session import (
@@ -77,6 +78,28 @@ class _ChangeReadBase:
         return None
 
 
+class _ContextBase:
+    def __init__(self) -> None:
+        self._graph_name = "tenant:graph"
+        self._auth_secret = "test-" + "auth-secret"
+        self.calls: list[tuple[str, dict]] = []
+        self.contexts: list[dict] = []
+        for name in _CLIENT_NAMESPACES:
+            setattr(self, name, _Namespace(self))
+
+    @contextlib.contextmanager
+    def use_verified_context(self, context):
+        self.contexts.append(dict(context))
+        try:
+            yield self
+        finally:
+            self.contexts.pop()
+
+    async def _send(self, method, _params, **_kwargs):
+        self.calls.append((method, dict(self.contexts[-1])))
+        return {"status": "ok"}
+
+
 def _verified_session() -> GraphSession:
     actor = ActorContext(
         actor_id="service:test-suite",
@@ -93,6 +116,138 @@ def _verified_session() -> GraphSession:
         policy_version="policy:test",
         audience="epistemic-graph-test",
     )
+
+
+def test_single_endpoint_view_reuses_managed_client_for_placement(monkeypatch) -> None:
+    """One contact reuses its non-owning session-routed transport."""
+    import epistemic_graph.client as client_module
+
+    class _SyncView:
+        def __init__(self, client, loop, thread) -> None:
+            self._client = client
+            self._loop = loop
+            self._thread = thread
+
+    owner = type(
+        "Owner",
+        (),
+        {
+            "_client": _Base(),
+            "_loop": object(),
+            "_thread": object(),
+            "_au_route_config": object(),
+            "_au_route_endpoints": ("tcp://coordinator:9100",),
+            "_au_route_endpoint": "tcp://coordinator:9100",
+        },
+    )()
+    monkeypatch.setattr(client_module, "SyncEpistemicGraphClient", _SyncView)
+
+    view = _sync_client_view(owner)
+    factory = view._client._placement_client_factory
+
+    assert factory is not None
+    assert factory("tcp://coordinator:9100") is view
+    with pytest.raises(ConnectionError, match="not the managed endpoint"):
+        factory("tcp://another:9100")
+
+
+def test_multi_endpoint_view_preserves_independent_catalog_failover(
+    monkeypatch,
+) -> None:
+    """Multiple contacts retain the resolver's open-each-contact behavior."""
+    import epistemic_graph.client as client_module
+
+    class _SyncView:
+        def __init__(self, client, loop, thread) -> None:
+            self._client = client
+            self._loop = loop
+            self._thread = thread
+
+    owner = type(
+        "Owner",
+        (),
+        {
+            "_client": _Base(),
+            "_loop": object(),
+            "_thread": object(),
+            "_au_route_config": object(),
+            "_au_route_endpoints": (
+                "tcp://coordinator-a:9100",
+                "tcp://coordinator-b:9100",
+            ),
+            "_au_route_endpoint": "tcp://coordinator-a:9100",
+        },
+    )()
+    monkeypatch.setattr(client_module, "SyncEpistemicGraphClient", _SyncView)
+
+    view = _sync_client_view(owner)
+
+    assert view._client._placement_client_factory is None
+
+
+def test_placement_route_bypasses_routing_and_binds_verified_session(
+    monkeypatch,
+) -> None:
+    """The reused catalog RPC cannot recurse into placement resolution."""
+    base = _ContextBase()
+    view = _SessionRoutedAsyncClient(
+        base,
+        route_config=object(),
+        route_endpoints=("tcp://coordinator:9100",),
+        transport_endpoint="tcp://coordinator:9100",
+    )
+
+    def unexpected_resolution(*_args, **_kwargs):
+        raise AssertionError("PlacementRoute must not resolve placement")
+
+    monkeypatch.setattr(
+        placement_catalog,
+        "resolve_placement",
+        unexpected_resolution,
+    )
+    session = _verified_session()
+    with use_session(session):
+        result = asyncio.run(
+            view._send(
+                "PlacementRoute",
+                {"tenant": "tenant", "sub_key": "graph", "client_epoch": 0},
+            )
+        )
+
+    assert result == {"status": "ok"}
+    assert base.calls == [
+        ("PlacementRoute", session.engine_verified_context()),
+    ]
+
+
+def test_routed_request_forwards_managed_catalog_factory_and_session(
+    monkeypatch,
+) -> None:
+    """Data routing resolves through the injected authority under one session."""
+    base = _ContextBase()
+    catalog_client = object()
+
+    def client_factory(_contact: str):
+        return catalog_client
+
+    def resolve(*_args, **kwargs):
+        assert kwargs["client_factory"]("tcp://coordinator:9100") is catalog_client
+        return PlacementResult("tcp://coordinator:9100", 0, 0, 0, True)
+
+    monkeypatch.setattr(placement_catalog, "resolve_placement", resolve)
+    view = _SessionRoutedAsyncClient(
+        base,
+        route_config=object(),
+        route_endpoints=("tcp://coordinator:9100",),
+        transport_endpoint="tcp://coordinator:9100",
+        placement_client_factory=client_factory,
+    )
+    session = _verified_session()
+    with use_session(session):
+        result = asyncio.run(view._send("NodesCount"))
+
+    assert result == {"status": "ok"}
+    assert base.calls == [("NodesCount", session.engine_verified_context())]
 
 
 def test_stale_route_refreshes_fence_and_retries_once(monkeypatch):

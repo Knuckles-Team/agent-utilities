@@ -327,8 +327,22 @@ def isolate_graph_compute_engine(monkeypatch):
         effective_name = (
             _test_graph_name if graph_name in (None, "__commons__") else graph_name
         )
-        _created_graph_names.add(effective_name)
         _original_init(self, graph_name=effective_name, **kwargs)
+        if effective_name not in _created_graph_names:
+            try:
+                self._client.tenants.create(effective_name)
+            except Exception:
+                entries = self._client.tenants.list() or []
+                names = {
+                    str(entry.get("name") if isinstance(entry, dict) else entry)
+                    for entry in entries
+                }
+                if effective_name not in names:
+                    # A constructor that cannot provision its isolated test graph
+                    # must not leave an owning transport outside teardown tracking.
+                    self.close()
+                    raise
+            _created_graph_names.add(effective_name)
         _created_engines.append(self)
 
     monkeypatch.setattr(graph_compute.GraphComputeEngine, "__init__", _isolated_init)
