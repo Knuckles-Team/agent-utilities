@@ -156,7 +156,7 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 # 2.23.1 floor) — confirmed by hitting exactly that error on the first attempt.
 RUN pip install --break-system-packages --no-cache-dir --ignore-installed "packaging>=26.2.0"
 RUN pip install --break-system-packages --no-cache-dir \
-        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,logfire,messaging-telegram,messaging-mattermost,postgresql,acp]" \
+        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,rdf,logfire,messaging-telegram,messaging-mattermost,postgresql,acp]" \
         "/tmp/langfuse-agent-src" \
         "redis>=5.0.0" \
         "neo4j>=6.2.0" \
@@ -191,7 +191,7 @@ RUN pip install --break-system-packages --no-cache-dir \
 # is a plain clap CLI (safe/non-blocking); `graph-os` itself is NOT invoked here — running
 # it would start an MCP server (stdio) rather than return, so only its console-script
 # presence is checked.
-RUN python3 -c "import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent" \
+RUN python3 -c "import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import rdflib" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 

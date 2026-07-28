@@ -5,7 +5,6 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -17,3 +16,12 @@ def test_serving_includes_the_minimal_rdf_ingestion_extra() -> None:
     serving = "\n".join(extras["serving"])
     assert ",rdf," in serving
     assert "[owl]" not in serving
+
+
+def test_unified_image_installs_and_checks_the_rdf_runtime() -> None:
+    dockerfile = (ROOT / "docker" / "graphos-unified.Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert "agent-headless,rdf,logfire" in dockerfile
+    assert "import rdflib" in dockerfile
