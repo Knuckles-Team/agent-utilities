@@ -616,11 +616,11 @@ agents/microsoft-agent/connector_manifest.yml:
 agents/native-source-connectors/connector_manifest.yml:
   algorithm: urdna2015-sha256
   hash: c97eb180307cb9e08b81df3439ade1552d91454485b83d085a9ba1b3503f4a8f
-  manifest_hash: 8c2fa95a3756c7564e2797694bf35464bd4e78aa985904b8e3c1ec39c0f4c7fa
-  signature: tEseXthKtqaN89D6s77df9GTHKtqRLOlkXDjinZ0gaJIZ2uQyyZWoQ2bB4hmOIfWRo9ydP4-MCDPsjuI8_dvCg
+  manifest_hash: 63fb7aa8b20b7f7341a7b077a474a97487b4fb778d4933cd7a446c9c5e30c1e5
+  signature: 9HXdASLI_Xn3rnc06S0HX8_CPj4-Fp6Xh1qzfAKadypxu_rY_mti2oOWWN_PjrqIzp9qa0ndcU2nZpk40307Cg
   signature_algorithm: ed25519
   signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signing_public_key: rJhTqqFwZFHnKJxdp2hfRzCX6Cz4mKbocugAxKTdiE4
   triple_count: 17
 agents/nextcloud-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
