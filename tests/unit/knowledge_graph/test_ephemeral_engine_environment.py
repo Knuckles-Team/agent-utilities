@@ -17,7 +17,7 @@ from tests._test_engine import (
 def test_strict_server_env_retains_auth_and_only_opts_out_of_oidc() -> None:
     """The local fixture must not weaken transport or request authentication."""
 
-    auth_secret = "synthetic-engine-auth-secret"
+    auth_secret = "synthetic-engine-auth-secret"  # nosec B105 - test-only  # sanitizer:ignore — synthetic fixture, never a real credential
     state_dir = "/synthetic/security-state"
 
     env = strict_server_env(state_dir, auth_secret=auth_secret)
