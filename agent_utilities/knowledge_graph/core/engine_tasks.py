@@ -3776,24 +3776,24 @@ class TaskManagerMixin(GraphEngineProtocol):
             # Cohort barrier finalize → assimilation pass + feature matrix (KG-2.172).
             "cohort_synthesize",
         }
-        # CONCEPT:AU-KG.compute.lane-bound-task — bound EVERY claimed task by its lane's soft timeout so a
-        # hung task (a connector with no per-call timeout, a wedged maint tick) frees
-        # its worker FAST instead of pinning it until the native lease's 2h cap.
+        # CONCEPT:AU-KG.compute.lane-bound-task — request cooperative cancellation
+        # when EVERY claimed task reaches its lane's soft timeout.
         #
-        # Why a watchdog THREAD and not ``asyncio.wait_for``: the work is run via
-        # ``asyncio.run`` and a hang may be a *synchronous* blocking call (a connector
-        # with no socket timeout) with no await point to cancel — and even when it is
-        # cancellable, ``asyncio.run``'s loop-close JOINS the default executor (up to
-        # ``THREAD_JOIN_TIMEOUT``), so the worker would still block on the hung thread.
-        # Running the task body in a daemon thread and ``join(timeout)``-ing it lets
-        # the worker RETURN at the bound regardless of where the hang is; the hung
-        # thread is abandoned (daemon → never blocks shutdown) and the task is routed
-        # through the KG-2.113 retry→backoff→dead_letter machinery by the worker loop.
+        # The body deliberately stays on the durable queue's existing, bounded
+        # worker instead of spawning a per-attempt daemon.  A tiny authorized
+        # watchdog only sets the cancellation event and then exits.  Cooperative
+        # loops stop promptly.  An uncooperative synchronous call remains
+        # quarantined in its original fixed-capacity worker, whose lease heartbeat
+        # stays live; it cannot become a detached zombie or trigger a duplicate
+        # retry.  Network clients must still enforce their own I/O timeout because
+        # Python cannot safely kill an arbitrary running thread.
         from .task_lanes import task_soft_timeout
 
         timeout = task_soft_timeout(task_type)
         heavy = task_type in _HEAVY_TASK_TYPES
         outcome: dict[str, BaseException] = {}
+        cancellation_event = threading.Event()
+        body_done = threading.Event()
 
         def _run_body() -> None:
             # CONCEPT:AU-KG.compute.task-priority-tag — tag this task's whole execution with its resource
@@ -3802,58 +3802,79 @@ class TaskManagerMixin(GraphEngineProtocol):
             # an ingestion task's enrichment calls run as BACKGROUND_INGESTION and
             # yield the reserved LLM headroom to interactive/orchestration work, while
             # an on-pool ``queries`` task (conversation/kg_memory) runs INTERACTIVE.
-            # Set inside the worker thread because contextvars don't cross threads.
+            # Set inside the durable queue worker so the complete task inherits it.
             from agent_utilities.core.resource_priority import (
                 priority_for_task_type,
                 priority_scope,
             )
+            from agent_utilities.core.task_cancellation import (
+                raise_if_task_cancelled,
+                use_task_cancellation,
+            )
+
+            async def _run_owned_task() -> None:
+                task = asyncio.create_task(
+                    self._run_background_task(
+                        job_id, target_path, is_codebase, task_type
+                    )
+                )
+                try:
+                    while not task.done():
+                        await asyncio.wait({task}, timeout=0.05)
+                        raise_if_task_cancelled()
+                    await task
+                finally:
+                    if not task.done():
+                        task.cancel()
 
             try:
-                with priority_scope(priority_for_task_type(task_type)):
-                    asyncio.run(
-                        self._run_background_task(
-                            job_id, target_path, is_codebase, task_type
-                        )
-                    )
+                with (
+                    priority_scope(priority_for_task_type(task_type)),
+                    use_task_cancellation(cancellation_event),
+                ):
+                    asyncio.run(_run_owned_task())
             except BaseException as exc:  # noqa: BLE001 — relayed to the worker loop
                 outcome["exc"] = exc
 
-        worker_thread = _authorized_background_thread(
-            self._background_session_for_spawn(),
-            _run_body,
-            name=f"kg-task-{job_id}",
-        )
-        if heavy:
-            # Hold the background concurrency slot only while we WAIT — released the
-            # instant the worker is freed (success or timeout), so an abandoned hung
-            # thread can't leak a slot forever (it merely over-subscribes by one
-            # transiently while the native WorkItem lifecycle resolves the attempt).
-            #
-            # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — ``enrichment_backfill`` is deliberately NOT in
-            # ``_HEAVY_TASK_TYPES``, so it falls to the ``else`` branch below and runs
-            # WITHOUT this outer permit: ``_tick_enrichment`` acquires the
-            # background_slot PER BATCH (released between batches) so the dedicated
-            # enrichment lane isn't capped by one tick-long outer permit while other
-            # background/maint ticks still interleave — its per-batch throttle is the
-            # real gate, and the soft-timeout above still bounds it.
-            from agent_utilities.core.background_throttle import get_throttle
-
-            with get_throttle().background_slot():
-                worker_thread.start()
-                worker_thread.join(timeout)
-        else:
-            worker_thread.start()
-            worker_thread.join(timeout)
-
-        if worker_thread.is_alive():
-            # Overran the bound — abandon the daemon thread, free the worker.
+        def _request_cancellation_at_bound() -> None:
+            if body_done.wait(timeout):
+                return
+            cancellation_event.set()
             logger.warning(
-                "[KG-2.286] task %s (%s) exceeded soft timeout %.0fs — abandoning "
-                "for retry/dead_letter",
+                "[KG-2.286] task %s (%s) exceeded soft timeout %.0fs — "
+                "cooperative cancellation requested; its fixed worker and live "
+                "lease remain quarantined until the in-flight body exits",
                 job_id,
                 task_type,
                 timeout,
             )
+
+        timeout_watchdog = _authorized_background_thread(
+            self._background_session_for_spawn(),
+            _request_cancellation_at_bound,
+            name=f"kg-task-timeout-{job_id}",
+        )
+        timeout_watchdog.start()
+        try:
+            if heavy:
+                # Hold the background concurrency slot for the task's whole owned
+                # lifetime.  Releasing it while an uncooperative timed-out call was
+                # still running would hide real load and over-subscribe the engine.
+                #
+                # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — ``enrichment_backfill`` is deliberately NOT in
+                # ``_HEAVY_TASK_TYPES``, so it runs WITHOUT this outer permit:
+                # ``_tick_enrichment`` acquires the background_slot PER BATCH.
+                from agent_utilities.core.background_throttle import get_throttle
+
+                with get_throttle().background_slot():
+                    _run_body()
+            else:
+                _run_body()
+        finally:
+            body_done.set()
+            timeout_watchdog.join()
+
+        if cancellation_event.is_set():
             raise RuntimeError(f"soft timeout: {task_type} exceeded {timeout:.0f}s")
         if "exc" in outcome:
             # Re-raise the task's real failure so the worker loop's retry path runs.

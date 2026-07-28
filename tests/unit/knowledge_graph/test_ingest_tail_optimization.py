@@ -18,6 +18,8 @@ The median ingestion is healthy; the TAIL blows up on edge cases:
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 from pathlib import Path
 from unittest import mock
 from unittest.mock import MagicMock
@@ -172,6 +174,43 @@ class TestHungTaskTimeout:
             with pytest.raises(RuntimeError, match="soft timeout"):
                 obj._execute_claimed_task("job-1", Path("/x"), False, "conversation")
 
+    def test_timeout_never_detaches_an_inflight_task_thread(self):
+        """A sync call outliving the bound stays owned until it actually exits."""
+        obj = self._mixin()
+        started = threading.Event()
+        finished = threading.Event()
+
+        def _blocking_call() -> None:
+            started.set()
+            time.sleep(0.15)
+            finished.set()
+
+        async def _blocked(*_a, **_k):
+            # Simulate an uncooperative synchronous connector call on the durable
+            # queue worker itself.  It cannot observe cancellation until it returns.
+            _blocking_call()
+
+        obj._run_background_task = _blocked  # type: ignore[attr-defined]
+        began = time.monotonic()
+        with mock.patch(
+            "agent_utilities.knowledge_graph.core.task_lanes.task_soft_timeout",
+            return_value=0.02,
+        ):
+            with pytest.raises(RuntimeError, match="soft timeout"):
+                obj._execute_claimed_task(
+                    "job-owned", Path("/x"), False, "conversation"
+                )
+
+        assert started.is_set()
+        assert finished.is_set()
+        assert time.monotonic() - began >= 0.12
+        assert not any(
+            thread.name.startswith("kg-task-")
+            and "job-owned" in thread.name
+            and thread.is_alive()
+            for thread in threading.enumerate()
+        )
+
     def test_normal_task_completes_through_the_watchdog(self):
         obj = self._mixin()
 
@@ -196,21 +235,29 @@ class TestHungTaskTimeout:
             obj._execute_claimed_task("job-x", Path("/x"), False, "conversation")
         obj._maybe_build_vector_indexes.assert_not_called()
 
-    def test_fail_or_retry_dead_letters_a_repeatedly_timing_out_task(self):
+    def test_fail_or_retry_dead_letters_a_repeatedly_timing_out_task(self, monkeypatch):
         # Proves the cancel→retry machinery terminates: on the final attempt the
         # task is dead-lettered, not retried forever (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task reuse).
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
-        obj.backend = MagicMock()
-        # 3rd attempt (attempts already 2, max 3) → dead_letter.
-        obj._control_cypher = MagicMock(  # type: ignore[attr-defined]
-            return_value=[
-                {"meta": _encode_metadata({"attempts": 2, "max_attempts": 3})}
-            ]
-        )
-        statuses: list[str] = []
-        obj._update_task_status = lambda jid, status, meta: statuses.append(status)  # type: ignore[attr-defined]
+        obj._active_work_item_claims = {  # type: ignore[attr-defined]
+            "job-1": {
+                "work_item_id": "workitem:ingest_task:job-1",
+                "lease_owner": "worker-a",
+                "lease_epoch": 3,
+                "fencing_token": "fence-3",
+            }
+        }
+        obj._active_work_item_claims_lock = threading.Lock()  # type: ignore[attr-defined]
+        obj._work_item_engine_cache = object()  # type: ignore[attr-defined]
+        obj._require_live_work_item_lease = MagicMock()  # type: ignore[attr-defined]
+        from agent_utilities.orchestration import work_item
+
+        commit = MagicMock(return_value="dead_letter")
+        monkeypatch.setattr(work_item, "commit_result", commit)
         obj._fail_or_retry_task("job-1", "soft timeout: connector_sync exceeded 180s")
-        assert statuses == ["dead_letter"]
+        assert commit.call_args.kwargs["retryable"] is True
+        assert commit.call_args.kwargs["outcome"] == "failed"
+        assert obj._active_work_item_claim("job-1") is None
 
 
 # ── KG-2.289: interactive reservation under ingestion saturation ────────────

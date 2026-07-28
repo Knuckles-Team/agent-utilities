@@ -32,7 +32,7 @@ flowchart TB
     EMB --> KG[("epistemic-graph<br/>K redb shard writers")]
 
     subgraph GUARDS["whole pipeline runs under (worker_scheduler)"]
-        T["per-task soft-timeout watchdog (KG-2.286)"]
+        T["per-task soft-timeout owner (KG-2.286)<br/>request cooperative cancellation;<br/>never detach live mutation"]
         R["interactive reservation floor (AU-KG.compute.interactive-lane-floor)"]
         O["tail observability — slowest-N + p99 (KG-2.288)"]
     end
@@ -211,10 +211,17 @@ A connector (one hung 456s) or a maint tick (one hung 761s) with no per-task bou
 pinned a worker until the reaper's 2h absolute cap. Every claimed task now runs under
 an **auto-sized per-lane soft timeout** (`LANE_SOFT_TIMEOUT_SEC` in `task_lanes.py`:
 queries 120s, connectors 180s, worldview 300s, maint 600s, research/extraction 1800s,
-codebase/ingestion 3600s; default 1800s) enforced by a **daemon-thread watchdog** that
-frees the worker at the bound regardless of whether the hang is sync or async (a plain
-`asyncio.wait_for` can't, because `asyncio.run`'s loop-close joins the executor). A
-timeout routes through the existing retry→backoff→dead_letter machinery (AU-KG.ingest.hardened-priority-scheduled-task).
+codebase/ingestion 3600s; default 1800s) enforced by a short-lived authorized
+**timeout watchdog**. The task body stays in its existing fixed-capacity durable queue
+worker; the watchdog only requests context-local cooperative cancellation and exits.
+Async task bodies, the filesystem watcher, and authority-to-mirror reconciliation
+observe that signal at bounded checkpoints and exit before
+retry→backoff→dead_letter (AU-KG.ingest.hardened-priority-scheduled-task). If an
+external synchronous call cannot cooperate, it remains quarantined in that bounded
+worker with its renewable lease and throttle slot until it returns. The system never
+starts a duplicate attempt or leaves a per-attempt daemon mutating as zombie work.
+External clients must still carry their own I/O timeout; Python cannot safely kill an
+arbitrary running thread.
 **No env knob** — the bound is a deterministic function of the lane, with the reaper's
 absolute cap as the backstop.
 

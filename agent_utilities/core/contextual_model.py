@@ -37,6 +37,7 @@ import logging
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -61,11 +62,17 @@ __all__ = [
     "set_context_compiler_engine",
     "set_context_compiler_cache",
     "get_context_compiler_cache",
+    "use_bound_tool_grounding",
     "use_context_compiler_engine",
     "wrap_model_with_context",
 ]
 
 _CONTEXT_MARKER = "[agent-utilities:compiled-evidence:v1]"
+_BOUND_TOOL_GROUNDING_MARKER = "[agent-utilities:bound-tool-grounding:v1]"
+_bound_tool_grounding: ContextVar[bool] = ContextVar(
+    "agent_utilities_bound_tool_grounding",
+    default=False,
+)
 
 # Wall-clock budget for the mandatory evidence compilation at the model-transport
 # boundary. Compilation is a blocking, engine-contended retrieval (hybrid_retriever
@@ -168,6 +175,27 @@ def get_context_compiler_cache() -> Any | None:
     """
 
     return _compiler_cache
+
+
+@contextmanager
+def use_bound_tool_grounding() -> Iterator[None]:
+    """Use authenticated bound-tool results as the request's factual authority.
+
+    This trusted orchestration-only mode is for a direct agent whose callable
+    surface has already been reduced to one explicitly selected MCP server (or a
+    focused subset of it).  There is no retrieval question to answer before the
+    tool call: the tool response and its persisted ``ToolCall``/``RunTrace`` are
+    the evidence.  The transport still receives a compiler-owned grounding
+    contract, while the expensive KG evidence search is skipped.
+
+    The scope is process-internal and cannot be selected by request content.
+    """
+
+    token = _bound_tool_grounding.set(True)
+    try:
+        yield
+    finally:
+        _bound_tool_grounding.reset(token)
 
 
 def _active_engine() -> Any | None:
@@ -299,6 +327,24 @@ def _compiled_evidence_and_bundle(
     """
     if _already_compiled(messages):
         return messages, None
+    if _bound_tool_grounding.get():
+        from pydantic_ai.messages import ModelRequest, SystemPromptPart
+
+        evidence = ModelRequest(
+            parts=[
+                SystemPromptPart(
+                    content=(
+                        f"{_CONTEXT_MARKER}\n"
+                        f"{_BOUND_TOOL_GROUNDING_MARKER}\n"
+                        "The authenticated, pre-bound MCP tool results are the only "
+                        "factual authority for this request. Call the bound tool before "
+                        "making factual claims. Ground the answer in its returned data "
+                        "and provenance, or state that the tool produced no evidence."
+                    )
+                )
+            ]
+        )
+        return [evidence, *messages], None
     if not _context_compiler_enabled():
         logger.warning(
             "[CONCEPT:AU-KG.retrieval.context-compiler] MODEL_CONTEXT_COMPILER_ENABLED=false — "
@@ -430,6 +476,12 @@ async def _compiled_evidence_and_bundle_bounded(
     broken/contended retrieval is not re-paid ``_CONTEXT_COMPILE_TIMEOUT_S`` on
     every single call.
     """
+    # Bound-tool grounding is a deterministic compiler-owned prefix: it performs
+    # no engine retrieval, so it neither pays a thread hop nor inherits the KG
+    # retrieval circuit breaker's degraded/ungrounded state.
+    if _bound_tool_grounding.get():
+        return _compiled_evidence_and_bundle(messages, model_name)
+
     if _ctx_compile_breaker_is_open():
         logger.debug(
             "[CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker] breaker OPEN "

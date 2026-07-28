@@ -153,7 +153,7 @@ async def test_run_agent_exceptiongroup_unwrap_end_to_end():
         [RuntimeError("remote child 'gitlab-mcp' streamable-http 502")],
     )
 
-    fake_engine = AsyncMock()
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     with (
@@ -235,6 +235,103 @@ async def test_allowed_tools_bound_as_real_callable_toolset():
     assert len(bound) == 1
     assert isinstance(bound[0], _FakeToolset)
     assert bound[0].applied_filter is not None  # filtering actually applied
+
+
+@pytest.mark.asyncio
+async def test_single_server_uses_bound_tool_grounding_live_path(monkeypatch):
+    """Focused execution skips KG retrieval but keeps a governed evidence contract."""
+    from agent_utilities.core import contextual_model
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        contextual_model,
+        "_ctx_compile_degradation_streak",
+        contextual_model._CTX_COMPILE_BREAKER_THRESHOLD,
+    )
+    monkeypatch.setattr(
+        contextual_model, "_ctx_compile_breaker_reopen_at", float("inf")
+    )
+
+    class _BoundToolAgent:
+        async def run(self, *_args, **_kwargs):
+            original = [
+                SimpleNamespace(
+                    parts=[
+                        SimpleNamespace(
+                            part_kind="user-prompt",
+                            content="read from the bound tool",
+                        )
+                    ]
+                )
+            ]
+            (
+                governed,
+                bundle,
+            ) = await contextual_model._compiled_evidence_and_bundle_bounded(
+                original,
+                "test-model",
+            )
+            captured["governed"] = governed
+            captured["bundle"] = bundle
+            return SimpleNamespace(output="tool-grounded")
+
+    with patch(
+        "agent_utilities.agent.factory.create_agent",
+        return_value=(_BoundToolAgent(), []),
+    ):
+        result = await _execute_single_server(
+            config={
+                "mcp_toolsets": [_FakeToolset("github-mcp")],
+                "provider": "openai",
+                "agent_model": "test-model",
+            },
+            task="read from the bound tool",
+            max_steps=5,
+            agent_meta={},
+            agent_name="github-mcp",
+            bound_tool_grounding=True,
+        )
+
+    governed = captured["governed"]
+    assert isinstance(governed, list)
+    evidence_text = governed[0].parts[0].content
+    assert evidence_text.startswith(contextual_model._CONTEXT_MARKER)
+    assert contextual_model._BOUND_TOOL_GROUNDING_MARKER in evidence_text
+    assert "authenticated, pre-bound MCP tool results" in evidence_text
+    assert captured["bundle"] is None
+    assert result["results"]["output"] == "tool-grounded"
+    assert contextual_model._bound_tool_grounding.get() is False
+
+
+@pytest.mark.asyncio
+async def test_direct_template_style_run_does_not_implicitly_bypass_context() -> None:
+    """Broad pre-bound personas keep normal ContextCompiler retrieval enabled."""
+    from agent_utilities.core import contextual_model
+
+    observed: list[bool] = []
+
+    class _TemplateAgent:
+        async def run(self, *_args, **_kwargs):
+            observed.append(contextual_model._bound_tool_grounding.get())
+            return SimpleNamespace(output="normally-grounded")
+
+    with patch(
+        "agent_utilities.agent.factory.create_agent",
+        return_value=(_TemplateAgent(), []),
+    ):
+        await _execute_single_server(
+            config={
+                "mcp_toolsets": [_FakeToolset("graph-os-and-fleet")],
+                "provider": "openai",
+                "agent_model": "test-model",
+            },
+            task="reason across the ecosystem",
+            max_steps=5,
+            agent_meta={"type": "agent_template"},
+            agent_name="agent-utilities-expert",
+        )
+
+    assert observed == [False]
 
 
 @pytest.mark.asyncio
@@ -322,7 +419,7 @@ async def test_run_agent_reraises_cancellation_not_flattened():
 
     from agent_utilities.orchestration import agent_runner
 
-    fake_engine = AsyncMock()
+    fake_engine = MagicMock()
     fake_engine.backend = None
     with (
         patch.object(agent_runner, "_get_or_create_engine", return_value=fake_engine),

@@ -4,8 +4,11 @@ CONCEPT:AU-KG.research.research-pipeline-runner — Implementation Plan & Tasks 
 """
 
 import os
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from agent_utilities.sdd.watcher import (
     _get_latest_version_from_history,
@@ -161,6 +164,7 @@ def test_process_tasks_file(tmp_path):
 def test_run_watcher_scan(tmp_path):
     mock_engine = MagicMock()
     mock_engine.backend = MagicMock()
+    mock_engine.backend.db_path = ":memory:"
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -185,6 +189,21 @@ def test_run_watcher_scan(tmp_path):
         )
         assert len(history_plans) == 1
         assert len(history_tasks) == 1
+
+
+def test_run_watcher_scan_stops_on_owned_task_cancellation(tmp_path):
+    from agent_utilities.core.task_cancellation import (
+        TaskCancellationRequested,
+        use_task_cancellation,
+    )
+
+    cancelled = threading.Event()
+    cancelled.set()
+    with (
+        use_task_cancellation(cancelled),
+        pytest.raises(TaskCancellationRequested),
+    ):
+        run_watcher_scan(MagicMock(), tmp_path)
 
 
 def test_get_workspace_path(tmp_path):
@@ -301,6 +320,7 @@ def test_watcher_paused_flag():
     import agent_utilities.sdd.watcher as watcher
 
     mock_engine = MagicMock()
+    mock_engine.backend.db_path = ":memory:"
     mock_workspace = Path("/fake/workspace")
 
     # Verify that normal scan executes run_watcher_scan

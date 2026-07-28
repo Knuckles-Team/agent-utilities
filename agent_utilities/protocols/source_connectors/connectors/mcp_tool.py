@@ -1441,6 +1441,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     """
 
     provider = "MCP Tool Source"
+    _config: dict[str, Any]
 
     def configure(  # noqa: PLR0915 — flat declarative-config binding
         self,
@@ -1682,8 +1683,12 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         if url and url.startswith(("http://", "https://")):
             try:
                 return Client(url, auth=auth, timeout=self.timeout)
-            except TypeError:  # pragma: no cover - older fastmcp without auth=
-                pass
+            except TypeError as exc:  # pragma: no cover - older fastmcp without auth=
+                logger.warning(
+                    "FastMCP Client rejected refresh-capable auth; using the "
+                    "compatibility transport without client auth: %s",
+                    exc,
+                )
         return Client(target, timeout=self.timeout)
 
     # ── tool-call plumbing ───────────────────────────────────────────────────

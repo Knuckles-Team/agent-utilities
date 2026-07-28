@@ -1064,6 +1064,7 @@ async def run_agent(
                 max_steps=max_steps,
                 agent_meta=agent_meta,
                 agent_name=agent_name,
+                bound_tool_grounding=True,
             )
         else:
             route = {
@@ -2499,6 +2500,8 @@ async def _execute_single_server(
     max_steps: int,
     agent_meta: dict[str, Any],
     agent_name: str,
+    *,
+    bound_tool_grounding: bool = False,
 ) -> dict[str, Any]:
     """Run a single-MCP-server agent directly against its bound toolset.
 
@@ -2511,6 +2514,8 @@ async def _execute_single_server(
     and runs a direct agent loop — deterministic tool use, no LLM-router dependency.
     Returns the GraphResponse-compatible ``{"results": {"output": ...}}`` shape.
     """
+    from contextlib import nullcontext
+
     from agent_utilities.agent.factory import create_agent
 
     toolsets = list(config.get("mcp_toolsets") or [])
@@ -2623,11 +2628,23 @@ async def _execute_single_server(
     # delegation for the full client timeout (observed: 1800s) and piles engine
     # connections. A hung delegation is worse than a failed one — time out and raise so
     # the caller records it as a degraded/failed run (fail-loud), never an indefinite hang.
+    from agent_utilities.core.contextual_model import use_bound_tool_grounding
+
     try:
-        result = await asyncio.wait_for(
-            agent.run(prompt, **run_kwargs),
-            timeout=_EXECUTE_AGENT_WALL_CLOCK_S,
+        # The server and callable tool surface are already explicit and
+        # least-privilege-bound above.  In this focused path, authenticated MCP
+        # results are the evidence; a broad KG retrieval before every model turn
+        # adds contention without adding grounding.  The trusted context scope
+        # installs a transport-owned tool-grounding contract while ToolCall and
+        # RunTrace persistence below retain the full provenance.
+        grounding_scope = (
+            use_bound_tool_grounding() if bound_tool_grounding else nullcontext()
         )
+        with grounding_scope:
+            result = await asyncio.wait_for(
+                agent.run(prompt, **run_kwargs),
+                timeout=_EXECUTE_AGENT_WALL_CLOCK_S,
+            )
     except TimeoutError as exc:
         raise RuntimeError(
             f"single-server agent '{agent_name}' exceeded the "
@@ -2792,6 +2809,7 @@ async def _execute_focused_tools(
         max_steps=max_steps,
         agent_meta=agent_meta,
         agent_name=agent_name,
+        bound_tool_grounding=True,
     )
 
 

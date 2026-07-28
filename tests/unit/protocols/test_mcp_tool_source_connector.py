@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 
+import fastmcp
 import pytest
 from fastmcp import FastMCP
 
@@ -32,6 +33,40 @@ from agent_utilities.protocols.source_connectors.tool_schema import (
 from tests.unit.knowledge_graph.test_identifier_validation import MALICIOUS_IDENTIFIERS
 
 # ── canned fleet servers ─────────────────────────────────────────────────────
+
+
+def test_open_client_logs_legacy_fastmcp_auth_fallback(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Old FastMCP remains compatible without silently discarding auth support."""
+    from agent_utilities.mcp import client_credentials
+
+    calls: list[tuple[object, dict[str, object]]] = []
+    compatibility_client = object()
+
+    def fake_client(target: object, **kwargs: object) -> object:
+        calls.append((target, kwargs))
+        if "auth" in kwargs:
+            raise TypeError("auth keyword is unavailable")
+        return compatibility_client
+
+    monkeypatch.setattr(fastmcp, "Client", fake_client)
+    monkeypatch.setattr(client_credentials, "child_auth", lambda _audience: object())
+    caplog.set_level("WARNING")
+
+    connector = McpToolSourceConnector(
+        url="https://graph.example.test/mcp", tool="graph_query"
+    )
+
+    assert connector._open_client() is compatibility_client
+    assert calls[0][0] == "https://graph.example.test/mcp"
+    assert "auth" in calls[0][1]
+    assert calls[1] == (
+        "https://graph.example.test/mcp",
+        {"timeout": connector.timeout},
+    )
+    assert "compatibility transport without client auth" in caplog.text
+    assert "auth keyword is unavailable" in caplog.text
 
 
 def make_sql_server(rows: list[dict] | None = None, page_size: int = 2) -> FastMCP:

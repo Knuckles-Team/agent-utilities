@@ -29,6 +29,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
+from agent_utilities.core.task_cancellation import raise_if_task_cancelled
 from agent_utilities.security.identifiers import validate_identifier
 
 from .backends.base import GraphBackend, sanitize_label
@@ -253,6 +254,7 @@ def copy_graph(
     indexed_labels: set[str] = set()
     labels_seen: dict[str, int] = {}
     for node_id, label, props in _iter_source_nodes(source):
+        raise_if_task_cancelled()
         node_labels[node_id] = label
         if label not in indexed_labels:
             summary["indexes"] += _ensure_id_indexes(target_backend, {label})
@@ -268,6 +270,7 @@ def copy_graph(
     # --- edges (label hints → indexed MATCH, no per-edge label lookup) ---
     n_src_edges = 0
     for src, dst, rel, props in _iter_source_edges(source):
+        raise_if_task_cancelled()
         n_src_edges += 1
         try:
             writer._upsert_edge(
@@ -286,6 +289,7 @@ def copy_graph(
     # --- embeddings ---
     if copy_embeddings:
         for node_id, emb in _iter_source_embeddings(source):
+            raise_if_task_cancelled()
             try:
                 target_backend.add_embedding(node_id, emb)
                 summary["embeddings"] += 1
@@ -294,6 +298,7 @@ def copy_graph(
 
     # --- exact post-condition drift: per-label node counts + edge count ---
     for label, n_src in labels_seen.items():
+        raise_if_task_cancelled()
         try:
             safe_label = validate_identifier(label, kind="label")
             rows = target_backend.execute(

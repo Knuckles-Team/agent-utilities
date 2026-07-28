@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.task_cancellation import raise_if_task_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +67,7 @@ def _get_latest_version_from_history(
                     content = f.read_text(encoding="utf-8", errors="ignore")
                     seen_hashes.add(_get_md5(content))
                 except Exception as e:
-                    logger.debug(
-                        "Failed to read historical file (%s)", type(e).__name__
-                    )
+                    logger.debug("Failed to read historical file: %s", e)
 
     return version, seen_hashes
 
@@ -283,7 +282,7 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         mtime = file_path.stat().st_mtime
     except Exception as e:
-        logger.debug("Failed to stat watched file (%s)", type(e).__name__)
+        logger.debug("Failed to stat watched file: %s", e)
         mtime = 0.0
 
     if _SEEN_MTIMES.get(file_key) == mtime:
@@ -292,7 +291,7 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
-        logger.error("Failed to read watched file (%s)", type(e).__name__)
+        logger.error("Failed to read watched file: %s", e)
         return
 
     content_hash = _get_md5(content)
@@ -385,7 +384,7 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         mtime = file_path.stat().st_mtime
     except Exception as e:
-        logger.debug("Failed to stat watched file (%s)", type(e).__name__)
+        logger.debug("Failed to stat watched file: %s", e)
         mtime = 0.0
 
     if _SEEN_MTIMES.get(file_key) == mtime:
@@ -394,7 +393,7 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
-        logger.error("Failed to read watched file (%s)", type(e).__name__)
+        logger.error("Failed to read watched file: %s", e)
         return
 
     content_hash = _get_md5(content)
@@ -488,6 +487,7 @@ def _safe_walk(root: Path, target_names: set[str], max_depth: int = 5):
             return
         try:
             for item in current.iterdir():
+                raise_if_task_cancelled()
                 if item.is_dir():
                     if item.name in skip_dirs or (
                         item.name.startswith(".") and item.name != ".specify"
@@ -499,8 +499,8 @@ def _safe_walk(root: Path, target_names: set[str], max_depth: int = 5):
                         yield item
         except PermissionError:
             pass
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 — one unreadable subtree is non-fatal
+            logger.debug("Skipping unreadable watcher subtree %s: %s", current, exc)
 
     yield from _walk(root, 1)
 
@@ -524,8 +524,8 @@ def get_all_skills_directories(workspace_path: Path) -> list[Path]:
             for child in wp_skills.iterdir():
                 if child.is_dir():
                     resolved.append(child)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 — optional workspace skills are best-effort
+            logger.debug("Could not enumerate workspace skills %s: %s", wp_skills, exc)
 
     return resolved
 
@@ -643,9 +643,9 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
         mtime = file_path.stat().st_mtime
     except Exception as e:
         logger.debug(
-            "Failed to stat %s (%s)",
+            "Failed to stat %s: %s",
             skill_reference(file_path.parent.name),
-            type(e).__name__,
+            e,
         )
         mtime = 0.0
 
@@ -656,9 +656,9 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
         logger.error(
-            "Failed to read %s (%s)",
+            "Failed to read %s: %s",
             skill_reference(file_path.parent.name),
-            type(e).__name__,
+            e,
         )
         return
 
@@ -683,9 +683,9 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
                 skill_desc = frontmatter.get("description", "")
             except Exception as e:
                 logger.debug(
-                    "Failed to parse frontmatter for %s (%s)",
+                    "Failed to parse frontmatter for %s: %s",
                     skill_reference(file_path.parent.name),
-                    type(e).__name__,
+                    e,
                 )
 
     prefix = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
@@ -718,9 +718,9 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
         logger.info("Archived skill version for %s", skill_reference(skill_name))
     except Exception as e:
         logger.error(
-            "Failed to archive %s (%s)",
+            "Failed to archive %s: %s",
             skill_reference(skill_name),
-            type(e).__name__,
+            e,
         )
         return
 
@@ -745,16 +745,16 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
             engine.backend.execute(query_project, {"node_id": node_id})
         except Exception as e:
             logger.debug(
-                "Could not link %s to project (%s)",
+                "Could not link %s to project: %s",
                 skill_reference(skill_name),
-                type(e).__name__,
+                e,
             )
 
     except Exception as e:
         logger.error(
-            "Failed to ingest %s (%s)",
+            "Failed to ingest %s: %s",
             skill_reference(skill_name),
-            type(e).__name__,
+            e,
         )
 
     _SEEN_HASHES[file_key].add(content_hash)
@@ -778,7 +778,8 @@ def process_watched_file(
     # G7: Fast-path mtime check — skip if file hasn't changed since last scan
     try:
         mtime = file_path.stat().st_mtime
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — mtime is an optional delta optimization
+        logger.debug("Could not stat watched document %s: %s", file_path, exc)
         mtime = 0.0
     if _SEEN_MTIMES.get(file_key) == mtime:
         return
@@ -804,8 +805,8 @@ def process_watched_file(
         _SEEN_MTIMES[file_key] = mtime
     except Exception as e:
         logger.error(
-            "Failed to submit watched-document ingestion task (%s)",
-            type(e).__name__,
+            "Failed to submit watched-document ingestion task: %s",
+            e,
         )
 
 
@@ -820,10 +821,14 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — binary files fall back to mtime
+        logger.debug("Could not read KG ingest location %s: %s", file_path, exc)
         try:
             content = str(file_path.stat().st_mtime)
-        except Exception:
+        except Exception as stat_exc:  # noqa: BLE001 — vanished files are skipped
+            logger.debug(
+                "Could not stat KG ingest location %s: %s", file_path, stat_exc
+            )
             return
 
     content_hash = _get_md5(content)
@@ -856,10 +861,12 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
 
 def run_watcher_scan(engine: Any, workspace_path: Path):
     """Executes a single synchronous directory scan for plans, tasks, skills, and downloads."""
+    raise_if_task_cancelled()
     # 1. Scan active workspace specs
     specs_dir = workspace_path / ".specify" / "specs"
     if specs_dir.exists():
         for feature_dir in specs_dir.iterdir():
+            raise_if_task_cancelled()
             if feature_dir.is_dir():
                 plan_file = feature_dir / "plan.md"
                 tasks_file = feature_dir / "tasks.md"
@@ -872,6 +879,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
     brain_dir = Path(os.path.expanduser("~/.gemini/antigravity/brain"))
     if brain_dir.exists():
         for sess_dir in brain_dir.iterdir():
+            raise_if_task_cancelled()
             if sess_dir.is_dir():
                 plan_file = sess_dir / "implementation_plan.md"
                 tasks_file = sess_dir / "task.md"
@@ -890,30 +898,34 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
             "spec.md",
         }
         for f in _safe_walk(workspace_path, target_plan_tasks, max_depth=5):
+            raise_if_task_cancelled()
             if f.name.lower() in {"plan.md", "implementation_plan.md", "spec.md"}:
                 process_plan_file(engine, f, workspace_path)
             elif f.name.lower() in {"tasks.md", "task.md"}:
                 process_tasks_file(engine, f, workspace_path)
     except Exception as e:
-        logger.debug("Nested specification scan failed (%s)", type(e).__name__)
+        logger.debug("Nested specification scan failed: %s", e)
 
     # 4. Multi-IDE / Platform Skills Scan
     try:
         skills_dirs = get_all_skills_directories(workspace_path)
         for s_dir in skills_dirs:
+            raise_if_task_cancelled()
             for f in _safe_walk(s_dir, {"skill.md"}, max_depth=3):
+                raise_if_task_cancelled()
                 process_skill_file(engine, f, workspace_path)
             for f in _safe_walk(
                 s_dir,
                 {"plan.md", "tasks.md", "task.md", "implementation_plan.md"},
                 max_depth=3,
             ):
+                raise_if_task_cancelled()
                 if f.name.lower() in {"plan.md", "implementation_plan.md"}:
                     process_plan_file(engine, f, workspace_path)
                 elif f.name.lower() in {"tasks.md", "task.md"}:
                     process_tasks_file(engine, f, workspace_path)
     except Exception as e:
-        logger.debug("Skills scan failed (%s)", type(e).__name__)
+        logger.debug("Skills scan failed: %s", e)
 
     # 5. Watched directories scan — ScholarX/research downloads (top-level) +
     #    operator KG_WATCH_DIRS document corpora (recursive). One unified ingest
@@ -922,9 +934,11 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
     try:
         target_exts = {".pdf", ".docx", ".doc", ".txt", ".md"}
         for w_dir, recursive, source in get_watched_directories():
+            raise_if_task_cancelled()
             try:
                 items = w_dir.rglob("*") if recursive else w_dir.iterdir()
                 for item in items:
+                    raise_if_task_cancelled()
                     if not item.is_file() or item.suffix.lower() not in target_exts:
                         continue
                     if item.name.lower() == "skill.md":
@@ -932,26 +946,28 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                     if any(part in _SKIP_WATCH_DIRS for part in item.parts):
                         continue
                     process_watched_file(engine, item, source=source)
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 — one watch root is non-fatal
+                logger.debug("Watched-directory scan failed for %s: %s", w_dir, exc)
     except Exception as e:
-        logger.debug("Watched-directory scan failed (%s)", type(e).__name__)
+        logger.debug("Watched-directory scan failed: %s", e)
 
     # 6. Core Knowledge Graph Ingest Locations Scan
     try:
         kg_paths = get_kg_ingest_paths(workspace_path)
         for p in kg_paths:
+            raise_if_task_cancelled()
             if p.is_file():
                 process_kg_ingest_location(engine, p)
             elif p.is_dir():
                 try:
                     for child in p.iterdir():
+                        raise_if_task_cancelled()
                         if child.is_file():
                             process_kg_ingest_location(engine, child)
-                except Exception:
-                    pass
+                except Exception as exc:  # noqa: BLE001 — one KG root is non-fatal
+                    logger.debug("Could not enumerate KG ingest path %s: %s", p, exc)
     except Exception as e:
-        logger.debug("Core KG ingestion-location scan failed (%s)", type(e).__name__)
+        logger.debug("Core KG ingestion-location scan failed: %s", e)
 
 
 def run_plan_watcher_loop(engine: Any, workspace_path: Path, interval: float = 5.0):
@@ -1024,9 +1040,7 @@ def seed_plans_from_prompts(
 
             count += 1
         except Exception as e:
-            logger.error(
-                "Failed to seed plan from specification (%s)", type(e).__name__
-            )
+            logger.error("Failed to seed plan from specification: %s", e)
 
     logger.info(f"Successfully seeded {count} verified plans into the KG and history.")
     return count

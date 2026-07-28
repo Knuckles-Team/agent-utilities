@@ -13,8 +13,11 @@ flowchart LR
     Config[AgentConfig / caller model] --> Boundary[create_context_agent]
     Factory[create_model] --> Boundary
     Boundary --> Wrapper[wrap_model_with_context]
-    Wrapper --> Compiler[ContextCompiler + verified GraphSession]
+    Wrapper --> Mode{grounding authority}
+    Mode -->|general request| Compiler[ContextCompiler + verified GraphSession]
+    Mode -->|explicitly bound MCP server| ToolGrounding[compiler-owned bound-tool contract]
     Compiler --> Agent[Pydantic AI Agent]
+    ToolGrounding --> Agent
     Agent --> Transport[request / stream / count / compact]
 ```
 
@@ -27,12 +30,19 @@ flowchart LR
    source when it becomes the process authority. Production fails closed when
    that source is unavailable; local/test mode receives an explicit empty
    evidence bundle.
-3. There is no `skip_context` switch. Streaming, non-streaming, token-count,
+3. There is no caller-controlled `skip_context` switch. Streaming, non-streaming, token-count,
    and provider-side message-compaction requests all receive the same governed
    system prefix. Only a leading compiler-created system part satisfies the
    idempotence check; marker text in a user prompt cannot bypass compilation.
    Every application constructor, including injected finance, SWE, computer-use,
    ACP, evaluator, retrieval, and recursive-agent models, calls the same boundary.
+   A direct orchestration run whose callable surface is already least-privilege
+   bound to one authenticated MCP server uses the internal
+   `use_bound_tool_grounding()` scope: the compiler emits a static contract that
+   makes the bound tool results the sole factual authority and avoids an unrelated
+   KG retrieval before every model round. Request content cannot select this mode.
+   The direct loop still persists every call as `:ToolCall` under its `RunTrace`,
+   and a required-tool run with zero calls fails rather than fabricating evidence.
 4. Cache identity covers evidence ids, tenant/principal/graph references, policy
    and catalog versions, a query digest, ordering/model/redaction versions,
    snapshot, token budget, and all selection parameters. Persisted keys and

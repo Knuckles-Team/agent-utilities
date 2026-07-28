@@ -190,9 +190,7 @@ def test_overflow_falls_back_to_durable_outbox(tmp_path, monkeypatch):
     stays bounded."""
     monkeypatch.setattr(fanout_module, "_auto_handoff_capacity", lambda: 4)
     m = RecordingBackend("m")
-    fan = fanout_module.FanOutBackend(
-        {"m": m}, outbox_path=str(tmp_path / "ob.db")
-    )
+    fan = fanout_module.FanOutBackend({"m": m}, outbox_path=str(tmp_path / "ob.db"))
     try:
         # Stop the persister + drainers so the ring cannot drain — forces overflow.
         _stop_drainers(fan)
@@ -383,6 +381,37 @@ def test_reconcile_repairs_each_mirror(tmp_path, monkeypatch):
         # The mirror received node CREATE + edge MERGE writes.
         writes = [c for c in mirror.writes if c[0] == "execute"]
         assert writes  # drift repair actually wrote to the mirror
+    finally:
+        fan.close()
+
+
+def test_reconcile_stops_on_owned_task_cancellation(tmp_path, monkeypatch):
+    """Mirror repair observes its queue owner's timeout before another write."""
+    from agent_utilities.core.task_cancellation import (
+        TaskCancellationRequested,
+        use_task_cancellation,
+    )
+
+    mirror = RecordingBackend("m")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: _AuthorityWithGraph("auth"),
+    )
+    fan = FanOutBackend({"m": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    cancelled = threading.Event()
+    cancelled.set()
+    try:
+        with (
+            use_task_cancellation(cancelled),
+            pytest.raises(TaskCancellationRequested),
+        ):
+            fan.reconcile()
+        assert not [
+            call
+            for call in mirror.writes
+            if call[0] == "execute" and "MERGE" in call[1]
+        ]
     finally:
         fan.close()
 
