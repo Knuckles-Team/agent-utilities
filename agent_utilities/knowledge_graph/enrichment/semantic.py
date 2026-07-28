@@ -29,9 +29,6 @@ SearchFn = Callable[[list[float], int], list[dict[str, Any]]]
 # chunk into ``DEFAULT_EMBED_BATCH_SIZE``-sized POSTs). (CONCEPT:AU-KG.ingest.applying-agents-md-batch)
 _EMBED_MAX_BATCH = 256
 
-# Memoized cpu/load-derived embed concurrency (computed once; cheap to reuse).
-_EMBED_CONCURRENCY: int | None = None
-
 
 def _embed_concurrency() -> int:
     """Auto-sized number of embed requests to keep in flight concurrently.
@@ -40,13 +37,10 @@ def _embed_concurrency() -> int:
     — the same ~36%-of-cores, Pi-OOM-capped budget the ingest pools use) rather than
     inventing a new knob. Embedding is network/GPU-bound (the bge-m3 vLLM endpoint
     services many requests at once), not local-cpu-bound, so we allow ~2× that anchor,
-    capped at 16. The model's *declared* parallel capacity (CONCEPT:AU-KG.compute.concurrency-controller-sizing) is the
-    floor, so an explicitly-configured higher capacity always wins. Never below 1.
+    capped at 16. The model's *declared* parallel capacity (CONCEPT:AU-KG.compute.concurrency-controller-sizing) is a
+    hard per-model limit, so this local fan-out may never exceed it. Never below 1.
     (CONCEPT:AU-KG.ingest.applying-agents-md-batch)
     """
-    global _EMBED_CONCURRENCY
-    if _EMBED_CONCURRENCY is not None:
-        return _EMBED_CONCURRENCY
     ceiling = 16
     try:
         from agent_utilities.core.model_concurrency import (
@@ -68,10 +62,11 @@ def _embed_concurrency() -> int:
         anchor = max(1, compute_ingest_worker_count())
     except Exception:  # noqa: BLE001 — sizing is best-effort
         anchor = 4
-    # cpu/load-derived (≤16), floored at the model's declared capacity, then HARD-
-    # capped at the server ceiling so it can never oversubscribe the embedder.
-    _EMBED_CONCURRENCY = min(max(declared, min(anchor * 2, 16)), ceiling)
-    return _EMBED_CONCURRENCY
+    # Each call resolves current capacity: config reloads, adaptive controller state,
+    # and endpoint failover can change the safe width. The declared model capacity and
+    # remote-server ceiling are both hard limits; the local ingest anchor only reduces
+    # that safe maximum.
+    return min(declared, min(anchor * 2, 16), ceiling)
 
 
 def _joint_budget_cap(model_key: str, concurrency: int) -> int:
