@@ -1247,6 +1247,7 @@ class GraphComputeEngine:
 
     _PROCESS_ENGINE: "GraphComputeEngine | None" = None
     _PROCESS_ENGINE_LOCK = threading.RLock()
+    _transport_client: Any | None
 
     @classmethod
     def get_or_create(
@@ -1363,7 +1364,7 @@ class GraphComputeEngine:
         # — attribute-transparent; raw client at
         # ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
         self._client: Any
-        self._transport_client: Any | None = None
+        self._transport_client = None
         self._transport_closed = False
         self._event_bridge_stop: threading.Event | None = None
         self._event_bridge_thread: threading.Thread | None = None
