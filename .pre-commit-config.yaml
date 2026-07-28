@@ -71,6 +71,7 @@ repos:
   # --locked: fail (don't silently rewrite) if uv.lock is out of sync with
   # pyproject.toml — keeps the committed lock authoritative and never stale.
   - id: uv-lock
+    entry: python3 scripts/uv_workspace.py lock
     args: ["--locked"]
 - repo: local
   hooks:
@@ -157,7 +158,7 @@ repos:
     # pytest.ini's own `testpaths` (tests/unit tests/integration tests/retrieval)
     # so this hook and `pytest.ini` never drift — tests/retrieval was
     # previously reachable by neither (CONCEPT:AU-KG.retrieval.context-compiler dead-coverage fix).
-    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; test_target="tests"; for d in tests/unit test/unit tests test; do if [ -d "$d" ]; then test_target="$d"; break; fi; done; if [ "$test_target" = "tests/unit" ]; then test_target="tests/unit tests/integration tests/retrieval"; fi; if [ -f uv.lock ]; then uv run --all-extras pytest $test_target -q --tb=short -m "not slow" --timeout=60; else pytest $test_target -q --tb=short -m "not slow" --timeout=60; fi'
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; test_target="tests"; for d in tests/unit test/unit tests test; do if [ -d "$d" ]; then test_target="$d"; break; fi; done; if [ "$test_target" = "tests/unit" ]; then test_target="tests/unit tests/integration tests/retrieval"; fi; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras pytest $test_target -q --tb=short -m "not slow" --timeout=60; else pytest $test_target -q --tb=short -m "not slow" --timeout=60; fi'
     language: system
     types: [python]
     pass_filenames: false
@@ -172,7 +173,7 @@ repos:
   - id: check-cli-help
     name: check cli help
     entry: |-
-      bash -c 'for f in $(find . -type f \( -name "mcp_server.py" -o -name "agent_server.py" \) -not -path "*/\.venv/*" -not -path "*/__pycache__/*"); do mod=$(echo "$f" | sed -e "s/^\.\///" -e "s/\.py$//" -e "s/\//./g"); uv run python -m "$mod" --help >/dev/null || exit 1; done'
+      bash -c 'for f in $(find . -type f \( -name "mcp_server.py" -o -name "agent_server.py" \) -not -path "*/\.venv/*" -not -path "*/__pycache__/*"); do mod=$(echo "$f" | sed -e "s/^\.\///" -e "s/\.py$//" -e "s/\//./g"); python3 scripts/uv_workspace.py run python -m "$mod" --help >/dev/null || exit 1; done'
     language: system
     pass_filenames: false
     always_run: true
@@ -476,7 +477,7 @@ repos:
   # here (fast, ~7s). Default stage so it runs on every --all-files.
   - id: docs-consistency
     name: CI parity — docs consistency (README/AGENTS vs concepts.yaml)
-    entry: bash -c 'if [ -f uv.lock ]; then uv run --all-extras pytest tests/docs -q -p no:cacheprovider -o addopts=""; else python3 -m pytest tests/docs -q -p no:cacheprovider -o addopts=""; fi'
+    entry: bash -c 'if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras pytest tests/docs -q -p no:cacheprovider -o addopts=""; else python3 -m pytest tests/docs -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
