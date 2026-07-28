@@ -1039,7 +1039,7 @@ async def run_agent(
             route = {
                 "agents": [],
                 "servers": [agent_name],
-                "why": "resolved as a single KG-registered MCP server",
+                "why": "resolved as a single configured MCP server",
             }
             stage_reached = f"tool-call: {agent_name}"
             await _emit(
@@ -1803,6 +1803,21 @@ def _resolve_agent_from_kg(
     except Exception as e:
         logger.debug("AgentTemplate lookup failed for '%s': %s", agent_name, e)
 
+    # An explicit server pin must remain authoritative even while the durable
+    # capability graph is being refreshed. The live fleet catalog is already the
+    # transport authority used by the multiplexer, so an exact configured name is
+    # a safe fallback identity; semantic search must never rebound it to a
+    # different server named in the task text.
+    if agent_name in _configured_fleet_server_names():
+        meta["type"] = "server"
+        meta["server_id"] = f"srv:{agent_name}"
+        meta["toolset_id"] = agent_name
+        logger.info(
+            "[ORCH-1.21] Resolved explicit '%s' from the live MCP fleet catalog",
+            agent_name,
+        )
+        return meta
+
     # --- Search 3: Hybrid semantic search ---
     try:
         results = engine.search_hybrid(agent_name, top_k=3)
@@ -1823,6 +1838,27 @@ def _resolve_agent_from_kg(
 # ---------------------------------------------------------------------------
 # Internal: Config Construction
 # ---------------------------------------------------------------------------
+
+
+def _configured_fleet_server_names() -> frozenset[str]:
+    """Return exact server identities from the active multiplexer catalog."""
+    try:
+        from agent_utilities.mcp.multiplexer import (
+            MCPMultiplexer,
+            _resolve_config_path,
+        )
+
+        config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
+        catalog = MCPMultiplexer(config_path).load_catalog()
+        if isinstance(catalog, dict):
+            return frozenset(
+                str(name).strip()
+                for name in catalog
+                if isinstance(name, str) and name.strip()
+            )
+    except Exception as exc:  # noqa: BLE001 — KG resolution remains available
+        logger.debug("Live MCP fleet catalog lookup failed: %s", exc)
+    return frozenset()
 
 
 def _configured_model_for_class(model_class: str) -> Any:

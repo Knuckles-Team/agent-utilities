@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -32,6 +32,30 @@ from agent_utilities.orchestration.engine import (
     AgentOrchestrationEngine,
     _is_agent_error,
 )
+
+
+def test_explicit_fleet_catalog_pin_bypasses_semantic_server_rebinding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A configured server remains authoritative when its KG node is absent."""
+    from agent_utilities.orchestration import agent_runner
+
+    engine = MagicMock()
+    engine.backend.execute.return_value = []
+    engine.search_hybrid.return_value = [{"name": "repository-manager-mcp"}]
+    monkeypatch.setattr(
+        agent_runner,
+        "_configured_fleet_server_names",
+        lambda: frozenset({"github-mcp"}),
+    )
+
+    resolved = agent_runner._resolve_agent_from_kg(engine, "github-mcp")
+
+    assert resolved["type"] == "server"
+    assert resolved["server_id"] == "srv:github-mcp"
+    assert resolved["toolset_id"] == "github-mcp"
+    engine.search_hybrid.assert_not_called()
+
 
 # --------------------------------------------------------------------------- #
 # Symptom 1 — wall-clock timeout on spawned agents
