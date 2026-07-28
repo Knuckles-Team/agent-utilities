@@ -90,8 +90,8 @@ _OCI_COMPONENTS = (
 )
 _CURRENT_COMPONENT_VERSIONS = {
     "epistemic-operations-protocol": "1",
-    "epistemic-graph": "2.23.1",
-    "agent-utilities": "2.1.0",
+    "epistemic-graph": "2.23.2",
+    "agent-utilities": "2.1.1",
     "langfuse-agent": "1.0.3",
     "connector-bundles": "1",
     "prebundled-skills": "1",
@@ -117,13 +117,13 @@ _CURRENT_RUNTIME_CONTRACT = {
 _CURRENT_COMPONENT_DEPENDENCIES = {
     "epistemic-operations-protocol": {},
     "epistemic-graph": {},
-    "agent-utilities": {"epistemic-graph": "==2.23.1"},
-    "langfuse-agent": {"agent-utilities": "==2.1.0"},
+    "agent-utilities": {"epistemic-graph": "==2.23.2"},
+    "langfuse-agent": {"agent-utilities": "==2.1.1"},
     "connector-bundles": {
-        "agent-utilities": "==2.1.0",
-        "epistemic-graph": "==2.23.1",
+        "agent-utilities": "==2.1.1",
+        "epistemic-graph": "==2.23.2",
     },
-    "prebundled-skills": {"agent-utilities": "==2.1.0"},
+    "prebundled-skills": {"agent-utilities": "==2.1.1"},
     "ontology-lock": {},
     "index-migrations": {},
 }

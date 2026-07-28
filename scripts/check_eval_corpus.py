@@ -120,7 +120,7 @@ def main() -> int:
         print(
             "SKIPPED: eval-corpus gate requires the epistemic-graph[full] "
             f"kernel (agent_utilities.numeric unavailable: {exc}). "
-            "Install epistemic-graph[full]>=2.23.1,<3.0.0 to run it; the local "
+            "Install epistemic-graph[full]>=2.23.2,<3.0.0 to run it; the local "
             "pre-commit runs it with the kernel present.",
             file=sys.stderr,
         )

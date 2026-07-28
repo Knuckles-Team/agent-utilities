@@ -82,7 +82,7 @@ try:
 except ImportError as exc:
     raise ImportError(
         "epistemic-graph full kernel required: "
-        "pip install 'epistemic-graph[full]>=2.23.1,<3.0.0'"
+        "pip install 'epistemic-graph[full]>=2.23.2,<3.0.0'"
     ) from exc
 if getattr(_KERNEL, "__kernel__", None) != "eg-numeric":
     raise ImportError("epistemic_graph.numeric is not the certified eg-numeric kernel")

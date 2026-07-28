@@ -34,7 +34,7 @@ engine's encryption-at-rest (ChaCha20-Poly1305 over the redb value blobs, keyed
 by child-only data-key material + the KMS seam — CONCEPT:EG-KG.sharding.row-level-security), while the
 key **name** + metadata stay queryable plaintext. It is the store in **every**
 profile, because `GraphComputeEngine` auto-starts the full engine artifact installed
-by the hard-base `epistemic-graph[full]>=2.23.1,<3.0.0` dependency on demand (the
+by the hard-base `epistemic-graph[full]>=2.23.2,<3.0.0` dependency on demand (the
 OS-5.63 resolver). AgentConfig carries
 only `EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF`; production and non-tiny local modes
 resolve it from an external `env://` or `vault://` source. Non-production `tiny`

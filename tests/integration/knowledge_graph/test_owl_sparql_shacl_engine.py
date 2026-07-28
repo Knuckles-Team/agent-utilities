@@ -18,7 +18,7 @@ so its client carries the ``.rdf`` namespace), seed a tiny graph, and assert the
 engine-native semantic surface. There is NO SQLite and no per-module engine spawn;
 when no real engine is reachable the conftest hermetic-skip turns the connection
 error into a clean skip. The ``rdf``/``sparql``/``owl`` features are part of the
-mandatory ``epistemic-graph[full]>=2.23.1,<3.0.0`` artifact, so the engine path is
+mandatory ``epistemic-graph[full]>=2.23.2,<3.0.0`` artifact, so the engine path is
 exercised wherever that hard-base runtime is installed.
 """
 

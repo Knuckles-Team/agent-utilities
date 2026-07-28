@@ -84,12 +84,12 @@ ingestion providers, auth, and metrics. Use ``[mcp]`` only when intentionally bu
 a minimal custom runtime that does not need those capabilities:
 
 ```powershell
-uvx --refresh --from "agent-utilities[serving]>=2.1.0,<3.0.0" graph-os
+uvx --refresh --from "agent-utilities[serving]>=2.1.1,<3.0.0" graph-os
 ```
 
 Current releases use the native epistemic-graph optimizer and do not install a second
 Python optimization stack. Agent Utilities also requires
-`epistemic-graph[full]>=2.23.1,<3.0.0` in its base dependencies, so every extra,
+`epistemic-graph[full]>=2.23.2,<3.0.0` in its base dependencies, so every extra,
 including `serving`, receives the folded numeric kernel and full CPU engine runtime.
 Use only this single base `epistemic-graph[full]` requirement; do not add a
 second engine requirement.
@@ -114,7 +114,7 @@ to use the operating-system certificate store:
 
 ```powershell
 $env:UV_NATIVE_TLS = "true"
-uvx --refresh --from "agent-utilities[serving]>=2.1.0,<3.0.0" graph-os
+uvx --refresh --from "agent-utilities[serving]>=2.1.1,<3.0.0" graph-os
 ```
 
 Package bootstrap happens before AgentConfig exists. If a Python build backend must

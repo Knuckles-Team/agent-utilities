@@ -138,7 +138,7 @@ def resolve_engine_binary() -> Path:
         raise EngineUnavailable("configured test engine binary is unavailable")
 
     # Prebuilt wheel binary (production path) — TRUST it directly when present.
-    #    The hard-base ``epistemic-graph[full]>=2.23.1,<3.0.0`` wheel ships the
+    #    The hard-base ``epistemic-graph[full]>=2.23.2,<3.0.0`` wheel ships the
     #    feature-complete production server (blob + tsdb substrates), so using it validates
     #    the ACTUAL deployed database. We deliberately do NOT gate the wheel binary
     #    behind the live ``_binary_serves_features`` probe: that probe starts a

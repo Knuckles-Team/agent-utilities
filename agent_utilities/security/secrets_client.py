@@ -17,7 +17,7 @@ Provides encrypted secrets storage with two backends:
   queryable plaintext. There is **no local-disk / RAM fallback**: even the
   zero-infra ``tiny`` profile gets a real engine, because
   ``GraphComputeEngine`` auto-starts the full engine artifact installed by the
-  hard-base ``epistemic-graph[full]>=2.23.1,<3.0.0`` dependency on demand (the
+  hard-base ``epistemic-graph[full]>=2.23.2,<3.0.0`` dependency on demand (the
   OS-5.63 resolver); that artifact includes the encrypted store.
 - **VaultBackend**: HashiCorp Vault / OpenBao integration via ``hvac`` — the
   enterprise path (UNTOUCHED by OS-5.66).

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-07-28 — Native-cache, connector, teardown, and intent hardening
+
+### Added
+- **Schema-2 native artifact reuse across worktrees.** Native epistemic-graph
+  artifacts now use a shared, provenance-bound cache root so a second
+  agent-utilities worktree can consume an already validated artifact without
+  invoking Maturin or Cargo.
+- **Signed connector preset compilation.** The governed connector fleet now
+  compiles provider presets with source attestations, release-catalog coverage,
+  and exact native-bundle fingerprint validation.
+- **Natural graph intent routing.** Named GitHub and Mattermost capability
+  discovery, natural `graph_code` asks, and mutation previews now route through
+  the correct ask/act surfaces with partition enforcement.
+
+### Fixed
+- **Bounded native-engine teardown.** Test and runtime helpers now serialize
+  native engine ownership, stop deterministically, and preserve WorkItem
+  consistency across shutdown and projection refresh boundaries.
+- **Merged-tree native provenance.** Connector source attestations and the
+  ontology lock now match the exact merged Agent Utilities source state while
+  retaining trusted-key rotation support for existing provider manifests.
+
 ## [2.1.0] - 2026-07-27 — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added

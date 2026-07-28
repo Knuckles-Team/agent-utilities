@@ -157,7 +157,7 @@ own this:
 - **`tiny_engine`** (session-scoped) — deploys **ONE** real
   `epistemic-graph-server` for the whole session. It resolves an explicitly
   configured binary or the feature-complete binary installed by the hard-base
-  `epistemic-graph[full]>=2.23.1,<3.0.0` wheel. Pytest never invokes Cargo or
+  `epistemic-graph[full]>=2.23.2,<3.0.0` wheel. Pytest never invokes Cargo or
   builds an alternate artifact. The engine starts on an
   **isolated ephemeral UDS socket** under a unique temp dir, with an isolated
   temp `--persist-dir`, a test `GRAPH_SERVICE_AUTH_SECRET`, and

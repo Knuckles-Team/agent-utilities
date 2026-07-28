@@ -55,7 +55,7 @@ whole numeric surface flows through this one module.
 
 | Where | Contents | Role |
 |-------|----------|------|
-| base `dependencies` | `epistemic-graph[full]>=2.23.1,<3.0.0` (the certified protocol range) | Full CPU features and the kernel are a hard runtime contract. There is one release artifact: the platform-specific numeric library is folded into the `epistemic-graph` wheel (`epistemic_graph.numeric`, engine CONCEPT:AU-KG.compute.is-installed-kernel-discovery); `[full]` pulls the NumPy ABI dependency used internally through its numeric member. Release and Agent Utilities consumer CI must import the module and execute a real operation, so an incomplete wheel cannot pass merely because its metadata declares the extra. |
+| base `dependencies` | `epistemic-graph[full]>=2.23.2,<3.0.0` (the certified protocol range) | Full CPU features and the kernel are a hard runtime contract. There is one release artifact: the platform-specific numeric library is folded into the `epistemic-graph` wheel (`epistemic_graph.numeric`, engine CONCEPT:AU-KG.compute.is-installed-kernel-discovery); `[full]` pulls the NumPy ABI dependency used internally through its numeric member. Release and Agent Utilities consumer CI must import the module and execute a real operation, so an incomplete wheel cannot pass merely because its metadata declares the extra. |
 | `[test]` extra | `numpy>=2.4.6` | **Dev/test-only** ground-truth reference for `tests/test_numeric_parity.py`. NEVER a runtime dependency. |
 
 - numpy/scipy are **NOT** in base `dependencies` and **NOT** in any leaf extra
@@ -72,7 +72,7 @@ whole numeric surface flows through this one module.
 **Prod / published installs** pull the kernel through the mandatory base dependency:
 
 ```bash
-pip install agent-utilities                       # base requires epistemic-graph[full]>=2.23.1,<3.0.0
+pip install agent-utilities                       # base requires epistemic-graph[full]>=2.23.2,<3.0.0
 python -c "from agent_utilities.numeric import xp; print(xp.sum([1.0, 2.0]))"
 ```
 

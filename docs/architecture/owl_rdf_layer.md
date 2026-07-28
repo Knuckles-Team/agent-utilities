@@ -27,7 +27,7 @@ surface** (`client.rdf.*`), not a Python rdflib/owlready2/pyshacl stack:
 
 This native RDF/SPARQL/OWL surface is **pure-Rust** (oxrdf/oxttl/spargebra — no
 native C deps) and ships in the single full engine artifact required by
-`epistemic-graph[full]>=2.23.1,<3.0.0`. The `EngineResolver` (OS-5.63) auto-starts
+`epistemic-graph[full]>=2.23.2,<3.0.0`. The `EngineResolver` (OS-5.63) auto-starts
 that artifact on demand, so the engine's semantic surface is always available,
 including on a Raspberry Pi 4+. Optional Python RDF/OWL tooling is not a compatibility
 path for a missing engine and is kept out of the serving plane (the `serving` extra

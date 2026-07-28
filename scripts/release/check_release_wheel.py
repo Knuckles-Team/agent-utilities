@@ -27,7 +27,7 @@ _RELEASE_RESOURCE_CATALOG = (
     "deploy/release/release-contract-resources.catalog.json"
 )
 _RELEASE_RESOURCE_CATALOG_SHA256 = (
-    "d45f833045db8292ee23c21d654fc259b061e10debe07640adb62d8f148f6920"
+    "77ed2e432170482ac559a47e30e1573578106db54e689a4658256f1060bce6a5"
 )
 _RELEASE_RESOURCE_PATHS = (
     "deploy/release/certification-campaign.schema.json",
@@ -365,7 +365,7 @@ def check_wheel(path: Path) -> None:
                 or engine_requirements[0].extras != {"full"}
                 or engine_requirements[0].url is not None
                 or engine_requirements[0].marker is not None
-                or engine_requirements[0].specifier != SpecifierSet(">=2.23.1,<3.0.0")
+                or engine_requirements[0].specifier != SpecifierSet(">=2.23.2,<3.0.0")
             ):
                 raise WheelContractError("full-engine-requirement-invalid")
             if archive.getinfo(entry_points[0]).file_size > _MAX_CONTRACT_MEMBER_BYTES:

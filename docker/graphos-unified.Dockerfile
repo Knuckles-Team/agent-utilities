@@ -135,7 +135,7 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 # `[tool.uv.sources] epistemic-graph = { workspace = true }` (+ langfuse-agent) for the
 # ecosystem monorepo's uv workspace — a sibling checkout this isolated build context does
 # not have. uv fails resolving that source outside the full workspace; plain pip ignores
-# uv-only tables entirely and just resolves the standard `epistemic-graph[full]>=2.23.1`
+# uv-only tables entirely and just resolves the standard `epistemic-graph[full]>=2.23.2`
 # PEP 508 requirement from `[project.dependencies]`, already satisfied by step 1's install.
 #
 # ONE pip invocation, not two: the exact `==2.16.0`-family pins below must be visible to

@@ -501,7 +501,7 @@ def test_promoter_verifier_and_schemas_are_installed() -> None:
         "graph-os-skill-readiness",
         "graph-os-verify-skill-certification",
         "full-engine-requirement-invalid",
-        'SpecifierSet(">=2.23.1,<3.0.0")',
+        'SpecifierSet(">=2.23.2,<3.0.0")',
     ):
         assert required in checker
 
@@ -539,7 +539,7 @@ def _synthetic_release_wheel(
                 "Metadata-Version: 2.4\n"
                 "Name: agent-utilities\n"
                 "Version: 1.0.0\n"
-                "Requires-Dist: epistemic-graph[full]>=2.23.1,<3.0.0\n\n"
+                "Requires-Dist: epistemic-graph[full]>=2.23.2,<3.0.0\n\n"
             ),
         )
         archive.writestr(

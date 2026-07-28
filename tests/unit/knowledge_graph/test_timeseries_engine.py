@@ -2,7 +2,7 @@
 """Real-engine proof for native time-series (CONCEPT:AU-KG.domains.ohlcv-gap-fill).
 
 Against the ACTUAL ephemeral engine from the mandatory
-``epistemic-graph[full]>=2.23.1,<3.0.0`` runtime (KG-2.238):
+``epistemic-graph[full]>=2.23.2,<3.0.0`` runtime (KG-2.238):
 
 * the engine tsdb append/range/window/asof primitives return correct results;
 * the EngineTimeSeriesBackend (KG-2.246, now LIVE) round-trips telemetry-shaped

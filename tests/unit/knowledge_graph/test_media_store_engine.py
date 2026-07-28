@@ -2,7 +2,7 @@
 """Real-engine proof for durable multimodal memory (CONCEPT:AU-KG.identity.asset-occurrence).
 
 Against the ACTUAL ephemeral engine from the mandatory
-``epistemic-graph[full]>=2.23.1,<3.0.0`` runtime (KG-2.238):
+``epistemic-graph[full]>=2.23.2,<3.0.0`` runtime (KG-2.238):
 
 * a small image/audio payload stored via :class:`MediaStore` round-trips back byte-
   for-byte from the engine BLOB substrate;

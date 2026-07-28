@@ -10,11 +10,11 @@
     },
     {
       "path": "deploy/release/compatibility-matrix.schema.json",
-      "sha256": "103c2416f5af7a0691e56b46242275363aa109cdf26382f97ae63a85c0aa5f8f"
+      "sha256": "22ceaeaf30f20e30860428d22aaf2014689478a16b6e6491080136d56e80f963"
     },
     {
       "path": "deploy/release/compatibility-matrix.yml",
-      "sha256": "858506c120c5f484a861570dba1bf41894d328b511b48b2c8e87870b430a1015"
+      "sha256": "728942effc0172100c26d3362d888e1cbac05753646e403ea154b542387a2a4c"
     },
     {
       "path": "deploy/release/component-provenance.schema.json",
@@ -102,7 +102,7 @@
     },
     {
       "path": "deploy/release/release-manifest.schema.json",
-      "sha256": "c5e782b8bfb9ba28e4f077f0eaa3545a5dfcda0cc9078324f2ebbae1b8b6f1d1"
+      "sha256": "f7dbc454cfc567c24984061d11857bd068747ffe14c92d0bde8f9cf0eb5ab4c2"
     },
     {
       "path": "deploy/release/release-migration-plan.schema.json",
