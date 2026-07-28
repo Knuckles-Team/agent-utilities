@@ -127,13 +127,11 @@ class StuckLoopDetection(AbstractCapability[Any]):
             )
             with contextlib.suppress(Exception):
                 # Silent fail for graph write in capability
-                engine.graph.add_node(eval_node.id, **eval_node.model_dump())
-                if engine.backend:
-                    await engine.backend.upsert_node(
-                        RegistryNodeType.SELF_EVALUATION,
-                        eval_node.id,
-                        eval_node.model_dump(),
-                    )
+                engine.add_node(
+                    eval_node.id,
+                    str(eval_node.type),
+                    properties=eval_node.model_dump(exclude={"id", "type"}),
+                )
 
         if self.action == "error":
             raise StuckLoopError(pattern, message)

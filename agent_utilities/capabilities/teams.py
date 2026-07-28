@@ -39,8 +39,7 @@ class SharedTodoItem:
 
 
 class _GraphComputeWorkItemView:
-    """Adapts a ``GraphComputeEngine`` (``ctx.deps.graph_engine.graph`` — the
-    exact object :class:`TeamCapability` already reads/writes) to the
+    """Adapts the owning graph engine (``ctx.deps.graph_engine``) to the
     ``add_node``/``query_cypher``/``compare_and_set_node_fields`` protocol
     :mod:`agent_utilities.orchestration.work_item` expects. Team assignments
     are stored directly as WorkItems; there is no parallel task node or status
@@ -57,8 +56,9 @@ class _GraphComputeWorkItemView:
       parses and executes the statement.
     """
 
-    def __init__(self, graph: Any) -> None:
-        self._graph = graph
+    def __init__(self, engine: Any) -> None:
+        self._engine = engine
+        self._graph = engine.graph
 
     def add_node(
         self,
@@ -68,9 +68,8 @@ class _GraphComputeWorkItemView:
         ephemeral: bool = False,
     ) -> None:
         props = dict(properties or {})
-        props["node_type"] = node_type
         props["id"] = node_id
-        self._graph.add_node(node_id, props)
+        self._engine.add_node(node_id, node_type, properties=props)
 
     def link_nodes(
         self,
@@ -81,7 +80,12 @@ class _GraphComputeWorkItemView:
         ephemeral: bool = False,
     ) -> None:
         with contextlib.suppress(Exception):
-            self._graph.add_edge(source_id, target_id, relationship=str(rel_type))
+            self._engine.add_edge(
+                source_id,
+                target_id,
+                str(rel_type),
+                **dict(properties or {}),
+            )
 
     def query_cypher(
         self, cypher: str, params: dict | None = None
@@ -206,12 +210,14 @@ class TeamCapability(AbstractCapability[Any]):
                 metadata={"members": persisted_members},
             )
             with contextlib.suppress(Exception):
-                engine.graph.add_node(node.id, **node.model_dump())
+                engine.add_node(
+                    node.id,
+                    str(node.type),
+                    properties=node.model_dump(exclude={"id", "type"}),
+                )
                 for member in persisted_members:
                     # Link members to team
-                    engine.graph.add_edge(
-                        member, self.team_id, relationship="BELONGS_TO_TEAM"
-                    )
+                    engine.add_edge(member, self.team_id, "BELONGS_TO_TEAM")
         return self.team_id
 
     async def add_task(
@@ -224,7 +230,7 @@ class TeamCapability(AbstractCapability[Any]):
         if engine:
             from ..orchestration import work_item as _wi
 
-            view = _GraphComputeWorkItemView(engine.graph)
+            view = _GraphComputeWorkItemView(engine)
             work_item_id = _wi.submit_team_work_item(
                 view,
                 task_id,
@@ -235,18 +241,20 @@ class TeamCapability(AbstractCapability[Any]):
             )
             with contextlib.suppress(Exception):
                 if self.team_id:
-                    engine.graph.add_edge(
-                        work_item_id, self.team_id, type="BELONGS_TO_TEAM"
+                    engine.add_edge(
+                        work_item_id,
+                        self.team_id,
+                        "BELONGS_TO_TEAM",
                     )
                 if assigned_to:
                     from ..messaging.bus_privacy import bus_reference
 
-                    engine.graph.add_edge(
+                    engine.add_edge(
                         work_item_id,
                         bus_reference(
                             "team_member", assigned_to, tenant=self.team_id or ""
                         ),
-                        type="ASSIGNED_TO_AGENT",
+                        "ASSIGNED_TO_AGENT",
                     )
             # AU-P1-CL: create the ``ready`` shadow WorkItem alongside the
             # legacy TaskNode — best-effort, and independent of the legacy
@@ -255,7 +263,7 @@ class TeamCapability(AbstractCapability[Any]):
                 from ..orchestration import work_item as _wi
 
                 _wi.ensure_team_task_work_item(
-                    _GraphComputeWorkItemView(engine.graph),
+                    _GraphComputeWorkItemView(engine),
                     task_id,
                     tenant=self.team_id or "",
                 )
@@ -355,7 +363,7 @@ class TeamCapability(AbstractCapability[Any]):
             )
         from ..orchestration import work_item as _wi
 
-        view = _GraphComputeWorkItemView(engine.graph)
+        view = _GraphComputeWorkItemView(engine)
         tenant = self.team_id or ""
         item_id = _wi.team_work_item_id(task_id)
         item = _wi.get_work_item(view, item_id)
