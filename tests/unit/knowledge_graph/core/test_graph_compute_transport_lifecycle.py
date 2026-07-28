@@ -125,7 +125,7 @@ def _patch_duplicate_constructor(
         self._event_bridge_thread.start()
         # Simulate a peer winning the singleton race after this constructor
         # acquired its transport and started its bridge.
-        GraphComputeEngine._PROCESS_ENGINE = object()
+        GraphComputeEngine._PROCESS_ENGINE = object.__new__(GraphComputeEngine)
 
     def stop_bridge(self) -> None:
         stop = self._event_bridge_stop
@@ -145,7 +145,7 @@ def _patch_duplicate_constructor(
     monkeypatch.setattr(
         engine_resolver,
         "resolve_engine",
-        lambda *_args: engine_resolver.ResolvedEngine(
+        lambda *_args, **_kwargs: engine_resolver.ResolvedEngine(
             endpoint="unix:///tmp/graph-compute-duplicate-test.sock",
             auth_secret="test-secret",
             mode="shared",
@@ -255,18 +255,19 @@ def test_stop_queues_async_signal_during_bridge_startup() -> None:
     assert loop.scheduled == 1
 
 
-def test_repeated_root_close_retries_bridge_shutdown_without_reclosing_transport() -> (
-    None
-):
+def test_repeated_root_close_retries_bridge_shutdown_without_reclosing_transport(
+    monkeypatch,
+) -> None:
     root = object.__new__(GraphComputeEngine)
     root._process_root = root
     root._transport_closed = True
     root._transport_client = None
-    root._stop_event_bridge = MagicMock()
+    stop_bridge = MagicMock()
+    monkeypatch.setattr(root, "_stop_event_bridge", stop_bridge)
 
     root.close()
 
-    root._stop_event_bridge.assert_called_once_with()
+    stop_bridge.assert_called_once_with()
 
 
 @pytest.mark.skipif(
@@ -293,3 +294,25 @@ def test_failed_duplicate_construction_releases_native_resources(monkeypatch) ->
 
     assert len(transports) == 32
     assert all(transport.closed for transport in transports)
+
+
+def test_failed_construction_preserves_original_error_when_rollback_faults(
+    monkeypatch,
+) -> None:
+    """A diagnostic rollback fault cannot hide the constructor rejection."""
+    transports: list[_NativeLikeTransport] = []
+    _patch_duplicate_constructor(monkeypatch, transports)
+    original_close = GraphComputeEngine.close
+
+    def close_then_fail(self) -> None:
+        original_close(self)
+        raise RuntimeError("injected rollback fault")
+
+    monkeypatch.setattr(GraphComputeEngine, "close", close_then_fail)
+
+    with pytest.raises(
+        RuntimeError, match="Concurrent duplicate graph transport rejected"
+    ):
+        GraphComputeEngine()
+
+    assert transports[0].closed

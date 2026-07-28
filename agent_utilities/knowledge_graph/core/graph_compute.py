@@ -1607,7 +1607,12 @@ class GraphComputeEngine:
                 elif active is not self and graph_session_required():
                     raise RuntimeError("Concurrent duplicate graph transport rejected")
         except BaseException:
-            self.close()
+            try:
+                self.close()
+            except BaseException:
+                # Construction must still report the original readiness/setup/
+                # singleton failure; cleanup is diagnostic only on this path.
+                logger.exception("Failed to roll back graph transport construction")
             raise
 
     def _autostart_engine(
