@@ -434,6 +434,21 @@ def test_sweep_all_sources_classifies_results(monkeypatch):
     }
 
 
+def test_delta_handler_missing_data_error_is_not_misclassified_as_unconfigured(
+    monkeypatch,
+):
+    """A generic ``missing`` validation failure is a real connector error."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    def fail_handler(engine, *, mode, ids, client):
+        raise RuntimeError("required source field is missing")
+
+    monkeypatch.setitem(ss._DELTA_HANDLERS, "leanix", fail_handler)
+
+    with pytest.raises(RuntimeError, match="required source field is missing"):
+        ss._dispatch_sync_source(object(), "leanix")
+
+
 # ── MCP-backed trackers as configured-via-mcp_config candidates (KG-2.154) ────
 
 

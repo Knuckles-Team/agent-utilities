@@ -378,10 +378,10 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
                 continue
         try:
             from agent_utilities.knowledge_graph.core.connection_registry import (
-                resolve_connection_runtime_fields,
+                _resolve_connection_runtime_fields,
             )
 
-            spec = resolve_connection_runtime_fields(spec)
+            spec = _resolve_connection_runtime_fields(spec)
             member = _build_member(spec)
         except Exception as exc:  # noqa: BLE001 — cause-preserving, see comment below
             # An optional mirror is NOT allowed to take the operational

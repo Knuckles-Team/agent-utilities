@@ -123,14 +123,16 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "'specialize' (one SAI specialization cycle + superhuman cert — AHE-3.29), "
             "'world_model_rollout' (forward-simulate the world model — KG-2.73b), "
             "'latent_efficiency_benchmark' (AHE-3.48), 'evolve_model', 'forecast', 'causal', "
-            "'invariant'."
+            "'invariant', plus the finance evaluation actions 'quant_crypto', "
+            "'quant_exchange', 'quant_microstructure', 'quant_strategy', "
+            "'quant_regime', and 'quant_insider'."
         ),
         tags=["graph-os", "evaluate"],
     )
     async def graph_evaluate(
         action: str = Field(
             default="evaluate",
-            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | evolve_model | forecast | causal | invariant",
+            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | evolve_model | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
         ),
         query: str = Field(
             default="",

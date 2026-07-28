@@ -197,7 +197,7 @@ def test_confluence_full_mirror_ingests_pages(monkeypatch):
     engine = _FakeEngine()
 
     out = ss.sync_source(engine, "confluence", mode="delta")
-    assert out["pages_ingested"] == 1
+    assert out["details"]["pages_ingested"] == 1
     assert processed[0]["doc_type"] == "wiki"
     assert processed[0]["document_id"].startswith("confluence:")
 

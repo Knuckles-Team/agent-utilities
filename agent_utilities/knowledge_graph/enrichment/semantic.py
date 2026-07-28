@@ -266,8 +266,8 @@ def embed_and_store(
         try:
             backend.add_embedding(nid, vec)
             n += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Embedding write failed for %s: %s", nid, exc)
     return n
 
 

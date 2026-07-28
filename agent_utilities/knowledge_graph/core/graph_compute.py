@@ -828,10 +828,10 @@ def _install_coupled_handlers() -> None:
                     _prev(signum, frame)
 
             signal.signal(_sig, _handler)
-        except (ValueError, OSError, RuntimeError):
+        except (ValueError, OSError, RuntimeError) as exc:
             # Not on the main thread (e.g. inside a server worker) — the atexit
             # hook still covers clean shutdown; skip the signal handler.
-            pass
+            logger.debug("Signal handler registration is unavailable: %s", exc)
     _coupled_handlers_installed = True
 
 
@@ -1018,7 +1018,7 @@ def _load_or_create_engine_encryption_key() -> str:
     path = private_directory / "encryption_key"
     try:
         return _read_private_engine_encryption_key(path)
-    except FileNotFoundError:
+    except FileNotFoundError:  # noqa: BLE001 — first run creates the key atomically
         pass
 
     material = _secrets.token_urlsafe(48)
@@ -2063,8 +2063,8 @@ class GraphComputeEngine:
                 if hasattr(val, "model_dump"):
                     try:
                         return val.model_dump(mode="json")
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Node property JSON serialization failed: %s", exc)
                 if isinstance(val, BaseModel):
                     return val.model_dump(mode="json")
                 if isinstance(val, dict):
@@ -2117,8 +2117,8 @@ class GraphComputeEngine:
                 if hasattr(val, "model_dump"):
                     try:
                         return val.model_dump(mode="json")
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Edge property JSON serialization failed: %s", exc)
                 if isinstance(val, BaseModel):
                     return val.model_dump(mode="json")
                 if isinstance(val, dict):
@@ -3189,10 +3189,7 @@ class GraphComputeEngine:
         data = json.loads(json_str)
         # Clear existing graph nodes/edges via client if possible or just rebuild
         for nid in self._get_all_nodes():
-            try:
-                self.remove_node(nid)
-            except Exception:
-                pass
+            self.remove_node(nid)
 
         # Re-add nodes
         for node_data in data.get("nodes", []):

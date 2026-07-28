@@ -10,6 +10,7 @@ GraphOS or engine process exists before or after this command.
 from __future__ import annotations
 
 import argparse
+import importlib
 import importlib.metadata
 import importlib.util
 import json
@@ -47,10 +48,9 @@ def _engine_binary_ready() -> bool:
 
 def _numeric_kernel_ready() -> bool:
     try:
-        from epistemic_graph import numeric as engine_numeric
-
         from agent_utilities import numeric as utilities_numeric
 
+        engine_numeric = importlib.import_module("epistemic_graph.numeric")
         return bool(
             getattr(engine_numeric, "__kernel__", None) == "eg-numeric"
             and utilities_numeric.xp.sum([1.0, 2.0, 3.0]) == 6.0

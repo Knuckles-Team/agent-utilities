@@ -10,8 +10,6 @@ configured. Also asserts the ``nl_query`` MCP tool is registered.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from agent_utilities.knowledge_graph.core import nl_planner
@@ -26,9 +24,7 @@ class _FakeEngine:
         self.uql_seen = self.sql_seen = self.cypher_seen = self.sparql_seen = None
 
     def query_cypher(self, query, *a, **k):
-        if query.startswith("MATCH (n) RETURN n.type") or query.startswith(
-            "MATCH (n) RETURN n.node_type"
-        ):
+        if query.startswith("MATCH (n) RETURN") and "n.node_type AS nt" in query:
             return [{"t": "Agent", "nt": None, "lb": None}, {"t": "Service"}]
         self.cypher_seen = query
         return [{"id": "n1", "name": "alpha"}]
@@ -172,7 +168,10 @@ def test_kg_2_305_uses_au_fleet_llm_when_configured(monkeypatch):
         assert kwargs.get("role") == "planner"
         return object()
 
-    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.contextual_model.create_context_agent",
+        lambda **_kwargs: _FakeAgent(),
+    )
     monkeypatch.setattr(
         "agent_utilities.core.model_factory.create_model", _fake_create_model
     )
@@ -238,17 +237,16 @@ def test_kg_2_305_nl_query_mcp_tool_registered():
             )
         )
         try:
-            res = json.loads(
-                kg_server.REGISTERED_TOOLS["nl_query"](
-                    text="top agents",
-                    dialect="auto",
-                    schema_hint="",
-                    execute=True,
-                    limit=50,
-                )
+            res = kg_server.REGISTERED_TOOLS["nl_query"](
+                text="top agents",
+                dialect="auto",
+                schema_hint="",
+                execute=True,
+                limit=50,
             )
-            assert res["generated_query"] == "MATCH (:Agent) |> LIMIT 1"
-            assert res["planner"] == "agent-utilities-fleet-llm"
+            trace = res.reasoning_trace[0]
+            assert trace["generated_query"] == "MATCH (:Agent) |> LIMIT 1"
+            assert trace["planner"] == "agent-utilities-fleet-llm"
         finally:
             np.is_llm_configured = orig_conf
             np.AuNlPlanner = orig_planner

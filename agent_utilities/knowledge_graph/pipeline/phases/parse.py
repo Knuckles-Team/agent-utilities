@@ -272,7 +272,7 @@ async def execute_parse(
             symbols_extracted += _replay_parse_result(result, graph, RegistryNodeType)
 
         except Exception as e:
-            logger.error("Pipeline source parse failed (%s)", type(e).__name__)
+            logger.error("Pipeline source parse failed: %s", e)
 
     return {"symbols_extracted": symbols_extracted}
 

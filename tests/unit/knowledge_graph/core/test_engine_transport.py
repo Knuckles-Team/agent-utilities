@@ -36,9 +36,12 @@ def test_tls_endpoint_uses_named_profile_and_cleans_material(monkeypatch):
     trust = SimpleNamespace(ssl_context=object(), cleanup=lambda: cleaned.append(True))
     captured = {}
 
-    def resolve(service, *, profile_name=None, profile_ref=None):
+    def resolve(service, *, profile_name=None, profile_ref=None, config=None):
         captured.update(
-            service=service, profile_name=profile_name, profile_ref=profile_ref
+            service=service,
+            profile_name=profile_name,
+            profile_ref=profile_ref,
+            config=config,
         )
         return trust
 
@@ -61,6 +64,7 @@ def test_tls_endpoint_uses_named_profile_and_cleans_material(monkeypatch):
         "service": "ENGINE",
         "profile_name": "private-trust",
         "profile_ref": "vault://runtime/engine-tls",
+        "config": _config(),
     }
     assert cleaned == [True]
 

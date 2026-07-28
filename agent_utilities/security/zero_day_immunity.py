@@ -63,15 +63,19 @@ class ZeroDayImmunity:
         # 2. Extract code structure from prompt if code is present
         if any(keyword in prompt for keyword in ("class ", "def ", "function ")):
             try:
-                from epistemic_graph.parser import RustASTParser
+                import ast
 
-                parser: Any = RustASTParser()
-                # Run the local python AST parsing directly as it is fast and synchronous
-                parsed = parser.python_ast_parse("prompt.py", prompt)
-                for node in parsed.get("nodes", []):
-                    nodes.append(node["node_id"])
-                for edge in parsed.get("edges", []):
-                    edges.append((edge["source"], edge["target"]))
+                tree = ast.parse(prompt, filename="prompt.py")
+                root_id = "code:prompt"
+                nodes.append(root_id)
+                for node in ast.walk(tree):
+                    if isinstance(
+                        node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                    ):
+                        kind = "class" if isinstance(node, ast.ClassDef) else "function"
+                        symbol_id = f"{kind}:{node.name}"
+                        nodes.append(symbol_id)
+                        edges.append((root_id, symbol_id))
             except Exception as e:
                 logger.debug("Failed AST extraction on prompt: %s", e)
 
