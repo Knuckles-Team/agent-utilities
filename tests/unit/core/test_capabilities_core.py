@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+from tests.unit.capability_fakes import TypedGraphEngine
 
 
 class _CheckpointGraph:
@@ -398,9 +399,8 @@ async def test_eviction_above_threshold_with_engine() -> None:
 
     evict = ToolOutputEviction(threshold_chars=50, store_in_graph=True)
     ctx = MagicMock()
-    engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
-    engine.backend = None
+    engine = TypedGraphEngine()
+    engine.backend = MagicMock()
     ctx.deps.graph_engine = engine
     call = MagicMock(tool_name="my_tool", tool_call_id="id1")
     tool_def = MagicMock()
@@ -412,6 +412,8 @@ async def test_eviction_above_threshold_with_engine() -> None:
     assert "EVICTED" in result
     # Graph should have 1 node
     assert len(engine.graph.nodes) == 1
+    assert len(engine.node_writes) == 1
+    engine.backend.upsert_node.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -433,7 +435,7 @@ async def test_eviction_add_node_raises_handled() -> None:
     evict = ToolOutputEviction(threshold_chars=50, store_in_graph=True)
     ctx = MagicMock()
     engine = MagicMock()
-    engine.graph.add_node.side_effect = RuntimeError("oops")
+    engine.add_node.side_effect = RuntimeError("oops")
     engine.backend = None
     ctx.deps.graph_engine = engine
     call = MagicMock(tool_name="t", tool_call_id="id")
@@ -592,10 +594,8 @@ async def test_stuck_loop_with_graph_engine() -> None:
 
     s = StuckLoopDetection(max_repeated=2, action="warn")
     ctx = MagicMock()
-    engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
+    engine = TypedGraphEngine()
     engine.backend = MagicMock()
-    engine.backend.upsert_node = AsyncMock()
     ctx.deps = MagicMock(graph_engine=engine)
     call = MagicMock(tool_name="same", tool_call_id="id")
     tool_def = MagicMock()
@@ -608,6 +608,8 @@ async def test_stuck_loop_with_graph_engine() -> None:
         )
     # A SelfEvaluation node was created
     assert len(engine.graph.nodes) == 1
+    assert len(engine.node_writes) == 1
+    engine.backend.upsert_node.assert_not_called()
 
 
 def test_stuck_loop_hash_args_dict() -> None:
