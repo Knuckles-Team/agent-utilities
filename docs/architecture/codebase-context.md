@@ -11,8 +11,11 @@ and reads only the `file:line`s it must *edit*, not to *understand*.
 
 ## The one tool — `code_context`
 
-`graph_analyze action=code_context` (REST: `POST /graph/analyze/code-context`)
-composes the already-built primitives into one synthesized, cited explanation:
+`graph_code action=code_context` (REST: `POST /graph/code`) composes the
+already-built primitives into one synthesized, cited explanation. Under
+`MCP_TOOL_MODE=intent`, call `ask` with the natural-language question; the
+resolver selects this capability, or accepts
+`hints_json={"tool":"graph_code","action":"code_context"}` as an exact pin:
 
 | intent (`target`) | composes | answers |
 |---|---|---|
@@ -50,7 +53,7 @@ flowchart TD
 
 ## Cross-repo usage (AU-KG.retrieval.every-usage-published-symbol)
 
-`cross_repo_usages(symbol)` (`graph_analyze action=cross_repo_usages`) anchors
+`cross_repo_usages(symbol)` (`graph_code action=cross_repo_usages`) anchors
 callers by **name**, so usages resolve across every ingested repo in one query,
 grouped by repo — `run_agent`'s callers span agent-utilities, the frameworks, and
 the agents. The `/au` source-mount is normalized to its canonical path so the same
@@ -78,7 +81,6 @@ surfaces instead of silently degrading a KG query to grep.
 ## Two surfaces
 
 Every piece is reachable from MCP and REST (the surface contract): the
-`graph_analyze` actions + their REST twins (`/graph/analyze/code-context`,
-`/graph/analyze/cross-repo-usages`), and `graph_feedback`'s `reads_avoided`
+`graph_code` actions over `/graph/code`, and `graph_feedback`'s `reads_avoided`
 correction. The composition logic lives in
 `knowledge_graph/retrieval/code_context.py`; the tools are thin dispatchers.

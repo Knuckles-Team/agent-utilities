@@ -2,7 +2,7 @@
 
 Covers:
   * `graph_ask` / `nl_query` return an EvidenceBundle directly.
-  * `graph_analyze action=code_context` returns the same current contract.
+  * `graph_code action=code_context` returns the same current contract.
   * `graph_analyze action=executable_rag` (analysis_tools.py) — brand-new MCP
     exposure of the executable-RAG interpreter; no legacy consumer, so it
     returns the EvidenceBundle directly (no wrapping toggle needed).
@@ -65,8 +65,9 @@ def test_graph_ask_returns_typed_bundle(monkeypatch):
     assert out["claims"] == _CANNED_NL_PAYLOAD["results"]
     assert out["evidence_spans"] == [{"ref": "agent:foo"}]
     assert out["confidence"] is None
-    assert out["reasoning_trace"][-1]["generated_query"] == (
-        _CANNED_NL_PAYLOAD["generated_query"]
+    assert (
+        out["reasoning_trace"][-1]["generated_query"]
+        == (_CANNED_NL_PAYLOAD["generated_query"])
     )
 
 
@@ -83,13 +84,14 @@ def test_nl_query_returns_typed_bundle(monkeypatch):
     ).model_dump()
     assert out["claims"] == _CANNED_NL_PAYLOAD["results"]
     assert out["confidence"] is None
-    assert out["reasoning_trace"][-1]["generated_query"] == (
-        _CANNED_NL_PAYLOAD["generated_query"]
+    assert (
+        out["reasoning_trace"][-1]["generated_query"]
+        == (_CANNED_NL_PAYLOAD["generated_query"])
     )
 
 
 # ---------------------------------------------------------------------------
-# graph_analyze action=code_context (analysis_tools.py)
+# graph_code action=code_context (analysis_tools.py)
 # ---------------------------------------------------------------------------
 class _FakeMCP:
     """Captures the tool coroutines ``register_analysis_tools`` registers."""
@@ -111,7 +113,9 @@ def _register_analysis_suite():
     fake = _FakeMCP()
     analysis_tools.register_analysis_tools(fake)
     analyze_suite.register_analyze_suite_tools(fake)
-    assert kg_server.REGISTERED_TOOLS.get("graph_analyze") is fake.tools["graph_analyze"]
+    assert (
+        kg_server.REGISTERED_TOOLS.get("graph_analyze") is fake.tools["graph_analyze"]
+    )
     return fake
 
 

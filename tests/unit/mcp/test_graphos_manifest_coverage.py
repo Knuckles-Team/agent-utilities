@@ -94,3 +94,67 @@ def test_manifest_has_no_phantom_tool_families():
         "live registration -- regenerate with "
         f"`python scripts/gen_graphos_manifest.py`: {phantom}"
     )
+
+
+def test_focused_analysis_actions_are_declared_in_the_generated_manifest():
+    """Delegating facades publish their static action vocabulary as Literals."""
+
+    from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
+
+    expected = {
+        "graph_code": {
+            "adr",
+            "arch_report",
+            "blast_radius",
+            "call_graph",
+            "change_coupling",
+            "code_context",
+            "code_evolution",
+            "code_metrics",
+            "cross_repo_usages",
+            "routes",
+            "similar_code",
+        },
+        "graph_research": {
+            "background_research",
+            "deep_extract",
+            "evolve_variants",
+            "relevance_sweep",
+            "research_ingest",
+            "spawn_background",
+            "synthesize",
+            "track_citations",
+        },
+        "graph_evaluate": {
+            "causal",
+            "check_constraints",
+            "evaluate",
+            "evaluate_alpha",
+            "evaluate_harness",
+            "evolve_model",
+            "forecast",
+            "guard_corpus",
+            "harness_gate",
+            "invariant",
+            "latent_efficiency_benchmark",
+            "quant_crypto",
+            "quant_exchange",
+            "quant_insider",
+            "quant_microstructure",
+            "quant_regime",
+            "quant_strategy",
+            "specialize",
+            "world_model_rollout",
+        },
+        "graph_explain": {"context", "executable_rag", "explain"},
+    }
+    actual = {
+        tool: {
+            entry["action"]
+            for entry in GRAPHOS_ACTIONS
+            if entry["tool"] == tool and entry["action"] is not None
+        }
+        for tool in expected
+    }
+
+    assert actual == expected

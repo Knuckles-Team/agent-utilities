@@ -85,6 +85,7 @@ _MAX_DISCOVERED_TOOLS = 2_048
 # contains hundreds of independently bounded JSON Schemas, so it gets its own
 # aggregate structural allowance while retaining the same byte/depth limits.
 _MAX_CATALOG_NODES = 131_072
+_SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "service"})
 _RUNTIME_CHILD_POLICY_GROUP = "agent_utilities.mcp_child_policies"
 _RUNTIME_CHILD_POLICY_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS = frozenset(
@@ -2055,13 +2056,20 @@ class MCPMultiplexer:
         force: bool = False,
         timeout: float | None = None,
         budget: float | None = None,
+        servers: list[str] | tuple[str, ...] | None = None,
     ) -> dict[str, dict]:
         """Probe every catalog server concurrently (bounded) and cache the
         result, so find_tools can rank the whole fleet's real tools. Cached, so
         only the first call pays the cost; unreachable servers fail fast and are
-        recorded, never blocking the reachable ones."""
+        recorded, never blocking the reachable ones. ``servers`` narrows a
+        latency-sensitive first stage without creating a second probe path."""
         catalog = self.load_catalog()
-        targets = [s for s in catalog if force or s not in self._probe_cache]
+        candidates = (
+            catalog if servers is None else (s for s in servers if s in catalog)
+        )
+        targets = [
+            server for server in candidates if force or server not in self._probe_cache
+        ]
         if not targets:
             return self._probe_cache
 
@@ -2131,6 +2139,24 @@ class MCPMultiplexer:
             )
         return out
 
+    @staticmethod
+    def _priority_catalog_servers(query: str, catalog: Mapping[str, Any]) -> list[str]:
+        """Return high-confidence server-name matches for staged discovery."""
+
+        query_tokens = set(re.findall(r"[a-z0-9]+", query.lower()))
+        ranked: list[tuple[float, int, str]] = []
+        for server in catalog:
+            identity_tokens = set(re.findall(r"[a-z0-9]+", server.lower()))
+            identity_tokens -= _SERVER_DISCOVERY_STOPWORDS
+            if not identity_tokens:
+                continue
+            overlap = query_tokens & identity_tokens
+            coverage = len(overlap) / len(identity_tokens)
+            if overlap and coverage >= 0.5:
+                ranked.append((coverage, len(overlap), server))
+        ranked.sort(reverse=True)
+        return [server for _coverage, _overlap, server in ranked]
+
     async def _embed_semantic_scores(
         self, query: str, probe: dict, semantic: dict[str, float]
     ) -> None:
@@ -2196,7 +2222,19 @@ class MCPMultiplexer:
             top_k = agent_config.mcp_dynamic_top_k
         catalog = self.load_catalog()
         discovery_timeout = agent_config.mcp_dynamic_discovery_timeout
-        probe = await self.probe_catalog(budget=discovery_timeout)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + discovery_timeout
+        priority_servers = self._priority_catalog_servers(query, catalog)
+        if priority_servers:
+            probe = await self.probe_catalog(
+                budget=discovery_timeout,
+                servers=priority_servers,
+            )
+        else:
+            probe = {}
+        remaining = deadline - loop.time()
+        if remaining >= 0.001:
+            probe = await self.probe_catalog(budget=remaining)
 
         # Semantic scores keyed by bare tool name. When graph-os injects an in-process
         # embedder (attach_fleet_loader), rank every probed tool by query↔description
@@ -2205,13 +2243,15 @@ class MCPMultiplexer:
         # understand intent ("send a message to a gitlab MR" → the gitlab tools) instead
         # of only matching literal tokens. (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
         semantic: dict[str, float] = {}
-        try:
-            await asyncio.wait_for(
-                self._embed_semantic_scores(query, probe, semantic),
-                timeout=discovery_timeout,
-            )
-        except TimeoutError:
-            logger.warning("find_tools semantic rerank exceeded its latency budget")
+        remaining = deadline - loop.time()
+        if remaining >= 0.001:
+            try:
+                await asyncio.wait_for(
+                    self._embed_semantic_scores(query, probe, semantic),
+                    timeout=remaining,
+                )
+            except TimeoutError:
+                logger.warning("find_tools semantic rerank exceeded its latency budget")
 
         ranked: list[dict] = []
         unavailable: dict[str, str] = {}

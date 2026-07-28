@@ -114,8 +114,11 @@ change impacts, query the KG FIRST — don't open with grep/read/Explore.** It i
 near-free, grounded, cross-session-consistent answer with `file:line` citations;
 grep re-derives by hand what the KG already holds.
 
-The one tool is **`graph_analyze action=code_context`** (REST: `POST
-/graph/analyze/code-context`), CONCEPT:AU-KG.retrieval.synthesized-cited-answer:
+The focused capability is **`graph_code action=code_context`** (REST: `POST
+/graph/code`). Under the intent-only surface, a natural-language `ask` routes
+there directly; pin it with `hints_json={"tool":"graph_code",
+"action":"code_context"}` when deterministic selection is required.
+CONCEPT:AU-KG.retrieval.synthesized-cited-answer:
 
 - `query=<area / symbol / question>`, `target=` the **intent**:
   - **`how`** — "how does the messaging reply path work?" → definition + what it
@@ -148,7 +151,7 @@ do yet.** The trajectory is to move more onto graph-os over time and orchestrate
 Before doing a task yourself, delegate it:
 
 - **Understanding code** → the KG, never grep first (the section above):
-  `graph_analyze action=code_context` (`how`/`usage`/`impact`, CONCEPT:AU-KG.retrieval.synthesized-cited-answer) +
+  `graph_code action=code_context` (`how`/`usage`/`impact`, CONCEPT:AU-KG.retrieval.synthesized-cited-answer) +
   `graph_query` / `graph_search` / `graph_code_nav`. If an area is uningested,
   `source_sync source=all mode=delta` first; close the loop with
   `graph_feedback correction_type=reads_avoided` (AU-AHE.evaluation.reads-avoided-feedback).

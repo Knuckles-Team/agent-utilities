@@ -41,10 +41,10 @@ To learn how an area works, where a symbol is used, or what a change impacts, qu
 **code KG first**:
 
 ```text
-graph_analyze action=code_context  query="<area/symbol/question>"  target=how|usage|impact
+graph_code action=code_context  query="<area/symbol/question>"  target=how|usage|impact
 ```
 
-(REST `POST /graph/analyze/code-context`, CONCEPT:AU-KG.retrieval.synthesized-cited-answer.) `how` returns a definition +
+(REST `POST /graph/code`, CONCEPT:AU-KG.retrieval.synthesized-cited-answer.) `how` returns a definition +
 what it calls + owning CONCEPT + docs + routes; `usage` returns callers (`file:line`) +
 near-clones + the cross-repo usage view (AU-KG.retrieval.every-usage-published-symbol); `impact` returns transitive callers
 (blast radius) + git change-coupling. Read only the few `file:line`s you must **edit**,
@@ -92,7 +92,7 @@ exhausted, and approve/veto rather than implement by hand.
 ```mermaid
 flowchart TD
     H["Claude / harness<br/>(orchestrator + exception-resolver)"]
-    H -->|understand code| KG["graph_analyze code_context<br/>(KG-2.134/135) → cited answer"]
+    H -->|understand code| KG["graph_code code_context<br/>(KG-2.134/135) → cited answer"]
     H -->|intent only| EX["graph_orchestrate skill gateway<br/>KG resolves skill / workflow"]
     EX -->|no typed hit| EXP["agent-utilities-expert fallback"]
     EX -->|workflow DAG| WF["governed WorkflowRunner<br/>local LLM per step"]

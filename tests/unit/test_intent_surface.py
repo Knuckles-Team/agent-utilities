@@ -120,6 +120,107 @@ async def test_ask_routes_to_the_right_tool_and_dispatches_via_execute_tool(
 
 
 @pytest.mark.asyncio
+async def test_ask_routes_natural_code_context_to_graph_code(monkeypatch):
+    """The operator's unpinned code-context wording reaches the focused facade."""
+
+    seen: dict[str, str] = {}
+
+    async def fake_graph_code(
+        action: str = "code_context",
+        query: str = "",
+        target: str = "",
+    ) -> str:
+        seen.update(action=action, query=query, target=target or "how")
+        return json.dumps({"answer": "grounded", "citations": ["source.py:12"]})
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_code", fake_graph_code)
+    intent = (
+        "How is skill workflow ingestion implemented in agent-utilities? "
+        "Return code context with cited files."
+    )
+
+    result = await intent_tools.dispatch_intent("ask", intent)
+
+    assert result["executed"] is True
+    assert result["routing"]["chosen_tool"] == "graph_code"
+    assert result["routing"]["action"] == "code_context"
+    assert seen == {"action": "code_context", "query": intent, "target": "how"}
+
+
+@pytest.mark.asyncio
+async def test_ask_accepts_explicit_graph_code_action_pin(monkeypatch):
+    """A declared focused action can be pinned through the governed intent verb."""
+
+    seen: dict[str, str] = {}
+
+    async def fake_graph_code(
+        action: str = "code_context",
+        query: str = "",
+        target: str = "",
+    ) -> str:
+        seen.update(action=action, query=query, target=target)
+        return json.dumps({"answer": "grounded"})
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_code", fake_graph_code)
+    intent = "How does skill workflow ingestion work?"
+
+    result = await intent_tools.dispatch_intent(
+        "ask",
+        intent,
+        hints={"tool": "graph_code", "action": "code_context", "target": "how"},
+    )
+
+    assert result["executed"] is True
+    assert result["routing"]["chosen_tool"] == "graph_code"
+    assert result["routing"]["action"] == "code_context"
+    assert seen == {"action": "code_context", "query": intent, "target": "how"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ("adr", "arch_report"))
+async def test_graph_code_mutations_are_denied_by_ask_and_reachable_via_act(
+    monkeypatch,
+    action,
+):
+    """Mixed code actions preserve read safety and use the reviewed act flow."""
+
+    seen: list[tuple[str, str]] = []
+
+    async def fake_graph_code(action: str = "code_context", query: str = "") -> str:
+        seen.append((action, query))
+        return json.dumps({"status": "ok", "action": action})
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_code", fake_graph_code)
+    intent = f"materialize code graph {action}"
+    hints = {"tool": "graph_code", "action": action, "query": "agent-utilities"}
+
+    denied = await intent_tools.dispatch_intent("ask", intent, hints=hints)
+
+    assert denied["executed"] is False
+    assert denied["error"] == "Read-only intent action is not declared read-only."
+    assert seen == []
+
+    preview = await intent_tools.dispatch_intent("act", intent, hints=hints)
+
+    assert preview["executed"] is False
+    assert preview["routing"]["plan"]["execution_class"] == "mutation"
+    assert preview["routing"]["plan"]["preview_required"] is True
+    plan_ref = preview["routing"]["plan"]["plan_ref"]
+
+    executed = await intent_tools.dispatch_intent(
+        "act",
+        intent,
+        hints={"plan_ref": plan_ref},
+        execute=True,
+    )
+
+    assert executed["executed"] is True
+    assert executed["routing"]["chosen_tool"] == "graph_code"
+    assert executed["routing"]["action"] == action
+    assert seen == [(action, "agent-utilities")]
+
+
+@pytest.mark.asyncio
 async def test_ask_falls_back_to_nl_planner_for_structured_only_tools(monkeypatch):
     """A winning candidate with no free-text param and no caller hints falls back
     to nl_query (the engine's own NL planner) rather than dispatching a call
@@ -191,6 +292,47 @@ async def test_ask_routes_explicit_ingest_status_actions_as_reads(monkeypatch, a
     assert result["routing"]["plan"]["mutates"] is False
     assert result["routing"]["plan"]["preview_required"] is False
     assert seen == {"action": action}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("intent", "action", "expected_tool"),
+    (
+        ("show ingestion job status for job-1", "job_status", "graph_ingest"),
+        ("show orchestration job status for job-1", "status", "graph_jobs"),
+    ),
+)
+async def test_unpinned_action_hint_selects_its_owning_job_surface(
+    monkeypatch,
+    intent,
+    action,
+    expected_tool,
+):
+    """Action evidence narrows and ranks the current job owner before dispatch."""
+
+    seen: list[tuple[str, str]] = []
+
+    async def fake_graph_ingest(action: str = "", job_id: str = "") -> str:
+        seen.append(("graph_ingest", action))
+        return json.dumps({"job_id": job_id})
+
+    async def fake_graph_jobs(action: str = "", job_id: str = "") -> str:
+        seen.append(("graph_jobs", action))
+        return json.dumps({"job_id": job_id})
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_ingest", fake_graph_ingest)
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_jobs", fake_graph_jobs)
+
+    result = await intent_tools.dispatch_intent(
+        "ask",
+        intent,
+        hints={"action": action, "job_id": "job-1"},
+    )
+
+    assert result["executed"] is True
+    assert result["routing"]["chosen_tool"] == expected_tool
+    assert result["routing"]["action"] == action
+    assert seen == [(expected_tool, action)]
 
 
 @pytest.mark.asyncio

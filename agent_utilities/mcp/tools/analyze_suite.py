@@ -19,7 +19,7 @@ operations/structural surface; it is not a compatibility catch-all.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -27,6 +27,52 @@ from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools.analysis_tools import execute_focused_analysis
 from agent_utilities.models.evidence_bundle import EvidenceBundle
 from agent_utilities.security.error_surface import public_error_text
+
+GraphCodeAction = Literal[
+    "code_context",
+    "cross_repo_usages",
+    "call_graph",
+    "similar_code",
+    "routes",
+    "change_coupling",
+    "code_evolution",
+    "blast_radius",
+    "code_metrics",
+    "arch_report",
+    "adr",
+]
+GraphResearchAction = Literal[
+    "synthesize",
+    "deep_extract",
+    "background_research",
+    "relevance_sweep",
+    "research_ingest",
+    "evolve_variants",
+    "track_citations",
+    "spawn_background",
+]
+GraphEvaluateAction = Literal[
+    "evaluate",
+    "evaluate_alpha",
+    "evaluate_harness",
+    "guard_corpus",
+    "harness_gate",
+    "check_constraints",
+    "specialize",
+    "world_model_rollout",
+    "latent_efficiency_benchmark",
+    "evolve_model",
+    "forecast",
+    "causal",
+    "invariant",
+    "quant_crypto",
+    "quant_exchange",
+    "quant_microstructure",
+    "quant_strategy",
+    "quant_regime",
+    "quant_insider",
+]
+GraphExplainAction = Literal["explain", "context", "executable_rag"]
 
 
 def register_analyze_suite_tools(mcp: Any) -> None:
@@ -65,7 +111,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         tags=["graph-os", "code"],
     )
     async def graph_code(
-        action: str = Field(
+        action: GraphCodeAction = Field(
             default="code_context",
             description="code_context | cross_repo_usages | call_graph | similar_code | routes | change_coupling | code_evolution | blast_radius | code_metrics | arch_report | adr",
         ),
@@ -100,7 +146,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         tags=["graph-os", "research"],
     )
     async def graph_research(
-        action: str = Field(
+        action: GraphResearchAction = Field(
             default="synthesize",
             description="synthesize | deep_extract | background_research | relevance_sweep | research_ingest | evolve_variants | track_citations | spawn_background",
         ),
@@ -130,7 +176,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         tags=["graph-os", "evaluate"],
     )
     async def graph_evaluate(
-        action: str = Field(
+        action: GraphEvaluateAction = Field(
             default="evaluate",
             description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | evolve_model | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
         ),
@@ -164,7 +210,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         tags=["graph-os", "explain"],
     )
     async def graph_explain(
-        action: str = Field(
+        action: GraphExplainAction = Field(
             default="explain", description="explain | context | executable_rag"
         ),
         query: str = Field(default="", description="The question."),

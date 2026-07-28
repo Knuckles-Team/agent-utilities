@@ -66,7 +66,11 @@ flowchart TD
    behind it.
 2. **The resolver** (`resolve_intent`/`dispatch_intent`) — ranks every `REGISTERED_TOOLS` entry
    tagged for that verb (`TOOL_VERBS`) with a dependency-free lexical scorer (token overlap +
-   a name-coverage tie-breaker), picks the top candidate, dispatches it through the **same**
+   a name-coverage tie-breaker). Focused action facades publish `Literal[...]` action
+   contracts into the generated manifest; an exact multi-word action phrase such as
+   `code context` contributes route evidence, while an explicit unpinned `action` first
+   narrows candidates to its current owning tools and scores only that selected operation.
+   The resolver then picks the top candidate and dispatches it through the **same**
    `_execute_tool` core every condensed tool uses, and returns `{"result", "routing", "executed"}`
    — `routing` carries the chosen tool/action, matched terms, alternatives considered, and a
    plain-English "why". `ask` additionally falls back to `nl_query` (the engine's own NL

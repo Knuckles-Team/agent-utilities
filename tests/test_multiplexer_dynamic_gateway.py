@@ -386,6 +386,71 @@ async def test_probe_catalog_returns_partial_results_within_budget(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    ("server", "query", "tool", "description"),
+    (
+        (
+            "github-mcp",
+            "read and comment on a GitHub pull request",
+            "github_pull_requests",
+            "Read and comment on GitHub pull requests.",
+        ),
+        (
+            "mattermost-mcp",
+            "post a Mattermost message",
+            "mattermost_post_message",
+            "Post a Mattermost message.",
+        ),
+    ),
+)
+async def test_discover_prioritizes_named_server_inside_shared_budget(
+    tmp_path,
+    monkeypatch,
+    server,
+    query,
+    tool,
+    description,
+):
+    """A named domain is probed before unrelated fleet fan-out consumes the budget."""
+
+    from agent_utilities.core.config import config as agent_config
+
+    tool_map = {
+        **{f"slow-{index}-mcp": [] for index in range(24)},
+        server: [(tool, description)],
+    }
+    mux = _mux_with_children(tmp_path, tool_map)
+    calls: list[str] = []
+
+    async def staged_probe(server_name, **_kwargs):
+        calls.append(server_name)
+        if server_name == server:
+            info = {
+                "tools": [
+                    {
+                        "name": tool,
+                        "description": description,
+                        "inputSchema": {},
+                    }
+                ],
+                "error": None,
+            }
+            mux._probe_cache[server_name] = info
+            return info
+        await asyncio.sleep(1)
+        return {"tools": [], "error": None}
+
+    monkeypatch.setattr(agent_config, "mcp_dynamic_discovery_timeout", 0.05)
+    mux.probe_server = AsyncMock(side_effect=staged_probe)  # type: ignore[method-assign]
+
+    discovery = await mux.discover_tools(query, top_k=5)
+
+    assert calls[0] == server
+    assert discovery["results"][0]["server"] == server
+    assert discovery["results"][0]["tool"] == tool
+    assert server not in discovery["unavailable"]
+
+
 async def test_discover_marks_mounted(tmp_path):
     mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
     mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
