@@ -426,31 +426,6 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         }
         for src in ("rss", "v2ex")
     },
-    # FreshRSS (CONCEPT:AU-KG.compute.homelab-rss-reader-as): the homelab RSS reader as a gated world-model
-    # source. Drives the freshrss-mcp ``freshrss_reader`` action-routed tool
-    # (action=stream_contents) over the Google-Reader API; each entry becomes a
-    # ``news_article`` Document. The preset is decoupled from raw GReader param
-    # names — the tool maps ``newer_than``→GReader ``ot`` (unix-seconds delta
-    # watermark) and ``continuation``→GReader ``c``. NOT a mirror: items pass the
-    # world-model relevance gate in ``_sync_freshrss`` (KG-2.116). Restrict to one
-    # category with {"params": {"stream_id": "user/-/label/Markets & Finance"}}.
-    "freshrss": {
-        "server": "freshrss-mcp",
-        "tool": "freshrss_reader",
-        "action": "stream_contents",
-        "params_style": "json",
-        "params": {"count": 100, "order": "o"},
-        "records_path": "items",
-        "id_field": "id",
-        "title_field": "title",
-        "text_field": "text",
-        "updated_field": "published",
-        "updated_since_param": "newer_than",
-        "pagination": "cursor",
-        "cursor_param": "continuation",
-        "cursor_path": "continuation",
-        "doc_type": "news_article",
-    },
     # ── Atlassian + Plane issue trackers / wiki (CONCEPT:AU-KG.compute.confluence-first-class-delta/2.124/2.125) ──
     #
     # All three drive an action-routed fleet tool whose result is the api-client

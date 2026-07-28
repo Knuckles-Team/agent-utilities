@@ -36,18 +36,8 @@ from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
 # ── preset ────────────────────────────────────────────────────────────────────
 
 
-def test_freshrss_preset_shape():
-    p = MCP_TOOL_PRESETS["freshrss"]
-    assert p["server"] == "freshrss-mcp"
-    assert p["tool"] == "freshrss_reader" and p["action"] == "stream_contents"
-    assert p["params_style"] == "json"
-    assert p["records_path"] == "items"
-    assert p["text_field"] == "text"
-    assert p["updated_field"] == "published"
-    assert p["pagination"] == "cursor"
-    assert p["cursor_param"] == "continuation" and p["cursor_path"] == "continuation"
-    assert p["updated_since_param"] == "newer_than"
-    assert p["doc_type"] == "news_article"
+def test_freshrss_preset_is_not_duplicated_in_the_hub():
+    assert "freshrss" not in MCP_TOOL_PRESETS
 
 
 # ── relevance scorer strangle (research path stays identical) ───────────────────
@@ -248,9 +238,15 @@ def test_sync_freshrss_gates_and_watermarks(monkeypatch):
         SimpleNamespace(updated_at=None),
     ]
     fake_conn = SimpleNamespace(poll_all=lambda **kw: docs)
+    connector_configs: list[dict] = []
+
+    def build_connector(_source_type, config):
+        connector_configs.append(config)
+        return fake_conn
+
     monkeypatch.setattr(
         "agent_utilities.protocols.source_connectors.registry.build_connector",
-        lambda *a, **k: fake_conn,
+        build_connector,
     )
 
     class FakeRunner:
@@ -282,6 +278,7 @@ def test_sync_freshrss_gates_and_watermarks(monkeypatch):
     assert res["details"]["marginal"] == 1
     assert res["details"]["skipped_unchanged"] == 1
     assert committed == [{"checkpoint": "1700000300"}]
+    assert connector_configs == [{"preset": "freshrss"}]
 
 
 def test_ingest_full_uses_native_document_processor():

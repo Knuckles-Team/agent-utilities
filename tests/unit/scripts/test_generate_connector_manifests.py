@@ -119,6 +119,21 @@ def test_build_manifest_projects_all_artifacts(connector_root: Path):
     assert len(m.provenance.integrity.hash) == 64
 
 
+def test_build_manifest_uses_project_identity_in_a_worktree(
+    connector_root: Path,
+):
+    (connector_root / "pyproject.toml").write_text(
+        '[project]\nname = "acme-api"\nversion = "1.0.0"\n',
+        encoding="utf-8",
+    )
+    worktree = connector_root.with_name("fix-governed-source-manifest")
+    connector_root.rename(worktree)
+
+    manifest = gen.build_manifest(worktree, now=_NOW)
+
+    assert manifest.connector == "acme-api"
+
+
 def test_build_manifest_is_deterministic(connector_root: Path, monkeypatch):
     m1 = gen.build_manifest(connector_root, now=_NOW)
     m2 = gen.build_manifest(connector_root, now=_NOW)

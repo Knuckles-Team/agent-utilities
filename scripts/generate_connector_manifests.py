@@ -33,7 +33,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -73,6 +75,23 @@ _RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 _RDFS_DOMAIN = "http://www.w3.org/2000/01/rdf-schema#domain"
 _RDFS_RANGE = "http://www.w3.org/2000/01/rdf-schema#range"
 _RDFS_SUBCLASSOF = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
+_CONNECTOR_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def connector_project_name(connector_root: Path) -> str:
+    """Resolve connector identity from project metadata, not checkout directory."""
+
+    pyproject = connector_root / "pyproject.toml"
+    if not pyproject.is_file():
+        return connector_root.name
+    try:
+        document = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        name = document["project"]["name"]
+    except (KeyError, OSError, TypeError, tomllib.TOMLDecodeError) as exc:
+        raise RuntimeError("connector project metadata is invalid") from exc
+    if not isinstance(name, str) or not _CONNECTOR_NAME.fullmatch(name):
+        raise RuntimeError("connector project name is invalid")
+    return name
 
 
 def _local(uri: str) -> str:
@@ -397,7 +416,7 @@ def build_manifest(
     release_signer: ontology_integrity.ReleaseSigner | None = None,
 ) -> ConnectorManifest:
     """Build a :class:`ConnectorManifest` for one connector — pure, deterministic, offline."""
-    connector = connector_root.name
+    connector = connector_project_name(connector_root)
     module_dir = _find_module_dir(connector_root)
     resources: list[ResourceSpec] = []
     schema_mappings: dict[str, SchemaMapping] = {}
