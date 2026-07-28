@@ -7,7 +7,9 @@ sources, so invoking uv directly cannot resolve those sources.  This launcher
 materializes a generated symlink view of the canonical workspace in XDG state,
 replaces only the agent-utilities member with the current worktree, and points uv
 at that view.  No source is copied and the committed workspace manifest and lock
-remain authoritative.
+remain authoritative.  Epistemic-graph native builds use one explicit per-user
+artifact cache outside those generated shadows so concurrent worktrees share the
+same content-addressed wheel.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from typing import Any
 
 PROJECT_NAME = "agent-utilities"
 _SHADOW_MARKER = ".agent-utilities-worktree.json"
+_NATIVE_ARTIFACT_CACHE_ENV = "EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"
 
 
 def _git_output(repository: Path, *args: str) -> str:
@@ -145,6 +148,11 @@ def _user_state_root() -> Path:
     return state
 
 
+def _native_artifact_cache_root() -> Path:
+    """Return the stable per-user cache shared by every hermetic worktree."""
+    return Path.home() / ".cache" / "epistemic-graph" / "native-artifacts" / "v1"
+
+
 def shadow_workspace(
     worktree: Path,
     canonical: Path,
@@ -243,6 +251,7 @@ def uv_invocation(
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
     environment["UV_PROJECT_ENVIRONMENT"] = str(worktree / ".venv")
+    environment[_NATIVE_ARTIFACT_CACHE_ENV] = str(_native_artifact_cache_root())
     return command, environment
 
 
