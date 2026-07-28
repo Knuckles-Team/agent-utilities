@@ -20,6 +20,7 @@ from agent_utilities.capabilities.kg_audit_sink import (
     _default_kg_sink_resolver,
     identity_redactor,
 )
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.observability.trace_ontology import TRACE_USED_TOOL_EDGE, trace_id
 
 
@@ -308,11 +309,10 @@ def test_default_kg_sink_resolver_no_engine_on_deps() -> None:
 async def test_audit_log_capability_records_a_live_run(engine: FakeEngine) -> None:
     """Wire-First: the capability must actually fire during a real ``Agent.run``,
     not merely expose hooks that unit-test in isolation."""
-    from pydantic_ai import Agent
     from pydantic_ai.models.test import TestModel
 
     sink = KgAuditSink(engine=engine)
-    agent = Agent(
+    agent = create_context_agent(
         TestModel(),
         capabilities=[AuditLog(sink=sink, sink_resolver=None, agent_name="tester")],
     )
@@ -339,14 +339,15 @@ async def test_audit_log_capability_uses_default_kg_sink_resolver(
     exactly the composition-seam wiring (``capabilities/composition.py``)."""
     from dataclasses import dataclass
 
-    from pydantic_ai import Agent
     from pydantic_ai.models.test import TestModel
 
     @dataclass
     class Deps:
         graph_engine: Any = None
 
-    agent = Agent(TestModel(), deps_type=Deps, capabilities=[AuditLog(agent_name="t2")])
+    agent = create_context_agent(
+        TestModel(), deps_type=Deps, capabilities=[AuditLog(agent_name="t2")]
+    )
 
     @agent.tool_plain
     def ping() -> str:
@@ -361,10 +362,9 @@ async def test_audit_log_capability_uses_default_kg_sink_resolver(
 async def test_audit_log_capability_no_engine_is_a_no_op() -> None:
     """No ``graph_engine`` on deps -> the default resolver's sink no-ops; the run
     itself is unaffected (matches every other default reliability capability)."""
-    from pydantic_ai import Agent
     from pydantic_ai.models.test import TestModel
 
-    agent = Agent(TestModel(), capabilities=[AuditLog()])
+    agent = create_context_agent(TestModel(), capabilities=[AuditLog()])
 
     @agent.tool_plain
     def ping() -> str:
