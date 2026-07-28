@@ -130,6 +130,36 @@ _CLIENT_MODULES: dict[str, str] = {
     "mealie": "mealie_mcp",
 }
 
+_SPECIAL_CLIENT_MODULES: dict[str, str] = {
+    "camunda": "camunda_mcp",
+    "servicenow": "servicenow_api",
+    "erpnext": "erpnext_agent",
+    "emerald": "emerald_exchange",
+    "microsoft": "microsoft_agent",
+}
+
+
+def source_client_provider_installed(category: str) -> bool:
+    """Return whether this GraphOS process owns the in-process source provider.
+
+    A remote MCP service registered in the fleet is not an in-process materialize
+    provider.  Boot sweeps must not enqueue all known materializers merely because
+    their extractor code is bundled in Agent Utilities; only a locally installed
+    connector distribution can satisfy :func:`resolve_source_client`.  Explicit
+    ``source_sync`` calls still reach the resolver and report a clean skip when
+    credentials are absent.
+    """
+
+    from importlib.util import find_spec
+
+    module = _SPECIAL_CLIENT_MODULES.get(category) or _CLIENT_MODULES.get(category)
+    if not module:
+        return False
+    try:
+        return find_spec(module) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
 
 def resolve_source_client(category: str) -> Any | None:
     """Best-effort: build the vendor client for ``category`` in-process, or ``None``.

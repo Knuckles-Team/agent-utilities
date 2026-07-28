@@ -116,6 +116,7 @@ the import is a tolerated superset no-op (registered in
 | `connector.shacl.ttl` (`archivebox_api/ontology/shapes/`) | ArchiveBox SHACL shapes | `archivebox-api` | Required source, tenant, access-policy, and evidence metadata for archived results. |
 | `gramps.ttl` (`gramps_mcp/ontology/`) | `…/kg/gramps` | `gramps-mcp` | Genealogy families, events, places, citations, repositories, and media relations. |
 | `connector.shacl.ttl` (`gramps_mcp/ontology/shapes/`) | Gramps SHACL shapes | `gramps-mcp` | Required source, tenant, access-policy, and evidence metadata for citations. |
+| `hdhomerun.ttl` (`hdhomerun_mcp/ontology/`) | `…/kg/hdhomerun` | `hdhomerun-mcp` | HDHomeRun devices, channels, guide metadata, and DVR recording rules. |
 | `servicenow.ttl` (`servicenow_api/ontology/`) | `…/kg/servicenow` | `servicenow-api` | ServiceNow ITSM integration (incidents, changes, CMDB). |
 | `connector.shacl.ttl` (`servicenow_api/ontology/shapes/`) | ServiceNow SHACL shapes | `servicenow-api` | Required source, tenant, access-policy, and evidence metadata for changes. |
 | `leanix.ttl` (`leanix_agent/ontology/`) | `…/kg/leanix` | `leanix-agent` | LeanIX EAM integration. |

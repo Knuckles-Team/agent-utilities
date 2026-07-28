@@ -421,7 +421,7 @@ sync:
     doc_type: sensor-telemetry
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - fan_manager/connectors/mcp_source_presets.json
   - fan_manager/connectors/tool_schema_fingerprints.json
@@ -432,8 +432,8 @@ provenance:
     triple_count: 143
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: VtvTlwVieyaTDcsllrecV9-5azTXMUEK3RQFFAUxsSWY5i3VDu-CRRiFRR3DcVF6aI7rjGeRxP86ao7sv35WAA
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: CZneRBjPzemdnj_Am4zWaVG_PFaOQdb40D9hFRN79notbeY7gM44e2O4EVc9yvAHZtItSv7mM7S-2gQTKDm1AQ
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -44,6 +44,7 @@ import logging
 import os
 import re
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 from agent_utilities.security.identifiers import (
@@ -79,6 +80,7 @@ __all__ = [
     "preset_provider",
     "reset_contributed_presets_cache",
     "call_tool_once",
+    "call_preset_once",
 ]
 
 
@@ -1128,6 +1130,51 @@ def _load_contributed_presets() -> dict[str, dict[str, Any]]:
     return presets
 
 
+def _installed_provider_dir(provider: str) -> Path | None:
+    """Resolve an installed provider, distinguishing absent from broken assets."""
+
+    from agent_utilities.core.providers import (
+        current_provider_assets,
+        provider_registrations,
+    )
+
+    normalized = provider.casefold()
+    registrations = [
+        item
+        for item in provider_registrations(SOURCE_PRESET_PROVIDER_GROUP)
+        if item.name.casefold() == normalized
+    ]
+    if not registrations:
+        return None
+    assets = [
+        item
+        for item in current_provider_assets(SOURCE_PRESET_PROVIDER_GROUP)
+        if item.registration.name.casefold() == normalized
+    ]
+    if len(assets) != 1:
+        raise McpToolSourceError(
+            f"installed source preset provider {provider!r} assets cannot be resolved"
+        )
+    return assets[0].source_root
+
+
+def _bundled_provider_contract(
+    provider: str,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]] | None:
+    """Resolve the signed GraphOS snapshot for a remote-only provider."""
+
+    from ....knowledge_graph.ontology.connector_manifest_gate import (
+        bundled_provider_contract,
+    )
+
+    try:
+        return bundled_provider_contract(provider)
+    except ValueError as exc:
+        raise McpToolSourceError(
+            f"bundled source preset provider {provider!r} contract is invalid"
+        ) from exc
+
+
 def provider_tool_presets(provider: str) -> dict[str, dict[str, Any]] | None:
     """Return one installed provider's source presets, validated strictly.
 
@@ -1138,18 +1185,10 @@ def provider_tool_presets(provider: str) -> dict[str, dict[str, Any]] | None:
     missing or malformed preset artifact.  Returned keys beginning with ``_``
     are metadata and are omitted.
     """
-    from agent_utilities.core.providers import iter_provider_dirs
-
-    match = next(
-        (
-            data_dir
-            for name, data_dir in iter_provider_dirs(SOURCE_PRESET_PROVIDER_GROUP)
-            if name == provider
-        ),
-        None,
-    )
+    match = _installed_provider_dir(provider)
     if match is None:
-        return None
+        contract = _bundled_provider_contract(provider)
+        return None if contract is None else contract[0]
 
     data_file = match / _PRESET_DATA_FILE
     if not data_file.is_file():
@@ -1189,18 +1228,10 @@ def provider_tool_schema_fingerprints(provider: str) -> dict[str, str] | None:
     uncertified connector from an empty-but-valid catalog.
     """
 
-    from agent_utilities.core.providers import iter_provider_dirs
-
-    match = next(
-        (
-            data_dir
-            for name, data_dir in iter_provider_dirs(SOURCE_PRESET_PROVIDER_GROUP)
-            if name == provider
-        ),
-        None,
-    )
+    match = _installed_provider_dir(provider)
     if match is None:
-        return None
+        contract = _bundled_provider_contract(provider)
+        return None if contract is None else contract[1]
     data_file = match / _TOOL_SCHEMA_DATA_FILE
     if not data_file.is_file():
         return None
@@ -2194,3 +2225,44 @@ async def call_tool_once(
     arguments = conn._build_arguments(dict(params or {}))
     async with conn._open_client() as open_client:
         return await conn._call(open_client, tool, arguments)
+
+
+async def call_preset_once(
+    preset: str,
+    *,
+    provider: str,
+    client: Any = None,
+    params: dict[str, Any] | None = None,
+) -> Any:
+    """Call one certified source preset and verify its live schema first.
+
+    This is the structural-projection twin of :func:`call_tool_once`: handlers
+    needing both nodes and relationships consume the complete tool result rather
+    than flattening ``records_path`` into documents, while retaining the exact
+    signed preset and live-schema boundary used by normal connector loads.
+    """
+
+    presets = provider_tool_presets(provider)
+    fingerprints = provider_tool_schema_fingerprints(provider)
+    if presets is None or fingerprints is None or preset not in presets:
+        raise McpToolSourceError(
+            f"certified source preset {preset!r} is unavailable from {provider!r}"
+        )
+    governed = dict(presets[preset])
+    tool = str(governed.get("tool") or "")
+    governed["strict_schema"] = True
+    governed["verify_live_schema"] = True
+    governed["tool_schema_sha256"] = fingerprints.get(tool, "")
+    config: dict[str, Any] = governed
+    if client is not None:
+        config["client"] = client
+    if params:
+        config["params"] = {**dict(governed.get("params") or {}), **params}
+    conn = McpToolSourceConnector(**config)
+    async with conn._open_client() as open_client:
+        await conn._verify_live_tool_schema(open_client)
+        return await conn._call(
+            open_client,
+            conn.tool,
+            conn._build_arguments(conn.params),
+        )

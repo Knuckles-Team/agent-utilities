@@ -21,7 +21,7 @@ import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
-EXPECTED_PROVIDER_COUNT = 65
+EXPECTED_PROVIDER_COUNT = 68
 REQUIRED_SPECIFIERS = frozenset({(">=", "2.0.0"), ("<", "3.0.0")})
 _RETIRED_AGENT_UTILITIES_EXTRAS = frozenset({"agent", "engine"})
 
@@ -267,8 +267,8 @@ def _validate_provider(provider: Path, name: str) -> tuple[list[Finding], FleetS
         declarations += 1
         if not _has_required_bounds(requirement):
             findings.append(
-                    Finding(name, "pyproject.toml", 0, f"dependency_bounds:{context}")
-                )
+                Finding(name, "pyproject.toml", 0, f"dependency_bounds:{context}")
+            )
         for extra in sorted(
             _RETIRED_AGENT_UTILITIES_EXTRAS.intersection(requirement.extras)
         ):

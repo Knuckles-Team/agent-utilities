@@ -10,11 +10,11 @@
     },
     {
       "path": "deploy/release/compatibility-matrix.schema.json",
-      "sha256": "292c8c939483db588c999c11ad95ba53fae29604fd9ed1dcb8330a6c63fbcc97"
+      "sha256": "103c2416f5af7a0691e56b46242275363aa109cdf26382f97ae63a85c0aa5f8f"
     },
     {
       "path": "deploy/release/compatibility-matrix.yml",
-      "sha256": "9db1874a81298033713af615a47d6ace8e5ba1c4c77bf6df2ef30e26d46fe6a4"
+      "sha256": "858506c120c5f484a861570dba1bf41894d328b511b48b2c8e87870b430a1015"
     },
     {
       "path": "deploy/release/component-provenance.schema.json",
@@ -30,15 +30,15 @@
     },
     {
       "path": "deploy/release/connector-bundle-catalog.schema.json",
-      "sha256": "9fc42d08415cb124271785f5611cf55426bbea542b9cc2b0b79033d08fc72d79"
+      "sha256": "a35854d13f7e79a0c1e4a7a8e51e9e526a72d6708be791a98f7b892030b5da20"
     },
     {
       "path": "deploy/release/connector-bundles.catalog.json",
-      "sha256": "a160f757167d13ca848273afe7b99e18ec8646f873f233b9203b7e9c89ea6576"
+      "sha256": "9211f25b6aa51a388344e077e1445ff24cab327d34d74a5ae1ef483126b49b5a"
     },
     {
       "path": "deploy/release/connector-live-certification-ledger.schema.json",
-      "sha256": "de28db08084dcd31bf6ae699b69ca4324c179b755e91f5ca72e10553a00c8c3d"
+      "sha256": "4721ede57091e277a272701d8b51c2b0a3c2d4d079174a219911cac11fcfcb49"
     },
     {
       "path": "deploy/release/exact-artifact-closure-evidence.schema.json",
@@ -102,7 +102,7 @@
     },
     {
       "path": "deploy/release/release-manifest.schema.json",
-      "sha256": "d984071701bfa6df46ec01992c92f83cfa2c316f96e3960bd8875cb130be9157"
+      "sha256": "c5e782b8bfb9ba28e4f077f0eaa3545a5dfcda0cc9078324f2ebbae1b8b6f1d1"
     },
     {
       "path": "deploy/release/release-migration-plan.schema.json",

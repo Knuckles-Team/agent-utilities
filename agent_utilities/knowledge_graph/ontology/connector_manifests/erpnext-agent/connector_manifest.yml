@@ -209,7 +209,7 @@ sync:
     doc_type: erpnext_sales_order
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - erpnext_agent/connectors/mcp_source_presets.json
   - erpnext_agent/connectors/tool_schema_fingerprints.json
@@ -220,8 +220,8 @@ provenance:
     triple_count: 66
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: Xa1Tw_AIQ2KRIPGQJTnlD20p0iHvBeE4NqAyDcFgIq5XMDAygylxpGO8CDklzuSIOghX12d2-iXwcvma7TfvDg
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: 55LkspMbYs9zcaMHcpGihsJNUMl0v4bIVJ78yIpOyai_oO5S7Cr1bKaeH36_NdsiIDME4pUAE5aODVvEpNF2BQ
 policy:
   pii_fields: {}
   tenant_boundary: null

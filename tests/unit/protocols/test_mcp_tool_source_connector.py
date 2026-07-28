@@ -23,6 +23,7 @@ from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
     MCP_TOOL_PRESETS,
     McpToolSourceConnector,
     McpToolSourceError,
+    call_preset_once,
     get_tool_preset,
     list_tool_presets,
 )
@@ -328,6 +329,58 @@ def test_governed_connector_lists_and_fingerprints_live_tool_before_pull():
 
     assert len(docs) == 1
     assert connector.live_tool_schema_sha256 == expected
+
+
+@pytest.mark.concept("AU-KG.ontology.connector-manifest-gate")
+def test_call_preset_once_uses_provider_contract_and_live_schema(monkeypatch):
+    """Structural handlers cannot call a different contract than the signed preset."""
+
+    import asyncio
+
+    from fastmcp import Client
+
+    server = make_sql_server(
+        rows=[{"id": 1, "title": "A", "body": "B", "updated_at": "C"}]
+    )
+
+    async def _live_tool():
+        async with Client(server) as client:
+            listed = await client.list_tools()
+        return next(tool for tool in listed if tool.name == "sql_query")
+
+    live_tool = asyncio.run(_live_tool())
+    expected = compatibility_fingerprint(
+        "sql_query", canonical_input_schema(live_tool, include_presentation=False)
+    )
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_tool.provider_tool_presets",
+        lambda provider: (
+            {
+                "certified-query": {
+                    "server": "sql-mcp",
+                    "tool": "sql_query",
+                    "action": "execute",
+                    "params": {"sql": "SELECT 1", "params": {"after": 0}},
+                }
+            }
+            if provider == "sql-mcp"
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_tool.provider_tool_schema_fingerprints",
+        lambda provider: {"sql_query": expected} if provider == "sql-mcp" else None,
+    )
+
+    result = asyncio.run(
+        call_preset_once(
+            "certified-query",
+            provider="sql-mcp",
+            client=server,
+        )
+    )
+
+    assert result["row_count"] == 1
 
 
 @pytest.mark.concept("AU-KG.ontology.connector-manifest-gate")

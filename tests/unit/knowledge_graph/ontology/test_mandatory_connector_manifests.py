@@ -15,6 +15,7 @@ from agent_utilities.knowledge_graph.ontology import connector_manifest_gate as 
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     ConnectorManifest,
 )
+from agent_utilities.knowledge_graph.ontology.manifest_compiler import is_wired
 
 NAMED_CONNECTOR_PACKAGES: tuple[str, ...] = tuple(
     sorted(gate.mandatory_connector_packages())
@@ -22,7 +23,7 @@ NAMED_CONNECTOR_PACKAGES: tuple[str, ...] = tuple(
 
 
 def test_entire_workspace_ecosystem_is_tracked():
-    assert len(NAMED_CONNECTOR_PACKAGES) == 62
+    assert len(NAMED_CONNECTOR_PACKAGES) == 69
     assert len(set(NAMED_CONNECTOR_PACKAGES)) == len(NAMED_CONNECTOR_PACKAGES)
 
 
@@ -40,6 +41,13 @@ def test_named_connector_manifest_passes_gate(package: str):
     path = gate.bundled_manifests_root() / package / "connector_manifest.yml"
     violations = gate.check_manifest_bytes(path, require_signature=True)
     assert violations == [], f"{package}: {violations}"
+    manifest = ConnectorManifest.model_validate(
+        yaml.safe_load(path.read_text(encoding="utf-8"))
+    )
+    assert is_wired(manifest.resolved_ontology_source), (
+        f"{package}: <http://knuckles.team/kg/"
+        f"{manifest.resolved_ontology_source}> is neither imported nor federated"
+    )
 
 
 def test_all_source_connectors_resolve_through_precheck_source(monkeypatch):
@@ -73,7 +81,7 @@ def test_all_source_connectors_resolve_through_precheck_source(monkeypatch):
         schema_catalog.get,
     )
 
-    assert len(source_packages) == 60
+    assert len(source_packages) == 68
     for source in source_packages:
         result = gate.precheck_source(source)
         assert result["checked"] is True, source

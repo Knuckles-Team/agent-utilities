@@ -493,12 +493,66 @@ def test_sweep_includes_mcp_trackers_when_server_in_config(monkeypatch):
 def test_sweep_drops_mcp_trackers_when_server_absent(monkeypatch):
     """A tracker whose ``*-mcp`` server is NOT in mcp_config is gracefully dropped from
     the candidate set (no wasted connector_sync task), not enqueued-then-aborted."""
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda source: {"checked": True, "ok": source != "freshrss"},
+    )
     targets = _sweep_targets(monkeypatch, ["sql-mcp", "github-mcp"])
     assert "jira" not in targets
     assert "confluence" not in targets
     assert "plane" not in targets
-    # the always-local feed handlers are unaffected by the tracker gate
-    assert "rss" in targets and "freshrss" in targets
+    # The signed native RSS source remains schedulable. Freshrss has no installed
+    # or release-bundled provider contract and is therefore omitted before enqueue.
+    assert "rss" in targets
+    assert "freshrss" not in targets
+
+
+def test_sweep_enqueues_only_installed_materialize_providers(monkeypatch):
+    """Known extractor code does not make an absent connector a configured source."""
+
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+    from agent_utilities.knowledge_graph.core.hydration import HydrationManager
+    from agent_utilities.knowledge_graph.enrichment import materialize
+
+    monkeypatch.setattr(HydrationManager, "get_status", lambda self: {})
+    monkeypatch.setattr(ss, "_mcp_tracker_configured", lambda _source: False)
+    installed = {
+        "ansible",
+        "aris",
+        "emerald",
+        "homeassistant",
+        "okta",
+    }
+    monkeypatch.setattr(
+        materialize,
+        "source_client_provider_installed",
+        installed.__contains__,
+    )
+    unavailable = {
+        "ansible",
+        "aris",
+        "claude_memory",
+        "emerald",
+        "freshrss",
+        "homeassistant",
+    }
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda source: {"checked": True, "ok": source not in unavailable},
+    )
+
+    engine = _EnqueueEngine()
+    ss.sweep_all_sources(engine, mode="delta", include_materialize=True)
+
+    assert "okta" in engine.enqueued
+    assert not {
+        "ansible",
+        "aris",
+        "claude_memory",
+        "emerald",
+        "freshrss",
+        "homeassistant",
+    } & set(engine.enqueued)
 
 
 def test_sweep_mcp_tracker_gate_is_per_server(monkeypatch):
@@ -827,44 +881,52 @@ def test_firefly_iii_typed_owl_entities(monkeypatch):
     assert any(r["type"] == "member_of" for r in rels)  # transaction → budget
 
 
-def test_paperless_ngx_typed_owl_entities(monkeypatch):
-    """Paperless-ngx rebuilds documents/correspondents/tags as typed OWL entities + links.
+def test_paperless_ngx_uses_certified_zero_pii_projection(monkeypatch):
+    """Paperless sync executes exactly the signed opaque structural preset."""
 
-    AU-P1-5: envelope-native — one ``ingest_envelope`` call per entity; both edges
-    carried on the DOCUMENT's own envelope.
-    """
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
-    monkeypatch.setattr(ss, "_server_configured", lambda cands: True)
+    monkeypatch.setattr(ss, "_configured_server", lambda cands: "paperless-ngx-mcp")
 
-    def fake_drain(preset, **kw):
-        if preset == "paperless-correspondents":
-            return [_Rec("3", {"name": "Acme Corp"})]
-        if preset == "paperless-tags":
-            return [_Rec("7", {"name": "invoice"})]
-        if preset == "paperless-documents":
-            return [
-                _Rec(
-                    "11",
-                    {
-                        "title": "Invoice Q1",
-                        "correspondent": 3,
-                        "tags": [7],
-                        "modified": "2026-05-02",
-                    },
-                )
-            ]
-        return []
+    document_id = "paperless:PaperlessDocumentReference:" + "a" * 64
+    tag_id = "paperless:PaperlessTagReference:" + "b" * 64
+    projection = {
+        "records": [
+            {"id": document_id, "node_type": "PaperlessDocumentReference"},
+            {"id": tag_id, "node_type": "PaperlessTagReference"},
+        ],
+        "relationships": [
+            {
+                "source": document_id,
+                "target": tag_id,
+                "relationship": "hasTagReference",
+            }
+        ],
+    }
 
-    monkeypatch.setattr(ss, "_drain_preset", fake_drain)
+    def fake_run_async(coro):
+        coro.close()
+        return projection
+
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._run_async",
+        fake_run_async,
+    )
     eng = FakeEngine(FakeBackend())
     out = ss._sync_paperless_ngx(eng, mode="full", ids=None, client=None)
-    assert out["status"] == "ok"
-    by_type = _entities_by_type(eng.batches)
-    assert {"document", "correspondent", "tag"} <= set(by_type)
-    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
-    assert any(r["type"] == "member_of" for r in rels)  # document → correspondent
-    assert any(r["type"] == "tagged_with" for r in rels)  # document → tag
+    assert out["status"] == "success"
+    assert out["delta_capable"] is False
+    assert out["nodes_hydrated"] == 2
+    assert eng.batches == [
+        (
+            "paperless_ngx",
+            projection["records"],
+            projection["relationships"],
+        )
+    ]
+    persisted = str(eng.batches)
+    assert "Invoice" not in persisted
+    assert "Acme" not in persisted
 
 
 def test_audiobookshelf_typed_owl_entities(monkeypatch):

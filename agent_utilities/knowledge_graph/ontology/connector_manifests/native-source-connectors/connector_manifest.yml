@@ -41,7 +41,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 3ad474b96eb9b2bf1689ced6be2ac7529cfbe4421df6b27713dec292c7012488
+  tool_schema_sha256: 6541b4a0a4da48e8e371580e3397b1c18b276b52cfa7980fac1a9e1e04c667fe
   raw:
     source_type: ard
     interface: source_connector_v1
@@ -56,7 +56,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 4e130a66e310684deed02d6f31adef6b3091c12a0083ce661b6e8258a14111f5
+  tool_schema_sha256: e0178f96123a7ca86c47299388b6332666004dfc87e1b792950807fa88ae0b5b
   raw:
     source_type: database
     interface: source_connector_v1
@@ -71,7 +71,7 @@ sync:
   updated_field: null
   pagination: null
   doc_type: null
-  tool_schema_sha256: e8c0da6dc1f94c9b67056e901d3757a3eb4bb3a349bbd385ff1d4de04cf4afee
+  tool_schema_sha256: 4c3e05419f39fabbaf4459e05d093aa9eb08a6491e1284d7be1affe27d8eda49
   raw:
     source_type: external_graph
     interface: external_graph_ingestion_v1
@@ -86,7 +86,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 1d009f56d4851af1cc00c5ecca0b8ff0544d5f3edd86ccf73c22b8d775f2147f
+  tool_schema_sha256: f9908aad7aab9fdae9c9ae6c2d1a80a3265a054c3b9ef908894a40dd9e11d677
   raw:
     source_type: filesystem
     interface: source_connector_v1
@@ -101,7 +101,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: f5f407244c88fe0811e758c8b1effbf90fb9359c8dcec16414ec3b23f5c21d8c
+  tool_schema_sha256: abff07063fb74215cce1e88fa9348a19035ee79e989980bf59f039f6ade1adaa
   raw:
     source_type: graphql_document
     interface: source_connector_v1
@@ -116,7 +116,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 71a1cfc864c703e236bfa3cfcdc2668d77556d954ff1f25150344397cbafc5c3
+  tool_schema_sha256: aa79b9b04f0a0647ffddf57d5d932b38448a792cf4e31c1378949d2c6ed0e4bc
   raw:
     source_type: reader
     interface: source_connector_v1
@@ -131,7 +131,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: a343206d470167506b2311fbafdba7aaafcb885863465b3807ba895995288817
+  tool_schema_sha256: 10f7c4d5abfba98dee433b272e5524b176ce53430d41aac24914d23d3f1a84c3
   raw:
     source_type: rest
     interface: source_connector_v1
@@ -146,7 +146,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 3bd34ca603760a58d4f2c304bfda1747f47783e59cfbcaa1bea87bdf6147a795
+  tool_schema_sha256: e9710172bf66c128854e8fd93ddcb461f854558885130188fddf2972e663f491
   raw:
     source_type: rss
     interface: source_connector_v1
@@ -161,13 +161,13 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: e34885f4ea1c1fbb6b1d89dc3fc59cc0cd65a9a7e5263fafba4d20e198cf453c
+  tool_schema_sha256: 35cb5fe657417764f0bf229cc1738e38eb021c8e1fa5295861a12b14a5b42dee
   raw:
     source_type: web
     interface: source_connector_v1
 provenance:
   generated_by: scripts/generate_native_connector_manifest.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:13:19Z'
   source_artifacts:
   - agent_utilities/protocols/source_connectors/connectors
   - agent_utilities/knowledge_graph/ingestion/external_graph.py
@@ -178,8 +178,8 @@ provenance:
     triple_count: 17
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: pG-cnemh3F5UNZ1V-DTu-GOF7F1TqZmKB5HpyceMuT-MNogzlM2MVuPe4h-XdO8j1u1DAobWLD0fnr8kyO29Cg
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: tEseXthKtqaN89D6s77df9GTHKtqRLOlkXDjinZ0gaJIZ2uQyyZWoQ2bB4hmOIfWRo9ydP4-MCDPsjuI8_dvCg
 policy:
   pii_fields: {}
   tenant_boundary: tenant_id

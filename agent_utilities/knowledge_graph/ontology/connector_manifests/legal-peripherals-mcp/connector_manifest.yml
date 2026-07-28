@@ -3746,7 +3746,7 @@ sync:
     doc_type: business_entity
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - legal_peripherals_mcp/connectors/mcp_source_presets.json
   - legal_peripherals_mcp/connectors/tool_schema_fingerprints.json
@@ -3772,8 +3772,8 @@ provenance:
     triple_count: 613
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: 0IrdfydftlI_-H0KCM_LIel5ehLl4zrVkxAXHG2zYXpgQYrY4z7Iu7wRoFPIcxTRizDsvUbdvtxxcVQ_weVFDw
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: ffSzziIkWW6kKN94xSHyD5ADRN8J9nEtGtpFKBRL2sJ_4Q7Aa0IWpKYkMEGZjobjGaDYy6eSnQalnDfSzyzNBg
 policy:
   pii_fields: {}
   tenant_boundary: null

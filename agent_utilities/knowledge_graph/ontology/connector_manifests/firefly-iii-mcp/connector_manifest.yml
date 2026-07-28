@@ -335,7 +335,7 @@ sync:
     doc_type: transaction
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T14:21:05Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - firefly_iii_mcp/connectors/mcp_source_presets.json
@@ -347,8 +347,8 @@ provenance:
     triple_count: 100
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: e5bX3p6oXKJ1-dvUsBBZnvL3yRzpQd0jEGUnHAmDBc6URwAwNRrJv4mbVlxFaW_6tYOJcxpBL9ebDWXAnOkQDg
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: uyaETP3W2UgKwxriAlhQumFEyYNOdeu5gJ5ohJIAoTMrU6GF7NGyWVeKaHBTVNFterUH8FSpjQq0jw8yuTCGCg
 policy:
   pii_fields: {}
   tenant_boundary: null

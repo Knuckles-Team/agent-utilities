@@ -141,7 +141,7 @@ sync:
     doc_type: uptimekuma
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - uptime_kuma_agent/connectors/mcp_source_presets.json
@@ -153,8 +153,8 @@ provenance:
     triple_count: 63
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: kTop4CaiLY2LOwlxj5cvGJmSZnQUPNRFmk8wW_NO7zCvce4Q3HvB0XfoDlw6FlJbY_dtPokMGIeFqU8tzWX8DA
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: Br_-iNwrgTjRlQ30jXfOyT5tFVTQWFDjvN4VvgOUCUY3MRz4WijoMLt8jR3fgI7izHMMxACGpMA173ymHkKvDg
 policy:
   pii_fields: {}
   tenant_boundary: null

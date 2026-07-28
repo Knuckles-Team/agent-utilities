@@ -182,7 +182,7 @@ sync:
     doc_type: library
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T14:21:05Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - audiobookshelf_mcp/connectors/mcp_source_presets.json
@@ -194,8 +194,8 @@ provenance:
     triple_count: 78
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: wBQbokcdhBXNmS5fzZqj-JovxG-DsNNYZtxqzGDSTasW7eP6eW7Wf0iXFn3nhTcvX7WRNbtQXMEZU3MdfvKgDQ
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: XCPeS9zzCx665XZhUF6JT7ncwjh6t8pWJAKWbBprU2je2yFqqCeKpAtwmKl07pchOdbR8-mgPk2TwrIopd1oAg
 policy:
   pii_fields: {}
   tenant_boundary: null

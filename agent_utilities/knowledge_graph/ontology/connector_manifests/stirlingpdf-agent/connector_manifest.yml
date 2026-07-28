@@ -136,7 +136,7 @@ sync:
     doc_type: pdf_tool
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - stirlingpdf_agent/connectors/mcp_source_presets.json
@@ -148,8 +148,8 @@ provenance:
     triple_count: 71
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: Ki92NllnG_nLS_Bx7fAybdiY0eC0qehe0r8oNAqGlZhUADkGnyV8dgmUQLvW6AZ3zUJ8226Aa520ibtvAe9_Bg
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: SHo4OXabyDKyIL513mYABsmpgVnoGTRjruT_BYkA6-8k_GK0qdRXhbXVDSkeORSIMheQGzouK_dFiokz5Jn2Cw
 policy:
   pii_fields: {}
   tenant_boundary: null

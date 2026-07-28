@@ -221,6 +221,14 @@ def _regular_contained_manifest(root: Path, connector: str) -> Path:
 def _owned_provider_names(agents_root: Path) -> set[str]:
     owned: set[str] = set()
     for candidate in agents_root.iterdir():
+        try:
+            candidate_metadata = candidate.lstat()
+        except OSError as exc:
+            raise ValueError("provider checkout entry cannot be inspected") from exc
+        if stat.S_ISLNK(candidate_metadata.st_mode) or not stat.S_ISDIR(
+            candidate_metadata.st_mode
+        ):
+            continue
         manifest = candidate / "connector_manifest.yml"
         try:
             manifest.lstat()

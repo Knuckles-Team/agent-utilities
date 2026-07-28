@@ -57,6 +57,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
@@ -3348,127 +3349,106 @@ def _sync_firefly_iii(
 def _sync_paperless_ngx(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Ingest Paperless-ngx documents/correspondents/tags as :Document / :Correspondent /
-    :Tag (CONCEPT:AU-KG.compute.paperless-ngx-documents-correspondents).
+    """Persist Paperless-ngx's certified zero-PII structural projection.
 
-    Drains the ``paperless-documents`` / ``paperless-correspondents`` / ``paperless-tags``
-    presets over ``paperless-ngx-mcp`` (each tool paginates internally → a flat list). Each
-    document → a :Document linked ``member_of`` its :Correspondent and ``tagged_with`` each
-    :Tag. Delta = the ``modified`` watermark on documents.
-
-    Uses the shared transform primitives (CONCEPT:AU-KG.etl.transform-primitives) —
-    :func:`~..etl.transforms.coalesce` for name fallbacks and
-    :func:`~..etl.transforms.stable_id` for the ``paperless:<type>:<id>`` node ids.
-
-    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
-    correspondent/tag/document is one ``ChangeEnvelope`` via
-    :func:`_ingest_entities_via_envelope`. Both edges are self-sourced from the
-    document's own record (correspondents/tags/documents are always drained together
-    in this one call) and carried on the DOCUMENT's own ``_links``.
+    The connector owns one signed ``paperless-document-structure`` preset.  Its
+    MCP tool pseudonymizes provider identifiers in memory and returns only typed
+    opaque nodes plus reviewed structural edges.  The complete result is committed
+    atomically through the common graph-slice envelope path; the retired central
+    three-preset document/correspondent/tag pull is intentionally not used because
+    it exposed raw provider fields and was not the contract the manifest certified.
     """
-    if not _server_configured(("paperless-ngx-mcp", "paperless-ngx-agent")):
+    server = _configured_server(("paperless-ngx-mcp", "paperless-ngx-agent"))
+    if client is None and server is None:
         return {"status": "skipped", "reason": "paperless-ngx-mcp not in mcp_config"}
-    from ..etl.transforms import coalesce, stable_id
 
-    since = (
-        None
-        if mode == "full"
-        else _read_envelope_watermark(
-            engine,
-            "paperless_ngx",
+    from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    from ...protocols.source_connectors.connectors.mcp_tool import call_preset_once
+    from ..ingestion.envelope_ingest import ingest_graph_slice
+
+    projection = _run_async(
+        call_preset_once(
+            "paperless-document-structure",
+            provider="paperless-ngx-mcp",
+            client=client,
         )
     )
-    src = "paperless_ngx"
+    if (
+        not isinstance(projection, dict)
+        or set(projection) != {"records", "relationships"}
+        or not isinstance(projection["records"], list)
+        or not isinstance(projection["relationships"], list)
+    ):
+        raise ValueError("Paperless-ngx projection is malformed")
 
-    correspondents = _drain_preset("paperless-correspondents")
-    tags = _drain_preset("paperless-tags")
-    documents = _drain_preset("paperless-documents")
+    allowed_nodes = {
+        "PaperlessCorrespondentReference",
+        "PaperlessDocumentReference",
+        "PaperlessDocumentTypeReference",
+        "PaperlessStoragePathReference",
+        "PaperlessTagReference",
+    }
+    allowed_relationships = {
+        "hasCorrespondentReference",
+        "hasDocumentTypeReference",
+        "hasStoragePathReference",
+        "hasTagReference",
+    }
     entities: list[dict[str, Any]] = []
+    node_ids: set[str] = set()
+    for record in projection["records"]:
+        if not isinstance(record, dict) or set(record) != {"id", "node_type"}:
+            raise ValueError("Paperless-ngx projection contains an invalid node")
+        node_id = record.get("id")
+        node_type = record.get("node_type")
+        prefix = f"paperless:{node_type}:"
+        if (
+            not isinstance(node_id, str)
+            or not isinstance(node_type, str)
+            or node_type not in allowed_nodes
+            or not node_id.startswith(prefix)
+            or re.fullmatch(r"[0-9a-f]{64}", node_id.removeprefix(prefix)) is None
+        ):
+            raise ValueError("Paperless-ngx projection contains an invalid node")
+        node_ids.add(node_id)
+        entities.append({"id": node_id, "node_type": node_type})
 
-    for doc in correspondents:
-        cid = getattr(doc, "id", None)
-        if cid is None:
-            continue
-        rec = _record_of(doc)
-        entities.append(
-            {
-                "id": stable_id(cid, prefix="paperless:correspondent"),
-                "type": "correspondent",
-                "name": coalesce(rec, "name", default=f"Correspondent {cid}"),
-                "document_count": rec.get("document_count"),
-                "domain": "paperless_ngx",
-                "source_system": src,
-                "externalToolId": str(cid),
-            }
-        )
-    for doc in tags:
-        tid = getattr(doc, "id", None)
-        if tid is None:
-            continue
-        rec = _record_of(doc)
-        entities.append(
-            {
-                "id": stable_id(tid, prefix="paperless:tag"),
-                "type": "tag",
-                "name": coalesce(rec, "name", default=f"Tag {tid}"),
-                "color": rec.get("color"),
-                "domain": "paperless_ngx",
-                "source_system": src,
-                "externalToolId": str(tid),
-            }
-        )
-    for doc in documents:
-        did = getattr(doc, "id", None)
-        if did is None:
-            continue
-        rec = _record_of(doc)
-        node_id = stable_id(did, prefix="paperless:document")
-        doc_links: list[dict[str, Any]] = []
-        if (corr := rec.get("correspondent")) is not None:
-            doc_links.append(
-                {
-                    "source": node_id,
-                    "target": stable_id(corr, prefix="paperless:correspondent"),
-                    "type": "member_of",
-                    "domain": "paperless_ngx",
-                }
+    relationships: list[dict[str, Any]] = []
+    for relationship in projection["relationships"]:
+        if not isinstance(relationship, dict) or set(relationship) != {
+            "source",
+            "target",
+            "relationship",
+        }:
+            raise ValueError(
+                "Paperless-ngx projection contains an invalid relationship"
             )
-        for tag_id in rec.get("tags") or []:
-            doc_links.append(
-                {
-                    "source": node_id,
-                    "target": stable_id(tag_id, prefix="paperless:tag"),
-                    "type": "tagged_with",
-                    "domain": "paperless_ngx",
-                }
+        source = relationship.get("source")
+        target = relationship.get("target")
+        rel_type = relationship.get("relationship")
+        if (
+            source not in node_ids
+            or target not in node_ids
+            or rel_type not in allowed_relationships
+        ):
+            raise ValueError(
+                "Paperless-ngx projection contains an invalid relationship"
             )
-        entities.append(
-            {
-                "id": node_id,
-                "type": "document",
-                "name": coalesce(rec, "title", default=f"Document {did}"),
-                "created": rec.get("created"),
-                "added": rec.get("added"),
-                "archive_serial_number": rec.get("archive_serial_number"),
-                "domain": "paperless_ngx",
-                "source_system": src,
-                "externalToolId": str(did),
-                "updatedAt": rec.get("modified"),
-                "_links": doc_links,
-            }
-        )
-    ok, failed = _ingest_entities_via_envelope(engine, src, entities)
+        relationships.append(dict(relationship))
+
+    result = ingest_graph_slice(
+        engine,
+        "paperless_ngx",
+        entities,
+        relationships,
+    )
     return {
-        "status": "ok",
+        "status": result.get("status", "ok"),
         "source": "paperless_ngx",
         "mode": mode,
-        "delta_capable": True,
-        "documents": len(documents),
-        "correspondents": len(correspondents),
-        "tags": len(tags),
-        "nodes_hydrated": ok,
-        "failed": failed,
-        "since": since,
+        "delta_capable": False,
+        "nodes_hydrated": len(entities),
+        "edges": len(relationships),
     }
 
 
@@ -4190,10 +4170,11 @@ def sync_source(
 
     Before dispatch, a **compile-before-sync** gate (CONCEPT:AU-KG.ontology.connector-manifest-gate,
     D17) requires this source's owned ``connector_manifest.yml``, re-verifies its
-    compiled canonical hash and release signature, and requires the installed
-    connector-owned provider presets to match the signed tool/field maps exactly.
-    Missing manifests/providers, drift, or a precheck exception fail closed before
-    dispatch. There is no unowned runtime connector pass-through.
+    compiled canonical hash and release signature, and requires either an installed
+    connector-owned provider or the release-pinned remote-provider snapshot to match
+    the signed tool/field maps exactly. Missing manifests/providers, drift, or a
+    precheck exception fail closed before dispatch. There is no unowned runtime
+    connector pass-through.
     """
     from ..etl.result import EtlResult
 
@@ -4384,11 +4365,45 @@ def sweep_all_sources(
 
     if include_materialize:
         try:
-            from ..enrichment.materialize import MATERIALIZE_SOURCES
+            from ..enrichment.materialize import (
+                MATERIALIZE_SOURCES,
+                source_client_provider_installed,
+            )
 
-            candidates |= set(MATERIALIZE_SOURCES)
+            candidates |= {
+                source
+                for source in MATERIALIZE_SOURCES
+                if source_client_provider_installed(source)
+            }
         except Exception:  # noqa: BLE001
             logger.debug("materialize source list unavailable", exc_info=True)
+
+    # A registered handler or locally importable extractor is only a candidate
+    # implementation, not authority to schedule an external pull.  Filter the
+    # complete union through the same signed compile-before-sync contract used by
+    # ``sync_source`` so boot does not create guaranteed-failure jobs for stale
+    # aliases (for example ``freshrss`` or ``homeassistant``) whose provider is
+    # neither installed nor represented by a valid release-pinned bundle.
+    from ..ontology.connector_manifest_gate import precheck_source
+
+    governed_candidates: set[str] = set()
+    for source in sorted(candidates):
+        try:
+            if bool(precheck_source(source).get("ok")):
+                governed_candidates.add(source)
+            else:
+                logger.debug(
+                    "source sweep omitted %s because its governed provider "
+                    "contract is unavailable",
+                    source,
+                )
+        except Exception:  # noqa: BLE001 - fail closed before queue publication
+            logger.debug(
+                "source sweep contract precheck failed for %s",
+                source,
+                exc_info=True,
+            )
+    candidates = governed_candidates
 
     # CONCEPT:AU-ORCH.dispatch.laned-sweep-fanout — fan the sweep out as LANED ``connector_sync`` tasks (the 'connectors'
     # lane) so every connector syncs in PARALLEL instead of one slow connector (gitlab/

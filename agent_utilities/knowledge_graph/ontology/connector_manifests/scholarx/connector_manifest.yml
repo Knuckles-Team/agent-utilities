@@ -108,7 +108,7 @@ sync:
     doc_type: research_paper
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - scholarx/connectors/mcp_source_presets.json
@@ -120,8 +120,8 @@ provenance:
     triple_count: 52
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: mPd7dqeP0dWXe0NEJicr0Kfj_0DbJMRidV7WaRoHN0lTuJLPmXPBzRegBBjc6uKeRGUolvZlONPKGdS4XHrhBQ
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: v_Zg0b3Lbv8avZbpVP5PoSC6aV9xeAp4xheBsXD9MUspQ_2OEYvyEefs6khUEr-aOwP6-8UKUuSPxrQAv5mZAg
 policy:
   pii_fields: {}
   tenant_boundary: null

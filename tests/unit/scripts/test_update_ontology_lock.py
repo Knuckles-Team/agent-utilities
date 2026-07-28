@@ -53,6 +53,8 @@ def release_signing_key(monkeypatch):
 @pytest.fixture
 def agents_root(tmp_path: Path) -> Path:
     root = tmp_path / "agents"
+    root.mkdir()
+    (root / "AGENTS.md").write_text("# Provider fleet\n", encoding="utf-8")
     connector = root / "acme-api"
     mod = connector / "acme_api" / "ontology"
     mod.mkdir(parents=True)

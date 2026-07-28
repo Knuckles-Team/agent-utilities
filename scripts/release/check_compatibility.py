@@ -98,7 +98,7 @@ _CURRENT_COMPONENT_VERSIONS = {
     "ontology-lock": "1",
     "index-migrations": "1",
 }
-_CURRENT_CONNECTOR_ENTRIES = 65
+_CURRENT_CONNECTOR_ENTRIES = 68
 _CURRENT_PREBUNDLED_SKILL_ENTRIES = 13
 _CURRENT_PREBUNDLED_SKILL_CASES = 26
 _CURRENT_RUNTIME_CONTRACT = {
@@ -529,11 +529,9 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
     )
     if evidence.get("manifest_sha256") != hashlib.sha256(manifest_payload).hexdigest():
         raise CompatibilityError("source-freeze manifest binding is not exact")
-    if (
-        evidence.get("status") != "passed"
-        or evidence.get("source_digest_before")
-        != evidence.get("source_digest_after")
-    ):
+    if evidence.get("status") != "passed" or evidence.get(
+        "source_digest_before"
+    ) != evidence.get("source_digest_after"):
         raise CompatibilityError("source-freeze evidence did not pass exactly")
 
     tools = evidence.get("tools")
@@ -544,17 +542,25 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
         raise CompatibilityError("source-freeze tool authority is not exact")
 
     manifest_repositories = manifest.get("repositories")
-    repository_ids = tuple(
-        str(item.get("id") or "")
-        for item in manifest_repositories
-        if isinstance(item, dict)
-    ) if isinstance(manifest_repositories, list) else ()
+    repository_ids = (
+        tuple(
+            str(item.get("id") or "")
+            for item in manifest_repositories
+            if isinstance(item, dict)
+        )
+        if isinstance(manifest_repositories, list)
+        else ()
+    )
     if repository_ids != _SOURCE_FREEZE_REPOSITORIES:
         raise CompatibilityError("source-freeze repository authority is not exact")
     repositories = evidence.get("repositories")
-    if not isinstance(repositories, list) or tuple(
-        str(item.get("id") or "") for item in repositories if isinstance(item, dict)
-    ) != repository_ids:
+    if (
+        not isinstance(repositories, list)
+        or tuple(
+            str(item.get("id") or "") for item in repositories if isinstance(item, dict)
+        )
+        != repository_ids
+    ):
         raise CompatibilityError("source-freeze repository evidence is not exact")
     before: dict[str, str] = {}
     after: dict[str, str] = {}
@@ -572,10 +578,9 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
             raise CompatibilityError("source-freeze repository evidence is not exact")
         before[identifier] = before_digest
         after[identifier] = after_digest
-    if (
-        evidence.get("source_digest_before") != _source_freeze_aggregate(before)
-        or evidence.get("source_digest_after") != _source_freeze_aggregate(after)
-    ):
+    if evidence.get("source_digest_before") != _source_freeze_aggregate(
+        before
+    ) or evidence.get("source_digest_after") != _source_freeze_aggregate(after):
         raise CompatibilityError("source-freeze aggregate digest is not exact")
 
     commands = evidence.get("commands")
@@ -795,9 +800,7 @@ def _validate_single_source_freeze(
         "evidenceDigest",
         "snapshotDigest",
     }:
-        raise CompatibilityError(
-            "release source-freeze authority is absent or invalid"
-        )
+        raise CompatibilityError("release source-freeze authority is absent or invalid")
     evidence_digest = _digest(
         authority.get("evidenceDigest"), "sourceFreezeEvidenceDigest"
     )
@@ -2705,9 +2708,7 @@ def verify_release_manifest(
         raise CompatibilityError(
             "migration plan digest differs from referenced evidence"
         )
-    configuration_document = _json_evidence(
-        configuration_raw, "release configuration"
-    )
+    configuration_document = _json_evidence(configuration_raw, "release configuration")
     migration_document = _json_evidence(migration_raw, "release migration plan")
     validate_release_configuration(
         configuration_document,
@@ -2903,9 +2904,7 @@ def verify_release_manifest(
         matrix_digest=str(manifest["matrixDigest"]),
         index_migration_catalog_digest=str(index_migrations["digest"]),
     )
-    if migration_document["indexMigrationCount"] != index_migrations.get(
-        "entryCount"
-    ):
+    if migration_document["indexMigrationCount"] != index_migrations.get("entryCount"):
         raise CompatibilityError(
             "release migration plan entry count differs from the index catalog"
         )

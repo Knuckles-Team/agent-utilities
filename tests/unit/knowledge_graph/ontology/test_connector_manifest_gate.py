@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import secrets
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -305,6 +306,71 @@ def test_precheck_source_ok_on_clean_manifest(tmp_path: Path, monkeypatch):
     assert result["ok"] is True
     assert result["connector"] == "widget-mcp"
     assert result["violations"] == []
+
+
+def test_remote_only_provider_uses_release_pinned_bundle(monkeypatch):
+    """Kubernetes MCP providers need not be installed in the GraphOS image."""
+
+    from agent_utilities.protocols.source_connectors.connectors import mcp_tool
+
+    monkeypatch.setattr(
+        "agent_utilities.core.providers.provider_registrations",
+        lambda _group: (),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.core.providers.current_provider_assets",
+        lambda _group: (),
+    )
+    mcp_tool.reset_contributed_presets_cache()
+    try:
+        for source in ("okta", "paperless_ngx"):
+            result = gate.precheck_source(source)
+            assert result["checked"] is True
+            assert result["ok"] is True, result["violations"]
+
+        okta_presets = mcp_tool.provider_tool_presets("okta-agent")
+        okta_fingerprints = mcp_tool.provider_tool_schema_fingerprints("okta-agent")
+        assert okta_presets is not None
+        assert okta_fingerprints is not None
+        okta = okta_presets["okta-users"]
+        assert okta["server"] == "okta-agent"
+        assert len(okta_fingerprints["okta_users"]) == 64
+
+        paperless_presets = mcp_tool.provider_tool_presets("paperless-ngx-mcp")
+        paperless_fingerprints = mcp_tool.provider_tool_schema_fingerprints(
+            "paperless-ngx-mcp"
+        )
+        assert paperless_presets is not None
+        assert paperless_fingerprints is not None
+        paperless = paperless_presets["paperless-document-structure"]
+        assert paperless["tool"] == "paperless_ingestion_projection"
+        assert len(paperless_fingerprints["paperless_ingestion_projection"]) == 64
+    finally:
+        mcp_tool.reset_contributed_presets_cache()
+
+
+def test_broken_installed_provider_cannot_fall_back_to_bundle(monkeypatch):
+    """A registered local provider is authoritative and must resolve its assets."""
+
+    from agent_utilities.protocols.source_connectors.connectors import mcp_tool
+
+    monkeypatch.setattr(
+        "agent_utilities.core.providers.provider_registrations",
+        lambda _group: (SimpleNamespace(name="okta-agent"),),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.core.providers.current_provider_assets",
+        lambda _group: (),
+    )
+
+    result = gate.precheck_source("okta")
+
+    assert result["ok"] is False
+    assert any(
+        "installed source preset provider" in violation
+        for violation in result["violations"]
+    )
+    mcp_tool.reset_contributed_presets_cache()
 
 
 def test_precheck_source_fails_closed_on_tampered_manifest(tmp_path: Path):

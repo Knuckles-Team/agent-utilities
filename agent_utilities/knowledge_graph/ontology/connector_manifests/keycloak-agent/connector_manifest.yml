@@ -144,7 +144,7 @@ sync:
     doc_type: keycloak_realm
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - keycloak_agent/connectors/mcp_source_presets.json
   - keycloak_agent/connectors/tool_schema_fingerprints.json
@@ -155,8 +155,8 @@ provenance:
     triple_count: 61
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: lEqn9ak2_L6RISeV96XbvEjdOdM1bFpFeu5oMmU4nJjDwNFEDUMHgrkzhT_B2SdlvTA24LYYVUVuCn1SD7kKBw
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: BQfPxXrPQ7uxKDpNVVu7QHv1QBbtz8BaSuaff0C8YwnZOPn-wc-0s5sEZUkfb8b7zZDRWhKkeLh7p5VMOoiLDA
 policy:
   pii_fields:
     Client:

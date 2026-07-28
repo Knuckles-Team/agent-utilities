@@ -563,7 +563,7 @@ sync:
     doc_type: nutrition_plan
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - wger_agent/connectors/mcp_source_presets.json
@@ -575,8 +575,8 @@ provenance:
     triple_count: 178
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: NI5f1ZARZPbnkNaSW3AyPQYnfLFjxVW8dHuQRsBHKKDlbTLhYeSEKLyH176T0Ei6FwsG2RSb-mD-TYV9SW3rDg
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: fg25nYLIKdmRDKsBJauxwTxNvY0cQYVTk4z5uXuRPthayEtJ9dzGJ8fuvpN8a15LDZlZ-d1p331GIyhTi79lBw
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -257,7 +257,7 @@ sync:
     doc_type: media
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-18T00:00:00Z'
+  generated_at: '2026-07-28T10:14:00Z'
   source_artifacts:
   - a2a.json
   - jellyfin_mcp/connectors/mcp_source_presets.json
@@ -269,8 +269,8 @@ provenance:
     triple_count: 105
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
-  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
-  signature: 2DGCo6Fzn9Czt2DFOHclruowY0Ra8vzfYMHFYl0vWNoK5iIhgJXfp0HCGmOEMmG6FMWi_kUoSWx2J7wnyYs6Ag
+  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  signature: m0WWxMGWZf39EkBBp5kmIHhHpJDMZ5TYvlWPLTuTxmpHLPV05ISQkjEcVkEgpNbjZJ6l3JFWqfgl5HPw8pfoAQ
 policy:
   pii_fields: {}
   tenant_boundary: null

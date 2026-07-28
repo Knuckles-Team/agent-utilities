@@ -20,9 +20,12 @@ for import_root in (ROOT, SCRIPTS_ROOT):
 
 from check_connector_capability_bundles import (  # noqa: E402
     _configured_provider_names,
+    _default_agents_root,
+    _default_workspace,
     _is_regular_contained_file,
     _module,
     _provider_owned_names,
+    _release_privacy_guard,
     check_one,
 )
 
@@ -36,27 +39,13 @@ from agent_utilities.release_catalogs import (  # noqa: E402
     content_digest,
     write_catalog,
 )
-from agent_utilities.security.persistence_privacy import (  # noqa: E402
-    PersistencePrivacyGuard,
-)
 
-DEFAULT_AGENTS_ROOT = ROOT.parent / "agents"
-DEFAULT_WORKSPACE = (
-    DEFAULT_AGENTS_ROOT
-    / "repository-manager"
-    / "repository_manager"
-    / "workspace.yml"
-)
+DEFAULT_AGENTS_ROOT = _default_agents_root()
+DEFAULT_WORKSPACE = _default_workspace()
 DEFAULT_BUNDLED_ROOT = (
-    ROOT
-    / "agent_utilities"
-    / "knowledge_graph"
-    / "ontology"
-    / "connector_manifests"
+    ROOT / "agent_utilities" / "knowledge_graph" / "ontology" / "connector_manifests"
 )
-DEFAULT_LOCK_PATH = (
-    ROOT / "agent_utilities" / "knowledge_graph" / "ontology.lock"
-)
+DEFAULT_LOCK_PATH = ROOT / "agent_utilities" / "knowledge_graph" / "ontology.lock"
 DEFAULT_MATRIX = ROOT / "deploy" / "release" / "compatibility-matrix.yml"
 DEFAULT_OUTPUT = ROOT / "deploy" / "release" / "connector-bundles.catalog.json"
 
@@ -67,7 +56,7 @@ def _matrix_expected_entries(matrix_path: Path) -> int:
         expected = value["components"]["connector-bundles"]["exactEntries"]
     except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
         raise ReleaseCatalogError("connector_catalog_matrix_invalid") from exc
-    if type(expected) is not int or expected != 65:
+    if type(expected) is not int or expected != 68:
         raise ReleaseCatalogError("connector_catalog_matrix_membership_invalid")
     return expected
 
@@ -165,7 +154,7 @@ def connector_bundle_catalog(
     ):
         raise ReleaseCatalogError("connector_catalog_membership_not_exact")
 
-    privacy = PersistencePrivacyGuard()
+    privacy = _release_privacy_guard()
     entries: list[dict[str, Any]] = []
     failed = 0
     for name in configured:
@@ -248,7 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.check:
             if _retained_bytes(args.output) != payload:
-                print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
+                print(
+                    json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True)
+                )
                 return 1
         else:
             write_catalog(args.output, payload, prefix=".connector-catalog-")
