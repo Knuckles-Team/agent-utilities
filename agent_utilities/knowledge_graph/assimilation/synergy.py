@@ -61,7 +61,11 @@ def _pillar_of(data: dict[str, Any]) -> str:
     if data.get("pillar"):
         return str(data["pillar"])
     for cid in data.get("concept_ids", []) or []:
-        head = str(cid).split("-", 1)[0].upper()
+        namespace = str(cid).split(".", 1)[0].upper()
+        parts = namespace.split("-")
+        # Semantic ids are namespaced as AU-KG.*, AU-ORCH.*, EG-KG.*, etc.
+        # The platform prefix is not the architectural pillar.
+        head = parts[1] if len(parts) > 1 and parts[0] in {"AU", "EG"} else parts[0]
         if head:
             return head
     return ""
@@ -182,7 +186,7 @@ def _communities(
             scoped = [c for c in scoped if len(c) >= 1]
             if scoped:
                 return scoped
-        except Exception:  # pragma: no cover - engine optional
+        except Exception:  # noqa: BLE001 — optional engine algorithm has local fallback
             pass
     return _connected_components(ids, adj)
 
@@ -255,7 +259,7 @@ def _centrality(
                 scores = {nid: float(s) for nid, s in fn() if nid in ids}
                 if scores:
                     return scores
-            except Exception:  # pragma: no cover - engine optional
+            except Exception:  # noqa: BLE001 — optional engine algorithm has local fallback
                 pass
     denom = float(max(1, len(ids) - 1))
     return {i: len(adj.get(i, ())) / denom for i in ids}

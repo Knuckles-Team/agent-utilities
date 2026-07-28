@@ -13,6 +13,7 @@ class _Engine:
 
     def __init__(self):
         self.nodes: dict[str, dict] = {}
+        self.work_items: dict[str, dict] = {}
 
     def add_node(self, nid, ntype, properties=None):
         cur = self.nodes.get(nid, {})
@@ -45,6 +46,9 @@ class _Engine:
 
     def query_cypher(self, q, params=None):
         params = params or {}
+        if "MATCH (w:WorkItem" in q:
+            item = self.work_items.get(str(params.get("id") or ""))
+            return [dict(item)] if item else []
         if "c.id = $id" in q:
             nid = params.get("id")
             n = self.nodes.get(nid)
@@ -59,6 +63,17 @@ class _Engine:
             return []
         # generic concept scan (active_loops)
         return [self._row(i, n) for i, n in self.nodes.items()]
+
+    def add_loop_work_item(self, loop_id: str, status: str) -> None:
+        item_id = f"workitem:loop:{loop_id}"
+        self.work_items[item_id] = {
+            "id": item_id,
+            "kind": "goal_loop",
+            "status": status,
+            "depends_on": [],
+            "downstream_ids": [],
+            "metadata": {},
+        }
 
 
 def test_persist_goal_writes_to_kg_loop_node(monkeypatch):
@@ -77,7 +92,8 @@ def test_persist_goal_writes_to_kg_loop_node(monkeypatch):
     finally:
         sessions.active_goals.pop("loop:develop:g1", None)
     node = eng.nodes["loop:develop:g1"]
-    assert node["loop_kind"] == "develop" and node["status"] == "running"
+    assert node["loop_kind"] == "develop"
+    assert "status" not in node  # lifecycle authority is the backing WorkItem
     assert node["session_id"] == "sess-1"
     assert json.loads(node["iterations_json"])[0]["iteration"] == 1
 
@@ -95,6 +111,7 @@ def test_list_goal_entries_filters_to_goal_loops(monkeypatch):
         "Concept",
         properties={"loop_kind": "develop", "objective": "b"},
     )
+    eng.add_loop_work_item("loop:develop:goal", "submitted")
     entries = sessions._list_goal_entries(eng)
     ids = {e["goal_id"] for e in entries}
     assert "loop:develop:goal" in ids
@@ -113,9 +130,10 @@ def test_load_goal_entry_roundtrips_iterations(monkeypatch):
             "iterations_json": json.dumps([{"iteration": 1}, {"iteration": 2}]),
         },
     )
+    eng.add_loop_work_item("loop:develop:g", "succeeded")
     entry = sessions._load_goal_entry(eng, "loop:develop:g")
     assert entry is not None
-    assert entry["status"] == "completed"
+    assert entry["status"] == "succeeded"
     assert len(entry["iterations"]) == 2
     assert sessions._load_goal_entry(eng, "missing") is None
 
@@ -132,6 +150,8 @@ def test_active_loops_excludes_in_flight_running_develop_loops():
         "Concept",
         properties={"loop_kind": "develop", "status": "pending", "name": "w"},
     )
+    eng.add_loop_work_item("loop:develop:run", "running")
+    eng.add_loop_work_item("loop:develop:wait", "submitted")
     ids = {loop["id"] for loop in active_loops(eng, limit=10)}
     assert "loop:develop:wait" in ids  # claimable
     assert "loop:develop:run" not in ids  # in-flight → skipped

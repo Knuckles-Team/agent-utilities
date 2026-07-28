@@ -40,7 +40,7 @@ class MachineLearningEngineMixin(_Base):
             discount_factor=discount_factor,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="RLMActor")
@@ -62,7 +62,7 @@ class MachineLearningEngineMixin(_Base):
             is_active=True,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="OptimizationGoal")
@@ -89,7 +89,7 @@ class MachineLearningEngineMixin(_Base):
             is_dominated=False,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="ParetoFrontierEntry")

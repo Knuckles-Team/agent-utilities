@@ -123,7 +123,7 @@ def test_facade_and_package_expose_tenant_naming():
     assert facade.tenant_graph(tenant="t1") == "tenant__t1____commons__"
     with use_actor(ActorContext(actor_id="u", tenant_id="ambient")):
         assert facade.tenant_graph() == "tenant__ambient____commons__"
-    assert facade.tenant_graph() == "__commons__"  # no ambient tenant
+    assert facade.tenant_graph(tenant="") == "__commons__"
 
 
 def test_resolve_routing_graph_precedence():
@@ -135,9 +135,10 @@ def test_resolve_routing_graph_precedence():
         assert resolve_routing_graph(None, cfg) == "tenant__acme____commons__"
         assert resolve_routing_graph("__commons__", cfg) == "tenant__acme____commons__"
     # 3. otherwise the configured default
-    assert resolve_routing_graph(None, cfg) == "__commons__"
-    custom = _FakeConfig(kg_default_graph="knowledge")
-    assert resolve_routing_graph(None, custom) == "knowledge"
+    with use_actor(ActorContext(actor_id="u", authenticated=True)):
+        assert resolve_routing_graph(None, cfg) == "__commons__"
+        custom = _FakeConfig(kg_default_graph="knowledge")
+        assert resolve_routing_graph(None, custom) == "knowledge"
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
         assert resolve_routing_graph("knowledge", custom) == ("tenant__acme__knowledge")
 
@@ -164,9 +165,12 @@ def quiet_engine_env(monkeypatch):
 def test_engine_connects_to_first_coordinator_contact(monkeypatch, quiet_engine_env):
     from epistemic_graph.client import SyncEpistemicGraphClient
 
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+    from agent_utilities.knowledge_graph.core import engine_transport
 
     monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", ",".join(THREE_SHARDS))
+    monkeypatch.setattr(
+        engine_transport, "engine_client_transport_kwargs", lambda *a, **k: {}
+    )
     connects: list = []
     monkeypatch.setattr(
         SyncEpistemicGraphClient,
@@ -174,10 +178,11 @@ def test_engine_connects_to_first_coordinator_contact(monkeypatch, quiet_engine_
         staticmethod(_fake_connect_recorder(connects)),
     )
 
-    engine = GraphComputeEngine(graph_name="shard_routing_probe")
+    engine = _build_engine_unwrapped(graph_name="shard_routing_probe")
     assert connects, "engine never connected"
     assert connects[-1]["tcp_addr"] == THREE_SHARDS[0].removeprefix("tcp://")
     assert engine.graph_name == "shard_routing_probe"
+    engine.close()
 
 
 def test_engine_sharded_maps_ambient_tenant_to_tenant_graph(
@@ -185,7 +190,12 @@ def test_engine_sharded_maps_ambient_tenant_to_tenant_graph(
 ):
     from epistemic_graph.client import SyncEpistemicGraphClient
 
+    from agent_utilities.knowledge_graph.core import engine_transport
+
     monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", ",".join(THREE_SHARDS))
+    monkeypatch.setattr(
+        engine_transport, "engine_client_transport_kwargs", lambda *a, **k: {}
+    )
     connects: list = []
     monkeypatch.setattr(
         SyncEpistemicGraphClient,
@@ -196,6 +206,7 @@ def test_engine_sharded_maps_ambient_tenant_to_tenant_graph(
         engine = _build_engine_unwrapped(graph_name="__commons__")
     assert engine.graph_name == "tenant__acme____commons__"
     assert connects[-1]["tcp_addr"] == THREE_SHARDS[0].removeprefix("tcp://")
+    engine.close()
 
 
 def test_engine_packaged_local_endpoint_identity(monkeypatch, quiet_engine_env):
@@ -217,8 +228,11 @@ def test_engine_packaged_local_endpoint_identity(monkeypatch, quiet_engine_env):
     assert connects[-1]["socket_path"] == "/tmp/packaged-local.sock"
 
     # And the no-argument default resolves to the configured default graph.
-    engine_default = _build_engine_unwrapped()
+    engine.close()
+    with use_actor(ActorContext(actor_id="u", authenticated=True)):
+        engine_default = _build_engine_unwrapped()
     assert engine_default.graph_name == "__commons__"
+    engine_default.close()
 
 
 def test_unreachable_remote_shard_fails_loud_without_autostart(
@@ -228,9 +242,13 @@ def test_unreachable_remote_shard_fails_loud_without_autostart(
     the configured external topology must never spawn a stand-in for it."""
     from epistemic_graph.client import SyncEpistemicGraphClient
 
-    from agent_utilities.knowledge_graph.core import graph_compute
+    from agent_utilities.knowledge_graph.core import engine_transport, graph_compute
 
     monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", ",".join(THREE_SHARDS))
+    monkeypatch.setattr(
+        engine_transport, "engine_client_transport_kwargs", lambda *a, **k: {}
+    )
+
     def _refuse(**kwargs):
         raise ConnectionRefusedError("connection refused")
 
@@ -243,7 +261,7 @@ def test_unreachable_remote_shard_fails_loud_without_autostart(
     graph = "fail_loud_probe"
     with pytest.raises(ConnectionError) as excinfo:
         graph_compute.GraphComputeEngine(graph_name=graph)
-    assert "configured engine coordinator is unreachable" in str(excinfo.value)
+    assert "configured engine shard" in str(excinfo.value).lower()
     assert not spawned, "autostart must not spawn engines for remote shards"
 
 

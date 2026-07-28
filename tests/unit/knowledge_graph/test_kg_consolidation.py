@@ -38,22 +38,19 @@ def _make_episode(
     tool_name: str,
     reward: float,
 ) -> None:
-    """Wire up one canonical RunTrace/ToolCall/OutcomeEvaluation triplet.
-    """
-    g.add_node(episode_id, type="RunTrace", timestamp="2026-01-01T00:00:00Z")
+    """Wire up one canonical RunTrace/ToolCall/OutcomeEvaluation triplet."""
+    g.add_node(episode_id, node_type="RunTrace", timestamp="2026-01-01T00:00:00Z")
     tool_id = f"tc:{episode_id}"
     outcome_id = f"oc:{episode_id}"
-    g.add_node(tool_id, type="tool_call", tool_name=tool_name)
-    g.add_node(outcome_id, type="outcome_evaluation", reward=reward)
-    g.add_edge(episode_id, tool_id, type="used_tool")
-    g.add_edge(episode_id, outcome_id, type="produced_outcome")
+    g.add_node(tool_id, node_type="tool_call", tool_name=tool_name)
+    g.add_node(outcome_id, node_type="outcome_evaluation", reward=reward)
+    g.add_edge(episode_id, tool_id, relationship="used_tool")
+    g.add_edge(episode_id, outcome_id, relationship="produced_outcome")
 
 
 @pytest.fixture
 def synthetic_engine() -> IntelligenceGraphEngine:
     g = GraphComputeEngine(backend_type="rust")
-    if g._client:
-        g._client.clear()
     # 5 successful terraform episodes
     for i in range(5):
         _make_episode(g, f"ep:tf-{i}", "terraform", reward=0.9)
@@ -181,8 +178,6 @@ def test_rule_skips_below_threshold(
 
 def test_rule_ignores_failed_episodes() -> None:
     g = GraphComputeEngine(backend_type="rust")
-    if g._client:
-        g._client.clear()
     # 5 failed terraform episodes — no proposal should emerge
     for i in range(5):
         _make_episode(g, f"ep:fail-{i}", "terraform", reward=0.1)
@@ -269,18 +264,12 @@ def test_engine_dedup_by_signature() -> None:
     p2.signature = p2.compute_signature()
     assert p1.signature == p2.signature
 
-    g = GraphComputeEngine(backend_type="rust")
-    if g._client:
-        g._client.clear()
     ce = SynthesisEngine(IntelligenceGraphEngine(db_path=":memory:"))
     deduped = ce.dedup_by_signature([p1, p2])
     assert len(deduped) == 1
 
 
 def test_engine_empty_graph_yields_no_proposals() -> None:
-    g = GraphComputeEngine(backend_type="rust")
-    if g._client:
-        g._client.clear()
     ce = SynthesisEngine(IntelligenceGraphEngine(db_path=":memory:"))
     ce.register(EpisodeToPreferenceRule(min_evidence_count=5))
     assert ce.run(dry_run=True) == []

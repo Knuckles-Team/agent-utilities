@@ -4,9 +4,9 @@
 > number below is from an actual local run on this box (`agent-utilities`
 > worktree, `feat/au-reliability-matrix`), not a modeled/estimated figure. The
 > matrix has three families — grounding/safety/retrieval-quality corpora,
-> single-node fault-injection (chaos), and hardware-pending scenarios — mirroring
-> [`docs/scaling/capacity_model.md`](scaling/capacity_model.md)'s CI-measured vs
-> hardware-pending distinction for the SCALE-P2-1 soak/chaos harness. This page
+> single-node fault-injection (chaos), and production certification scenarios —
+> mirroring [`docs/scaling/capacity_model.md`](scaling/capacity_model.md)'s
+> CI-measured vs production-certified distinction for the SCALE-P2-1 soak/chaos harness. This page
 > is the reliability-side counterpart.
 
 ## 1. What's covered, and where
@@ -18,7 +18,7 @@
 | Retrieval Recall@k / MRR | `agent_utilities/knowledge_graph/retrieval/capability_index.py` | `scripts/check_retrieval_quality.py` (pre-commit `guardrail-retrieval-quality`, FLOOR=0.90) |
 | Multi-agent supervisory chaos (pause/domain-contain/goal-loop) | `tests/integration/test_fleet_chaos.py` | `pytest -m integration` |
 | Single-node fault injection (worker/lease/DLQ/tenant/restart/rolling-upgrade/connector/fencing-churn) | `tests/scale/soak/*.py` | run explicitly (not in `pytest.ini` `testpaths`, same convention as the rest of `tests/scale/`) |
-| Hardware-pending (multi-node/multi-broker) | `tests/scale/soak/test_hardware_pending.py` | `pytest.mark.skip`, documented manual recipe |
+| Production certification (multi-node/multi-broker) | `tests/scale/soak/test_production_certification.py` | explicit `live`, `slow`, and `certification` selection; signed evidence; no skip/mock path |
 
 ## 2. What was RUN — real pass/fail, this box, this session
 
@@ -63,8 +63,9 @@ $ python3 -m pytest tests/harness/test_reliability_corpus.py \
 452 passed, 9 skipped in 29.72s
 ```
 
-The 9 skips are the intentional ones: 6 `hardware-pending`-marked scenarios in
-`test_hardware_pending.py` (see §4) plus 3 optional-dependency skips in
+This is historical evidence from the earlier single-box matrix. The former six
+hardware-pending skips have since been replaced by the fail-closed production
+certification campaign; the remaining optional-dependency skips were in
 `unit/messaging`/`unit/protocols` (e.g. no `confluent_kafka` install).
 
 ```
@@ -218,46 +219,19 @@ hardening in this program is test coverage that would catch a REAL regression
 in either area if one is introduced later, since neither invariant had a
 dedicated regression test before.
 
-## 5. Needs the 4-node cluster — explicit, not modeled
+## 5. Needs production certification — explicit, not modeled
 
-The following are documented, `pytest.mark.skip`-marked, **currently NOT run**,
-and must not be reported as demonstrated until they are actually executed
-against real multi-node/multi-broker infrastructure. This mirrors
-`docs/scaling/capacity_model.md`'s "What is CI-measured vs hardware-pending"
-table and Codex's SCALE-P2-1 guardrail: never call a MODELED result a
-DEMONSTRATED one.
+The multi-node scenarios are owned by
+`tests/scale/soak/test_production_certification.py` and
+`deploy/release/certification-campaign.yml`. Selecting that test explicitly
+runs the 24–72 hour scale-1 campaign against a signed exact release and
+provisioned production-equivalent infrastructure. Missing identity, release
+pins, telemetry, fault hooks, or evidence storage fail immediately.
 
-| Case | File | What it needs |
-|---|---|---|
-| 24-72h steady + burst soak at the real 1,000,000-resident scale | `tests/scale/soak/test_hardware_pending.py::test_24_72h_steady_and_burst_soak_at_full_1m_scale` | A deployed fleet at `--scale 1.0`, 800 workers, 72h wall-clock |
-| Kafka consumer-group rebalance + live partition-count increase under load | `::test_broker_rebalance_and_partition_expansion_under_load` | A real Kafka cluster with a rebalance/partition-expansion trigger |
-| Live engine/L0 shard split or move under concurrent writes | `::test_shard_split_or_move_under_concurrent_writes` | A real multi-shard engine deployment with a live resharding trigger |
-| Worker/gateway/broker/leader/node/zone loss (each tier) | `::test_worker_gateway_broker_leader_node_or_zone_loss` | Real multi-node/multi-zone infra + a kill-injection tool |
-| Rolling upgrade + live schema/ontology migration across real hosts | `::test_rolling_upgrade_and_schema_migration_across_real_hosts` | A real multi-host rolling-deploy pipeline + a live migration |
-| Full 1,000,000-resident cold activation at real scale | `::test_full_1m_resident_cold_activation_at_real_scale` | The real 1M-resident population on real L0/PG shards |
-
-**To run these for real** (per each test's docstring, and
-`test_hardware_pending.py`'s module docstring): deploy the fleet with
-`GRAPH_SERVICE_ENDPOINTS` set and real Kafka/Postgres shards
-(`docs/architecture/agent_dispatch.md` / `engine_sharding.md`), inject the
-specific fault via the platform's own chaos tooling (`container-manager-mcp`
-node/service kill, or the swarm/k8s supervisory plane's pause/kill actions —
-this workspace's homelab is on the k8s cutover, so use the k8s-side kill
-primitives) at the same time the generator runs, then remove the
-`_HARDWARE_PENDING` skip and assert the JSON report's `ok`/`invariants`
-fields:
-
-```bash
-AGENT_UTILITIES_TESTING= PYTHONPATH=. python3 scripts/scale/loadgen.py \
-    --engine live --scale 1.0 --duration-s <hours-in-seconds> \
-    --workers 800 --report-json soak-report.json
-```
-
-This was **not** attempted on this shared box — it would require a live
-multi-node fleet this session does not have exclusive access to, and running
-it here would both overwhelm a shared host and produce a result this doc
-would then have to (falsely) call "demonstrated." Flagged for a dedicated
-hardware testbed / a dedicated cluster window instead.
+The campaign covers sustained/burst load, broker and shard transitions,
+worker/gateway/leader/node/zone faults, rolling upgrade plus migration, and
+real-population cold activation. None is reported as demonstrated until the
+campaign produces passing signed `operational-evidence.json`.
 
 ## 6. Summary
 
@@ -267,8 +241,8 @@ hardware testbed / a dedicated cluster window instead.
 | Eval corpus pass-rate | 1.00 clean, 0.00 degrade (gate trips) |
 | Retrieval Recall@5 / MRR | 1.00 / 1.00 clean, 0.467 / 0.633 degrade (gate trips) |
 | New chaos tests | 7 (connector failure ×3, claim-churn fencing ×2, heartbeat-vs-reap ×1, tenant-isolation-under-load ×1) |
-| Total tests run in this session's scope | 452 passed, 9 skipped (skips are the intentional hardware-pending / optional-dependency ones) |
+| Total tests run in the historical single-box scope | 452 passed, 9 skipped (the six former hardware-pending skips are now replaced by production certification) |
 | Gate meta-tests (`tests/gates`) | 21/21 passed — every gate proven able to fail |
 | Governance/hygiene guardrails | concepts, no-stub, concept-governance, sprawl, liveness — all green |
 | Lint/type-check on touched files | ruff clean, ruff-format clean, mypy clean (1 unrelated pre-existing error elsewhere, reproduced on the pre-change tree) |
-| Cluster-only cases | 6, explicitly skip-marked, run recipe documented above — none reported as demonstrated |
+| Cluster-only cases | One fail-closed signed campaign covering six scenario families; none reported as demonstrated without passing operational evidence |

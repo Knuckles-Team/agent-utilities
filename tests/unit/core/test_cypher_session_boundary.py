@@ -57,8 +57,9 @@ def test_guarded_facade_read_fails_closed_when_tenant_policy_is_unavailable(
 
     monkeypatch.setattr(secured_reads, "get_company_brain", unavailable_policy)
 
-    with use_session(session), pytest.raises(
-        PermissionError, match="Tenant query scoping failed"
+    with (
+        use_session(session),
+        pytest.raises(PermissionError, match="Tenant query scoping failed"),
     ):
         facade.query(
             "MATCH (n:Record) RETURN n",
@@ -93,8 +94,9 @@ def test_guarded_facade_read_fails_closed_when_acl_filter_is_unavailable(monkeyp
 
     monkeypatch.setattr(secured_reads, "get_company_brain", PolicyBrain)
 
-    with use_session(session), pytest.raises(
-        PermissionError, match="Node permission evaluation failed"
+    with (
+        use_session(session),
+        pytest.raises(PermissionError, match="Node permission evaluation failed"),
     ):
         facade.query(
             "MATCH (n:Record) RETURN n",
@@ -128,8 +130,9 @@ def test_guarded_facade_read_fails_closed_when_audit_is_unavailable(monkeypatch)
 
     monkeypatch.setattr(secured_reads, "get_company_brain", PolicyBrain)
 
-    with use_session(session), pytest.raises(
-        PermissionError, match="Read audit recording failed"
+    with (
+        use_session(session),
+        pytest.raises(PermissionError, match="Read audit recording failed"),
     ):
         facade.query(
             "MATCH (n:Record) RETURN n",
@@ -154,8 +157,24 @@ async def test_authenticated_mcp_dispatch_uses_the_middleware_minted_currency():
         authenticated=True,
     )
     cfg = _config()
-    with mock.patch("agent_utilities.core.config.config", cfg):
+    placement = SimpleNamespace(
+        endpoint="unix:///test-engine.sock",
+        group=1,
+        epoch=1,
+    )
+    with (
+        mock.patch("agent_utilities.core.config.config", cfg),
+        mock.patch(
+            "agent_utilities.knowledge_graph.core.graph_compute."
+            "GraphComputeEngine.get_or_create"
+        ),
+        mock.patch(
+            "agent_utilities.knowledge_graph.core.placement_catalog.resolve_placement",
+            return_value=placement,
+        ),
+    ):
         session = mint_graph_session(actor)
+    prior_session = current_session()
     with (
         mock.patch.dict(kg_server.REGISTERED_TOOLS, {"test_read": tool}),
         use_actor(actor),
@@ -168,4 +187,4 @@ async def test_authenticated_mcp_dispatch_uses_the_middleware_minted_currency():
     assert captured_session.actor is actor
     assert captured_session.scopes == frozenset({"kg:read"})
     assert captured_session.graph == "tenant__tenant-alpha____commons__"
-    assert current_session() is None
+    assert current_session() is prior_session

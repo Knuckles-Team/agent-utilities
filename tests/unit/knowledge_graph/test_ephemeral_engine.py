@@ -19,28 +19,31 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = [pytest.mark.engine, pytest.mark.concept("AU-KG.memory.provides-real-ephemeral-one")]
+pytestmark = [
+    pytest.mark.engine,
+    pytest.mark.concept("AU-KG.memory.provides-real-ephemeral-one"),
+]
 
 
 def test_node_roundtrip_against_real_engine(engine_graph):
     """A node added through the real engine reads back with its properties."""
     compute = engine_graph
-    compute.add_node("alpha", {"type": "Agent", "score": 7})
+    compute.add_node("alpha", {"node_type": "Agent", "score": 7})
 
     assert compute.has_node("alpha") is True
     assert compute.node_count() >= 1
 
     props = compute._client.nodes.properties("alpha")
-    assert props.get("type") == "Agent"
+    assert props.get("node_type") == "Agent"
     assert props.get("score") == 7
 
 
 def test_edge_roundtrip_against_real_engine(engine_graph):
     """A directed edge added through the real engine is queryable."""
     compute = engine_graph
-    compute.add_node("a", {"type": "Node"})
-    compute.add_node("b", {"type": "Node"})
-    compute.add_edge("a", "b", {"weight": 1.5})
+    compute.add_node("a", {"node_type": "Node"})
+    compute.add_node("b", {"node_type": "Node"})
+    compute.add_edge("a", "b", {"relationship": "connects", "weight": 1.5})
 
     assert compute.has_node("a") is True
     assert compute.has_node("b") is True

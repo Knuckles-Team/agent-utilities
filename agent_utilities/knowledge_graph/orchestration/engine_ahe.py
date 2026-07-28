@@ -82,7 +82,7 @@ class AHEMixin(_Base):
             parent_task_id=parent_task_id,
             importance_score=0.9,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
         if self.backend:
             data = self._serialize_node(node, label="SpawnedAgent")
             self._upsert_node("SpawnedAgent", agent_id, data)
@@ -125,7 +125,7 @@ class AHEMixin(_Base):
             timestamp=ts,
             event_sequence=sequence,
         )
-        trace_data = {"id": tid, "type": "RunTrace", **trace}
+        trace_data = {"id": tid, "node_type": "RunTrace", **trace}
         self.graph.add_node(tid, **trace_data)
         node = OutcomeEvaluationNode(
             id=eval_id,
@@ -136,7 +136,7 @@ class AHEMixin(_Base):
             timestamp=ts,
         )
         # Always add to in-memory graph
-        node_data = {**node.model_dump(), **canonical}
+        node_data = {**self._serialize_node(node), **canonical}
         self.graph.add_node(node.id, **node_data)
 
         if self.backend:
@@ -222,7 +222,7 @@ class AHEMixin(_Base):
             timestamp=ts,
         )
         # Always add to in-memory graph
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="SelfEvaluation")
@@ -250,7 +250,7 @@ class AHEMixin(_Base):
             timestamp=ts,
         )
         # Always add to in-memory graph
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
         self.graph.nodes[node.id]["variants"] = variants
 
         if self.backend:
@@ -270,7 +270,7 @@ class AHEMixin(_Base):
             timestamp=ts,
         )
         # Always add to in-memory graph
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="Critique")
@@ -437,5 +437,5 @@ class AHEMixin(_Base):
         )
 
         # Always add to in-memory graph
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
         return node.id

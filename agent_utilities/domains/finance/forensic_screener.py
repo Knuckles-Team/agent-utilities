@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # unreachable so importing this module never requires a running engine.
 _ENGINE_PROBED = False
 _ENGINE_CLIENT: Any = None
+_ENGINE_CLIENT_UNSET = object()
 
 
 def _forensic_engine() -> Any:
@@ -112,12 +113,13 @@ class ForensicScreener:
             ...  # Bear/Burry persona cites verdict.citation()
     """
 
-    def __init__(self, engine_client: Any | None = None):
-        # An explicit client (e.g. an injected mock) overrides lazy probing.
+    def __init__(self, engine_client: Any = _ENGINE_CLIENT_UNSET):
+        # An explicit client (including ``None`` to disable the engine) overrides
+        # lazy probing. Only an omitted argument requests process-engine discovery.
         self._explicit_client = engine_client
 
     def _client(self) -> Any:
-        if self._explicit_client is not None:
+        if self._explicit_client is not _ENGINE_CLIENT_UNSET:
             return self._explicit_client
         return _forensic_engine()
 

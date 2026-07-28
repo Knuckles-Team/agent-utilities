@@ -28,6 +28,27 @@ class FakeGraphEngine:
     def __init__(self) -> None:
         self.graph = GraphComputeEngine(backend_type="rust")
 
+    def add_node(
+        self,
+        node_id: str,
+        node_type: str,
+        properties: dict[str, Any] | None = None,
+    ) -> None:
+        self.graph.add_node(
+            node_id,
+            properties=properties,
+            node_type=node_type,
+        )
+
+    def add_edge(
+        self,
+        source_id: str,
+        target_id: str,
+        rel_type: str,
+        **properties: Any,
+    ) -> None:
+        self.graph.add_edge(source_id, target_id, rel_type, **properties)
+
 
 @pytest.fixture()
 def engine() -> FakeGraphEngine:
@@ -56,8 +77,8 @@ async def test_discover_teams_returns_active(ctx_with_graph: FakeRunContext) -> 
     from agent_utilities.capabilities.teams import TeamCapability
 
     graph = ctx_with_graph.deps.graph_engine.graph
-    graph.add_node("t1", type="team", status="active", name="Alpha")
-    graph.add_node("t2", type="team", status="disbanded", name="Beta")
+    graph.add_node("t1", node_type="team", status="active", name="Alpha")
+    graph.add_node("t2", node_type="team", status="disbanded", name="Beta")
     teams = await TeamCapability().discover_teams(ctx_with_graph)
     assert [team["team_id"] for team in teams] == ["t1"]
 
@@ -75,9 +96,10 @@ async def test_add_task_persists_only_authoritative_work_item(
     task_ref = await TeamCapability(team_id="team_ref").add_task(
         ctx_with_graph, "do the thing", assigned_to="agent_ref"
     )
-    graph = ctx_with_graph.deps.graph_engine.graph
+    engine = ctx_with_graph.deps.graph_engine
+    graph = engine.graph
     item_id = work_item.team_work_item_id(task_ref)
-    item = work_item.get_work_item(_GraphComputeWorkItemView(graph), item_id)
+    item = work_item.get_work_item(_GraphComputeWorkItemView(engine), item_id)
     assert item is not None
     assert item["kind"] == "team_assignment"
     assert item["status"] == "ready"
@@ -96,11 +118,13 @@ async def test_team_transition_changes_only_work_item(
 
     cap = TeamCapability(team_id="team_ref")
     task_ref = await cap.add_task(ctx_with_graph, "do the thing")
-    view = _GraphComputeWorkItemView(ctx_with_graph.deps.graph_engine.graph)
+    view = _GraphComputeWorkItemView(ctx_with_graph.deps.graph_engine)
     item_id = work_item.team_work_item_id(task_ref)
 
     assert await cap.update_task_status(ctx_with_graph, task_ref, "in_progress")
-    assert work_item.get_work_item(view, item_id)["status"] == "running"
+    # ClaimWorkItem's native lease is the running ownership decision; there is
+    # no second Python-side status write.
+    assert work_item.get_work_item(view, item_id)["status"] == "leased"
     assert await cap.update_task_status(ctx_with_graph, task_ref, "completed")
     assert work_item.get_work_item(view, item_id)["status"] == "succeeded"
 

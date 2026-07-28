@@ -501,6 +501,7 @@ flowchart TB
     GUARD --> CAP
     GUARD -->|"count exceeds cap"| TOOBIG["RESULT_TOO_LARGE to ResultTooLargeError"]
     BRK -->|"ConnectionReset/BrokenPipe = transient"| RETRY["retry x2, 0.25s backoff<br/>rides client._reconnect, breaker NOT tripped"]
+    BRK -->|"RPC Timeout = elapsed budget"| FAIL["fail once + count breaker failure<br/>never replay onto contended engine"]
     COAL --> LOCK
 ```
 
@@ -518,7 +519,10 @@ flowchart TB
   its next call. `_guard` now retries the op a bounded `_MAX_TRANSIENT_RETRIES`
   (=2) with exponential backoff and records a `"retry"` outcome **without**
   counting it against the circuit breaker, so a brief blip self-heals instead of
-  cascading N callers into a tripped breaker.
+  cascading N callers into a tripped breaker. An elapsed RPC `TimeoutError` is
+  different: the engine may still be finishing that work, so it is counted once
+  and returned immediately rather than replayed and multiplied across the retry
+  budget.
 - **Engine response guard (EG-KG.ingest.resets-socket-so-assimilation, epistemic-graph).** The engine itself caps
   the unbounded full-graph dump: `oversize_dump_error` checks the cheap
   `node_count()` against `max_response_nodes()` (env

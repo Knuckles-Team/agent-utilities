@@ -158,10 +158,11 @@ def test_running_local_engine_is_shared(monkeypatch, tmp_path):
     server = _UDSServer(sock_path)
     try:
         monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
+        monkeypatch.delenv("GRAPH_SERVICE_ENDPOINTS", raising=False)
         monkeypatch.setattr(
             er, "resolve_endpoints", lambda _cfg: [f"unix://{sock_path}"]
         )
-        cfg = AgentConfig()
+        cfg = AgentConfig(graph_service_endpoints=None)
 
         resolved = er.resolve_engine(cfg, "__commons__")
 
@@ -175,8 +176,9 @@ def test_no_running_engine_resolves_autostart(monkeypatch, tmp_path):
     """Nothing serving on a local endpoint → mode=autostart (caller will spawn)."""
     sock_path = str(tmp_path / "eg-absent.sock")
     monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
+    monkeypatch.delenv("GRAPH_SERVICE_ENDPOINTS", raising=False)
     monkeypatch.setattr(er, "resolve_endpoints", lambda _cfg: [f"unix://{sock_path}"])
-    cfg = AgentConfig()
+    cfg = AgentConfig(graph_service_endpoints=None)
 
     resolved = er.resolve_engine(cfg, "__commons__")
 
@@ -188,10 +190,13 @@ def test_no_running_engine_resolves_autostart(monkeypatch, tmp_path):
 def test_loopback_tcp_resolves_local_autostart(monkeypatch):
     """Windows' loopback-TCP default is a local, autostartable transport."""
     monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
+    monkeypatch.delenv("GRAPH_SERVICE_ENDPOINTS", raising=False)
     monkeypatch.setattr(er, "resolve_endpoints", lambda _cfg: ["tcp://127.0.0.1:8765"])
     monkeypatch.setattr(er, "probe_endpoint", lambda *_a, **_k: False)
 
-    resolved = er.resolve_engine(AgentConfig(), "__commons__")
+    resolved = er.resolve_engine(
+        AgentConfig(graph_service_endpoints=None), "__commons__"
+    )
 
     assert resolved.endpoint == "tcp://127.0.0.1:8765"
     assert resolved.mode == "autostart"

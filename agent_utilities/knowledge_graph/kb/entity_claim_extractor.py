@@ -292,7 +292,8 @@ class EntityClaimExtractor:
                 timestamp=ts,
                 importance_score=0.5,
             )
-            self.engine.graph.add_node(entity_id, **node.model_dump())
+            graph_data = self.engine._serialize_node(node)
+            self.engine.graph.add_node(entity_id, **graph_data)
 
             if self.engine.backend:
                 data = self.engine._serialize_node(node, label="Entity")
@@ -317,7 +318,8 @@ class EntityClaimExtractor:
                 timestamp=ts,
                 importance_score=claim.confidence * 0.7,
             )
-            self.engine.graph.add_node(claim_id, **node.model_dump())
+            graph_data = self.engine._serialize_node(node)
+            self.engine.graph.add_node(claim_id, **graph_data)
 
             if self.engine.backend:
                 data = self.engine._serialize_node(node, label="Claim")

@@ -252,7 +252,7 @@ class RLMEnvironment:
             limit: Maximum number of nodes to return.
 
         Returns:
-            List of node dicts with id, name, type, and metadata.
+            List of node dicts with id, name, node_type, and metadata.
         """
         if not self.graph_deps or not hasattr(self.graph_deps, "knowledge_engine"):
             return [{"error": "Knowledge engine not available"}]
@@ -267,7 +267,7 @@ class RLMEnvironment:
             count = 0
             for node_id in graph.node_ids():
                 data = graph._get_node_properties(node_id)
-                if data.get("type") == node_type or node_type == "*":
+                if data.get("node_type") == node_type or node_type == "*":
                     nodes.append({"id": node_id, **data})
                     count += 1
                     if count >= limit:

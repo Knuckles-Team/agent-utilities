@@ -83,6 +83,18 @@ def test_create_task_queue_auto_sqlite(tmp_path):
     assert queue.get_queue_size() == 1
 
 
+def test_create_task_queue_recreates_missing_parent(tmp_path):
+    queue_path = tmp_path / "removed" / "runtime" / "q.db"
+    queue, name = create_task_queue(_cfg(), str(queue_path))
+
+    assert name == "sqlite"
+    queue_path.parent.rename(tmp_path / "removed-runtime")
+    queue.put({"job_id": "j1", "props": {}})
+
+    assert queue_path.is_file()
+    assert queue.get_queue_size() == 1
+
+
 def test_create_task_queue_auto_postgres_fails_closed(tmp_path, monkeypatch):
     """A configured external authority never switches to a local queue."""
     from agent_utilities.knowledge_graph.core import postgres_queue_backend
@@ -355,7 +367,12 @@ def test_partition_key_same_repo_files_share_key(monkeypatch):
     assert k1 == k2 != k3
 
 
-def test_put_produces_keyed_message(confluent_stub):
+def test_put_produces_keyed_message(confluent_stub, monkeypatch):
+    from agent_utilities.security import brain_context
+
+    monkeypatch.setattr(
+        brain_context, "current_actor", lambda: SimpleNamespace(tenant_id="")
+    )
     producer = _FakeProducer()
     backend = _kafka_backend(
         _FakeAdmin({"kg_tasks": 6, "kg_staging": 1}), producer=producer

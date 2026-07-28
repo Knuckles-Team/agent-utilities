@@ -27,7 +27,9 @@ engine-native `WorkItem`.
 operational support stores at once:
 
 - **Unset (default)** — zero-infra per-host SQLite support stores. Tests and
-  development environments need no external state service.
+  development environments need no external state service. Each queue connect
+  recreates its XDG parent directory and schema, so cleanup or lifecycle rotation
+  of the local runtime directory cannot strand the queue on a stale path.
 - **`postgresql://…`** — the support stores move onto one shared Postgres through a
   single `psycopg_pool.ConnectionPool` (sized by `STATE_DB_POOL_SIZE`,
   default 8).

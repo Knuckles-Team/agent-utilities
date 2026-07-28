@@ -115,9 +115,9 @@ class TestDocumentUpdatePipeline:
         knowledge_graph = MagicMock()
         # Mock out_edges to return 3 chunks
         knowledge_graph.graph.out_edges.return_value = [
-            ("doc_123", "doc_123_chunk_0000", {"relationship_type": "HAS_CHUNK"}),
-            ("doc_123", "doc_123_chunk_0001", {"relationship_type": "HAS_CHUNK"}),
-            ("doc_123", "doc_123_chunk_0002", {"relationship_type": "HAS_CHUNK"}),
+            ("doc_123", "doc_123_chunk_0000", {"relationship": "HAS_CHUNK"}),
+            ("doc_123", "doc_123_chunk_0001", {"relationship": "HAS_CHUNK"}),
+            ("doc_123", "doc_123_chunk_0002", {"relationship": "HAS_CHUNK"}),
         ]
         knowledge_graph.graph.nodes.get.side_effect = lambda x: {
             "doc_123_chunk_0000": {

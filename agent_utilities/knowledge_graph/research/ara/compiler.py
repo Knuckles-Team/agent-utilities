@@ -108,7 +108,9 @@ class ARACompiler:
             str(extracted.title),
             claims=list(extracted.key_contributions),
             evidence=list(extracted.methods),
-            code_specs=list(extracted.potential_applications),
+            # Older stored/extractor artifacts predate this optional field.
+            # Compilation remains additive for those durable records.
+            code_specs=list(getattr(extracted, "potential_applications", []) or []),
             summary=str(extracted.summary),
             authors=list(extracted.authors),
             source_url=str(extracted.source_url),

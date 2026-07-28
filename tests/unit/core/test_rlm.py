@@ -174,9 +174,9 @@ class TestRLMOWLHelpers:
         )
 
         graph = GraphComputeEngine(backend_type="rust")
-        graph.add_node("m1", type="memory", name="Test Memory 1")
-        graph.add_node("m2", type="memory", name="Test Memory 2")
-        graph.add_node("t1", type="tool", name="Test Tool")
+        graph.add_node("m1", node_type="memory", name="Test Memory 1")
+        graph.add_node("m2", node_type="memory", name="Test Memory 2")
+        graph.add_node("t1", node_type="tool", name="Test Tool")
 
         mock_deps = MagicMock()
         mock_deps.knowledge_engine = MagicMock()
@@ -186,7 +186,7 @@ class TestRLMOWLHelpers:
         result = await env.kg_bulk_export("memory")
 
         assert len(result) == 2
-        assert all(r["type"] == "memory" for r in result)
+        assert all(r["node_type"] == "memory" for r in result)
 
     @pytest.mark.asyncio
     async def test_kg_bulk_export_wildcard(self):
@@ -197,8 +197,8 @@ class TestRLMOWLHelpers:
         )
 
         graph = GraphComputeEngine(backend_type="rust")
-        graph.add_node("m1", type="memory", name="Test")
-        graph.add_node("t1", type="tool", name="Tool")
+        graph.add_node("m1", node_type="memory", name="Test")
+        graph.add_node("t1", node_type="tool", name="Tool")
 
         mock_deps = MagicMock()
         mock_deps.knowledge_engine = MagicMock()
@@ -219,7 +219,7 @@ class TestRLMOWLHelpers:
 
         graph = GraphComputeEngine(backend_type="rust")
         for i in range(100):
-            graph.add_node(f"m{i}", type="memory", name=f"Memory {i}")
+            graph.add_node(f"m{i}", node_type="memory", name=f"Memory {i}")
 
         mock_deps = MagicMock()
         mock_deps.knowledge_engine = MagicMock()

@@ -17,6 +17,9 @@ Leverages exact subgraph isomorphism (networkx VF2) and vectorized embeddings (E
 ## Implementation Details
 - **Source Code**: ``agent_utilities/knowledge_graph/core/analogy_engine.py``
 - **Pillar**: KG
+- **Authority**: Cross-graph comparisons bind the base and target reads to
+  their respective named-graph ``GraphSession`` scopes; an ambient target scope
+  cannot redirect the base read back onto the target graph.
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*

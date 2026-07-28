@@ -93,7 +93,7 @@ already carry heavier, more mature references — adapt them, don't apply verbat
 
 | Need | Reference |
 |---|---|
-| A worked, already-current-contract example with per-tenant engine sharding + HPA | `deploy/k8s/graphos.yaml` (agent-utilities repo) |
+| A worked, current-contract example with per-tenant engine sharding + autoscaling | Rendered assets from `deploy/k8s/production-cell/` (agent-utilities repo) |
 | 3-voter Raft HA for the engine tier (zero-downtime rolling upgrades thereafter) | `services/epistemic-graph/k8s/raft-cluster/` |
 | Full mesh-secured, certification-gated, multi-zone production target (Istio mTLS, exact-digest image pinning, disaster recovery) — a heavier system than any genesis default | `deploy/k8s/production-cell/` (agent-utilities repo; see its own `deploy/README.md` for the required render + certify pipeline — do not apply the template directory directly) |
 | Security-hardened single-node profile on Swarm instead of k8s (same identity/session/secret/TLS boundaries, smaller footprint) | `deploy/swarm/graphos.stack.yml` (agent-utilities repo) |

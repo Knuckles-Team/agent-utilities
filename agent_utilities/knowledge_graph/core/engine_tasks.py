@@ -491,10 +491,12 @@ class SQLiteTaskQueue(QueueBackend):
         """Open a connection with the schema ENSURED.
 
         Tables are (re)created on every connect (cheap ``IF NOT EXISTS``) so the
-        queue self-heals if its db file is deleted/recreated/corrupted after
-        init — otherwise every method would fail forever with
+        queue self-heals if its parent directory or db file is deleted/recreated
+        after init — otherwise every method would fail forever with
         ``no such table: staging`` once the file is gone. (CONCEPT:AU-KG.compute.registered-edge-type)
         """
+        if self.db_path != ":memory:":
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         with conn:
             conn.execute("PRAGMA journal_mode=WAL")

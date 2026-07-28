@@ -284,15 +284,51 @@ def _close_created_graph_transports(engines: list[Any]) -> None:
             close()
 
 
+def _delete_created_test_graph(engines: list[Any], graph_name: str) -> None:
+    """Delete one isolated test graph through the first usable client.
+
+    ``DeleteGraph`` is the lifecycle authority for test isolation: it durably
+    purges the tenant graph and evicts its in-memory resources.  Calling
+    ``ClearGraph`` first repeats an O(graph) durable mutation on the same data and
+    can consume a full RPC timeout under suite load.  Cleanup therefore performs
+    one lifecycle delete and then lets the owning-transport teardown below cancel
+    or release any remaining client work.
+    """
+    for engine in engines:
+        client = getattr(engine, "_client", None)
+        if client is None:
+            continue
+        from contextlib import nullcontext
+
+        from agent_utilities.knowledge_graph.core.session import (
+            current_session,
+            use_session,
+        )
+
+        session = current_session()
+        graph_scope = (
+            use_session(session.with_graph(graph_name))
+            if session is not None
+            else nullcontext()
+        )
+        try:
+            with graph_scope:
+                client.tenants.delete(graph_name)
+        except Exception:
+            pass
+        return
+
+
 @pytest.fixture(autouse=True)
 def isolate_graph_compute_engine(monkeypatch):
     """Give each test a unique graph namespace to prevent cross-test state leakage.
 
     Monkeypatches GraphComputeEngine.__init__ so every instantiation within a
     test gets a unique graph_name derived from a UUID.  Tests that explicitly
-    pass a graph_name kwarg keep their own name; others get the per-test unique
-    name. It also scopes the test to a non-personal authenticated GraphSession;
-    the default isolated graph is cleared and deleted under that same authority.
+    pass a graph_name kwarg keep their own name except for process-global default
+    graphs (``__commons__`` and ``__secrets__``), which are redirected to the
+    per-test unique name. It also scopes the test to a non-personal authenticated
+    GraphSession; the default isolated graph is deleted under that same authority.
     Tests that target another explicit graph must scope their own matching
     GraphSession and clean that graph explicitly.
     """
@@ -322,10 +358,13 @@ def isolate_graph_compute_engine(monkeypatch):
     _created_graph_names: set = set()
 
     def _isolated_init(self, graph_name: str | None = None, **kwargs):
-        # Use the fixture's unique name when the caller targets the default
-        # commons graph (None, or the explicit "__commons__").
+        # Use the fixture's unique name when the caller targets a process-global
+        # default graph. Reusing ``__secrets__`` across tests races its durable
+        # delete/recreate lifecycle fence and defeats test isolation.
         effective_name = (
-            _test_graph_name if graph_name in (None, "__commons__") else graph_name
+            _test_graph_name
+            if graph_name in (None, "__commons__", "__secrets__")
+            else graph_name
         )
         _original_init(self, graph_name=effective_name, **kwargs)
         if effective_name not in _created_graph_names:
@@ -380,23 +419,8 @@ def isolate_graph_compute_engine(monkeypatch):
         yield _test_graph_name
     finally:
         # Teardown runs under the same verified task-local authority.
-        for engine in _created_engines:
-            try:
-                if hasattr(engine, "_client") and engine._client:
-                    engine._client.clear()
-            except Exception:
-                pass
-        for engine in _created_engines:
-            for graph_name in _created_graph_names:
-                try:
-                    if hasattr(engine, "_client") and engine._client:
-                        # A distinct explicit graph needs its own explicit test
-                        # session; default-isolated graphs match this fixture.
-                        if graph_name == _test_graph_name:
-                            engine._client.tenants.delete(graph_name)
-                except Exception:
-                    pass
-            break
+        for graph_name in sorted(_created_graph_names):
+            _delete_created_test_graph(_created_engines, graph_name)
         _close_created_graph_transports(_created_engines)
         reset_session(token)
         reset_actor(actor_token)
@@ -578,21 +602,11 @@ def engine_graph(tiny_engine):
     )
     with use_session(session):
         compute = GraphComputeEngine(graph_name=graph_name)
-        client = getattr(compute, "_client", None)
-        try:
-            if client is not None:
-                client.tenants.create(graph_name)
-            yield compute
-        finally:
-            # Tenant-purge (CONCEPT:EG-KG.backend.tenant-delete-recreate-same):
-            # delete the whole graph so no state leaks into the next test's
-            # fresh tenant. The non-owning routed client stays open for the
-            # process transport.
-            try:
-                if client is not None:
-                    client.tenants.delete(graph_name)
-            except Exception:
-                pass
+        # ``isolate_graph_compute_engine`` provisions and tracks every graph
+        # constructed in a test, including this explicit tenant, and owns its
+        # single lifecycle delete plus root-transport close. Duplicating either
+        # lifecycle call here races the engine's durable fencing state.
+        yield compute
 
 
 import importlib

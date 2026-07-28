@@ -156,7 +156,8 @@ someone imperatively `kubectl set env`/patched it away) — proof: the annotatio
 shows the *pre-migration* hostPaths too, while the live spec uses the migrated `-next`
 paths. **This is a real landmine for the cutover mechanics, not a closed issue**: if
 any future step does a full `kubectl apply -f` of a manifest matching that stale
-annotation (or of `deploy/k8s/graphos.yaml` / `deploy/swarm/graphos.stack.yml` without
+annotation (or of the rendered `deploy/k8s/production-cell/` assets /
+`deploy/swarm/graphos.stack.yml` without
 hand-verifying they don't carry `GRAPH_BACKEND`), it reintroduces the retired key and
 the migrated hostPaths regress in the same stroke. The cutover must use **targeted
 patches only** (as this whole runbook does), never a wholesale manifest apply against

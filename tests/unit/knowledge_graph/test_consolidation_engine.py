@@ -41,15 +41,18 @@ def _populate_episodes(engine: FakeEngine, count: int = 6, reward: float = 0.9) 
     """
     # Create a shared tool node
     engine.graph.add_node(
-        "tool_code_search", type="tool", tool_name="code_search", name="code_search"
+        "tool_code_search",
+        node_type="tool",
+        tool_name="code_search",
+        name="code_search",
     )
     for i in range(count):
         ep_id = f"ep_{i}"
         outcome_id = f"outcome_{i}"
-        engine.graph.add_node(ep_id, type="RunTrace", importance_score=0.5)
-        engine.graph.add_node(outcome_id, type="outcome_evaluation", reward=reward)
-        engine.graph.add_edge(ep_id, "tool_code_search", type="used_tool")
-        engine.graph.add_edge(ep_id, outcome_id, type="produced_outcome")
+        engine.graph.add_node(ep_id, node_type="RunTrace", importance_score=0.5)
+        engine.graph.add_node(outcome_id, node_type="outcome_evaluation", reward=reward)
+        engine.graph.add_edge(ep_id, "tool_code_search", relationship="used_tool")
+        engine.graph.add_edge(ep_id, outcome_id, relationship="produced_outcome")
 
 
 def _populate_decisions(
@@ -59,7 +62,7 @@ def _populate_decisions(
     for i in range(count):
         engine.graph.add_node(
             f"dec_{i}",
-            type="decision",
+            node_type="decision",
             approach=approach,
             outcome="success",
             importance_score=0.6,
@@ -85,7 +88,9 @@ def test_persist_proposals_creates_nodes() -> None:
     assert len(proposals) >= 1
     # Verify proposal node exists in graph
     proposal_nodes = [
-        nid for nid, d in engine.graph.nodes(data=True) if d.get("type") == "proposal"
+        nid
+        for nid, d in engine.graph.nodes(data=True)
+        if d.get("node_type") == "proposal"
     ]
     assert len(proposal_nodes) >= 1
     assert engine.graph.nodes[proposal_nodes[0]]["status"] == "pending"
@@ -128,7 +133,7 @@ def test_approve_proposal_creates_real_node() -> None:
     promoted_edges = [
         (u, v)
         for u, v, d in engine.graph.edges(data=True)
-        if d.get("type") == "PROMOTED_TO"
+        if d.get("relationship") == "PROMOTED_TO"
     ]
     assert len(promoted_edges) >= 1
 

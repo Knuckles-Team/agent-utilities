@@ -28,15 +28,9 @@ from agent_utilities.security.source_credentials import (
 
 
 @pytest.fixture
-def secrets() -> SecretsClient:
-    """An engine-backed secrets client (unique throwaway graph) seeded with a few
-    source secrets. The unique graph keeps each test isolated (CONCEPT:AU-OS.identity.encrypted-secret-store)."""
-    import uuid
-
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
-    graph = GraphComputeEngine(graph_name=f"__secrets_test_{uuid.uuid4().hex[:12]}__")
-    client = SecretsClient(backend=InEpistemicGraphBackend(graph=graph))
+def secrets(engine_graph) -> SecretsClient:
+    """An engine-backed secrets client seeded into the test's isolated graph."""
+    client = SecretsClient(backend=InEpistemicGraphBackend(graph=engine_graph))
     client.set("pulselink/x/session", json.dumps({"auth_token": "AT", "ct0": "C0"}))
     client.set("pulselink/reddit/cs", "reddit-client-secret")
     client.set("github/token", "ghp_abc123")
@@ -103,13 +97,8 @@ def test_cookie_session_from_json_blob(secrets: SecretsClient) -> None:
     assert mat.headers["Cookie"] == "auth_token=AT; ct0=C0"
 
 
-def test_cookie_session_from_cookie_string() -> None:
-    import uuid
-
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
-    graph = GraphComputeEngine(graph_name=f"__secrets_test_{uuid.uuid4().hex[:12]}__")
-    client = SecretsClient(backend=InEpistemicGraphBackend(graph=graph))
+def test_cookie_session_from_cookie_string(engine_graph) -> None:
+    client = SecretsClient(backend=InEpistemicGraphBackend(graph=engine_graph))
     client.set("s", "reddit_session=abc; token=xyz")
     cred = build_credential({"type": "cookie_session", "secret": "vault://s"}, client)
     assert cred.materialize().cookies == {"reddit_session": "abc", "token": "xyz"}
@@ -129,7 +118,9 @@ def test_source_credentials_reject_non_current_secret_refs(reference: str) -> No
 
 
 def test_oauth_descriptor_rejects_inline_refresh_token() -> None:
-    with pytest.raises(ValueError, match="inline refresh-token material is unsupported"):
+    with pytest.raises(
+        ValueError, match="inline refresh-token material is unsupported"
+    ):
         build_credential(
             {"type": "oauth2", "secret": "env://ACCESS_TOKEN", "refresh_token": "x"},
             None,
@@ -322,7 +313,23 @@ def test_provider_loads_descriptors_from_setting(
     }
 
 
-def test_get_credential_provider_singleton() -> None:
+def test_get_credential_provider_singleton(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities.security import credential_provider as provider_module
+
+    expected = object()
+    constructed = 0
+
+    def _construct():
+        nonlocal constructed
+        constructed += 1
+        return expected
+
+    monkeypatch.setattr(provider_module, "_provider", None)
+    monkeypatch.setattr(provider_module, "CredentialProvider", _construct)
+
     a = get_credential_provider()
     b = get_credential_provider()
-    assert a is b
+    assert a is b is expected
+    assert constructed == 1

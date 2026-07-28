@@ -109,6 +109,6 @@ def test_eval_harness_persists_to_graph() -> None:
 
     assert node_id in graph
     data = graph.nodes[node_id]
-    assert data["type"] == "eval"
+    assert data["node_type"] == "eval"
     assert data["overall_score"] == 1.0
     assert data["run_id"] == "test_run"

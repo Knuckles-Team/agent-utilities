@@ -41,7 +41,7 @@ class EnterpriseEngineMixin(_Base):
             currency=currency,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="PaymentBudget")
@@ -68,7 +68,7 @@ class EnterpriseEngineMixin(_Base):
             assessed_by=assessed_by,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="RiskProfile")
@@ -95,7 +95,7 @@ class EnterpriseEngineMixin(_Base):
             expiry_date=expiry_date,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="SecurityClearance")

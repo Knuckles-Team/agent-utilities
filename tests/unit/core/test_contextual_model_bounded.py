@@ -27,6 +27,18 @@ def messages() -> list[object]:
     return [_Msg(), _Msg()]
 
 
+@pytest.fixture(autouse=True)
+def reset_context_compile_breaker():
+    """Keep the process-wide context-compile breaker hermetic per test."""
+    contextual_model._ctx_compile_degradation_streak = 0
+    contextual_model._ctx_compile_breaker_reopen_at = 0.0
+    try:
+        yield
+    finally:
+        contextual_model._ctx_compile_degradation_streak = 0
+        contextual_model._ctx_compile_breaker_reopen_at = 0.0
+
+
 async def test_bounded_degrades_to_passthrough_on_timeout(monkeypatch, messages):
     """A compile that blocks past the budget is abandoned; the request degrades to
     ungrounded passthrough ``(messages, None)`` in ~budget, NOT after the block."""

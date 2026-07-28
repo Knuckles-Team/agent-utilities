@@ -107,7 +107,10 @@ async def test_corpus_checkpoints_per_file(_canned_facts) -> None:
         lambda: (mgr.status(jid) or {}).get("state") == str(JobState.DONE)
     )
     job = mgr._scheduler.get(jid)
-    assert set(job.checkpoint.get("done_files", [])) == {"a.md", "b.md"}
+    assert set(job.checkpoint.get("done_files", [])) == {
+        persistence_reference("source", name, namespace="extraction-corpus")
+        for name in ("a.md", "b.md")
+    }
     # 2 files × 2 facts each
     assert mgr.status(jid)["total_facts"] == 4
     await mgr._scheduler.stop()

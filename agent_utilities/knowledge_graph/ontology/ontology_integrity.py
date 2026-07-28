@@ -68,6 +68,11 @@ def _b64url_decode(value: str, *, expected_bytes: int) -> bytes:
         raise ValueError("release signing material is invalid") from exc
     if len(decoded) != expected_bytes:
         raise ValueError("release signing material has an invalid size")
+    # Reject non-canonical base64url spellings whose changed trailing padding
+    # bits decode to the same bytes. Signatures and key pins have one stable
+    # textual identity, so a byte-equivalent tampering must not verify.
+    if _b64url_encode(decoded) != rendered:
+        raise ValueError("release signing material is not canonical base64url")
     return decoded
 
 

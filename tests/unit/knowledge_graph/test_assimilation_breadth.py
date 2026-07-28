@@ -108,19 +108,31 @@ def test_ingest_concepts_creates_canonical_concept_nodes():
     rep = ingest_concepts(
         eng,
         [
-            {"id": "AU-KG.query.vendor-agnostic-traversal", "name": "Research Assimilation", "pillar": "EG-KG.compute.backend"},
-            {"id": "orch-1.0", "name": "Routing"},  # lowercase normalizes
+            {
+                "id": "AU-KG.query.vendor-agnostic-traversal",
+                "name": "Research Assimilation",
+                "pillar": "EG-KG.compute.backend",
+            },
+            {"id": "orch-1.0", "name": "Routing"},  # retired legacy form is gated out
             {"id": "not-a-concept"},  # gated out (no letters-then-digit)
         ],
     )
-    assert rep.ingested == 2
-    node = eng.nodes["concept:KG-2.7"]
-    assert node["concept_id"] == "AU-KG.query.vendor-agnostic-traversal" and node["concept_ids"] == ["AU-KG.query.vendor-agnostic-traversal"]
-    assert "concept:ORCH-1.0" in eng.nodes  # upper-normalized
+    assert rep.ingested == 1
+    node = eng.nodes["concept:AU-KG.QUERY.VENDOR-AGNOSTIC-TRAVERSAL"]
+    assert node["concept_id"] == "AU-KG.QUERY.VENDOR-AGNOSTIC-TRAVERSAL"
+    assert node["concept_ids"] == ["AU-KG.QUERY.VENDOR-AGNOSTIC-TRAVERSAL"]
+    assert "concept:ORCH-1.0" not in eng.nodes
     assert not any("NOT-A-CONCEPT" in k for k in eng.nodes)  # junk skipped
     # idempotent re-run → no new nodes
     rep2 = ingest_concepts(
-        eng, [{"id": "AU-KG.query.vendor-agnostic-traversal", "name": "Research Assimilation", "pillar": "EG-KG.compute.backend"}]
+        eng,
+        [
+            {
+                "id": "AU-KG.query.vendor-agnostic-traversal",
+                "name": "Research Assimilation",
+                "pillar": "EG-KG.compute.backend",
+            }
+        ],
     )
     assert rep2.ingested == 0 and rep2.skipped == 1
 
@@ -132,7 +144,10 @@ def test_discover_concepts_reads_registry_then_falls_back_to_markers(tmp_path):
     a = tmp_path / "repo-a" / "docs"
     a.mkdir(parents=True)
     (a / "concepts.yaml").write_text(
-        "concepts:\n  - id: KG-2.7\n    name: Research Assimilation\n    pillar: KG-2\n",
+        "concepts:\n"
+        "  - id: AU-KG.query.vendor-agnostic-traversal\n"
+        "    name: Research Assimilation\n"
+        "    pillar: KG\n",
         encoding="utf-8",
     )
     # repo B: no registry → CONCEPT: markers in source are scanned
@@ -143,8 +158,10 @@ def test_discover_concepts_reads_registry_then_falls_back_to_markers(tmp_path):
     )
 
     out = {c["id"].upper(): c for c in discover_concepts([str(a.parent), str(b)])}
-    assert out["AU-KG.query.vendor-agnostic-traversal"]["name"] == "Research Assimilation"  # from registry
-    assert "AU-KG.ingest.then-by-its-node" in out  # from the raw marker fallback
+    assert (
+        out["AU-KG.QUERY.VENDOR-AGNOSTIC-TRAVERSAL"]["name"] == "Research Assimilation"
+    )
+    assert "AU-KG.INGEST.THEN-BY-ITS-NODE" in out
 
 
 def test_run_breadth_ingest_bridges_concepts(tmp_path):
@@ -153,7 +170,10 @@ def test_run_breadth_ingest_bridges_concepts(tmp_path):
     docs = tmp_path / "repo" / "docs"
     docs.mkdir(parents=True)
     (docs / "concepts.yaml").write_text(
-        "concepts:\n  - id: KG-2.7\n    name: Research Assimilation\n", encoding="utf-8"
+        "concepts:\n"
+        "  - id: AU-KG.query.vendor-agnostic-traversal\n"
+        "    name: Research Assimilation\n",
+        encoding="utf-8",
     )
     captured: list[dict] = []
     report = run_breadth_ingest(

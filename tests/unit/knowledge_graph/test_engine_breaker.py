@@ -258,6 +258,20 @@ class TestBreakerClientProxy:
         assert unwrap_client(proxy).nodes.attempts == 2
         assert br.state == "closed"  # transient retry did NOT count a failure
 
+    def test_rpc_timeout_is_not_replayed(self, clock, monkeypatch):
+        """An elapsed RPC budget fails once instead of multiplying engine load."""
+        monkeypatch.setattr(engine_breaker, "_RETRY_BACKOFF_BASE_S", 0.0)
+        br = CircuitBreaker("timeout-ep", threshold=1, cooldown=10)
+        proxy = wrap_client_with_breaker(
+            FakeClient(fail_with=TimeoutError("RPC timed out")), br
+        )
+
+        with pytest.raises(TimeoutError, match="RPC timed out"):
+            proxy.nodes.add("n1")
+
+        assert len(unwrap_client(proxy).nodes.calls) == 1
+        assert br.state == "open"
+
     def test_persistent_transient_trips_after_retries(self, clock, monkeypatch):
         """A persistent connection error still trips — after exhausting the bounded
         retries (1 + _MAX_TRANSIENT_RETRIES underlying attempts), once (KG-2.262)."""

@@ -69,12 +69,16 @@ def test_make_community_fn_uses_bulk_load_nodes_before_edges():
     # All node ops precede all edge ops (so endpoints exist).
     kinds = [op["op"] for op in flat]
     assert kinds == ["add_node", "add_node", "add_node", "add_edge", "add_edge"]
-    assert flat[0] == {"op": "add_node", "id": "a", "properties": {"type": "Code"}}
+    assert flat[0] == {
+        "op": "add_node",
+        "id": "a",
+        "properties": {"node_type": "Code"},
+    }
     assert flat[3] == {
         "op": "add_edge",
         "source": "a",
         "target": "b",
-        "properties": {"type": "CALLS"},
+        "properties": {"relationship": "CALLS"},
     }
 
 

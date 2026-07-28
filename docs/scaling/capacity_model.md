@@ -201,9 +201,9 @@ that:
    soak path).
 3. **The soak/chaos harness** ([`tests/scale/soak/`](../../tests/scale/soak/)) —
    asserts the acceptance criterion's invariants against the CI-runnable
-   subset (see the table below), and documents-but-skips the scenarios that
-   need real multi-node hardware, with the harness call each would make
-   written out (`test_hardware_pending.py`).
+   subset (see the table below). Production-only scenarios are one executable,
+   fail-closed exact-release campaign in `test_production_certification.py`;
+   there is no mock or skip path.
 
 ### What is CI-measured vs hardware-pending
 
@@ -218,17 +218,16 @@ that:
 | Hot-tenant/noisy-neighbor quota isolation | **Yes** — `test_chaos_tenant_and_restart.py` | Elephant tenant hits `max_tenant_in_flight`; other tenants unaffected |
 | Full restart / cold activation (state-machine semantics) | **Yes** — `test_chaos_tenant_and_restart.py` | Engine snapshot/restore models the durable-store guarantee; NOT a claim about real 1M-scale cold-hydrate latency (see below) |
 | Rolling upgrade (worker-pool replacement) | **Yes** — `test_chaos_tenant_and_restart.py` | Old-generation leases expire/reclaim; fencing rejects stale acks |
-| 24-72h steady + burst soak at the REAL 1M population | **Hardware-pending** — `test_hardware_pending.py` | Needs a deployed fleet + that much wall-clock time; the exact `loadgen.py --engine live --scale 1.0` invocation is written in the test |
-| Broker rebalance / live Kafka partition expansion | **Hardware-pending** | Needs a real Kafka cluster |
-| Shard split/move under concurrent writes | **Hardware-pending** | Needs a real multi-shard engine deployment |
-| Worker/gateway/broker/leader/node/zone loss (REAL infra) | **Hardware-pending** | Needs real multi-node/multi-zone infra + a kill-injection tool |
-| Rolling upgrade + schema migration across REAL hosts | **Hardware-pending** | Needs a real multi-host rolling-deploy pipeline |
-| Cold activation of the ACTUAL 1,000,000 residents | **Hardware-pending** | Needs the real population on real L0/PG shards — the CI test only proves the state-machine semantics, not real-scale hydrate latency |
+| 24-72h steady + burst soak at the REAL 1M population | **Production certification** — `test_production_certification.py` | Requires a signed exact release and provisioned production-equivalent fleet; fails immediately if either is absent |
+| Broker rebalance / live Kafka partition expansion | **Production certification** | Executed by the signed campaign's exact fault-hook contract |
+| Shard split/move under concurrent writes | **Production certification** | Executed against the provisioned multi-shard deployment |
+| Worker/gateway/broker/leader/node/zone loss (REAL infra) | **Production certification** | Uses configured real fault hooks and recovery probes |
+| Rolling upgrade + schema migration across REAL hosts | **Production certification** | Bound to the exact release and migration plan |
+| Cold activation of the ACTUAL 1,000,000 residents | **Production certification** | The CI test proves state-machine semantics only; the campaign measures real-scale hydration |
 
 Guardrail this table exists to enforce: a modeled capacity is never reported
-as a demonstrated result. Every "Hardware-pending" row is a real, currently
-`pytest.mark.skip`-marked test with the manual run recipe in its docstring —
-not a silently-omitted scenario.
+as a demonstrated result. Production rows are demonstrated only by signed
+operational evidence from the exact-release campaign.
 
 ## Production guard
 

@@ -7,9 +7,11 @@ subgraphs across different domains. This enables cross-domain innovation extract
 and structural pattern matching within the Knowledge Graph.
 """
 
+from contextlib import nullcontext
 from typing import Any
 
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
+from agent_utilities.knowledge_graph.core.session import current_session, use_session
 from agent_utilities.models.knowledge_graph import (
     AnalogyMatchNode,
 )
@@ -91,14 +93,22 @@ class TopologicalAnalogyEngine:
         main_rx: rx.PyDiGraph = rx.PyDiGraph()
         gce_node_map: dict[str, int] = {}
 
-        if hasattr(self.graph, "node_ids"):
-            for node_id in self.graph.node_ids():
-                props = self.graph._get_node_properties(node_id)
-                idx = main_rx.add_node({"id": node_id, **props})
-                gce_node_map[node_id] = idx
-            for src, tgt in self.graph._get_all_edges():
-                if src in gce_node_map and tgt in gce_node_map:
-                    main_rx.add_edge(gce_node_map[src], gce_node_map[tgt], {})
+        main_session = current_session()
+        main_graph_name = getattr(self.graph, "graph_name", None)
+        main_scope = (
+            use_session(main_session.with_graph(main_graph_name))
+            if main_session is not None and main_graph_name
+            else nullcontext()
+        )
+        with main_scope:
+            if hasattr(self.graph, "node_ids"):
+                for node_id in self.graph.node_ids():
+                    props = self.graph._get_node_properties(node_id)
+                    idx = main_rx.add_node({"id": node_id, **props})
+                    gce_node_map[node_id] = idx
+                for src, tgt in self.graph._get_all_edges():
+                    if src in gce_node_map and tgt in gce_node_map:
+                        main_rx.add_edge(gce_node_map[src], gce_node_map[tgt], {})
 
         if main_rx.num_nodes() == 0:
             return matches
@@ -106,16 +116,26 @@ class TopologicalAnalogyEngine:
         # Build target rx.PyDiGraph
         target_rx = rx.PyDiGraph()
         target_node_map: dict[str, int] = {}
-        if hasattr(target_subgraph, "node_ids"):
-            for node_id in target_subgraph.node_ids():
-                props = target_subgraph._get_node_properties(node_id)
-                idx = target_rx.add_node({"id": node_id, **props})
-                target_node_map[node_id] = idx
-            for src, tgt in target_subgraph._get_all_edges():
-                if src in target_node_map and tgt in target_node_map:
-                    target_rx.add_edge(target_node_map[src], target_node_map[tgt], {})
-        elif isinstance(target_subgraph, rx.PyDiGraph):
-            target_rx = target_subgraph
+        target_session = current_session()
+        target_graph_name = getattr(target_subgraph, "graph_name", None)
+        target_scope = (
+            use_session(target_session.with_graph(target_graph_name))
+            if target_session is not None and target_graph_name
+            else nullcontext()
+        )
+        with target_scope:
+            if hasattr(target_subgraph, "node_ids"):
+                for node_id in target_subgraph.node_ids():
+                    props = target_subgraph._get_node_properties(node_id)
+                    idx = target_rx.add_node({"id": node_id, **props})
+                    target_node_map[node_id] = idx
+                for src, tgt in target_subgraph._get_all_edges():
+                    if src in target_node_map and tgt in target_node_map:
+                        target_rx.add_edge(
+                            target_node_map[src], target_node_map[tgt], {}
+                        )
+            elif isinstance(target_subgraph, rx.PyDiGraph):
+                target_rx = target_subgraph
 
         if target_rx.num_nodes() == 0:
             return matches

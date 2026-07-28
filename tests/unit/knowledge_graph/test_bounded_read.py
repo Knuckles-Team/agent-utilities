@@ -32,13 +32,13 @@ class _LocalGraph:
 def test_engine_graph_uses_bounded_label_fetch_not_full_scan():
     g = _EngineGraph(
         {
-            "Team": [["team:1", {"type": "team", "name": "A"}]],
-            "team": [["team:2", {"type": "team", "name": "B"}]],  # casing variant
+            "Team": [["team:1", {"node_type": "team", "name": "A"}]],
+            "team": [["team:2", {"node_type": "team", "name": "B"}]],  # casing variant
         }
     )
     out = dict(iter_nodes_by_types(g, "team"))
     assert set(out) == {"team:1", "team:2"}  # both casings, deduped
-    assert all(d["type"] == "team" for d in out.values())
+    assert all(d["node_type"] == "team" for d in out.values())
 
 
 def test_engine_empty_type_does_not_full_scan():
@@ -52,9 +52,9 @@ def test_engine_empty_type_does_not_full_scan():
 def test_local_graph_full_iteration():
     g = _LocalGraph(
         {
-            "a": {"type": "team", "name": "A"},
-            "b": {"type": "policy", "name": "B"},
-            "c": {"type": "team", "name": "C"},
+            "a": {"node_type": "team", "name": "A"},
+            "b": {"node_type": "policy", "name": "B"},
+            "c": {"node_type": "team", "name": "C"},
         }
     )
     out = dict(iter_nodes_by_types(g, "team"))
@@ -64,8 +64,8 @@ def test_local_graph_full_iteration():
 def test_multiple_types():
     g = _EngineGraph(
         {
-            "Team": [["t1", {"type": "team"}]],
-            "Policy": [["p1", {"type": "policy"}]],
+            "Team": [["t1", {"node_type": "team"}]],
+            "Policy": [["p1", {"node_type": "policy"}]],
         }
     )
     out = dict(iter_nodes_by_types(g, "team", "policy"))
@@ -76,6 +76,6 @@ def test_enum_type_value_resolved():
     class _NT:
         value = "team"
 
-    g = _EngineGraph({"team": [["t1", {"type": "team"}]]})
+    g = _EngineGraph({"team": [["t1", {"node_type": "team"}]]})
     out = dict(iter_nodes_by_types(g, _NT()))
     assert set(out) == {"t1"}

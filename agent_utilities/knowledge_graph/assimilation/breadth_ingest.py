@@ -28,9 +28,12 @@ from typing import Any
 
 from .ingest import ingest_concepts, ingest_documents
 
-# ``CONCEPT:<ID>`` markers declared in source/docs (KG-2.7) — the fallback concept
-# source for repos that ship no ``docs/concepts.yaml`` registry.
-_CONCEPT_MARKER = re.compile(r"CONCEPT:([A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?)")
+# Canonical semantic ``CONCEPT:<ID>`` markers declared in source/docs — the
+# fallback concept source for repos that ship no ``docs/concepts.yaml`` registry.
+_CONCEPT_MARKER = re.compile(
+    r"CONCEPT:([A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)\."
+    r"[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9_-])"
+)
 _CONCEPT_SCAN_EXT = (
     ".py",
     ".rs",
@@ -162,7 +165,7 @@ def organize_libraries(
                 (Path(m.path) / "manifest.json").write_text(
                     json.dumps(asdict(m), indent=2), encoding="utf-8"
                 )
-            except OSError:
+            except OSError:  # noqa: BLE001 — read-only/vendor project remains classified
                 pass  # read-only / vendored — classification still returned
     return manifests
 
@@ -273,7 +276,7 @@ def run_breadth_ingest(
                 report.codebases_ingested += 1
             else:
                 report.skipped += 1
-        except Exception:  # pragma: no cover - per-project best-effort
+        except Exception:  # noqa: BLE001 — one project must not abort fleet ingestion
             report.skipped += 1
 
     # Ecosystem capability registry → built Concept nodes (the gap-matcher's
@@ -284,14 +287,14 @@ def run_breadth_ingest(
     if concepts:
         try:
             report.concepts_ingested = int(ci(engine, concepts))
-        except Exception:  # pragma: no cover - best-effort
+        except Exception:  # noqa: BLE001 — optional concept ingest is best-effort
             pass
 
     if docs:
         report.docs = len(docs)
         try:
             report.docs_ingested = int(di(engine, docs))
-        except Exception:  # pragma: no cover
+        except Exception:  # noqa: BLE001 — optional document ingest is best-effort
             pass
     return report
 

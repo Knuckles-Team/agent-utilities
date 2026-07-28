@@ -1,7 +1,8 @@
 """Steady + burst (CI-scaled) — SCALE-P2-1 soak scenario 1.
 
 The full contract calls for a 24-72h steady-state + burst soak at the real 1M
-population (see ``test_hardware_pending.py`` for that — documented, not run here).
+population (see ``test_production_certification.py`` for the fail-closed exact
+release campaign).
 This is the CI-runnable, scaled-down analogue: a short steady phase at the
 contract's nominal rate, then a burst phase at several times that rate, both
 driven by :func:`scripts.scale.loadgen.run_workload` against the in-memory mock

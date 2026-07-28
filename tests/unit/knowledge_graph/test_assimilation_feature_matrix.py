@@ -184,7 +184,9 @@ class _TmsAwareEngine(_Engine):
         self._versions[node_id] = self._versions.get(node_id, 0) + 1
 
     def add_edge(self, source, target, rel_type="", **properties):
-        self.edges.append((source, target, {"rel_type": rel_type, **properties}))
+        self.edges.append(
+            (source, target, {"relationship_type": rel_type, **properties})
+        )
 
     def register_materialization(self, derived_id):
         deps = {

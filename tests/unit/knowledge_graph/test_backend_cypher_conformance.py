@@ -178,18 +178,18 @@ def test_inprocess_backend_honours_lifecycle_contract(label, backend):
     )
     assert rows and rows[0].get("fp") == "/a/b.py", f"{label}: MERGE node upsert lost"
 
-    # 2) Generic record lifecycle: create then update must mutate.
+    # 2) A declared lifecycle node: create then update must mutate. Ladybug/Kuzu
+    # is schema-backed, so use the canonical DiffEntry.status column rather
+    # than inventing an undeclared property on a generic Record label.
     backend.execute(
-        "MERGE (n:Record {id: $id}) SET n.status = $props_status",
-        {"id": "record-1", "props_status": "pending"},
+        "MERGE (n:DiffEntry {id: $id}) SET n.status = $props_status",
+        {"id": "diff-1", "props_status": "pending"},
     )
     backend.execute(
-        "MATCH (r:Record {id: $id}) SET r.status = $status",
-        {"id": "record-1", "status": "running"},
+        "MATCH (r:DiffEntry {id: $id}) SET r.status = $status",
+        {"id": "diff-1", "status": "running"},
     )
     st = backend.execute(
-        "MATCH (r:Record {id: $id}) RETURN r.status as s", {"id": "record-1"}
+        "MATCH (r:DiffEntry {id: $id}) RETURN r.status as s", {"id": "diff-1"}
     )
-    assert st and st[0].get("s") == "running", (
-        f"{label}: record status SET was a no-op"
-    )
+    assert st and st[0].get("s") == "running", f"{label}: record status SET was a no-op"

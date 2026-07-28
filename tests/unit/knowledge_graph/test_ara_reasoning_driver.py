@@ -44,8 +44,15 @@ class _Bridge:
         return {"promoted_nodes": 2, "inferred": 2, "downfed": 2, "mode": "lightweight"}
 
 
-def test_extrapolate_harvests_new_inferences_and_cross_domain_topics():
+def test_extrapolate_harvests_new_inferences_and_cross_domain_topics(monkeypatch):
     eng = _Engine()
+    from agent_utilities.knowledge_graph.research import loops
+
+    def _submit(engine, objective, *, loop_id, **_kwargs):
+        engine.add_node(loop_id, "Concept", properties={"objective": objective})
+        return {"id": loop_id, "status": "submitted"}
+
+    monkeypatch.setattr(loops, "submit_loop", _submit)
     # a PRE-EXISTING inferred edge must not be re-harvested as "new"
     eng.graph.add_edge("concept:old", "concept:older", type="broader", inferred=True)
 

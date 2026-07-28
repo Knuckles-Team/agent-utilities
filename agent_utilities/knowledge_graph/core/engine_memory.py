@@ -230,17 +230,16 @@ class MemoryMixin(_Base):
                     node.description or node.name
                 )
             except Exception as e:
-                logger.warning(
-                    "Failed to generate memory embedding (%s)", type(e).__name__
-                )
+                logger.warning("Failed to generate memory embedding: %s", e)
+
+        data = self._serialize_node(node, label="Memory")
 
         # Tiered write: backend is source of truth, NX is fallback
         if self.backend:
-            data = self._serialize_node(node, label="Memory")
             self._upsert_node("Memory", node.id, data)
 
         # Update graph compute cache
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **data)
 
         return memory_id
 
@@ -280,11 +279,11 @@ class MemoryMixin(_Base):
 
     def add_memory_node(self, memory: MemoryNode):
         """Add a MemoryNode object to the graph."""
+        data = self._serialize_node(memory, label="Memory")
         if self.backend:
-            data = self._serialize_node(memory, label="Memory")
             self._upsert_node("Memory", memory.id, data)
         else:
-            self.graph.add_node(memory.id, **memory.model_dump())
+            self.graph.add_node(memory.id, **data)
 
     def get_memory_node(self, memory_id: str) -> MemoryNode | None:
         """Retrieve a MemoryNode object by ID."""
@@ -409,9 +408,7 @@ class MemoryMixin(_Base):
                     node.description or node.name
                 )
             except Exception as e:
-                logger.warning(
-                    "Failed to generate memory embedding (%s)", type(e).__name__
-                )
+                logger.warning("Failed to generate memory embedding: %s", e)
 
         # Add trust and provenance metadata
         data = (
@@ -550,7 +547,7 @@ class MemoryMixin(_Base):
                     reverse=True,
                 )
             except Exception as e:
-                logger.warning("Task-context reranking failed (%s)", type(e).__name__)
+                logger.warning("Task-context reranking failed: %s", e)
 
         # Context budget compaction (CONCEPT:AU-KG.memory.parammem — Research: 2604.20874v1)
         # Apply Root Theorem: compact results if they exceed budget

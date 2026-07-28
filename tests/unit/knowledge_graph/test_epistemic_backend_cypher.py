@@ -165,12 +165,11 @@ def test_merge_node_upsert_persists_and_is_idempotent(backend):
     assert count == [{"c": 2}]
 
 
-def test_label_match_honours_type_key(backend):
-    # The Rust node store normalises the label onto the ``type`` property on
-    # read-back (graph_compute uses ``props.get("type", props.get("node_type"))``).
-    # A label filter MUST match nodes whose label lives in ``type`` — else the
-    # task worker poll finds no pending Task and ingestion stalls indefinitely.
-    backend.add_node("job-typed", type="Task", status="pending")
+def test_label_match_honours_node_type_key(backend):
+    # The native node store uses the sole canonical ``node_type`` property.
+    # A label filter MUST match that property or the task worker poll finds no
+    # pending Task and ingestion stalls indefinitely.
+    backend.add_node("job-typed", node_type="Task", status="pending")
     rows = backend.execute("MATCH (t:Task {status: 'pending'}) RETURN t.id as id")
     assert "job-typed" in {r["id"] for r in rows}
 
@@ -219,7 +218,7 @@ def test_rel_match_accepts_inline_literal_anchor_id(backend):
     # the legacy reader and returning the wrong rows.
     backend.add_node("src-1", node_type="Account")
     backend.add_node("tgt-1", node_type="Plan", title="P-1")
-    backend.add_edge("src-1", "tgt-1", rel_type="OWNS")
+    backend.add_edge("src-1", "tgt-1", relationship="OWNS")
     rows = backend.execute(
         "MATCH (a:Account {id:'src-1'})-[:OWNS]->(b:Plan) RETURN b.id as id, b.title as title"
     )
@@ -235,9 +234,9 @@ def edged() -> EpistemicGraphBackend:
     b = EpistemicGraphBackend()
     for n in ("a", "b", "c"):
         b.add_node(n, node_type="Node")
-    b.add_edge("a", "b", rel_type="KNOWS")
-    b.add_edge("b", "c", rel_type="KNOWS")
-    b.add_edge("a", "c", rel_type="OWNS")
+    b.add_edge("a", "b", relationship="KNOWS")
+    b.add_edge("b", "c", relationship="KNOWS")
+    b.add_edge("a", "c", relationship="OWNS")
     return b
 
 
@@ -249,7 +248,7 @@ def test_unanchored_edge_count_returns_total(edged):
 
 
 def test_unanchored_edge_count_named_endpoints(edged):
-    rows = edged.execute("MATCH (a)-[r]->(b) RETURN count(r)")
+    rows = edged.execute("MATCH (a)-[r]->(b) RETURN count(r) AS count")
     assert rows == [{"count": 3}]
 
 

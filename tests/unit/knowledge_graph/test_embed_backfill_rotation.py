@@ -209,7 +209,7 @@ def test_backfill_embed_fn_fans_out_to_capacity(monkeypatch):
 
     monkeypatch.setattr(
         "agent_utilities.core.embedding_utilities.create_embedding_model",
-        lambda: _FakeEmbModel(),
+        lambda **_kwargs: _FakeEmbModel(),
     )
     monkeypatch.setattr(
         "agent_utilities.core.model_concurrency.resolve_capacity",

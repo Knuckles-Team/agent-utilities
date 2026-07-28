@@ -31,10 +31,11 @@ class _FakeEngine:
         self.submitted.append((target_path, is_codebase, task_type, provenance))
         return job
 
-    def query_cypher(self, q):
-        if "count(t)" in q:
-            return [{"c": self._inflight}]
-        return []
+    def ingest_queue_depth(self):
+        return self._inflight
+
+    def list_tasks(self):
+        return {}
 
 
 def _ref(name, sha="sha1", archived=False):
@@ -118,10 +119,11 @@ def test_backpressure_caps_submits(tmp_path):
 
 def test_status_aggregates_task_counts(tmp_path):
     class _StatusEngine(_FakeEngine):
-        def query_cypher(self, q):
-            if "count(t) AS c" in q and "t.status AS s" in q:
-                return [{"s": "pending", "c": 3}, {"s": "completed", "c": 5}]
-            return super().query_cypher(q)
+        def list_tasks(self):
+            return {
+                "pending": [object(), object(), object()],
+                "completed": [object(), object(), object(), object(), object()],
+            }
 
     engine = _StatusEngine()
     ing = _ingestor(tmp_path, engine)

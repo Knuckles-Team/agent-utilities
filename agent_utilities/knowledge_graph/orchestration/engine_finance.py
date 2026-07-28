@@ -45,7 +45,7 @@ class FinanceEngineMixin(_Base):
             timeframe=timeframe,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="TradingStrategy")
@@ -127,7 +127,7 @@ class FinanceEngineMixin(_Base):
             target_price=target_price,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="ExecutionSignal")
@@ -159,7 +159,7 @@ class FinanceEngineMixin(_Base):
             suggested_fraction=fraction,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="KellySizing")
@@ -184,7 +184,7 @@ class FinanceEngineMixin(_Base):
             fill_price=fill_price,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="OrderCommitRecord")
@@ -265,7 +265,7 @@ class FinanceEngineMixin(_Base):
             timestamp=ts,
             metadata=props,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="MarkovTransitionMatrix")
@@ -301,7 +301,7 @@ class FinanceEngineMixin(_Base):
                 asset_class=asset_class,
                 timestamp=ts,
             )
-            self.graph.add_node(regime_node.id, **regime_node.model_dump())
+            self.graph.add_node(regime_node.id, **self._serialize_node(regime_node))
 
             if self.backend:
                 data = self._serialize_node(regime_node, label="MarkovRegimeState")
@@ -428,7 +428,7 @@ class FinanceEngineMixin(_Base):
             sideways_prob=sideways_p,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="RegimeSignal")

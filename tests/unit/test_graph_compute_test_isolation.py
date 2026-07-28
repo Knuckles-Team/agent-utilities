@@ -37,9 +37,23 @@ class _TrackedTransport:
 class _NonOwningView:
     def __init__(self) -> None:
         self.close_calls = 0
+        self.clear_calls = 0
+        self.tenants = _TenantNamespace()
 
     def close(self) -> None:
         self.close_calls += 1
+
+    def clear(self) -> None:
+        self.clear_calls += 1
+        raise AssertionError("tenant deletion already owns isolated-graph cleanup")
+
+
+class _TenantNamespace:
+    def __init__(self) -> None:
+        self.delete_calls: list[str] = []
+
+    def delete(self, graph_name: str) -> None:
+        self.delete_calls.append(graph_name)
 
 
 class _RootEngine:
@@ -80,3 +94,16 @@ def test_created_root_transports_are_closed_once_without_resource_growth() -> No
     assert all(root._client.close_calls == 0 for root in roots)
     assert _TrackedTransport.open_transports == 0
     assert _TrackedTransport.live_threads == 0
+
+
+def test_isolated_graph_cleanup_uses_one_lifecycle_delete_without_clear() -> None:
+    """Tenant purge subsumes a redundant, potentially timeout-bound clear."""
+    conftest = _conftest_module()
+    transport = _TrackedTransport()
+    root = _RootEngine(transport)
+    view = _GraphView(root)
+
+    conftest._delete_created_test_graph([root, view, root], "test_graph")
+
+    assert root._client.tenants.delete_calls == ["test_graph"]
+    assert root._client.clear_calls == 0

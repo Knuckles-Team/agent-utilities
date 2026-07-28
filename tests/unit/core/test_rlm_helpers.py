@@ -93,10 +93,10 @@ async def test_kg_bulk_export_filters_by_type():
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     graph = GraphComputeEngine(backend_type="rust")
-    graph.add_node("mem_1", type="memory", name="Note 1", importance=0.8)
-    graph.add_node("mem_2", type="memory", name="Note 2", importance=0.5)
-    graph.add_node("tool_1", type="tool", name="search", importance=0.9)
-    graph.add_node("skill_1", type="skill", name="python", importance=0.7)
+    graph.add_node("mem_1", node_type="memory", name="Note 1", importance=0.8)
+    graph.add_node("mem_2", node_type="memory", name="Note 2", importance=0.5)
+    graph.add_node("tool_1", node_type="tool", name="search", importance=0.9)
+    graph.add_node("skill_1", node_type="skill", name="python", importance=0.7)
 
     mock_engine = MagicMock()
     mock_engine.graph = graph
@@ -109,7 +109,7 @@ async def test_kg_bulk_export_filters_by_type():
     # Export only memory nodes
     result = await env.kg_bulk_export("memory")
     assert len(result) == 2
-    assert all(r["type"] == "memory" for r in result)
+    assert all(r["node_type"] == "memory" for r in result)
 
     # Export only tool nodes
     result = await env.kg_bulk_export("tool")
@@ -124,7 +124,7 @@ async def test_kg_bulk_export_respects_limit():
 
     graph = GraphComputeEngine(backend_type="rust")
     for i in range(50):
-        graph.add_node(f"mem_{i}", type="memory", name=f"Memory {i}")
+        graph.add_node(f"mem_{i}", node_type="memory", name=f"Memory {i}")
 
     mock_engine = MagicMock()
     mock_engine.graph = graph

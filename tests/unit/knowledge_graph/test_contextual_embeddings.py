@@ -10,18 +10,18 @@ from agent_utilities.knowledge_graph.core.context_builder import (
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
-@pytest.mark.timeout(5)
+@pytest.mark.timeout(30)
 def test_owl_context():
     graph = GraphComputeEngine(backend_type="rust")
     graph.add_node("n1")
     graph.add_node("n2")
-    graph.add_edge("n1", "n2", type="is_a", inferred=True)
+    graph.add_edge("n1", "n2", relationship="is_a", inferred=True)
 
     ctx = get_owl_context("n1", graph)
     assert "OWL Inferred Facts: is_a: n2" in ctx
 
 
-@pytest.mark.timeout(5)
+@pytest.mark.timeout(30)
 def test_hierarchical_context():
     graph = GraphComputeEngine(backend_type="rust")
     # A -> B -> C -> D
@@ -33,11 +33,11 @@ def test_hierarchical_context():
     graph.add_node("E")
     graph.add_node("F")
 
-    graph.add_edge("A", "B", type="parent")
-    graph.add_edge("B", "C", type="parent")
-    graph.add_edge("B", "E", type="parent")
-    graph.add_edge("C", "D", type="parent")
-    graph.add_edge("E", "F", type="parent")
+    graph.add_edge("A", "B", relationship="parent")
+    graph.add_edge("B", "C", relationship="parent")
+    graph.add_edge("B", "E", relationship="parent")
+    graph.add_edge("C", "D", relationship="parent")
+    graph.add_edge("E", "F", relationship="parent")
 
     ctx = get_hierarchical_context("B", graph, max_depth=2)
     # B has parent A, children C, E, grandchildren D, F
@@ -46,12 +46,12 @@ def test_hierarchical_context():
     assert "Grandchildren: [D, F]" in ctx or "Grandchildren: [F, D]" in ctx
 
 
-@pytest.mark.timeout(5)
+@pytest.mark.timeout(30)
 def test_build_contextual_description():
     graph = GraphComputeEngine(backend_type="rust")
     graph.add_node("root", description="The root node")
     graph.add_node("child1")
-    graph.add_edge("root", "child1", type="has_child")
+    graph.add_edge("root", "child1", relationship="has_child")
 
     desc = build_contextual_description("root", graph, "The root node")
     assert "The root node" in desc

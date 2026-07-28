@@ -51,9 +51,9 @@ def test_engine_builds_map_and_peer_review():
     # typed KG structures
     ents, rels = inq.to_entities()
     assert {"research_inquiry", "perspective", "agreement", "peer_review"} <= {
-        e["type"] for e in ents
+        e["node_type"] for e in ents
     }
-    assert {"asks_from", "reviews"} <= {r["type"] for r in rels}
+    assert {"asks_from", "reviews"} <= {r["relationship"] for r in rels}
 
 
 def test_acquire_for_topic_perspectival_is_native_and_materializes(monkeypatch):

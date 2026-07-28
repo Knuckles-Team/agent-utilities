@@ -134,7 +134,11 @@ class TestEntityClaimExtractor:
                 self.backend = None
 
             def _serialize_node(self, node, label=""):
-                return node.model_dump()
+                data = node.model_dump()
+                node_type = data.pop("type", None)
+                if node_type is not None:
+                    data["node_type"] = getattr(node_type, "value", node_type)
+                return data
 
             def _upsert_node(self, label, node_id, data):
                 return None
@@ -143,7 +147,9 @@ class TestEntityClaimExtractor:
                 self.graph.add_edge(
                     source,
                     target,
-                    type=edge_type.value if hasattr(edge_type, "value") else edge_type,
+                    relationship=(
+                        edge_type.value if hasattr(edge_type, "value") else edge_type
+                    ),
                     **(metadata or {}),
                 )
 
@@ -152,7 +158,7 @@ class TestEntityClaimExtractor:
     def test_extract_and_persist(self, mock_engine):
         """Should extract entities and persist them to the graph."""
         # Add a source node
-        mock_engine.graph.add_node("doc:test", type="article", name="Test Doc")
+        mock_engine.graph.add_node("doc:test", node_type="article", name="Test Doc")
 
         extractor = EntityClaimExtractor(mock_engine)
         content = (
@@ -170,13 +176,13 @@ class TestEntityClaimExtractor:
         entity_nodes = [
             n
             for n, d in mock_engine.graph.nodes(data=True)
-            if str(d.get("type", "")).lower() == "entity"
+            if str(d.get("node_type", "")).lower() == "entity"
         ]
         assert len(entity_nodes) >= 1
 
     def test_claims_persisted_to_graph(self, mock_engine):
         """Claims should be persisted as ClaimNodes in the graph."""
-        mock_engine.graph.add_node("doc:claims", type="article", name="Claims Doc")
+        mock_engine.graph.add_node("doc:claims", node_type="article", name="Claims Doc")
 
         extractor = EntityClaimExtractor(mock_engine)
         content = (
@@ -191,7 +197,7 @@ class TestEntityClaimExtractor:
         claim_nodes = [
             n
             for n, d in mock_engine.graph.nodes(data=True)
-            if str(d.get("type", "")).lower() == "claim"
+            if str(d.get("node_type", "")).lower() == "claim"
         ]
         assert len(claim_nodes) >= 1
 
@@ -199,7 +205,7 @@ class TestEntityClaimExtractor:
         """Re-running extraction over the SAME (source_id, content) must mint
         the identical claim id (content-addressed, like the entity digest
         above it) and upsert — never a second ClaimNode for the same claim."""
-        mock_engine.graph.add_node("doc:repeat", type="article", name="Repeat Doc")
+        mock_engine.graph.add_node("doc:repeat", node_type="article", name="Repeat Doc")
         extractor = EntityClaimExtractor(mock_engine)
         content = "We recommend implementing tiered validation for all graph data."
 
@@ -209,7 +215,7 @@ class TestEntityClaimExtractor:
         claim_nodes = [
             n
             for n, d in mock_engine.graph.nodes(data=True)
-            if str(d.get("type", "")).lower() == "claim"
+            if str(d.get("node_type", "")).lower() == "claim"
         ]
         assert len(claim_nodes) == 1
 

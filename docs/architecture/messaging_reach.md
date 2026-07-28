@@ -186,8 +186,9 @@ Messaging ships as **one serving implementation** (`messaging/daemon.run_forever
 A deployment that previously ran messaging as its own always-on Deployment/service should
 retire it once GraphOS MCP is redeployed with the bundling code — see
 `deploy/k8s/messaging-bundle-retirement.yaml` for the (not auto-applied) cutover plan and
-`deploy/k8s/graphos.yaml` / `deploy/swarm/graphos.stack.yml` for where channel tokens now
-live (the SAME Secret/ConfigMap GraphOS MCP already reads).
+the rendered `deploy/k8s/production-cell/` assets /
+`deploy/swarm/graphos.stack.yml` for where channel tokens now live (the SAME
+Secret/ConfigMap GraphOS MCP already reads).
 
 **Replica caution.** A channel that long-polls for updates (Telegram without
 `MESSAGING_WEBHOOK_BASE_URL` configured) opens one exclusive stream per bot token,

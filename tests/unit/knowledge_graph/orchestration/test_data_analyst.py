@@ -190,7 +190,10 @@ def test_kg_2_308_generated_mutation_is_refused(monkeypatch):
     ).analyze("delete everything")
     assert "mutation" in out["error"]
     assert "answer" not in out
-    assert eng.cypher_calls == []  # never executed
+    # Schema discovery is an allowed read; the generated mutation itself is
+    # rejected before execution.
+    assert len(eng.cypher_calls) == 1
+    assert all("DELETE" not in query.upper() for query in eng.cypher_calls)
 
 
 def test_kg_2_308_uses_au_fleet_llm_for_synthesis_when_configured(monkeypatch):
@@ -214,7 +217,10 @@ def test_kg_2_308_uses_au_fleet_llm_for_synthesis_when_configured(monkeypatch):
         assert kwargs.get("role") == "generator"
         return object()
 
-    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.contextual_model.create_context_agent",
+        lambda **_kwargs: _FakeAgent(),
+    )
     monkeypatch.setattr(
         "agent_utilities.core.model_factory.create_model", _fake_create_model
     )
@@ -259,7 +265,10 @@ def test_kg_2_308_synthesis_survives_call_from_inside_a_running_event_loop(
 
             return asyncio.run(_inner())
 
-    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.contextual_model.create_context_agent",
+        lambda **_kwargs: _FakeAgent(),
+    )
     monkeypatch.setattr(
         "agent_utilities.core.model_factory.create_model", lambda **k: object()
     )

@@ -121,7 +121,7 @@ class IngestionMixin(_Base):
             self._upsert_node("Episode", node.id, data)
 
         # Update graph compute cache
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
         return ep_id
 
     def ingest_mcp_server(
@@ -181,7 +181,7 @@ class IngestionMixin(_Base):
                     m_data = self._serialize_node(metadata, label="ToolMetadata")
                     self._upsert_node("ToolMetadata", meta_id, m_data)
                 else:
-                    self.graph.add_node(metadata.id, **metadata.model_dump())
+                    self.graph.add_node(metadata.id, **self._serialize_node(metadata))
 
                 # Create Callable Resource
                 resource = CallableResourceNode(
@@ -217,7 +217,7 @@ class IngestionMixin(_Base):
                     r_data = self._serialize_node(resource, label="CallableResource")
                     self._upsert_node("CallableResource", res_id, r_data)
                 else:
-                    self.graph.add_node(resource.id, **resource.model_dump())
+                    self.graph.add_node(resource.id, **self._serialize_node(resource))
 
                 # Linkage. Use inline-map MATCH (one pattern per bound node) rather
                 # than a comma-separated cross-product with a WHERE filter: the
@@ -319,7 +319,7 @@ class IngestionMixin(_Base):
                 "ToolMetadata", meta_id, self._serialize_node(metadata, "ToolMetadata")
             )
         else:
-            self.graph.add_node(metadata.id, **metadata.model_dump())
+            self.graph.add_node(metadata.id, **self._serialize_node(metadata))
 
         # Create Callable Resource
         resource = CallableResourceNode(
@@ -354,7 +354,7 @@ class IngestionMixin(_Base):
                 self._serialize_node(resource, "CallableResource"),
             )
         else:
-            self.graph.add_node(resource.id, **resource.model_dump())
+            self.graph.add_node(resource.id, **self._serialize_node(resource))
 
         if self.backend:
             self.backend.execute(

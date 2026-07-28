@@ -52,7 +52,7 @@ class InfrastructureEngineMixin(_Base):
             transport=transport,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="MCPServerPackage")
@@ -73,7 +73,7 @@ class InfrastructureEngineMixin(_Base):
             status=status,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="PullRequest")
@@ -100,7 +100,7 @@ class InfrastructureEngineMixin(_Base):
             anonymized=True,
             timestamp=ts,
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, **self._serialize_node(node))
 
         if self.backend:
             data = self._serialize_node(node, label="CrossTenantInsight")
@@ -268,7 +268,7 @@ class InfrastructureEngineMixin(_Base):
             )
 
             # Save Host to the graph compute engine
-            self.graph.add_node(node.id, **node.model_dump())
+            self.graph.add_node(node.id, **self._serialize_node(node))
 
             # If backend is persistent, dual write
             if self.backend:
@@ -287,7 +287,7 @@ class InfrastructureEngineMixin(_Base):
                     vendor=gpu_vendor,
                     timestamp=ts,
                 )
-                self.graph.add_node(gpu_node.id, **gpu_node.model_dump())
+                self.graph.add_node(gpu_node.id, **self._serialize_node(gpu_node))
                 if self.backend:
                     s_gpu = self._serialize_node(gpu_node, label="GPUAccelerator")
                     self._upsert_node("GPUAccelerator", gpu_id, s_gpu)
@@ -310,7 +310,9 @@ class InfrastructureEngineMixin(_Base):
                     storage_type=str(labels.get("storage_type", "unknown")),
                     timestamp=ts,
                 )
-                self.graph.add_node(storage_node.id, **storage_node.model_dump())
+                self.graph.add_node(
+                    storage_node.id, **self._serialize_node(storage_node)
+                )
                 if self.backend:
                     s_storage = self._serialize_node(storage_node, label="StorageArray")
                     self._upsert_node("StorageArray", storage_id, s_storage)

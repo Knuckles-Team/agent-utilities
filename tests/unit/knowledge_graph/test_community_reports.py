@@ -92,12 +92,14 @@ async def test_execute_creates_community_report_live_path(monkeypatch):
 
     report = graph._nodes.get("community_report:0")
     assert report is not None
-    assert report["type"] == "CommunityReport"
+    assert report["node_type"] == "CommunityReport"
     assert report["theme"] == "Test Theme"
     assert report["member_count"] == 8
     assert report["level"] == 0
     # every member linked PART_OF_COMMUNITY → report
-    part_of = [e for e in graph.added_edges if e[2].get("type") == "PART_OF_COMMUNITY"]
+    part_of = [
+        e for e in graph.added_edges if e[2].get("relationship") == "PART_OF_COMMUNITY"
+    ]
     assert len(part_of) >= 8
 
 

@@ -52,14 +52,14 @@ def test_grade_fleet_over_graph(monkeypatch):
     eng = _Engine(
         {
             "paper:rag1": {
-                "type": "article",
+                "node_type": "article",
                 "name": "Sparse retrieval reranking for RAG search",
             },
             "repo:dice": {
-                "type": "codebase",
+                "node_type": "codebase",
                 "name": "DICE single-vector embedding retrieval",
             },
-            "noise": {"type": "concept", "name": "should be ignored"},
+            "noise": {"node_type": "concept", "name": "should be ignored"},
         }
     )
     out = fr.grade_fleet(eng, threshold_pct=5.0)

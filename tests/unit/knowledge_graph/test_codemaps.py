@@ -44,12 +44,12 @@ def mock_kg():
 
 @pytest.mark.asyncio
 async def test_codemap_generator_create(mock_kg):
-    # We need to mock create_model and the Agent.run
+    # Mock the model factory and the contextual-agent construction seam.
     with patch("agent_utilities.knowledge_graph.core.codemaps.create_model"):
         with patch(
-            "agent_utilities.knowledge_graph.core.codemaps.Agent"
-        ) as mock_agent_class:
-            mock_agent = mock_agent_class.return_value
+            "agent_utilities.knowledge_graph.core.codemaps.create_context_agent"
+        ) as mock_create_agent:
+            mock_agent = mock_create_agent.return_value
             mock_agent.run = AsyncMock()
 
             # Setup mock LLM result

@@ -58,8 +58,8 @@ class DeltaBackend(GraphBackend):
 
 def _ents():
     return [
-        {"id": "a:1", "type": "Thing", "name": "X"},
-        {"id": "a:2", "type": "Thing", "name": "Y"},
+        {"id": "a:1", "node_type": "Thing", "name": "X"},
+        {"id": "a:2", "node_type": "Thing", "name": "Y"},
     ]
 
 
@@ -79,8 +79,8 @@ def test_write_delta_skips_unchanged_then_writes_changed(monkeypatch):
 
     # 3) Change one entity → only the changed one is written.
     changed = [
-        {"id": "a:1", "type": "Thing", "name": "X"},
-        {"id": "a:2", "type": "Thing", "name": "CHANGED"},
+        {"id": "a:1", "node_type": "Thing", "name": "X"},
+        {"id": "a:2", "node_type": "Thing", "name": "CHANGED"},
     ]
     r3 = eng.ingest_external_batch("d", changed)
     assert r3["nodes"] == 1

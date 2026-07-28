@@ -8,6 +8,7 @@ from agent_utilities.knowledge_graph.core.engine import (
 )
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.knowledge_graph import RegistryEdgeType, RegistryNodeType
+from agent_utilities.observability.trace_ontology import trace_id
 
 
 def test_cosine_similarity():
@@ -30,7 +31,9 @@ def engine(monkeypatch, request):
     g = GraphComputeEngine(backend_type="rust")
     for node in g.node_ids():
         g.remove_node(node)
-    return IntelligenceGraphEngine(db_path=":memory:")
+    isolated = IntelligenceGraphEngine(db_path=":memory:")
+    isolated.backend = None
+    return isolated
 
 
 def test_add_memory(engine):
@@ -53,8 +56,8 @@ def test_search_hybrid(engine):
 
 def test_query_impact(engine):
     # A depends on B, B depends on C
-    engine.graph.add_edge("A", "B", type="DEPENDS_ON")
-    engine.graph.add_edge("B", "C", type="DEPENDS_ON")
+    engine.graph.add_edge("A", "B", relationship="DEPENDS_ON")
+    engine.graph.add_edge("B", "C", relationship="DEPENDS_ON")
     engine.graph.nodes["A"]["name"] = "A"
     engine.graph.nodes["B"]["name"] = "B"
     engine.graph.nodes["C"]["name"] = "C"
@@ -69,17 +72,17 @@ def test_query_impact(engine):
 
 
 def test_find_path(engine):
-    engine.graph.add_edge("A", "B")
-    engine.graph.add_edge("B", "C")
+    engine.graph.add_edge("A", "B", relationship="RELATED_TO")
+    engine.graph.add_edge("B", "C", relationship="RELATED_TO")
     path = engine.find_path("A", "C")
     assert path == ["A", "B", "C"]
 
 
 def test_get_agent_tools(engine):
     agent_id = "agent:test"
-    engine.graph.add_node(agent_id, type="agent")
-    engine.graph.add_node("tool:t1", type="tool")
-    engine.graph.add_edge(agent_id, "tool:t1", type=RegistryEdgeType.PROVIDES)
+    engine.graph.add_node(agent_id, node_type="agent")
+    engine.graph.add_node("tool:t1", node_type="tool")
+    engine.graph.add_edge(agent_id, "tool:t1", relationship=RegistryEdgeType.PROVIDES)
 
     tools = engine.get_agent_tools(agent_id)
     assert tools == ["t1"]
@@ -95,18 +98,19 @@ def test_ingest_episode(engine):
 def test_record_outcome(engine):
     ep_id = engine.ingest_episode("task")
     eval_id = engine.record_outcome(ep_id, reward=0.9, feedback="good")
-    assert eval_id.startswith("eval:")
+    assert eval_id.startswith("outcome:")
     assert eval_id in engine.graph
     assert engine.graph.nodes[eval_id]["reward"] == 0.9
 
     # Check edge
-    assert engine.graph.has_edge(ep_id, eval_id)
-    edge_data = engine.graph.get_edge_data(ep_id, eval_id, 0)
-    assert edge_data["type"] == "PRODUCED_OUTCOME"
+    canonical_trace_id = trace_id(ep_id)
+    assert engine.graph.has_edge(canonical_trace_id, eval_id)
+    edge_data = engine.graph.get_edge_data(canonical_trace_id, eval_id, 0)
+    assert edge_data["relationship"] == "PRODUCED_OUTCOME"
 
 
-def test_nx_fallback_successful_episodes(engine):
-    # Force the NetworkX query fallback path by setting backend to None
+def test_query_fails_closed_without_authoritative_backend(engine):
+    # Graph reads must not silently fall back to a process-local projection.
     engine.backend = None
 
     # Setup a successful canonical trace in the in-memory graph
@@ -114,15 +118,17 @@ def test_nx_fallback_successful_episodes(engine):
     eval_id = "eval:1"
     tool_id = "tool:t1"
 
-    engine.graph.add_node(trace_id, type="RunTrace", task="success task")
-    engine.graph.add_node(eval_id, type=RegistryNodeType.OUTCOME_EVALUATION, reward=0.9)
-    engine.graph.add_node(tool_id, type="tool_call", tool_name="my_tool")
+    engine.graph.add_node(trace_id, node_type="RunTrace", task="success task")
+    engine.graph.add_node(
+        eval_id, node_type=RegistryNodeType.OUTCOME_EVALUATION, reward=0.9
+    )
+    engine.graph.add_node(tool_id, node_type="tool_call", tool_name="my_tool")
 
-    engine.graph.add_edge(trace_id, eval_id, type="PRODUCED_OUTCOME")
-    engine.graph.add_edge(trace_id, tool_id, type="USED_TOOL")
+    engine.graph.add_edge(trace_id, eval_id, relationship="PRODUCED_OUTCOME")
+    engine.graph.add_edge(trace_id, tool_id, relationship="USED_TOOL")
 
     query = "MATCH (r:RunTrace)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation), (r)-[:USED_TOOL]->(t:tool_call) WHERE o.reward >= 0.8 RETURN t.tool_name as tool"
-    results = engine.query_cypher(query)
-
-    assert len(results) == 1
-    assert results[0]["tool"] == "my_tool"
+    with pytest.raises(
+        RuntimeError, match="authoritative graph read service is unavailable"
+    ):
+        engine.query_cypher(query)

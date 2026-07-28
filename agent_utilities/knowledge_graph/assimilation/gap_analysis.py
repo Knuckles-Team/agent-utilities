@@ -25,8 +25,17 @@ from typing import Any
 from ...models.knowledge_graph import RegistryNodeType
 from .dedup import iter_all_edges
 
-# A concept id like KG-2.7 / AHE-3.12 / ORCH-1.3b / OS-5 / KG-2.20g.
-_CONCEPT_ID_RE = re.compile(r"\b([A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?)\b")
+# Canonical semantic ids (AU-KG.*, AU-ORCH.*, EG-KG.*, ...) plus read
+# compatibility for durable historical numeric ids.
+_SEMANTIC_CONCEPT_ID = (
+    r"[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)\."
+    r"[A-Z0-9](?:[A-Z0-9._-]*[A-Z0-9_-])?"
+)
+_LEGACY_CONCEPT_ID = r"[A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?"
+_CONCEPT_ID_RE = re.compile(
+    rf"\b(({_SEMANTIC_CONCEPT_ID})|({_LEGACY_CONCEPT_ID}))\b",
+    re.IGNORECASE,
+)
 
 _FEATURE_TYPES: tuple[str, ...] = (
     RegistryNodeType.SDD_FEATURE.value,
@@ -50,8 +59,10 @@ class GapReport:
 
 
 def _canonical_id(raw: str) -> str:
-    """Normalize a concept id token: ``kg-2-14`` / ``kg-2.14`` → ``KG-2.14``."""
+    """Normalize a semantic or durable historical concept-id token."""
     s = str(raw).strip()
+    if re.fullmatch(_SEMANTIC_CONCEPT_ID, s, re.IGNORECASE):
+        return s.upper()
     m = re.match(r"^([A-Za-z]{2,6})-(\d+)[.\-](\d+[a-z]?)$", s)
     if m:
         return f"{m.group(1).upper()}-{m.group(2)}.{m.group(3)}"
@@ -59,12 +70,19 @@ def _canonical_id(raw: str) -> str:
     return f"{m2.group(1).upper()}-{m2.group(2)}" if m2 else s.upper()
 
 
+def _is_concept_id(value: str) -> bool:
+    return bool(
+        re.fullmatch(_SEMANTIC_CONCEPT_ID, value, re.IGNORECASE)
+        or re.fullmatch(_LEGACY_CONCEPT_ID, value, re.IGNORECASE)
+    )
+
+
 def _concept_key(nid: str, data: dict[str, Any]) -> str | None:
     """The canonical concept id a *concept node* represents (id field or its key)."""
     for cand in (data.get("concept_id"), data.get("id"), nid, data.get("name", "")):
         if cand:
             key = _canonical_id(str(cand))
-            if re.match(r"^[A-Z]{2,6}-\d", key):
+            if _is_concept_id(key):
                 return key
     return None
 
@@ -82,8 +100,9 @@ def _feature_refs(nid: str, data: dict[str, Any]) -> list[str]:
 
     def _add(s: Any) -> None:
         for m in _CONCEPT_ID_RE.findall(str(s).upper()):
-            c = _canonical_id(m)
-            if re.match(r"^[A-Z]{2,6}-\d", c) and c not in refs:
+            token = m[0] if isinstance(m, tuple) else m
+            c = _canonical_id(token)
+            if _is_concept_id(c) and c not in refs:
                 refs.append(c)
 
     cids = data.get("concept_ids")
@@ -231,7 +250,7 @@ def is_closed(engine: Any, feature_id: str, status: str = "") -> bool:
                     if nid == feature_id and isinstance(d, dict):
                         status = str(d.get("status", ""))
                         break
-            except TypeError:  # pragma: no cover - non-standard graph
+            except TypeError:  # noqa: BLE001 — non-standard local graph has no data view
                 pass
     if (status or "").lower() in _CLOSED_STATUS:
         return True

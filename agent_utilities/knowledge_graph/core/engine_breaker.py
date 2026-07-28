@@ -11,7 +11,9 @@ small, shared circuit breaker per ENDPOINT:
 
 * **closed** — calls pass through; ``ENGINE_BREAKER_THRESHOLD`` consecutive
   connect/timeout failures (``OSError``/``EOFError`` — application-level
-  errors do NOT trip it) open the circuit.
+  errors do NOT trip it) open the circuit. Dropped connections are retried
+  before counting a failure; an elapsed RPC timeout is counted immediately and
+  is never replayed onto an already-contended engine.
 * **open** — calls fail FAST with the typed :class:`EngineCircuitOpenError`
   (a ``ConnectionError`` subclass, so existing ``except ConnectionError``
   handlers keep working) until ``ENGINE_BREAKER_COOLDOWN`` elapses.
@@ -46,6 +48,7 @@ logger = logging.getLogger(__name__)
 # Transport-level failures that indicate a dead/unreachable engine.
 # ConnectionError and TimeoutError are OSError subclasses (py>=3.10).
 _TRIP_EXCEPTIONS: tuple[type[BaseException], ...] = (OSError, EOFError)
+_RETRY_EXCEPTIONS: tuple[type[BaseException], ...] = (ConnectionError,)
 
 _STATE_VALUES = {"closed": 0.0, "half_open": 1.0, "open": 2.0}
 
@@ -253,8 +256,10 @@ def _observe_latency(op: str, elapsed: float, endpoint: str) -> None:
 # re-establishes the socket on its next call (``client._reconnect``). Without a retry
 # here, that first failed call propagated AND counted toward the breaker — so a brief
 # blip cascaded N callers into a tripped breaker (the failure mode that wedged whole
-# ingest/finalize runs). We RETRY the op a bounded number of times with backoff before
+# ingest/finalize runs). We RETRY connection errors with bounded backoff before
 # counting a failure; the retry rides the client's reconnect, so the blip self-heals.
+# A TimeoutError is deliberately excluded: the engine may still be completing that
+# request, so replaying it amplifies contention and multiplies the advertised RPC wall.
 _MAX_TRANSIENT_RETRIES = 2
 _RETRY_BACKOFF_BASE_S = 0.25
 
@@ -270,7 +275,7 @@ def _guard(fn: Any, breaker: CircuitBreaker, op: str) -> Any:
             started = time.monotonic()
             try:
                 result = fn(*args, **kwargs)
-            except _TRIP_EXCEPTIONS:
+            except _RETRY_EXCEPTIONS:
                 _observe_latency(op, time.monotonic() - started, breaker.endpoint)
                 if attempt < _MAX_TRANSIENT_RETRIES:
                     # transient drop — let the client reconnect on the retry, and do
@@ -278,6 +283,14 @@ def _guard(fn: Any, breaker: CircuitBreaker, op: str) -> Any:
                     _record_outcome(breaker, op, "retry")
                     time.sleep(_RETRY_BACKOFF_BASE_S * (2**attempt))
                     continue
+                breaker.record_failure()
+                _record_outcome(breaker, op, "connection_error")
+                raise
+            except _TRIP_EXCEPTIONS:
+                # A bounded RPC timeout is already the complete call budget.
+                # Count it once and fail instead of replaying work that may still
+                # be running on a contended engine.
+                _observe_latency(op, time.monotonic() - started, breaker.endpoint)
                 breaker.record_failure()
                 _record_outcome(breaker, op, "connection_error")
                 raise

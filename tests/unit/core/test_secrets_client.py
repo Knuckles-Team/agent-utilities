@@ -12,7 +12,6 @@ Covers:
 """
 
 import os
-import uuid
 from unittest import mock
 
 import pytest
@@ -31,14 +30,14 @@ from agent_utilities.security.secrets_client import (
 def engine_backend():
     """A durable engine-backed secrets backend bound to a unique throwaway graph.
 
-    Uses a per-test graph name so secrets never leak across tests (the
-    ``__secrets__`` graph is not auto-isolated by the conftest fixture). Skips
-    cleanly when no test engine is reachable (the conftest makereport hook turns
-    the ConnectionError into a skip).
+    The autouse graph fixture provisions a unique, session-matched graph for
+    every ``GraphComputeEngine`` construction and owns its lifecycle teardown.
+    Skips cleanly when no test engine is reachable (the conftest makereport hook
+    turns the ConnectionError into a skip).
     """
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    graph = GraphComputeEngine(graph_name=f"__secrets_test_{uuid.uuid4().hex[:12]}__")
+    graph = GraphComputeEngine()
     return InEpistemicGraphBackend(graph=graph)
 
 

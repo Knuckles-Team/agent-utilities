@@ -53,7 +53,7 @@ def test_subscription_delivers_write_to_handler(engine_graph) -> None:
     assert seen == []
 
     # Write a labeled node; the engine commits a CDC change for it.
-    engine_graph.add_node("w1", {"type": "Widget", "color": "blue"})
+    engine_graph.add_node("w1", {"node_type": "Widget", "color": "blue"})
 
     delivered = sub.poll(block_ms=0)
     assert delivered == 1
@@ -71,8 +71,8 @@ def test_subscription_label_filter_isolates(engine_graph) -> None:
     seen: list[dict] = []
     sub = subscribe(engine_graph, "Wanted", seen.append)
 
-    engine_graph.add_node("other1", {"type": "Unwanted"})
-    engine_graph.add_node("want1", {"type": "Wanted"})
+    engine_graph.add_node("other1", {"node_type": "Unwanted"})
+    engine_graph.add_node("want1", {"node_type": "Wanted"})
 
     sub.poll(block_ms=0)
     assert [e["node_id"] for e in seen] == ["want1"]
@@ -81,8 +81,8 @@ def test_subscription_label_filter_isolates(engine_graph) -> None:
 def test_cold_start_catch_up_is_bounded(engine_graph) -> None:
     """A subscription created AFTER writes already exist catches up over the CDC
     tail on first poll (cold start), then advances — it does not miss the backlog."""
-    engine_graph.add_node("pre1", {"type": "Backlog"})
-    engine_graph.add_node("pre2", {"type": "Backlog"})
+    engine_graph.add_node("pre1", {"node_type": "Backlog"})
+    engine_graph.add_node("pre2", {"node_type": "Backlog"})
 
     seen: list[dict] = []
     sub = subscribe(engine_graph, "Backlog", seen.append)
@@ -126,7 +126,7 @@ def test_world_model_subscription_fires_on_transition(engine_graph) -> None:
     engine_graph.add_node(
         "wm_transition:abc123",
         {
-            "type": WORLD_MODEL_TRANSITION_LABEL,
+            "node_type": WORLD_MODEL_TRANSITION_LABEL,
             "state": "s0",
             "action": "a0",
             "next_state": "s1",
@@ -157,7 +157,9 @@ def test_autoscale_subscription_fires_on_work_item_change(engine_graph) -> None:
     assert sub.pending_state["pending"] == 0
 
     # A queue-depth-moving change: a new WorkItem enqueued.
-    engine_graph.add_node("workitem:1", {"type": WORK_ITEM_LABEL, "status": "ready"})
+    engine_graph.add_node(
+        "workitem:1", {"node_type": WORK_ITEM_LABEL, "status": "ready"}
+    )
 
     sub.poll(block_ms=0)
     assert sub.pending_state["pending"] == 1, (
@@ -165,7 +167,9 @@ def test_autoscale_subscription_fires_on_work_item_change(engine_graph) -> None:
     )
 
     # A subsequent WorkItem mutation is another change-event.
-    engine_graph.add_node("workitem:2", {"type": WORK_ITEM_LABEL, "status": "leased"})
+    engine_graph.add_node(
+        "workitem:2", {"node_type": WORK_ITEM_LABEL, "status": "leased"}
+    )
     sub.poll(block_ms=0)
     assert sub.pending_state["pending"] == 2
 
@@ -197,7 +201,7 @@ def test_placement_mining_subscription_fires_on_tool_call_change(engine_graph) -
     engine_graph.add_node(
         "toolcall:1",
         {
-            "type": TOOL_CALL_LABEL,
+            "node_type": TOOL_CALL_LABEL,
             "tool_name": "graph_query",
             "tenant_ref": "tenant-1",
         },
@@ -209,7 +213,11 @@ def test_placement_mining_subscription_fires_on_tool_call_change(engine_graph) -
     # A subsequent ToolCall write is another change-event.
     engine_graph.add_node(
         "toolcall:2",
-        {"type": TOOL_CALL_LABEL, "tool_name": "graph_write", "tenant_ref": "tenant-1"},
+        {
+            "node_type": TOOL_CALL_LABEL,
+            "tool_name": "graph_write",
+            "tenant_ref": "tenant-1",
+        },
     )
     sub.poll(block_ms=0)
     assert sub.pending_state["pending"] == 2
