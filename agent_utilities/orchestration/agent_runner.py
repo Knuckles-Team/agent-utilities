@@ -747,7 +747,13 @@ async def run_agent(
     # resolution-exempt regardless of the shape: it is a prompt-only universal entrypoint that
     # is MEANT to flow through the full multi-agent graph as itself, and resolving it both
     # wastes a ~21 s semantic search and mis-binds it to an unrelated tag (``prepare_messages``).
-    if shape.resolve_agent and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
+    # An explicit agent is a routing constraint, not a hint for the task lexical
+    # planner.  In particular, the focused-tools shape is planned from ``task``
+    # independently of ``agent_name``; skipping resolution here let that shape bind
+    # a different server even when the caller had pinned one.
+    if (
+        shape.resolve_agent or agent_name.strip()
+    ) and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
         agent_meta = await asyncio.to_thread(_resolve_agent_from_kg, engine, agent_name)
     else:
         agent_meta = _unresolved_agent_meta()
@@ -963,7 +969,7 @@ async def run_agent(
                     agent_meta=agent_meta,
                     agent_name=agent_name,
                 )
-        elif getattr(shape, "tool_servers", ()):
+        elif getattr(shape, "tool_servers", ()) and agent_meta.get("type") != "server":
             # CONCEPT:AU-ORCH.execution.focused-tools-altitude — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
             # server(s), so bind exactly those toolsets and run ONE direct agent loop (parallel
             # tool calls) instead of the planning graph, which over-decomposes a named-tool ask
@@ -1229,6 +1235,16 @@ async def run_agent(
         # run. The success-path provenance below runs under legacy identity and receives the
         # delegation explicitly.
         _reset_delegation(_delegation_token)
+
+    # A caller that requested tools, or explicitly selected a server, must be grounded
+    # by a real captured ToolCall.  Text that merely *looks* like a tool invocation is
+    # model output, not provenance, and must never be reported as a successful run.
+    tool_required = bool(allowed_tools) or agent_meta.get("type") == "server"
+    if tool_required and not _has_grounded_tool_call(result):
+        result = _fleet_server_failed_result(
+            agent_name,
+            "tool-required execution finished without recorded ToolCall provenance",
+        )
 
     # Step 5: Record provenance. A delegation that fell through to the graph's "no data"
     # sentinel (or returned an empty answer) is a DEGRADED outcome, not a success —
@@ -2272,6 +2288,10 @@ def _fleet_server_failed_result(agent_name: str, error: str) -> dict[str, Any]:
                 f"answer, which would fabricate tool output."
             )
         },
+        # Keep the zero explicit: the RunTrace writer distinguishes a known
+        # ungrounded tool-required execution from a legacy result with no
+        # provenance field at all.
+        "tool_calls": [],
         "metadata": {"degraded": True, "outcome": "fleet_server_failed"},
     }
 
@@ -3048,6 +3068,25 @@ def _tool_call_errored(tc: Any) -> bool:
     if tc.get("error"):
         return True
     return _result_looks_like_error(str(tc.get("result") or ""))
+
+
+def _has_grounded_tool_call(result: Any) -> bool:
+    """Return whether execution captured at least one real ToolCall record.
+
+    A fenced JSON snippet such as ``{"tool": "repos"}`` is only model text.  The
+    executor's tool loop is the authority: it records actual invocations in the
+    structured ``tool_calls`` list that is later persisted as ``:ToolCall`` nodes.
+    """
+    if not isinstance(result, dict):
+        return False
+    calls = result.get("tool_calls")
+    return bool(
+        isinstance(calls, list)
+        and any(
+            isinstance(call, dict) and str(call.get("tool_name") or "").strip()
+            for call in calls
+        )
+    )
 
 
 def _delegation_degraded(result: Any) -> bool:

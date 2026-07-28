@@ -697,6 +697,22 @@ class Orchestrator:
         provenance = (
             await asyncio.to_thread(self._run_provenance, run_id) if run_id else {}
         )
+        # Defense in depth for the public gateway envelope. ``run_agent`` rejects
+        # ungrounded tool-required executions before recording the trace, but a
+        # malformed/legacy runner response must not be re-labelled as success here.
+        if allowed_tools and int(provenance.get("tool_call_count") or 0) == 0:
+            refusal = (
+                "Tool-required execution produced no recorded ToolCall provenance; "
+                "refusing an ungrounded result."
+            )
+            payload["output"] = refusal
+            summary = payload.get("run_summary")
+            payload["run_summary"] = {
+                **(summary if isinstance(summary, dict) else {}),
+                "outcome": "degraded",
+                "failure": {"category": "ungrounded_tool_execution", "raw": refusal},
+            }
+            provenance = {**provenance, "status": "degraded"}
         return {
             "output": _bounded_text(payload.get("output"), _GATEWAY_OUTPUT_LIMIT),
             "run_id": run_id or None,
