@@ -56,6 +56,13 @@ categories. A failed connection is distinct from an authoritative empty tool
 catalog, so ingestion never fabricates tools from configuration flags after an
 authentication, trust, or transport failure.
 
+Interactive discovery uses one shared wall-clock budget for catalog probes and
+semantic reranking. When the request names a configured domain such as GitHub or
+Mattermost, GraphOS probes that matching server first through the same canonical
+boundary, then spends the remaining budget on broad fleet fan-out. A large set of
+slow unrelated children therefore cannot hide the named server behind a catalog
+budget timeout.
+
 ## Configuration
 
 GraphOS reads one AgentConfig-backed `mcp_config.json`. Child entries may

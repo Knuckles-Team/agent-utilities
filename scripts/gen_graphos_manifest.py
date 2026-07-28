@@ -8,12 +8,12 @@ and its tools use bespoke action dispatch, so there's no manifest for the shared
 verbose 1:1 surface (one tool per CRUD action, e.g. ``graph_write_add_node``) can
 be generated like any other agent.
 
-For each action-routed tool in ``ACTION_TOOL_ROUTES`` it collects the action string
-literals from the tool's source: ``action == "x"``, ``action in {...}``,
-``resolve_action(action, [...])`` — resolving module-level frozenset/list constants
-referenced by name. A tool with no discoverable actions is a single operation
-(``graph_query`` takes a query, not an action) and is emitted as one verbose op
-with ``action=None``.
+For each action-routed tool in ``ACTION_TOOL_ROUTES`` it collects a static
+``Literal[...]`` action annotation plus action string literals from the tool's
+source: ``action == "x"``, ``action in {...}``, ``resolve_action(action, [...])`` —
+resolving module-level frozenset/list constants referenced by name. A tool with no
+discoverable actions is a single operation (``graph_query`` takes a query, not an
+action) and is emitted as one verbose op with ``action=None``.
 
 Output: ``agent_utilities/mcp/_graphos_action_manifest.py`` (``GRAPHOS_ACTIONS``).
 Regenerate after changing the graph-os tool surface; ``ruff format`` afterwards.
@@ -25,6 +25,7 @@ import ast
 import inspect
 import sys
 from pathlib import Path
+from typing import Literal, get_args, get_origin, get_type_hints
 
 # Resolve ``agent_utilities`` from THIS repo (the script's own tree), not the
 # editable-installed copy that ``sys.path[0]`` would otherwise prefer when the
@@ -88,10 +89,20 @@ def _roots_at_action(node: ast.AST, aliases: set[str]) -> bool:
 
 def harvest_actions(func) -> set[str]:
     """Action string literals dispatched inside a tool function's source."""
+    actions: set[str] = set()
+    try:
+        action_type = get_type_hints(func).get("action")
+    except (NameError, TypeError):
+        action_type = None
+    if get_origin(action_type) is Literal:
+        actions.update(
+            value for value in get_args(action_type) if isinstance(value, str)
+        )
+
     try:
         src = inspect.getsource(func)
     except (OSError, TypeError):
-        return set()
+        return actions
     import textwrap
 
     tree = ast.parse(textwrap.dedent(src))
@@ -126,7 +137,6 @@ def harvest_actions(func) -> set[str]:
     def _is_action_name(n: ast.AST) -> bool:
         return isinstance(n, ast.Name) and (n.id == "action" or n.id in action_aliases)
 
-    actions: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Compare) and len(node.comparators) == 1:
             left, right = node.left, node.comparators[0]

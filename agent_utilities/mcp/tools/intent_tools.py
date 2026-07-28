@@ -67,6 +67,7 @@ _PRIMARY_TEXT_PARAM: dict[str, str] = {
     "graph_promql": "query",
     "graph_federated_search": "query",
     "graph_analyze": "query",
+    "graph_code": "query",
     "graph_explain": "query",
     "graph_evaluate": "query",
     "graph_observe": "query",
@@ -445,6 +446,22 @@ def _score(
     return base + coverage_bonus, matched
 
 
+def _declared_action_phrase_bonus(intent: str, tool: str) -> float:
+    """Prefer the capability that declares an exact multi-word action phrase."""
+
+    words = " ".join(_WORD_RE.findall(str(intent or "").lower()))
+    if not words:
+        return 0.0
+    longest = 0
+    for action in _actions_by_tool().get(tool, ()):
+        action_words = _WORD_RE.findall(action.lower())
+        if len(action_words) < 2:
+            continue
+        if f" {' '.join(action_words)} " in f" {words} ":
+            longest = max(longest, len(action_words))
+    return min(0.05 * longest, 0.15)
+
+
 def resolve_intent(
     verb: str | None,
     intent: str,
@@ -496,10 +513,30 @@ def resolve_intent(
 
     intent_tokens = _tokenize(intent)
     pool = candidates if verb is None else [c for c in candidates if verb in c.verbs]
+    explicit_action = hints.get("action")
+    if not pinned and explicit_action is not None:
+        actions_by_tool = _actions_by_tool()
+        pool = [
+            candidate
+            for candidate in pool
+            if explicit_action in actions_by_tool.get(candidate.tool, ())
+        ]
     router = _outcome_router() if outcome_scope_ref is not None else None
+    cpds = _load_cpds_required() if explicit_action is not None else {}
     ranked: list[CapabilityCandidate] = []
     for c in pool:
-        score, matched = _score(intent_tokens, c)
+        scoring_candidate = c
+        if explicit_action is not None:
+            cpd = cpds[c.tool]
+            scoring_candidate = CapabilityCandidate(
+                tool=c.tool,
+                action=str(explicit_action),
+                verbs=c.verbs,
+                doc=f"{c.tool} {explicit_action} {cpd.get('one_line', '')}",
+            )
+        score, matched = _score(intent_tokens, scoring_candidate)
+        if explicit_action is None:
+            score += _declared_action_phrase_bonus(intent, c.tool)
         task_verb = verb if verb is not None else c.verbs[0]
         reward = (
             router.reward_of(
@@ -513,7 +550,9 @@ def resolve_intent(
         ranked.append(
             CapabilityCandidate(
                 tool=c.tool,
-                action=c.action,
+                action=(
+                    str(explicit_action) if explicit_action is not None else c.action
+                ),
                 verbs=c.verbs,
                 doc=c.doc,
                 score=score,

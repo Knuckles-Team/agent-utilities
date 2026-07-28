@@ -1786,7 +1786,7 @@ async def graph_analyze_harness_gate_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_code_context_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=code_context (CONCEPT:AU-KG.retrieval.synthesized-cited-answer): the
+    """REST twin of graph_code action=code_context (CONCEPT:AU-KG.retrieval.synthesized-cited-answer): the
     synthesized, cited codebase Q&A. Body: ``{query, intent?(how|usage|impact),
     node_id?, top_k?, depth?, cross_repo?}``."""
     try:

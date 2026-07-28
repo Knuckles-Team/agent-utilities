@@ -44,7 +44,11 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_table": ("ask", "write"),
         "graph_promql": ("ask",),
         "graph_federated_search": ("ask",),
-        "graph_code": ("ask",),
+        # Most code analysis is read-only, while ADR creation and architecture
+        # report materialization mutate the graph.  The action-level allowlist
+        # below keeps ``ask`` read-only; ``act`` reaches only the reviewed
+        # preview/plan-ref mutation path.
+        "graph_code": ("ask", "act"),
         "graph_code_nav": ("ask",),
         "graph_reach": ("act",),
         "graph_gis": ("ask",),
@@ -159,6 +163,19 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "graph_context": frozenset({"get", "list"}),
+        "graph_code": frozenset(
+            {
+                "blast_radius",
+                "call_graph",
+                "change_coupling",
+                "code_context",
+                "code_evolution",
+                "code_metrics",
+                "cross_repo_usages",
+                "routes",
+                "similar_code",
+            }
+        ),
         "graph_ingest": frozenset({"jobs", "job_status", "status"}),
     }
 )
