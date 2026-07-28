@@ -1896,22 +1896,23 @@ def _configured_model_for_class(model_class: str) -> Any:
     return matches[0]
 
 
-def _spawn_auth_headers() -> dict[str, str]:
-    """Outbound service-account auth for a spawned agent's REMOTE MCP toolsets.
+def _spawn_auth() -> Any:
+    """Refresh-capable service-account auth for spawned REMOTE MCP toolsets.
 
     CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap / OS-5.32 — a spawned agent that binds a jwt-protected
     fleet server over SSE/streamable-HTTP must carry the same
-    service-account bearer the multiplexer attaches to its children, or the
-    call is rejected ``401`` (the toolset connected unauthenticated). Reuses the
-    one minting path (``client_credentials.child_auth_header``): opt-in via
-    ``MCP_CLIENT_AUTH=oidc-client-credentials`` (Bearer) or ``basic`` (Basic), and
-    an inert ``{}`` only when authentication is explicitly disabled. Credential
-    or minting failures propagate so a protected toolset is never spawned
-    anonymously.
+    service-account identity the multiplexer attaches to its children, or the
+    call is rejected ``401``. Reuse ``client_credentials.child_auth`` so a
+    long-lived streamable-HTTP session pulls a current token per request and
+    force-refreshes once on ``401``. A static Authorization header is invalid
+    here: it freezes the token minted when the toolset was built and makes
+    delegated calls fail after that token expires. Authentication disabled
+    explicitly returns ``None``; configuration and mint failures remain
+    fail-closed.
     """
-    from agent_utilities.mcp.client_credentials import child_auth_header
+    from agent_utilities.mcp.client_credentials import child_auth
 
-    return child_auth_header(None)
+    return child_auth(None)
 
 
 def _toolset_for_id(
@@ -1933,8 +1934,9 @@ def _toolset_for_id(
     configuration. KG ``Server.url`` values are opaque provenance references,
     never transport endpoints.
 
-    The toolset carries the OIDC service-account bearer (:func:`_spawn_auth_headers`)
-    so JWT-protected servers don't reject the call ``401``. Returns the
+    The toolset carries refresh-capable OIDC service-account auth
+    (:func:`_spawn_auth`) so JWT-protected servers do not reject calls after the
+    initial token expires. Returns the
     bound ``MCPToolset`` (id-tagged for filtering), or ``None`` for an empty id.
     """
     tid = (toolset_id or "").strip()
@@ -1978,7 +1980,7 @@ def _toolset_for_id(
 
     return build_http_toolset(
         url,
-        headers=_spawn_auth_headers() or None,
+        auth=_spawn_auth(),
         timeout=60,
         toolset_id=tid,
     )
@@ -2768,7 +2770,7 @@ async def _execute_focused_tools(
         toolsets.append(
             build_http_toolset(
                 url,
-                headers=_spawn_auth_headers() or None,
+                auth=_spawn_auth(),
                 timeout=60,
             )
         )
