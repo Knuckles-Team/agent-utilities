@@ -58,6 +58,21 @@ DEFAULT_ROLE = "read"
 
 _SECRETS_CLIENT: Any = None
 _SECRET_REF_RE = re.compile(r"^(?:vault|env|secret)://[A-Za-z0-9_./#-]+$")
+_RUNTIME_CONNECTION_FIELDS = (
+    "auth_secret",
+    "auth_secret_ref",
+    "database",
+    "db_name",
+    "db_path",
+    "endpoint",
+    "endpoint_ref",
+    "graph_name",
+    "host",
+    "password",
+    "port",
+    "uri",
+    "user",
+)
 _PERSISTENCE_SENSITIVE_FIELDS = frozenset(
     {
         "uri",
@@ -198,6 +213,23 @@ def _resolve_secret(value: Any) -> Any:
             "connection secret-reference resolution failed (%s)", type(exc).__name__
         )
         raise ValueError("connection secret reference could not be resolved") from None
+
+
+def resolve_connection_runtime_fields(spec: Mapping[str, Any]) -> dict[str, Any]:
+    """Resolve transient connection fields and validate a numeric port.
+
+    Named registry connections and fan-out mirrors share the same durable
+    ``kg_connections`` declarations.  Resolve their runtime references at this
+    one boundary so either entry point reaches backend constructors with the
+    same materialized transport values.
+    """
+    resolved = dict(spec)
+    for key in _RUNTIME_CONNECTION_FIELDS:
+        if key in resolved:
+            resolved[key] = _resolve_secret(resolved[key])
+    if "port" in resolved:
+        resolved["port"] = int(resolved["port"])
+    return resolved
 
 
 def _resolve_runtime_profile(reference: str, label: str) -> dict[str, Any]:
@@ -631,25 +663,7 @@ class ConnectionRegistry:
             build_spec = {**build_spec, **runtime_auth}
             if selector:
                 build_spec["backend_type"] = selector
-        for key in (
-            "auth_secret",
-            "auth_secret_ref",
-            "database",
-            "db_name",
-            "db_path",
-            "endpoint",
-            "endpoint_ref",
-            "graph_name",
-            "host",
-            "password",
-            "port",
-            "uri",
-            "user",
-        ):
-            if key in build_spec:
-                build_spec[key] = _resolve_secret(build_spec[key])
-        if "port" in build_spec:
-            build_spec["port"] = int(build_spec["port"])
+        build_spec = resolve_connection_runtime_fields(build_spec)
 
         backend_kind = (
             str(build_spec.get("backend_type") or "").lower().replace("-", "_")

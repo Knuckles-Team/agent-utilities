@@ -24,6 +24,9 @@ propagate, uncaught, all the way out of engine construction.
 
 from __future__ import annotations
 
+import os
+from types import SimpleNamespace
+
 import pytest
 
 from agent_utilities.knowledge_graph import backends as B
@@ -102,6 +105,84 @@ def test_network_mirror_never_consults_role(monkeypatch):
 
     monkeypatch.setattr(host_lock, "effective_daemon_role", _boom)
     assert "team-falkor" in B._build_mirror_set()
+
+
+def test_network_mirror_resolves_env_transport_fields_before_construction(monkeypatch):
+    """Fan-out mirrors use the same runtime-reference normalizer as registry reads."""
+    from agent_utilities.core.config import config as cfg
+
+    monkeypatch.setattr(cfg, "graph_mirror_targets", ["team-falkor"], raising=False)
+    monkeypatch.setattr(
+        cfg,
+        "kg_connections",
+        [
+            {
+                "name": "team-falkor",
+                "backend": "falkordb",
+                "host": "env://FALKOR_TEAM_HOST",
+                "port": "env://FALKOR_TEAM_PORT",
+            }
+        ],
+        raising=False,
+    )
+    monkeypatch.setenv("FALKOR_TEAM_HOST", "falkordb.example.test")
+    monkeypatch.setenv("FALKOR_TEAM_PORT", "6380")
+    from agent_utilities.knowledge_graph.core import connection_registry
+
+    monkeypatch.setattr(
+        connection_registry,
+        "_SECRETS_CLIENT",
+        SimpleNamespace(resolve_ref=lambda ref: os.environ[ref.removeprefix("env://")]),
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        B,
+        "_build_member",
+        lambda spec: captured.update(spec) or ("BK", spec["backend_type"]),
+    )
+
+    assert "team-falkor" in B._build_mirror_set()
+    assert captured["host"] == "falkordb.example.test"
+    assert captured["port"] == 6380
+
+
+def test_network_mirror_invalid_resolved_port_is_skipped_before_construction(monkeypatch):
+    """A malformed runtime port remains fail-closed and cannot reach a driver."""
+    from agent_utilities.core.config import config as cfg
+
+    monkeypatch.setattr(cfg, "graph_mirror_targets", ["team-falkor"], raising=False)
+    monkeypatch.setattr(
+        cfg,
+        "kg_connections",
+        [
+            {
+                "name": "team-falkor",
+                "backend": "falkordb",
+                "host": "env://FALKOR_TEAM_HOST",
+                "port": "env://FALKOR_TEAM_PORT",
+            }
+        ],
+        raising=False,
+    )
+    monkeypatch.setenv("FALKOR_TEAM_HOST", "falkordb.example.test")
+    monkeypatch.setenv("FALKOR_TEAM_PORT", "not-a-port")
+    from agent_utilities.knowledge_graph.core import connection_registry
+
+    monkeypatch.setattr(
+        connection_registry,
+        "_SECRETS_CLIENT",
+        SimpleNamespace(resolve_ref=lambda ref: os.environ[ref.removeprefix("env://")]),
+    )
+    monkeypatch.setattr(
+        B,
+        "_build_member",
+        lambda _spec: pytest.fail("invalid transport reached backend construction"),
+    )
+
+    assert B._build_mirror_set() == {}
+    status = B.get_mirror_build_status()["team-falkor"]
+    assert status["ok"] is False
+    assert "invalid literal for int" in status["reason"]
 
 
 # --------------------------------------------------------------------------- #
