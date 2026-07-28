@@ -407,6 +407,11 @@ _CARD_CB_THRESHOLD = 3
 _CARD_CB_COOLDOWN = 300.0
 _TASK_ORPHAN_GRACE_SEC = 90.0
 _TASK_MAX_RUNTIME_SEC = 7200.0
+# A WorkItem lease is an ownership/recovery boundary, not an execution limit.
+# Keep it short so a crashed pod's ingestion job is reclaimable promptly; the
+# separate two-hour watchdog above still bounds legitimate task execution.
+_TASK_WORK_ITEM_LEASE_SEC = 60.0
+_TASK_WORK_ITEM_HEARTBEAT_SEC = 20.0
 _TASK_MAX_REQUEUE = 3
 _USAGE_SYNC_INTERVAL = 900.0
 _USAGE_PRICING_REFRESH_INTERVAL = 86400.0
@@ -785,6 +790,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         self._worker_lock = threading.Lock()
         self._active_work_item_claims: dict[str, dict[str, Any]] = {}
         self._active_work_item_claims_lock = threading.Lock()
+        self._work_item_lease_heartbeats: dict[
+            str, tuple[threading.Event, threading.Event]
+        ] = {}
+        self._work_item_lease_heartbeats_lock = threading.Lock()
 
         # Pre-import LlamaIndex components in main thread to avoid parallel worker import race conditions
         try:
@@ -3488,11 +3497,81 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _active_work_item_claim(
         self, job_id: str, *, pop: bool = False
     ) -> dict[str, Any] | None:
-        with self._active_work_item_claims_lock:
+        lock = getattr(self, "_active_work_item_claims_lock", None)
+        if lock is None:
+            return None
+        with lock:
             if pop:
                 return self._active_work_item_claims.pop(job_id, None)
             claim = self._active_work_item_claims.get(job_id)
             return dict(claim) if claim is not None else None
+
+    def _start_work_item_lease_heartbeat(self, job_id: str) -> None:
+        """Renew one claimed ingestion WorkItem until its task body returns."""
+        claim = self._active_work_item_claim(job_id)
+        if claim is None:
+            raise RuntimeError(f"ingestion job {job_id!r} has no active WorkItem claim")
+        stop = threading.Event()
+        lost = threading.Event()
+        with self._work_item_lease_heartbeats_lock:
+            self._work_item_lease_heartbeats[job_id] = (stop, lost)
+
+        def _heartbeat_loop() -> None:
+            from agent_utilities.orchestration import work_item as _wi
+
+            while not stop.wait(_TASK_WORK_ITEM_HEARTBEAT_SEC):
+                active_claim = self._active_work_item_claim(job_id)
+                if active_claim is None:
+                    return
+                if not _wi.heartbeat(
+                    self._work_item_engine,
+                    str(active_claim["work_item_id"]),
+                    active_claim,
+                    lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
+                ):
+                    lost.set()
+                    logger.warning(
+                        "ingestion WorkItem lease lost while task %s was running",
+                        job_id,
+                    )
+                    return
+
+        _authorized_background_thread(
+            self._background_session_for_spawn(),
+            _heartbeat_loop,
+            name=f"KGTaskLease-{job_id}",
+        ).start()
+
+    def _stop_work_item_lease_heartbeat(self, job_id: str) -> None:
+        with self._work_item_lease_heartbeats_lock:
+            heartbeat = self._work_item_lease_heartbeats.pop(job_id, None)
+        if heartbeat is not None:
+            heartbeat[0].set()
+
+    def _require_live_work_item_lease(self, job_id: str, claim: dict[str, Any]) -> None:
+        """Fence terminal state changes on a lease renewed immediately before commit."""
+        from agent_utilities.orchestration import work_item as _wi
+
+        with self._work_item_lease_heartbeats_lock:
+            heartbeat = self._work_item_lease_heartbeats.get(job_id)
+        if heartbeat is not None and heartbeat[1].is_set():
+            raise _wi.WorkItemBackendUnavailable(
+                f"ingestion job {job_id!r} lost its WorkItem lease"
+            )
+        work_item_id = str(
+            claim.get("work_item_id") or _wi.ingest_task_work_item_id(job_id)
+        )
+        if not _wi.heartbeat(
+            self._work_item_engine,
+            work_item_id,
+            claim,
+            lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
+        ):
+            if heartbeat is not None:
+                heartbeat[1].set()
+            raise _wi.WorkItemBackendUnavailable(
+                f"ingestion job {job_id!r} lease renewal was rejected"
+            )
 
     def _ingest_task_metadata(self, job_id: str) -> dict[str, Any]:
         """Read an ingestion definition from its sole WorkItem."""
@@ -3523,7 +3602,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             self._work_item_engine,
             queue="ingest_task",
             token=token,
-            lease_ttl_s=_TASK_MAX_RUNTIME_SEC,
+            lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
         )
         if claim is None:
             return None  # authoritative negative; no secondary scan/fallback
@@ -3656,6 +3735,23 @@ class TaskManagerMixin(GraphEngineProtocol):
         budget and starve live queries (CONCEPT:AU-KG.compute.registered-edge-type read/ingest plane
         isolation). Lightweight types (diff/conversation/…) run unthrottled.
         """
+        lease_heartbeat_active = self._active_work_item_claim(job_id) is not None
+        if lease_heartbeat_active:
+            self._start_work_item_lease_heartbeat(job_id)
+        try:
+            self._execute_claimed_task_body(job_id, target_path, is_codebase, task_type)
+        finally:
+            if lease_heartbeat_active:
+                self._stop_work_item_lease_heartbeat(job_id)
+
+    def _execute_claimed_task_body(
+        self,
+        job_id: str,
+        target_path: Path,
+        is_codebase: bool,
+        task_type: str = "document",
+    ) -> None:
+        """Execute the bounded task body while its enclosing lease stays live."""
         _HEAVY_TASK_TYPES = {
             "codebase",
             "document",
@@ -5175,6 +5271,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             raise _wi.WorkItemBackendUnavailable(
                 f"ingestion job {job_id!r} has no active native WorkItem claim"
             )
+        self._require_live_work_item_lease(job_id, claim)
         work_item_id = str(
             claim.get("work_item_id") or _wi.ingest_task_work_item_id(job_id)
         )
@@ -5209,6 +5306,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             raise _wi.WorkItemBackendUnavailable(
                 f"ingestion job {job_id!r} has no active native WorkItem claim"
             )
+        self._require_live_work_item_lease(job_id, claim)
         work_item_id = str(
             claim.get("work_item_id") or _wi.ingest_task_work_item_id(job_id)
         )
