@@ -22,20 +22,36 @@ class _TrackedTransport:
 
     def __init__(self) -> None:
         self.closed = False
+        self.close_calls = 0
         type(self).open_transports += 1
         type(self).live_threads += 1
 
     def close(self) -> None:
+        self.close_calls += 1
         if not self.closed:
             self.closed = True
             type(self).open_transports -= 1
             type(self).live_threads -= 1
 
 
+class _NonOwningView:
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 class _RootEngine:
-    def __init__(self, client: _TrackedTransport) -> None:
+    def __init__(self, transport: _TrackedTransport) -> None:
         self._process_root = self
-        self._client = client
+        self._transport_client = transport
+        self._client = _NonOwningView()
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+        self._transport_client.close()
 
 
 class _GraphView:
@@ -59,5 +75,8 @@ def test_created_root_transports_are_closed_once_without_resource_growth() -> No
     conftest._close_created_graph_transports([*roots, *views, *roots])
 
     assert all(client.closed for client in clients)
+    assert all(client.close_calls == 1 for client in clients)
+    assert all(root.close_calls == 1 for root in roots)
+    assert all(root._client.close_calls == 0 for root in roots)
     assert _TrackedTransport.open_transports == 0
     assert _TrackedTransport.live_threads == 0

@@ -279,8 +279,7 @@ def _close_created_graph_transports(engines: list[Any]) -> None:
         if root is not engine or id(root) in closed_roots:
             continue
         closed_roots.add(id(root))
-        client = getattr(engine, "_client", None)
-        close = getattr(client, "close", None)
+        close = getattr(engine, "close", None)
         if callable(close):
             try:
                 close()

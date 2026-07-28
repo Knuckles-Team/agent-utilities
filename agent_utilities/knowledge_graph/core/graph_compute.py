@@ -1288,6 +1288,31 @@ class GraphComputeEngine:
         """
         return _AsyncProcessClientView(self._client)
 
+    def close(self) -> None:
+        """Close this root's owning native transport exactly once.
+
+        ``client`` is intentionally a session-routed, non-owning view.  The
+        root retains the original transport separately so normal callers and
+        graph-scoped views cannot accidentally stop the shared event loop.
+        """
+        root = getattr(self, "_process_root", self)
+        if root is not self:
+            return
+        transport = None
+        with self._PROCESS_ENGINE_LOCK:
+            if not getattr(self, "_transport_closed", False):
+                self._transport_closed = True
+                transport = getattr(self, "_transport_client", None)
+                self._transport_client = None
+                if type(self)._PROCESS_ENGINE is self:
+                    type(self)._PROCESS_ENGINE = None
+        self._stop_event_bridge()
+        if transport is not None:
+            try:
+                transport.close()
+            except Exception:
+                logger.debug("Failed to close graph transport", exc_info=True)
+
     def for_graph(self, graph_name: str) -> "GraphComputeEngine":
         """Return a no-connection named-graph view over this process transport."""
         target = str(graph_name or self.graph_name)
@@ -1338,6 +1363,12 @@ class GraphComputeEngine:
         # — attribute-transparent; raw client at
         # ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
         self._client: Any
+        self._transport_client: Any | None = None
+        self._transport_closed = False
+        self._event_bridge_stop: threading.Event | None = None
+        self._event_bridge_thread: threading.Thread | None = None
+        self._event_bridge_loop: Any | None = None
+        self._event_bridge_async_stop: Any | None = None
         self._mode: str = "service"
 
         if "endpoint" in kwargs:
@@ -1551,6 +1582,7 @@ class GraphComputeEngine:
         transport_client._au_route_config = config
         transport_client._au_route_endpoints = tuple(endpoints)
         transport_client._au_route_endpoint = endpoint
+        self._transport_client = transport_client
 
         self._client = wrap_client_with_breaker(
             _sync_client_view(transport_client), breaker
@@ -1999,15 +2031,33 @@ class GraphComputeEngine:
             client.placement.route(tenant, sub_key, client_epoch=0)
 
     def _start_event_bridge(self) -> None:
-        """Starts a background bridge to forward local EventBus events to the Rust service."""
+        """Start this root's cancellable local EventBus bridge."""
         import asyncio
-        import threading
 
         from agent_utilities.knowledge_graph.core.event_backend import get_event_backend
+
+        if getattr(self, "_process_root", self) is not self:
+            return
+        with self._PROCESS_ENGINE_LOCK:
+            existing = self._event_bridge_thread
+            if existing is not None and existing.is_alive():
+                return
+            stop_event = threading.Event()
+            self._event_bridge_stop = stop_event
+            self._event_bridge_loop = None
+            self._event_bridge_async_stop = None
 
         def bridge_worker() -> None:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            async_stop = asyncio.Event()
+            if stop_event.is_set():
+                async_stop.set()
+            with self._PROCESS_ENGINE_LOCK:
+                self._event_bridge_loop = loop
+                self._event_bridge_async_stop = async_stop
+            if stop_event.is_set():
+                async_stop.set()
             eb = get_event_backend()
 
             async def handle_mutation(topic: str, payload: dict) -> None:
@@ -2028,20 +2078,68 @@ class GraphComputeEngine:
 
             async def run_subscriber() -> None:
                 await eb.subscribe("kg.mutations", "epistemic-bridge", handle_mutation)
-                # Keep loop alive to process events
-                while True:
-                    await asyncio.sleep(3600)
+                try:
+                    await async_stop.wait()
+                finally:
+                    unsubscribe = getattr(eb, "unsubscribe", None)
+                    if callable(unsubscribe):
+                        await unsubscribe(
+                            "kg.mutations", "epistemic-bridge", handle_mutation
+                        )
 
             try:
                 loop.run_until_complete(run_subscriber())
-            except Exception as e:
-                logger.error("Event bridge worker failed: %s", e)
+            except Exception as exc:
+                logger.error("Event bridge worker failed: %s", exc)
+            finally:
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.close()
+                with self._PROCESS_ENGINE_LOCK:
+                    if self._event_bridge_loop is loop:
+                        self._event_bridge_loop = None
+                        self._event_bridge_async_stop = None
 
         t = threading.Thread(
             target=bridge_worker, daemon=True, name="EventBridgeWorker"
         )
+        with self._PROCESS_ENGINE_LOCK:
+            self._event_bridge_thread = t
         t.start()
         logger.info("Started Local-First EventBus bridge to epistemic-graph")
+
+    def _stop_event_bridge(self) -> None:
+        """Signal and join the root-owned bridge without stopping shared backends."""
+        if getattr(self, "_process_root", self) is not self:
+            return
+        with self._PROCESS_ENGINE_LOCK:
+            stop_event = getattr(self, "_event_bridge_stop", None)
+            worker = getattr(self, "_event_bridge_thread", None)
+            loop = getattr(self, "_event_bridge_loop", None)
+            async_stop = getattr(self, "_event_bridge_async_stop", None)
+        if stop_event is not None:
+            stop_event.set()
+        if loop is not None and async_stop is not None and not loop.is_closed():
+            try:
+                # Queue the signal even before ``run_until_complete`` begins;
+                # otherwise a close in that startup window can strand a worker.
+                loop.call_soon_threadsafe(async_stop.set)
+            except RuntimeError:
+                pass
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=2.0)
+        with self._PROCESS_ENGINE_LOCK:
+            if worker is None or not worker.is_alive():
+                self._event_bridge_stop = None
+                self._event_bridge_thread = None
+                self._event_bridge_loop = None
+                self._event_bridge_async_stop = None
 
     # ── Node CRUD ────────────────────────────────────────────────────────
 

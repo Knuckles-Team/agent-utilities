@@ -18,7 +18,6 @@ async def test_graph_compute_event_bridge():
         "sys.modules",
         {"epistemic_graph": MagicMock(), "epistemic_graph.client": mock_client_module},
     ):
-        mock_client_instance = mock_sync_client.connect.return_value
         import agent_utilities.knowledge_graph.core.event_backend as eb_module
         from agent_utilities.knowledge_graph.core.graph_compute import (
             GraphComputeEngine,
@@ -28,7 +27,8 @@ async def test_graph_compute_event_bridge():
         with patch.dict(
             "os.environ", {"KAFKA_BOOTSTRAP_SERVERS": "", "EVENT_BACKEND": "memory"}
         ):
-            GraphComputeEngine(graph_name="test_graph")
+            engine = GraphComputeEngine(graph_name="test_graph")
+            engine._client.apply_mutation = MagicMock()
 
             # The bridge starts in a background thread. We can simulate the EventBus emission
             # and then check if the client's apply_mutation was called.
@@ -43,7 +43,10 @@ async def test_graph_compute_event_bridge():
 
             import asyncio
 
-            await asyncio.sleep(0.1)  # Wait for the background thread to subscribe
+            for _ in range(20):
+                if eb._subscriptions.get("kg.mutations"):
+                    break
+                await asyncio.sleep(0.05)
 
             # Find the subscriber that was added for "kg.mutations"
             assert "kg.mutations" in eb._subscriptions
@@ -51,7 +54,7 @@ async def test_graph_compute_event_bridge():
             assert len(subscribers) > 0
 
             # Get the callback function and call it manually to test the inner logic
-            callback = subscribers[0][1]
+            callback = subscribers[-1][1]
 
             test_payload = {
                 "event_type": "TRIPLE_INSERT",
@@ -61,6 +64,8 @@ async def test_graph_compute_event_bridge():
 
             await callback("kg.mutations", test_payload)
 
-            mock_client_instance.apply_mutation.assert_called_once_with(
+            engine._client.apply_mutation.assert_called_once_with(
                 "TRIPLE_INSERT", "INSERT DATA { <A> <B> <C> }"
             )
+            engine.close()
+            assert "kg.mutations" not in eb._subscriptions

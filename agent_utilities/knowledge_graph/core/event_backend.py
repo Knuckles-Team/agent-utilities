@@ -118,6 +118,15 @@ class EventBackend(Protocol):
         """
         raise RuntimeError("Protocol method called directly")
 
+    async def unsubscribe(
+        self,
+        topic: str,
+        group: str,
+        handler: EventHandler,
+    ) -> None:
+        """Remove one prior subscription without stopping the shared backend."""
+        raise RuntimeError("Protocol method called directly")
+
     def get_stats(self) -> dict[str, Any]:
         """Return backend statistics (published, consumed, lag, errors)."""
         raise RuntimeError("Protocol method called directly")
@@ -213,6 +222,24 @@ class MemoryEventBackend:
         logger.debug(
             "MemoryEventBackend: subscribed group=%s to topic=%s", group, topic
         )
+
+    async def unsubscribe(
+        self,
+        topic: str,
+        group: str,
+        handler: EventHandler,
+    ) -> None:
+        """Remove exactly this callback, leaving other consumers untouched."""
+        handlers = self._subscriptions.get(topic, [])
+        remaining = [
+            (saved_group, saved_handler)
+            for saved_group, saved_handler in handlers
+            if not (saved_group == group and saved_handler is handler)
+        ]
+        if remaining:
+            self._subscriptions[topic] = remaining
+        else:
+            self._subscriptions.pop(topic, None)
 
     def get_stats(self) -> dict[str, Any]:
         """Return event backbone statistics."""
@@ -441,6 +468,35 @@ class RedpandaEventBackend:
         # Start background consumer loop if needed
         if self._consumer_task is None or self._consumer_task.done():
             self._consumer_task = asyncio.create_task(self._consumer_loop())
+
+    async def unsubscribe(
+        self,
+        topic: str,
+        group: str,
+        handler: EventHandler,
+    ) -> None:
+        """Remove one handler and close its now-unused consumer, if any."""
+        if self._fallback:
+            await self._fallback.unsubscribe(topic, group, handler)
+            return
+        handlers = self._handlers.get(topic, [])
+        remaining = [
+            (saved_group, saved_handler)
+            for saved_group, saved_handler in handlers
+            if not (saved_group == group and saved_handler is handler)
+        ]
+        if remaining:
+            self._handlers[topic] = remaining
+        else:
+            self._handlers.pop(topic, None)
+        if any(saved_group == group for saved_group, _ in remaining):
+            return
+        consumer = self._consumers.pop(f"{topic}:{group}", None)
+        if consumer is not None:
+            try:
+                consumer.close()
+            except Exception as exc:
+                logger.debug("Failed to close event consumer: %s", type(exc).__name__)
 
     def get_stats(self) -> dict[str, Any]:
         """Return Kafka event backbone statistics."""
