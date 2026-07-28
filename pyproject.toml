@@ -418,9 +418,11 @@ test = [
     "pytest-env>=1.7.0",
     "pytest-timeout>=2.4.0",
     "syrupy>=5.5.3",
-    "opentelemetry-instrumentation-starlette>=0.65b0",
-    "opentelemetry-instrumentation-fastapi>=0.65b0",
-    "opentelemetry-instrumentation-asgi>=0.65b0",
+    # Keep the test instrumentation on the semantic-conventions line selected
+    # by Logfire and Mistral, rather than requiring an unreleased newer line.
+    "opentelemetry-instrumentation-starlette>=0.60b0",
+    "opentelemetry-instrumentation-fastapi>=0.60b0",
+    "opentelemetry-instrumentation-asgi>=0.60b0",
     # CONCEPT:KG-2.324 — numpy is a DEV/TEST-ONLY dependency (never runtime): it is the
     # GROUND-TRUTH reference in tests/test_numeric_parity.py that proves the compiled
     # `epistemic_graph.numeric` kernel matches numpy. The runtime path imports numpy
