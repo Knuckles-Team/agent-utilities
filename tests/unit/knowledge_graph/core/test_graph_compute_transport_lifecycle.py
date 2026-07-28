@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import select
+import socket
 import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
@@ -53,6 +59,115 @@ class _QueuedLoop:
 class _AsyncStop:
     def set(self) -> None:
         return None
+
+
+class _NativeLikeTransport:
+    """Real OS resources matching one native client's ownership shape."""
+
+    def __init__(self) -> None:
+        self.close_calls = 0
+        self.closed = False
+        self._reader, self._writer = socket.socketpair()
+        self._epoll = select.epoll()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._stop.wait, daemon=True)
+        self._thread.start()
+
+    def close(self) -> None:
+        self.close_calls += 1
+        if self.closed:
+            return
+        self.closed = True
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+        self._reader.close()
+        self._writer.close()
+        self._epoll.close()
+
+
+def _fd_count() -> int:
+    return len(os.listdir("/proc/self/fd"))
+
+
+def _patch_duplicate_constructor(
+    monkeypatch, transports: list[_NativeLikeTransport]
+) -> None:
+    """Make the final singleton race deterministic without a live engine."""
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    from agent_utilities.core import config as core_config
+    from agent_utilities.knowledge_graph.core import (
+        engine_breaker,
+        engine_resolver,
+        graph_compute,
+        session,
+        shard_topology,
+    )
+
+    class _Breaker:
+        def before_call(self) -> None:
+            return None
+
+        def record_success(self) -> None:
+            return None
+
+    def connect(**_kwargs):
+        transport = _NativeLikeTransport()
+        transports.append(transport)
+        return transport
+
+    def start_bridge(self) -> None:
+        self._event_bridge_stop = threading.Event()
+        self._event_bridge_thread = threading.Thread(
+            target=self._event_bridge_stop.wait,
+            daemon=True,
+        )
+        self._event_bridge_thread.start()
+        # Simulate a peer winning the singleton race after this constructor
+        # acquired its transport and started its bridge.
+        GraphComputeEngine._PROCESS_ENGINE = object()
+
+    def stop_bridge(self) -> None:
+        stop = self._event_bridge_stop
+        worker = self._event_bridge_thread
+        if stop is not None:
+            stop.set()
+        if worker is not None:
+            worker.join(timeout=1.0)
+        self._event_bridge_stop = None
+        self._event_bridge_thread = None
+
+    monkeypatch.setattr(
+        core_config,
+        "AgentConfig",
+        lambda: SimpleNamespace(kg_default_graph="__commons__"),
+    )
+    monkeypatch.setattr(
+        engine_resolver,
+        "resolve_engine",
+        lambda *_args: engine_resolver.ResolvedEngine(
+            endpoint="unix:///tmp/graph-compute-duplicate-test.sock",
+            auth_secret="test-secret",
+            mode="shared",
+            autostart_allowed=False,
+            idle_shutdown_secs=0,
+        ),
+    )
+    monkeypatch.setattr(
+        shard_topology, "resolve_endpoints", lambda _config: ["unix://x"]
+    )
+    monkeypatch.setattr(shard_topology, "record_shard_connect", lambda *_args: None)
+    monkeypatch.setattr(session, "graph_session_required", lambda: True)
+    monkeypatch.setattr(engine_breaker, "get_breaker", lambda _endpoint: _Breaker())
+    monkeypatch.setattr(
+        engine_breaker, "wrap_client_with_breaker", lambda view, _breaker: view
+    )
+    monkeypatch.setattr(SyncEpistemicGraphClient, "connect", staticmethod(connect))
+    monkeypatch.setattr(graph_compute, "_sync_client_view", lambda _transport: object())
+    monkeypatch.setattr(graph_compute, "setting", lambda _name: "")
+    monkeypatch.setattr(GraphComputeEngine, "_start_event_bridge", start_bridge)
+    monkeypatch.setattr(GraphComputeEngine, "_stop_event_bridge", stop_bridge)
+    monkeypatch.setattr(GraphComputeEngine, "_PROCESS_ENGINE", None)
 
 
 def test_root_close_uses_owning_transport_not_routed_view(monkeypatch) -> None:
@@ -152,3 +267,29 @@ def test_repeated_root_close_retries_bridge_shutdown_without_reclosing_transport
     root.close()
 
     root._stop_event_bridge.assert_called_once_with()
+
+
+@pytest.mark.skipif(
+    not os.path.isdir("/proc/self/fd") or not hasattr(select, "epoll"),
+    reason="requires Linux /proc FD accounting and epoll",
+)
+def test_failed_duplicate_construction_releases_native_resources(monkeypatch) -> None:
+    """A post-connect singleton rejection leaves no socket, epoll, or thread."""
+    transports: list[_NativeLikeTransport] = []
+    _patch_duplicate_constructor(monkeypatch, transports)
+    baseline_fds = _fd_count()
+    baseline_threads = threading.active_count()
+
+    for _ in range(32):
+        with pytest.raises(
+            RuntimeError, match="Concurrent duplicate graph transport rejected"
+        ):
+            GraphComputeEngine()
+        assert transports[-1].closed
+        assert transports[-1].close_calls == 1
+        assert _fd_count() == baseline_fds
+        assert threading.active_count() == baseline_threads
+        GraphComputeEngine._PROCESS_ENGINE = None
+
+    assert len(transports) == 32
+    assert all(transport.closed for transport in transports)

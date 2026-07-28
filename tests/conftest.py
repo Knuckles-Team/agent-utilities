@@ -281,12 +281,7 @@ def _close_created_graph_transports(engines: list[Any]) -> None:
         closed_roots.add(id(root))
         close = getattr(engine, "close", None)
         if callable(close):
-            try:
-                close()
-            except Exception:
-                # Test cleanup must not hide the test's own failure.  The
-                # fixture still restores its task-local session below.
-                pass
+            close()
 
 
 @pytest.fixture(autouse=True)

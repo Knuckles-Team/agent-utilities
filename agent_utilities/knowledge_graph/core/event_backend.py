@@ -495,8 +495,8 @@ class RedpandaEventBackend:
         if consumer is not None:
             try:
                 consumer.close()
-            except Exception as exc:
-                logger.debug("Failed to close event consumer: %s", type(exc).__name__)
+            except Exception:
+                logger.debug("Failed to close event consumer", exc_info=True)
 
     def get_stats(self) -> dict[str, Any]:
         """Return Kafka event backbone statistics."""
@@ -585,9 +585,12 @@ def get_event_backend(**kwargs: Any) -> MemoryEventBackend | RedpandaEventBacken
         # Ideally, start() is called by the application lifecycle, but for safety in dev:
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(_GLOBAL_EVENT_BACKEND.start())
         except RuntimeError:
-            pass
+            # A synchronous caller has no ambient event loop. Its explicit
+            # lifecycle owner starts the backend instead.
+            loop = None
+        if loop is not None:
+            loop.create_task(_GLOBAL_EVENT_BACKEND.start())
     return _GLOBAL_EVENT_BACKEND
 
 
