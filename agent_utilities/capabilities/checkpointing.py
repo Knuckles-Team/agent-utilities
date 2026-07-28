@@ -99,6 +99,7 @@ class GraphCheckpointStore(CheckpointStore):
     async def save(self, checkpoint: Checkpoint) -> None:
         from agent_utilities.models.knowledge_graph import (
             CheckpointNode,
+            RegistryEdgeType,
             RegistryNodeType,
         )
 
@@ -117,18 +118,26 @@ class GraphCheckpointStore(CheckpointStore):
             metadata=checkpoint.metadata,
         )
         try:
-            self.engine.graph.add_node(node.id, **node.model_dump())
-            if self.engine.backend:
-                await self.engine.backend.upsert_node(
-                    RegistryNodeType.CHECKPOINT, node.id, node.model_dump()
-                )
+            properties = node.model_dump(mode="json")
+            node_type = str(properties.pop("type"))
+            add_node = getattr(self.engine, "add_node", None)
+            if callable(add_node):
+                add_node(node.id, node_type, properties=properties)
+            else:
+                self.engine.graph.add_node(node.id, node_type=node_type, **properties)
 
             # Link to episode
             episode_id = checkpoint.metadata.get("episode_id")
             if episode_id:
-                self.engine.graph.add_edge(
-                    node.id, episode_id, relationship="SNAPSHOT_OF"
-                )
+                add_edge = getattr(self.engine, "add_edge", None)
+                if callable(add_edge):
+                    add_edge(node.id, episode_id, RegistryEdgeType.SNAPSHOT_OF.name)
+                else:
+                    self.engine.graph.add_edge(
+                        node.id,
+                        episode_id,
+                        relationship=RegistryEdgeType.SNAPSHOT_OF.name,
+                    )
         except Exception as e:
             logger.error(f"Failed to save checkpoint to graph: {e}")
 

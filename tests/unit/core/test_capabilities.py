@@ -17,12 +17,28 @@ Targets pure-logic / mocked-engine paths for:
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+
+class _CheckpointGraph:
+    """Minimal graph view for checkpoint write-contract tests."""
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict[str, Any]] = {}
+        self.edges: list[tuple[str, str, dict[str, Any]]] = []
+
+    def add_node(self, node_id: str, **properties: Any) -> None:
+        self.nodes[node_id] = dict(properties)
+
+    def add_edge(self, source: str, target: str, **properties: Any) -> None:
+        self.edges.append((source, target, dict(properties)))
+
 
 # ---------------------------------------------------------------------------
 # Checkpoint & CheckpointStore implementations
@@ -201,39 +217,59 @@ async def test_checkpoint_toolset_rewind_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_graph_checkpoint_store_save_no_backend() -> None:
-    """Save works with engine and no backend."""
+    """Save uses the typed engine seam with no configured backend."""
     from agent_utilities.capabilities.checkpointing import (
         Checkpoint,
         GraphCheckpointStore,
     )
 
-    engine = MagicMock()
-    engine.backend = None
-    engine.graph = GraphComputeEngine(backend_type="rust")
-    store = GraphCheckpointStore(engine)
-    cp = Checkpoint(id="cp1", label="l", turn=1, messages=[], metadata={})
-    await store.save(cp)
-    assert "cp1" in engine.graph.nodes
-
-
-@pytest.mark.asyncio
-async def test_graph_checkpoint_store_save_with_backend() -> None:
-    """Save with backend calls upsert_node."""
-    from agent_utilities.capabilities.checkpointing import (
-        Checkpoint,
-        GraphCheckpointStore,
-    )
-
-    engine = MagicMock()
-    engine.backend = MagicMock()
-    engine.backend.upsert_node = AsyncMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
+    graph = _CheckpointGraph()
+    engine = SimpleNamespace(backend=None, graph=graph)
     store = GraphCheckpointStore(engine)
     cp = Checkpoint(
         id="cp1", label="l", turn=1, messages=[], metadata={"episode_id": "ep1"}
     )
     await store.save(cp)
-    engine.backend.upsert_node.assert_called_once()
+    assert graph.nodes["cp1"]["node_type"] == "checkpoint"
+    assert "type" not in graph.nodes["cp1"]
+    assert graph.edges == [("cp1", "ep1", {"relationship": "SNAPSHOT_OF"})]
+
+
+@pytest.mark.asyncio
+async def test_graph_checkpoint_store_save_with_backend() -> None:
+    """Save delegates backend persistence to the typed engine seam once."""
+    from agent_utilities.capabilities.checkpointing import (
+        Checkpoint,
+        GraphCheckpointStore,
+    )
+
+    graph = _CheckpointGraph()
+    backend = MagicMock()
+    backend.upsert_node = AsyncMock()
+    add_node = MagicMock(
+        side_effect=lambda node_id, node_type, properties: graph.add_node(
+            node_id, node_type=node_type, **properties
+        )
+    )
+    add_edge = MagicMock(
+        side_effect=lambda source, target, relationship: graph.add_edge(
+            source, target, relationship=relationship
+        )
+    )
+    engine = SimpleNamespace(
+        backend=backend, graph=graph, add_node=add_node, add_edge=add_edge
+    )
+    store = GraphCheckpointStore(engine)
+    cp = Checkpoint(
+        id="cp1", label="l", turn=1, messages=[], metadata={"episode_id": "ep1"}
+    )
+    await store.save(cp)
+    add_node.assert_called_once()
+    add_edge.assert_called_once_with("cp1", "ep1", "SNAPSHOT_OF")
+    backend.upsert_node.assert_not_called()
+    assert graph.nodes["cp1"]["node_type"] == "checkpoint"
+    assert "type" not in graph.nodes["cp1"]
+    assert graph.edges == [("cp1", "ep1", {"relationship": "SNAPSHOT_OF"})]
 
 
 @pytest.mark.asyncio
