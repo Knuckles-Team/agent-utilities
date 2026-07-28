@@ -10,6 +10,9 @@ path and the real seeding/resolution path, not just the data file.
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from agent_utilities.agent.registry_builder import (
     _BUILTIN_AGENT_TEMPLATES,
@@ -65,9 +68,28 @@ def test_expert_loads_from_registry() -> None:
     assert "Agent Utilities Ecosystem Expert" in rendered
 
 
-def test_expert_is_a_dispatchable_agent_template(monkeypatch) -> None:
+def test_expert_is_a_dispatchable_agent_template(monkeypatch, tmp_path: Path) -> None:
     """Seeding registers a resolvable AgentTemplate bound to the prompt + local model."""
-    monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.example.test/mcp")
+    # Live GraphOS deliberately has no graph-os child in MCP_CONFIG: self tools
+    # must bind in-process, while the remaining declared fleet toolsets stay HTTP.
+    config_path = tmp_path / "mcp.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    name: {"url": f"https://{name}.example.test/mcp"}
+                    for name in (
+                        "repository-manager-mcp",
+                        "data-science-mcp",
+                        "scholarx-mcp",
+                    )
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MCP_CONFIG", str(config_path))
+    monkeypatch.delenv("FLEET_MCP_URL_TEMPLATE", raising=False)
     tmpl = next(t for t in _BUILTIN_AGENT_TEMPLATES if t["name"] == EXPERT)
     assert tmpl["system_prompt_id"] == f"prompt:{EXPERT}"
     assert tmpl["model_preference"].startswith("qwen/")
@@ -103,7 +125,13 @@ def test_expert_is_a_dispatchable_agent_template(monkeypatch) -> None:
     # the dispatched expert can query graph-os and ground its answer (the fix that
     # stops the prompt-only hallucination). Assert the binding + the routing
     # predicate that sends it down the direct grounding loop.
-    config = _build_execution_config(engine, EXPERT, meta)
+    config = _build_execution_config(
+        engine,
+        EXPERT,
+        meta,
+        recent_mementos=[],
+        allowed_tools=["graph_analyze"],
+    )
     bound = config.get("mcp_toolsets") or []
     assert len(bound) == len(meta["capabilities"]), (
         "every declared toolset_id must bind to a live toolset"
@@ -113,6 +141,91 @@ def test_expert_is_a_dispatchable_agent_template(monkeypatch) -> None:
     )
     # The persona (not the bare 'Specialized agent' placeholder) drives the run.
     assert "Agent Utilities Ecosystem Expert" in config["tag_prompts"][EXPERT]
+    native = next(toolset for toolset in bound if toolset.id == "graph-os")
+    assert native.metadata == {"graphos_native": True}
+    assert list(native.tools) == ["graph_analyze"]
+
+
+def test_agent_template_rejects_explicit_undeclared_tool_allow_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Caller grants may narrow an AgentTemplate, never add capabilities."""
+    meta = {
+        "type": "agent_template",
+        "capabilities": ["graph-os"],
+        "tools": [{"name": "graph_analyze"}],
+    }
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.agent_runner._configured_model_for_class",
+        lambda _model_class: SimpleNamespace(
+            id="synthetic-model",
+            provider="test",
+            base_url=None,
+            api_key_ref=None,
+        ),
+    )
+
+    with pytest.raises(PermissionError, match="undeclared tool"):
+        _build_execution_config(
+            None,
+            "synthetic-template",
+            meta,
+            recent_mementos=[],
+            allowed_tools=["graph_query"],
+        )
+
+
+def test_expert_binds_graphos_natively_without_mcp_config_entry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The resident expert never resolves its declared graph-os toolset over HTTP."""
+    config_path = tmp_path / "mcp.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "repository-manager-mcp": {
+                        "url": "https://repository-manager.example.test/mcp"
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MCP_CONFIG", str(config_path))
+    monkeypatch.delenv("FLEET_MCP_URL_TEMPLATE", raising=False)
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.agent_runner._configured_model_for_class",
+        lambda _model_class: SimpleNamespace(
+            id="synthetic-model",
+            provider="test",
+            base_url=None,
+            api_key_ref=None,
+        ),
+    )
+    template = next(item for item in _BUILTIN_AGENT_TEMPLATES if item["name"] == EXPERT)
+    meta = {
+        "type": "agent_template",
+        "capabilities": ["graph-os", "repository-manager-mcp"],
+        "tools": [],
+        "system_prompt": "Synthetic expert prompt",
+    }
+    assert set(meta["capabilities"]).issubset(template["toolset_ids"])
+
+    config = _build_execution_config(
+        object(),
+        EXPERT,
+        meta,
+        recent_mementos=[],
+        allowed_tools=["graph_analyze"],
+    )
+
+    native = next(
+        toolset for toolset in config["mcp_toolsets"] if toolset.id == "graph-os"
+    )
+    assert native.metadata == {"graphos_native": True}
+    assert list(native.tools) == ["graph_analyze"]
+    assert len(config["mcp_toolsets"]) == 2
 
 
 def test_resolve_toolset_ids_binds_live_toolsets(monkeypatch) -> None:
@@ -124,7 +237,7 @@ def test_resolve_toolset_ids_binds_live_toolsets(monkeypatch) -> None:
     """
     monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.example.test/mcp")
     engine = IntelligenceGraphEngine(db_path=":memory:")
-    ids = ["graph-os", "repository-manager-mcp", "data-science-mcp"]
+    ids = ["repository-manager-mcp", "data-science-mcp"]
     toolsets = _resolve_toolset_ids(engine, ids)
     assert len(toolsets) == len(ids)
     # Each is a real callable toolset (supports tool filtering — the least-privilege

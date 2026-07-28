@@ -786,6 +786,7 @@ async def run_agent(
         recent_mementos=recent_mementos,
         code_context_prime=code_context_prime,
         model_class=model_class,
+        allowed_tools=allowed_tools,
     )
     config["response_format"] = response_format
     # CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context + token budget into the spawn.
@@ -830,8 +831,6 @@ async def run_agent(
         effective_budget_tokens = DEFAULT_TOKEN_BUDGET
     if effective_budget_tokens:
         config["invoker_budget_tokens"] = int(effective_budget_tokens)
-    if allowed_tools:
-        config["invoker_allowed_tools"] = list(allowed_tools)
     _bind_native_skill_toolset(
         config=config,
         agent_meta=agent_meta,
@@ -1862,13 +1861,20 @@ def _spawn_auth_headers() -> dict[str, str]:
     return child_auth_header(None)
 
 
-def _toolset_for_id(_engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
+def _toolset_for_id(
+    _engine: IntelligenceGraphEngine,
+    toolset_id: str,
+    *,
+    allowed_tools: list[str] | None = None,
+) -> Any:
     """Resolve ONE AgentTemplate ``toolset_id`` to a live MCP toolset.
 
     CONCEPT:AU-ORCH.adapter.transport-toolset-factory — the binding seam that turns a KG-bound persona's declared
     toolsets into tools the local LLM can actually call. Resolution reuses the
     existing Server/mcp_config + fleet-URL machinery (no new binder, no new
-    transport code):
+    transport code). ``graph-os`` is the one deliberate exception: it is this
+    process, so it binds only the caller-granted native tools and never opens a
+    self-HTTP connection.
 
     Resolution uses only the active AgentConfig URL template or the live fleet
     configuration. KG ``Server.url`` values are opaque provenance references,
@@ -1881,6 +1887,32 @@ def _toolset_for_id(_engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
     tid = (toolset_id or "").strip()
     if not tid:
         return None
+
+    if tid == "graph-os":
+        requested = [
+            str(name).strip() for name in allowed_tools or [] if str(name).strip()
+        ]
+        if not requested:
+            raise PermissionError(
+                "graph-os AgentTemplate binding requires an explicit bounded tool allow-list"
+            )
+        if len(requested) != len(set(requested)):
+            raise ValueError("GraphOS tool allow-list contains duplicates")
+
+        from agent_utilities.mcp.kg_server import (
+            REGISTERED_TOOLS,
+            build_native_graphos_toolset,
+            ensure_tools_registered,
+        )
+
+        ensure_tools_registered()
+        if "graph_orchestrate" in requested:
+            raise PermissionError("recursive native GraphOS delegation is forbidden")
+        if any(name not in REGISTERED_TOOLS for name in requested):
+            raise PermissionError(
+                "GraphOS tool allow-list contains a tool not declared by graph-os"
+            )
+        return build_native_graphos_toolset(requested, toolset_id=tid)
 
     from agent_utilities.mcp.toolset_factory import build_http_toolset
 
@@ -1900,7 +1932,10 @@ def _toolset_for_id(_engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
 
 
 def _resolve_toolset_ids(
-    engine: IntelligenceGraphEngine, toolset_ids: list[str]
+    engine: IntelligenceGraphEngine,
+    toolset_ids: list[str],
+    *,
+    allowed_tools: list[str] | None = None,
 ) -> list[Any]:
     """Bind an AgentTemplate's ``toolset_ids`` into a list of live MCP toolsets.
 
@@ -1910,7 +1945,7 @@ def _resolve_toolset_ids(
     """
     bound: list[Any] = []
     for tid in toolset_ids or []:
-        ts = _toolset_for_id(engine, tid)
+        ts = _toolset_for_id(engine, tid, allowed_tools=allowed_tools)
         if ts is None:
             raise RuntimeError("declared toolset could not be bound")
         bound.append(ts)
@@ -2061,6 +2096,7 @@ def _build_execution_config(
     recent_mementos: list[str] | None = None,
     code_context_prime: str | None = None,
     model_class: str = "standard",
+    allowed_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build a graph execution config dict from KG-resolved agent metadata.
 
@@ -2181,6 +2217,8 @@ def _build_execution_config(
         "enable_llm_validation": False,
         "discovery_metadata": {},
     }
+    if allowed_tools:
+        config["invoker_allowed_tools"] = list(allowed_tools)
 
     # Bind a server only through the live fleet configuration. KG server nodes
     # carry capability identity and opaque provenance, never executable transport.
@@ -2200,7 +2238,19 @@ def _build_execution_config(
     # fleet and GROUND its answers (query-the-KG-then-answer). Reuses the same
     # Server/fleet-URL resolution + toolset_factory — no new binder.
     if agent_meta.get("type") == "agent_template":
-        bound = _resolve_toolset_ids(engine, agent_meta.get("capabilities", []))
+        declared_tools = {
+            str(tool.get("name") or "").strip()
+            for tool in agent_meta.get("tools") or []
+            if isinstance(tool, dict) and str(tool.get("name") or "").strip()
+        }
+        requested_tools = set(config.get("invoker_allowed_tools") or [])
+        if declared_tools and not requested_tools.issubset(declared_tools):
+            raise PermissionError("AgentTemplate requested an undeclared tool")
+        bound = _resolve_toolset_ids(
+            engine,
+            agent_meta.get("capabilities", []),
+            allowed_tools=config.get("invoker_allowed_tools"),
+        )
         if bound:
             config["mcp_toolsets"].extend(bound)
             logger.info(
