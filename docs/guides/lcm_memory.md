@@ -101,6 +101,16 @@ Compaction is no longer a standalone daemon thread. It runs as the
 (`knowledge_graph/core/engine_tasks.py`), which gates all `_tick_*` jobs behind
 a single background-throttle:
 
+GraphOS boot hydration uses the same resource order: priority 1 establishes
+runnable skills plus MCP and GraphOS tool metadata, priority 2 ingests prompts
+and agent templates, priority 3 loads package ontologies, and priority 4 queues
+git-SHA-incremental code and only connector providers that pass the governed
+availability precheck. Each phase writes a stable `HydrationPlanStep` status
+when the active engine supports graph writes. Foreground graph execution holds
+the shared foreground lease for batch, SSE, and iterative calls; bounded
+background ingestion observes that lease between batches and ramps down until
+the foreground run ends.
+
 - **Interval**: Every 30 minutes (the `compaction` job is registered at `1800.0`s)
 - **Threshold**: `Thread` nodes with > 30 uncompacted messages
 - **Strategy**: Progressive compaction (oldest messages first), via

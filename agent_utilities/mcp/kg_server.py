@@ -2808,7 +2808,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
     # path when an operator wants every live tool schema elevated into the KG.
 
 
-# ── Phase F boot hydration legs (ingestion-hydration-program.md §3) ─────────
+# ── Boot hydration plan (ingestion-hydration-program.md §3) ─────────────────
 #
 # ``_ingest_capabilities`` above (mcp_config.json / native tools / skills) is
 # the ORIGINAL boot hydration; the two helpers below extend it with the
@@ -2820,6 +2820,98 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
 # router (Phase B) need no boot call here: A rides its own hourly
 # ``deploy/schedules.yml`` cadence (``fleet-tool-schema-sync``) and B rides the
 # always-on codebase sweep's ``_route_classified_artifacts`` fan-out.
+
+
+def _record_boot_hydration_step(
+    engine: Any, name: str, priority: int, status: str
+) -> None:
+    """Persist the small boot plan state when the active engine accepts nodes.
+
+    The record is deliberately stable per step, not a new unbounded node for
+    every process start.  It gives operators a durable answer to "which boot
+    hydration phase last ran?" while keeping every actual ingest on its owned
+    incremental/checkpointed implementation.
+    """
+    add_node = getattr(engine, "add_node", None)
+    if not callable(add_node):
+        return
+    try:
+        add_node(
+            f"boot-hydration:{name}",
+            "HydrationPlanStep",
+            {
+                "name": name,
+                "priority": priority,
+                "status": status,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+        )
+    except Exception:  # noqa: BLE001 - observability must not stop hydration
+        logger.debug("boot hydration plan record failed for %s", name, exc_info=True)
+
+
+def _hydrate_code_and_configured_connectors(engine: Any) -> None:
+    """Queue the lowest-priority checkpointed hydration work.
+
+    Code uses the existing breadth ingest (which performs its git-SHA pre-skip)
+    and connectors use ``sweep_all_sources`` (which prechecks the signed
+    provider contract before queue publication).  Empty configured roots are a
+    valid no-op for a packaged/tiny deployment; no guessed workstation path is
+    ever scanned.
+    """
+    from agent_utilities.core.config import config
+    from agent_utilities.knowledge_graph.assimilation.breadth_ingest import (
+        run_breadth_ingest,
+    )
+    from agent_utilities.knowledge_graph.core.source_sync import sweep_all_sources
+
+    library_roots = [p for p in config.kg_breadth_library_roots.split(",") if p]
+    repo_roots = [p for p in config.kg_breadth_repo_roots.split(",") if p]
+    if library_roots or repo_roots:
+        run_breadth_ingest(engine, library_roots=library_roots, repo_roots=repo_roots)
+    # This is intentionally enqueue-only.  ``sweep_all_sources`` rejects known
+    # unavailable providers before creating work, so boot never spends an engine
+    # lease on a connector that is guaranteed to fail.
+    sweep_all_sources(engine, mode="delta", enqueue=True)
+
+
+def _run_boot_hydration_plan(
+    engine: Any, *, skip_skill_names: frozenset[str] = frozenset()
+) -> None:
+    """Run GraphOS boot hydration in its fixed resource-priority order.
+
+    1. runnable skills plus MCP declarations and GraphOS tool metadata;
+    2. prompts/agent templates;
+    3. package ontologies; and
+    4. codebases and configured connectors through their durable delta queues.
+
+    Each step is isolated so a failed optional source cannot prevent later
+    priority classes from making progress.
+    """
+    steps = (
+        (
+            "capabilities",
+            1,
+            lambda: _ingest_capabilities(engine, skip_skill_names=skip_skill_names),
+        ),
+        ("graphos_tool_surface", 1, lambda: _ingest_self_tool_surface_at_boot(engine)),
+        ("prompts", 2, _ingest_prompts_at_boot),
+        ("ontologies", 3, lambda: _sync_ontologies_at_boot(engine)),
+        (
+            "code_and_connectors",
+            4,
+            lambda: _hydrate_code_and_configured_connectors(engine),
+        ),
+    )
+    for name, priority, step in steps:
+        _record_boot_hydration_step(engine, name, priority, "running")
+        try:
+            step()
+        except Exception:  # noqa: BLE001 - each plan leg is independently retryable
+            _record_boot_hydration_step(engine, name, priority, "failed")
+            logger.error("Boot hydration step %s failed", name, exc_info=True)
+        else:
+            _record_boot_hydration_step(engine, name, priority, "completed")
 
 
 def _ingest_prompts_at_boot() -> None:
@@ -2891,6 +2983,19 @@ def _ingest_self_tool_surface_at_boot(engine: Any) -> None:
         )
     except Exception as exc:
         logger.error("Self tool-surface boot ingestion failed: %s", exc)
+
+
+def _sync_ontologies_at_boot(engine: Any) -> None:
+    """Load package ontologies after runnable resources are available."""
+    from agent_utilities.knowledge_graph.ontology.lifecycle import OntologyLifecycle
+    from agent_utilities.mcp.tools.ontology_tools import _sync_package_ontologies
+
+    report = _sync_package_ontologies(OntologyLifecycle(engine=engine))
+    if report.get("providers_loaded"):
+        logger.info(
+            "Ontology federation: loaded %d package ontolog(ies) at boot",
+            report["providers_loaded"],
+        )
 
 
 def _mint_process_session(transport: str) -> Any:
@@ -3140,37 +3245,10 @@ def _start_engine_bootstrap(session: Any) -> None:
                 and not getattr(engine.backend, "read_only", False)
             ):
                 engine.start_task_workers()
-            # The listener barrier already reconciled the exact packaged skill
-            # contract. Continue all broader discovery asynchronously, but do
-            # not rewrite or overlay those ten resources a second time.
-            _ingest_capabilities(
-                engine,
-                skip_skill_names=frozenset(BUNDLED_SKILLS),
-            )
-
-            # Phase F (ingestion-hydration-program.md §3): the two boot-hydration
-            # legs Phases C/E built but never wired to a boot call. Each is its
-            # own isolated, logged, best-effort step (see their docstrings) —
-            # non-blocking and default-on, no new opt-in flag.
-            _ingest_prompts_at_boot()
-            _ingest_self_tool_surface_at_boot(engine)
-
-            try:
-                from agent_utilities.knowledge_graph.ontology.lifecycle import (
-                    OntologyLifecycle,
-                )
-                from agent_utilities.mcp.tools.ontology_tools import (
-                    _sync_package_ontologies,
-                )
-
-                report = _sync_package_ontologies(OntologyLifecycle(engine=engine))
-                if report.get("providers_loaded"):
-                    logger.info(
-                        "Ontology federation: loaded %d package ontolog(ies) at boot",
-                        report["providers_loaded"],
-                    )
-            except Exception as exc:
-                logger.error("Ontology federation sync at boot failed: %s", exc)
+            # The listener barrier already reconciled bundled skills.  Continue
+            # broader discovery via the durable, fixed-priority plan without
+            # blocking serving.
+            _run_boot_hydration_plan(engine, skip_skill_names=frozenset(BUNDLED_SKILLS))
         except Exception as exc:
             logger.error("KG engine background bootstrap failed: %s", exc)
 

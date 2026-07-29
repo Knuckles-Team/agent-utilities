@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 import asyncio
 import contextlib
+import functools
+import inspect
 import json
 import secrets
 import time
@@ -70,6 +72,34 @@ from agent_utilities.models.execution_manifest import (
     ExecutionManifest,
     ExecutionResult,
 )
+
+
+def _foreground_execution(fn):
+    """Hold the shared foreground lease for every public graph-run shape.
+
+    Background ingestion already cooperatively checks this lease between bounded
+    batches.  Keeping the lease at the canonical execution engine (rather than
+    at one protocol adapter) means direct, streaming, and iterator callers all
+    cause the same prompt ramp-down.
+    """
+    from agent_utilities.core.background_throttle import get_throttle
+
+    if inspect.isasyncgenfunction(fn):
+
+        @functools.wraps(fn)
+        async def stream_wrapper(*args, **kwargs):
+            with get_throttle().foreground():
+                async for item in fn(*args, **kwargs):
+                    yield item
+
+        return stream_wrapper
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        with get_throttle().foreground():
+            return await fn(*args, **kwargs)
+
+    return wrapper
 
 
 def _is_agent_error(output: str) -> bool:
@@ -300,6 +330,7 @@ class AgentOrchestrationEngine:
         return successors[0] if successors else "END"
 
     # --- Graph Execution (pydantic-graph) ---
+    @_foreground_execution
     async def execute_graph(
         self,
         graph,
@@ -826,6 +857,7 @@ class AgentOrchestrationEngine:
             tool_calls=list(getattr(state, "tool_calls", []) or []),
         ).model_dump()
 
+    @_foreground_execution
     async def stream_graph(
         self,
         graph,
@@ -1056,6 +1088,7 @@ class AgentOrchestrationEngine:
             final_output = "No output generated."
         yield f"data: {json.dumps({'type': 'final_output', 'content': final_output})}\n\n"
 
+    @_foreground_execution
     async def iter_graph(
         self,
         graph,

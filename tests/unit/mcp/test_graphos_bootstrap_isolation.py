@@ -363,7 +363,7 @@ def test_noncritical_bootstrap_skips_packaged_skill_reingestion() -> None:
     from agent_utilities.skills import BUNDLED_SKILLS
 
     session = _verified_session()
-    ingest = MagicMock()
+    plan = MagicMock()
 
     class Engine:
         backend = object()
@@ -392,7 +392,7 @@ def test_noncritical_bootstrap_skips_packaged_skill_reingestion() -> None:
                 "ready": 10,
             },
         ),
-        patch.object(kg_server, "_ingest_capabilities", ingest),
+        patch.object(kg_server, "_run_boot_hydration_plan", plan),
         patch(
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
             side_effect=authorized,
@@ -404,7 +404,7 @@ def test_noncritical_bootstrap_skips_packaged_skill_reingestion() -> None:
     ):
         kg_server._start_engine_bootstrap(session)
 
-    ingest.assert_called_once_with(
+    plan.assert_called_once_with(
         ANY,
         skip_skill_names=frozenset(BUNDLED_SKILLS),
     )
@@ -417,9 +417,7 @@ def test_noncritical_bootstrap_runs_phase_f_hydration_legs() -> None:
     from agent_utilities.mcp import kg_server
 
     session = _verified_session()
-    ingest = MagicMock()
-    prompts_leg = MagicMock()
-    self_tools_leg = MagicMock()
+    plan = MagicMock()
 
     class Engine:
         backend = object()
@@ -450,9 +448,7 @@ def test_noncritical_bootstrap_runs_phase_f_hydration_legs() -> None:
                 "ready": 10,
             },
         ),
-        patch.object(kg_server, "_ingest_capabilities", ingest),
-        patch.object(kg_server, "_ingest_prompts_at_boot", prompts_leg),
-        patch.object(kg_server, "_ingest_self_tool_surface_at_boot", self_tools_leg),
+        patch.object(kg_server, "_run_boot_hydration_plan", plan),
         patch(
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
             side_effect=authorized,
@@ -464,8 +460,65 @@ def test_noncritical_bootstrap_runs_phase_f_hydration_legs() -> None:
     ):
         kg_server._start_engine_bootstrap(session)
 
-    prompts_leg.assert_called_once_with()
-    self_tools_leg.assert_called_once_with(engine_instance)
+    plan.assert_called_once_with(engine_instance, skip_skill_names=ANY)
+
+
+def test_boot_hydration_plan_uses_fixed_priority_and_queues_only_configured_work() -> (
+    None
+):
+    """The plan is stable: runnable metadata first, then prompts, ontology,
+    and only then the incremental code/connector owners."""
+    from agent_utilities.mcp import kg_server
+
+    calls: list[str] = []
+    records: list[tuple[str, int, str]] = []
+    engine = object()
+    with (
+        patch.object(
+            kg_server,
+            "_ingest_capabilities",
+            side_effect=lambda *_a, **_k: calls.append("capabilities"),
+        ),
+        patch.object(
+            kg_server,
+            "_ingest_self_tool_surface_at_boot",
+            side_effect=lambda *_a: calls.append("self"),
+        ),
+        patch.object(
+            kg_server,
+            "_ingest_prompts_at_boot",
+            side_effect=lambda: calls.append("prompts"),
+        ),
+        patch.object(
+            kg_server,
+            "_sync_ontologies_at_boot",
+            side_effect=lambda *_a: calls.append("ontologies"),
+        ),
+        patch.object(
+            kg_server,
+            "_hydrate_code_and_configured_connectors",
+            side_effect=lambda *_a: calls.append("sources"),
+        ),
+        patch.object(
+            kg_server,
+            "_record_boot_hydration_step",
+            side_effect=lambda _e, n, p, s: records.append((n, p, s)),
+        ),
+    ):
+        kg_server._run_boot_hydration_plan(
+            engine, skip_skill_names=frozenset({"bundled"})
+        )
+
+    assert calls == ["capabilities", "self", "prompts", "ontologies", "sources"]
+    assert [
+        (name, priority) for name, priority, status in records if status == "running"
+    ] == [
+        ("capabilities", 1),
+        ("graphos_tool_surface", 1),
+        ("prompts", 2),
+        ("ontologies", 3),
+        ("code_and_connectors", 4),
+    ]
 
 
 def test_prompt_boot_hydration_leg_is_isolated_from_failure(caplog) -> None:

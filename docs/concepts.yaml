@@ -5320,6 +5320,8 @@ concepts:
   - agent_utilities/core/background_throttle.py
   - agent_utilities/core/config.py
   - agent_utilities/core/workspace_config.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/orchestration/engine.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/knowledge_graph/assimilation/__init__.py
   - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py
