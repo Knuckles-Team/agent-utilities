@@ -368,7 +368,9 @@ class TestDispatchWorkflowWiring:
         from agent_utilities.mcp.tools import workflow_tools
 
         source = inspect.getsource(workflow_tools)
-        branch_idx = source.find('if action in {"execute", "dispatch"}:')
+        branch_idx = source.find(
+            'if action in {"execute", "execute_dynamic", "dispatch"}:'
+        )
         assert branch_idx != -1
         gate_idx = source.find("gate = _workflow_gate(engine, workflow)", branch_idx)
         task_idx = source.find("asyncio.create_task(", branch_idx)

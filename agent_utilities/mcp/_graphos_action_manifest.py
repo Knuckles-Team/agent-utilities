@@ -2081,6 +2081,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_workflows_dispatch",
     },
     {"tool": "graph_workflows", "action": "execute", "name": "graph_workflows_execute"},
+    {
+        "tool": "graph_workflows",
+        "action": "execute_dynamic",
+        "name": "graph_workflows_execute_dynamic",
+    },
     {"tool": "graph_workflows", "action": "export", "name": "graph_workflows_export"},
     {"tool": "graph_workflows", "action": "list", "name": "graph_workflows_list"},
     {"tool": "graph_workflows", "action": "status", "name": "graph_workflows_status"},

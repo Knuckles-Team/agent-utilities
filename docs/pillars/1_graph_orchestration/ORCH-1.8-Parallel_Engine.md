@@ -31,7 +31,7 @@ graph TB
         PRESET["KG Preset<br/>(SwarmTemplate)"]
         DEPT["Department<br/>(OWL-materialized)"]
         ENTERPRISE["Enterprise<br/>(All departments)"]
-        DYNAMIC["Governed Dynamic Workflow<br/>(reviewed declaration)"]
+        DYNAMIC["Governed Dynamic Workflow<br/>(reviewed agent catalog)"]
     end
 
     subgraph GENERATORS["🔧 Manifest Generators"]
@@ -57,6 +57,15 @@ graph TB
 
     RESULT["📊 ExecutionResult"]
 
+    subgraph HARNESS["🧭 Upstream DynamicWorkflow (optional)"]
+        CONDUCTOR["Context-governed<br/>Pydantic AI conductor"]
+        MONTY["Harness run_workflow<br/>Monty sandbox"]
+        CATALOG["GraphOS catalog facades<br/>(no connector tools)"]
+        DISPATCH["Orchestrator.execute_agent<br/>policy + skills + tools + model"]
+        AGENTGRAPH["GraphOS Pydantic Graph<br/>per catalog call"]
+        RUNTRACE["Shared session lineage<br/>RunTrace + ToolCall"]
+    end
+
     PLANNER --> G1
     TEAM --> G2
     WORKFLOW --> G3
@@ -64,7 +73,8 @@ graph TB
     PRESET --> G5
     DEPT --> G6
     ENTERPRISE --> G7
-    DYNAMIC --> G1
+    DYNAMIC --> CONDUCTOR --> MONTY --> CATALOG --> DISPATCH
+    DISPATCH --> AGENTGRAPH --> RUNTRACE
 
     G1 & G2 & G3 & G4 & G5 & G6 & G7 --> MANIFEST
     MANIFEST --> ENGINE
@@ -102,11 +112,49 @@ Specification for a single agent invocation. Fan-out is expressed via `partition
 
 ### Governed Dynamic Workflow
 
-`GovernedDynamicWorkflow` (optional `[dynamic-workflow]` integration) accepts a reviewed list of
-delegation steps, a hard `max_agent_calls`, resource limits, trace context, and a per-step approved
-model menu. It compiles the declaration to `GraphPlan`, then to `ExecutionManifest`, and executes
-only through this engine. Cancellation cancels the in-flight engine coroutine. No model-authored
-Python script receives direct access to GraphOS execution, persistence, or policy bypasses.
+`GovernedDynamicWorkflow` is the live adapter for
+`pydantic_ai_harness.dynamic_workflow.DynamicWorkflow` from the optional
+`[dynamic-workflow]` extra. `graph_workflows action=execute_dynamic` loads a
+stored, ontology-gated workflow as a reviewed catalog and gives a
+context-governed Pydantic AI conductor one tool: Harness's sandboxed
+`run_workflow`.
+
+Each callable in that sandbox is a facade over
+`Orchestrator.execute_agent`; it is not a Pydantic AI sub-agent with a private
+tool plane. This keeps agent/skill resolution, tenant policy, allowed and
+required tool contracts, model-class routing, token budgets, cancellation,
+and RunTrace/ToolCall persistence on GraphOS. The Harness hard
+`max_agent_calls` counter and a GraphOS semaphore bound fan-out. Stored
+dependency edges are host-enforced before a catalog call can run. Each child
+also has a host timeout capped by the workflow deadline; timeout or
+cancellation cancels the in-flight GraphOS dispatch rather than leaving an
+orphan task.
+
+Stored `Task` records can keep a stable catalog function id while selecting a
+different governed target. `assigned_to` or `metadata.agent_name` selects an
+agent; `metadata.skill_name` selects a skill. Reviewed
+`metadata.allowed_tools`, `required_tools`, `tool_server`, and
+`reasoning_effort` are propagated to the same `execute_agent` contract. Invalid
+combinations fail catalog validation before the conductor model runs.
+
+The parent and every child share one workflow session/run lineage. The
+`governed_dynamic_workflow.upstream` trace contains Harness's `run_workflow`
+span; the returned evidence carries privacy-safe script digests plus each
+child `run_id`/`trace_ref`. Full script text remains in the configured trace
+backend and is not duplicated into KG properties.
+
+Harness availability is fail-loud by default. Callers may explicitly request
+`dynamic_fallback=stored_dag`, which uses the ordinary stored-DAG runner only
+when the optional Harness API is unavailable. Runtime, model, or tool failures
+never silently switch orchestration engines.
+
+Current upstream limits are explicit: Harness 0.14 cannot suspend/resume
+GraphOS approval gates, and the facade cannot honor an exact per-step
+`model_id` without bypassing the canonical model-class router. Workflows using
+either feature must use the stored-DAG runner. Harness also cannot receive the
+parent Pydantic usage limit through `RunContext`; GraphOS therefore enforces
+the configured child token budget on every delegated call and reports parent
+model usage separately.
 
 ### SynthesisSpec (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)
 

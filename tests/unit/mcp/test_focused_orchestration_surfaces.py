@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import inspect
 import json
+from collections.abc import Callable
+from typing import Any, cast
+
+import pytest
 
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import (
@@ -21,7 +25,7 @@ from scripts.gen_graphos_manifest import harvest_actions
 
 class _FakeMCP:
     def __init__(self) -> None:
-        self.tools: dict[str, object] = {}
+        self.tools: dict[str, Callable[..., Any]] = {}
 
     def tool(self, *, name: str, **_metadata):
         def _capture(function):
@@ -81,12 +85,13 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "compile_process",
             "list",
             "execute",
+            "execute_dynamic",
             "dispatch",
             "status",
             "export",
         },
     }
-    assert sum(map(len, expected_actions.values())) == 32
+    assert sum(map(len, expected_actions.values())) == 33
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 
@@ -111,6 +116,64 @@ def test_focused_tools_publish_collapsed_rest_routes() -> None:
     } == expected_routes
 
 
+@pytest.mark.asyncio
+async def test_execute_dynamic_live_route_reaches_governed_orchestrator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities.mcp.tools import workflow_tools
+    from agent_utilities.orchestration.manager import Orchestrator
+
+    engine = object()
+    calls: list[dict[str, object]] = []
+
+    async def execute_dynamic(_self, workflow_id: str, task: str, **kwargs):
+        calls.append({"workflow_id": workflow_id, "task": task, **kwargs})
+        return {
+            "backend": "pydantic-ai-harness.dynamic_workflow.DynamicWorkflow",
+            "workflow_run_id": "run:00000000000000000000000000000000",
+        }
+
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(
+        workflow_tools,
+        "_workflow_gate",
+        lambda _engine, _name: {"allowed": True},
+    )
+    monkeypatch.setattr(Orchestrator, "execute_dynamic_workflow", execute_dynamic)
+    tool = _register_all().tools["graph_workflows"]
+
+    payload = json.loads(
+        await tool(
+            action="execute_dynamic",
+            workflow="review",
+            task="review the change",
+            name="",
+            export_format="json",
+            max_steps=12,
+            limit=50,
+            max_agent_calls=6,
+            max_concurrency=3,
+            budget_tokens=4000,
+            model_class="economy",
+            dynamic_fallback="error",
+        )
+    )
+
+    assert payload["result"]["backend"].endswith("DynamicWorkflow")
+    assert calls == [
+        {
+            "workflow_id": "review",
+            "task": "review the change",
+            "max_steps": 12,
+            "max_agent_calls": 6,
+            "max_concurrency": 3,
+            "budget_tokens": 4000,
+            "model_class": "economy",
+            "unavailable_fallback": "error",
+        }
+    ]
+
+
 def test_budget_domain_action_uses_composed_engine_capability(monkeypatch) -> None:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.orchestration.engine_enterprise import (
@@ -125,7 +188,7 @@ def test_budget_domain_action_uses_composed_engine_capability(monkeypatch) -> No
             self.nodes[node_id] = properties
 
     assert issubclass(IntelligenceGraphEngine, EnterpriseEngineMixin)
-    engine = object.__new__(IntelligenceGraphEngine)
+    engine = cast(Any, object.__new__(IntelligenceGraphEngine))
     engine.graph = _RecordingGraph()
     engine.backend = None
     monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)

@@ -59,8 +59,16 @@ flowchart LR
 - `agent-webui` narrowed from the full `pydantic-ai` meta to `pydantic-ai-slim[ui]` (it uses the v2
   `Agent.to_web()`).
 - `[dynamic-workflow]` is an opt-in `pydantic-ai-harness[dynamic-workflow]>=0.14.0,<0.15.0`
-  integration. Its GraphOS adapter compiles reviewed declarations into `GraphPlan` and then
-  `ExecutionManifest`; it does not expose the upstream sandbox as a second execution plane.
+  integration. `graph_workflows action=execute_dynamic` invokes the real upstream
+  `DynamicWorkflow`: the parent receives only Harness's sandboxed `run_workflow`
+  tool, and each reviewed catalog function re-enters
+  `Orchestrator.execute_agent`. Connector tools, tenant policy, skill binding,
+  model-class routing, budgets, cancellation, and RunTrace/ToolCall persistence
+  stay on GraphOS; the Monty script is orchestration only. The old
+  declaration-to-`ExecutionManifest` path remains only as the explicit static
+  fallback contract. Stored `Task` assignment/metadata selects the governed
+  agent or skill target and its allowed/required tools without changing the
+  sandbox-visible catalog function name.
 
 ## 2.20 reconciliation
 

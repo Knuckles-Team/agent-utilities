@@ -19,9 +19,13 @@ from .composition import default_runtime_capabilities, merge_capabilities
 from .context_warnings import ContextLimitWarner
 from .eviction import ToolOutputEviction
 from .governed_dynamic_workflow import (
+    ChildRunEvidence,
     DelegationStep,
+    DynamicWorkflowUnavailableError,
     GovernedDynamicWorkflow,
+    GovernedDynamicWorkflowResult,
     WorkflowResourceLimits,
+    WorkflowScriptEvidence,
 )
 from .hooks import Hook, HookEvent, HookInput, HookResult, HooksCapability
 from .kg_audit_sink import (
@@ -54,7 +58,11 @@ __all__ = [
     "ContextLimitWarner",
     "ToolOutputEviction",
     "DelegationStep",
+    "DynamicWorkflowUnavailableError",
     "GovernedDynamicWorkflow",
+    "GovernedDynamicWorkflowResult",
+    "WorkflowScriptEvidence",
+    "ChildRunEvidence",
     "WorkflowResourceLimits",
     "MementoCompaction",
     "TeamCapability",

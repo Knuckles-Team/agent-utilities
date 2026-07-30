@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
@@ -31,6 +31,24 @@ _DEFAULT_DELEGATE = "agent-utilities-expert"
 _GATEWAY_OUTPUT_LIMIT = 12_000
 _GATEWAY_MERMAID_LIMIT = 8_000
 _GATEWAY_TRACE_TOOL_LIMIT = 32
+
+
+class DynamicWorkflowExecutionPayload(TypedDict, total=False):
+    """Serialized result contract for the GraphOS dynamic-workflow surface."""
+
+    status: str
+    output: Any
+    workflow_run_id: str
+    run_id: str
+    session_id: str
+    trace_ref: str
+    backend: str
+    upstream_version: str
+    script_evidence: list[dict[str, Any]]
+    child_runs: list[dict[str, Any]]
+    usage: dict[str, int]
+    fallback_used: bool
+    fallback_reason: str
 
 
 def _bounded_text(value: Any, limit: int) -> str:
@@ -829,3 +847,94 @@ class Orchestrator:
         # ORCH-1.97 — surface a stable run handle for the delegated workflow run.
         payload["run_id"] = result.session_id
         return payload
+
+    async def execute_dynamic_workflow(
+        self,
+        workflow_id: str,
+        task: str = "",
+        max_steps: int = 30,
+        *,
+        max_agent_calls: int = 50,
+        max_concurrency: int = 8,
+        budget_tokens: int | None = None,
+        model_class: str = "standard",
+        unavailable_fallback: str = "error",
+        orchestrator_model: Any | None = None,
+    ) -> DynamicWorkflowExecutionPayload:
+        """Execute a stored catalog with upstream Harness DynamicWorkflow.
+
+        The Harness parent owns only its sandboxed ``run_workflow`` tool. Every
+        catalog call re-enters :meth:`execute_agent`, so the same KG resolution,
+        tenant policy, skill/tool contract, model-class router, budgets, and
+        RunTrace/ToolCall persistence used by ``graph_orchestrate`` remain
+        authoritative.
+
+        ``unavailable_fallback`` is explicit: ``"error"`` fails when the optional
+        Harness extra or a required upstream seam is unavailable;
+        ``"stored_dag"`` runs the ordinary :class:`WorkflowRunner` instead. A
+        runtime/model/tool failure never silently changes engines.
+        """
+
+        if task:
+            self._scan_task(task)
+        if unavailable_fallback not in {"error", "stored_dag"}:
+            raise ValueError("unavailable_fallback must be 'error' or 'stored_dag'")
+        if model_class not in {"economy", "standard"}:
+            raise ValueError("model_class must be economy or standard")
+
+        from agent_utilities.capabilities.governed_dynamic_workflow import (
+            DynamicWorkflowUnavailableError,
+            GovernedDynamicWorkflow,
+        )
+        from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
+
+        try:
+            plan = WorkflowStore(self.engine).load_workflow(workflow_id)
+            if plan is None:
+                raise ValueError(f"Workflow '{workflow_id}' not found in KG or catalog")
+            workflow = GovernedDynamicWorkflow.from_graph_plan(
+                plan,
+                name=workflow_id,
+                query=task or f"Execute the governed workflow {workflow_id}",
+                max_agent_calls=max_agent_calls,
+                max_concurrency=max_concurrency,
+                budget_tokens=budget_tokens,
+                max_steps=max_steps,
+            )
+            # Fail before constructing a provider model when the optional
+            # Harness runtime is absent. This also validates the pinned API.
+            workflow.build_upstream_capability(self)
+
+            if orchestrator_model is None:
+                from agent_utilities.core.model_factory import create_model
+                from agent_utilities.orchestration.agent_runner import (
+                    _configured_model_for_class,
+                )
+
+                selected = _configured_model_for_class(model_class)
+                orchestrator_model = create_model(model_id=selected.id)
+            result = await workflow.execute(
+                self,
+                orchestrator_model=orchestrator_model,
+            )
+        except DynamicWorkflowUnavailableError as exc:
+            if unavailable_fallback != "stored_dag":
+                raise
+            fallback = await self.execute_workflow(
+                workflow_id=workflow_id,
+                task=task,
+                max_steps=max_steps,
+            )
+            return cast(
+                DynamicWorkflowExecutionPayload,
+                {
+                    **fallback,
+                    "backend": "stored_dag",
+                    "fallback_used": True,
+                    "fallback_reason": type(exc).__name__,
+                },
+            )
+        return cast(
+            DynamicWorkflowExecutionPayload,
+            result.model_dump(mode="json"),
+        )
