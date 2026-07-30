@@ -3187,7 +3187,12 @@ _BUNDLED_SKILL_READINESS: dict[str, Any] = {}
 # deployment's ten-minute startup probe while avoiding a pointless restart at
 # the former five-minute boundary, which merely repeated the cold-open work.
 _ENGINE_MATERIALIZATION_TIMEOUT_SECONDS = 540.0
-_ENGINE_MATERIALIZATION_POLL_SECONDS = 0.25
+# Materialization progresses in durable page batches measured in seconds on a
+# large graph.  Four manifest reads per second added ~1,200 Python→native calls
+# to a five-minute cold open without improving correctness.  One authoritative
+# poll per second keeps readiness latency bounded while leaving the engine's
+# foreground read lane available for the materializer and health probes.
+_ENGINE_MATERIALIZATION_POLL_SECONDS = 1.0
 
 
 def _set_bundled_skill_readiness(report: dict[str, Any]) -> None:
