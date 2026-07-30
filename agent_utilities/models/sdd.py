@@ -89,6 +89,13 @@ class Task(BaseModel):
             "executor runs this step on this exact model instead of inferring a role/tier."
         ),
     )
+    delegation_model_menu: list[str] = Field(
+        default_factory=list,
+        description=(
+            "CONCEPT:AU-ORCH.execution.dynamic-workflows — approved per-delegation "
+            "model ids. model_id, when present, must be selected from this menu."
+        ),
+    )
     access_list: list[str] = Field(
         default_factory=list,
         description=(

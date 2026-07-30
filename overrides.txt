@@ -1,11 +1,6 @@
 # uv dependency override (uv pip install --override overrides.txt / UV_OVERRIDE).
 # Consumed by docker/Dockerfile (ENV UV_OVERRIDE=/tmp/overrides.txt).
 #
-# INTENTIONALLY EMPTY (PA-R0.0). The former `pydantic-ai-slim>=2.14.1,<3.0.0`
-# transitive-cap override is RETIRED: pydantic-acp / acpkit 1.5.1 lifted their own
-# cap to `pydantic-ai-slim>=2.9.0,<=2.16.0`, so any acp-inclusive extra ([acp],
-# [test], [all]) resolves cleanly on the project's v2 floor with no override — it
-# used to be dragged back to 2.9.1. Mirrors `[tool.uv] override-dependencies` in
-# pyproject.toml. Kept as a no-op file so the Dockerfile UV_OVERRIDE reference
-# stays valid; add a line here only for a genuine new `uv pip install` override.
-# See docs/architecture/pydantic-ai-v2-migration.md.
+pydantic-ai-slim>=2.20.0,<3.0.0
+# pydantic-acp 1.5.1 still caps slim at 2.16.0. This mirrors `[tool.uv]` until
+# upstream releases metadata admitting the tested 2.20 floor.

@@ -18,6 +18,11 @@ from .checkpointing import (
 from .composition import default_runtime_capabilities, merge_capabilities
 from .context_warnings import ContextLimitWarner
 from .eviction import ToolOutputEviction
+from .governed_dynamic_workflow import (
+    DelegationStep,
+    GovernedDynamicWorkflow,
+    WorkflowResourceLimits,
+)
 from .hooks import Hook, HookEvent, HookInput, HookResult, HooksCapability
 from .kg_audit_sink import (
     AuditLog,
@@ -48,6 +53,9 @@ __all__ = [
     "fork_from_checkpoint",
     "ContextLimitWarner",
     "ToolOutputEviction",
+    "DelegationStep",
+    "GovernedDynamicWorkflow",
+    "WorkflowResourceLimits",
     "MementoCompaction",
     "TeamCapability",
     "AuditLog",

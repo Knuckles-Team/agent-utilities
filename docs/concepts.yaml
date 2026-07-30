@@ -6573,6 +6573,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/orchestration/engine.py
+  - agent_utilities/capabilities/governed_dynamic_workflow.py
   doc: Dynamic Workflows
 - id: AU-ORCH.execution.engine-memory-management
   name: Memory Management

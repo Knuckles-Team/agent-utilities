@@ -31,6 +31,7 @@ graph TB
         PRESET["KG Preset<br/>(SwarmTemplate)"]
         DEPT["Department<br/>(OWL-materialized)"]
         ENTERPRISE["Enterprise<br/>(All departments)"]
+        DYNAMIC["Governed Dynamic Workflow<br/>(reviewed declaration)"]
     end
 
     subgraph GENERATORS["🔧 Manifest Generators"]
@@ -63,6 +64,7 @@ graph TB
     PRESET --> G5
     DEPT --> G6
     ENTERPRISE --> G7
+    DYNAMIC --> G1
 
     G1 & G2 & G3 & G4 & G5 & G6 & G7 --> MANIFEST
     MANIFEST --> ENGINE
@@ -97,6 +99,14 @@ The universal input to the `ParallelEngine`. Every execution is expressed as a m
 ### AgentSpec
 
 Specification for a single agent invocation. Fan-out is expressed via `partitions`: if set, the agent is invoked once per partition with `{{partition}}` replaced in `task_template`.
+
+### Governed Dynamic Workflow
+
+`GovernedDynamicWorkflow` (optional `[dynamic-workflow]` integration) accepts a reviewed list of
+delegation steps, a hard `max_agent_calls`, resource limits, trace context, and a per-step approved
+model menu. It compiles the declaration to `GraphPlan`, then to `ExecutionManifest`, and executes
+only through this engine. Cancellation cancels the in-flight engine coroutine. No model-authored
+Python script receives direct access to GraphOS execution, persistence, or policy bypasses.
 
 ### SynthesisSpec (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)
 

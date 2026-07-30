@@ -1,7 +1,7 @@
 # Pydantic AI v2 migration
 
 `agent-utilities` (and the fleet that inherits from it) runs on **Pydantic AI v2**
-(`pydantic-ai-slim>=2.14.1,<3.0.0`, `pydantic-graph>=2.14.1,<3.0.0`). This page records the
+(`pydantic-ai-slim>=2.20.0,<3.0.0`, `pydantic-graph>=2.20.0,<3.0.0`). This page records the
 v2-specific changes so the architecture docs stay in sync with the code.
 
 ## Why it was a real migration, not a rename
@@ -58,6 +58,20 @@ flowchart LR
   `agent-groq`, `agent-mistral`, `agent-anthropic`, `agent-huggingface`) unchanged in shape.
 - `agent-webui` narrowed from the full `pydantic-ai` meta to `pydantic-ai-slim[ui]` (it uses the v2
   `Agent.to_web()`).
+- `[dynamic-workflow]` is an opt-in `pydantic-ai-harness[dynamic-workflow]>=0.13.0,<0.14.0`
+  integration. Its GraphOS adapter compiles reviewed declarations into `GraphPlan` and then
+  `ExecutionManifest`; it does not expose the upstream sandbox as a second execution plane.
+
+## 2.20 reconciliation
+
+The intended 2.20 refresh adds OpenAI Responses `reasoning.context` support for GPT-5.4/5.5/5.6,
+preserves arbitrary usage fields through serialization, and makes bare MCP errors recoverable.
+The adapter's model menus are declarative per-delegation metadata; the canonical model registry
+remains the authority that resolves actual provider configuration.
+
+The repository lock remains on 2.16 while `pydantic-acp==1.5.1` caps
+`pydantic-ai-slim` at 2.16.0. Promote the lock and production image only after ACP supports the
+2.20 floor (or a workspace-level compatibility override is approved).
 
 ## Native ergonomics wired (synergy)
 

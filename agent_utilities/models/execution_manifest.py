@@ -65,6 +65,7 @@ class AgentSpec(BaseModel):
     success_criteria: str = ""  # SWARM-2: what "done correctly" means (verify gate)
     output_schema: str | None = None  # SWARM-4: JSON schema/shape the agent must return
     model_role: str = ""  # SWARM-6: ModelRole to route to when model_id is unset
+    delegation_model_menu: list[str] = Field(default_factory=list)
     max_retries: int = 0  # SWARM-5: retries-with-backoff on failure (0 = off)
 
 
@@ -182,6 +183,10 @@ class ExecutionManifest(BaseModel):
                     task_template=step.refined_subtask or f"Execute: {step.id}",
                     depends_on=step.depends_on or [],
                     timeout=getattr(step, "timeout", None),
+                    model_id=getattr(step, "model_id", None) or "",
+                    delegation_model_menu=list(
+                        getattr(step, "delegation_model_menu", []) or []
+                    ),
                 )
             )
         return cls(
