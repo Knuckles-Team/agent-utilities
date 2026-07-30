@@ -8,7 +8,15 @@ services:
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=32m]
-    command: ["--graphos-mcp-url", "${GRAPHOS_MCP_URL:?set GraphOS MCP URL}", "--host", "0.0.0.0", "--port", "8005"]
+    command:
+      - "--graphos-mcp-url"
+      - "${GRAPHOS_MCP_URL:?set an HTTPS GraphOS MCP URL or colocate on loopback}"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8005"
+      - "--allowed-origin"
+      - "${MCP_ALLOWED_ORIGIN:?set the exact trusted HTTPS client origin}"
     environment:
       PYTHONUNBUFFERED: "1"
     # The sidecar must only be reachable through an authenticated TLS ingress.
