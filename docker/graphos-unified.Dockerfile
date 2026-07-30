@@ -85,9 +85,9 @@ ENV UV_SYSTEM_PYTHON=1 \
 #    lake-fixture-export / restore / migrate-shards binaries (wheel `data/scripts`)
 #    straight into /usr/local/bin — next to sys.executable, exactly where EngineResolver
 #    (OS-5.63) looks for a co-located engine to autostart.
-COPY build-artifacts/eg-wheel/epistemic_graph-2.23.1-py3-none-linux_x86_64.whl /tmp/wheels/
+COPY build-artifacts/eg-wheel/epistemic_graph-2.23.2-py3-none-linux_x86_64.whl /tmp/wheels/
 RUN uv pip install --system --break-system-packages \
-        "/tmp/wheels/epistemic_graph-2.23.1-py3-none-linux_x86_64.whl[full]" \
+        "/tmp/wheels/epistemic_graph-2.23.2-py3-none-linux_x86_64.whl[full]" \
     && rm -rf /tmp/wheels
 
 # 2) au itself — EDITABLE install from the local worktree source (the "editable-source
@@ -153,10 +153,10 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 # needing to uninstall it). A BLANKET --ignore-installed on the main install below would
 # reintroduce the step-1 problem: it makes pip disregard the already-installed local
 # epistemic-graph wheel too, sending it back to PyPI (which tops out at 2.23.0 < our
-# 2.23.1 floor) — confirmed by hitting exactly that error on the first attempt.
+# 2.23.2 floor) — confirmed by hitting exactly that error on the first attempt.
 RUN pip install --break-system-packages --no-cache-dir --ignore-installed "packaging>=26.2.0"
 RUN pip install --break-system-packages --no-cache-dir \
-        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,rdf,logfire,messaging-telegram,messaging-mattermost,postgresql,acp]" \
+        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,owl,logfire,messaging-telegram,messaging-mattermost,postgresql,acp]" \
         "/tmp/langfuse-agent-src" \
         "redis>=5.0.0" \
         "neo4j>=6.2.0" \
@@ -167,7 +167,7 @@ RUN pip install --break-system-packages --no-cache-dir \
         "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]==2.21.0" \
         "pydantic-ai==2.21.0" \
         "pydantic-graph==2.21.0" \
-        "pydantic-ai-harness[acp]==0.14.0" \
+        "pydantic-ai-harness[acp,dynamic-workflow]==0.14.0" \
         "pydantic-ai-skills==1.2.0" \
         "pydantic-monty==0.0.19" \
         "fasta2a[pydantic-ai]>=0.6.1" \
@@ -178,7 +178,7 @@ RUN pip install --break-system-packages --no-cache-dir \
 #   (neo4j/falkordb/telegram/mattermost/embeddings-openai) is already inside [serving];
 #   repeated here explicitly for deploy-artifact parity/robustness against a future
 #   narrowing of that extra. `redis` (no au extra covers it) and the broader
-#   pydantic-ai-slim extras (ag-ui/ui/google/groq) + Harness ACP are the
+#   pydantic-ai-slim extras (ag-ui/ui/google/groq) + Harness ACP/DynamicWorkflow are the
 #   genuinely new-vs-[serving] additions. `/tmp/langfuse-agent-src` (step 2b) is a THIRD
 #   category — a workspace-sourced package restored whole, not a [serving] sub-extra —
 #   resolved in this SAME pass so its own `agent-utilities[mcp]>=2.0.0,<3.0.0` requirement
@@ -190,7 +190,7 @@ RUN pip install --break-system-packages --no-cache-dir \
 # is a plain clap CLI (safe/non-blocking); `graph-os` itself is NOT invoked here — running
 # it would start an MCP server (stdio) rather than return, so only its console-script
 # presence is checked.
-RUN python3 -c "import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import rdflib" \
+RUN python3 -c "import importlib.metadata as m; import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from pydantic_ai_harness.dynamic_workflow import DynamicWorkflow; from pydantic_ai_harness.experimental.acp import PydanticAIACPAgent; assert m.version('pydantic-ai-slim') == '2.21.0'; assert m.version('pydantic-ai-harness') == '0.14.0'" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 
