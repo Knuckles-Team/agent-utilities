@@ -341,6 +341,37 @@ Rules:
 The check: `import agent_utilities` and a `kg_server` boot must succeed with torch uninstalled
 (the lean serving image has no torch).
 
+## Upstream currency edict — target the newest release; a pin is a hypothesis, not a fact (READ BEFORE capping, deferring, or opt-in-gating an upgrade)
+
+This is the **external/upstream** counterpart to *Dependency discipline* (above — WHERE a dependency
+is allowed to live) and *No Legacy* (below — no back-compat in **our own** code). This edict governs
+how we treat **other people's** releases, deprecations, and version caps.
+
+1. **Latest by default.** Target the newest upstream release — including a pre-release where the
+   ecosystem has already moved onto it (e.g. adopting fastmcp 4 while it was still pre-1.0). Sitting
+   on an old major because the upgrade is work is not a reason to defer it.
+2. **A conservative upstream pin is a hypothesis, not a fact — test it, don't inherit it.** Upstream
+   maintainers cap defensively (an unreleased major, an untested surface) as often as they cap for a
+   known break. Worked example: `pydantic-ai-slim` 2.18.0 declared `fastmcp-slim[client]>=3.3.0` with
+   no upper bound; 2.19.0 added `<4` purely as a defensive guard while fastmcp 4 was still
+   pre-release — not because of an observed incompatibility. Blocking our own fastmcp 4 adoption on
+   that cap without testing it would have been wrong; we tested it, it worked, we upgraded.
+3. **Forward-fix only.** When an upgrade breaks something, fix the break to proceed — do not pin
+   backwards, vendor a fork, or route around it. If a break is genuinely unfixable inside this repo,
+   say exactly what and why, and carry a plan to unblock it — never an indefinite pin.
+4. **Deprecations are fixed on sight, in code AND in tests.** A `DeprecationWarning` from an upstream
+   library is a defect to fix now, not noise to filter. **Never** silence one with a warning filter,
+   `# noqa`, or a pytest `filterwarnings` entry in order to go green. Worked example: a test broke
+   under fastmcp 4 because it introspected the private `LowLevelServer.request_handlers`, renamed to
+   `_request_handlers`/`get_request_handler`. The real defect was the test reaching into a private
+   attribute, not fastmcp 4 — the fix was asserting public behavior, not pinning fastmcp back.
+5. **Adopt upstream features rather than reimplementing them.** If upstream ships a capability we
+   hand-rolled, migrate to theirs and delete ours (composes with *No Legacy*).
+6. **Nothing built on an upgrade ships opt-in.** A new capability an upgrade unlocks (like fastmcp 4)
+   is default-on unless it genuinely costs compute, in which case it is policy-selected, never
+   flag-gated — see *Native by default*. An opt-in extra or a dependency-conflict fork is an interim
+   state that must carry a written plan to become the default, never a resting place.
+
 ## Sprawl boundaries — WHERE new deps / ontology / daemons go (READ BEFORE adding any of them)
 
 Anti-sprawl is not just "don't duplicate code" — it's "put each thing in the ONE place it belongs."
