@@ -173,6 +173,22 @@ def test_hydrate_servicenow(mock_engine):
     assert mock_run.call_args[0][1] == "servicenow"
 
 
+def test_servicenow_status_uses_provider_runtime_aliases(monkeypatch):
+    """Readiness must reflect the auth aliases accepted by servicenow-api."""
+    monkeypatch.delenv("SERVICENOW_URL", raising=False)
+    monkeypatch.delenv("SERVICENOW_USER", raising=False)
+    monkeypatch.setenv("SERVICENOW_INSTANCE", "https://servicenow.example.com")
+    monkeypatch.setenv("SERVICENOW_USERNAME", "service-account")
+    monkeypatch.setenv("SERVICENOW_PASSWORD", "test-password")
+
+    status = HydrationManager().get_status()["servicenow"]
+
+    assert status == {
+        "configured": True,
+        "url": "https://servicenow.example.com",
+    }
+
+
 # ``jira``/``plane`` are no longer generic ``HydrationManager`` sources: they
 # were re-homed to first-class delta connectors (``source_sync._sync_jira`` /
 # ``_sync_plane``, CONCEPT:AU-KG.compute.confluence-first-class-delta/2.124/2.125), so ``CAPABILITY_REGISTRY`` no
