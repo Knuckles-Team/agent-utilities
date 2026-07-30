@@ -73,6 +73,29 @@ def _build_app(workspace: Path, db_path: Path, *, enable_web_ui: bool) -> FastAP
         )
 
 
+def _registered_route_paths(app: FastAPI) -> set[str]:
+    """Collect concrete paths recursively without crossing the auth boundary."""
+
+    paths: set[str] = set()
+
+    def visit(routes: list[object], prefix: str = "") -> None:
+        for route in routes:
+            effective_contexts = getattr(route, "effective_route_contexts", None)
+            if callable(effective_contexts):
+                paths.update(str(context.path) for context in effective_contexts())
+                continue
+            route_path = str(getattr(route, "path", "") or "")
+            full_path = f"{prefix.rstrip('/')}/{route_path.lstrip('/')}" or "/"
+            if isinstance(route, Mount):
+                nested = getattr(route.app, "routes", ())
+                visit(list(nested), full_path)
+            else:
+                paths.add(full_path)
+
+    visit(list(app.routes))
+    return paths
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -165,27 +188,47 @@ def test_rest_health_routes_share_the_reserved_async_collector() -> None:
     assert collector.await_count == 2
 
 
-def test_mcp_config(client_with_web_ui: TestClient) -> None:
-    """``/mcp/config`` returns 200 with a JSON object containing ``mcpServers``."""
-    resp = client_with_web_ui.get("/mcp/config")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert isinstance(data, dict)
-    assert "mcpServers" in data
+@pytest.mark.parametrize(
+    "path",
+    ["/api/chat", "/api/configure"],
+)
+def test_current_pydantic_web_routes_are_registered_but_not_anonymous(
+    app_with_web_ui: FastAPI,
+    client_with_web_ui: TestClient,
+    path: str,
+) -> None:
+    """Current Pydantic AI web routes exist behind verified identity."""
+
+    assert path in _registered_route_paths(app_with_web_ui)
+    resp = client_with_web_ui.get(path)
+    assert resp.status_code == 401
+    assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
-def test_mcp_tools(client_with_web_ui: TestClient) -> None:
-    """``/mcp/tools`` returns 200 with a list body."""
-    resp = client_with_web_ui.get("/mcp/tools")
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+def test_webui_tool_catalog_is_registered_but_not_anonymous(
+    app_with_web_ui: FastAPI,
+    client_with_web_ui: TestClient,
+) -> None:
+    """The WebUI tool catalog exists behind the verified-identity boundary."""
+
+    path = "/api/enhanced/tools"
+    assert path in _registered_route_paths(app_with_web_ui)
+    resp = client_with_web_ui.get(path)
+    assert resp.status_code == 401
+    assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
-def test_chats(client_with_web_ui: TestClient) -> None:
-    """``/chats`` returns 200 with a list body."""
-    resp = client_with_web_ui.get("/chats")
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+def test_webui_chats_are_registered_but_not_anonymous(
+    app_with_web_ui: FastAPI,
+    client_with_web_ui: TestClient,
+) -> None:
+    """The chat-history route exists behind the verified-identity boundary."""
+
+    path = "/api/enhanced/chats"
+    assert path in _registered_route_paths(app_with_web_ui)
+    resp = client_with_web_ui.get(path)
+    assert resp.status_code == 401
+    assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
 def test_a2a_mount_present(app_with_web_ui: FastAPI) -> None:
@@ -238,26 +281,36 @@ ENHANCED_ROUTES: list[str] = [
 
 @pytest.mark.parametrize("path", ENHANCED_ROUTES)
 def test_enhanced_routes_available_with_web_ui(
-    client_with_web_ui: TestClient, path: str
+    app_with_web_ui: FastAPI,
+    client_with_web_ui: TestClient,
+    path: str,
 ) -> None:
-    """Enhanced routes are mounted (200 OK) when ``enable_web_ui=True``."""
+    """Enhanced routes are mounted and anonymous callers cannot inspect them."""
+
+    assert path in _registered_route_paths(app_with_web_ui)
     resp = client_with_web_ui.get(path)
-    assert resp.status_code == 200, (
-        f"Expected 200 at {path} with web UI enabled, got {resp.status_code}: "
+    assert resp.status_code == 401, (
+        f"Expected 401 at {path} with web UI enabled, got {resp.status_code}: "
         f"{resp.text[:200]}"
     )
+    assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
 @pytest.mark.parametrize("path", ENHANCED_ROUTES)
 def test_enhanced_routes_absent_without_web_ui(
-    client_no_web_ui: TestClient, path: str
+    app_no_web_ui: FastAPI,
+    client_no_web_ui: TestClient,
+    path: str,
 ) -> None:
-    """Enhanced routes 404 when ``enable_web_ui=False`` (Phase 1 finding)."""
+    """Absent routes remain non-fingerprinting behind the same auth boundary."""
+
+    assert path not in _registered_route_paths(app_no_web_ui)
     resp = client_no_web_ui.get(path)
-    assert resp.status_code == 404, (
-        f"Expected 404 at {path} without web UI, got {resp.status_code}: "
+    assert resp.status_code == 401, (
+        f"Expected 401 at {path} without web UI, got {resp.status_code}: "
         f"{resp.text[:200]}"
     )
+    assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
 # ---------------------------------------------------------------------------
