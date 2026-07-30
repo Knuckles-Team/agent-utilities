@@ -26,15 +26,67 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import functools
 import logging
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["allow_nested_run_sync", "run_sync_isolated"]
+__all__ = [
+    "allow_nested_run_sync",
+    "run_blocking_ordered",
+    "run_sync_isolated",
+]
 
 _T = TypeVar("_T")
+
+
+async def run_blocking_ordered(
+    fn: Callable[..., _T],
+    /,
+    *args: Any,
+    **kwargs: Any,
+) -> _T:
+    """Run synchronous work off the event loop without orphaning its completion.
+
+    ``asyncio.to_thread`` keeps the server loop responsive and copies the current
+    :mod:`contextvars` context into the worker, including ``GraphSession`` and
+    ``ActorContext``.  Its default cancellation behavior, however, lets the
+    awaiting task observe ``CancelledError`` while the worker continues mutating
+    state in the background.  That breaks the ordering of graph persistence:
+    callers can observe a cancelled compile/run before its write has actually
+    finished.
+
+    This helper retains direct-call completion ordering.  Cancellation remains
+    cooperative and is re-raised, but only after the already-started synchronous
+    operation finishes.  Repeated cancellation requests are remembered while the
+    worker completes.  The event loop stays schedulable throughout.
+    """
+    worker = asyncio.create_task(
+        asyncio.to_thread(functools.partial(fn, *args, **kwargs))
+    )
+    cancelled = False
+    while not worker.done():
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            cancelled = True
+        except BaseException:
+            if not cancelled:
+                raise
+            break
+
+    if cancelled:
+        # Retrieve any worker exception so it is not reported as an unhandled
+        # task error.  Cancellation remains the public outcome, matching the
+        # caller's explicit request.
+        try:
+            worker.result()
+        except BaseException:  # caller cancellation supersedes worker failure
+            pass
+        raise asyncio.CancelledError
+    return worker.result()
 
 
 def allow_nested_run_sync() -> None:

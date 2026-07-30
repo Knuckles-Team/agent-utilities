@@ -227,6 +227,125 @@ async def test_workflow_catalog_read_does_not_block_the_server_event_loop(
     assert time.monotonic() - started < 0.3
 
 
+@pytest.mark.asyncio
+async def test_workflow_compile_live_route_isolates_graph_phases_and_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real GraphOS compile route keeps lookup and persistence off-loop."""
+
+    from agent_utilities.knowledge_graph.core.session import (
+        GraphSession,
+        current_session,
+        use_session,
+    )
+    from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
+    from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
+    from agent_utilities.mcp.tools import workflow_tools
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import (
+        ActorContext,
+        current_actor,
+        use_actor,
+    )
+
+    engine = object()
+    main_thread = threading.current_thread()
+    phase_order: list[str] = []
+    phase_threads: list[threading.Thread] = []
+    authority: list[tuple[object, object]] = []
+    entered = [threading.Event(), threading.Event()]
+    release = [threading.Event(), threading.Event()]
+
+    def _phase(index: int, name: str) -> None:
+        phase_order.append(name)
+        phase_threads.append(threading.current_thread())
+        authority.append((current_actor(), current_session()))
+        entered[index].set()
+        release[index].wait(0.5)
+
+    def slow_match(_self, _text: str, _domain: str):
+        _phase(0, "match")
+        return "executor", []
+
+    def slow_save(_self, **_kwargs):
+        _phase(1, "save")
+        return "workflow:stable"
+
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(WorkflowCompiler, "_match_agent", slow_match)
+    monkeypatch.setattr(WorkflowStore, "save_workflow", slow_save)
+    monkeypatch.setattr(
+        workflow_tools,
+        "_workflow_mermaid",
+        lambda _engine, _name: "graph TD; executor",
+    )
+    tool = _register_all().tools["graph_workflows"]
+
+    actor = ActorContext(
+        actor_id="agent:compile-test",
+        actor_type=ActorType.AI_AGENT,
+        roles=("kg:write",),
+        tenant_id="tenant:test",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant="tenant:test",
+        scopes=frozenset({"kg:read", "kg:write"}),
+        graph="tenant:test",
+        policy_version="test",
+        audience="graph-os",
+    )
+
+    heartbeats = 0
+    stop_heartbeat = False
+
+    async def heartbeat() -> None:
+        nonlocal heartbeats
+        while not stop_heartbeat:
+            heartbeats += 1
+            await asyncio.sleep(0.002)
+
+    with use_actor(actor), use_session(session):
+        request = asyncio.create_task(
+            tool(
+                action="compile",
+                workflow="",
+                task="inspect repository health",
+                name="stable",
+                export_format="json",
+                max_steps=30,
+                limit=50,
+                max_agent_calls=50,
+                max_concurrency=8,
+                budget_tokens=None,
+                model_class="standard",
+                dynamic_fallback="error",
+            )
+        )
+
+    pulse = asyncio.create_task(heartbeat())
+    try:
+        for index in range(2):
+            assert await asyncio.to_thread(entered[index].wait, 0.2)
+            before = heartbeats
+            await asyncio.sleep(0.02)
+            assert heartbeats > before
+            assert not request.done()
+            release[index].set()
+        payload = json.loads(await asyncio.wait_for(request, timeout=1.0))
+    finally:
+        for event in release:
+            event.set()
+        stop_heartbeat = True
+        await pulse
+
+    assert payload["workflow_id"] == "workflow:stable"
+    assert phase_order == ["match", "save"]
+    assert all(thread is not main_thread for thread in phase_threads)
+    assert authority == [(actor, session), (actor, session)]
+
+
 def test_budget_domain_action_uses_composed_engine_capability(monkeypatch) -> None:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.orchestration.engine_enterprise import (

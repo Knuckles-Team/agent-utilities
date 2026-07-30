@@ -11,6 +11,9 @@ rejection, and explicit manual steps for unresolvable tasks.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+
 import pytest
 
 from agent_utilities.knowledge_graph.enrichment.extractors.camunda import extract
@@ -280,8 +283,104 @@ class TestCompileAndStore:
             if s == workflow_id and p.get("relationship") == "HAS_STEP"
         ]
         assert len(step_nodes) == 3
-        join = next(n for n in step_nodes if n.get("node_id") == "archive")
+        join = next(n for n in step_nodes if n.get("step_id") == "archive")
         assert "review" in join["depends_on_json"]
+
+    async def test_compile_process_keeps_ordered_graph_phases_off_event_loop(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        engine = FakeEngine()
+        compiler = ProcessPlanCompiler(engine)
+        main_thread = threading.current_thread()
+        phase_order: list[str] = []
+        phase_threads: list[threading.Thread] = []
+        entered = [threading.Event() for _ in range(4)]
+        release = [threading.Event() for _ in range(4)]
+
+        def phase(index: int, name: str) -> None:
+            phase_order.append(name)
+            phase_threads.append(threading.current_thread())
+            entered[index].set()
+            release[index].wait(0.5)
+
+        def node_props(_process_id: str):
+            phase(0, "process_props")
+            return {"name": "Invoice"}
+
+        def process_graph(_process_id: str):
+            phase(1, "process_graph")
+            return (
+                {
+                    "task:review": {
+                        "name": "Review invoice",
+                        "element_id": "review",
+                        "node_type": "BusinessTask",
+                    }
+                },
+                [],
+            )
+
+        def match_agent(_text: str, _domain: str):
+            phase(2, "match")
+            return "review", ["review_tool"]
+
+        class Store:
+            def save_workflow(self, **_kwargs):
+                phase(3, "save")
+                return "workflow:invoice"
+
+        def link_nodes(source, target, relationship):
+            phase_order.append("link")
+            phase_threads.append(threading.current_thread())
+            assert (source, target, relationship) == (
+                "workflow:invoice",
+                "process:invoice",
+                "REALIZES",
+            )
+
+        monkeypatch.setattr(compiler, "_node_props", node_props)
+        monkeypatch.setattr(compiler, "_load_process_graph", process_graph)
+        monkeypatch.setattr(compiler._nl_compiler, "_match_agent", match_agent)
+        compiler._nl_compiler._store = Store()
+        monkeypatch.setattr(engine, "link_nodes", link_nodes)
+
+        heartbeats = 0
+        stop_heartbeat = False
+
+        async def heartbeat() -> None:
+            nonlocal heartbeats
+            while not stop_heartbeat:
+                heartbeats += 1
+                await asyncio.sleep(0.002)
+
+        request = asyncio.create_task(
+            compiler.compile_and_store("process:invoice", name="invoice")
+        )
+        pulse = asyncio.create_task(heartbeat())
+        try:
+            for index in range(4):
+                assert await asyncio.to_thread(entered[index].wait, 0.2)
+                before = heartbeats
+                await asyncio.sleep(0.02)
+                assert heartbeats > before
+                assert not request.done()
+                release[index].set()
+            report = await asyncio.wait_for(request, timeout=1.0)
+        finally:
+            for event in release:
+                event.set()
+            stop_heartbeat = True
+            await pulse
+
+        assert report["workflow_id"] == "workflow:invoice"
+        assert phase_order == [
+            "process_props",
+            "process_graph",
+            "match",
+            "save",
+            "link",
+        ]
+        assert all(thread is not main_thread for thread in phase_threads)
 
 
 class TestMcpSurface:
