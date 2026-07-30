@@ -125,12 +125,20 @@ class EpistemicGraphBackend(GraphBackend):
 
     def __init__(self, graph_name: str | None = None) -> None:
         from ..core.graph_compute import GraphComputeEngine
+        from ..core.shard_topology import resolve_routing_graph
 
+        # The one process transport may have been initialized first by the
+        # encrypted secret resolver and therefore be rooted at ``__secrets__``.
+        # ``None`` here means the operational tenant/default graph, never
+        # "inherit whichever graph happened to create the transport first".
+        # get_or_create() still reuses that one transport and returns only a
+        # lightweight graph-scoped view.
+        target_graph = resolve_routing_graph(graph_name)
         self._graph = GraphComputeEngine.get_or_create(
-            graph_name=graph_name,
+            graph_name=target_graph,
             backend_type="rust",
         )
-        self.graph_name = getattr(self._graph, "graph_name", graph_name)
+        self.graph_name = getattr(self._graph, "graph_name", target_graph)
         logger.info("EpistemicGraphBackend bound to the process graph authority")
 
     def for_graph(self, graph_name: str) -> EpistemicGraphBackend:

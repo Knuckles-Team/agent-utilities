@@ -199,6 +199,36 @@ def test_named_graph_view_has_no_implicit_provisioning_write() -> None:
     assert "tenants.create" not in source
 
 
+def test_default_backend_does_not_inherit_secrets_transport_root(monkeypatch) -> None:
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core import graph_compute, shard_topology
+
+    calls: list[str | None] = []
+
+    def _get_or_create(cls, graph_name=None, **_kwargs):  # noqa: ANN001
+        calls.append(graph_name)
+        return SimpleNamespace(graph_name=graph_name)
+
+    monkeypatch.setattr(
+        graph_compute.GraphComputeEngine,
+        "get_or_create",
+        classmethod(_get_or_create),
+    )
+    monkeypatch.setattr(
+        shard_topology,
+        "resolve_routing_graph",
+        lambda _graph_name: "tenant__homelab____commons__",
+    )
+
+    backend = EpistemicGraphBackend()
+
+    assert calls == ["tenant__homelab____commons__"]
+    assert backend.graph_name == "tenant__homelab____commons__"
+    assert backend.graph_name != "__secrets__"
+
+
 def test_no_agentlease_writer_remains() -> None:
     """AgentLease is absent from the current writable model."""
     offenders: list[str] = []
