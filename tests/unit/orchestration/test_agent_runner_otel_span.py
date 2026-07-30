@@ -1,7 +1,7 @@
 """``run_agent`` OTel span coverage (CONCEPT:AU-OS.observability.telemetry-observability, X2).
 
 ``run_agent`` (the primary entry point for ``graph_orchestrate``) opens one
-``graph.run`` span per execution via ``TelemetryEngine.on_graph_start`` and
+``agent.run`` span per execution via ``TelemetryEngine.on_graph_start`` and
 closes it — on EVERY exit path (success/degraded/failed/enterprise) — through
 the shared ``_record_execution_trace`` helper's new ``on_graph_end`` call,
 carrying gen_ai attrs (model, tool-call count) when available.
@@ -17,6 +17,8 @@ or KG-resolution path.
 """
 
 from __future__ import annotations
+
+from unittest.mock import patch
 
 import pytest
 
@@ -74,14 +76,16 @@ def test_record_execution_trace_closes_the_run_span_with_gen_ai_attrs(
         duration_ms=42.0,
         model_name="qwen2.5-72b-instruct",
         tool_call_count=3,
+        execution_mode="single_server_agent",
     )
 
     assert "run-record-1" not in telemetry._active_spans
     spans = exporter.get_finished_spans()
     assert len(spans) == 1
     span = spans[0]
-    assert span.name == "graph.run"
+    assert span.name == "agent.run"
     assert span.attributes["gen_ai.system"] == "pydantic_ai"
+    assert span.attributes["agent_utilities.execution.mode"] == "single_server_agent"
     assert span.attributes["gen_ai.request.model"] == "qwen2.5-72b-instruct"
     assert span.attributes["gen_ai.response.tool_call_count"] == 3
     assert span.attributes["status"] == "completed"
@@ -113,6 +117,39 @@ def test_record_execution_trace_closes_the_span_even_on_the_failed_exit(
     assert span.attributes["status"] == "failed"
     assert "gen_ai.request.model" not in span.attributes
     assert "gen_ai.response.tool_call_count" not in span.attributes
+
+
+def test_record_execution_trace_persists_the_actual_execution_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Engine:
+        backend = None
+
+        def __init__(self) -> None:
+            self.nodes: list[tuple[str, str, dict[str, object]]] = []
+
+        def add_node(
+            self, node_id: str, node_type: str, properties: dict[str, object]
+        ) -> None:
+            self.nodes.append((node_id, node_type, properties))
+
+        def link_nodes(self, *_args: object) -> None:
+            return None
+
+    engine = _Engine()
+    _record_execution_trace(
+        engine,
+        "run-persisted-mode",
+        "fixture-agent",
+        "fixture task",
+        status="completed",
+        execution_mode="single_server_agent",
+    )
+
+    run_trace = next(
+        properties for _, kind, properties in engine.nodes if kind == "RunTrace"
+    )
+    assert run_trace["execution_mode"] == "single_server_agent"
 
 
 def test_record_execution_trace_is_a_noop_when_otel_is_unconfigured(
@@ -194,3 +231,34 @@ async def test_run_agent_span_start_failure_never_blocks_the_run(
 
     with pytest.raises(_StopHere):
         await agent_runner.run_agent("some-agent", "do the thing", engine=None)
+
+
+async def test_service_registry_execution_records_its_distinct_mode() -> None:
+    class _Capability:
+        def run(self, task: str) -> str:
+            return f"handled: {task}"
+
+    class _Service:
+        @staticmethod
+        def get_class():
+            return _Capability
+
+    class _Registry:
+        @staticmethod
+        def get(_name: str):
+            return _Service()
+
+    engine = object()
+    with (
+        patch(
+            "agent_utilities.core.registry.service_adapter.ServiceRegistry.instance",
+            return_value=_Registry(),
+        ),
+        patch.object(agent_runner, "_record_execution_trace") as record_trace,
+    ):
+        result = await agent_runner.run_agent(
+            "native-capability", "fixture task", engine=engine
+        )
+
+    assert result == "handled: fixture task"
+    assert record_trace.call_args.kwargs["execution_mode"] == "service_registry"

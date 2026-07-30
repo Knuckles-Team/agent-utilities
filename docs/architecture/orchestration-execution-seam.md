@@ -36,9 +36,14 @@ flowchart TD
     SKILL --> RA
     RA --> RES["_resolve_agent_from_kg<br/>Server · CallableResource · Skill→runnable (AU-ORCH.dispatch.dispatch-half-skill-ingestion)"]
     RES --> BIND["bind real MCP toolset internally<br/>(stdio / HTTP + OIDC client credentials)"]
-    BIND --> LLM["LOCAL vLLM (qwen, model_router)"]
+    BIND --> MODE{"actual execution mode"}
+    MODE -->|"single_server_agent"| LLM["direct Pydantic AI agent<br/>LOCAL vLLM"]
+    MODE -->|"pydantic_graph"| PG["pydantic_graph.run span<br/>only around Graph.run()"]
+    MODE -->|"direct_completion / service_registry / parallel_engine"| OTHER["other native executor"]
+    PG --> LLM
+    OTHER --> LLM
     LLM --> TOOL["REAL MCP tool call"]
-    TOOL --> TRACE["RunTrace + :ToolCall provenance<br/>(KG-2.296) + action_outcome"]
+    TOOL --> TRACE["RunTrace.execution_mode + :ToolCall provenance<br/>(KG-2.296) + action_outcome"]
     RA --> RID["bounded result + resolution + approval_request<br/>run_id / trace_ref (AU-ORCH.execution.rich-result-wrapper)"]
     TRACE -.queryable.-> CODEX["Codex control plane:<br/>'what did the local LLM do?'"]
 ```
@@ -57,10 +62,15 @@ flowchart TD
   This keeps the same path portable to strict vLLM/LiteLLM chat templates that reject a
   second system message before the focused agent can call its bound MCP tool.
 - **Full visibility.** Reuses the existing `KGTraceBackend`/RunTrace + `action_outcome`
-  (AU-AHE.evaluation.action-outcome-feedback). Query a delegated run:
+  (AU-AHE.evaluation.action-outcome-feedback). Every `RunTrace` records the executor
+  that actually ran; GraphResponse metadata and the optional run summary mirror it
+  (`single_server_agent`, `pydantic_graph`,
+  `direct_completion`, `service_registry`, or `parallel_engine`). OpenTelemetry mirrors
+  that value on the root `agent.run` span; only the actual `Graph.run()` call creates a
+  child `pydantic_graph.run` span. Query a delegated run:
   ```cypher
   MATCH (t:RunTrace {id: $trace_id})-[:USED_TOOL]->(tc:ToolCall)
-  RETURN tc.tool_name, tc.status, tc.args_digest, tc.result_digest
+  RETURN t.execution_mode, tc.tool_name, tc.status, tc.args_digest, tc.result_digest
   ORDER BY tc.sequence
   ```
 

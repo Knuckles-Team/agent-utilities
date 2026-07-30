@@ -32,7 +32,51 @@ async def test_run_graph_basic(mock_graph):
 
     assert response["status"] == "completed"
     assert response["results"]["output"] == "final answer"
+    assert response["metadata"]["execution_mode"] == "pydantic_graph"
     mock_graph.run.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_actual_graph_run_uses_a_pydantic_graph_span(
+    mock_graph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the real ``Graph.run`` call is represented as ``pydantic_graph.run``."""
+    from opentelemetry import trace as otel_trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    from agent_utilities.orchestration import engine as engine_module
+
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(
+        engine_module, "tracer", provider.get_tracer("test-pydantic-graph-span")
+    )
+
+    async def capture_active_span(*, state, deps):
+        span = otel_trace.get_current_span()
+        assert span.name == "pydantic_graph.run"
+        return GraphResponse(status="completed", results={"output": "done"})
+
+    mock_graph.run.side_effect = capture_active_span
+    deps = MagicMock()
+    deps.mcp_toolsets = []
+    deps.tag_prompts = {}
+    deps.event_queue = None
+
+    response = await runner().execute_graph(
+        mock_graph, {"deps": deps}, query="hello", run_id="synthetic-run"
+    )
+
+    assert response["metadata"]["execution_mode"] == "pydantic_graph"
+    spans = exporter.get_finished_spans()
+    assert [span.name for span in spans] == ["pydantic_graph.run"]
+    assert spans[0].attributes["agent_utilities.execution.mode"] == "pydantic_graph"
 
 
 @pytest.mark.asyncio

@@ -52,6 +52,7 @@ from agent_utilities.core.config import (
     get_discovery_registry,
 )
 from agent_utilities.core.model_factory import create_model
+from agent_utilities.security.persistence_privacy import persistence_reference
 
 from ..graph.mermaid import get_graph_mermaid
 from ..graph.state import REQUESTED_MODEL_ID_CTX, GraphDeps, GraphState
@@ -63,6 +64,27 @@ try:
     tracer: trace.Tracer | None = trace.get_tracer("agent-utilities.graph")
 except ImportError:
     tracer = None
+
+
+def _pydantic_graph_span(
+    *, run_id: str, query: str, topology: str
+) -> contextlib.AbstractContextManager[Any]:
+    """Return a span context for the actual ``pydantic_graph.Graph.run`` call."""
+
+    if tracer is None:
+        return contextlib.nullcontext(None)
+    return tracer.start_as_current_span(
+        "pydantic_graph.run",
+        attributes={
+            "agent_utilities.execution.mode": "pydantic_graph",
+            "query_length": len(query),
+            "run_ref": persistence_reference(
+                "run", run_id, namespace="orchestration-trace"
+            ),
+            "topology": topology,
+        },
+    )
+
 
 from contextlib import AsyncExitStack
 
@@ -602,6 +624,7 @@ class AgentOrchestrationEngine:
                         metadata={
                             "run_id": run_id,
                             "is_error": True,
+                            "execution_mode": "graph_preflight",
                             "security": {
                                 "confidence": scan_result.confidence,
                                 "finding_id": scan_result.finding_id,
@@ -620,28 +643,11 @@ class AgentOrchestrationEngine:
             result = None
             _graph_run_start = time.perf_counter()
             try:
-                if tracer:
-                    with tracer.start_as_current_span(f"graph_run:{run_id}") as span:
-                        span.set_attribute("query", query)
-                        span.set_attribute("request_id", deps.request_id)
-                        with anyio.move_on_after(
-                            DEFAULT_GRAPH_TIMEOUT / 1000.0
-                        ) as scope:
-                            result = await graph.run(state=state, deps=deps)
-                        if scope.cancel_called:
-                            logger.error(
-                                f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms"
-                            )
-                            result = "timeout"
-                        span.set_status(
-                            trace.Status(
-                                trace.StatusCode.OK
-                                if result
-                                else trace.StatusCode.ERROR
-                            )
-                        )
-                else:
-                    logger.info("run_graph: Running beta graph.run (no tracer)...")
+                if tracer is None:
+                    logger.info("run_graph: Running pydantic_graph.run (no tracer)...")
+                with _pydantic_graph_span(
+                    run_id=run_id, query=query, topology=topology
+                ) as span:
                     with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
                         result = await graph.run(state=state, deps=deps)
                     if scope.cancel_called:
@@ -649,6 +655,14 @@ class AgentOrchestrationEngine:
                             f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms"
                         )
                         result = "timeout"
+                    if span is not None:
+                        span.set_status(
+                            trace.Status(
+                                trace.StatusCode.OK
+                                if result
+                                else trace.StatusCode.ERROR
+                            )
+                        )
             except Exception as e:
                 logger.error(
                     "run_graph: critical graph execution failure (%s)",
@@ -660,7 +674,11 @@ class AgentOrchestrationEngine:
                 return GraphResponse(
                     status="error",
                     error=str(e),
-                    metadata={"run_id": run_id, "is_error": True},
+                    metadata={
+                        "run_id": run_id,
+                        "is_error": True,
+                        "execution_mode": "pydantic_graph",
+                    },
                 ).model_dump()
 
             # CONCEPT:AU-ORCH.execution.node-direct-end — a node may END the run directly with End[GraphResponse]
@@ -707,7 +725,10 @@ class AgentOrchestrationEngine:
                         duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
                         token_usage=_usage,
                         model=str(config.get("agent_model") or ""),
-                        metadata={"domain": state.routed_domain},
+                        metadata={
+                            "domain": state.routed_domain,
+                            "execution_mode": "pydantic_graph",
+                        },
                         evidence=(
                             config.get("trace_evidence")
                             if isinstance(config.get("trace_evidence"), dict)
@@ -731,7 +752,10 @@ class AgentOrchestrationEngine:
                     status="success" if result else "timeout",
                     duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
                     query=query,
-                    attributes={"domain": state.routed_domain},
+                    attributes={
+                        "domain": state.routed_domain,
+                        "execution_mode": "pydantic_graph",
+                    },
                 )
             except Exception as _si_exc:  # noqa: BLE001 — telemetry must never crash a run
                 logger.debug("run_graph: self-ingest run_trace skipped: %s", _si_exc)
@@ -789,7 +813,13 @@ class AgentOrchestrationEngine:
 
         if isinstance(result, GraphResponse):
             result.mermaid = mermaid_prefix if mermaid_prefix else None
-            result.metadata.update({"run_id": run_id, "domain": state.routed_domain})
+            result.metadata.update(
+                {
+                    "run_id": run_id,
+                    "domain": state.routed_domain,
+                    "execution_mode": "pydantic_graph",
+                }
+            )
             # Surface the graph run's accumulated tool calls so run_agent persists them
             # as :ToolCall provenance (CONCEPT:AU-KG.temporal.message-history-read) — the multi-agent path
             # previously wrote none, unlike the direct single-server loop.
@@ -819,6 +849,7 @@ class AgentOrchestrationEngine:
                     "run_id": run_id,
                     "domain": state.routed_domain,
                     "terminated_at": result,
+                    "execution_mode": "pydantic_graph",
                 },
                 tool_calls=list(getattr(state, "tool_calls", []) or []),
             ).model_dump()
@@ -845,6 +876,7 @@ class AgentOrchestrationEngine:
                     "domain": state.routed_domain,
                     "degraded": True,
                     "outcome": "graph_terminal_error",
+                    "execution_mode": "pydantic_graph",
                 },
                 tool_calls=list(getattr(state, "tool_calls", []) or []),
             ).model_dump()
@@ -853,7 +885,11 @@ class AgentOrchestrationEngine:
             status="completed",
             results={"output": str(result)},
             mermaid=mermaid_prefix if mermaid_prefix else None,
-            metadata={"run_id": run_id, "domain": state.routed_domain},
+            metadata={
+                "run_id": run_id,
+                "domain": state.routed_domain,
+                "execution_mode": "pydantic_graph",
+            },
             tool_calls=list(getattr(state, "tool_calls", []) or []),
         ).model_dump()
 
@@ -1042,10 +1078,13 @@ class AgentOrchestrationEngine:
                         ts for ts in connected_toolsets if ts is not None
                     ]
 
-                    result = await asyncio.wait_for(
-                        graph.run(state=state, deps=deps),
-                        timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
-                    )
+                    with _pydantic_graph_span(
+                        run_id=run_id, query=query, topology=topology
+                    ):
+                        result = await asyncio.wait_for(
+                            graph.run(state=state, deps=deps),
+                            timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
+                        )
                     graph_result_holder["value"] = result
             except TimeoutError:
                 await eq.put({"type": "error", "error": "Graph execution timed out"})

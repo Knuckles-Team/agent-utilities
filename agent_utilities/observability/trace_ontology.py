@@ -202,6 +202,7 @@ def trace_properties(
     result_preview: str | None = None,
     skill_used: str = "",
     bound_server: str = "",
+    execution_mode: str = "",
 ) -> dict[str, Any]:
     """Build the canonical, persistence-sanitized ``RunTrace`` properties."""
 
@@ -246,6 +247,8 @@ def trace_properties(
         props["server_ref"] = persistence_reference(
             "server", bound_server, namespace="execution-trace"
         )
+    if execution_mode:
+        props["execution_mode"] = str(execution_mode)
     return props
 
 

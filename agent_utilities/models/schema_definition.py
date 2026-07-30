@@ -858,6 +858,7 @@ SCHEMA = GraphSchemaDefinition(
                 "task_digest": "STRING",
                 "task_character_count": "INT64",
                 "status": "STRING",
+                "execution_mode": "STRING",
                 "error": "STRING",
                 "error_digest": "STRING",
                 "error_character_count": "INT64",

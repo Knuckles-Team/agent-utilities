@@ -88,6 +88,7 @@ def test_runtime_properties_sanitize_machine_locations_and_identity() -> None:
         timestamp="2026-01-01T00:00:00Z",
         error="failed at C:\\Users\\agent-user\\private.txt",
         event_sequence=7,
+        execution_mode="single_server_agent",
     )
     call = tool_call_properties(
         run_id="fixture-run",
@@ -114,6 +115,7 @@ def test_runtime_properties_sanitize_machine_locations_and_identity() -> None:
     assert "trace:fixture-run" not in persisted
     assert trace["task"] == ""
     assert trace["error"] == ""
+    assert trace["execution_mode"] == "single_server_agent"
     assert call["args"] == ""
     assert call["result"] == ""
     assert call["error"] == ""

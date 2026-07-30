@@ -209,7 +209,8 @@ class Orchestrator:
                 "MATCH (t:RunTrace {id: $tid}) RETURN t.status AS status, "
                 "t.attribution_ref AS attribution_ref, t.task AS task, t.timestamp AS timestamp, "
                 "t.duration_ms AS duration_ms, t.result_preview AS result_preview, "
-                "t.error AS error, t.skill_ref AS skill_ref, "
+                "t.error AS error, t.execution_mode AS execution_mode, "
+                "t.skill_ref AS skill_ref, "
                 "t.server_ref AS server_ref, t.model_ref AS model_ref, "
                 "t.model_class AS model_class, "
                 "t.skill_instruction_digest AS skill_instruction_digest, "
@@ -553,6 +554,9 @@ class Orchestrator:
             "run_id": run_id,
             "trace_ref": trace.get("trace_id") if isinstance(trace, dict) else None,
             "status": trace.get("status") if isinstance(trace, dict) else None,
+            "execution_mode": trace.get("execution_mode")
+            if isinstance(trace, dict)
+            else None,
             "duration_ms": trace.get("duration_ms")
             if isinstance(trace, dict)
             else None,

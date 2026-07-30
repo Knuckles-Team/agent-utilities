@@ -389,9 +389,15 @@ class TelemetryEngine:
         run_id: str,
         agent_id: str = "",
         query: str = "",
+        execution_mode: str = "pending",
         **metadata: Any,
     ) -> None:
-        """Record the start of a graph execution."""
+        """Record the start of an agent execution.
+
+        The root span represents the public ``run_agent`` entrypoint.  It is
+        deliberately not named ``graph.run`` because routing may select a
+        direct single-server agent or another non-graph execution mode.
+        """
         self._lazy_init()
         run_ref = _telemetry_ref("run", run_id)
         agent_ref = _telemetry_ref("agent", agent_id or "system")
@@ -409,11 +415,12 @@ class TelemetryEngine:
         if self._tracer is not None:
             try:
                 span_cm = self._tracer.start_as_current_span(
-                    "graph.run",
+                    "agent.run",
                     attributes={
                         "run_ref": run_ref,
                         "agent_ref": agent_ref,
                         "query_length": len(query),
+                        "agent_utilities.execution.mode": execution_mode,
                         # gen_ai semantic conventions (X2): this span covers one
                         # ``run_agent`` execution, mediated end-to-end by pydantic-ai —
                         # the invariant "which framework" fact, set once at span-open;
@@ -509,6 +516,7 @@ class TelemetryEngine:
         *,
         model: str = "",
         tool_call_count: int | None = None,
+        execution_mode: str = "",
         **metadata: Any,
     ) -> None:
         """Record the end of a graph execution.
@@ -558,6 +566,8 @@ class TelemetryEngine:
                     span.set_attribute(
                         "gen_ai.response.tool_call_count", int(tool_call_count)
                     )
+                if execution_mode:
+                    span.set_attribute("agent_utilities.execution.mode", execution_mode)
             except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
                 logger.debug(
                     "TelemetryEngine: span attribute set failed (exception_type=%s)",

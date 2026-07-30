@@ -300,6 +300,7 @@ async def test_single_server_uses_bound_tool_grounding_live_path(monkeypatch):
     assert "authenticated, pre-bound MCP tool results" in evidence_text
     assert captured["bundle"] is None
     assert result["results"]["output"] == "tool-grounded"
+    assert result["metadata"]["execution_mode"] == "single_server_agent"
     assert contextual_model._bound_tool_grounding.get() is False
 
 

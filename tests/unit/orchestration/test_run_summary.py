@@ -81,6 +81,7 @@ def test_build_run_summary_ok_outcome_has_no_failure_key() -> None:
     assert summary["route"]["servers"] == ["portainer-mcp"]
     assert summary["stage_reached"] == "tool-call: portainer-mcp"
     assert summary["trace_ref"].startswith("trace:")
+    assert summary["execution_mode"] == "other"
 
 
 def test_build_run_summary_degraded_outcome_carries_translated_failure() -> None:
@@ -92,6 +93,7 @@ def test_build_run_summary_degraded_outcome_carries_translated_failure() -> None
         raw_failure="RuntimeError: fleet MCP endpoint requires HTTPS outside loopback",
     )
     assert summary["outcome"] == "degraded"
+    assert summary["execution_mode"] == "other"
     assert summary["failure"]["category"] == "fleet_https_gate"
     assert "HTTPS" in summary["failure"]["translated"] or "TLS" in summary["failure"]["translated"]
     assert summary["failure"]["hint"]
@@ -195,6 +197,7 @@ async def test_run_agent_fleet_gate_failure_produces_a_transparent_run_summary()
 
     summary = payload["run_summary"]
     assert summary["outcome"] == "degraded"
+    assert summary["execution_mode"] == "single_server_agent"
     assert summary["stage_reached"] == "tool-call: github-mcp"
     assert summary["route"]["servers"] == ["github-mcp"]
     assert summary["trace_ref"] == "trace:" + __import__(
@@ -276,6 +279,7 @@ async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenanc
     payload = json.loads(raw)
     assert payload["run_summary"]["route"]["servers"] == ["github-mcp"]
     assert payload["run_summary"]["outcome"] == "degraded"
+    assert payload["run_summary"]["execution_mode"] == "single_server_agent"
     assert "without recorded ToolCall provenance" in payload["output"]
     assert "repository-manager-mcp" not in payload["run_summary"]["route"]["servers"]
     assert execute_server.await_args.kwargs["agent_name"] == "github-mcp"
@@ -318,6 +322,7 @@ async def test_run_agent_success_run_summary_has_ok_outcome_and_no_failure() -> 
     payload = json.loads(raw)
     assert payload["output"] == "Found 3 running containers."
     assert payload["run_summary"]["outcome"] == "ok"
+    assert payload["run_summary"]["execution_mode"] == "pydantic_graph"
     assert "failure" not in payload["run_summary"]
 
 

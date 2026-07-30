@@ -248,6 +248,41 @@ async def test_status_action_surfaces_real_run_trace_and_tool_calls(monkeypatch)
     assert "web, db, cache" in status["tool_calls"][0]["result_preview"]
 
 
+def test_run_trace_status_surfaces_execution_mode() -> None:
+    from unittest.mock import MagicMock
+
+    from agent_utilities.orchestration.manager import Orchestrator
+
+    backend = MagicMock()
+    backend.execute.side_effect = [
+        [
+            {
+                "status": "completed",
+                "execution_mode": "pydantic_graph",
+                "duration_ms": 12.5,
+            }
+        ],
+        [],
+        [
+            {
+                "status": "completed",
+                "execution_mode": "pydantic_graph",
+                "duration_ms": 12.5,
+            }
+        ],
+        [],
+    ]
+    engine = MagicMock()
+    engine.backend = backend
+    orchestrator = Orchestrator(engine)
+
+    trace = orchestrator.get_run_trace("run:fixture")
+    provenance = orchestrator._run_provenance("run:fixture")
+
+    assert trace["execution_mode"] == "pydantic_graph"
+    assert provenance["execution_mode"] == "pydantic_graph"
+
+
 @pytest.mark.asyncio
 async def test_status_action_serves_dispatched_work_item_lookup(monkeypatch):
     """Status for a dispatch-created id reads its durable task record."""

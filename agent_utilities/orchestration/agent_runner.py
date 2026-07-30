@@ -242,6 +242,7 @@ def _build_run_summary(
     stage_reached: str,
     run_id: str,
     raw_failure: str | None,
+    execution_mode: str = "other",
 ) -> dict[str, Any]:
     """Assemble the structured, chat-renderable summary of one delegation's routing + outcome.
 
@@ -260,6 +261,7 @@ def _build_run_summary(
         "outcome": outcome,
         "stage_reached": stage_reached,
         "trace_ref": _trace_id(run_id),
+        "execution_mode": execution_mode,
     }
     if raw_failure:
         from agent_utilities.orchestration.failure_translation import (
@@ -580,6 +582,7 @@ async def run_agent(
     response_format = validate_response_format(response_format)
     run_id = run_id or new_run_id()
     start_time = time.monotonic()
+    execution_mode = "other"
     logger.info(
         "[ORCH-1.21] Starting agent execution: agent=%s, run_id=%s, task=%.100s...",
         agent_name,
@@ -637,6 +640,7 @@ async def run_agent(
                 status="completed",
                 duration_ms=duration_ms,
                 result_preview=str(pe_result)[:500],
+                execution_mode="parallel_engine",
             )
             return _render_agent_result(
                 pe_result, run_id=run_id, return_mermaid=return_mermaid
@@ -644,7 +648,13 @@ async def run_agent(
         except Exception as e:
             logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
             _record_execution_trace(
-                engine, run_id, "enterprise", task, status="failed", error=str(e)
+                engine,
+                run_id,
+                "enterprise",
+                task,
+                status="failed",
+                error=str(e),
+                execution_mode="parallel_engine",
             )
             return _render_agent_result(
                 f"Enterprise execution failed: {e}",
@@ -676,7 +686,10 @@ async def run_agent(
                     instance = cls()
 
                 # Execute capability
+                result = None
+                handled = False
                 if hasattr(instance, "analyze"):
+                    handled = True
                     # Specifically for TradingSwarm
                     try:
                         task_data = json.loads(task)
@@ -688,10 +701,8 @@ async def run_agent(
                         if getattr(instance.analyze, "__iscoroutinefunction__", False)
                         else instance.analyze(task_data)
                     )
-                    return _render_agent_result(
-                        result, run_id=run_id, return_mermaid=return_mermaid
-                    )
                 elif hasattr(instance, "select_pattern"):
+                    handled = True
                     # Specifically for SubagentPatternRouter
                     result = (
                         await instance.select_pattern(needs_collaboration=True)
@@ -700,23 +711,30 @@ async def run_agent(
                         )
                         else instance.select_pattern(needs_collaboration=True)
                     )
-                    return _render_agent_result(
-                        result, run_id=run_id, return_mermaid=return_mermaid
-                    )
                 elif hasattr(instance, "run"):
+                    handled = True
                     result = (
                         await instance.run(task)
                         if getattr(instance.run, "__iscoroutinefunction__", False)
                         else instance.run(task)
                     )
-                    return _render_agent_result(
-                        result, run_id=run_id, return_mermaid=return_mermaid
-                    )
                 elif hasattr(instance, "execute"):
+                    handled = True
                     result = (
                         await instance.execute(task)
                         if getattr(instance.execute, "__iscoroutinefunction__", False)
                         else instance.execute(task)
+                    )
+                if handled:
+                    _record_execution_trace(
+                        engine,
+                        run_id,
+                        agent_name,
+                        task,
+                        status="completed",
+                        duration_ms=(time.monotonic() - start_time) * 1000,
+                        result_preview=str(result)[:500],
+                        execution_mode="service_registry",
                     )
                     return _render_agent_result(
                         result, run_id=run_id, return_mermaid=return_mermaid
@@ -945,6 +963,7 @@ async def run_agent(
                 evidence={"agents": route["agents"], "servers": route["servers"]},
             )
             try:
+                execution_mode = "single_server_agent"
                 result = await _execute_single_server(
                     config=config,
                     task=task,
@@ -960,6 +979,7 @@ async def run_agent(
                 stage_reached = (
                     f"bound-template: {agent_name} (fallback: multi-agent-graph)"
                 )
+                execution_mode = "pydantic_graph"
                 result = await _execute_graph(
                     config=config,
                     query=task,
@@ -1001,6 +1021,7 @@ async def run_agent(
                 evidence={"servers": _focused_servers},
             )
             try:
+                execution_mode = "single_server_agent"
                 result = await _execute_focused_tools(
                     task=task,
                     shape=shape,
@@ -1036,6 +1057,7 @@ async def run_agent(
                     agent_name or ",".join(servers), err
                 )
         elif _is_single_server_agent(agent_meta, config):
+            execution_mode = "single_server_agent"
             route = {
                 "agents": [],
                 "servers": [agent_name],
@@ -1067,6 +1089,7 @@ async def run_agent(
                 bound_tool_grounding=True,
             )
         else:
+            execution_mode = "pydantic_graph"
             route = {
                 "agents": ["multi-agent-graph"],
                 "servers": [],
@@ -1133,6 +1156,7 @@ async def run_agent(
                     model_ref=_model_ref,
                     model_class=_model_class,
                     model_name=str(config.get("agent_model") or ""),
+                    execution_mode=execution_mode,
                     delegation=_spawn_delegation,
                 )
             except Exception as trace_exc:  # noqa: BLE001 — best-effort; never block cancellation
@@ -1171,6 +1195,7 @@ async def run_agent(
             model_ref=_model_ref,
             model_class=_model_class,
             model_name=str(config.get("agent_model") or ""),
+            execution_mode=execution_mode,
             delegation=_spawn_delegation,
         )
         # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
@@ -1223,6 +1248,7 @@ async def run_agent(
                     stage_reached=stage_reached,
                     run_id=run_id,
                     raw_failure=err_msg,
+                    execution_mode=execution_mode,
                 )
                 if include_run_summary
                 else None
@@ -1253,6 +1279,13 @@ async def run_agent(
     # non-answer, and the failure is fed back so routing self-corrects next time
     # (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome; F2/F5).
     degraded = _delegation_degraded(result)
+    if isinstance(result, dict):
+        _result_metadata = result.setdefault("metadata", {})
+        if isinstance(_result_metadata, dict):
+            execution_mode = str(
+                _result_metadata.get("execution_mode") or execution_mode
+            )
+            _result_metadata["execution_mode"] = execution_mode
     # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the REAL cause of a
     # degraded outcome (e.g. _fleet_server_failed_result's already-composed truthful message,
     # or a GraphResponse.error from a critical graph failure) so BOTH the durable RunTrace
@@ -1266,6 +1299,7 @@ async def run_agent(
         stage_reached=stage_reached,
         run_id=run_id,
         raw_failure=_raw_failure,
+        execution_mode=execution_mode,
     )
     if isinstance(result, dict):
         _meta = result.setdefault("metadata", {})
@@ -1339,6 +1373,7 @@ async def run_agent(
         model_ref=_model_ref,
         model_class=_model_class,
         model_name=str(config.get("agent_model") or ""),
+        execution_mode=execution_mode,
         tool_call_count=(
             len(result["tool_calls"])
             if isinstance(result, dict) and isinstance(result.get("tool_calls"), list)
@@ -2662,6 +2697,7 @@ async def _execute_single_server(
     return {
         "results": {"output": str(output)},
         "tool_calls": _extract_tool_calls(result),
+        "metadata": {"execution_mode": "single_server_agent"},
     }
 
 
@@ -2866,7 +2902,11 @@ async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
     return {
         "status": "completed",
         "results": {"output": str(res.output)},
-        "metadata": {"direct_complete": True, "domain": "conversational"},
+        "metadata": {
+            "direct_complete": True,
+            "domain": "conversational",
+            "execution_mode": "direct_completion",
+        },
     }
 
 
@@ -3044,6 +3084,7 @@ def _record_execution_trace(
     model_class: str = "",
     model_name: str = "",
     tool_call_count: int | None = None,
+    execution_mode: str = "other",
     delegation: Any = None,
 ) -> None:
     """Record an execution trace in the KG for auditability.
@@ -3074,6 +3115,7 @@ def _record_execution_trace(
             duration_ms=float(duration_ms or 0.0),
             model=model_name,
             tool_call_count=tool_call_count,
+            execution_mode=execution_mode,
         )
     except Exception as exc:  # noqa: BLE001 — tracing must never break a run
         logger.debug(
@@ -3109,6 +3151,7 @@ def _record_execution_trace(
         result_preview=result_preview,
         skill_used=skill_used,
         bound_server=bound_server,
+        execution_mode=execution_mode,
     )
     if model_ref:
         props["model_ref"] = model_ref

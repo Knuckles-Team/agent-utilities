@@ -318,7 +318,7 @@ def _telemetry_with_in_memory_exporter(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_on_graph_start_stamps_gen_ai_system(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every ``graph.run`` span is tagged with the mediating gen_ai framework
+    """Every root ``agent.run`` span is tagged with the mediating gen_ai framework
     at open time (X2) — pydantic-ai drives every model/tool call in this
     codebase, so it is the invariant ``gen_ai.system`` for the whole span."""
     telemetry, exporter = _telemetry_with_in_memory_exporter(monkeypatch)
@@ -326,6 +326,7 @@ def test_on_graph_start_stamps_gen_ai_system(monkeypatch: pytest.MonkeyPatch) ->
     telemetry.on_graph_end(run_id="run-gs", status="success")
     spans = exporter.get_finished_spans()
     assert len(spans) == 1
+    assert spans[0].name == "agent.run"
     assert spans[0].attributes["gen_ai.system"] == "pydantic_ai"
 
 
@@ -343,10 +344,12 @@ def test_on_graph_end_stamps_model_and_tool_call_count(
         duration_ms=12.5,
         model="qwen2.5-72b-instruct",
         tool_call_count=3,
+        execution_mode="pydantic_graph",
     )
     span = exporter.get_finished_spans()[0]
     assert span.attributes["gen_ai.request.model"] == "qwen2.5-72b-instruct"
     assert span.attributes["gen_ai.response.tool_call_count"] == 3
+    assert span.attributes["agent_utilities.execution.mode"] == "pydantic_graph"
     assert span.attributes["status"] == "completed"
     assert span.attributes["duration_ms"] == 12.5
 
