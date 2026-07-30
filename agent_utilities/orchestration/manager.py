@@ -910,7 +910,9 @@ class Orchestrator:
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
         try:
-            plan = WorkflowStore(self.engine).load_workflow(workflow_id)
+            plan = await asyncio.to_thread(
+                WorkflowStore(self.engine).load_workflow, workflow_id
+            )
             if plan is None:
                 raise ValueError(f"Workflow '{workflow_id}' not found in KG or catalog")
             workflow = GovernedDynamicWorkflow.from_graph_plan(
