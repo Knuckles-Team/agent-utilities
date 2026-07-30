@@ -28,6 +28,16 @@ def _slice_payload() -> dict:
         "log_id": "log-1",
         "source_ref": "fixture://ocel/orders",
         "mapping_version": "orders-v1",
+        "event_types": [
+            {"name": "create order", "attributes": []},
+        ],
+        "object_types": [
+            {
+                "name": "Order",
+                "attributes": [{"name": "status", "value_type": "string"}],
+            },
+            {"name": "Item", "attributes": []},
+        ],
         "objects": [
             {
                 "object_id": "order-1",
@@ -134,6 +144,8 @@ def test_compiles_one_lossless_symbolic_and_proposal_graph_slice() -> None:
     assert len(model.canonical_digest()) == 64
     assert {item["node_type"] for item in entities} >= {
         "ObjectCentricEventLog",
+        "ProcessEventType",
+        "BusinessObjectType",
         "BusinessObject",
         "ProcessEvent",
         "EventObjectParticipation",
@@ -147,6 +159,10 @@ def test_compiles_one_lossless_symbolic_and_proposal_graph_slice() -> None:
     assert {item["relationship"] for item in links} >= {
         "HAS_OBJECT",
         "HAS_EVENT",
+        "HAS_EVENT_TYPE",
+        "HAS_OBJECT_TYPE",
+        "INSTANCE_OF_EVENT_TYPE",
+        "INSTANCE_OF_OBJECT_TYPE",
         "HAS_PARTICIPATION",
         "PARTICIPATES_AS",
         "STATE_OF",
@@ -158,9 +174,7 @@ def test_compiles_one_lossless_symbolic_and_proposal_graph_slice() -> None:
         "PROPOSES_RESOLUTION",
     }
     prediction = next(
-        item
-        for item in entities
-        if item["node_type"] == "NeuralRelationPrediction"
+        item for item in entities if item["node_type"] == "NeuralRelationPrediction"
     )
     assert prediction["decision_status"] == "proposed"
     assert prediction["prediction_score"] == 0.8
@@ -194,6 +208,13 @@ def test_rejects_dangling_or_type_mismatched_symbolic_references() -> None:
         ObjectCentricGraphSlice.model_validate(payload)
 
 
+def test_rejects_values_that_violate_ocel_type_declarations() -> None:
+    payload = _slice_payload()
+    payload["objects"][0]["attributes"][0]["value"] = True
+    with pytest.raises(ValidationError, match="declared OCEL names and types"):
+        ObjectCentricGraphSlice.model_validate(payload)
+
+
 def test_rejects_invalid_temporal_windows_and_naive_times() -> None:
     with pytest.raises(ValidationError, match="later than"):
         ObjectState(
@@ -210,9 +231,7 @@ def test_rejects_invalid_temporal_windows_and_naive_times() -> None:
             activity="create",
             occurred_at="2026-01-01T00:00:00",  # type: ignore[arg-type]
             objects=(
-                EventObjectParticipation(
-                    object_id="object-1", object_type="Order"
-                ),
+                EventObjectParticipation(object_id="object-1", object_type="Order"),
             ),
             source_ref="fixture://event-1",
         )
@@ -258,14 +277,11 @@ def test_contract_types_remain_directly_constructible_for_owned_consumers() -> N
         ).qualifier
         == "contains"
     )
-    assert (
-        ProcessPerspective(
-            perspective_id="orders",
-            object_types=("Order",),
-            derivation_version="1",
-        ).object_types
-        == ("Order",)
-    )
+    assert ProcessPerspective(
+        perspective_id="orders",
+        object_types=("Order",),
+        derivation_version="1",
+    ).object_types == ("Order",)
     assert (
         NeuralRepresentation(
             representation_id="repr-1",
@@ -312,9 +328,7 @@ def test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes() -> Non
             object_value = literal(value)
             if object_value is not None:
                 graph.add((subject, kg[key], object_value))
-    node_iris = {
-        entity["id"]: kg[f"node/{entity['id']}"] for entity in entities
-    }
+    node_iris = {entity["id"]: kg[f"node/{entity['id']}"] for entity in entities}
     for link in links:
         graph.add(
             (

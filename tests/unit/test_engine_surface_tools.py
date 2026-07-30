@@ -672,23 +672,25 @@ def test_graph_mine_event_projection_writeback_fails_closed(tools):
 def test_graph_mine_ocel_validate_live_path_uses_the_registered_process_tool(tools):
     """The existing MCP/REST process surface reaches the governed OCEL seam."""
     ocel = {
-        "ocel:version": "2.0",
-        "ocel:meta": {
-            "tenant": "tenant-a",
-            "log_id": "orders",
-            "source_ref": "fixture://ocel/orders",
-            "mapping_version": "ocel-v1",
-            "provenance": {"structured": {"system": "erp"}},
-        },
-        "ocel:objects": {"order-1": {"ocel:type": "Order", "ocel:ovmap": []}},
-        "ocel:events": {
-            "create": {
-                "ocel:activity": "create",
-                "ocel:timestamp": "2026-01-01T00:00:00Z",
-                "ocel:typedOmap": [{"ocel:oid": "order-1", "ocel:qualifier": "order"}],
-                "ocel:vmap": {},
+        "eventTypes": [{"name": "create", "attributes": []}],
+        "objectTypes": [{"name": "Order", "attributes": []}],
+        "events": [
+            {
+                "id": "e1",
+                "type": "create",
+                "time": "2026-01-01T00:00:00Z",
+                "attributes": [],
+                "relationships": [{"objectId": "order-1", "qualifier": "order"}],
             }
-        },
+        ],
+        "objects": [
+            {
+                "id": "order-1",
+                "type": "Order",
+                "attributes": [],
+                "relationships": [],
+            }
+        ],
     }
 
     with use_actor(
@@ -713,7 +715,7 @@ def test_graph_mine_ocel_validate_live_path_uses_the_registered_process_tool(too
             )
         )
 
-    assert out["ocel"]["ocel:version"] == "2.0"
+    assert set(out["ocel"]) == {"eventTypes", "objectTypes", "events", "objects"}
     assert out["tekg"]["tenant"] == "tenant-a"
     assert len(out["tekg"]["idempotency_key"]) == 64
     assert kg_server.ACTION_TOOL_ROUTES.get("graph_mine") == "/mining/associate"
