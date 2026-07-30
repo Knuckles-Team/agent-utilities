@@ -1808,6 +1808,21 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {"tool": "graph_jobs", "action": "dispatch", "name": "graph_jobs_dispatch"},
     {"tool": "graph_jobs", "action": "status", "name": "graph_jobs_status"},
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "create",
+        "name": "graph_kv_checkpoint_create",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "instantiate_agent",
+        "name": "graph_kv_checkpoint_instantiate_agent",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "restore_conversation",
+        "name": "graph_kv_checkpoint_restore_conversation",
+    },
     {"tool": "graph_kvcache", "action": "contains", "name": "graph_kvcache_contains"},
     {"tool": "graph_kvcache", "action": "exists", "name": "graph_kvcache_exists"},
     {"tool": "graph_kvcache", "action": "get", "name": "graph_kvcache_get"},

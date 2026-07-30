@@ -11,6 +11,7 @@ without clobbering other knobs, and (3) that the LIVE run seam
 from __future__ import annotations
 
 from agent_utilities.agent.sampling_profile import attach_profile_resolver
+from agent_utilities.core.resource_priority import PriorityClass
 from agent_utilities.kvcache.policy import (
     KVCacheDecision,
     KVCacheLayeringPolicy,
@@ -72,6 +73,53 @@ def test_disabled_policy_is_inert():
     d = pol.decide(system_prompt="x" * 8000, user_prompt="hi")
     assert d.enabled is False
     assert d.kv_transfer_params == {}  # attach nothing → opportunistic default
+
+
+# ── resource-priority fold-in (ORCH-1.98/1.99, CONCEPT:AU-ORCH.scheduling.resource-priority-edict) ──
+
+
+def test_background_ingestion_priority_always_skips_save():
+    """Background ingestion NEVER pollutes the cache, even for an otherwise-worthy
+    long shared prefix — it must not create eviction pressure on foreground pages."""
+    d = decide(
+        system_prompt="x" * 8000,
+        user_prompt="go",
+        priority=PriorityClass.BACKGROUND_INGESTION,
+    )
+    assert d.cache_worthy is False
+    assert d.skip_save is True
+    assert "background_ingestion_never_pollutes_cache" in d.reasons
+
+
+def test_interactive_priority_lowers_the_bar_for_a_borderline_execution():
+    """A borderline execution (below the default thresholds) that would otherwise be a
+    one-off is tipped toward store when the ambient priority is INTERACTIVE — the same
+    signal a live ToT/GoT fork branch's shared prefix should keep cached under pressure."""
+    pol = KVCacheLayeringPolicy(min_prefix_tokens=1000, min_context_tokens=2000)
+    borderline_prefix = "x" * 2100  # ~525 tokens: below 1000, above the halved 500
+    baseline = pol.decide(
+        system_prompt=borderline_prefix,
+        user_prompt="hi",
+        priority=PriorityClass.ORCHESTRATION,
+    )
+    assert baseline.cache_worthy is False  # unaffected by a non-interactive priority
+
+    interactive = pol.decide(
+        system_prompt=borderline_prefix,
+        user_prompt="hi",
+        priority=PriorityClass.INTERACTIVE,
+    )
+    assert interactive.cache_worthy is True
+    assert interactive.skip_save is False
+    assert any("foreground_priority_bias" in r for r in interactive.reasons)
+
+
+def test_untagged_priority_behaves_exactly_as_before():
+    """No ambient priority set (the default in every existing call site) ⇒ the
+    priority fold-in is a pure no-op — additive, never a behavior change."""
+    d = decide(system_prompt="x" * 8000, user_prompt="hi")
+    assert d.signals["priority"] is None
+    assert d.cache_worthy is True  # unaffected — identical to the pre-fold-in verdict
 
 
 # ── fold_kv_hint (settings merge) ────────────────────────────────────────────

@@ -17,6 +17,16 @@ backend with vLLM / LMCache.
 
 from __future__ import annotations
 
+from agent_utilities.kvcache.checkpoint import (
+    CheckpointNotFoundError,
+    CrossTenantCheckpointError,
+    KVCheckpointError,
+    KVCheckpointKey,
+    KVCheckpointRecord,
+    KVCheckpointStore,
+    RestoreResult,
+    StaleCheckpointError,
+)
 from agent_utilities.kvcache.config import KvCacheConfig
 from agent_utilities.kvcache.l2_native_connector import EpistemicGraphL2Connector
 from agent_utilities.kvcache.policy import (
@@ -30,11 +40,19 @@ from agent_utilities.kvcache.remote_backend import (
 )
 
 __all__ = [
+    "CheckpointNotFoundError",
+    "CrossTenantCheckpointError",
     "EpistemicGraphKVBackend",
     "EpistemicGraphL2Connector",
     "KVCacheDecision",
     "KVCacheLayeringPolicy",
+    "KVCheckpointError",
+    "KVCheckpointKey",
+    "KVCheckpointRecord",
+    "KVCheckpointStore",
     "KvCacheConfig",
     "KvCacheStats",
+    "RestoreResult",
+    "StaleCheckpointError",
     "fold_kv_hint",
 ]
