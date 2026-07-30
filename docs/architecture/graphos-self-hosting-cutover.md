@@ -282,11 +282,7 @@ spec:
         - {name: GRAPH_SERVICE_ENDPOINTS, value: "unix:///run/epistemic-graph/epistemic-graph.sock"}
         - {name: EUNOMIA_TYPE, value: none}
         - {name: KG_DAEMON_ROLE, value: client}
-        - {name: KG_LOOP, value: "1"}
-        - {name: KG_LOOP_INTERVAL, value: "1800"}
-        - {name: KG_LOOP_TOPICS, value: "2"}
-        - {name: KG_LOOP_BREADTH, value: "0"}
-        - {name: KG_LOOP_MINE_DISCOVERY, value: "0"}
+        - {name: KG_LOOP, value: "0"}  # client serves; an explicit host owns loops
         - {name: KG_FUSEKI_ENDPOINT, value: "http://fuseki.apps.svc.cluster.local:80"}
         - {name: PYTHONPATH, value: /au}
         envFrom:

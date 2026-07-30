@@ -3,7 +3,7 @@
 Covers the three things the entrypoint promises:
 
 1. Config-driven detection (no new env flag — messaging via real credential
-   presence, the host daemon via ``KG_DAEMON_ROLE`` + the live host-lock file).
+   presence) without changing the explicit KG daemon role.
 2. Bounded-restart supervision + clean shutdown for a co-service thread.
 3. STDOUT PURITY: a co-service that logs/prints while running must never leak
    a byte onto stdout once ``protect_stdio_jsonrpc()`` has been applied — the
@@ -63,42 +63,10 @@ def _reset_messaging_singleton():
 # ── Detection ─────────────────────────────────────────────────────────────
 
 
-def test_host_daemon_needed_true_only_when_client_and_unhosted(monkeypatch):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.engine_tasks.daemon_role",
-        lambda: "client",
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.host_lock.host_daemon_running",
-        lambda: False,
-    )
-    assert cosvc.host_daemon_needed() is True
-
-
-@pytest.mark.parametrize(
-    ("role", "hosted"),
-    [
-        ("auto", False),  # default — the engine self-elects on its own construction
-        ("host", False),  # explicit host — same reason
-        ("client", True),  # a real host already exists — nothing to do
-    ],
-)
-def test_host_daemon_needed_false_cases(monkeypatch, role, hosted):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.engine_tasks.daemon_role",
-        lambda: role,
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.host_lock.host_daemon_running",
-        lambda: hosted,
-    )
-    assert cosvc.host_daemon_needed() is False
-
-
 def test_detect_composition_reads_existing_config_only(monkeypatch):
     """No new flag: messaging comes from real credential presence, webui from
-    the existing ENABLE_WEB_UI field, host-daemon from the existing
-    KG_DAEMON_ROLE + live lock file."""
+    the existing ENABLE_WEB_UI field. The host role is deliberately outside
+    served co-service composition."""
 
     class _Cfg:
         enable_web_ui = True
@@ -107,14 +75,12 @@ def test_detect_composition_reads_existing_config_only(monkeypatch):
     monkeypatch.setattr(
         messaging_daemon, "configured_platforms", lambda engine=None: ["telegram"]
     )
-    monkeypatch.setattr(cosvc, "host_daemon_needed", lambda: True)
 
     plan = cosvc.detect_composition()
     assert plan.messaging_platforms == ("telegram",)
     assert plan.messaging_configured is True
-    assert plan.host_daemon_needed is True
     assert plan.web_ui_enabled is True
-    assert plan.co_service_names() == ("messaging", "graph-os-daemon", "agent-webui")
+    assert plan.co_service_names() == ("messaging", "agent-webui")
 
 
 def test_detect_composition_nothing_configured(monkeypatch):
@@ -125,8 +91,6 @@ def test_detect_composition_nothing_configured(monkeypatch):
     monkeypatch.setattr(
         messaging_daemon, "configured_platforms", lambda engine=None: []
     )
-    monkeypatch.setattr(cosvc, "host_daemon_needed", lambda: False)
-
     plan = cosvc.detect_composition()
     assert plan.co_service_names() == ()
 
@@ -277,9 +241,6 @@ def test_start_co_services_live_path_starts_messaging(monkeypatch):
     monkeypatch.setattr(
         messaging_daemon, "configured_platforms", lambda engine=None: ["fake"]
     )
-    # Keep this test scoped to messaging — the host-daemon decision is covered
-    # separately and touches the real engine singleton/lock.
-    monkeypatch.setattr(cosvc, "host_daemon_needed", lambda: False)
 
     class _Cfg:
         enable_web_ui = False

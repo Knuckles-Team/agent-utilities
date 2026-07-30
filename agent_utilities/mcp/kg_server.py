@@ -3378,6 +3378,7 @@ def _start_engine_bootstrap(session: Any) -> None:
     from agent_utilities.knowledge_graph.core.engine_tasks import (
         _authorized_background_thread,
         _require_verified_background_session,
+        daemon_role,
     )
     from agent_utilities.knowledge_graph.core.session import use_session
     from agent_utilities.security.brain_context import use_actor
@@ -3441,14 +3442,23 @@ def _start_engine_bootstrap(session: Any) -> None:
         readiness["ready"],
         readiness["required"],
     )
+    # An explicit client role is a hard serving-plane boundary. In particular,
+    # stale KG_LOOP/maintenance settings must not turn a network-facing GraphOS
+    # process into an autonomous scheduler or queue worker. The requested role
+    # captured on the engine wins over any later process-environment mutation.
+    requested_role = (
+        (getattr(engine, "_daemon_role", None) or daemon_role()).strip().lower()
+    )
+    client_role = requested_role == "client"
     start_daemons = getattr(engine, "start_background_daemons", None)
-    if callable(start_daemons):
+    if not client_role and callable(start_daemons):
         start_daemons()
 
     def _bootstrap_engine() -> None:
         try:
             if (
-                engine
+                not client_role
+                and engine
                 and engine.backend
                 and not getattr(engine.backend, "read_only", False)
             ):
@@ -4186,26 +4196,15 @@ def mcp_server() -> None:
         if transport == "stdio":
             protect_stdio_jsonrpc()
 
-        # Self-composing co-services, phase 1: the KG host daemon must be decided
-        # BEFORE the engine is constructed below so it can win (or lose) the
-        # host-lock race as the first constructor (see co_service_supervisor's
-        # module docstring for the exact "client role + no live host" detection).
-        # The startup composition below performs graph work under the process's
-        # verified authority: the host-daemon election (bring_up_host_daemon_if_needed)
-        # constructs the engine as the FIRST constructor, and the engine's background
-        # workers capture their session via GraphSession.from_ambient(). Bind the
-        # minted process session (+ its verified actor) as the ambient authority
-        # BEFORE the host daemon constructs the engine — otherwise from_ambient()
-        # fails closed on a served, non-tiny process (CONCEPT:AU-P0-1 session currency).
+        # Bind the minted process session (+ its verified actor) as ambient
+        # authority before engine bootstrap. An explicit client role remains a
+        # hard serving-plane boundary; this entrypoint never promotes itself to
+        # the host that owns maintenance, workers, or autonomous loops.
         from agent_utilities.knowledge_graph.core.session import use_session
-        from agent_utilities.mcp.co_service_supervisor import (
-            bring_up_host_daemon_if_needed,
-            start_co_services,
-        )
+        from agent_utilities.mcp.co_service_supervisor import start_co_services
         from agent_utilities.security.brain_context import use_actor
 
         with use_actor(bootstrap_session.actor), use_session(bootstrap_session):
-            bring_up_host_daemon_if_needed(defer_background_start=True)
             _start_engine_bootstrap(bootstrap_session)
 
             # Self-composing co-services, phase 2: messaging (config-detected — real

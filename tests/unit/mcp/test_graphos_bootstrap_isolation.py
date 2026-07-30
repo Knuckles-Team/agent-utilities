@@ -380,7 +380,9 @@ def test_materialization_gate_probes_when_rls_hides_manifest() -> None:
 
     engine = SimpleNamespace(
         graph_name="__secrets__",
-        client=SimpleNamespace(tenants=SimpleNamespace(list=MagicMock(return_value=[]))),
+        client=SimpleNamespace(
+            tenants=SimpleNamespace(list=MagicMock(return_value=[]))
+        ),
         query_cypher=MagicMock(
             side_effect=[
                 RuntimeError('{"code":"PARTIAL_MATERIALIZATION"}'),
@@ -428,13 +430,21 @@ def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
 
     class Engine:
         backend = object()
+        _daemon_role = "host"
 
         def start_background_daemons(self) -> None:
             calls.append("daemons")
 
+        def start_task_workers(self) -> None:
+            calls.append("workers")
+
     class DeferredBackground:
+        def __init__(self, target) -> None:
+            self._target = target
+
         def start(self) -> None:
             calls.append("background")
+            self._target()
 
     with (
         patch.object(kg_server, "_get_engine", return_value=Engine()),
@@ -458,12 +468,84 @@ def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
         ),
         patch(
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
-            return_value=DeferredBackground(),
+            side_effect=lambda _session, target, **_kwargs: DeferredBackground(target),
+        ),
+        patch.object(
+            kg_server,
+            "_run_boot_hydration_plan",
+            side_effect=lambda *_args, **_kwargs: calls.append("hydration"),
         ),
     ):
         kg_server._start_engine_bootstrap(session)
 
-    assert calls == ["materialization", "skills", "daemons", "background"]
+    assert calls == [
+        "materialization",
+        "skills",
+        "daemons",
+        "background",
+        "workers",
+        "hydration",
+    ]
+
+
+def test_client_role_with_loop_enabled_never_starts_daemons_or_workers(
+    monkeypatch,
+) -> None:
+    """A served client remains a serving plane even with stale loop settings."""
+    from agent_utilities.mcp import kg_server
+
+    monkeypatch.setenv("KG_DAEMON_ROLE", "client")
+    monkeypatch.setenv("KG_LOOP", "1")
+    session = _verified_session()
+    calls: list[str] = []
+
+    class Engine:
+        backend = object()
+        _daemon_role = "client"
+
+        def start_background_daemons(self) -> None:
+            calls.append("daemons")
+
+        def start_task_workers(self) -> None:
+            calls.append("workers")
+
+    class ImmediateBackground:
+        def __init__(self, target) -> None:
+            self._target = target
+
+        def start(self) -> None:
+            calls.append("background")
+            self._target()
+
+    def _background_thread(_session, target, **_kwargs):
+        return ImmediateBackground(target)
+
+    with (
+        patch.object(kg_server, "_get_engine", return_value=Engine()),
+        patch.object(kg_server, "_wait_for_engine_materialization"),
+        patch.object(
+            kg_server,
+            "_ensure_bundled_skills_ready",
+            return_value={
+                "required": 10,
+                "already_ready": 10,
+                "ingested": 0,
+                "ready": 10,
+            },
+        ),
+        patch.object(
+            kg_server,
+            "_run_boot_hydration_plan",
+            side_effect=lambda *_args, **_kwargs: calls.append("hydration"),
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
+            side_effect=_background_thread,
+        ),
+    ):
+        kg_server._start_engine_bootstrap(session)
+
+    assert calls == ["background", "hydration"]
 
 
 def test_packaged_skill_readiness_failure_is_controlled_and_serves_degraded(
