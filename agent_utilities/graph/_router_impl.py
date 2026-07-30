@@ -882,6 +882,13 @@ async def dispatcher_step(
         ctx.state.error = "Execution budget exceeded: max node transitions."
         return "error_recovery"
 
+    if budget.max_tool_calls and len(ctx.state.tool_calls) > budget.max_tool_calls:
+        logger.error(
+            f"Dispatcher: Execution budget exceeded for tool calls ({len(ctx.state.tool_calls)} > {budget.max_tool_calls})"
+        )
+        ctx.state.error = "Execution budget exceeded: max tool calls."
+        return "error_recovery"
+
     if (
         budget.max_total_tokens
         and ctx.state.session_usage.total_tokens > budget.max_total_tokens

@@ -686,9 +686,17 @@ class GovernedDynamicWorkflow(BaseModel):
                 capabilities=[capability],
                 default_capabilities=False,
             )
+            from agent_utilities.orchestration.loop_guards import (
+                DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+            )
+
             limits = UsageLimits(
                 request_limit=self.max_agent_calls + 5,
                 total_tokens_limit=self.resource_limits.orchestrator_token_budget,
+                # CONCEPT:AU-ORCH.execution.execution-budget-caps — a single
+                # oversized catalog-function result must not blow the workflow
+                # orchestrator's budget in one request.
+                per_request_input_tokens_limit=DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
             )
             result = await _await_with_cancellation(
                 parent.run(

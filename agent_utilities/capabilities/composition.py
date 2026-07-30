@@ -18,7 +18,8 @@ The reliability capabilities are safe to attach unconditionally: each one only a
 when its own trigger fires (compaction only over budget, eviction only on an oversized
 tool result, the warner only near the token limit, the stuck-loop guard only on
 repeated identical tool calls, KG-native audit only when a graph engine is present on
-``ctx.deps``), so a normal run is unaffected.
+``ctx.deps``, structured-output repair only when ``output_type`` is schema-validated
+and the model's first attempt fails), so a normal run is unaffected.
 """
 
 from typing import TYPE_CHECKING, Any, Literal
@@ -44,6 +45,8 @@ def default_runtime_capabilities(
         "every_tool", "every_turn", "manual_only"
     ] = "every_tool",
     include_teams: bool = False,
+    structured_output_repair: bool = True,
+    max_output_repairs: int | None = None,
 ) -> list[AbstractCapability[Any]]:
     """Build the default-ON reliability capability set (excluding ``HooksCapability``).
 
@@ -61,6 +64,7 @@ def default_runtime_capabilities(
     from .eviction import ToolOutputEviction
     from .kg_audit_sink import AuditLog
     from .memento import MementoCompaction
+    from .output_repair import DEFAULT_MAX_OUTPUT_REPAIRS, StructuredOutputRepair
     from .stuck_loop import StuckLoopDetection
     from .teams import TeamCapability
 
@@ -103,6 +107,22 @@ def default_runtime_capabilities(
 
     if include_teams:
         capabilities.append(TeamCapability())
+
+    # CONCEPT:AU-AHE.harness.structured-output-repair — classify → bounded targeted
+    # repair → fail closed for structured (schema-validated) agent output. A pure
+    # no-op for the many agents whose ``output_type`` is plain text (the underlying
+    # hooks never fire for unstructured output), so safe to attach unconditionally
+    # like every other capability here.
+    if structured_output_repair:
+        capabilities.append(
+            StructuredOutputRepair(
+                max_repairs=(
+                    max_output_repairs
+                    if max_output_repairs is not None
+                    else DEFAULT_MAX_OUTPUT_REPAIRS
+                )
+            )
+        )
 
     return capabilities
 

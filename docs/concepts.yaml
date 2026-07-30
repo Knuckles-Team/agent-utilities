@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1041
+total_concepts: 1042
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -695,6 +695,14 @@ concepts:
   - agent_utilities/knowledge_graph/research/code_synthesis.py
   doc: autonomous single-file code-synthesis stage that generates a real diff for an attributed promoted
     proposal so the deployed evolution loop emits code instead of only a prose plan
+- id: AU-AHE.harness.structured-output-repair
+  name: classify → bounded targeted
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/composition.py
+  - agent_utilities/capabilities/output_repair.py
+  doc: classify → bounded targeted
 - id: AU-AHE.harness.swe-failure-remediation
   name: SWE-failure-driven remediation
   pillar: AU-AHE
@@ -6624,12 +6632,17 @@ concepts:
   code_paths:
   - agent_utilities/base_utilities.py
   - agent_utilities/capabilities/checkpointing.py
+  - agent_utilities/capabilities/governed_dynamic_workflow.py
+  - agent_utilities/capabilities/output_repair.py
   - agent_utilities/core/checkpoint/manager.py
   - agent_utilities/graph/_router_impl.py
+  - agent_utilities/graph/executor.py
   - agent_utilities/graph/hierarchical_planner.py
   - agent_utilities/graph/state.py
+  - agent_utilities/graph/verification.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/models/usage.py
+  - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
   - agent_utilities/tools/sdd_tools.py
   doc: Execution Budget. Defines caps for this session
@@ -6725,6 +6738,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/capabilities/output_repair.py
   - agent_utilities/messaging/backends/mattermost.py
   - agent_utilities/messaging/backends/telegram.py
   - agent_utilities/messaging/base.py

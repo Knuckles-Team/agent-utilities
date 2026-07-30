@@ -51,6 +51,56 @@ restored = await store.get("cp_3")
 
 Implements `ToolOutputEviction`, which intercepts massive tool outputs (above a size threshold), offloads them to the Knowledge Base, and leaves a concise preview in the message history. This keeps the working context lean during long, tool-heavy conversations.
 
+### Structured-Output Repair (`capabilities/output_repair.py`)
+
+> CONCEPT:AU-AHE.harness.structured-output-repair
+
+`StructuredOutputRepair` classifies every structured (schema-validated) output
+failure into an explicit taxonomy — `malformed_json`, `schema_invalid`,
+`truncated`, `refused`, `empty`, `wrong_type`, `budget_exceeded_mid_output` —
+and drives a **bounded** classify-then-repair loop instead of letting
+pydantic-ai's undifferentiated `ValidationError`/`ModelRetry` bounce hide *why*
+a run needed a retry:
+
+- **Pre-validation classification** (`before_output_validate`): malformed
+  JSON, truncation, an empty response, or an outright textual refusal are all
+  still visible as raw text before pydantic-ai attempts to parse them.
+- **Post-validation classification** (`on_output_validate_error`): a
+  pydantic `ValidationError` is split into `wrong_type` (a value's type was
+  wrong but the shape was right) vs `schema_invalid` (a structural mismatch).
+- **Bounded retry** (`max_repairs`, default 2): each classified failure gets
+  ONE targeted, classification-specific re-ask; exhausting the bound raises
+  the typed `StructuredOutputRepairExhausted` — never an unbounded retry
+  storm, never pydantic-ai's own generic `UnexpectedModelBehavior`.
+- **Truthful provenance**: every attempt (classification + what was tried) is
+  recorded, and a successful repair stamps `output_repair_attempts` onto the
+  `AgentRunResult` — a repaired run is never indistinguishable from a clean
+  first-try success.
+- **Budget exhaustion is never retried** (`on_run_error`): `UsageLimitExceeded`
+  mid-output or an upstream `ContentFilterError` refusal is recorded but
+  always propagated — repairing a budget violation would only spend more of
+  the budget that already tripped.
+
+Wired default-ON (`capabilities/composition.py`), it also bumps the
+underlying Agent's `retries={"output": max_repairs}` so pydantic-ai's own
+retry budget never pre-empts this module's classified exhaustion path
+(`output_repair_retries`). It is a pure no-op for the many agents whose
+`output_type` is plain text — the underlying hooks never fire for
+unstructured output.
+
+```mermaid
+flowchart LR
+    O[Raw model output] --> C{classify}
+    C -->|looks fine| V[validated output]
+    C -->|malformed_json / truncated / empty / refused| R{attempts < max_repairs?}
+    V -->|ValidationError| C2{classify error}
+    C2 -->|wrong_type / schema_invalid| R
+    R -->|yes| M[ModelRetry: targeted re-ask]
+    M --> O
+    R -->|no| X[StructuredOutputRepairExhausted]
+    V -->|ok, attempts recorded| S["result.output_repair_attempts"]
+```
+
 ### Hooks (`capabilities/hooks.py`)
 
 Lifecycle hooks (`HooksCapability`) fire at key `HookEvent` points in agent execution. Each hook receives a `HookInput` and may return a `HookResult` to modify args/results or cancel a tool call:

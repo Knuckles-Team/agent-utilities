@@ -306,12 +306,19 @@ async def verifier_step(
             from pydantic_ai.usage import UsageLimits
 
             from agent_utilities.core.config import setting
+            from agent_utilities.orchestration.loop_guards import (
+                DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+            )
 
             async with validation_agent.run_stream(
                 "Evaluate the results",
                 deps=_agent_deps,
                 usage_limits=UsageLimits(
-                    request_limit=setting("VERIFIER_REQUEST_LIMIT", 4)
+                    request_limit=setting("VERIFIER_REQUEST_LIMIT", 4),
+                    # CONCEPT:AU-ORCH.execution.execution-budget-caps — a single
+                    # oversized results payload must not blow the verifier's budget
+                    # in one request.
+                    per_request_input_tokens_limit=DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
                 ),
             ) as stream:
                 validation = await asyncio.wait_for(
@@ -836,7 +843,20 @@ async def error_recovery_step(
         "max node transitions",
         "max planning loops",
     )
-    is_terminal = any(kw in error_str.lower() for kw in terminal_keywords)
+    # CONCEPT:AU-ORCH.execution.execution-budget-caps — ANY execution-budget exhaustion
+    # (tool calls, tokens, cost, duration — not just the node-transition cap already
+    # covered above) is ALWAYS terminal. Retrying through the planner here would
+    # spend more of the very budget that already tripped: the dispatcher's node,
+    # token, cost, and duration checks (``_router_impl.py::dispatcher_step``) all
+    # stamp the SAME "Execution budget exceeded: ..." prefix, but only the
+    # node-transition variant matched the keyword list above, so a token/cost/
+    # duration cap was silently retried for up to 2 more planner rounds — each one
+    # burning more of the resource that was already exhausted — before finally
+    # terminating.
+    is_budget_exceeded = error_str.lower().startswith("execution budget exceeded")
+    is_terminal = is_budget_exceeded or any(
+        kw in error_str.lower() for kw in terminal_keywords
+    )
 
     if not is_terminal and ctx.state.retry_count < 2:
         ctx.state.retry_count += 1
@@ -878,7 +898,13 @@ async def error_recovery_step(
         "node_complete",
         next_node="end",
     )
-    return End({"error": error_str, "results": dict(ctx.state.results_registry)})
+    return End(
+        {
+            "error": error_str,
+            "results": dict(ctx.state.results_registry),
+            "budget_exceeded": is_budget_exceeded,
+        }
+    )
 
 
 async def _distill_experience_from_retry(

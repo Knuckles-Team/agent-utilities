@@ -36,6 +36,11 @@ from .kg_audit_sink import (
     ToolCallRecord,
 )
 from .memento import MementoCompaction
+from .output_repair import (
+    RepairAttempt,
+    StructuredOutputRepair,
+    StructuredOutputRepairExhausted,
+)
 from .stuck_loop import StuckLoopDetection, StuckLoopError
 from .teams import TeamCapability
 
@@ -65,6 +70,9 @@ __all__ = [
     "ChildRunEvidence",
     "WorkflowResourceLimits",
     "MementoCompaction",
+    "RepairAttempt",
+    "StructuredOutputRepair",
+    "StructuredOutputRepairExhausted",
     "TeamCapability",
     "AuditLog",
     "AuditSink",
