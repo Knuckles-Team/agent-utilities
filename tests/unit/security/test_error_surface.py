@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData
 from agent_utilities.gateway.widgets.base import BaseWidget
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
 from agent_utilities.security.error_surface import (
     public_error_json,
     public_error_payload,
     public_error_text,
     resolve_error_detail,
+    resolve_error_detail_for_actor,
 )
 
 
@@ -151,3 +156,131 @@ def test_public_payload_never_carries_a_message_field_the_detail_store_does() ->
 
     assert "message" not in payload
     assert sensitive not in json.dumps(payload)
+
+
+# ---------------------------------------------------------------------------
+# D-23/D-24 — a caller holding a `detail_ref` can actually resolve it, scoped
+# to its own tenant authority (fail closed), through the same tenancy model
+# already enforced elsewhere (agent_utilities.knowledge_graph.core.secured_reads).
+# ---------------------------------------------------------------------------
+
+
+def _tenant_actor(tenant_id: str) -> ActorContext:
+    return ActorContext(
+        actor_id=f"agent:{tenant_id}",
+        actor_type=ActorType.AI_AGENT,
+        roles=("member",),
+        tenant_id=tenant_id,
+        authenticated=True,
+    )
+
+
+def test_resolve_error_detail_for_actor_round_trips_within_the_same_tenant() -> None:
+    with use_actor(_tenant_actor("acme")):
+        try:
+            raise RuntimeError("boom in acme")
+        except RuntimeError as exc:
+            payload = public_error_payload(exc)
+        detail_ref = payload["error"]["detail_ref"]
+        detail = resolve_error_detail_for_actor(detail_ref)
+
+    assert detail is not None
+    assert detail["error_class"] == "RuntimeError"
+    assert detail["failing_layer"]
+
+
+def test_resolve_error_detail_for_actor_refuses_a_different_tenant() -> None:
+    with use_actor(_tenant_actor("acme")):
+        try:
+            raise RuntimeError("boom in acme")
+        except RuntimeError as exc:
+            payload = public_error_payload(exc)
+    detail_ref = payload["error"]["detail_ref"]
+
+    with use_actor(_tenant_actor("globex")):
+        # Refused — and deliberately indistinguishable from an unknown ref,
+        # so a foreign-tenant caller cannot even confirm the ref exists.
+        assert resolve_error_detail_for_actor(detail_ref) is None
+
+
+def test_resolve_error_detail_for_actor_fails_closed_without_verified_authority() -> (
+    None
+):
+    unauthenticated = ActorContext(
+        actor_id="anon", tenant_id="acme", authenticated=False
+    )
+    with pytest.raises(PermissionError):
+        resolve_error_detail_for_actor(
+            "correlation:does-not-exist", actor=unauthenticated
+        )
+
+    no_tenant = ActorContext(actor_id="agent:x", tenant_id="", authenticated=True)
+    with pytest.raises(PermissionError):
+        resolve_error_detail_for_actor("correlation:does-not-exist", actor=no_tenant)
+
+
+def test_resolve_error_detail_for_actor_fails_closed_with_no_bound_actor_at_all(
+    monkeypatch,
+) -> None:
+    """Every served (MCP) call path always has an actor bound by the time a
+    tool runs (``ActorContextMiddleware`` / ``verified_tool_session_scope``),
+    so this state is unreachable through the served surface. It is still the
+    underlying fail-closed contract :func:`current_actor` provides, and worth
+    covering directly rather than only through actor-override cases."""
+    from agent_utilities.security import brain_context, error_surface
+
+    def _raise_identity_required():
+        raise brain_context.IdentityRequiredError("no actor bound")
+
+    monkeypatch.setattr(error_surface, "current_actor", _raise_identity_required)
+    with pytest.raises(PermissionError):
+        resolve_error_detail_for_actor("correlation:does-not-exist")
+
+
+def test_resolve_error_detail_for_actor_unknown_ref_returns_none_not_raise() -> None:
+    with use_actor(_tenant_actor("acme")):
+        assert resolve_error_detail_for_actor("correlation:does-not-exist") is None
+
+
+def test_resolve_error_detail_for_actor_applies_the_same_sanitization() -> None:
+    sensitive = "Bearer sk-proj-abcdefghijklmnopqrstuvwxyz012345"
+    with use_actor(_tenant_actor("acme")):
+        try:
+            raise RuntimeError(sensitive)
+        except RuntimeError as exc:
+            payload = public_error_payload(exc)
+        detail = resolve_error_detail_for_actor(payload["error"]["detail_ref"])
+
+    assert detail is not None
+    assert "sk-proj-abcdefghijklmnopqrstuvwxyz012345" not in json.dumps(detail)
+
+
+def test_detail_persistence_sink_is_called_best_effort_and_never_breaks_recording() -> (
+    None
+):
+    """The D-24 durability seam: an optional sink observes every recorded
+    detail, but a broken sink must never turn diagnostics into a second
+    failure for the caller whose original exception is being reported."""
+    from agent_utilities.security import error_surface
+
+    calls: list[tuple[str, dict]] = []
+    error_surface.register_detail_persistence_sink(
+        lambda cid, record: calls.append((cid, record))
+    )
+    try:
+        payload = public_error_payload(RuntimeError("sink test"))
+    finally:
+        error_surface.register_detail_persistence_sink(None)
+    assert calls
+    assert calls[0][0] == payload["error"]["detail_ref"]
+    assert calls[0][1]["error_class"] == "RuntimeError"
+
+    def _broken_sink(_cid: str, _record: dict) -> None:
+        raise RuntimeError("sink is down")
+
+    error_surface.register_detail_persistence_sink(_broken_sink)
+    try:
+        payload2 = public_error_payload(RuntimeError("sink test 2"))
+    finally:
+        error_surface.register_detail_persistence_sink(None)
+    assert payload2["error"]["detail_ref"]

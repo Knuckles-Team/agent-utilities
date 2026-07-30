@@ -21,6 +21,7 @@ from agent_utilities.protocols.epistemic_operations import (
     OperationError,
     OperationResult,
 )
+from agent_utilities.security.brain_context import ActorContext, current_actor
 from agent_utilities.security.persistence_privacy import sanitize_for_persistence
 
 _DEFAULT_LOGGER = logging.getLogger(__name__)
@@ -59,9 +60,43 @@ _FAILING_LAYER_PREFIXES: tuple[tuple[str, str], ...] = (
 #: ``error.detail_ref`` — this is the "detail store" behind that reference.
 #: Bounded (never durable, never a leak vector: every entry is already
 #: sanitized before it is stored) so a busy process cannot grow it unbounded.
+#:
+#: D-24 (durability): this dict does NOT survive a process restart and is not
+#: shared across replicas — a ``detail_ref`` handed to a caller can outlive
+#: this store. It remains the source of truth for :func:`resolve_error_detail`
+#: regardless of :data:`_detail_persistence_sink` health; see
+#: :func:`register_detail_persistence_sink` for the durable-audit seam and
+#: ``reports/deferred/lane-0.2b.md`` for what is intentionally NOT done here
+#: (wiring a concrete graph-provenance writer, e.g. linking an ``:ErrorDetail``
+#: node to the failing operation's ``:RunTrace``/``:ToolCall``).
 _DETAIL_STORE_MAX_ENTRIES = 512
 _detail_store: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _detail_store_lock = threading.Lock()
+
+#: De-opinionated durability seam (CONCEPT:AU-KG.audit.error-detail-resolution):
+#: error_surface takes no position on the durable backend — a KG-provenance
+#: writer, a database, or nothing at all (the default, ``None``). When set,
+#: every recorded detail is ALSO handed to the sink, best-effort: a failing or
+#: unset sink never affects the in-process store or the caller's exception
+#: path (see :func:`_record_error_detail`).
+DetailPersistenceSink = Any  # Callable[[str, dict[str, Any]], None]
+_detail_persistence_sink: Any | None = None
+
+
+def register_detail_persistence_sink(sink: Any | None) -> None:
+    """Register (or clear, with ``None``) a durable sink for recorded error detail.
+
+    The sink is called as ``sink(correlation_id, record)`` with the SAME
+    sanitized bundle stored in-process. It is invoked best-effort: an
+    exception raised by the sink is logged (with its real cause, never
+    swallowed silently) and never propagated, so a broken durable backend can
+    never break the error-reporting path it is meant to observe. There is no
+    default implementation — wiring a concrete backend (e.g. a KG-provenance
+    writer linking the detail to the failing operation's ``:RunTrace``) is
+    left to the caller that wants durability past this process's lifetime.
+    """
+    global _detail_persistence_sink
+    _detail_persistence_sink = sink
 
 
 def _infer_failing_layer(exc: BaseException) -> str:
@@ -84,6 +119,24 @@ def _infer_failing_layer(exc: BaseException) -> str:
     return "unknown"
 
 
+def _recording_actor_tenant() -> str:
+    """Best-effort tenant scope for the failure being recorded.
+
+    Most ``public_error_payload`` call sites run inside a verified MCP tool
+    dispatch, where :func:`current_actor` already resolves (the
+    ``ActorContextMiddleware`` / ``verified_tool_session_scope`` boundary binds
+    it for the whole call). Some do not (a unit test, a widget fetch outside
+    any served request) — those failures are recorded with an empty tenant
+    scope rather than raising, since ``public_error_payload`` itself must
+    never fail because diagnostics couldn't determine who was calling.
+    """
+
+    try:
+        return str(current_actor().tenant_id or "").strip()
+    except Exception:
+        return ""
+
+
 def _record_error_detail(
     correlation_id: str, *, error_class: str, failing_layer: str, exc: BaseException
 ) -> None:
@@ -94,20 +147,40 @@ def _record_error_detail(
     its real origin — then sanitized through the SAME persistence privacy gate
     (:mod:`agent_utilities.security.persistence_privacy`) used for any other
     payload crossing a persistence/telemetry boundary, before it ever enters
-    this process-local store.
+    this process-local store. The recording actor's ``tenant_id`` is captured
+    alongside it so :func:`resolve_error_detail_for_actor` can enforce that
+    only a caller in the SAME authority scope may resolve it.
     """
 
     rendered = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     sanitized_traceback, _report = sanitize_for_persistence(rendered)
+    record = {
+        "error_class": error_class,
+        "failing_layer": failing_layer,
+        "traceback": sanitized_traceback,
+        "tenant_id": _recording_actor_tenant(),
+    }
     with _detail_store_lock:
-        _detail_store[correlation_id] = {
-            "error_class": error_class,
-            "failing_layer": failing_layer,
-            "traceback": sanitized_traceback,
-        }
+        _detail_store[correlation_id] = record
         _detail_store.move_to_end(correlation_id)
         while len(_detail_store) > _DETAIL_STORE_MAX_ENTRIES:
             _detail_store.popitem(last=False)
+
+    sink = _detail_persistence_sink
+    if sink is not None:
+        try:
+            sink(correlation_id, dict(record))
+        except Exception:
+            # A durable-audit sink is an OPTIONAL hardening seam (D-24, see
+            # register_detail_persistence_sink) — it must never turn a
+            # diagnostics side-channel into a second failure for the caller
+            # whose original exception is already being reported. Logged with
+            # the real cause (never swallowed silently), just not re-raised.
+            _DEFAULT_LOGGER.warning(
+                "detail persistence sink failed for correlation_id=%s",
+                correlation_id,
+                exc_info=True,
+            )
 
 
 def resolve_error_detail(detail_ref: str) -> dict[str, Any] | None:
@@ -116,6 +189,11 @@ def resolve_error_detail(detail_ref: str) -> dict[str, Any] | None:
     Returns ``None`` for an unknown, expired (evicted), or empty reference —
     never raises, so a stale/foreign ref degrades to "no detail available"
     rather than a second failure.
+
+    This is the unscoped, in-process lookup used internally (and by tests). A
+    served surface reachable by an external caller MUST use
+    :func:`resolve_error_detail_for_actor` instead, which enforces the tenant
+    boundary below.
     """
 
     if not detail_ref:
@@ -123,6 +201,39 @@ def resolve_error_detail(detail_ref: str) -> dict[str, Any] | None:
     with _detail_store_lock:
         record = _detail_store.get(detail_ref)
         return dict(record) if record is not None else None
+
+
+def resolve_error_detail_for_actor(
+    detail_ref: str, *, actor: ActorContext | None = None
+) -> dict[str, Any] | None:
+    """Resolve ``detail_ref`` scoped to the caller's own verified tenant authority.
+
+    Fails closed exactly like the existing read-path guard
+    (:func:`agent_utilities.knowledge_graph.core.secured_reads._verified_actor`):
+    an unauthenticated caller, or one with no ``tenant_id``, raises
+    ``PermissionError`` rather than resolving anything — this reuses the SAME
+    tenancy model every other served read already enforces, not a new scheme.
+
+    A ref that does not exist and a ref that exists but belongs to a
+    DIFFERENT tenant are deliberately indistinguishable from the caller's
+    point of view (both return ``None``): confirming the latter would leak
+    that a foreign-tenant failure occurred.
+    """
+
+    resolved_actor = actor if actor is not None else current_actor()
+    resolved_actor.ensure_credential_current()
+    caller_tenant = str(getattr(resolved_actor, "tenant_id", "") or "").strip()
+    if not getattr(resolved_actor, "authenticated", False) or not caller_tenant:
+        raise PermissionError(
+            "Error-detail resolution requires verified tenant authority"
+        )
+
+    record = resolve_error_detail(detail_ref)
+    if record is None:
+        return None
+    if str(record.get("tenant_id", "") or "").strip() != caller_tenant:
+        return None
+    return record
 
 
 def public_error_payload(
@@ -180,9 +291,11 @@ def public_error_payload(
     :func:`_record_error_detail` stores the sanitized full exception chain
     (``__cause__``/``__context__`` included, via
     :func:`traceback.format_exception`, sanitized through the persistence
-    privacy gate) under that key, resolvable with :func:`resolve_error_detail`
-    — for an internal/authorized caller, never echoed automatically into an
-    external response. A null ``detail_ref`` used to imply "no further detail
+    privacy gate) under that key. An external caller resolves it through the
+    ``graph_observe`` MCP tool's ``error_detail`` action (D-23), which calls
+    :func:`resolve_error_detail_for_actor` — never echoed automatically into
+    this response, and only resolvable by a caller in the SAME tenant scope
+    that recorded it. A null ``detail_ref`` used to imply "no further detail
     exists"; now it is a real, dereferenceable reference.
     """
 
