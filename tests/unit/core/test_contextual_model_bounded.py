@@ -24,6 +24,7 @@ import time
 import pytest
 
 from agent_utilities.core import contextual_model
+from agent_utilities.core import contextual_model as cm
 from agent_utilities.core.contextual_model import (
     GroundingUnavailableError,
     _compile_messages_bounded,
@@ -65,16 +66,14 @@ def reset_context_compile_breaker():
     contextual_model._ctx_compile_degradation_streak = 0
     contextual_model._ctx_compile_breaker_reopen_at = 0.0
     contextual_model._grounding_policy.set("required")
-    contextual_model._grounding_degraded.set(False)
-    contextual_model._grounding_reason.set("")
+    contextual_model._grounding_outcome.set(None)
     try:
         yield
     finally:
         contextual_model._ctx_compile_degradation_streak = 0
         contextual_model._ctx_compile_breaker_reopen_at = 0.0
         contextual_model._grounding_policy.set("required")
-        contextual_model._grounding_degraded.set(False)
-        contextual_model._grounding_reason.set("")
+        contextual_model._grounding_outcome.set(None)
 
 
 def _marker_text(governed: list) -> str:
@@ -339,3 +338,61 @@ async def test_compile_messages_bounded_best_effort_degrades(monkeypatch, messag
 
     assert governed[1:] == messages
     assert "degraded-evidence" in _marker_text(governed)
+
+
+@pytest.mark.asyncio
+async def test_degraded_outcome_survives_a_child_task_boundary(monkeypatch, messages):
+    """Regression (wave-0 gate, D-33): the run-scoped degraded outcome must be
+    visible to the frame that opened the scope even when the model call that
+    discovered the degradation ran in a CHILD asyncio task.
+
+    ``run_agent`` reads ``grounding_snapshot()`` to fold a degraded-grounding run
+    into the same ``degraded`` flag that gates RunTrace status, the reward EMA,
+    ARPO step credit and shape-policy learning. The model request routinely sits a
+    task boundary below that scope (pydantic-ai/anyio task groups, and every
+    ``asyncio.to_thread`` hop the event-loop-isolation work added), and a
+    ContextVar WRITE inside a child context copy is invisible to the parent — so
+    with plain-value ContextVars the degradation was silently dropped and the run
+    was recorded as a plain success, which is the exact defect this contract
+    exists to prevent.
+    """
+
+    def _boom(_messages, _model_name):
+        raise RuntimeError("compile down")
+
+    monkeypatch.setattr(cm, "_compiled_evidence_and_bundle", _boom)
+    monkeypatch.setattr(cm, "_ctx_compile_breaker_reopen_at", 0.0)
+    monkeypatch.setattr(cm, "_ctx_compile_degradation_streak", 0)
+
+    async def _model_call():
+        return await cm._compiled_evidence_and_bundle_bounded(messages, "m")
+
+    with cm.use_grounding_policy("best_effort"):
+        await asyncio.create_task(_model_call())
+        degraded, reason = cm.grounding_snapshot()
+
+    assert degraded is True
+    assert reason == "error:RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_degraded_outcome_does_not_leak_across_sibling_scopes(
+    monkeypatch, messages
+):
+    """A fresh scope starts clean — the mutable outcome container is per-scope."""
+
+    def _boom(_messages, _model_name):
+        raise RuntimeError("compile down")
+
+    monkeypatch.setattr(cm, "_compiled_evidence_and_bundle", _boom)
+    monkeypatch.setattr(cm, "_ctx_compile_breaker_reopen_at", 0.0)
+    monkeypatch.setattr(cm, "_ctx_compile_degradation_streak", 0)
+
+    with cm.use_grounding_policy("best_effort"):
+        await cm._compiled_evidence_and_bundle_bounded(messages, "m")
+        assert cm.grounding_snapshot()[0] is True
+
+    monkeypatch.setattr(cm, "_ctx_compile_breaker_reopen_at", 0.0)
+    monkeypatch.setattr(cm, "_ctx_compile_degradation_streak", 0)
+    with cm.use_grounding_policy("best_effort"):
+        assert cm.grounding_snapshot() == (False, "")

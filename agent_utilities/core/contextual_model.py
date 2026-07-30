@@ -97,11 +97,20 @@ _grounding_policy: ContextVar[str] = ContextVar(
 )
 # Aggregate, run-scoped outcome: was ANY model call in the current grounding_scope
 # degraded, and why (the FIRST reason is kept — the earliest/root cause).
-_grounding_degraded: ContextVar[bool] = ContextVar(
-    "agent_utilities_grounding_degraded", default=False
-)
-_grounding_reason: ContextVar[str] = ContextVar(
-    "agent_utilities_grounding_reason", default=""
+#
+# This is a ContextVar holding a MUTABLE dict, deliberately, and NOT a pair of
+# plain bool/str ContextVars. A ContextVar *write* made inside a child asyncio
+# Task is invisible to the parent (``asyncio.create_task``/``TaskGroup`` — and
+# ``asyncio.to_thread`` — each run in a COPY of the context), and the model call
+# that discovers the degradation frequently runs one task-boundary below the
+# ``use_grounding_policy`` scope that ``run_agent`` reads back. Measured: with
+# plain-value ContextVars the degraded outcome was silently lost across a single
+# ``create_task`` hop, so a degraded run was recorded as a plain success — the
+# exact defect this contract exists to prevent. The dict REFERENCE is what the
+# child inherits, so an in-place mutation is visible to the parent scope that
+# installed it.
+_grounding_outcome: ContextVar[dict[str, Any] | None] = ContextVar(
+    "agent_utilities_grounding_outcome", default=None
 )
 
 # Wall-clock budget for the mandatory evidence compilation at the model-transport
@@ -181,14 +190,15 @@ def use_grounding_policy(policy: GroundingPolicy = "required") -> Iterator[None]
     """
 
     policy_token = _grounding_policy.set(policy)
-    degraded_token = _grounding_degraded.set(False)
-    reason_token = _grounding_reason.set("")
+    # A FRESH dict per scope (see :data:`_grounding_outcome`) — nesting therefore
+    # still gets clean per-run tracking, while every child task/thread spawned
+    # inside the scope mutates the SAME object this frame will read back.
+    outcome_token = _grounding_outcome.set({"degraded": False, "reason": ""})
     try:
         yield
     finally:
         _grounding_policy.reset(policy_token)
-        _grounding_degraded.reset(degraded_token)
-        _grounding_reason.reset(reason_token)
+        _grounding_outcome.reset(outcome_token)
 
 
 def current_grounding_policy() -> str:
@@ -207,9 +217,16 @@ def grounding_snapshot() -> tuple[bool, str]:
     after the delegated run completes (e.g. ``agent_runner._record_execution_trace``)
     to stamp the RunTrace/OTel span, and to gate reward/learning writes so a
     degraded run is never recorded as a plain success.
+
+    Outside any :func:`use_grounding_policy` scope this is ``(False, "")``: with no
+    scope the policy is the default ``"required"``, which RAISES rather than
+    degrading, so there is no degraded outcome to aggregate.
     """
 
-    return _grounding_degraded.get(), _grounding_reason.get()
+    outcome = _grounding_outcome.get()
+    if outcome is None:
+        return False, ""
+    return bool(outcome.get("degraded")), str(outcome.get("reason") or "")
 
 
 def _annotate_grounding_span(status: str, reason: str = "") -> None:
@@ -232,9 +249,21 @@ def _annotate_grounding_span(status: str, reason: str = "") -> None:
 def _mark_grounding_degraded(reason: str) -> None:
     """Record one degraded model call against the run-scoped outcome (first reason wins)."""
 
-    if not _grounding_degraded.get():
-        _grounding_reason.set(reason)
-    _grounding_degraded.set(True)
+    outcome = _grounding_outcome.get()
+    if outcome is None:
+        # No :func:`use_grounding_policy` scope is open (a direct model call, a
+        # harness). Install one lazily so the outcome is still readable by a
+        # same-context caller — the pre-existing behaviour. It cannot propagate
+        # UP out of a child task (nothing above installed a container to mutate),
+        # which is exactly why the real delegated path opens the scope in
+        # ``Orchestrator.execute_agent`` before ``run_agent`` reads it back.
+        outcome = {"degraded": False, "reason": ""}
+        _grounding_outcome.set(outcome)
+    # Mutated IN PLACE, never rebound — that is what makes the write visible
+    # to the parent frame across a child-task/thread context copy.
+    if not outcome.get("degraded"):
+        outcome["reason"] = reason
+    outcome["degraded"] = True
     _annotate_grounding_span("degraded", reason)
 
 
