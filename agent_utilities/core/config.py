@@ -923,6 +923,37 @@ def _validate_xdg_configuration_schema(data: Mapping[str, Any]) -> None:
         candidate = _validate_agent_config_without_settings(data)
         candidate.assert_production_safe(profile=candidate.app_profile)
     except Exception as exc:
+        # A value-free exception is the correct external boundary, but logging
+        # only ``ValidationError`` made a live crash-loop impossible to diagnose.
+        # Pydantic's location and error-code fields contain schema coordinates,
+        # not the rejected input. Never include ``input``, ``ctx``, messages, the
+        # source path, or configuration values here.
+        errors = getattr(exc, "errors", None)
+        issues: list[dict[str, str]] = []
+        if callable(errors):
+            try:
+                for item in errors(
+                    include_input=False,
+                    include_context=False,
+                    include_url=False,
+                ):
+                    issues.append(
+                        {
+                            "location": ".".join(
+                                str(part) for part in item.get("loc", ())
+                            ),
+                            "type": str(item.get("type", type(exc).__name__)),
+                        }
+                    )
+            except Exception:  # noqa: BLE001 - diagnostics never mask rejection
+                issues = []
+        if issues:
+            import logging
+
+            logging.getLogger(__name__).error(
+                "XDG configuration schema rejected (value-free issues=%s)",
+                issues[:20],
+            )
         raise ConfigurationSourceError("xdg", type(exc).__name__) from None
 
 

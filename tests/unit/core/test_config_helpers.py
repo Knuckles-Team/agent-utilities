@@ -92,6 +92,31 @@ def test_production_xdg_config_loads_private_regular_file(
     os.environ.pop("MCP_TOOL_MODE", None)
 
 
+def test_xdg_schema_rejection_logs_only_value_free_coordinates(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret_value = "must-never-appear-in-diagnostics"
+    with caplog.at_level(logging.ERROR), pytest.raises(
+        ch.ConfigurationSourceError
+    ) as caught:
+        ch._validate_xdg_configuration_schema(
+            {
+                "CHAT_MODELS": [
+                    {
+                        "id": "strict-model",
+                        "provider": "openai",
+                        "context_window": secret_value,
+                    }
+                ]
+            }
+        )
+
+    assert caught.value.error_class == "ValidationError"
+    assert "chat_models.0" in caplog.text.lower()
+    assert secret_value not in caplog.text
+    assert secret_value not in str(caught.value)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX permission contract")
 def test_staged_production_profile_revalidates_source_permissions(
     tmp_path: Path,
