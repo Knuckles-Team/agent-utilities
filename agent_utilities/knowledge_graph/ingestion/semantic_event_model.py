@@ -266,7 +266,10 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
         object_types = {item.object_id: item.object_type for item in self.objects}
         for event in self.events:
             for participation in event.objects:
-                if object_types.get(participation.object_id) != participation.object_type:
+                if (
+                    object_types.get(participation.object_id)
+                    != participation.object_type
+                ):
                     raise ValueError(
                         "event participation must reference a declared object "
                         "with the same object_type"
@@ -286,24 +289,18 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     "object relationship endpoints must reference declared objects"
                 )
 
-        valid_refs = {
-            ("event", item.event_id) for item in self.events
-        } | {
-            ("object", item.object_id) for item in self.objects
-        } | {
-            ("object_state", item.state_id) for item in self.object_states
-        }
-        refs = [
-            representation.target for representation in self.neural_representations
-        ]
+        valid_refs = (
+            {("event", item.event_id) for item in self.events}
+            | {("object", item.object_id) for item in self.objects}
+            | {("object_state", item.state_id) for item in self.object_states}
+        )
+        refs = [representation.target for representation in self.neural_representations]
         refs.extend(
             ref
             for prediction in self.neural_predictions
             for ref in (prediction.subject, prediction.object)
         )
-        refs.extend(
-            proposal.candidate for proposal in self.entity_resolution_proposals
-        )
+        refs.extend(proposal.candidate for proposal in self.entity_resolution_proposals)
         if any((ref.kind, ref.source_id) not in valid_refs for ref in refs):
             raise ValueError(
                 "neural and resolution references must target symbolic entities "
@@ -366,9 +363,7 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
             perspective["object_types"] = sorted(
                 set(perspective.get("object_types", []))
             )
-            perspective["qualifiers"] = sorted(
-                set(perspective.get("qualifiers", []))
-            )
+            perspective["qualifiers"] = sorted(set(perspective.get("qualifiers", [])))
         payload = json.dumps(
             payload_data,
             sort_keys=True,
@@ -395,22 +390,23 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
         log_node_id = entities[0]["id"]
 
         object_ids: dict[str, str] = {}
-        for item in sorted(self.objects, key=lambda value: value.object_id):
+        for business_object in sorted(self.objects, key=lambda value: value.object_id):
             node_id = _stable_id(
                 "business-object",
                 self.source_ref,
-                item.object_type,
-                item.object_id,
+                business_object.object_type,
+                business_object.object_id,
             )
-            object_ids[item.object_id] = node_id
+            object_ids[business_object.object_id] = node_id
             entities.append(
                 {
                     "id": node_id,
                     "node_type": "BusinessObject",
-                    "source_record_id": item.object_id,
-                    "object_type": item.object_type,
+                    "source_record_id": business_object.object_id,
+                    "object_type": business_object.object_type,
                     "attributes": [
-                        value.model_dump(mode="json") for value in item.attributes
+                        value.model_dump(mode="json")
+                        for value in business_object.attributes
                     ],
                     "source_ref": self.source_ref,
                     "mapping_version": self.mapping_version,
@@ -425,24 +421,22 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
             )
 
         event_ids: dict[str, str] = {}
-        for item in sorted(self.events, key=lambda value: value.event_id):
-            event_id = _stable_id(
-                "process-event", self.source_ref, item.event_id
-            )
-            event_ids[item.event_id] = event_id
+        for event in sorted(self.events, key=lambda value: value.event_id):
+            event_id = _stable_id("process-event", self.source_ref, event.event_id)
+            event_ids[event.event_id] = event_id
             entities.append(
                 {
                     "id": event_id,
                     "node_type": "ProcessEvent",
-                    "source_record_id": item.event_id,
-                    "activity": item.activity,
-                    "occurred_at": item.occurred_at.isoformat(),
+                    "source_record_id": event.event_id,
+                    "activity": event.activity,
+                    "occurred_at": event.occurred_at.isoformat(),
                     "attributes": [
-                        value.model_dump(mode="json") for value in item.attributes
+                        value.model_dump(mode="json") for value in event.attributes
                     ],
-                    "source_ref": item.source_ref,
+                    "source_ref": event.source_ref,
                     "mapping_version": self.mapping_version,
-                    "sequence_tiebreaker": item.sequence_tiebreaker,
+                    "sequence_tiebreaker": event.sequence_tiebreaker,
                 }
             )
             links.append(
@@ -453,7 +447,7 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 }
             )
             for participation in sorted(
-                item.objects,
+                event.objects,
                 key=lambda value: (
                     value.object_type,
                     value.object_id,
@@ -463,7 +457,7 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 participation_id = _stable_id(
                     "event-object-participation",
                     self.source_ref,
-                    item.event_id,
+                    event.event_id,
                     participation.object_type,
                     participation.object_id,
                     participation.qualifier,
@@ -473,7 +467,7 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                         "id": participation_id,
                         "node_type": "EventObjectParticipation",
                         "qualifier": participation.qualifier,
-                        "source_ref": item.source_ref,
+                        "source_ref": event.source_ref,
                         "mapping_version": self.mapping_version,
                     }
                 )
@@ -493,22 +487,24 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 )
 
         state_ids: dict[str, str] = {}
-        for item in sorted(self.object_states, key=lambda value: value.state_id):
-            state_id = _stable_id("object-state", self.source_ref, item.state_id)
-            state_ids[item.state_id] = state_id
+        for state in sorted(self.object_states, key=lambda value: value.state_id):
+            state_id = _stable_id("object-state", self.source_ref, state.state_id)
+            state_ids[state.state_id] = state_id
             entities.append(
                 {
                     "id": state_id,
                     "node_type": "ObjectState",
-                    "source_record_id": item.state_id,
-                    "object_type": item.object_type,
-                    "valid_from": item.valid_from.isoformat(),
+                    "source_record_id": state.state_id,
+                    "object_type": state.object_type,
+                    "valid_from": state.valid_from.isoformat(),
                     "valid_to": (
-                        item.valid_to.isoformat() if item.valid_to is not None else None
+                        state.valid_to.isoformat()
+                        if state.valid_to is not None
+                        else None
                     ),
-                    "observed_at": item.observed_at.isoformat(),
+                    "observed_at": state.observed_at.isoformat(),
                     "attributes": [
-                        value.model_dump(mode="json") for value in item.attributes
+                        value.model_dump(mode="json") for value in state.attributes
                     ],
                     "source_ref": self.source_ref,
                     "mapping_version": self.mapping_version,
@@ -517,32 +513,34 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
             links.append(
                 {
                     "source": state_id,
-                    "target": object_ids[item.object_id],
+                    "target": object_ids[state.object_id],
                     "relationship": "STATE_OF",
                 }
             )
 
-        for item in sorted(
+        for relationship in sorted(
             self.object_relationships,
             key=lambda value: value.relationship_id,
         ):
             relationship_id = _stable_id(
-                "object-relationship", self.source_ref, item.relationship_id
+                "object-relationship",
+                self.source_ref,
+                relationship.relationship_id,
             )
             entities.append(
                 {
                     "id": relationship_id,
                     "node_type": "ObjectRelationship",
-                    "source_record_id": item.relationship_id,
-                    "qualifier": item.qualifier,
+                    "source_record_id": relationship.relationship_id,
+                    "qualifier": relationship.qualifier,
                     "valid_from": (
-                        item.valid_from.isoformat()
-                        if item.valid_from is not None
+                        relationship.valid_from.isoformat()
+                        if relationship.valid_from is not None
                         else None
                     ),
                     "valid_to": (
-                        item.valid_to.isoformat()
-                        if item.valid_to is not None
+                        relationship.valid_to.isoformat()
+                        if relationship.valid_to is not None
                         else None
                     ),
                     "source_ref": self.source_ref,
@@ -553,27 +551,29 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 [
                     {
                         "source": relationship_id,
-                        "target": object_ids[item.source_object_id],
+                        "target": object_ids[relationship.source_object_id],
                         "relationship": "RELATION_SOURCE",
                     },
                     {
                         "source": relationship_id,
-                        "target": object_ids[item.target_object_id],
+                        "target": object_ids[relationship.target_object_id],
                         "relationship": "RELATION_TARGET",
                     },
                 ]
             )
 
-        for item in sorted(
+        for perspective in sorted(
             self.perspectives, key=lambda value: value.perspective_id
         ):
-            perspective_data = item.model_dump(mode="json", exclude_none=True)
-            perspective_data["object_types"] = sorted(set(item.object_types))
-            perspective_data["qualifiers"] = sorted(set(item.qualifiers))
+            perspective_data = perspective.model_dump(mode="json", exclude_none=True)
+            perspective_data["object_types"] = sorted(set(perspective.object_types))
+            perspective_data["qualifiers"] = sorted(set(perspective.qualifiers))
             entities.append(
                 {
                     "id": _stable_id(
-                        "process-perspective", self.source_ref, item.perspective_id
+                        "process-perspective",
+                        self.source_ref,
+                        perspective.perspective_id,
                     ),
                     "node_type": "ProcessPerspective",
                     **perspective_data,
@@ -587,55 +587,61 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
             **{("object", key): value for key, value in object_ids.items()},
             **{("object_state", key): value for key, value in state_ids.items()},
         }
-        for item in sorted(
+        for representation in sorted(
             self.neural_representations,
             key=lambda value: value.representation_id,
         ):
             representation_id = _stable_id(
-                "neural-representation", self.source_ref, item.representation_id
+                "neural-representation",
+                self.source_ref,
+                representation.representation_id,
             )
             entities.append(
                 {
                     "id": representation_id,
                     "node_type": "NeuralRepresentation",
-                    "source_record_id": item.representation_id,
-                    "encoder_id": item.encoder_id,
-                    "encoder_version": item.encoder_version,
-                    "dimension": item.dimension,
-                    "artifact_ref": item.artifact_ref,
-                    "source_graph_epoch": item.source_graph_epoch,
-                    "content_hash": item.content_hash,
-                    "calibration_ref": item.calibration_ref,
+                    "source_record_id": representation.representation_id,
+                    "encoder_id": representation.encoder_id,
+                    "encoder_version": representation.encoder_version,
+                    "dimension": representation.dimension,
+                    "artifact_ref": representation.artifact_ref,
+                    "source_graph_epoch": representation.source_graph_epoch,
+                    "content_hash": representation.content_hash,
+                    "calibration_ref": representation.calibration_ref,
                     "source_ref": self.source_ref,
                     "mapping_version": self.mapping_version,
                 }
             )
             links.append(
                 {
-                    "source": canonical_ids[(item.target.kind, item.target.source_id)],
+                    "source": canonical_ids[
+                        (representation.target.kind, representation.target.source_id)
+                    ],
                     "target": representation_id,
                     "relationship": "HAS_NEURAL_REPRESENTATION",
                 }
             )
 
-        for item in sorted(
+        for prediction in sorted(
             self.neural_predictions, key=lambda value: value.prediction_id
         ):
             prediction_id = _stable_id(
-                "neural-relation-prediction", self.source_ref, item.prediction_id
+                "neural-relation-prediction",
+                self.source_ref,
+                prediction.prediction_id,
             )
             entities.append(
                 {
                     "id": prediction_id,
                     "node_type": "NeuralRelationPrediction",
-                    "source_record_id": item.prediction_id,
-                    "predicate": item.predicate,
-                    "prediction_score": item.score,
-                    "prediction_uncertainty": item.uncertainty,
-                    "model_ref": item.model_ref,
-                    "candidate_set_ref": item.candidate_set_ref,
-                    "evidence_refs": list(item.evidence_refs),
-                    "decision_status": item.decision_status,
+                    "source_record_id": prediction.prediction_id,
+                    "predicate": prediction.predicate,
+                    "prediction_score": prediction.score,
+                    "prediction_uncertainty": prediction.uncertainty,
+                    "model_ref": prediction.model_ref,
+                    "candidate_set_ref": prediction.candidate_set_ref,
+                    "evidence_refs": list(prediction.evidence_refs),
+                    "decision_status": prediction.decision_status,
                     "source_ref": self.source_ref,
                     "mapping_version": self.mapping_version,
                 }
@@ -645,37 +651,39 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     {
                         "source": prediction_id,
                         "target": canonical_ids[
-                            (item.subject.kind, item.subject.source_id)
+                            (prediction.subject.kind, prediction.subject.source_id)
                         ],
                         "relationship": "PREDICTS_SUBJECT",
                     },
                     {
                         "source": prediction_id,
                         "target": canonical_ids[
-                            (item.object.kind, item.object.source_id)
+                            (prediction.object.kind, prediction.object.source_id)
                         ],
                         "relationship": "PREDICTS_OBJECT",
                     },
                 ]
             )
 
-        for item in sorted(
+        for proposal in sorted(
             self.entity_resolution_proposals,
             key=lambda value: value.proposal_id,
         ):
             proposal_id = _stable_id(
-                "entity-resolution-proposal", self.source_ref, item.proposal_id
+                "entity-resolution-proposal",
+                self.source_ref,
+                proposal.proposal_id,
             )
             entities.append(
                 {
                     "id": proposal_id,
                     "node_type": "EntityResolutionProposal",
-                    "source_record_id": item.proposal_id,
-                    "mention_ref": item.mention_ref,
-                    "resolution_score": item.score,
-                    "blocking_features": list(item.blocking_features),
-                    "evidence_refs": list(item.evidence_refs),
-                    "decision_status": item.decision_status,
+                    "source_record_id": proposal.proposal_id,
+                    "mention_ref": proposal.mention_ref,
+                    "resolution_score": proposal.score,
+                    "blocking_features": list(proposal.blocking_features),
+                    "evidence_refs": list(proposal.evidence_refs),
+                    "decision_status": proposal.decision_status,
                     "source_ref": self.source_ref,
                     "mapping_version": self.mapping_version,
                 }
@@ -684,7 +692,7 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 {
                     "source": proposal_id,
                     "target": canonical_ids[
-                        (item.candidate.kind, item.candidate.source_id)
+                        (proposal.candidate.kind, proposal.candidate.source_id)
                     ],
                     "relationship": "PROPOSES_RESOLUTION",
                 }
