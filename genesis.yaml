@@ -12,22 +12,24 @@
 # any of those; scripts/check_genesis_manifest.py gates drift.
 version: 1
 entrypoints:
+  substrate: agent-os-genesis
   preflight: agent-utilities-doctor --preflight --profile <profile> [--component <c>]
   install: 'scripts/install.sh (Windows: scripts/install.ps1)'
   config: setup-config generate --profile <profile>
   verify: agent-utilities-doctor
   single_node_skill: agent-utilities-deployment
   multi_node_skill: agent-utilities-deployment
+  handoff: agent-os-genesis -> InfrastructureHandoff(substrate_resolved=true) -> agent-utilities-deployment
 profiles:
   tiny:
-    summary: zero-infra, all-local (laptop / Raspberry Pi) — ONE self-contained graph-os binary (engine
-      in-process); homelab quick start
+    summary: zero-external-infrastructure local evaluation or development; graph-os and the bundled engine
+      operate as one managed unit
     recipe: docs/recipes/tiny.md
     docker: false
     secrets: engine-encrypted-or-runtime-reference
     servers: none
     skill: agent-utilities-deployment
-    orchestrator: docker-compose
+    orchestrator: bare-metal
     install_mode: deploy-baremetal
     idp: none
     ontology_host: local
@@ -36,8 +38,8 @@ profiles:
     engine_idle_shutdown_secs: 60
     engine_topology: unified-in-process
   single-node-prod:
-    summary: one durable, secured host — ONE self-contained graph-os container (engine in-process, no
-      separate engine service) + the core MCP connectors
+    summary: one durable secured host with graph-os, the bundled engine, and a selected core connector
+      set
     recipe: docs/recipes/single-node-prod.md
     docker: true
     secrets: openbao-or-engine-encrypted
@@ -52,13 +54,13 @@ profiles:
     engine_idle_shutdown_secs: 60
     engine_topology: unified-in-process
   enterprise:
-    summary: multi-host Kubernetes (RKE2), full integration (OpenBao/Vault-protocol secrets + Keycloak
-      SSO/DNS/ingress/observability + all connectors); scale-out engine behind N graph-os pods
+    summary: multi-host production with a provider-neutral Kubernetes default, reusable existing identity/secrets/ingress/observability,
+      and a selected scale-out connector fleet
     recipe: docs/recipes/enterprise.md
     docker: true
     secrets: openbao
     servers: all
-    skill: agent-os-genesis
+    skill: agent-utilities-deployment
     orchestrator: kubernetes
     install_mode: deploy-container
     idp: keycloak
@@ -74,6 +76,7 @@ run_plan:
   - use-existing
   - skip
   orchestrators:
+  - bare-metal
   - docker-compose
   - docker-swarm
   - podman
@@ -82,6 +85,12 @@ run_plan:
   podman_modes:
   - rootful
   - rootless
+  substrate_authority:
+  - host-admin
+  - namespace-only
+  - cluster-admin
+  - provision-cluster
+  - provision-multi-node
   idp:
   - keycloak
   - okta
@@ -127,6 +136,7 @@ run_plan:
     invoke: deploy <package> with agent-utilities-deployment
     catalog: agent-utilities-deployment
   provisioner_by_orchestrator:
+    bare-metal: agent-os-genesis
     docker-swarm: swarm-mesh-provisioner
     kubernetes: kubernetes-mesh-provisioner
     podman: podman-mesh-provisioner
@@ -154,9 +164,9 @@ engine:
     values:
     - unified-in-process
     - out-of-process-shared
-    unified-in-process: 'SELF-CONTAINED DEFAULT (tiny, single-node-prod) — the engine embeds in-process
-      via PyO3 in the SAME binary/process as graph-os (epistemic_graph.engine): one binary, one lifecycle,
-      no socket round-trip, no separate engine service to deploy or drift.'
+    unified-in-process: 'REQUESTED single-unit topology (tiny, single-node-prod). The resolver must record
+      the EFFECTIVE process boundary: use a true in-process engine only when the deployed build proves
+      it; otherwise the bundled supervised engine is an operational unit but remains out of process.'
     out-of-process-shared: HYPERSCALING shape (enterprise default) — graph-os talks to a shared, independently-scaled
       engine over UDS/TCP (epistemic_graph.client, GIL-free); build the engine with the eg `cluster` cargo
       feature (raft, multi-Raft sharding) and run N graph-os client pods behind the gateway, scaled via

@@ -1,0 +1,108 @@
+{{- if eq .Values.topology "out-of-process-shared" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "agent-os.fullname" . }}-engine
+  labels:
+    {{- include "agent-os.labels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+spec:
+  serviceName: {{ include "agent-os.fullname" . }}-engine
+  replicas: {{ .Values.engine.replicas }}
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: engine
+  template:
+    metadata:
+      labels:
+        {{- include "agent-os.labels" . | nindent 8 }}
+        app.kubernetes.io/component: engine
+    spec:
+      serviceAccountName: {{ include "agent-os.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: engine
+          image: {{ include "agent-os.image" .Values.engine.image }}
+          imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
+          command:
+            {{- toYaml .Values.engine.args | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "agent-os.fullname" . }}-engine
+            - secretRef:
+                name: {{ .Values.runtimeSecret.name }}
+                optional: {{ .Values.runtimeSecret.optional }}
+          ports:
+            - {name: rpc, containerPort: {{ .Values.engine.port }}}
+            - {name: metrics, containerPort: {{ .Values.engine.metricsPort }}}
+          startupProbe:
+            tcpSocket: {port: rpc}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket: {port: rpc}
+            failureThreshold: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: rpc}
+            failureThreshold: 3
+            periodSeconds: 20
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.engine.resources | nindent 12 }}
+          volumeMounts:
+            - {name: engine-data, mountPath: /var/lib/epistemic-graph/data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.engine.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.engine.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.engine.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: engine-data
+      spec:
+        accessModes:
+          {{- toYaml .Values.engine.persistence.accessModes | nindent 10 }}
+        {{- with .Values.engine.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.engine.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent-os.fullname" . }}-engine
+  labels:
+    {{- include "agent-os.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: engine
+  ports:
+    - {name: rpc, port: {{ .Values.engine.port }}, targetPort: rpc}
+    - {name: metrics, port: {{ .Values.engine.metricsPort }}, targetPort: metrics}
+{{- end }}

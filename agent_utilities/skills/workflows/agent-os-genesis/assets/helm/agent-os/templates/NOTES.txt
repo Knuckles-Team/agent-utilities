@@ -1,0 +1,11 @@
+This chart rendered the Agent OS namespace workload.
+
+The default images use registry.invalid and are render-only. Before applying:
+  1. set approved immutable image digests;
+  2. create/synchronize Secret {{ .Values.runtimeSecret.name }};
+  3. add explicit egress for identity, models, secret store, and connectors;
+  4. run helm lint/template, policy checks, and server-side dry-run;
+  5. invoke agent-utilities-deployment for application-specific values and gates.
+
+Topology: {{ .Values.topology }}
+Graph-OS service: {{ include "agent-os.fullname" . }}-graphos.{{ .Release.Namespace }}.svc

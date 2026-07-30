@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent-os.fullname" . }}-graphos
+  labels:
+    {{- include "agent-os.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.graphos.config }}
+  {{ $key }}: {{ $value | toString | quote }}
+  {{- end }}
+  {{- if eq .Values.topology "out-of-process-shared" }}
+  GRAPH_SERVICE_ENDPOINTS: {{ printf "tcp://%s-engine:%v" (include "agent-os.fullname" .) .Values.engine.port | quote }}
+  KG_DAEMON_ROLE: "client"
+  {{- else }}
+  GRAPH_SERVICE_PERSIST_DIR: "/var/lib/agent-os/engine"
+  KG_DAEMON_ROLE: "host"
+  {{- end }}
+{{- if eq .Values.topology "out-of-process-shared" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent-os.fullname" . }}-engine
+  labels:
+    {{- include "agent-os.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.engine.config }}
+  {{ $key }}: {{ $value | toString | quote }}
+  {{- end }}
+{{- end }}

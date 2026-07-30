@@ -1,0 +1,154 @@
+# Render-only defaults use the reserved .invalid domain. A deployment MUST override
+# every enabled image with an approved immutable reference.
+topology: out-of-process-shared
+
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+runtimeSecret:
+  # Created/synchronized outside this chart. No secret values belong in Helm values.
+  name: agent-os-runtime
+  optional: false
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+graphos:
+  image:
+    repository: registry.invalid/agent-os/graph-os
+    tag: replace-me
+    digest: ""
+    pullPolicy: IfNotPresent
+  replicas: 2
+  port: 8000
+  args:
+    - graph-os
+    - --transport
+    - streamable-http
+    - --host
+    - "0.0.0.0"
+    - --port
+    - "8000"
+  config:
+    APP_PROFILE: production
+    AUTH_TYPE: jwt
+    MCP_TOOL_MODE: intent
+    KG_DAEMON_ROLE: client
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {cpu: "4", memory: 4Gi}
+  persistence:
+    size: 50Gi
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+engine:
+  image:
+    repository: registry.invalid/agent-os/epistemic-graph
+    tag: replace-me
+    digest: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  port: 9100
+  metricsPort: 9101
+  args:
+    - epistemic-graph-server
+    - --tcp-addr
+    - 0.0.0.0:9100
+    - --persist-dir
+    - /var/lib/epistemic-graph/data
+    - --metrics-addr
+    - 0.0.0.0:9101
+  config:
+    EPISTEMIC_GRAPH_PERSIST_BACKEND: redb
+    EPISTEMIC_GRAPH_REQUIRE_VERIFIED_CONTEXT: "1"
+    EPISTEMIC_GRAPH_REQUIRE_SIGNED: "1"
+    EPISTEMIC_GRAPH_RLS_DEFAULT_DENY: "1"
+  persistence:
+    size: 100Gi
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+  resources:
+    requests: {cpu: "1", memory: 2Gi}
+    limits: {cpu: "8", memory: 16Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: graph-os.example.invalid
+  path: /
+  tls:
+    enabled: true
+    secretName: graph-os-tls
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: null
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector: {}
+  egress:
+    # Empty means DNS plus same-namespace traffic only. Add explicit CIDRs or
+    # selectors for OIDC, secret store, models, and connectors.
+    extra: []
+
+# agent-utilities-deployment resolves these dependency-closed lists.
+connectors: []
+# - name: servicenow-mcp
+#   image: {repository: registry.invalid/agent-os/servicenow-mcp, tag: replace-me, digest: ""}
+#   port: 8000
+#   args: []
+#   env: {TRANSPORT: streamable-http, PORT: "8000"}
+#   secretName: servicenow-mcp-runtime
+#   replicas: 1
+#   resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
+
+components: []
+# - name: agent-webui
+#   image: {repository: registry.invalid/agent-os/agent-webui, tag: replace-me, digest: ""}
+#   port: 8080
+#   args: []
+#   env: {}
+#   secretName: ""
+#   replicas: 1
+#   resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}

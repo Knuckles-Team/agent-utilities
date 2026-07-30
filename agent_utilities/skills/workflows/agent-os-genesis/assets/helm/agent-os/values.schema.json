@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["topology", "runtimeSecret", "graphos", "engine", "service"],
+  "properties": {
+    "topology": {
+      "type": "string",
+      "enum": ["unified-in-process", "out-of-process-shared"]
+    },
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": false}
+    },
+    "serviceAccount": {"$ref": "#/$defs/serviceAccount"},
+    "rbac": {"type": "object", "required": ["create"], "properties": {"create": {"type": "boolean"}}, "additionalProperties": false},
+    "runtimeSecret": {
+      "type": "object",
+      "required": ["name", "optional"],
+      "properties": {"name": {"type": "string", "minLength": 1}, "optional": {"type": "boolean"}},
+      "additionalProperties": false
+    },
+    "podSecurityContext": {"type": "object"},
+    "containerSecurityContext": {"type": "object"},
+    "graphos": {"$ref": "#/$defs/graphos"},
+    "engine": {"$ref": "#/$defs/engine"},
+    "service": {
+      "type": "object",
+      "required": ["type", "port"],
+      "properties": {
+        "type": {"type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      },
+      "additionalProperties": false
+    },
+    "ingress": {"$ref": "#/$defs/ingress"},
+    "autoscaling": {"$ref": "#/$defs/autoscaling"},
+    "podDisruptionBudget": {
+      "type": "object",
+      "required": ["enabled", "minAvailable"],
+      "properties": {"enabled": {"type": "boolean"}, "minAvailable": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "string"}]}},
+      "additionalProperties": false
+    },
+    "networkPolicy": {"type": "object"},
+    "connectors": {"type": "array", "items": {"$ref": "#/$defs/extension"}},
+    "components": {"type": "array", "items": {"$ref": "#/$defs/extension"}}
+  },
+  "$defs": {
+    "image": {
+      "type": "object",
+      "required": ["repository"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "digest": {"type": "string", "pattern": "^(|sha256:[a-fA-F0-9]{64})$"},
+        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+      },
+      "additionalProperties": false
+    },
+    "persistence": {
+      "type": "object",
+      "required": ["size", "storageClass", "accessModes"],
+      "properties": {
+        "size": {"type": "string", "minLength": 1},
+        "storageClass": {"type": "string"},
+        "accessModes": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany", "ReadWriteOncePod"]}}
+      },
+      "additionalProperties": false
+    },
+    "serviceAccount": {
+      "type": "object",
+      "required": ["create", "name", "annotations"],
+      "properties": {"create": {"type": "boolean"}, "name": {"type": "string"}, "annotations": {"type": "object", "additionalProperties": {"type": "string"}}},
+      "additionalProperties": false
+    },
+    "graphos": {
+      "type": "object",
+      "required": ["image", "replicas", "port", "args", "config", "resources", "persistence"],
+      "properties": {
+        "image": {"$ref": "#/$defs/image"},
+        "replicas": {"type": "integer", "minimum": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "config": {"type": "object", "additionalProperties": {"type": ["string", "number", "boolean"]}},
+        "resources": {"type": "object"},
+        "persistence": {"$ref": "#/$defs/persistence"},
+        "nodeSelector": {"type": "object"},
+        "tolerations": {"type": "array"},
+        "affinity": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "engine": {
+      "type": "object",
+      "required": ["image", "replicas", "port", "metricsPort", "args", "config", "persistence", "resources"],
+      "properties": {
+        "image": {"$ref": "#/$defs/image"},
+        "replicas": {"type": "integer", "minimum": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "metricsPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "config": {"type": "object", "additionalProperties": {"type": ["string", "number", "boolean"]}},
+        "persistence": {"$ref": "#/$defs/persistence"},
+        "resources": {"type": "object"},
+        "nodeSelector": {"type": "object"},
+        "tolerations": {"type": "array"},
+        "affinity": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "ingress": {
+      "type": "object",
+      "required": ["enabled", "className", "annotations", "host", "path", "tls"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "className": {"type": "string"},
+        "annotations": {"type": "object", "additionalProperties": {"type": "string"}},
+        "host": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "tls": {"type": "object", "required": ["enabled", "secretName"], "properties": {"enabled": {"type": "boolean"}, "secretName": {"type": "string"}}, "additionalProperties": false}
+      },
+      "additionalProperties": false
+    },
+    "autoscaling": {
+      "type": "object",
+      "required": ["enabled", "minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "minReplicas": {"type": "integer", "minimum": 1},
+        "maxReplicas": {"type": "integer", "minimum": 1},
+        "targetCPUUtilizationPercentage": {"type": ["integer", "null"], "minimum": 1, "maximum": 100},
+        "targetMemoryUtilizationPercentage": {"type": ["integer", "null"], "minimum": 1, "maximum": 100}
+      },
+      "additionalProperties": false
+    },
+    "extension": {
+      "type": "object",
+      "required": ["name", "image", "port"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+        "image": {"$ref": "#/$defs/image"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "env": {"type": "object", "additionalProperties": {"type": ["string", "number", "boolean"]}},
+        "secretName": {"type": "string"},
+        "replicas": {"type": "integer", "minimum": 1},
+        "resources": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

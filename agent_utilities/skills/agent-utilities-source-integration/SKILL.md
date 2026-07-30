@@ -9,9 +9,9 @@ description: >
   Jira/Plane, and databases. The same flow every time — configure credentials, discover
   (for sources with a queryable metamodel), mirror/ingest, sync with bite-sized deltas,
   and optionally backfeed KG-derived knowledge — via the single `source_sync` entrypoint
-  plus per-source ingest/backfeed tools. Use when the user says "connect <X> to the KG",
+  plus per-source ingest/backfeed tools. Use when the user says "connect a source to the KG",
   "ingest LeanIX/Camunda/ARIS/ServiceNow", "mirror our EA/process tools", "sync
-  <source>", or "backfeed to <source>". Assumes a running graph-os. Do NOT use to deploy
+  a source", or "backfeed to a source". Assumes a running graph-os. Do NOT use to deploy
   the platform from scratch (use agent-utilities-deployment) or for bare-host bootstrap
   (use agent-os-genesis).
 ---
@@ -24,10 +24,10 @@ mechanism is uniform — the only per-source differences are credentials, which 
 ingests, and whether a metamodel/backfeed exists. Deep per-source runbooks live in
 agent-utilities docs (linked in the matrix); this skill is the standard driver.
 
-> **Why not fold this into `agent-os-genesis`?** Genesis is *bare-host → swarm*
-> platform bootstrap. Connecting data sources is a **post-platform** step, so genesis
-> (and `agent-utilities-deployment`) **delegate here** instead. Run this after the
-> platform is up.
+> **Why not fold this into `agent-os-genesis`?** Genesis provisions or attaches the
+> environment-neutral Day-0 substrate; `agent-utilities-deployment` installs the
+> application layer. Connecting data sources is a **post-platform** step, so both
+> delegate here after Graph-OS is healthy.
 
 ## Workflow
 

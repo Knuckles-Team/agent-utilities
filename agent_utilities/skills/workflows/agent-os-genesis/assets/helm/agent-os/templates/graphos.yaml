@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-os.fullname" . }}-graphos
+  labels:
+    {{- include "agent-os.labels" . | nindent 4 }}
+    app.kubernetes.io/component: graphos
+spec:
+  replicas: {{ if eq .Values.topology "unified-in-process" }}1{{ else }}{{ .Values.graphos.replicas }}{{ end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: graphos
+  strategy:
+    type: {{ if eq .Values.topology "unified-in-process" }}Recreate{{ else }}RollingUpdate{{ end }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-os.labels" . | nindent 8 }}
+        app.kubernetes.io/component: graphos
+    spec:
+      serviceAccountName: {{ include "agent-os.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: graphos
+          image: {{ include "agent-os.image" .Values.graphos.image }}
+          imagePullPolicy: {{ .Values.graphos.image.pullPolicy }}
+          command:
+            {{- toYaml .Values.graphos.args | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "agent-os.fullname" . }}-graphos
+            - secretRef:
+                name: {{ .Values.runtimeSecret.name }}
+                optional: {{ .Values.runtimeSecret.optional }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.graphos.port }}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            failureThreshold: 6
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            failureThreshold: 3
+            periodSeconds: 20
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.graphos.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- if eq .Values.topology "unified-in-process" }}
+            - {name: graphos-data, mountPath: /var/lib/agent-os/engine}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if eq .Values.topology "unified-in-process" }}
+        - name: graphos-data
+          persistentVolumeClaim:
+            claimName: {{ include "agent-os.fullname" . }}-graphos
+        {{- end }}
+      {{- with .Values.graphos.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.graphos.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.graphos.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent-os.fullname" . }}-graphos
+  labels:
+    {{- include "agent-os.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: graphos
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+{{- if eq .Values.topology "unified-in-process" }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "agent-os.fullname" . }}-graphos
+  labels:
+    {{- include "agent-os.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.graphos.persistence.accessModes | nindent 4 }}
+  {{- with .Values.graphos.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.graphos.persistence.size }}
+{{- end }}

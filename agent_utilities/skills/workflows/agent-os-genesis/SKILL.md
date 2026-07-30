@@ -1,1470 +1,287 @@
 ---
 name: agent-os-genesis
-skill_type: workflow
-aliases:
-  - day0
-  - day0_bootstrap_orchestrator
-  - agent-utilities-genesis
 description: >-
-  Day-0, idempotent Agent OS provisioning for laptops through existing enterprise
-  environments. Resolves a per-component deploy/use-existing/skip plan; selects
-  Compose, Swarm, Podman, or Kubernetes; and wires the engine topology, IdP
-  (Keycloak or OIDC), OpenBao/Vault, root CA, ontology host, SSH mesh, placement,
-  ingress, GitOps, and KG materialization. Invoke as "day0" for homelab bootstrap,
-  enterprise deployment, existing-service connection, or graph-os hyperscaling.
-domain: infrastructure
-tags:
-  - day0
-  - genesis
-  - bootstrap
-  - infrastructure
-  - orchestration
-  - swarm
-  - kubernetes
-  - rke2
-  - podman
-  - compose
-  - okta
-  - keycloak
-  - vault
-  - certificates
-  - ontology
-  - enterprise
-  - dns
-  - gitops
-  - backups
-  - unified-binary
-  - hyperscaling
-  - raft
-requires:
-  - systems-manager-mcp
-  - container-manager-mcp
-  - portainer-mcp
-  - technitium-dns-mcp
-  - tunnel-manager-mcp
-  - gitlab-mcp
-  - keycloak-mcp
-  - caddy-mcp
-  - openbao-mcp
-  - graph-os
-  - keycloak-agent
-  - portainer-agent
+  Day-0, idempotent Agent OS substrate provisioning for a laptop, bare-metal
+  host, Docker Compose, Docker Swarm, Podman, an existing Kubernetes namespace,
+  an existing cluster, or a newly provisioned multi-node cluster. Use for
+  environment discovery, topology selection, cluster or container substrate,
+  identity/secrets/PKI boundaries, Helm/GitOps foundations, workspace bootstrap,
+  and handoff to agent-utilities-deployment for the application layer.
 ---
 
-# Agent OS Genesis — Day 0 Bootstrap & Multi-Service Wiring Orchestrator
+# Agent OS Genesis
 
-> Renamed from `day0_bootstrap_orchestrator`; the **`day0`** alias still applies.
+Create the smallest production-suitable substrate for the requested
+`agent-packages` deployment, prove it is ready, and then invoke
+`agent-utilities-deployment` to install and verify the application layer.
 
-Agent-first, idempotent unfolding of the homelab from bare hosts to a fully wired
-Docker Swarm. This is the repeatable "day-0 (re)install" entrypoint for the Agent OS
-in `agent-utilities`: it consumes the Ansible inventory (`~/.config/agent-utilities/inventory.yaml`)
-and the `workspace.yml` service manifest, drives the convergence via MCP tools (preferring
-the MCP path, with a full-mesh RSA key fallback), and records the resulting topology in the
-Knowledge Graph.
+This skill is environment-neutral. Never copy host names, addresses, storage paths,
+registries, credentials, cluster names, or DNS suffixes from examples. Discover them
+or require operator-owned references at run time.
 
-## Verified topology (source of truth)
+## Responsibility boundary
 
-| Host | IP | Swarm role | Notes |
-|------|-----|-----------|-------|
-| R820 | 10.0.0.13 | **Manager** | Caddy ingress (host-mode 80/443), most MCP servers |
-| R710 | 10.0.0.11 | Worker | GitLab CE + registry, high-RAM JVM workloads |
-| R510 | 10.0.0.10 | Worker | storage/NAS, arr-stack, Immich DB |
-| RW710 | 10.0.0.12 | Worker | misc MCPs |
-| GR1080 | 10.0.0.16 | Worker | GPU (CUDA) workloads |
-| GB10 | 10.0.0.18 | Worker | Grace-Blackwell; vLLM |
+`agent-os-genesis` owns Day-0 infrastructure:
 
-> Placement is **hardware-determined** (Step 4), never hardcoded. The table is the
-> expected steady state; the planner may relocate services based on live capacity.
+- inventory and constraint discovery;
+- deploy/use-existing/skip decisions per infrastructure capability;
+- orchestrator selection and provisioning;
+- namespaces, service accounts, RBAC, CNI/network boundaries, storage classes,
+  ingress, certificates, secret-store integration, and GitOps substrate;
+- multi-node placement, capacity, backup, restore, and failure-domain planning;
+- a sanitized `genesis-plan.yaml` and deployment handoff.
 
-## Networking contract (matches `networks/compose.yml`)
+`agent-utilities-deployment` owns the application:
 
-| Network | Subnet | Flags | Purpose |
-|---------|--------|-------|---------|
-| `internet` | 172.16.0.0/20 | overlay, attachable | outbound egress |
-| `caddy` | 172.16.16.0/20 | overlay, attachable, **internal** | service mesh behind ingress |
-| `vpn` | 172.16.32.0/20 | overlay, attachable, mtu 1380 | VPN-routed services |
-| `cloudflare` | 172.16.48.0/20 | overlay, attachable, **internal** | cloudflare connector |
-| `ingress` (custom) | 172.20.0.0/16 | overlay, `--ingress` | replaces Swarm's default ingress |
-| `adguard_vlan` | 10.0.0.0/8 | macvlan (`eno4`) | Technitium static IP 10.0.0.199 |
+- agent-utilities profile and engine topology;
+- `config.json`, runtime environment, secret references, and connector selection;
+- graph-os, epistemic-graph, MCP fleet, skills, prompts, ontologies, UIs, messaging
+  entrypoints, migrations, application health checks, and release verification.
 
-## DNS policy
+**Mandatory delegation rule:** after Day-0 preflight succeeds, invoke
+`agent-utilities-deployment` with the resolved handoff. If a suitable substrate
+already exists and no Day-0 change is required, skip directly to that skill. Do not
+duplicate its deployment wizard or application configuration here.
 
-All `*.arpa` resolve to the **Caddy ingress at `10.0.0.13`** (wildcard `*.arpa` + explicit
-`portainer`), which routes by Host header via its static Caddyfile. Intentional exceptions
-that point directly at a host/macvlan IP are preserved: `adguard.arpa`/Technitium → 10.0.0.199,
-`home-assistant` → its macvlan IP, and per-node `dozzle*`/`container-manager-*` agent records.
-(Post-RKE2-migration the external `.arpa` target is the ingress VIP `10.0.0.240`, not `.13`.)
+Read [deployment-contract.md](references/deployment-contract.md) before changing
+infrastructure.
 
-- **Internal-loopback DNS (in-cluster `.arpa` → in-cluster Service).** The rule above is for
-  *external* clients. **In-cluster** clients must resolve `<name>.arpa` to the **Service
-  ClusterIP**, never the edge VIP — so pod-to-pod agent traffic (graph-os → the ~66
-  `*-mcp.arpa` children + `graph-os.arpa`) stays internal, off the ingress, with no extra
-  TLS/auth hop or edge-502 exposure. Add per-host CoreDNS `rewrite name exact` rules (one per
-  `*-mcp` Service → `apps`, generated from `kubectl -n apps get svc`; infra names likewise) —
-  **exact, not regex** (regex `gaierror`s from a real `getaddrinfo` pod under `ndots:5`; verify
-  from a workload pod, not `nslookup`). The full principle, host→Service→ns table, eligibility
-  rule (only rewrite when the in-cluster Service port matches the port the client dials —
-  `keycloak.arpa`/`openbao.arpa` need a client scheme/port reconcile first), and the SPOF-safe
-  ConfigMap-`reload`-not-restart apply/rollback are in
-  [`references/internal-loopback-dns.md`](references/internal-loopback-dns.md). Generalizes the
-  `OIDC_TOKEN_URL` in-cluster-pin from [`references/graph-os-fleet-gateway-auth.md`](references/graph-os-fleet-gateway-auth.md).
+## Safety invariants
 
-> **Troubleshooting:** see [`references/TROUBLESHOOTING.md`](references/TROUBLESHOOTING.md) — a
-> symptom→diagnosis→fix runbook for swarm quorum loss, manager re-IP / advertise-addr,
-> worker rejoin, DNS `.arpa` repointing, and the **caddy overlay VIP-corruption pitfall**
-> (do NOT change a live overlay's subnet in place).
+1. Default every capability to `use-existing` when a compatible managed service is
+   reachable; otherwise `deploy`; use `skip` only when its dependants are also
+   disabled.
+2. Read and inventory before mutation. Render and validate before apply.
+3. Never persist plaintext secrets in Git, Helm values, Compose files, generated
+   plans, logs, the Knowledge Graph, or agent context. Store only secret references.
+4. Pin production images by digest and verify signatures/SBOMs where the registry
+   supports them. Floating tags are development-only.
+5. Never grant `cluster-admin` to an application or agent. Existing-namespace mode
+   must remain namespaced.
+6. Preserve rollback until health, data, identity, ingress, and delegated tool calls
+   pass from the user-facing route.
+7. A plan is not a deployment. Report `planned`, `rendered`, `applied`, and
+   `verified` independently.
+8. Make every action idempotent and record an idempotency key plus before/after
+   evidence. Destructive replacement, data migration, DNS cutover, or trust-root
+   rotation requires explicit operator approval.
 
-## Failure-handling policy
+## Phase 0 — Resolve intent and scope
 
-- **Missing upstream images** — several `*-mcp` services have no image in `registry.arpa` /
-  Docker Hub yet. Pre-scan each stack's `image:` for availability; **skip gracefully and add to
-  a deferred report** (service → missing image). Never abort a tier for a missing image.
-- **First-time / untested stacks** (`apache-jena`/Fuseki, `camunda`, `archimate`/Archi, `kafka`)
-  are deployed as **canaries**: deploy in isolation, gate on a health check (env/volumes/ports/
-  depends_on sanity + container healthy), and surface logs on failure rather than continuing blindly.
+Collect or infer:
 
----
+- mode: `development`, `evaluation`, `small-production`, or
+  `production-at-scale`;
+- target: `bare-metal`, `compose`, `swarm`, `podman`, or `kubernetes`;
+- substrate authority:
+  - Kubernetes: `namespace-only`, `existing-cluster`, `provision-cluster`, or
+    `provision-multi-node`;
+  - containers: local engine, existing engine, or new Swarm;
+  - bare metal: existing OS/service manager or newly prepared host;
+- selected components: `core`, named packages, manifest label/filter, or `all`;
+- engine topology: `unified-in-process` or `out-of-process-shared`;
+- identity, secrets, PKI, DNS/ingress, storage, observability, backup, and GitOps
+  providers, each as `deploy`, `use-existing`, or `skip`;
+- tenancy, availability, recovery objectives, resource ceilings, egress policy,
+  change window, and approval boundaries.
 
-## Deployment profiles (agent-utilities day-0)
+Do not assume that “enterprise” means self-host every dependency. A namespace in a
+managed cluster using existing OIDC, Vault-compatible secrets, ingress, storage, and
+observability is a first-class production target.
 
-This orchestrator is **profile-driven**. Step 0 selects a profile, which gates
-the remaining steps so the same workflow scales from a laptop to a full swarm.
-**Every profile also picks an `engine_topology`** — the two-shapes edict (au
-`AGENTS.md` "Engine transport", eg `AGENTS.md` two-shapes,
-`reports/unified-binary-program.md`): `unified-in-process` (the **SELF-CONTAINED
-DEFAULT** — one binary/pod IS engine + KG + numeric kernel + messaging + gateway,
-no separate engine service to deploy or drift) or `out-of-process-shared` (the
-**HYPERSCALING** shape — a separately-scaled engine reached by N graph-os client
-pods). Full depth:
-[`references/engine-topology-and-hyperscaling.md`](references/engine-topology-and-hyperscaling.md).
+## Phase 1 — Discover and preflight
 
-| Profile | Scope | Engine topology (DEFAULT) | Steps run |
-|---|---|---|---|
-| **tiny** | One host, **zero external infra** — the engine is the only moving part. | **`unified-in-process`, `autostart`** — the engine embeds in-process (PyO3) in the SAME binary as graph-os; a durable, redb-authoritative store, no separate process to launch or drift. | Step 0 → Step A1 only (collapses to `agent-utilities/scripts/bootstrap.sh`). |
-| **single-node-prod** | One host, durable: **one self-contained graph-os container** (engine + gateway + messaging in-process) + the `single-node-prod` connector slice + Caddy; optional pggraph mirror / OpenBao / Langfuse. No swarm — plain `docker compose`. | **`unified-in-process`, `container`** — the SAME one-image consolidation as tiny, containerized; still no sidecar engine service. | Step 0, a Caddy/Portainer subset of Step 7, Step 8 (OpenBao optional), Steps A1–A4. |
-| **enterprise** | Full multi-node **Kubernetes (RKE2)** + all integrations + the entire `*-mcp` fleet — the reference homelab's live topology (its Swarm→RKE2 cutover is `inventory/k8s-migration/`; Docker Swarm remains available as an `orchestrator` choice for operators who haven't migrated). | **`out-of-process-shared`, `remote`** — the engine runs as its own scaled service (the eg `cluster`/raft build: multi-Raft HA + sharding) reached via `GRAPH_SERVICE_ENDPOINTS`; **N graph-os client pods** behind the gateway (k8s HPA); mirrors fan out. | All steps (1–16 + A1–A6). |
+Inspect without changing state:
 
-> **The engine is the ONE store at every scale** (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision / AU-KG.backend.backend-modes). The
-> Rust `epistemic-graph` engine is a full multi-model master-of-all — graph +
-> vector/ANN + SQL + RDF/SPARQL + OWL-2 reasoning + time-series + blob + text +
-> multi-Raft + cross-shard 2PC + streaming/CDC + RLS/encryption-at-rest/audit +
-> federation + GraphQL — **durable, redb-authoritative by default** (an acked
-> write survives a crash; it is **not** a rebuildable cache), and it now ships
-> **full-by-default** (`pip install epistemic-graph` alone installs the complete
-> engine — numeric kernel, OWL/SPARQL, LMCache — no separate artifact to pick).
-> The **`EngineResolver`** (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) auto-provisions it on a single
-> precedence — **remote → share-running-local → autostart the bundled full
-> binary** — refcounted (self-stops when idle) or `persistent`. Prebuilt
-> **multi-arch wheels** (linux x86_64/aarch64, macOS, windows) mean a Pi
-> `pip install`s and **never compiles**.
->
-> Orthogonal to that shape-of-provisioning axis is the **process-boundary
-> topology** this program adds: `unified-in-process` embeds the engine via PyO3
-> **inside** graph-os's own process (no socket, no separate service — see Step
-> 0a′); `out-of-process-shared` keeps today's GIL-free UDS/TCP client so one
-> engine (built with the eg `cluster` cargo feature for multi-Raft sharding) can
-> back many independently-scaled graph-os pods. **Status:** the PyO3 binding
-> (`reports/unified-binary-program.md` W-A) is landing; until it ships,
-> `unified-in-process` is realized via the existing autostart/bundled engine —
-> externally the same "nothing separate to operate" contract genesis has always
-> promised for `tiny`/`single-node-prod`.
+- CPU architecture, cores, RAM, accelerators, disk capacity/IOPS, filesystem,
+  network interfaces, MTU, time synchronization, kernel/cgroup support, and open
+  ports;
+- container runtime and orchestrator versions;
+- cluster version, API capabilities, namespace quotas, LimitRanges, Pod Security,
+  RBAC, CNI, CSI, ingress/Gateway API, cert-manager, External Secrets, metrics,
+  topology labels, and autoscaling APIs;
+- existing OIDC discovery document, secret-store auth method, trust bundle, DNS
+  authority, registry access, observability endpoints, and backup target;
+- required architectures and image availability for each selected component;
+- overlap among host, service, pod, and VPN CIDRs;
+- current `workspace.yml`, selected packages, dependency order, and deployment
+  artifacts.
 
-Each integration is an independent toggle gathered in Step 0 —
-`pggraph`, `kafka`, `openbao`, `keycloak`, `langfuse` — and any step that depends
-on a disabled integration is skipped and reported.
+Classify every prerequisite as `ready`, `degraded`, `missing`, or `incompatible`,
+with evidence and a remediation. Never mutate merely to perform discovery.
 
-## Single-package deploy mode (skill-guided, per connector)
+## Phase 2 — Produce the deployment contract
 
-This skill also deploys **one** `agents/*` package on its own — the entry point every
-connector's `README.md` references so an operator who lands on (say) `gitlab-api`,
-`servicenow-api`, or `mattermost-mcp` can stand **just that MCP/agent server** up,
-skill-guided, without the whole fleet. It is a **subset of the same machinery**: the
-full genesis already does the heavy lifting (run plan, install modes, secrets, certs,
-messaging), so a single-package deploy is genesis with a one-item run plan.
+Write a sanitized, operator-owned `genesis-plan.yaml` conforming to
+[deployment-contract.md](references/deployment-contract.md). It must include:
 
-**Invoke:** "deploy `<package>` with agent-os-genesis" (or `--package <name>`). The flow:
+- target and authority level;
+- selected component names and source revision;
+- per-capability `deploy|use-existing|skip` action;
+- resource requests, limits, placement, failure domains, and concurrency ceilings;
+- network, ingress, storage, identity, secrets, PKI, observability, and backup
+  provider references;
+- immutable image references;
+- ordered phases, health gates, rollback, and idempotency keys;
+- the exact handoff for `agent-utilities-deployment`;
+- redacted evidence locations.
 
-1. **Resolve the package** from `references/connector-catalog.md` (package, console
-   script `<name>-mcp` / `<name>-agent`, image, required secret env keys, profiles).
-2. **Pick the install method** (the per-item run-plan action + variant from Step 0):
-   - **bare-metal, prod** — `uvx <name>-mcp` (ephemeral) or `uv tool install <package>`.
-   - **bare-metal, dev** — `uv pip install -e ".[all]"` / `pip install -e` against the
-     cloned package (editable working tree, for development/testing).
-   - **container, prod** — pull `knucklessg1/<name>:latest`, deploy via the chosen
-     orchestrator (compose / swarm / podman / podman-compose / k8s).
-   - **container, dev** — deploy the package's **`compose.dev.yml`** (source-mounted at
-     `/src`, pip-install-at-start, pinned to the source node — edits go live on restart).
-3. **Seed its secrets** — `graph_configure action=vault_sync config_key=<package>` with
-   the catalog's secret env keys: reads existing, prompts only for the missing, returns
-   `vault://apps/<package>/<KEY>` refs for the env/config.
-4. **Apply cert trust** (Step 1b) if a `ca_bundle` was given, and **register the MCP
-   server** (`graph_configure action=register_mcp`) so the multiplexer/IDE can reach it.
-   Its `mcp_config`/compose `env` follows the env-var canon (CONCEPT:AU-OS.config.env-var-drift-guard) — only the
-   vars the code reads, plus `"MCP_TOOL_MODE": "condensed"`; the package ships the
-   `env-var-drift` pre-commit guard (`python -m agent_utilities.mcp.check_env_var_drift
-   --check`).
-5. **(Optional) messaging** — wire the agent→user channels (Step A4c) if the operator
-   wants this single agent to reach them.
-6. **Verify** — `agent-utilities doctor` + a live `tools/list`/`tools/call` against the
-   deployed endpoint.
+Resolve conflicts before execution. Examples: a skipped secret store cannot satisfy
+an ExternalSecret; a namespace-only service account cannot install cluster-scoped
+CRDs; a `ReadWriteOnce` engine volume cannot be mounted by multiple writers.
 
-The orchestrator, IdP, secrets-store, CA, and dev/prod variant choices are exactly the
-Step 0 axes — only the run plan is narrowed to the one package. This is what the
-per-package README block (see `references/package-deploy-readme.md`) points operators to.
+## Phase 3 — Select the minimum substrate
 
-## Kubernetes migration, owned edge & pre-change validation (program docs)
+| Situation | Target | Reference |
+|---|---|---|
+| Developer changing many repositories | bare metal or Compose/Podman | [development-workspace.md](references/development-workspace.md) |
+| One host, durable production | Compose, rootful Podman, or systemd | [container-orchestrators.md](references/container-orchestrators.md), [bare-metal.md](references/bare-metal.md) |
+| Several existing container hosts | Swarm when Kubernetes is not desired | [container-orchestrators.md](references/container-orchestrators.md) |
+| Existing namespace with no cluster administration | Kubernetes `namespace-only` | [kubernetes-and-helm.md](references/kubernetes-and-helm.md) |
+| Existing cluster with platform administration | Kubernetes `existing-cluster` | [kubernetes-and-helm.md](references/kubernetes-and-helm.md) |
+| New single-node or edge cluster | Kubernetes `provision-cluster` | [kubernetes-and-helm.md](references/kubernetes-and-helm.md) |
+| Multi-node HA, multiple failure domains | Kubernetes `provision-multi-node` | [kubernetes-and-helm.md](references/kubernetes-and-helm.md) |
 
-When `orchestrator: kubernetes`, genesis is the day-0 driver for a full **Docker
-Swarm → RKE2 + Cilium** migration of the `services/*` fleet plus the owned public
-**edge** (VPS, replacing Cloudflare Tunnel). The authoritative, version-controlled
-plan lives **outside** this skill (single source of truth — do not duplicate here):
+Do not provision Kubernetes merely because it is available. Choose it when its
+scheduling, policy, availability, GitOps, or tenancy benefits justify the operational
+cost.
 
-| Concern | Source of truth |
-|---|---|
-| Master staged plan (P0 intake → P1 artifacts → P2 preflight → Stages 0–7 cutover) | `inventory/k8s-migration/MIGRATION-PLAN.md` |
-| Prerequisites (NIC bonds; **RKE2 CIDRs must not overlap `10.0.0.0/8`**; registry CA trust; …) | `inventory/k8s-migration/PHASE0.md` |
-| Decisions & secrets/access intake (CIDRs `100.64/16`/`100.65/16`, VIP `10.0.0.240`, node order, GB10) | `inventory/k8s-migration/INTAKE.md` |
-| Per-stack classification (133 orchestratable, 8 standalone) + the `k8s/` scaffolder | `inventory/k8s-migration/{ROADMAP.md,scaffold_k8s.py}` |
-| **Pre-change validation** (baseline every service + MCP; **arr-stack VPN-leak P0 gate**) | `inventory/k8s-migration/validation/` |
-| Owned public edge wired to the cluster (VPS Caddy → wg → ingress VIP) | `edge-ingress/K8S-INTEGRATION-PLAN.md` |
-| **Migrate-mode cutover runbook** (provider-neutral hardening — the 401/DNS/data-in-place traps + the coupled-unit sequence) | [`references/orchestrator-migration-cutover.md`](references/orchestrator-migration-cutover.md) (rationale: `docs/architecture/orchestrator-migration-cutover.md`) |
+## Phase 4 — Provision or attach
 
-**Migrate-mode hardening (learn these before the first stack moves — every one was a live outage):**
-1. **Gateway outbound token → pin to the in-cluster IdP.** The gateway mints a
-   client-credentials service token for every JWT-protected child; a failed mint
-   degrades to **no header → every child 401s**. On k8s, set `OIDC_TOKEN_URL` to the
-   in-cluster IdP Service (auto-discovery routes through the edge, which can 502
-   mid-migration). See `references/graph-os-fleet-gateway-auth.md`.
-2. **The cluster-driving MCP gets its own ServiceAccount + a scoped ClusterRole**
-   (workload/config/network/storage/CRD verbs, **no RBAC-write**) — the namespace
-   default SA 403s every call; `cluster-admin` over-grants.
-3. **App+DB secrets via ExternalSecrets from the secret store** — seed `<store>/<app>`
-   with an operator-run script (writes are gated), never hand-create Secrets; prefer an
-   explicit env allow-list over `envFrom`.
-4. **Preserve the canonical hostnames** — cluster Ingress with the SAME hostname + the
-   DNS authority → ingress VIP, automated with an ingress-watching DNS controller
-   (**e.g.** external-dns). **Flip DNS selectively (migrated hostnames only) — a global
-   wildcard flip breaks unmigrated services.** A post-cutover 401 is usually the
-   hostname still resolving to the OLD backend, not a bad token.
-5. **Edge cutover:** prefer flipping DNS over editing the edge; if you must edit, reach
-   the actual serving instance's mounted config, `validate`, curl THROUGH the edge, and
-   keep the old backend as rollback until verified.
-6. **Data-in-place:** `enableServiceLinks:false` for `<NAME>_*`-as-config apps;
-   node-pin hostPath to the data node; **Postgres via `pg_dump`/restore, not
-   file-copy**; hold the app at 0 replicas until the DB is restored; verify counts.
-7. **Coupled-unit sequence** per stack: deploy DB → hold app at 0 → restore + verify →
-   copy media → app to 1 → verify health → **flip DNS (not the edge)** → stop old
-   backend → re-verify with the old backend down.
+### Kubernetes
 
-How it binds to the steps below:
-- **Step 0** `orchestrator: kubernetes` → **Step 5** `kubernetes-mesh-provisioner`
-  (RKE2 server on R820, Cilium kube-proxy-free, L2 VIP `10.0.0.240`, GPU device-plugin);
-  **Step 11** renders the scaffolded `services/<stack>/k8s/` manifests instead of compose.
-- **Gate every cutover on validation:** before Step 5 and as the exit check of each
-  cutover stage, run `inventory/k8s-migration/validation/VALIDATION.md` — the
-  **arr-stack `arr_vpn_leak_check.sh` is a hard P0 gate** (egress must be VPN-only and
-  the kill-switch fail-closed; the home WAN IP must never leak), run as baseline now
-  and again after the gluetun shared-netns Pod cutover.
-- **Edge:** Step 14 registers the `edge-ingress` OIDC client (below); a post-ingress
-  **`edge-ingress-provision`** hook (VPS `bootstrap.sh` + R820 host `wg-quick` + DNAT to
-  the VIP + public Ingress objects) realizes the edge — see `edge-ingress/K8S-INTEGRATION-PLAN.md` §5.
-- **Standalone stacks** (vllm, arr-stack, home-assistant) keep a compose and get the
-  native k8s pattern from their `k8s/STANDALONE.md` — not generated Deployments.
+Follow [kubernetes-and-helm.md](references/kubernetes-and-helm.md). The shipped
+`assets/helm/agent-os` chart is the native application substrate recipe and supports:
 
-## Steps
+- use of the release namespace without creating or owning it;
+- namespaced service accounts/RBAC;
+- unified or shared engine topology;
+- persistent storage, probes, resources, PDB, HPA, ingress, and NetworkPolicy;
+- selected MCP connectors and additional components from values;
+- existing Secret references only.
 
-### Step 0: deployment-profile + adaptive run plan
-Resolve **what to deploy vs. reuse vs. skip** — interactive for *preferences*,
-automated for *provisioning*. The operator answers a small set of plain questions;
-genesis derives the detailed plan. Read defaults from
-`~/.config/agent-utilities/inventory.yaml` (`deployment_profile`) when present. The
-repo's **`genesis.yaml`** (root of agent-utilities) is the machine-readable manifest —
-profiles, host preflight, the platform deps + MCP `servers` fleet (it references
-`deploy/mcp-fleet.registry.yml`), UI `components`, and `ide_targets`; each carries
-`install_modes` and a per-profile `default_action`. **Loop it rather than hard-coding.**
+Cluster bootstrap is provider-pluggable. The plan may select a managed service,
+Cluster API, kubeadm, RKE2, k3s, Talos, or an operator-approved equivalent, but it
+must record the provider/version and prove the same postconditions. Do not hardcode
+one distribution.
 
-**0a. Profile** — `tiny` · `single-node-prod` · `enterprise` (the coarse default that
-pre-fills everything below). Then run the host preflight before touching anything:
-`agent-utilities-doctor --preflight --profile <p>` (or MCP `graph_configure
-action=preflight config_key=<p>`) — **no Rust needed**: the engine ships as a
-**prebuilt multi-arch wheel** (a Pi never compiles); Docker/Podman/k8s only above tiny.
+### Compose, Swarm, and Podman
 
-**0a′. Engine deployment shape + topology** (seeded by the profile, see `genesis.yaml`
-`engine` + `engine_topology` per-profile fields, and `run_plan.engine_topology`). The
-ONE engine is provisioned by the `EngineResolver` (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) — pick its
-**shape**: `autostart` (the resolver spins up the local binary from the wheel — tiny)
-· `container` (the engine-as-a-DB image, consolidated into the one graph-os
-container — single-node-prod) · `remote` (a shared, independently-scaled engine via
-`GRAPH_SERVICE_ENDPOINTS` — enterprise). The engine ships **full-by-default** (no
-feature-bundle to pick — `pip install epistemic-graph` alone installs the complete
-server: numeric kernel, OWL/SPARQL, LMCache), so the encrypted secret store (0e) is
-available in every shape.
+Follow [container-orchestrators.md](references/container-orchestrators.md). Generate
+one environment-neutral model and render it to the chosen runtime. Keep data,
+configuration, and secret references separate; preserve healthchecks, restart
+policy, resource bounds, and placement intent.
 
-And pick its **topology** — the NEW axis this program adds, the two-shapes edict
-(au `AGENTS.md` "Engine transport", eg `AGENTS.md` two-shapes,
-`reports/unified-binary-program.md`; full depth:
-[`references/engine-topology-and-hyperscaling.md`](references/engine-topology-and-hyperscaling.md)):
-- **`unified-in-process`** (DEFAULT for `tiny`/`single-node-prod`) — the Rust engine
-  is embedded **in-process via PyO3** in the SAME binary/process as graph-os: one
-  binary, one lifecycle, no socket round-trip, no separate engine service to deploy
-  or drift. This is the **self-contained** shape.
-- **`out-of-process-shared`** (DEFAULT + effectively REQUIRED for `enterprise`) —
-  graph-os talks to a shared, independently-scaled engine over UDS/TCP
-  (GIL-free), built with the eg `cluster` cargo feature (raft, multi-Raft sharding)
-  for HA + write-scaling; **N graph-os client pods** run behind the gateway,
-  horizontally scaled via **k8s HPA**, independently of the engine. This is the
-  **hyperscaling** shape.
+### Bare metal
 
-Both topologies keep engine calls **batched** (one call = one batch op over
-graph-resident data, never a per-element Python loop) — Python never bottlenecks the
-hot path in either shape. Engine `lifecycle` is `refcounted` (auto-stops when idle —
-tiny default) or `persistent` (long-living).
+Follow [bare-metal.md](references/bare-metal.md). Install into a dedicated service
+account and Python environment, emit hardened systemd units, use the platform secret
+store, and keep persistent state outside the checkout.
 
-**0b. Per-capability deploy/reuse/skip matrix** — for each **platform dependency**
-(Postgres/pg-age, ontology store, secrets vault, IdP, ingress proxy, DNS,
-observability, event bus) and each **connector** (the `agents/*` fleet, see
-`references/connector-catalog.md`), pick exactly one **action**:
-`deploy-container` · `deploy-baremetal` (pypi/uvx) · `use-existing` (operator supplies
-endpoint/creds) · `skip`. Defaults come from the profile's `default_action`, so the
-operator only overrides the exceptions. This is what makes genesis fit *any*
-environment: an enterprise that already runs Postgres + an ingress proxy marks those
-`use-existing` (→ genesis skips pg-age and Caddy, just wires the endpoints); a homelab
-leaves them `deploy-container`. The resolved **run plan** (`deploy_set` / `reuse_set`
-/ `skip_set`) gates every later step — a `skip`/`use-existing` capability's deploy
-sub-step is bypassed and only its wiring runs.
+## Phase 5 — Establish cross-cutting services
 
-**0c. Orchestrator** (for `deploy-container` items) — first-class choice of
-`docker-compose` · `docker-swarm` · `podman` · `podman-compose` · `kubernetes`
-(**default kubernetes for enterprise**, **compose for single-node** — that recipe
-is explicitly no-swarm — compose/podman for tiny). `docker-swarm` remains a valid
-choice for operators mid-migration or standardized on Swarm; the reference homelab
-itself has largely completed its Swarm→RKE2 cutover (`inventory/k8s-migration/`).
-Drives Steps 5/6/11 to the matching provisioner
-(`swarm-mesh-provisioner` | `kubernetes-mesh-provisioner` | `podman-mesh-provisioner`
-| `docker-compose-operator`). Podman supports **rootful or rootless** (asked when
-podman is chosen). Mutually exclusive per node.
+Follow [security-and-operations.md](references/security-and-operations.md):
 
-**0d. Identity provider** — `keycloak (deploy-if-absent)` · `okta (existing org)` ·
-`other-oidc (existing)`. Okta/other-OIDC are SaaS/already-run, so genesis only wires
-to them (sets `AUTH_JWT_JWKS_URI` to their JWKS, provisions the fleet OIDC client);
-keycloak is deployed only when no IdP exists. See Step 8/14.
+1. workload identity and least-privilege authorization;
+2. secret reference resolution and rotation;
+3. root/intermediate trust and service certificates;
+4. ingress/Gateway API and internal service discovery;
+5. persistent storage, snapshots, backup, and restore drill;
+6. logs, metrics, traces, alert routing, and cost/resource attribution;
+7. egress allow-list and tenant/network isolation;
+8. GitOps ownership and drift detection.
 
-**0e. Secrets store** — three tiers in precedence: **`vault`** (OpenBao/HashiCorp
-Vault, same API — the enterprise fleet source of truth) · **`engine`** (the engine's
-**encrypted `__secrets__` graph**, CONCEPT:AU-OS.identity.encrypted-secret-store — the default embedded app-secret
-store: `:Secret` nodes whose values are sealed by the engine's **encryption-at-rest**,
-no local SQLite/disk fallback) · **`env`** (`.env` fallback). If a Vault is reachable
-genesis prefers it and **reads existing secrets** before prompting (Step 8,
-`vault_sync`); otherwise the engine-encrypted store is used. Either way, the engine's
-encryption key (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`) is itself a **genesis-provisioned
-secret** seeded in Step 8 (the full-by-default engine carries the encryption-at-rest
-feature in every shape/topology — 0a′, so no capability check is needed here).
+Connect to existing providers through declared endpoints and references. Provision a
+new provider only when the plan selected `deploy`.
 
-**0f. Enterprise root-CA bundle** (optional) — a PEM path/content for a corporate /
-self-signed CA. If supplied, the cert-trust step (Step 1b) bakes it in everywhere so
-no self-signed errors occur.
+## Phase 6 — Bootstrap a development workspace
 
-**0g. Ontology host** — where the OWL ontology is hosted: `stardog` · `apache-jena`
-(Fuseki) · `local` (in-process SPARQL, the engine's own RDF/SPARQL/OWL support).
-Default **local for every profile, including enterprise** — the engine is the
-ontology authority/SoR at every scale (see `docs/recipes/enterprise.md`); `stardog`
-is a mirror an operator can still opt into (see the Stardog boundary/graph-naming
-program: ontology now flows *from* Stardog *into* the engine, not the reverse).
-Drives the ontology-host step (Step A4b).
+When `mode: development`, follow
+[development-workspace.md](references/development-workspace.md):
 
-**0h. Messaging channels** — which channel(s) the agent uses to reach the end user
-(agent-utilities has a native multi-channel messaging subsystem, CONCEPT:AU-ECO.messaging.native-backend-abstraction):
-`slack` · `teams` · `telegram` · `mattermost` · `discord` · `whatsapp` · `matrix` ·
-`signal` · … (17 backends). Pick **one or more**; each picked channel's token is seeded
-to the secrets store and added to `MESSAGING_ENABLED_BACKENDS` so all configured
-channels connect. Also pick a **reach mode**: `last-active` (default — the agent
-replies on the user's most-recent channel, others stay available) or **`broadcast`**
-(opt-in — a message fans out to *all* configured channels at once). Drives the
-messaging-setup step (Step A4c).
+1. clone the supplied repository URL;
+2. locate the canonical root `workspace.yml`;
+3. install `repository-manager`;
+4. run its manifest-driven parallel clone/setup against an explicit workspace root;
+5. validate and mirror the manifest into the Graph-OS XDG runtime location and the
+   packaged repository-manager seed;
+6. install selected repositories in editable mode in dependency order;
+7. start only the selected services and enable source mounts only in the dev profile;
+8. delta-ingest the checked-out sources after Graph-OS is healthy.
 
-> **Install-mode variants (prod vs. dev) — applies to every `deploy-*` item in 0b.**
-> `deploy-container` → **prod** (pre-built registry image) or **dev** (`compose.dev.yml`,
-> source-mounted at `/src`, pip-install-at-start, edits live on container restart).
-> `deploy-baremetal` → **prod** (`uvx` / `uv tool install <pkg>` from PyPI) or **dev**
-> (`uv pip install -e` / `pip install -e ".[all]"`, editable working tree). Production
-> defaults to prod variants; pass `--dev` (or set the item's `install_variant: dev`) to
-> select the editable path for development/testing.
+Never guess repository URLs from package names. The manifest is authoritative.
 
-- Outputs: `deployment_profile`; `run_plan` {deploy_set, reuse_set, skip_set} with a
-  per-item `install_mode` + `install_variant` ∈ {prod, dev}; `engine` {shape ∈ {autostart,
-  container, remote}, topology ∈ {unified-in-process, out-of-process-shared}, lifecycle ∈
-  {refcounted, persistent}}; `orchestrator` ∈ {docker-compose, docker-swarm, podman, podman-compose,
-  kubernetes} (+ `podman_rootless` bool); `idp` ∈ {keycloak, okta, other-oidc} (+ existing
-  JWKS/issuer when not keycloak); `secrets_store` ∈ {vault, engine, env}; `ca_bundle`
-  (optional path); `ontology_host` ∈ {stardog, apache-jena, local}; `messaging` {channels:
-  [...], reach_mode ∈ {last-active, broadcast}}; integration toggles {pggraph, kafka,
-  openbao, keycloak, langfuse} (derived from the run plan).
-- Expected: `run-plan-resolved` — gates every subsequent step (each step honors the
-  deploy/reuse/skip action + install variant for the capabilities it touches).
+## Phase 7 — Mandatory application handoff
 
-```mermaid
-flowchart TD
-    P["0a Profile: tiny / single-node / enterprise"] --> Q["0b Per-capability + per-connector: deploy-container / deploy-baremetal / use-existing / skip"]
-    Q --> RP[("run_plan: deploy_set / reuse_set / skip_set")]
-    P -. seeds defaults .-> Q
-    RP --> EG["0a′ Engine shape+topology: autostart/container/remote × unified-in-process (default) / out-of-process-shared (hyperscaling)"]
-    RP --> O["0c Orchestrator: compose / swarm / podman / podman-compose / k8s"]
-    RP --> ID["0d IdP: Keycloak deploy or existing Okta/OIDC"]
-    RP --> S["0e Secrets: OpenBao/Vault or engine __secrets__ read+seed or .env"]
-    EG --> EK["Step 8 EPISTEMIC_GRAPH_ENCRYPTION_KEY seed"]
-    RP --> CA["0f Root-CA bundle (optional)"]
-    RP --> ON["0g Ontology host: Stardog / Jena / local"]
-    O --> M{"Step 5 provisioner"}
-    M --> SW["swarm-mesh-provisioner"]
-    M --> K8["kubernetes-mesh-provisioner"]
-    M --> PD["podman-mesh-provisioner"]
-    M --> CO["docker-compose-operator"]
-    CA --> CT["Step 1b ca-trust-provisioner"]
-    S --> V["Step 8 vault_sync"]
-    ON --> OH["Step A4b ontology-host upload"]
-    RP --> CFG["Step A1b config.json walkthrough"]
+Invoke `agent-utilities-deployment` with:
+
+```yaml
+deployment_profile: <evaluation|development|small-production|production-at-scale>
+run_target: <bare-metal|compose|swarm|podman|kubernetes>
+substrate_resolved: true
+namespace: <namespace-or-null>
+engine_topology: <unified-in-process|out-of-process-shared>
+components: [<resolved component names>]
+providers:
+  identity_ref: <reference-or-null>
+  secrets_ref: <reference>
+  trust_bundle_ref: <reference-or-null>
+  ingress_class: <name-or-null>
+  storage_class: <name-or-null>
+  observability_ref: <reference-or-null>
+artifacts:
+  helm_values: <path-or-null>
+  compose_model: <path-or-null>
+  inventory: <path>
+constraints:
+  namespace_scoped: <true|false>
+  immutable_images: <true|false>
 ```
 
-### Step 1: ssh-bootstrap
-[depends_on: Step 0] (profiles: single-node-prod, enterprise — skipped for tiny)
-Verify connectivity across inventory hosts and establish passwordless **full-mesh** SSH keys
-(every host → every host) as an RSA fallback. Prefer MCP tool usage; the mesh is the safety net.
-- Target hosts: `R510`, `R710`, `RW710`, `R820`, `GR1080`, `GB10`
-- Requires: `tunnel-manager-mcp`, `systems-manager-mcp`
-- Expected: `mesh-reachable`
-
-### Step 1b: ca-trust-provisioner
-[depends_on: Step 1] (conditional: when Step 0 supplied a `ca_bundle` — **REQUIRED** whenever the IdP/registry serve HTTPS behind a private CA)
-Bake the enterprise / self-signed **root-CA bundle** into every host trust store and
-emit the CA env contract (`REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE` / `NODE_EXTRA_CA_CERTS`
-/ `GIT_SSL_CAINFO`) + the private-registry trust, via the **`ca-trust-provisioner`**
-skill — so subsequent steps (registry/GitLab/Vault/IdP pulls, connector HTTPS calls)
-never fail with self-signed-cert errors. The emitted env contract is handed to the
-deploy steps (7/11/A2/A3) so each service stack injects it. If no bundle was supplied,
-auto-detect the system bundle and skip host changes.
-> **⚠️ Host trust-store baking is what the OAuth2 mints actually require — not the env
-> contract.** graph-os authenticates to the engine AND mints fleet-child tokens via
-> client-credentials to `https://keycloak.arpa`; that TLS verify uses the **system trust
-> store** (`sudo cp <ca>.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`
-> → `/etc/ssl/certs/ca-certificates.crt`, which is what `certifi` resolves to). The CA **env
-> vars above do NOT reach** the resolved `oauth2-token` TLS profile — so a graph-os host
-> without the CA baked into its system store fails boot with `Graph process identity
-> acquisition failed` **even when `SSL_CERT_FILE`/`TLS_CA_BUNDLE` are set**. This step MUST
-> run (root) on every host that runs graph-os or a fleet minter. See
-> `references/graph-os-fleet-gateway-auth.md` → "Host CA trust" and `references/TROUBLESHOOTING.md` §14.
-- Requires: `tunnel-manager-mcp` (+ skill `ca-trust-provisioner`)
-- Expected: `ca-trusted, ca-env-contract` (skipped → `ca-default`)
-
-### Step 2: network-topology-sweep
-[depends_on: Step 1]
-Scan subnets, NICs, active links, and VLAN profiles on reachable hosts (confirm `eno4` exists for the Technitium macvlan).
-- Requires: `tunnel-manager-mcp`, `systems-manager-mcp`
-- Expected: `topology-mapped`
-
-### Step 3: hardware-profile-sweep
-[depends_on: Step 1]
-Discover CPU models/cores, free RAM, disk partitions, and GPU/accelerator devices per host.
-- Requires: `systems-manager-mcp`, `tunnel-manager-mcp`
-- Expected: `hardware-profiled`
-
-### Step 4: deployment-planner
-[depends_on: Step 2, Step 3]
-Run the **Deployment Planner** to compute hardware-driven placement: classify services into tiers
-(T0–T6), score candidate nodes by capacity/affinity/density, and emit a deterministic manifest.
-Bind GPU→GR1080, storage/NAS→R510, JVM/RAM-heavy (`kafka`, `camunda`, `apache-jena`, `archimate`)→
-highest-free-RAM node, manager/edge (Caddy)→R820. This manifest drives node labels and compose constraints.
-- Inputs: hardware profiles (Step 3), topology (Step 2), `workspace.yml` service list
-- Outputs: `golden-deployment.yaml` (node roles, service→node map, network plan)
-- Requires: `systems-manager-mcp`, `tunnel-manager-mcp`, `container-manager-mcp`
-- Expected: `placement-manifest`
-
-> **GPU-allocation best practice — dedicate embeddings vs generation, else capacity-guard the share.**
-> When the deployment has **multiple GPUs / inference hosts** (enterprise / multi-GPU),
-> **DEDICATE one GPU to embeddings and one to generation** — separate endpoints, each with
-> its **own** per-GPU concurrency budget. Embeddings are *throughput-not-latency* and batchable,
-> so a cheaper/older GPU suffices (a Pascal/CC<7.0 card can't run vLLM — serve embeddings with
-> **Infinity** in FP32 instead). Separation removes embed↔generation memory contention — the
-> failure mode where a shared embedder starves an LLM's KV cache and OOMs the box.
-> When you must **SHARE one host/GPU** for both (homelab / tiny / single-node — a Pi or one box),
-> apply the **capacity guard** instead: a per-endpoint ceiling (`max_concurrent_requests`), the
-> joint per-physical-GPU budget (`GPU_CONCURRENCY_BUDGETS` keyed on a shared `gpu_group`), and the
-> circuit breaker (CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103, AU-KG.compute.pure-config-enumeration-fail/AU-KG.compute.same-semantics-as) so the **combined** load can't OOM
-> the box — and optionally keep an embedder on the LLM host as an automatic **fallback** for the
-> dedicated embedder. Tiny single-host deploys may put embeddings on **CPU / a remote endpoint**
-> entirely. Mechanism + the dedicate-vs-share decision: agent-utilities
-> `docs/architecture/distributed_gpu_concurrency.md` and `llm-server-capacity-guard.md`.
-
-### Step 5: mesh-provisioner (swarm | kubernetes | podman | compose)
-[depends_on: Step 4]
-Stand up the cluster substrate. Branch on the Step 0 `orchestrator` choice — all paths are idempotent and re-runnable.
-
-**`orchestrator == swarm` (default) → `swarm-mesh-provisioner`.**
-Converge the swarm + networks via the **Ansible bootstrap playbook** (`networks/bootstrap/swarm.yml`,
-driven by `inventory.yaml`; `-e reset_swarm=true` for a destructive clean rebuild):
-- `docker swarm init` on **R820 (10.0.0.13)**; join workers `R510`, `R710`, `RW710`, `GR1080`, `GB10`.
-- Remove Swarm's auto-created default ingress and create the **custom ingress** `172.20.0.0/16`.
-- Create overlay networks per the networking contract: `internet`, `caddy` (internal), `vpn` (mtu 1380), `cloudflare` (internal).
-- Expected: `swarm-ready, networks-created`
-
-**`orchestrator == kubernetes` → `kubernetes-mesh-provisioner`.**
-Stand up RKE2 + Cilium (the Swarm parallel; **requires NIC bonds applied first** so Cilium's tunnel
-egress is deterministic):
-- RKE2 **server** on **R820 (10.0.0.13)** with `cni: cilium`; join **agents** `R710`, `R510`, `RW710`, `GR1080` (and `GB10` as a tainted arm64 GPU agent once its throttled-vLLM soak passes).
-- Cilium runs **kube-proxy-free** (eBPF) — this removes the IPVS kernel path that hard-reset GB10 under Swarm; expose the ingress via a `CiliumLoadBalancerIPPool` (`10.0.0.240–.250`) + `L2Announcement` VIP **`10.0.0.240`** (a free LB IP, **not** R820's host `.13`); Technitium `*.arpa` is repointed to `.240`.
-- NVIDIA device-plugin on the GPU nodes; configure `registries.yaml` → `registry.arpa` + internal CA on every node.
-- Expected: `cluster-ready, cilium-healthy, gpu-advertised`
-
-> **Post-migration fleet operational findings** (baked-framework drift, the editable-source
-> `hostPath` overlay dev loop, cold-node image-pull latency, declared-but-undeployed MCP servers,
-> DinD/CI GPU access, and the create/update REST-body-wrap fix) are in
-> [`references/homelab-ops-learnings.md`](references/homelab-ops-learnings.md) **§12** — read it
-> when a deployed service "works on canonical" but not in-pod.
-
-**Gotchas (hardened 2026-07-09, live RKE2 Stage-1 bring-up — see `inventory/k8s-migration/STAGE1-FINDINGS.md`):**
-- **Run the RKE2 playbook with the full `ansible` distribution, not `ansible-core`.**
-  `ansible-core` can't resolve the bare `sysctl:` task (`ansible.posix.sysctl` ships only in
-  full `ansible`) and its `ansible.cfg` must use `stdout_callback = default` +
-  `result_format = yaml` — the old `community.general.yaml` callback was removed in
-  community.general 12.0. Invocation: `uvx --from ansible ansible-playbook -i
-  inventory.k8s.yml rke2.yml -e mode=native --limit '<nodes>'`.
-- **Create `/var/lib/rancher/rke2/server/manifests` before copying the Cilium
-  HelmChartConfig into it** — on a greenfield node that dir doesn't exist until
-  rke2-server installs, so the copy task must create it first.
-- **The Cilium L2 `kubectl apply` must run against a manifest staged ON the server**
-  (e.g. `/etc/rancher/rke2/cilium-l2.yaml`), not a controller-local `playbook_dir` path —
-  the apply task runs on the server host.
-- **`CiliumLoadBalancerIPPool` is `cilium.io/v2`** (`v2alpha1` is deprecated and warns on apply).
-- **RKE2's bundled ingress-nginx is a hostPort DaemonSet — there is no controller Service
-  to pin the VIP.** Give it one via a `rke2-ingress-nginx` HelmChartConfig at the platform
-  step (`controller.service.type=LoadBalancer`, `loadBalancerIP: 10.0.0.240`) so it draws
-  `.240` from the `CiliumLoadBalancerIPPool`.
-- **A `hostNetwork` forwarding gateway (WireGuard/VPN/NAT) on a swarm→RKE2-migrated node
-  is silently broken by two migration leftovers.** Symptom is very specific and misleading:
-  VPN clients can reach the gateway node **itself** (SSH/ping its host IP = local delivery,
-  no forwarding) but **nothing behind it** — no internet, no other LAN host, no `.arpa`
-  service. Packets arrive on `wg0` and the kernel FORWARD counter climbs, but they never
-  egress the uplink. Diagnose by *capturing on the uplink* and reading `iptables-nft -L
-  FORWARD` — do NOT trust `wg show` handshakes or the wg-easy container's own iptables view.
-  The two root causes (both must be fixed):
-
-  1. **Stale Docker nftables survive the Docker sunset → `FORWARD policy DROP`.** When Docker
-     is removed, its nft ruleset is **not** flushed: the base `filter FORWARD` chain is left
-     at **policy DROP** with `DOCKER-USER`/`DOCKER-FORWARD`/`DOCKER-CT` chains that only
-     ACCEPT traffic for the (now-gone) docker bridges. Cilium-endpoint (pod) and local traffic
-     survive because `CILIUM_FORWARD` / conntrack accept them first; **arbitrary transit from a
-     non-Cilium interface (`wg0`) matches nothing and hits the DROP policy.** This is *not* a
-     masquerade problem — the packet dies before NAT. Fix on the gateway node:
-     `iptables-nft -P FORWARD ACCEPT` (Kubernetes/Cilium expect ACCEPT; Cilium enforces pod
-     isolation via BPF/policy, not the base chain). Properly, **flush the leftover Docker nft
-     cruft on every node** as a migration-finalization step — it can bite any forwarded traffic.
-  2. **iptables legacy-vs-nft backend split.** wg-easy writes its `MASQUERADE`/FORWARD-ACCEPT
-     rules to **`iptables-legacy`**, but the host + Cilium run **`iptables-nft`** — two
-     separate rule worlds. The legacy MASQUERADE *does* fire once (1) is fixed (both backends
-     hook the same netfilter POSTROUTING), but when validating, always check **`iptables-nft`**
-     (via a cilium pod, hostNetwork) — the wg-easy container's `iptables-legacy` view hides
-     Cilium's/Docker's real rules. Note on masquerade mode: **Cilium BPF masquerade
-     (`bpf.masquerade: true`) only NATs the pod CIDR, so it will NOT masquerade a
-     forwarding gateway's non-pod subnet (WireGuard `10.8.0.0/24`)** — on a node that also
-     serves as a VPN/NAT gateway, set **`bpf.masquerade: false`** (iptables masquerade, so
-     the wg-easy `MASQUERADE` rule fires) or add the gateway subnet to Cilium's `ipMasqAgent`.
-     (With `enable-host-legacy-routing: true` Cilium may fall back to iptables masquerade
-     regardless, but set it explicitly so config and datapath agree.) The FORWARD-policy DROP
-     above is the primary breakage; this is the secondary NAT consideration.
-
-- **Never run a Cilium L2-announced LoadBalancer VIP on the VPN/gateway node.** A node cannot
-  route *forwarded* traffic to a LB VIP it is the L2 (ARP) announcer for — `ip neigh` shows
-  `INCOMPLETE`. So VPN clients can reach VIPs announced by *other* nodes (e.g. Technitium
-  `10.0.0.199`) but not any VIP the gateway node announces — which silently breaks **every
-  `.arpa` web service** if the ingress VIP (`10.0.0.240`) landed on the gateway node. Fix:
-  exclude the gateway node from the `CiliumL2AnnouncementPolicy` nodeSelector so all VIPs are
-  announced elsewhere:
-  ```yaml
-  # CiliumL2AnnouncementPolicy nodeSelector — keep the VPN gateway (and GB10) out of the announcer set:
-  nodeSelector:
-    matchExpressions:
-    - {key: kubernetes.io/hostname, operator: NotIn, values: [gb10, <vpn-gateway-node>]}
-  ```
-  (Reminder for validation: LB VIPs answer only their service ports — `ping <vip>` always
-  fails with "host unreachable"; test with `curl -H "Host: <svc>.arpa" http://<vip>/`, not ping.)
-
-**`orchestrator == podman` / `podman-compose` → `podman-mesh-provisioner`.**
-Provision a Podman control plane (rootful or rootless per `podman_rootless`): enable
-the Podman API socket, wire `podman-compose` (`COMPOSE_TOOL=podman-compose`), and
-register remote hosts as Podman **system connections over SSH** (same shared inventory,
-no exposed daemon). Steps 6/11 then target Podman via `container-manager-mcp`
-(`CONTAINER_MANAGER_TYPE=podman`).
-- Expected: `podman-ready, hosts-connected`
-
-**`orchestrator == docker-compose` → `docker-compose-operator`.**
-Single-host (or compose-over-SSH) path: no clustering — deploy stacks directly with
-the compose operator. Steps 6 (labels) is a no-op; Step 11 deploys via compose.
-- Expected: `compose-ready`
-
-- Requires: `container-manager-mcp`, `tunnel-manager-mcp`
-
-### Step 6: node-labeling
-[depends_on: Step 5]
-Apply the `name=<HOST>` label to every node plus role labels from the planner (`gpu=true`, `storage=true`,
-`edge=true`, etc.). The label keys are identical across orchestrators so the planner's placement
-(`node.labels.name==X` → Swarm constraint **or** k8s `nodeAffinity`) resolves either way.
-- **swarm:** `docker node update --label-add name=<HOST>` (via `container-manager-mcp update_node`).
-- **kubernetes:** `kubectl label node <HOST> name=<HOST>` (or `container-manager-mcp update_node` with
-  `CONTAINER_MANAGER_TYPE=kubernetes`), plus the `gpu=true:NoSchedule` taint on GPU nodes.
-- Requires: `container-manager-mcp`, `tunnel-manager-mcp`
-- Expected: `nodes-labeled`
-
-### Step 7: core-edge-deploy
-[depends_on: Step 6]
-Bring up the bootstrap-critical core **in dependency order**, resolving the registry/GitLab chicken-and-egg
-(registry + GitLab must use a publicly pullable base for first boot):
-1. `registry` (so `registry.arpa/*` pulls resolve) → 2. `gitlab` (R710) → 3. `technitium-dns` (macvlan, static `10.0.0.199`) → 4. `caddy` (R820, host-mode 80/443) → 5. `portainer`.
-- Requires: `portainer-mcp`, `container-manager-mcp`, `technitium-dns-mcp`, `caddy-mcp`
-- Expected: `core-edge-up`
-
-### Step 8: secret-vault-manager + seed-initial-secrets
-[depends_on: Step 7]
-Stand up the secrets store and **seed the initial secrets so Claude can self-provision
-the rest of the run** (honor the Step 0 `secrets_store` + `idp` choices):
-- **Vault (OpenBao / HashiCorp Vault — first-class, same API):** when `secrets_store=vault`,
-  deploy/init/unseal OpenBao (KV2 at `apps/`) **or** wire to an existing Vault
-  (`use-existing`). Mint the write-capable `agent-apps-rw` token.
-- **Seed the bootstrap secrets first** (so later automated steps can authenticate):
-  the Vault token, private-registry creds, the IdP client secret, the DB password, and
-  the **engine encryption key `EPISTEMIC_GRAPH_ENCRYPTION_KEY`** (a 32-byte key — generate
-  one if absent — that seals the engine's encrypted `__secrets__` store, CONCEPT:AU-OS.identity.encrypted-secret-store).
-  Use `graph_configure action=vault_sync` (CONCEPT:AU-OS.deployment.vault-first-routine-genesis) per service — it **reads
-  existing** `apps/<service>` secrets to skip re-prompting and **seeds** only what's
-  missing, returning `vault://apps/<service>/<KEY>` refs to drop into config.json
-  (Step A1b). When `secrets_store=env`, the same reconcile writes the service `.env`.
-- **Auto-provision the Ed25519 signing keys (release + permissions) — the standard automated
-  process.** Two signing keys gate integrity and must exist before the artifacts they protect:
-  the **ontology release signer** (`ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF`;
-  `ontology_integrity.py` `ReleaseSigner`, `RELEASE_SIGNATURE_ALGORITHM="ed25519"`) and the
-  **permissions signer** (`PERMISSIONS_SIGNING_KEY_REF`). Genesis provisions each **exactly like
-  the engine encryption key** — idempotent, no operator key-handling:
-  1. **Generate if absent** — an Ed25519 keypair (32-byte private seed); reuse the existing key
-     when the OpenBao path already holds it (read-existing, so a re-run never rotates silently).
-  2. **Seed the PRIVATE seed** into OpenBao (`apps/agent-utilities`) via `graph_configure
-     action=vault_sync`, and set the ref
-     (`ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF=vault://apps/agent-utilities/ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY`,
-     likewise `PERMISSIONS_SIGNING_KEY_REF`). The seed is **never** written inline — only the
-     `*_REF` (both keys are on the credential-ref list in `config.py`; an inline value fails the
-     durable-secret policy).
-  3. **Publish the PUBLIC key** to the verification trust set (the manifest gate's trusted-key
-     list — `connector_manifest_gate` / `manifest_compiler`) so releases verify against a pinned
-     key, and record it in the KG as the release identity.
-  4. **Register both for rotation** (Step 14b catalog), 6-month cadence.
-  > "Automating the key" = genesis **generating + sealing it in OpenBao + wiring the `*_REF`**; the
-  > signer resolves the ref at sign time, so no operator handles key material by hand. (A future
-  > hardening can move signing into OpenBao's **transit** engine — sign-without-exposing-the-seed —
-  > but the current signer resolves the seed in-process, so KV-seed + `*_REF` is the standard today.)
-  > **Provisioning the key is NOT auto-signing:** genesis makes the signer *available*; emitting a
-  > signed release/certification still requires the operator's explicit go-ahead (never auto-signed).
-- **Engine-backed secret store (CONCEPT:AU-OS.identity.encrypted-secret-store).** Once the engine encryption key is
-  seeded, the embedded app-secret store *is* the engine: secrets live as `:Secret` nodes
-  in the **`__secrets__` graph**, values sealed by the engine's encryption-at-rest — so no
-  local SQLite/`secrets.db` (a one-time `secrets.db → __secrets__` migration runs if a
-  legacy file is found). This is the default below `enterprise`; OpenBao stays the fleet
-  source of truth when `secrets_store=vault`. The full-by-default engine carries the
-  security/encryption-at-rest feature in every shape and topology (Step 0a′), so no
-  capability check gates this.
-- **IdP:** when `idp=keycloak`, deploy Keycloak (OIDC/SAML); when `idp=okta`/`other-oidc`,
-  skip the deploy — only capture the existing issuer/JWKS for Step 14/A4.
-- Requires: `openbao-mcp`, `keycloak-mcp` (keycloak deploy only), `graph-os` (vault_sync)
-- Expected: `secrets-store-up, initial-secrets-seeded, engine-encryption-key-seeded, idp-resolved`
-
-### Step 9: gitlab-repository-seeder
-[depends_on: Step 8]
-On GitLab CE, auto-provision projects from `workspace.yml`, seed stack compose files, and mint scoped PATs.
-- Requires: `gitlab-mcp`
-- Expected: `repos-seeded, pats-issued`
-
-### Step 9b: standard-private-repos-and-ci
-[depends_on: Step 9]
-Provision the **standard, ABSTRACT set of operator-owned PRIVATE repos** so this
-deployment's environment lives in the operator's own repos + XDG config — **never in
-the public agent-utilities repo** (CONCEPT:AU-OS.deployment.standard-repo-templates / AU-OS.deployment.concept-2). The standard set, its
-templated skeletons, and the profile scaling are defined ONCE in
-`agent_utilities/deployment/repo_templates.py` and surfaced in `genesis.yaml` under
-`private_repos` — loop that, don't hand-roll. Full recipe + per-repo layout:
-[`references/standard-repos-and-ci.md`](references/standard-repos-and-ci.md).
-
-- **Build the plan (idempotent, profile-scaled):**
-  `provision_plan(profile, git_host=<gitlab|github|local>, namespace=<operator group/org>, existing_repos=<already-present>)`.
-  Already-present repos become `action=skip`. The standard repos:
-  - `inventory` — host inventory (seeded from `~/.config/agent-utilities/inventory.yaml`).
-  - `config` — `workspace.yml` + **secret-redacted** `config.json`/`mcp_config.json` examples.
-  - `networks` — overlay/CNI bootstrap + CIDR allocations (seeded from the deployment plan).
-  - `secrets-config` — secrets **convention** (service→`vault://` / `engine://__secrets__` *references*, **never plaintext**).
-  - `infrastructure` — the deployment manifests (compose/swarm/k8s stacks, seeded from `workspace.yml`).
-  - `pipelines` (enterprise) — the generalized, reusable GitLab CI templates.
-  - **Profile scaling:** `tiny` = `{inventory, config}` **local** git, no CI/runners; `single-node-prod` adds `networks`+`secrets-config`+`infrastructure` with minimal CI + 1 runner; `enterprise` adds the shared `pipelines` repo + full CI + runners.
-- **Create + seed (idempotent):** for each `action=create` repo, create it **private** on
-  the operator's git host (`gitlab-mcp` `gitl__projects create visibility=private`, or
-  `github` `github_repos create private=true`), then commit the **rendered** skeleton
-  (`render_skeleton(repo, context)`) — resolving the `${GIT_NAMESPACE}` / `${RUNNER_TAG}` /
-  `${CI_TEMPLATES_PROJECT}` / `${REGISTRY}` placeholders from the operator's resolved config
-  **at deploy time**. Seed real inventory/workspace from the operator's XDG config INTO the
-  private repo (never echo them here). Reuse the `gitlab-repository-seeder` skill for the
-  GitLab create+seed+PAT primitives; use `rm_git clone/commit/push` for the local side.
-- **CI + runners (generalized, profile-aware):** when `ci.enabled` (non-tiny), seed the
-  generalized templates (`stages.yml`, `agent-package-ci.yml`, `service-deploy.yml`) into the
-  `pipelines` repo (enterprise) and point each repo's `.gitlab-ci.yml` at them; register the
-  `runner_plan(profile)` runners (`gitl__runners register/enable_project`) tagged `${RUNNER_TAG}`.
-  Operator project-ids/registration-tokens come from the secret store at deploy time — never committed.
-- Requires: `gitlab-mcp` (or `github-tools`), `repository-manager-mcp`
-- Expected: `private-repos-provisioned, ci-templates-seeded, runners-registered (profile-scaled), no-operator-env-in-public-repo`
-
-### Step 10: portainer-gitops-bind
-[depends_on: Step 9]
-Bind Portainer stacks to their GitLab repositories using the PATs (GitOps auto-sync).
-- Requires: `portainer-mcp`
-- Expected: `gitops-bound`
-
-### Step 11: tiered-service-deploy
-[depends_on: Step 10]
-Deploy all stacks per the placement manifest in dependency tiers (T0→T6), applying the failure-handling policy:
-**pre-scan each stack's `image:` for availability → skip+report missing-image `*-mcp` stacks; deploy first-time
-stacks (`apache-jena`/Fuseki, `camunda`, `archimate`, `kafka`) as health-gated canaries**.
-
-The T0→T6 tiering, missing-image tolerance, and canary policy are
-**orchestrator-agnostic**. On `orchestrator == kubernetes`, render each stack
-with the deployment-planner emitter (`emit_manifests.py --target kubernetes`,
-SKILL Step 7b) and deploy the resulting `k8s/` manifests via the
-`portainer-agent` MCP Kubernetes GitOps stack (`create_kubernetes_stack_from_repository`)
-or `kubectl apply`. The arr-suite gluetun pattern below becomes a native
-**shared-netns Pod** (gluetun + apps in one Pod) rather than a standalone compose.
-- T0 Critical edge (DNS, Caddy, VPN, registry) → already up (Step 7), verify
-- T1 Core platform (Portainer, GitLab, Keycloak, OpenBao, LGTM)
-- T2 Business apps (Twenty, ERPNext, Plane, Mattermost, Firefly, **Camunda**, **Archi**)
-- T3 Lifestyle/utility (Mealie, wger, Gramps, FreshRSS, Calibre, Reitti)
-- T4 AI/ML (vLLM→GB10, Ollama, XTTS, Faster-Whisper) → GPU nodes
-  - **Optional KV-cache layering (opt-in):** to pool + dedup vLLM's KV cache into the
-    engine, deploy the KV-cache layer after vLLM is healthy — see **Step 11b** (LMCache
-    → the epistemic-graph kvcache-server, `CONCEPT:EG-KG.backend.is-configured-so-co`/`KG-2.306`).
-- T5 Agent MCP servers (stateless) — **tolerate missing images**
-- T6 Media/NAS-bound (arr-suite, Jellyfin, Immich) → R510
-  - **arr-suite VPN hardening (REQUIRED):** deploy the arr-suite with the **gluetun-namespace +
-    fail-closed kill-switch** pattern (every app `network_mode: service:gluetun`, `FIREWALL=on`),
-    **not** the legacy `add-vpn-gateway` route-override (which leaks the host IP on the startup race
-    and when the tunnel drops). Because Swarm can't do `network_mode: service:`, the arr-suite runs
-    as a **standalone compose on R510** with Caddy repointed to its published ports. Full recipe +
-    NordVPN/credential + arr-MCP gotchas: [`references/arr-stack-vpn-hardening.md`](references/arr-stack-vpn-hardening.md).
-  - **ONE Keycloak realm (`homelab`), no sprawl:** every app AND the MCP/agent fleet use the
-    single `homelab` realm; `master` = super-admin only; never create extra realms unless the end
-    user asks. Fleet still-on-`master` → `homelab` migration procedure (waves of 5, dual-trust,
-    lock-out/recovery caveats, `keycloak-mcp` special case):
-    [`references/keycloak-realm-consolidation.md`](references/keycloak-realm-consolidation.md).
-  - **Connector day-0 auth + Plane god-mode provisioning:** making a freshly-deployed
-    `*-mcp` connector actually ingest requires (1) the OIDC client-credentials env on the
-    `graph-os` host+server, (2) the `agent-services` audience scope on the minting Keycloak
-    client, (3) the connector routed to its remote `.arpa` URL in the host's
-    `mcp_config_source.json` (not a stdio command). Plus Plane needs an instance (god-mode)
-    admin created via the Django shell + a Redis `cache.clear()`, and per-connector
-    API-compat gotchas (Jira `/search/jql` bounded JQL+fields, Plane `-> Any` tool returns +
-    `_validate_auth` endpoint, Eunomia bulk ≤100). Full repeatable procedure + Keycloak-OIDC
-    SSO setup for Plane/GitLab:
-    [`references/plane-provisioning-and-connector-auth.md`](references/plane-provisioning-and-connector-auth.md).
-  - **Homelab operations & provisioning playbook (READ for day-2 / repair):** the recurring
-    patterns — "deployed-but-unprovisioned / lost-creds" recovery (Firefly `.env` injection +
-    auto-migrate, ERPNext `bench` admin+API-key, Plane god-mode + Redis `cache.clear`); the
-    graph-os **HOST is the source_sync sweeper** (creds + PYTHONPATH go there, not just the
-    server); the MCP-fleet bug classes (localhost-vs-service-URL, `Failed to resolve dependency
-    client`, Eunomia `/check/bulk` 100-cap + stale-process-needs-redeploy); presigned-S3 must be
-    browser-reachable (Plane cover-upload → `planeminio.arpa` S3 API); swarm worker-vs-manager,
-    `--env-add` persistence vs from-source redeploy, the multiplexer restart-breaker; GitLab JWKS
-    rotation cron. Full playbook: [`references/homelab-ops-learnings.md`](references/homelab-ops-learnings.md).
-    Per-connector ingestion + OWL mapping: [`references/connector-ingestion-owl.md`](references/connector-ingestion-owl.md).
-  - **FreshRSS world-model intake + Caddy/Keycloak web SSO (REQUIRED for the RSS source + any
-    `*.arpa` web SSO):** install/enable the FreshRSS API + seed curated feeds + deploy the
-    `freshrss-mcp` connector, and gate app web UIs with **`caddy-security` (greenpau) OIDC**.
-    ⚠️ host the auth **per-app** (`.arpa` is a public suffix → a shared `Domain=arpa` cookie is
-    rejected → redirect loop); keep token/API paths (`/api/*`) bypassed so ingestion isn't
-    redirected. Eight gates must line up (realm-as-URL-path, `homelab` realm + remove
-    `rsa-enc-generated` RSA-OAEP key, host-only cookie, policy `crypto key verify`, `email` claim,
-    `/portal`→`/`, `X-WebAuth-User` from `given_name`, app `trusted_sources`) + `registry.arpa`
-    routes through Caddy (pre-pull image before cutover). Full recipe + ordered checklist:
-    [`references/freshrss-and-sso.md`](references/freshrss-and-sso.md).
-- Data platform (**Kafka**, **Apache-Jena**/Fuseki) → highest-RAM node, canary-gated
-- Requires: `portainer-mcp`, `container-manager-mcp`
-- Expected: `services-deployed, deferred-report` (arr-suite: `vpn-egress-enforced, kill-switch-verified`)
-
-### Step 11b: kvcache-layer (opt-in KV-cache pooling for vLLM)
-[depends_on: Step 11] (conditional: only when the operator opts into KV-cache pooling
-AND a vLLM stack is deployed; profiles: single-node-prod, enterprise)
-Layer **LMCache** onto the deployed vLLM so its KV cache is pooled + deduplicated into
-the **epistemic-graph engine** — cutting time-to-first-token on repeated prefixes
-(system prompts, few-shot exemplars, long docs, multi-turn history) and letting the box
-**offload KV under memory pressure** instead of recomputing it. The engine's KV-cache
-server (`CONCEPT:EG-KG.backend.is-configured-so-co`) is a small HTTP surface (`GET|PUT|HEAD /kv/<hash>`,
-`GET /kv/stats`) over the tiered hot/warm/cold cache (`CONCEPT:EG-KG.memory.byte-bounded-tiers`) + content-
-addressed shared dedup (`CONCEPT:EG-KG.enrichment.content-address-separation`); the Python connector is
-`EpistemicGraphKVBackend` (`CONCEPT:AU-KG.backend.kvcache-vllm-connector`). Full runbook + the two wiring paths:
-agent-utilities `docs/guides/kvcache-vllm-lmcache.md` (the single source of truth —
-do not duplicate the config here). (The same engine also hosts the BLAS-free numeric
-kernel behind the `xp` numpy-shim — Surface A of the Analytics Program, engine `CONCEPT:AU-KG.compute.numeric-kernel`
-/ `CONCEPT:AU-KG.compute.surface-analytics-program` — a separate, unrelated capability, not part of this KV-cache step.)
-
-- **Co-locate on the GPU/inference host (e.g. GB10).** LMCache offload/fetch is on the
-  inference hot path, so the kvcache tier runs on the **same box** as vLLM, reached
-  over loopback (host network), NOT across the overlay. Like vLLM on GB10 it runs as a
-  **standalone compose** (`services/vllm/compose.kvcache.yml`), OUTSIDE Swarm (SBSA
-  watchdog reset). That one compose now **folds both services**: the `epistemic-kvcache`
-  engine (the L2 tier) AND the decoupled `lmcache-server` (the L1 CPU tier) — no manual
-  sidecar wiring. The deployment-planner constraint is `node.labels.name == <vLLM host>`.
-- **Two pre-compiled images in the private registry (built by GitLab CI, arm64/GB10):**
-  (1) the **KV-enabled engine image** `registry.arpa/epistemic-graph:kvcache` — the default
-  fleet `epistemic-graph` image does NOT compile the KV features, so it is built with
-  `EG_FEATURES="node,ast-extended,kvcache-server,redis-wire"`; (2) the **customized vLLM
-  image** `registry.arpa/vllm-lmcache` (build def: **`images/vllm`**) = vLLM nightly +
-  `lmcache` + the connector + configs. Prefer `docker pull` of both over rebuilding; the
-  in-tree `services/vllm/Dockerfile.lmcache` + engine `docker/Dockerfile` remain for
-  offline/local builds. (GB10 must resolve `registry.arpa` → `10.0.0.13` in `/etc/hosts`.)
-- **Seed the token** via `graph_configure action=vault_sync config_key=epistemic-kvcache`
-  (`CONCEPT:AU-OS.deployment.vault-first-routine-genesis`): a random `EPISTEMIC_GRAPH_KVCACHE_TOKEN` into `apps/epistemic-kvcache`,
-  dropped into the kvcache-server env AND the vLLM LMCache override (same value both sides).
-- **Universal connector — use `LMCacheMPConnector` for EVERY model (dense OR Mamba/GDN
-  hybrid).** The older `LMCacheConnectorV1` handles full-attention only and **crash-loops on
-  hybrid models** (`unify_hybrid_kv_cache_specs`); the MP connector buckets layers into object
-  groups (attention KV + one opaque page per Mamba/GDN state), so one config serves any
-  compatible model. Always pass `--enable-prefix-caching --mamba-cache-mode align` (align
-  no-ops on dense). For **hybrids**, additionally set `--max-num-batched-tokens` AND the
-  `lmcache server --chunk-size` to the model's **Mamba block size** (vLLM derives it, e.g.
-  1568 for Qwen3.6-27B) — required so each prefill step snapshots one Mamba block (costs cold
-  prefill throughput; dense pays nothing).
-- **Decoupled `lmcache-server` = the cross-restart + engine tier.** The MP connector is a
-  client to a standalone `lmcache-server` (ZMQ :5555, does NOT auto-spawn — the folded
-  compose service runs it with `network:host`+`ipc:host`+`--gpus all` for CUDA-IPC transfer).
-  Its **L1** is CPU RAM (`--l1-size-gb`, survives vLLM restarts); its **L2** is the
-  epistemic-graph engine via `--l2-adapter`. Two adapter choices: **(default) the engine-native
-  `native_plugin`** → `EpistemicGraphL2Connector` (`CONCEPT:AU-KG.backend.lmcache-native-connector`), the EG-KG.backend.is-configured-so-co HTTP KV
-  surface with content-addressed dedup (EG-186) + live `/kv/stats` counters; **(fallback,
-  zero-code) `resp`** → the engine Redis wire (`CONCEPT:EG-KG.ontology.resp2-resp3-codec-round`/`EG-KG.txn.pubsub-transactions`). Both hit the same
-  durable EG-185 store and survive server restarts. This is what gives cross-restart /
-  cross-instance KV reuse on ANY model (native vLLM APC is GPU-only and lost on restart).
-- **Enable is a WINDOWED, opt-in restart of vLLM** — the LMCache wiring lives in an
-  OVERRIDE (`services/vllm/compose.lmcache.yml`, adds `--kv-transfer-config
-  '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}'` + `LMCACHE_CONFIG_FILE`);
-  the live `compose.standalone.yml` is untouched until the operator applies the override.
-  Never redeploy the GB10 vLLM outside a maintenance window (SBSA reset risk).
-- **Health check:** `curl -fsS http://<vLLM host>:9130/kv/stats` returns occupancy +
-  dedup counters; after a warm inference run, `unique_blocks > 0` and
-  `dedup_savings_bytes` / `get_hits` grow.
-- Requires: `container-manager-mcp`, `openbao-mcp`, `graph-os` (vault_sync)
-- Expected: `kvcache-server-up, lmcache-wired, kv-stats-growing` (skipped → `kvcache-skipped`)
-
-### Step 12: dns-migration-utility
-[depends_on: Step 11] (conditional: only when migrating from a legacy resolver — AdGuard Home, Pi-hole, bind9, dnsmasq)
-Extract, clean, and convert legacy resolver configurations into unified A/CNAME records before the
-authoritative cutover. Skip on greenfield installs with no legacy DNS to import.
-- Requires: `systems-manager-mcp`
-- Expected: `legacy-dns-normalized` (or `skipped-greenfield`)
-
-### Step 13: dns-record-manager
-[depends_on: Step 12]
-Apply the DNS policy in Technitium: wildcard `*.arpa` → `10.0.0.13`, explicit `portainer` → `10.0.0.13`,
-preserve intentional direct records (`adguard`→.199, `home-assistant`, per-node agents). Verify resolution.
-- Requires: `technitium-dns-mcp`
-- Expected: `dns-synced`
-
-### Step 14: keycloak-oidc-wiring
-[depends_on: Step 13]
-Register OIDC SSO clients in Keycloak for SSO-enabled services; store their secrets in OpenBao KV2.
-**MCP fleet auth (CONCEPT:AU-OS.identity.so-jwt-protected-children):** also create the **`mcp-multiplexer` confidential
-client** (audience `agent-services`) via `keycloak-client-onboarder` and store its secret
-in OpenBao — this is the service identity the multiplexer uses to reach jwt children
-(Step A2). Then load the **baseline eunomia policy** (allow the multiplexer principal,
-deny `unknown`) via `eunomia-policy-manager` at `eunomia.arpa` — eunomia fails CLOSED, so
-this MUST exist before any MCP enforces jwt.
-**Owned-edge client (when the public edge is in use — see `edge-ingress/K8S-INTEGRATION-PLAN.md` §4.D):**
-also register the **`edge-ingress`** confidential OIDC client (redirect
-`https://auth.<public-domain>/oauth2/callback`) and store its secret in OpenBao
-(`kv/edge-ingress/oauth2`). The VPS is off-cluster (no ESO), so the
-`edge-ingress-provision` hook reads that secret once and places it in the VPS `.env`.
-- Requires: `keycloak-mcp`, `openbao-mcp` (+ skills `keycloak-client-onboarder`, `eunomia-policy-manager`)
-- Expected: `sso-wired, mcp-multiplexer-client-created, eunomia-baseline-loaded` (+ `edge-ingress-client-created` when the edge is enabled)
-
-**Gotcha (hardened 2026-07-09):** on `orchestrator == kubernetes`, Step 5 already hard-wires
-`kube-apiserver-arg: oidc-issuer-url=https://keycloak.arpa/...` at cluster bring-up — but this is
-**lazy/non-blocking**: the apiserver boots `Running` with the flag present and only fetches JWKS /
-authenticates OIDC users once Keycloak(prod) exists here at Step 14. So "OIDC authenticates cluster
-users" is a **Step-14 completion gate, not a Step-5 gate** — cluster admin uses the cert-based
-`rke2.yaml` kubeconfig regardless. **WARN:** if `oidc-ca-file` is configured on the apiserver, the CA
-file MUST already exist on disk or the apiserver **fails to boot** — only set it once the CA is placed.
-
-**Gotcha (TLS, hardened 2026-07-20 — `.arpa` OIDC must serve a REAL cert):** on
-`orchestrator == kubernetes`, ingress-nginx answers **unmatched** `.arpa` TLS with a **fake
-self-signed cert**, so OIDC clients that already trust `homelab-arpa-ca` (Step 1b) STILL fail
-the token mint — graph-os and the fleet minter then fail with `Graph process identity acquisition
-failed`. Every `.arpa` ingress that terminates TLS — **keycloak first** — needs its own
-cert-manager `Certificate` (ClusterIssuer `homelab-arpa-ca`) **plus** a `tls:` block on the
-Ingress (host-trust alone is not enough; the server must present the real cert). Pattern + the
-keycloak manifest snippet: [`references/keycloak-realm-consolidation.md`](references/keycloak-realm-consolidation.md).
-
-### Step 14b: credential-rotation-policy
-[depends_on: Step 14] (profiles: single-node-prod, enterprise — skipped for tiny)
-Establish recurring, policy-driven secret rotation via the
-`automated-credential-rotation` skill, now that secrets exist in OpenBao (Step 8/14):
-- Build the rotation **catalog** (each secret's OpenBao path, provider, consumers, and
-  `cadence_days` — 6-month baseline) from the secrets provisioned in Step 14 (Keycloak
-  client secrets, GitLab/GitHub PATs, DB/LLM/OTEL keys) **and Step 8** (the engine encryption
-  key + the Ed25519 release/permissions signing keys). Signing-key rotation re-publishes the new
-  public key to the manifest trust set and keeps the prior key trusted until artifacts signed
-  under it are re-signed (never orphan a still-referenced signature).
-- **Validate dry-run first**: `rotation_lib.py plan --catalog …` renders a value-free
-  plan; confirm no secret material appears in any output.
-- Schedule the recurring rotation (off-peak, 6-month cadence) via the `schedule` skill;
-  high-stakes secrets (Keycloak client, DB, registry) require an approval window before
-  `execute`. Rotation uses Keycloak `regenerate_client_secret_by_client_id`, writes new
-  values to OpenBao, propagates to consumers via Portainer `update_stack`, verifies, and
-  revokes the old — never echoing a value.
-- Requires: `openbao-mcp`, `keycloak-mcp`, `portainer-mcp` (+ skills
-  `automated-credential-rotation`, `schedule`)
-- Expected: `rotation-catalog-registered, rotation-schedule-armed, dry-run-validated`
-
-### Step 14c: ciso-assistant-bootstrap
-[depends_on: Step 11] (conditional: only when the `ciso-assistant` stack is in the manifest)
-Bootstrap the deployed **CISO Assistant** GRC stack so its API is usable headlessly —
-**no SMTP required** (the superuser email is only a login identifier, never mailed):
-- Run `services/ciso-assistant/bootstrap.sh` from a swarm manager. It waits for the
-  backend `/api/health/`, sets the superuser (`CISO_ADMIN_EMAIL`, default
-  `admin@ciso.arpa`) password (reused from OpenBao if already present), mints a
-  **long-lived (10-year) Knox API token**, and persists `DJANGO_SECRET_KEY` + admin
-  creds + `CISO_ASSISTANT_TOKEN` to **OpenBao** (`secret/services/ciso-assistant`, via
-  the write-capable `OPENBAO_TOKEN` from Step 8/14) **and** the stack `.env`. Idempotent.
-- Capture the emitted `CISO_ASSISTANT_URL` / `CISO_ASSISTANT_TOKEN` and inject them into
-  the **graph-os** environment (Step A2/A4) so the agent-utilities `ciso_assistant` KG
-  connector (AU-KG.enrichment.ciso-assistant-extraction extractor / AU-KG.enrichment.ciso-2 writeback) can sync the GRC estate into the KG
-  and reconcile it with Egeria + Camunda via the `ALIGNED_WITH` crosswalk.
-- The stack's `compose.yml` already puts the backend on the `caddy` overlay and the repo
-  carries the `ciso.arpa` Caddyfile route; ensure the central Caddy is reloaded (Step 7/13).
-- Requires: `portainer-mcp`/`container-manager-mcp` (docker exec), `openbao-mcp`, `caddy-mcp`
-- Expected: `ciso-superuser-set, ciso-token-minted, ciso-token-in-openbao, ciso-connector-wired`
-
-### Step 14d: mcp-client-auth-config (the DEFAULT authenticated client config)
-[depends_on: Step 14]
-Wire every MCP **client** (Claude Code, IDEs, agents) to graph-os so tokens are obtained and
-**refreshed automatically**. A hand-pasted bearer token is **never** the default — it is the
-configuration this step exists to prevent.
-
-**Why (outage, 2026-07-23):** the graph-os entry in `~/.claude.json` held a static
-`Authorization: Bearer <jwt>` with a 10h lifetime (`exp - iat = 36000`). When it expired the MCP
-server silently disconnected mid-session and every `graph_*`/`engine_*` tool vanished. Nothing
-renewed it because **nothing could** — a header string in a config file has no refresh path, so
-recovery required a human with Keycloak admin access.
-
-Client config — note there is **no `headers` block at all**:
-```jsonc
-{ "type": "http", "url": "https://graph-os.arpa/mcp" }
-```
-`https` is load-bearing: OAuth flows must not carry tokens in cleartext, which makes the Step 1b
-CA trust a hard prerequisite on every **client** host, not just servers.
-
-Server side, graph-os MUST do both halves of RFC 9728 / the MCP authorization spec — a client
-can only self-refresh if it can *discover* the auth server:
-1. serve `/.well-known/oauth-protected-resource` (+ the `/mcp` variant) naming
-   `https://keycloak.arpa/realms/homelab` in `authorization_servers`, and
-2. return `WWW-Authenticate: Bearer resource_metadata="https://graph-os.arpa/.well-known/oauth-protected-resource"`
-   on 401. ★A bare `WWW-Authenticate: Bearer` tells the client nothing and is the failure mode.
-
-**Gotcha (`AUTH_TYPE=jwt` on its own ships neither half):** a bare `JWTVerifier` (FastMCP's base
-class) provides **no routes** and **no `resource_metadata`** by itself. The fix: set
-`MCP_PUBLIC_BASE_URL` to this instance's public URL (e.g. `https://graph-os.arpa`) —
-`server_factory.py`'s `_configure_jwt_auth()` then wraps the same verifier in FastMCP's
-compliant `RemoteAuthProvider` (`_wrap_with_resource_metadata()`) automatically; no separate
-OAuth implementation is needed. Leaving `MCP_PUBLIC_BASE_URL` unset is what reproduces the
-bare-`Bearer` failure mode above.
-
-**Gotcha (credential must be recoverable):** if a service account is used (headless/CI, no browser
-flow), its credentials belong in OpenBao under the `apps/` mount — e.g. `apps/claude-code` with
-`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`/`OIDC_ISSUER`/`OIDC_TOKEN_URL`/`OIDC_SCOPE`. The 2026-07-23
-outage was unrecoverable-without-a-human precisely because that client's secret was stored
-**nowhere** — not in k8s, not in OpenBao. ★`apps/` is its **own KV v2 mount**
-(`/v1/apps/data/<name>`); `secret/apps/...` silently returns nothing.
-
-**Gotcha (diagnosis):** `curl` to any `.arpa` HTTPS from a host missing the CA fails with **exit
-60** and renders as `HTTP 000` — indistinguishable from "server is down". Retry with `-k` to tell
-a trust gap from an outage before chasing the wrong fault.
-
-- Requires: `keycloak-mcp`, `openbao-mcp` (+ Step 1b CA trust on every client host)
-- Expected: `oauth-metadata-served, challenge-advertises-resource-metadata, client-config-tokenless, service-credential-in-openbao`
-- **Completion gate:** a token expiring MUST NOT require human intervention — verify by minting a
-  short-lived token and confirming the client recovers (re-authenticates via the 401 challenge)
-  on its own, with no human pasting a replacement token.
-
-### Step 15: observability-and-backups
-[depends_on: Step 14]
-Stand up the full LGTM observability standard (CONCEPT:AU-OS.observability.no-op-without-metrics) + Borgmatic backups:
-- node-exporter + cAdvisor (global) already give every host + every container metrics.
-- **Tune cAdvisor for low CPU on busy nodes** (it runs `global`, and per-container cgroup
-  housekeeping is the cost — untuned it eats 1–1.5 cores on a node with dozens of
-  containers). In the `cadvisor` service `command:` (`services/lgtm/compose.yml`) set:
-  `--housekeeping_interval=30s --max_housekeeping_interval=60s --allow_dynamic_housekeeping=true`
-  (slower sampling, idle containers cost nothing), `--docker_only=true` (skip raw/system
-  cgroups), `--store_container_labels=false` **with**
-  `--whitelisted_container_labels=com.docker.stack.namespace,com.docker.swarm.service.name,com.docker.compose.project,com.docker.compose.service`
-  (huge cardinality cut while keeping the labels the dashboards group by — dropping all
-  labels would break the fleet/per-service/container dashboards), and
-  `--disable_metrics=percpu,sched,process,hugetlb,referenced_memory,cpu_topology,resctrl,tcp,udp,advtcp`.
-  `--disable_metrics` is a **denylist** — `disk`, `diskIO`, and `network` are omitted on
-  purpose so per-container disk usage, disk I/O, and network stay collected.
-- Generate the MCP scrape/probe targets and dashboards from the fleet registry:
-  `agent-utilities/scripts/gen_prometheus_mcp_targets.py` + `gen_grafana_dashboards.py`.
-  The dashboards are **generated as code** (not hand-edited JSON — a re-run clobbers manual
-  edits); add/extend a `*()` builder in `gen_grafana_dashboards.py` and re-run it
-  (`--out` defaults to `services/lgtm/grafana/provisioning/dashboards/json/`).
-- Deploy the LGTM stack carrying: the `mcp-fleet` (`/metrics`) + `blackbox-mcp` (`/health`)
-  Prometheus jobs, the global `promtail` (container logs → Loki), the full `rules.yml`
-  alert set (→ Mattermost), and the provisioned Grafana datasources + dashboards:
-  **Fleet Overview**, **Per-Service**, **Host & Infra** (CPU/mem/load/swap + disk free,
-  disk I/O throughput + IOPS + busy%, network I/O), **Container Resources** (per-service
-  CPU/mem/disk-I/O/network from cAdvisor), and **Agent Bus**.
-- Drive per-service wiring (logs + scrape + dashboard) via `service-observability-provisioner`.
-- Requires: `systems-manager-mcp`, `portainer-mcp` (+ skill `service-observability-provisioner`)
-- Expected: `observability-up, cadvisor-tuned, mcp-fleet-scraped, dashboards-provisioned, alerts-loaded, backups-scheduled`
-
-### Step 16: graph-os
-[depends_on: Step 15]
-Materialize the full topology in the Knowledge Graph (`HostNode`, `ContainerStackNode`,
-`PlatformService`, network + placement edges), including the **deferred/skipped report** so missing-image
-services are tracked for later push+validation.
-- Requires: `graph-os`
-- Expected: `topology-ingested`
-
----
-
-## Steps — agent-utilities core (A-series)
-
-These steps install and wire **agent-utilities itself** (its deps, the graph-os
-MCP + multiplexer, the `*-mcp` connector fleet, and the integrations). They are
-profile-gated; the **tiny** profile runs only Step A1.
-
-### Step A1: agent-utilities-install
-[depends_on: Step 0]
-Install agent-utilities dependencies on the target host(s): `uv sync` (or
-`pip install -e ".[all]"`). For **tiny**, write the zero-infra `.env`
-(`GRAPH_BACKEND=epistemic_graph` — the engine alone is the durable,
-redb-authoritative source of truth, no external DB) and run
-`agent-utilities/scripts/bootstrap.sh` (which also runs a KG smoke test) — the
-tiny profile **stops here**.
-- **The engine is a prebuilt wheel, never a compile.** `pip install agent-utilities`
-  pulls `epistemic-graph[full]>=2.23.1,<3.0.0` as a **hard, full-by-default, prebuilt
-  multi-arch wheel** (linux x86_64/aarch64, macOS, windows — numeric kernel + OWL/SPARQL
-  + LMCache all included, no separate feature-bundle to pick) — even a Raspberry Pi
-  installs in seconds. tiny defaults to the **`unified-in-process`** topology (Step 0a′)
-  — the resolver embeds/**auto-starts** the engine on first use (no separate launch
-  step), shared and reference-counted (`engine_lifecycle=persistent` for a long-living
-  one). Set `EPISTEMIC_GRAPH_ENCRYPTION_KEY` in the `.env` (Step 8) so the engine's
-  encrypted `__secrets__` store (CONCEPT:AU-OS.identity.encrypted-secret-store) is active.
-- **Install mode is per Step 0 `install_mode`:** `deploy-baremetal` → `uv tool install
-  agent-utilities` (prod) or `pip/uv install -e ".[all]"` (dev/test, editable);
-  `deploy-container` → pull the pre-built `graph-os` image (Step A2). Prefer **pypi for
-  production**, editable installs for development.
-- Requires: `systems-manager-mcp`
-- Expected: `agent-utilities-installed` (tiny: `bootstrap-verified`)
-
-### Step A1b: config-walkthrough
-[depends_on: Step A1]
-Generate and tune the complete **`config.json`** (XDG path) for the resolved run plan —
-auto-tuned by default, every item overridable. Uses the existing config machinery:
-- `graph_configure action=generate_config config_key=<profile>` writes a COMPLETE
-  config.json (every ~261 fields defaulted/auto-sized) seeded by the profile + run plan.
-- Present `graph_configure action=config_reference` (every option grouped by subsystem)
-  so the operator can **override any value**; apply overrides live with
-  `action=set_config` (honoring `restart_required` for engine-rebuild keys).
-- Drop in the `vault://apps/<service>/<KEY>` refs from Step 8 (`vault_sync`) for every
-  secret-bearing field instead of inline values.
-- **Modernized config invariants (enforced by validation — a stale config hard-fails boot).**
-  `generate_config` emits and `config_doctor` checks the current contract, so genesis never
-  writes a legacy key: the engine connection is **`GRAPH_SERVICE_ENDPOINTS`** (`tcp://host:9100`
-  / `unix://…`; the retired `ENGINE_MODE`/`ENGINE_ENDPOINT`/`GRAPH_SERVICE_TCP_ADDR`/
-  `EPISTEMIC_GRAPH_AUTOSTART` are rejected); every credential-suffix key is a **`*_REF`**
-  (`OIDC_CLIENT_SECRET_REF`, … — an inline secret fails the durable-secret policy); external
-  KG connection profiles (ladybug/neo4j) reference a **`connection_profile_ref`** rather than
-  inline host/user/password; the engine process identity is **`KG_IDENTITY_OAUTH2` xor
-  `KG_AUTH_TOKEN_REF`** (exactly one); `SECRETS_BACKEND=engine` (not `inmemory`);
-  `A2A_BROKER`/`A2A_STORAGE=epistemic_graph` (not `in-memory`); `TIMEOUT`/`TOOL_TIMEOUT` are
-  seconds at a sane bound (e.g. `3600`, not `32400`); and every HTTPS endpoint URL (Keycloak
-  issuer, Langfuse host) is `https`, not `http`.
-- Finish with `graph_configure action=config_doctor` + `agent-utilities doctor` → green
-  (config complete, secret refs resolvable, durability rules hold, IdP detected).
-- Requires: `graph-os`
-- Expected: `config-generated, config-validated`
-
-### Step A2: graph-os-unified-gateway
-[depends_on: Step A1] (profiles: single-node-prod, enterprise)
-Deploy the **agent-utilities `graph-os` MCP server** (`knucklessg1/agent-utilities`,
-container `command: graph-os`, streamable-http :8000) with `KG_DAEMON_ROLE=host` — it
-owns the single consolidated KG daemon. **graph-os is the ONE unified MCP gateway:** the
-standalone `mcp-multiplexer` is **folded in** via the in-process fleet loader
-(`attach_fleet_loader`), so this single endpoint serves its own KG/engine tools **and**
-lazily fronts the whole authenticated `*-mcp` fleet — there is **no separate multiplexer
-service** to deploy. Optionally start the REST gateway `graph-os-daemon` (:8100).
-
-**`orchestrator == kubernetes` — render from the skill's own k8s recipes (the DEFAULT,
-never hand-rolled YAML).** [`references/k8s/`](references/k8s/README.md) ships three
-template-shaped manifest sets, selected by the resolved `engine_topology` below:
-[`references/k8s/graphos-unified.yaml`](references/k8s/graphos-unified.yaml) for
-`unified-in-process`, [`references/k8s/hyperscale-engine-and-graphos.yaml`](references/k8s/hyperscale-engine-and-graphos.yaml)
-for `out-of-process-shared`, and [`references/k8s/mcp-server-editable.yaml`](references/k8s/mcp-server-editable.yaml)
-(one copy per connector — Step A3) for the fleet. All three are written against the
-CURRENT config contract only (engine locality via `GRAPH_SERVICE_ENDPOINTS`
-presence/absence, `GRAPH_SERVICE_PERSIST_DIR` for the store — never a retired key) and
-are `<PLACEHOLDER>`-shaped, not `envsubst`: replace every placeholder, then apply via
-the Step 10 GitOps binding. See that directory's README for how to graduate beyond them
-(3-voter Raft, the certification-gated production cell, …).
-
-**Backend — the engine is the ONE durable multi-model store (CONCEPT:AU-KG.backend.backend-modes /
-AU-OS.deployment.engine-resolver-auto-provision).** The epistemic-graph engine is the ONE authority: it serves reads, acks
-writes, AND persists durably (**redb-authoritative by default** — an acked write
-survives a crash; it is NOT a rebuildable cache), spanning graph + vector + SQL +
-RDF/SPARQL + OWL-2 + time-series + blob + text + streaming + security under one
-process. **Deploy per the resolved `engine_topology` (Step 0a′)** — full depth +
-worked manifests: [`references/engine-topology-and-hyperscaling.md`](references/engine-topology-and-hyperscaling.md):
-
-- **`unified-in-process` — `single-node-prod` (default).** ONE image/pod IS
-  graph-os + the engine (in-process via PyO3) + the numeric kernel + messaging +
-  the gateway. There is **no separate engine container to deploy, version, or
-  drift against** — deploying the `graph-os` image on the KG host is the whole
-  engine deployment. (Until the PyO3 binding lands, the same one-thing-to-deploy
-  contract is realized via the bundled/autostarted engine sharing the host with
-  graph-os — externally identical.) On Kubernetes, [`references/k8s/graphos-unified.yaml`](references/k8s/graphos-unified.yaml)
-  is this shape's default starting manifest.
-- **`out-of-process-shared` — `enterprise` (default, the HYPERSCALING shape).**
-  The engine runs as its **own scaled service**, built with the eg `cluster`
-  cargo feature (raft — multi-Raft sharding + HA; see eg `AGENTS.md`
-  "in-engine Raft replication" and `services/epistemic-graph/flavors/cluster.env`),
-  reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS` (the
-  `EngineResolver` routes to it; it never autostarts a configured remote). **N
-  graph-os client pods** run behind the gateway, independently horizontally
-  scaled via **k8s HPA** — see the Hyperscaling section below. On Kubernetes,
-  [`references/k8s/hyperscale-engine-and-graphos.yaml`](references/k8s/hyperscale-engine-and-graphos.yaml)
-  is this shape's default starting manifest (single-instance engine; graduate to
-  the 3-voter Raft cluster below for real HA).
-
-Provision graph-os + agent-utilities-messaging with **`GRAPH_BACKEND=fanout`**
-(engine authority + optional mirrors) — `single-node-prod`/`enterprise` use it; the
-removed `tiered` value fails bootstrap with "Unknown graph backend type 'tiered'".
-For durable profiles add the pggraph **mirror** (`GRAPH_BACKEND=fanout` +
-`GRAPH_MIRROR_TARGETS=age` + `GRAPH_DB_URI`, Step A4) for interop/BI/DR — mirrors
-are orthogonal to `engine_topology` and fan out from either shape. Inject
-**`EPISTEMIC_GRAPH_ENCRYPTION_KEY`** (Step 8) so the engine's encrypted
-`__secrets__` store (CONCEPT:AU-OS.identity.encrypted-secret-store) and encryption-at-rest are active.
-**First-boot migration:** the engine's persist dir is on a durable volume, and on
-its first authoritative boot it runs a one-time `.mp`→redb migration (minutes on a
-large KG; the socket is not bound until it finishes) — see the engine
-binary-promotion runbook for the deploy-time health-start-period.
-
-**Hyperscaling (`out-of-process-shared`, enterprise) — the distributed setup:**
-1. **Build/pull the eg `cluster` image** (`EG_FEATURES=cluster` or
-   `cargo build --features cluster,ast-extended` — links `openraft`; the plain
-   `default`/`full` build stays single-node and does NOT link raft). This is a
-   **different build of the same engine**, not a separate artifact family —
-   topology/replication are runtime configuration on top of it.
-2. **Stand up the Raft members** — one engine process per voting node
-   (`EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS`/`_BIND_ADDR`, one shared
-   `EPISTEMIC_GRAPH_RAFT_AUTH_SECRET`), peered via a **headless Service** (pod-DNS,
-   never a plain ClusterIP — a ClusterIP's DNAT breaks Raft's long-lived
-   follower↔follower transport). Reference env: `services/epistemic-graph/flavors/cluster.env`;
-   reference k8s: `services/epistemic-graph/k8s/raft-cluster/` (3-voter, one Deployment
-   per node) and `services/epistemic-graph/soak/21-engine-statefulset.yaml` (headless
-   Service + StatefulSet pattern) — both staged designs to adapt, not apply verbatim.
-   3 voters tolerate 1 node failure (the HA sweet spot).
-3. **Shard for write-scaling (optional, orthogonal to HA):** `EPISTEMIC_GRAPH_RAFT_GROUPS`
-   stands up N independent Raft groups (`MultiRaft`), each owning its own redb
-   shard — a graph's consensus group and its durable shard are always co-located.
-   Client-side, this is the SAME tenant-partitioned HRW routing as
-   `docs/architecture/engine_sharding.md` (`GRAPH_SERVICE_ENDPOINTS` as a list,
-   `tenant → named graph → HRW → shard`) — the engine side just now replicates
-   each shard instead of running it single-node.
-4. **N graph-os client pods behind the gateway, k8s HPA.** The genesis-default
-   starting manifest for this whole tier (engine + front pods + HPA in one file)
-   is [`references/k8s/hyperscale-engine-and-graphos.yaml`](references/k8s/hyperscale-engine-and-graphos.yaml).
-   Every graph-os pod points `GRAPH_SERVICE_ENDPOINTS` at the (possibly multi-member) engine and
-   authenticates with the fleet's ONE `GRAPH_SERVICE_AUTH_SECRET`. Today's staged
-   k8s reference (`services/epistemic-graph/k8s/production-separate.yaml`) already
-   decouples graph-os into its own Deployment reached over loopback TCP; scaling
-   that Deployment past `replicas: 1` needs the documented TLS follow-on (so a
-   second replica on a second node can reach the engine over a non-loopback
-   address) plus session-affinity on the Ingress (the MCP `StreamableHTTPSessionManager`
-   keeps sessions in an in-process dict — cookie-affinity pins a client to its
-   originating pod). Once that's in place, an `autoscaling/v2 HorizontalPodAutoscaler`
-   on the `graph-os` Deployment (CPU/RPS-driven) scales pods independently of the
-   engine's own replica count.
-5. **Verify** per `services/epistemic-graph/soak/README.md`: formation + leader
-   election in logs, a write on the leader read back on a follower, and a killed
-   leader re-electing (~5s) without dropping quorum.
-
-**graph-os fleet-gateway auth (CONCEPT:AU-OS.identity.so-jwt-protected-children) — the DEFAULT, full config in
-[`references/graph-os-fleet-gateway-auth.md`](references/graph-os-fleet-gateway-auth.md):** set on the
-**`graph-os`** service (the multiplexer is absorbed): `MCP_CONFIG=/root/.config/agent-utilities/mcp_config.json`
-(the central fleet list — ⚠️ MUST be set explicitly, or the loader resolves a stale
-`~/.gemini/antigravity/mcp_config.json` and the fleet appears empty), plus the **outbound
-fleet-child minter** `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_ISSUER=https://keycloak.arpa/realms/homelab`,
-`OIDC_CLIENT_ID=mcp-multiplexer`, **`OIDC_CLIENT_SECRET_REF=vault://apps/graph-os/OIDC_CLIENT_SECRET`**
-(a durable-secret **reference** — a bare `OIDC_CLIENT_SECRET` now fails the durable-secret policy),
-`OIDC_AUDIENCE=agent-services` so graph-os mints + attaches a Keycloak service token to every jwt child
-(without it, `AUTH_TYPE=jwt` children are 401), and Eunomia (`EUNOMIA_TYPE=embedded`,
-`EUNOMIA_POLICY_FILE=/eunomia_policy.json`) for per-principal authorization. The engine is reached over
-**`GRAPH_SERVICE_ENDPOINTS=tcp://<engine-host>:9100`** (the retired `ENGINE_MODE`/`ENGINE_ENDPOINT`/
-`GRAPH_SERVICE_TCP_ADDR`/`EPISTEMIC_GRAPH_AUTOSTART` hard-fail boot), and graph-os authenticates ITSELF to
-that engine with **exactly one** process identity — `KG_IDENTITY_OAUTH2` (client-credentials to Keycloak)
-**xor** `KG_AUTH_TOKEN_REF` (static bearer); both/neither raises *"Configure exactly one graph process
-identity source"*. ⚠️ **Both OAuth2 mints POST to `https://keycloak.arpa`, so the graph-os host MUST trust
-`homelab-arpa-ca` (Step 1b, system trust store — env-var CA injection is insufficient) AND keycloak must
-serve a real cert (Step 14) — otherwise boot fails with `Graph process identity acquisition failed`.**
-Secrets live in OpenBao `apps/graph-os` (referenced via `*_REF`, never inline); the non-secret config is in
-`services/graph-os/.env`.
-
-**Shared agent-utilities config volume (CONCEPT: OS-5.x):** seed an **external**
-named volume `agent_utilities_config` (and `agent_utilities_data`) on the KG host
-with the bare-metal `~/.config/agent-utilities/config.json`, and mount it at
-`/root/.config/agent-utilities` in graph-os. This is the single source of
-config (models, backends, secrets, OTel/Langfuse) — the same volume a bare-metal
-install reads. Any **config-aware** `*-mcp` (those that use agent-utilities
-models / KG / secrets — e.g. `data-science-mcp`, `scholarx-mcp`,
-`repository-manager-mcp`, `emerald-exchange-mcp`) mounts the **same** volume and
-is **co-located on the KG host** so the node-local named volume resolves (or back
-it with a shared/NFS driver). Thin API-wrapper connectors (github, gitlab,
-servicenow, …) do **not** need it — they take their own creds via stack env.
-- Requires: `graph-os`, `container-manager-mcp`, `portainer-mcp`
-- Expected: `graph-os-up, fleet-gateway-ready (MCP_CONFIG+outbound-OIDC+eunomia), config-volume-seeded, engine-topology-realized` (enterprise additionally: `engine-cluster-formed, hpa-armed`)
-
-### Step A3: mcp-fleet-deploy
-[depends_on: Step A2] (profiles: single-node-prod, enterprise)
-Deploy the `*-mcp` connector fleet from
-`agent-utilities/deploy/mcp-fleet.registry.yml`, filtered to services whose
-`profiles:` include the active profile. Each is a per-service Portainer stack
-(streamable-http, container port `8000` → its registry `host_port`) bound to Git
-for GitOps auto-sync via `portainer-sync-agent`. Apply the missing-image
-Failure-handling policy. (Regenerate the registry with
-`python agent-utilities/scripts/gen_mcp_fleet_registry.py --agents-dir <…>/agents`.)
-
-**`orchestrator == kubernetes`** → render each selected connector from
-[`references/k8s/mcp-server-editable.yaml`](references/k8s/mcp-server-editable.yaml)
-(the skill's default template — dev source-mount + PYTHONPATH + pip-install-at-start,
-or prod baked-deps; parameterized by the service name/image/port from the registry
-above) instead of a compose stack, then apply via the Step 10 GitOps binding.
-
-**Auth + deploy artifact (CONCEPT:AU-OS.identity.so-jwt-protected-children / AU-OS.observability.no-op-without-metrics):** the generated composes ship
-`AUTH_TYPE=jwt` + eunomia by default (from `gen_mcp_service_stacks.py` / `gen_editable_compose.py`),
-and every service exposes unauthenticated `/metrics` + `/health`. Deploy the **editable**
-`compose.dev.yml` (set Portainer `ConfigFilePath=compose.dev.yml`): one container per MCP,
-source-mounted at `/src`, pinned to the source node — edits go live on restart. Children
-are reachable because the multiplexer presents its service token (Step A2). Flip jwt in
-**phased waves** (read-only → data → sensitive; `portainer-mcp` last; never the multiplexer),
-verifying multiplexer reachability after each wave.
-
-**Env-var canon (CONCEPT:AU-OS.config.env-var-drift-guard).** The code is the single source of truth for env
-vars: each connector's generated compose `environment:` block and its
-`mcp_config*.json` `env` block match exactly the variable set the connector actually
-reads (no dead/undocumented vars), and **every MCP server's `env`/compose carries
-`MCP_TOOL_MODE`** (`condensed` | `verbose` | `both` | `intent`, default `condensed`) so
-the condensed/verbose/intent surface is discoverable. `intent`
-(CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse, Seam 8) is graph-os's small/cheap-LLM
-profile — it collapses the ~95-tool condensed surface to six `ask`/`find`/`write`/
-`act`/`manage`/`why` verbs (a resolver routes each natural-language intent to the
-right granular tool, dispatched via the same `_execute_tool` core — nothing lost,
-`load_tools` still reaches any exact tool); pick it for a Haiku/local-model
-deployment where a 100-tool schema list hurts selection accuracy. Genesis-provisioned/scaffolded packages
-ship the shared guard `python -m agent_utilities.mcp.check_env_var_drift --check` as
-their `env-var-drift` pre-commit hook (from the `agent-package-builder` scaffold),
-which flags DEAD / UNDOCUMENTED / MISSING_TOOL_MODE drift across `.env.example`,
-`mcp_config*.json`, docker compose, and the README. Run it on any stack you hand-tune.
-
-**Gotchas baked in from live rollout (see `references/TROUBLESHOOTING.md`):**
-- **eunomia needs the fastmcp-3.x compat build** (§9): without `apply_fastmcp_enabled_compat()`
-  in the deployed agent-utilities, every `tools/call` on a eunomia service errors. Don't flip
-  `EUNOMIA_TYPE=remote` onto images that predate that build.
-- **Stack env is inert unless the compose passes it** (§10): set BOTH the stack Env value AND
-  `- VAR=${VAR}` in the compose `environment:` (tokens, connector URLs).
-- **Healthcheck port must equal `PORT`** (§11): a mismatch crash-loops the service to 502;
-  prefer a `socket.create_connection(('localhost', PORT))` check.
-- **Mount the connector's working data** (§13): repository-manager → workspace +
-  `WORKSPACE_PATH`; container/tunnel-manager → `inventory.yaml` + `~/.ssh`. A missing import
-  module is a packaging fix (add dep + rebuild), not a mount.
-- After restarting any child, **reconnect the multiplexer** before re-validating (§12) — stale
-  sessions hang tool calls 300s.
-- **(hardened 2026-07-09) `container-manager-mcp` needs three things to drive Kubernetes:**
-  the deployed image must include the `[mcp]` extra's `kubernetes` client (publish
-  `>=2.1.1` to PyPI, or build the image from local source — the Dockerfile installs from
-  PyPI, which can lag the k8s code on git); a kubeconfig mounted at
-  `${HOME}/.kube/config` → `/root/.kube/config:ro`; and the `K8S*TOOL` toggles set
-  **explicitly** to `True` in `.env` (an unset `${K8SWORKLOADSTOOL}`-style var interpolates
-  empty = disabled). Since CM-MCP is a standalone Swarm service graph-os reaches over
-  `http://container-manager-mcp.arpa/mcp`, no graph-os restart is needed after fixing/
-  redeploying it — it auto-reconnects on the next `cm_*` call.
-- Requires: `portainer-mcp`, `container-manager-mcp`
-- Expected: `mcp-fleet-deployed, auth-on, metrics-exposed, deferred-report`
-
-### Step A4: integrations-wiring
-[depends_on: Step A3] (toggle-gated)
-Wire **only the enabled** integrations into the agent-utilities config: `pggraph`
-(`GRAPH_DB_URI`), `kafka` (`QUEUE_BACKEND=kafka` + `KAFKA_BOOTSTRAP_SERVERS`),
-`openbao`/vault (`SECRETS_VAULT_URL` + `VAULT_AUTH_METHOD`), **IdP**
-(`AUTH_JWT_JWKS_URI` + `KG_AUTH_REQUIRED` — set to the resolved issuer's JWKS, whether
-**Keycloak** (deployed) or an existing **Okta** org (`…/oauth2/<server>/v1/keys`) /
-other OIDC; provision the fleet OIDC client against that issuer), `langfuse`
-(`LANGFUSE_*` + `ENABLE_OTEL`). `agent-utilities doctor` is IdP-agnostic and names the
-detected IdP. Disabled toggles are skipped and reported.
-- Requires: `openbao-mcp`, `keycloak-mcp` (keycloak only) / `okta-agent` (okta)
-- Expected: `integrations-wired`
-
-### Step A4b: ontology-host
-[depends_on: Step A4]
-Configure **where the OWL ontology is hosted** (Step 0 `ontology_host`) and **upload
-the canonical ontology** there, via the **`database-environment-setup`** skill +
-`OntologyPublisher`:
-- `stardog` (default enterprise) → `graph_configure action=push_to_stardog` for the
-  TBox + register Stardog as a `role="mirror"` connection so the platform hosts/consumes it.
-- `apache-jena` (Fuseki) → `OntologyPublisher.push_to_jena_fuseki` (Graph Store Protocol).
-- `local` (default tiny) → in-process SPARQL; no external upload.
-An operator may supply an **existing** Stardog/Postgres URI+creds (`use-existing`) and
-this step configures everything — including the ontology upload — automatically
-(`graph_configure action=setup_databases`). The single canonical ontology
-(`ontology.ttl` + all imported domain modules) is the validated, connected library
-(see agent-utilities `docs/architecture/ontology_library.md`).
-- Requires: `graph-os` (+ skill `database-environment-setup`)
-- Expected: `ontology-hosted, ontology-uploaded`
-
-### Step A4c: messaging-channels
-[depends_on: Step A4] (conditional: only when Step 0 picked ≥1 messaging channel)
-Configure the agent→user **messaging** channels (Step 0 `messaging`) so the agent can
-reach the operator. agent-utilities already ships the multi-channel send core
-(`MessagingService.reach_user` / MCP `graph_reach` / REST `/graph/reach`,
-CONCEPT:AU-ECO.messaging.native-backend-abstraction) — this step only **provisions** it; it adds no engine code:
-- For each picked channel, **seed its token** via `graph_configure action=vault_sync`
-  (CONCEPT:AU-OS.deployment.vault-first-routine-genesis) into `apps/messaging` (or the service `.env`), reusing read-existing
-  so a re-run never re-prompts. Channel keys: `MESSAGING_SLACK_TOKEN`
-  (+`MESSAGING_SLACK_APP_TOKEN`), `MESSAGING_TEAMS_APP_ID`+`MESSAGING_TEAMS_APP_SECRET`,
-  `MESSAGING_TELEGRAM_TOKEN`, `MESSAGING_MATTERMOST_TOKEN`+`MESSAGING_MATTERMOST_URL`,
-  `MESSAGING_DISCORD_TOKEN`, … (see the messaging config guide).
-- Set **`MESSAGING_ENABLED_BACKENDS`** to the full picked list (`set_config`) so **every**
-  configured channel auto-connects — having Teams, Slack, and Telegram all set means all
-  three come up and are usable.
-- **Reach mode:** `last-active` (default) needs only `MESSAGING_DEFAULT_PLATFORM` +
-  `MESSAGING_DEFAULT_CHANNEL` (the fallback when no last-active channel is recorded) —
-  fully functional today. **`broadcast`** (opt-in) sets `MESSAGING_REACH_MODE=broadcast`
-  so a single `reach_user` fans out to all `MESSAGING_ENABLED_BACKENDS` at once; this is
-  honored by the messaging engine's fan-out (the `MessagingService` reach-mode behavior).
-  > **Dependency note:** broadcast fan-out is delivered in the messaging subsystem
-  > (`agent_utilities/messaging/*`); this step writes the agreed `MESSAGING_REACH_MODE`
-  > contract. If the engine fan-out is not yet present, `last-active` is the working
-  > default and `broadcast` activates as soon as that lands. Do not edit `messaging/*` here.
-- **Instant push via webhook + ZERO open ports (CONCEPT:AU-ECO.messaging.telegram-webhook-receiver-started, recommended).** Inbound
-  defaults to long-polling (near-real-time, no ingress). For true push with **no inbound
-  port opened**, use an **outbound tunnel** — **Cloudflare Tunnel is the default and needs
-  NO edge-ingress node**: run `cloudflared` on this host (it dials out; Cloudflare is the
-  edge), map a hostname → `http://127.0.0.1:${MESSAGING_WEBHOOK_PORT:-8443}`, then set
-  `MESSAGING_WEBHOOK_BASE_URL=https://hooks.<domain>` (+ `MESSAGING_WEBHOOK_SECRET` via
-  `vault_sync`). The bot then registers a `setWebhook` receiver on the LOCAL port with
-  `secret_token` validation. Alternatives (same code path): self-hosted **pangolin** tunnel,
-  or **public Caddy** + Keycloak `forward_auth` (webhook path exempt, locked by
-  signature + Telegram IP allowlist + CrowdSec). Gate human routes with **Cloudflare Access
-  / Keycloak**; keep secrets in **OpenBao**. See `agent-utilities` docs/architecture/
-  messaging_security.md. Empty `MESSAGING_WEBHOOK_BASE_URL` ⇒ polling (no ingress).
-- **Fleet delegation via graph-os + multiplexer (CONCEPT:AU-ECO.messaging.make-fleet-credentials-present).** Wire the chat agent
-  to reach the WHOLE fleet by delegating through graph-os — the agent never carries per-
-  connector tools. Set TWO MCP servers on the messaging agent (the same surface Claude
-  uses): **graph-os** for `graph_orchestrate` + KG, and the **mcp-multiplexer** for dynamic
-  `find_tools`/`load_tools` over every connector (github/gitlab/…):
-  - `MESSAGING_MCP_URL=http://<served-graph-os>/mcp` (the served graph-os MCP, e.g. the
-    local `kg_server --transport streamable-http` on `127.0.0.1:8100`).
-  - `MESSAGING_MCP_CONFIG=<a config file>` whose single `mcp-multiplexer` server runs
-    `python -m agent_utilities.mcp.multiplexer --config <fleet mcp_config.json>`
-    (`MCP_MULTIPLEXER_MODE=dynamic`). **No secrets in this file** — OIDC is inherited from
-    the daemon's process env.
-  - **Fleet auth (jwt-protected fleet):** the messaging daemon loads OIDC client-credentials
-    into its env at startup (`MCP_CLIENT_AUTH=oidc-client-credentials` + `OIDC_CLIENT_ID/
-    SECRET/AUDIENCE/TOKEN_URL`), sourced **env → OpenBao `apps/mcp-multiplexer` → local
-    Claude MCP config**. **Inject them from OpenBao** (`graph_configure action=vault_sync
-    config_key=mcp-multiplexer` into the messaging unit env) so the spawned multiplexer AND
-    every nested `graph_orchestrate`-spawned agent (via `_spawn_auth_headers`) authenticate.
-    Never put these in a plaintext file — OpenBao is the source of truth.
-  - **Chat tool policy:** the agent auto-runs the delegation surface (`graph_orchestrate`,
-    `graph_search`, `find_tools`, `load_tools`) and read-only fleet tools from a chat message;
-    mutating tools stay gated and the spawned specialist's own actions remain governed by the
-    ActionPolicy gate (OS-5.24). No extra config — it's the default policy.
-- **Verify:** `graph_reach action=status` lists every configured channel as connected;
-  a test `graph_reach action=reach_user text="genesis: messaging online"` reaches the
-  operator (last-active/default), or — in broadcast mode — all configured channels. For
-  delegation, the daemon log shows `[AU-ECO.messaging.make-fleet-credentials-present] fleet auth: loaded …` and the chat agent can
-  fetch e.g. GitHub issues via `graph_orchestrate`/the multiplexer.
-- Requires: `graph-os`, `mcp-multiplexer` (+ OpenBao for fleet OIDC)
-- Expected: `messaging-configured, channels-connected` (broadcast: `+broadcast-mode-set`;
-  webhook: `+webhook-push-via-tunnel`; delegation: `+graphos-fleet-delegation`)
-
-### Step A5: mcp-config-rewire (streamable-http, no stdio)
-[depends_on: Step A3] (profiles: single-node-prod, enterprise)
-Once the fleet is deployed, **back up** every `mcp_config*.json` (workspace +
-`~/.config/agent-utilities/mcp_config.json`) to a timestamped dir, then **rewire**
-each connector entry from a local **stdio** spawn
-(`{"command": ".venv/bin/<name>", ...}`) to the deployed **streamable-http**
-endpoint (`{"transport": "streamable-http", "url": "http://<name>.arpa/mcp"}`).
-We no longer run the connectors as stdio servers. `graph-os` likewise points at
-its R820 streamable-http endpoint. Only rewire entries whose container is live
-(use the deferred/skipped report from Step A3); leave the rest stdio until
-deployed. Reload the multiplexer.
-**Auth note (CONCEPT:AU-OS.identity.so-jwt-protected-children):** rewired entries are remote `streamable-http` children that
-enforce jwt — leave their `headers` empty; the multiplexer's service token (Step A2) is
-attached automatically. Do NOT bake per-child bearer tokens into `mcp_config.json`.
-**Env-var canon (CONCEPT:AU-OS.config.env-var-drift-guard):** for any entry kept as a local **stdio** spawn, its
-`env` block must include `"MCP_TOOL_MODE": "condensed"` (the tool-surface knob — remote
-children read it from their compose env); run
-`python -m agent_utilities.mcp.check_env_var_drift --check` on the rewired config to
-confirm no MISSING_TOOL_MODE / DEAD / UNDOCUMENTED drift.
-- Requires: `container-manager-mcp`
-- Expected: `mcp-config-rewired, stdio-retired`
-
-### Step A6: verify auth + observability end-state
-[depends_on: Step A5] (profiles: single-node-prod, enterprise)
-Assert the realized end-state (CONCEPT:AU-OS.identity.so-jwt-protected-children / AU-OS.observability.no-op-without-metrics):
-- Each jwt MCP rejects unauthenticated calls: `curl -s -o /dev/null -w '%{http_code}'
-  -X POST http://<svc>.arpa/mcp` → `401`.
-- The multiplexer can call a tool on a jwt child (service token attached) → success.
-- **Validate at the TOOL-CALL level, not just `initialize`** — `initialize`/`tools/list`
-  passing hides per-call failures (eunomia, missing module, bad URL). Run a full host-side MCP
-  session with the A0 token (`initialize`→`initialized`→`tools/list`→`tools/call`) per service;
-  see `references/TROUBLESHOOTING.md` §8. In particular, after enabling `EUNOMIA_TYPE=remote`,
-  confirm a real `tools/call` returns data and NOT `'FunctionTool' object has no attribute
-  'enabled'` (the fastmcp-3.x eunomia break — §9; requires the agent-utilities compat build).
-- `/metrics` returns Prometheus exposition: `curl http://<svc>.arpa/metrics`; a tool call
-  increments the per-tool counter.
-- Prometheus shows `up{job="mcp-fleet"}==1` and `probe_success{job="blackbox-mcp"}==1` for
-  live services; Grafana "MCP Fleet Overview" is populated; stopping a service fires
-  `McpServiceDown`/`McpProbeFailed` to Mattermost.
-- **Observability dashboards populated:** "Host & Infra" shows disk I/O + IOPS + network +
-  load + swap per host, and "Container Resources" shows per-service container CPU/mem/disk-I/O.
-  Confirm the cAdvisor tuning held: `container_cpu_usage_seconds_total` still carries
-  `container_label_com_docker_stack_namespace` / `..._swarm_service_name` (whitelist kept
-  the grouping labels), and cAdvisor CPU on a busy node dropped vs untuned.
-- Requires: `portainer-mcp`, `systems-manager-mcp`
-- Expected: `auth-enforced, multiplexer-reachable, metrics-live, dashboards-populated, alerts-firing`
-
-## Execution
-
-Run this workflow as a dependency-ordered DAG. Steps with no unmet `depends_on` run in parallel; dependents run after their prerequisites complete.
-
-- **Run first (in parallel):** Step 0 — deployment-profile + adaptive run plan; Step 1 — ssh-bootstrap
-- **After level 0:** Step 1b — ca-trust-provisioner (conditional: `ca_bundle` supplied); Step 2 — network-topology-sweep; Step 3 — hardware-profile-sweep
-- **After level 1:** Step 4 — deployment-planner
-- **After level 2:** Step 5 — mesh-provisioner (per `orchestrator`: swarm | kubernetes | podman | compose)
-- **After level 3:** Step 6 — node-labeling
-- **After level 4:** Step 7 — core-edge-deploy
-- **After level 5:** Step 8 — secret-vault-manager + seed-initial-secrets
-- **After level 6:** Step 9 — gitlab-repository-seeder → Step 9b — standard-private-repos-and-ci (provision the standard operator-owned private repos + generalized CI/runners, profile-scaled; tiny = local `{inventory, config}`, no CI)
-- **After level 7:** Step 10 — portainer-gitops-bind
-- **After level 8:** Step 11 — tiered-service-deploy
-- **After level 8 (opt-in):** Step 11b — kvcache-layer (LMCache → epistemic-graph kvcache-server, co-located on the vLLM host; only when KV-cache pooling is opted into)
-- **After level 9:** Step 12 — dns-migration-utility (conditional: legacy-resolver migration only)
-- **After level 10:** Step 13 — dns-record-manager
-- **After level 11:** Step 14 — keycloak-oidc-wiring
-- **After level 12 (in parallel):** Step 14b — credential-rotation-policy; Step 15 — observability-and-backups
-- **After level 13:** Step 16 — graph-os
-- **agent-utilities core (A-series), after Step 0 / once hosts are ready:** A1 — install → A1b — config-walkthrough → A2 — graph-os+multiplexer → A3 — mcp-fleet-deploy → A4 — integrations-wiring → A4b — ontology-host → A4c — messaging-channels → A5 — mcp-config-rewire → A6 — verify (tiny stops after A1).
-
-Every step honors the Step 0 **run plan**: a capability marked `use-existing` skips
-its deploy sub-step and runs only wiring; `skip` is omitted entirely; the
-`orchestrator` selects the Step 5 provisioner branch.
-
-**Execution:** If graph-os is reachable, offload the whole DAG via `graph_orchestrate action=execute_workflow` (or the `graph-orchestration-and-automation` skill's cold-start delegation router) for true parallel/swarm execution. Otherwise execute the steps natively in dependency order: run steps with no unmet `depends_on` in parallel, then their dependents.
+The deployment skill must render/install the application configuration, deploy the
+selected graph-os/engine/fleet/UI entrypoints, run migrations where needed, and
+return verification evidence. If it reports a missing substrate capability, resume
+genesis only for that bounded prerequisite and then re-invoke it.
+
+## Phase 8 — End-to-end exit gates
+
+Do not declare success until all applicable gates pass:
+
+1. rendered artifacts contain no unresolved placeholders or plaintext secrets;
+2. policy/schema validation and dry-run/server-side apply pass;
+3. workloads satisfy readiness, resource, placement, and restart checks;
+4. engine persistence survives a controlled restart and a backup restore is tested;
+5. OIDC/static auth, tenant separation, secret resolution, TLS, and egress policy
+   behave as declared;
+6. Graph-OS exposes its health and MCP discovery surface;
+7. selected skills, prompts, ontologies, and MCP tools are discoverable after
+   ingestion;
+8. one read-only delegated local-model run traverses the actual Pydantic execution
+   layer, calls an allow-listed tool, and records model/tool/graph spans;
+9. every enabled user entrypoint reaches the same backend execution contract;
+10. rollback is executable and evidence is stored without credentials.
+
+For graph execution, distinguish these claims:
+
+- `Agent.run` tool loop validated;
+- multi-node `pydantic_graph` DAG validated;
+- harness `DynamicWorkflow` validated.
+
+One does not prove the others. Record node transitions, state/checkpoint IDs, tool
+arguments after redaction, model/provider, termination reason, and trace linkage for
+each claim.
+
+## Output
+
+Return:
+
+- resolved plan and component matrix;
+- what was used, provisioned, skipped, or blocked;
+- immutable artifact/revision identifiers;
+- `agent-utilities-deployment` handoff and result;
+- per-gate evidence links;
+- rollback instructions;
+- deferred work with owner and reason.
+
+Never report an unexecuted recipe as live or a partial trace as end-to-end
+validation.

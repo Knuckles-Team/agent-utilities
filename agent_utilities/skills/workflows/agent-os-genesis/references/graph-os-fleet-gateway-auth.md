@@ -1,194 +1,35 @@
-# graph-os unified fleet gateway — auth config (DEFAULT reference)
+# Graph-OS fleet gateway authentication
 
-> The standalone `mcp-multiplexer` is **absorbed into graph-os** via the in-process fleet
-> loader (`attach_fleet_loader`, `agent_utilities/mcp/multiplexer.py`). There is **one** MCP
-> endpoint — `graph-os` — that serves its own KG/engine tools **and** lazily fronts the whole
-> authenticated `*-mcp` fleet (`find_tools` / `list_catalog` / `load_tools`). This is the
-> canonical auth wiring; multiplexer-absorb validated live 2026-07-05, config contract
-> modernized 2026-07-20.
+Graph-OS accepts a user/workload identity and may call downstream MCP servers with a
+service or delegated identity. Treat those as separate trust decisions.
 
-## Architecture
+## Inbound
 
-```
-client ──▶ graph-os (graph-os.arpa, streamable-http :8000)   ← inbound JWT validated
-            ├─ always-on: graph-os KG/engine tools
-            ├─ engine process identity ▶ epistemic-graph engine (GRAPH_SERVICE_ENDPOINTS)
-            │        ← graph-os authenticates ITSELF (KG_IDENTITY_OAUTH2 | KG_AUTH_TOKEN_REF)
-            └─ fleet loader (attach_fleet_loader), reads MCP_CONFIG
-                 └─ lazy ▶ <name>-mcp.arpa   ← outbound client-credentials bearer attached
-                          (each child is 401 without it; Eunomia authorizes per principal)
-```
+Validate issuer, audience, signature/JWKS rotation, time bounds, tenant, subject,
+roles/scopes, policy version, and transport TLS. Static tokens are suitable only for
+bounded deployments and must still be referenced from a secret provider.
 
-**Two distinct OAuth2 identities** (both client-credentials to Keycloak — do not conflate):
-1. **Outbound fleet-child minter** — the bearer graph-os attaches to each `*-mcp` child
-   (`MCP_CLIENT_AUTH` + `OIDC_*`).
-2. **Engine process identity** — how graph-os authenticates ITSELF to the epistemic-graph
-   engine reached over `GRAPH_SERVICE_ENDPOINTS` (`KG_IDENTITY_OAUTH2` **xor**
-   `KG_AUTH_TOKEN_REF`). A failure here **blocks boot** with `Graph process identity
-   acquisition failed`.
+## Outbound
 
-## Complete env (set on the `graph-os` service; secret **values** live in OpenBao `apps/graph-os`, referenced by `*_REF`)
+Prefer workload identity or client credentials scoped to the destination. Use a
+cluster-internal token endpoint/service route where appropriate, but validate that
+its issuer and certificate semantics match external verification. A failed token
+mint must fail closed and appear as an attributed trace/error; never silently call a
+protected child without authorization.
 
-> **Durable-secret policy** (`config.py` `_validate_durable_xdg_secret_policy`). Under the
-> XDG/production posture every credential-suffix key must be a **reference** (`*_REF` →
-> `vault://…` / `env://…`), never an inline value — a bare `OIDC_CLIENT_SECRET` fails
-> validation. Use `OIDC_CLIENT_SECRET_REF`.
+Bind every tool call to:
 
-| Var | Value / source | Purpose |
-|-----|----------------|---------|
-| `MCP_CONFIG` | `/root/.config/agent-utilities/mcp_config.json` (the central fleet list — the file `mcp_config_central.json` the multiplexer used, mounted via the XDG config volume) | **The fleet server list.** ⚠️ **Gotcha:** the fleet loader's `_resolve_config_path` checks `~/.gemini/antigravity/mcp_config.json` **first**, so you MUST set `MCP_CONFIG` explicitly or graph-os silently loads a stale default (symptom: `list_catalog` shows a handful of servers, not the fleet; `github-mcp` "not in catalog"). |
-| `MCP_CLIENT_AUTH` | `oidc-client-credentials` | Turn on the **outbound fleet-child minter**. |
-| `OIDC_ISSUER` | `https://keycloak.arpa/realms/homelab` | Token endpoint auto-discovered (OS-5.46 — no `OIDC_TOKEN_URL` needed **on a flat network**). **HTTPS**: the OAuth2 client rejects a plaintext `http` token endpoint, so the host must trust the issuer CA — see **Host CA trust** below. ⚠️ **On Kubernetes, pin `OIDC_TOKEN_URL` explicitly** (next row) — auto-discovery routes the mint through the edge, which can 502 mid-migration. |
-| `OIDC_TOKEN_URL` | *(flat network: omit)* — **on k8s: `https://<idp-service>.<idp-ns>.svc:8443/realms/homelab/protocol/openid-connect/token`** | **The fleet-wide-401 fix.** Auto-discovery dials the *public* issuer host, which routes through the **edge** — during a progressive migration the edge can **502 the token endpoint**, the mint **silently returns no header**, and **every child 401s** (`Session terminated` / `no such host`). Pin the mint to the **in-cluster IdP Service** to take the edge out of the auth path — same resilience trick as pinning JWKS for *inbound* validation. The IdP stamps the external issuer claim regardless of which endpoint minted the token, so child issuer-validation still matches. **Generalized by [`internal-loopback-dns.md`](internal-loopback-dns.md):** CoreDNS rewrites in-cluster `<name>.arpa` → the in-cluster Service, so this per-URL edge-avoidance becomes the default for *every* eligible `.arpa` (the whole `*-mcp.arpa` fleet + `graph-os.arpa`) — a TLS-terminated IdP like `keycloak.arpa` still needs an in-cluster scheme/port first (that doc's eligibility rule), so this explicit pin stays the belt-and-suspenders for the token mint. |
-| `OIDC_CLIENT_ID` | `mcp-multiplexer` (reuses the multiplexer's Keycloak client; a dedicated `graph-os` client is optional) | Client-credentials principal. |
-| `OIDC_CLIENT_SECRET_REF` | `vault://apps/graph-os/OIDC_CLIENT_SECRET` (or `env://<VAR>`) — **never the inline secret** | Client-secret **reference** (durable-secret policy). |
-| `OIDC_AUDIENCE` | `agent-services` | Token audience the children validate. |
-| `EUNOMIA_TYPE` | `embedded` | In-process PDP over the fleet tool surface (per-principal authorization). |
-| `EUNOMIA_POLICY_FILE` | `/eunomia_policy.json` (mounted) | The policy. |
-| `AUTH_JWT_*` / `FASTMCP_SERVER_AUTH_JWT_*` | realm `homelab`, audience `agent-services` | **Inbound** — validate the caller's Keycloak JWT (unchanged from before). |
-| `GRAPH_SERVICE_ENDPOINTS` | `tcp://<engine-host>:9100` (e.g. `tcp://10.0.0.10:9100`); `unix://…` for a local socket | **The engine connection.** Replaces the **retired** `ENGINE_MODE` / `ENGINE_ENDPOINT` / `GRAPH_SERVICE_TCP_ADDR` / `EPISTEMIC_GRAPH_AUTOSTART` (all four now hard-fail boot as retired keys). Connect-only: a configured endpoint is dialed, never autostarted (the split-storage default — engine on the fast-NVMe node). Omit entirely for a co-located autostart. |
-| `KG_IDENTITY_OAUTH2` **xor** `KG_AUTH_TOKEN_REF` | OAuth2 form: `{"token_url":"https://keycloak.arpa/realms/homelab/protocol/openid-connect/token","client_id":"mcp-multiplexer","client_secret":"vault://apps/graph-os/OIDC_CLIENT_SECRET","audience":"agent-services"}` — **or** a static bearer `KG_AUTH_TOKEN_REF=vault://…` | **The engine _process_ identity** (how graph-os authenticates itself to the engine over `GRAPH_SERVICE_ENDPOINTS`, distinct from the outbound minter). **Configure exactly ONE** — `request_identity.py` raises *"Configure exactly one graph process identity source: KG_AUTH_TOKEN_REF or KG_IDENTITY_OAUTH2"* if both or neither is set. The OAuth2 form does a client-credentials grant to Keycloak, so it **also** needs host CA trust (below). |
+- authenticated caller and tenant;
+- selected server/tool and trusted registration;
+- allow-list and consent/approval decision;
+- validated arguments and idempotency key;
+- downstream identity and permission;
+- redacted result/error and correlated trace.
 
-## Host CA trust (REQUIRED when the IdP is HTTPS behind a private CA) — the #1 boot blocker
+Do not trust tool annotations received from an MCP server to grant permission.
 
-Both OAuth2 mints (outbound minter **and** engine process identity) POST to
-`https://keycloak.arpa/.../token`. On the homelab that endpoint serves a **cert-manager cert
-issued by the private `homelab-arpa-ca` ClusterIssuer**, so the **graph-os host must trust
-`homelab-arpa-ca`** — otherwise every mint fails and graph-os **never finishes booting**:
+## Validation
 
-```
-RuntimeError: Graph process identity acquisition failed        # engine identity mint
-# …or a fleet-wide child 401 when only the outbound minter is affected
-```
-
-- **Proper fix — bake the CA into the host trust store (Step 1b `ca-trust-provisioner`).** This
-  is what makes the default TLS context (and `certifi`) trust it; it is a **root** step that
-  Step 0f/1b automate for every host:
-  ```bash
-  sudo cp homelab-arpa-ca.crt /usr/local/share/ca-certificates/homelab-arpa-ca.crt
-  sudo update-ca-certificates   # → folds into /etc/ssl/certs/ca-certificates.crt (what certifi resolves to on Debian)
-  ```
-  Verified this session: with `homelab-arpa-ca` in the bundle the mint returns **HTTP 200** and
-  graph-os boots; without it, the mint raises.
-- **Env-var CA injection does NOT reach the mint.** `SSL_CERT_FILE` / `TLS_CA_BUNDLE` /
-  `CA_BUNDLE` / `REQUESTS_CA_BUNDLE` do **not** apply to the resolved `oauth2-token` TLS
-  profile's `ssl_context`. And `certifi.where()` here resolves to the **root-owned**
-  `/etc/ssl/certs/ca-certificates.crt`, so appending to certifi as a non-root user fails.
-  Host baking (or the config-native profile below) is the only reliable path.
-- **No-root alternative — a config-native TLS profile.** Point the `oauth2-token` profile at a
-  bundle that includes the CA: set `oauth2_token_tls_profile` (or a named `TLS_PROFILES`
-  catalog entry) with `ca_bundle_path: <certifi+CA combined bundle>` and `system_trust: false`
-  so the mint verifies against it exclusively. Prefer host baking; use this only where root is
-  unavailable.
-- **The IdP must also serve a REAL cert.** ingress-nginx's *default* backend answers unmatched
-  `.arpa` TLS with a **fake self-signed cert**, so a host that already trusts `homelab-arpa-ca`
-  STILL fails. Every `.arpa` ingress that terminates TLS needs its own cert-manager
-  `Certificate` + `tls:` block (ClusterIssuer `homelab-arpa-ca`) — see
-  [`keycloak-realm-consolidation.md`](keycloak-realm-consolidation.md).
-
-## Secrets & durability
-
-- **Source of truth:** OpenBao `apps/graph-os` (KV v2), mirroring `apps/mcp-multiplexer`. Seed with
-  the root token (`services/openbao/.env` → `BAO_ROOT_TOKEN`; the scoped `openbao-mcp` token is
-  `apps/data/<its-own>` only and 403s cross-app):
-  `curl -H "X-Vault-Token: $BAO_ROOT_TOKEN" -d '{"data":{…}}' $OPENBAO_URL/v1/apps/data/graph-os`.
-- **Deploy env:** `services/graph-os/.env` (committed) carries the **non-secret** config; the
-  deploy sources it, and references the client secret as
-  `OIDC_CLIENT_SECRET_REF=vault://apps/graph-os/OIDC_CLIENT_SECRET` (the durable-secret policy
-  forbids an inline `OIDC_CLIENT_SECRET`). `compose.dev.yml` / k8s manifests reference everything
-  as `${VAR}` so the stack is reproducible.
-
-## Long-running-task authority — auto-renewal (turnkey, no operator action)
-
-Keycloak issues the `graph-os` client a **short-lived access token** (the realm's *Access Token
-Lifespan*, **~5 min by default**). A single delegated agent run, a large ingestion, or any task
-that outlives one token would otherwise **fail closed mid-run** with
-`SessionExpiredError: Verified graph authority has expired` (the GraphSession's
-`ensure_authority_current` gate) — the authority is deliberately never allowed to silently lapse.
-
-graph-os removes that failure automatically: at startup it launches a background renewal
-supervisor — the **`GraphProcessAuthority`** daemon thread
-(`_start_process_authority_supervisor` → `_process_authority_refresh_loop` in
-`agent_utilities/mcp/kg_server.py`). It re-runs the client-credentials grant and renews the
-**shared in-memory lease ~30 s before expiry**, in place, without changing identity/roles/tenant.
-Because the lease is shared, **every** worker/session minted from the process identity (messaging
-delegations, background ingestion, orchestration) stays current for as long as the task runs — so
-long-running tasks **auto-renew and never crash after expiry**. This is fully automatic; the
-operator configures the OIDC client-credentials **once** (below) and nothing else.
-
-- **Requirement:** the OAuth2 process identity (`KG_IDENTITY_OAUTH2` **or** the outbound
-  `OIDC_*` client-credentials) must be set **and** host CA trust must be in place (the renewal
-  POST goes to Keycloak over HTTPS — the same "#1 boot blocker" CA requirement above). If the
-  renewal POST cannot succeed, the run correctly fails closed with `SessionExpiredError`; that
-  signal means **renewal** is broken (OIDC config / CA trust), not the task.
-- **Static-bearer form (`KG_AUTH_TOKEN_REF`):** a static token has no renewable lease, so the
-  supervisor no-ops — a static bearer must therefore be long-lived enough for the longest task,
-  or use the OAuth2 form (recommended) so renewal is automatic.
-- **Optional tuning:** raising the realm/client *Access Token Lifespan* reduces renewal frequency
-  but is **not required** — the supervisor handles the ~5 min default transparently. (Prefer this
-  over any code flag; there is no env knob for the renewal cadence — it is auto-derived from the
-  token's own expiry.)
-- **Transparency:** if it ever surfaces, `SessionExpiredError` now translates to a specific chat/log
-  message + hint via `orchestration/failure_translation.py` (category `session_expired`) instead of
-  an opaque `unknown` failure.
-
-## Interactive-vs-background priority + delegation resilience
-
-The self-hosted engine is a **single-writer** process, so an unbounded background workload (the
-autonomous evolution loop's per-tick writes) can starve a live delegation's reads on the same
-connection. This is the failure this session hardened: a delegation's reads were starved by
-background writes and stalled, and a synchronous retrieval blocking the event loop turned a
-`/health` liveness timeout into a SIGKILL.
-
-- **`EPISTEMIC_GRAPH_QOS=1`** (set on the engine sidecar/initContainer) turns on the engine's
-  **QoS admission scheduler** — reserved `interactive` / `orch` / `hydration` lanes — so the
-  autonomous evolution loop's background writes **yield** to interactive delegation reads on the
-  single-writer engine. Without it, a delegation's reads are starved and it stalls.
-- **au tags every call's priority** via `resource_priority.priority_scope`
-  (`agent_utilities/core/resource_priority.py`, `PriorityClass`, highest→lowest: `INTERACTIVE`,
-  then `ORCHESTRATION`/`HYDRATION` (tied), then `BACKGROUND_INGESTION` — the only class that
-  yields):
-  - a live MCP call → **`INTERACTIVE`** (`kg_server._execute_tool`, the entry boundary for a
-    live Claude/end-user request — also covers a delegation's RAG context-compilation reads,
-    since they run on a `to_thread` worker that inherits this context);
-  - delegated agent work → **`ORCHESTRATION`** (`manager.execute_agent`) — except a delegation
-    spawned BY the background loop, which keeps `BACKGROUND_INGESTION` and is never upgraded;
-  - the autonomous goal loop → **`BACKGROUND_INGESTION`** (`agent_dispatch_worker._execute_goal_turn`),
-    so its per-tick engine writes always yield.
-
-  The class rides to the engine as a **signed request claim** — `session.engine_verified_context()`
-  stamps the optional `priority` claim from the ambient `PriorityClass` (covered by the same MAC as
-  every other claim; omitted entirely for an untagged caller, so this is purely additive).
-- **RAG context-compilation is bounded + offloaded** (`core/contextual_model.py`): the compile runs
-  off the event loop via `asyncio.to_thread(...)`, capped by `asyncio.wait_for(..., 10.0)`
-  (`_CONTEXT_COMPILE_TIMEOUT_S`). On timeout or any compile error it **degrades to ungrounded**
-  rather than blocking — so a contended retrieval can **never** block graph-os's asyncio event
-  loop. This is what removes the `/health`-timeout → SIGKILL a synchronous retrieval previously caused.
-- **Validate:** a `graph_orchestrate` delegation completes (observed ~46s) with graph-os stable
-  (`/health` responsive, 0 restarts). Confirm via the `ENGINE_REQUEST_LATENCY` histogram +
-  `"slow engine call"` WARN lines (`knowledge_graph/core/engine_breaker.py`, ≥1.0s/op threshold) —
-  background ops running slow is **correct shedding**; interactive reads should stay fast.
-
-## Validate (live)
-
-```bash
-# From inside the graph-os container:
-# 0) Long-running-task authority: the renewal supervisor thread is alive:
-python3 -c 'import threading; print([t.name for t in threading.enumerate() if "GraphProcessAuthority" in t.name] or "NOT RUNNING")'
-# 1) Engine process identity mints (the boot-blocker path) — prints a token length, does NOT raise:
-python3 -c 'from agent_utilities.core.config import config; from agent_utilities.security.oauth_client_credentials import build_provider_from_config; print(len(build_provider_from_config(config.kg_identity_oauth2).get_token()))'
-# 2) Outbound fleet-child bearer is attached (200/400 from a protected child, NOT 401):
-python3 -c 'from agent_utilities.mcp.client_credentials import child_auth_header; print(bool(child_auth_header({}).get("Authorization")))'
-# Session/client side: the fleet is visible and github loads
-list_catalog            # → ~58 servers incl github-mcp
-load_tools(servers=["github-mcp"])   # → mounted, callable
-```
-
-Retire the standalone `mcp-multiplexer` service once graph-os is durable — it is redundant.
-
-## Migrating this onto a new orchestrator
-
-When moving the gateway + fleet to another orchestrator (**e.g.** k8s), the outbound-mint
-`OIDC_TOKEN_URL` pinning above is one of several cutover-hardening rules — see the
-migrate-mode runbook [`orchestrator-migration-cutover.md`](orchestrator-migration-cutover.md)
-(and `docs/architecture/orchestrator-migration-cutover.md` for the full rationale).
+Test valid, expired, wrong-audience, wrong-tenant, revoked/rotated, missing, and
+insufficient-scope identities. Verify that caches include the tenant/policy boundary
+and cannot return another caller’s response.

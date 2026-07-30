@@ -1,0 +1,83 @@
+{{- $root := . -}}
+{{- range $kind, $items := dict "connector" .Values.connectors "component" .Values.components }}
+{{- range $item := $items }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-os.fullname" $root }}-{{ $item.name }}
+  labels:
+    {{- include "agent-os.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $kind }}
+    agent-os.extension/name: {{ $item.name }}
+spec:
+  replicas: {{ default 1 $item.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      agent-os.extension/name: {{ $item.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-os.labels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ $kind }}
+        agent-os.extension/name: {{ $item.name }}
+    spec:
+      serviceAccountName: {{ include "agent-os.serviceAccountName" $root }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $item.name }}
+          image: {{ include "agent-os.image" $item.image }}
+          imagePullPolicy: {{ default "IfNotPresent" $item.image.pullPolicy }}
+          {{- with $item.args }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $item.env }}
+          env:
+            {{- range $key, $value := . }}
+            - name: {{ $key }}
+              value: {{ $value | toString | quote }}
+            {{- end }}
+          {{- end }}
+          {{- with $item.secretName }}
+          envFrom:
+            - secretRef: {name: {{ . }}, optional: false}
+          {{- end }}
+          ports:
+            - {name: http, containerPort: {{ $item.port }}}
+          readinessProbe:
+            tcpSocket: {port: http}
+            failureThreshold: 6
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: http}
+            failureThreshold: 3
+            periodSeconds: 20
+          securityContext:
+            {{- toYaml $root.Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml (default (dict) $item.resources) | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent-os.fullname" $root }}-{{ $item.name }}
+  labels:
+    {{- include "agent-os.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $kind }}
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    agent-os.extension/name: {{ $item.name }}
+  ports:
+    - {name: http, port: {{ $item.port }}, targetPort: http}
+{{- end }}
+{{- end }}

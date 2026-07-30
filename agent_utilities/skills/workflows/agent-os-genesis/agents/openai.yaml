@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent OS Genesis"
+  short_description: "Provision a portable Day-0 substrate and hand off deployment"
+  default_prompt: "Use $agent-os-genesis to resolve and provision the smallest production-suitable substrate, then invoke $agent-utilities-deployment for the application layer and prove the end-to-end gates."

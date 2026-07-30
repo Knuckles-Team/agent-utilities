@@ -51,8 +51,8 @@ _repo_manifest_summary = _repo_templates.manifest_summary
 # Kept here (not imported) so the generator runs without importing the package.
 PROFILES_META = {
     "tiny": {
-        "summary": "zero-infra, all-local (laptop / Raspberry Pi) — ONE self-contained"
-        " graph-os binary (engine in-process); homelab quick start",
+        "summary": "zero-external-infrastructure local evaluation or development;"
+        " graph-os and the bundled engine operate as one managed unit",
         "docker": False,
         # Embedded engine-encrypted __secrets__ graph (CONCEPT:AU-OS.identity.encrypted-secret-store) is the
         # default app-secret store; .env only carries the bootstrap model key +
@@ -61,7 +61,7 @@ PROFILES_META = {
         "servers": "none",
         "skill": "agent-utilities-deployment",
         # Step 0 run-plan defaults (the operator overrides only the exceptions).
-        "orchestrator": "docker-compose",
+        "orchestrator": "bare-metal",
         "install_mode": "deploy-baremetal",
         "idp": "none",
         "ontology_host": "local",
@@ -84,8 +84,8 @@ PROFILES_META = {
         "engine_topology": "unified-in-process",
     },
     "single-node-prod": {
-        "summary": "one durable, secured host — ONE self-contained graph-os container"
-        " (engine in-process, no separate engine service) + the core MCP connectors",
+        "summary": "one durable secured host with graph-os, the bundled engine,"
+        " and a selected core connector set",
         "docker": True,
         "secrets": "openbao-or-engine-encrypted",
         "servers": "core",
@@ -106,13 +106,13 @@ PROFILES_META = {
     },
     "enterprise": {
         # Enterprise defaults are portable and contain no operator inventory.
-        "summary": "multi-host Kubernetes (RKE2), full integration (OpenBao/Vault-protocol"
-        " secrets + Keycloak SSO/DNS/ingress/observability + all connectors); scale-out"
-        " engine behind N graph-os pods",
+        "summary": "multi-host production with a provider-neutral Kubernetes default,"
+        " reusable existing identity/secrets/ingress/observability, and a selected"
+        " scale-out connector fleet",
         "docker": True,
         "secrets": "openbao",
         "servers": "all",
-        "skill": "agent-os-genesis",
+        "skill": "agent-utilities-deployment",
         # Enterprises default to Kubernetes; Swarm remains selectable.
         "orchestrator": "kubernetes",
         "install_mode": "deploy-container",
@@ -143,6 +143,7 @@ PROFILES_META = {
 RUN_PLAN = {
     "actions": ["deploy-container", "deploy-baremetal", "use-existing", "skip"],
     "orchestrators": [
+        "bare-metal",
         "docker-compose",
         "docker-swarm",
         "podman",
@@ -150,6 +151,13 @@ RUN_PLAN = {
         "kubernetes",
     ],
     "podman_modes": ["rootful", "rootless"],
+    "substrate_authority": [
+        "host-admin",
+        "namespace-only",
+        "cluster-admin",
+        "provision-cluster",
+        "provision-multi-node",
+    ],
     "idp": ["keycloak", "okta", "other-oidc", "none"],
     # secrets_store precedence: `engine` = the engine's encrypted __secrets__ graph
     # (CONCEPT:AU-OS.identity.encrypted-secret-store, the default embedded app-secret store, sealed by the engine's
@@ -201,6 +209,7 @@ RUN_PLAN = {
         "catalog": "agent-utilities-deployment",
     },
     "provisioner_by_orchestrator": {
+        "bare-metal": "agent-os-genesis",
         "docker-swarm": "swarm-mesh-provisioner",
         "kubernetes": "kubernetes-mesh-provisioner",
         "podman": "podman-mesh-provisioner",
@@ -295,12 +304,14 @@ def build() -> dict:
     return {
         "version": 1,
         "entrypoints": {
+            "substrate": "agent-os-genesis",
             "preflight": "agent-utilities-doctor --preflight --profile <profile> [--component <c>]",
             "install": "scripts/install.sh (Windows: scripts/install.ps1)",
             "config": "setup-config generate --profile <profile>",
             "verify": "agent-utilities-doctor",
             "single_node_skill": "agent-utilities-deployment",
             "multi_node_skill": "agent-utilities-deployment",
+            "handoff": "agent-os-genesis -> InfrastructureHandoff(substrate_resolved=true) -> agent-utilities-deployment",
         },
         "profiles": profiles,
         "run_plan": RUN_PLAN,
@@ -336,10 +347,11 @@ def build() -> dict:
             # agent-os-genesis skill's references/engine-topology-and-hyperscaling.md).
             "topology": {
                 "values": ["unified-in-process", "out-of-process-shared"],
-                "unified-in-process": "SELF-CONTAINED DEFAULT (tiny, single-node-prod) —"
-                " the engine embeds in-process via PyO3 in the SAME binary/process as"
-                " graph-os (epistemic_graph.engine): one binary, one lifecycle, no"
-                " socket round-trip, no separate engine service to deploy or drift.",
+                "unified-in-process": "REQUESTED single-unit topology (tiny,"
+                " single-node-prod). The resolver must record the EFFECTIVE process"
+                " boundary: use a true in-process engine only when the deployed build"
+                " proves it; otherwise the bundled supervised engine is an operational"
+                " unit but remains out of process.",
                 "out-of-process-shared": "HYPERSCALING shape (enterprise default) —"
                 " graph-os talks to a shared, independently-scaled engine over"
                 " UDS/TCP (epistemic_graph.client, GIL-free); build the engine with"

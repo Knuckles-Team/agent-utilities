@@ -18,6 +18,21 @@ apply only authorized steps, and verify the user-visible Graph-OS path.
 Keep post-deployment health, trace, audit, and policy diagnosis that does not
 change the manifest or topology in `graph-runtime-and-governance`.
 
+## Genesis handoff
+
+When `agent-os-genesis` supplies an infrastructure handoff, validate and consume it
+instead of re-discovering or reprovisioning the substrate. The handoff includes the
+plan digest, target/permission boundary, namespace or runtime, provider references,
+component selection, resource constraints, and rendered artifact locations.
+
+Set `substrate_resolved=true` for this path. If a required infrastructure capability
+is absent, call `agent-os-genesis` in bounded `substrate-only` mode and resume with
+its updated handoff; do not recursively restart a full Genesis/application workflow.
+
+If the user requests an application deployment onto a suitable existing substrate,
+run this skill directly. Use `agent-os-genesis` first only when host, cluster,
+namespace, platform-provider, or orchestrator state must be created or changed.
+
 ## Workflow
 
 ### 1. Gather requirements
@@ -91,14 +106,11 @@ Classify the change before applying it:
   not add a permanent read-old/write-new path.
 - An ontology or object-schema migration belongs to
   `graph-modeling-and-mutation`; coordinate its deployment ordering here.
-- An orchestrator migration (one orchestrator to another, e.g. Swarm → Kubernetes)
-  delegates to `agent-os-genesis` (**migrate-mode**). Read its cutover runbook first —
-  `references/orchestrator-migration-cutover.md` (rationale in
-  `docs/architecture/orchestrator-migration-cutover.md`): pin the gateway's outbound
-  token URL to the in-cluster IdP (else every child MCP 401s), sync app+DB secrets
-  from the secret store via ExternalSecrets, preserve the canonical hostnames with a
-  **selective** DNS flip, and migrate each app+DB as a coupled unit (hold the app at
-  0 replicas until the DB is restored + verified).
+- An orchestrator migration delegates target substrate and traffic-foundation work
+  to `agent-os-genesis` in `migrate-substrate` mode. Consume the returned
+  infrastructure handoff, then migrate each dependency-closed application unit using
+  supported logical data migration, canary traffic, user-visible verification, and
+  an exact rollback.
 
 Capture current health and version state, back up durable data, validate the backup,
 stage the change, and preserve a rollback. Quiesce writers when the migration cannot
