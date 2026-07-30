@@ -27,7 +27,7 @@ _engine: Any = None
 _lock = threading.Lock()
 
 
-def start_host_daemon() -> Any:
+def start_host_daemon(*, defer_background_start: bool = False) -> Any:
     """Start (once) the single consolidated KG daemon in this gateway process.
 
     Forces ``KG_DAEMON_ROLE=host`` so constructing the engine launches the
@@ -51,16 +51,19 @@ def start_host_daemon() -> Any:
             IntelligenceGraphEngine,
         )
 
-        _engine = IntelligenceGraphEngine.get_or_create()
-        try:
-            # Ensure the on-demand task-worker pool is up in the host.
-            if hasattr(_engine, "start_task_workers"):
-                _engine.start_task_workers()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "host daemon: start_task_workers failed (exception_type=%s)",
-                type(exc).__name__,
-            )
+        _engine = IntelligenceGraphEngine.get_or_create(
+            defer_background_start=defer_background_start
+        )
+        if not defer_background_start:
+            try:
+                # Ensure the on-demand task-worker pool is up in the host.
+                if hasattr(_engine, "start_task_workers"):
+                    _engine.start_task_workers()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "host daemon: start_task_workers failed (exception_type=%s)",
+                    type(exc).__name__,
+                )
         # Always-on KG-native observability (CONCEPT:AU-OS.config.model-factory-passthrough): install the trace sink
         # backed by this host's engine, so every traced agent call persists a
         # Trace/Span/Generation subgraph that is graph-queryable. One-time injection;

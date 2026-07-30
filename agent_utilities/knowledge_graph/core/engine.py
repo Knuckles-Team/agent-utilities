@@ -105,12 +105,18 @@ class IntelligenceGraphEngine(
         db_path: str | None = None,
         graph: Any = None,
         schema_pack: Any = None,
+        defer_background_start: bool = False,
     ):
         if IntelligenceGraphEngine._ACTIVE_ENGINE is not None:
             raise RuntimeError(
                 "A process-owned graph engine already exists; production code "
                 "must acquire it through IntelligenceGraphEngine.get_or_create()"
             )
+        # The GraphOS host composes the engine before the native cold graph is
+        # queryable. Preserve that lifecycle intent through the mixin
+        # constructors so no queue/scheduler thread races materialization.
+        self._defer_background_start = bool(defer_background_start)
+
         # Use provided backend, or check for an active one, or create one from factory
         if backend is not None:
             self.backend = backend
@@ -161,7 +167,7 @@ class IntelligenceGraphEngine(
         super().__init__()
 
         # Start workers when native WorkItems report an ingestion backlog.
-        if self.backend:
+        if self.backend and not self._defer_background_start:
             try:
                 if self.ingest_queue_depth() > 0:
                     self.start_task_workers()

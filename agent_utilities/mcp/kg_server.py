@@ -3386,6 +3386,9 @@ def _start_engine_bootstrap(session: Any) -> None:
         readiness["ready"],
         readiness["required"],
     )
+    start_daemons = getattr(engine, "start_background_daemons", None)
+    if callable(start_daemons):
+        start_daemons()
 
     def _bootstrap_engine() -> None:
         try:
@@ -4147,7 +4150,7 @@ def mcp_server() -> None:
         from agent_utilities.security.brain_context import use_actor
 
         with use_actor(bootstrap_session.actor), use_session(bootstrap_session):
-            bring_up_host_daemon_if_needed()
+            bring_up_host_daemon_if_needed(defer_background_start=True)
             _start_engine_bootstrap(bootstrap_session)
 
             # Self-composing co-services, phase 2: messaging (config-detected — real

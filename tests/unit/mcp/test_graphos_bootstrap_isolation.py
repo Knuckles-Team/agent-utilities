@@ -398,6 +398,9 @@ def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
     class Engine:
         backend = object()
 
+        def start_background_daemons(self) -> None:
+            calls.append("daemons")
+
     class DeferredBackground:
         def start(self) -> None:
             calls.append("background")
@@ -429,7 +432,7 @@ def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
     ):
         kg_server._start_engine_bootstrap(session)
 
-    assert calls == ["materialization", "skills", "background"]
+    assert calls == ["materialization", "skills", "daemons", "background"]
 
 
 def test_packaged_skill_readiness_failure_is_controlled_and_serves_degraded(

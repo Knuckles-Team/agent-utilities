@@ -139,7 +139,9 @@ def detect_composition(engine: Any = None) -> CompositionPlan:
     )
 
 
-def bring_up_host_daemon_if_needed() -> dict[str, Any]:
+def bring_up_host_daemon_if_needed(
+    *, defer_background_start: bool = False
+) -> dict[str, Any]:
     """Start the consolidated KG host daemon in-process, only if genuinely needed.
 
     A one-shot, synchronous, best-effort call — the daemon's own background
@@ -157,7 +159,7 @@ def bring_up_host_daemon_if_needed() -> dict[str, Any]:
     from agent_utilities.knowledge_graph.core.host_lock import KGHostAlreadyRunning
 
     try:
-        start_host_daemon()
+        start_host_daemon(defer_background_start=defer_background_start)
     except KGHostAlreadyRunning as exc:
         logger.info(
             "graph-os-daemon co-service: a host appeared during startup "

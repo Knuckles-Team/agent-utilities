@@ -790,6 +790,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         super().__init__(*args, **kwargs)
         self._workers_running = False
         self._worker_lock = threading.Lock()
+        self._background_daemons_lock = threading.Lock()
         self._active_work_item_claims: dict[str, dict[str, Any]] = {}
         self._active_work_item_claims_lock = threading.Lock()
         self._work_item_lease_heartbeats: dict[
@@ -858,6 +859,29 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
             return
 
+        if getattr(self, "_defer_background_start", False):
+            logger.info(
+                "KG background daemons deferred until the graph materialization "
+                "barrier completes."
+            )
+            return
+        self.start_background_daemons()
+
+    def start_background_daemons(self) -> None:
+        """Start the consolidated daemon families once graph startup is writable.
+
+        GraphOS cold-open sets ``_defer_background_start`` before engine
+        construction, then calls this only after the native materialization
+        manifest is complete and valid. Other host entrypoints retain the
+        historical eager behavior.
+        """
+        if getattr(self, "_effective_role", "client") == "client":
+            return
+        with self._background_daemons_lock:
+            existing = getattr(self, "_graph_writer_thread", None)
+            if existing is not None and existing.is_alive():
+                return
+            self._defer_background_start = False
         self._background_worker_session = _capture_verified_background_session()
         self._graph_writer_thread = _authorized_background_thread(
             self._background_worker_session,
