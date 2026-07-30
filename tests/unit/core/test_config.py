@@ -458,6 +458,27 @@ def test_permissions_signing_authority_accepts_only_runtime_reference() -> None:
     assert config.permissions_signing_key_ref == "env://PERMISSIONS_RUNTIME_TEST_KEY"
 
 
+def test_permissions_signing_retired_env_name_is_only_valid_as_exact_ref_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PERMISSIONS_SIGNING_KEY", "runtime-material")
+    monkeypatch.delenv("PERMISSIONS_SIGNING_KEY_REF", raising=False)
+    with pytest.raises(ValueError, match="retired durable configuration"):
+        AgentConfig()
+
+    monkeypatch.setenv(
+        "PERMISSIONS_SIGNING_KEY_REF", "env://PERMISSIONS_SIGNING_KEY"
+    )
+    config = AgentConfig()
+    assert config.permissions_signing_key_ref == "env://PERMISSIONS_SIGNING_KEY"
+
+    monkeypatch.setenv(
+        "PERMISSIONS_SIGNING_KEY_REF", "env://DIFFERENT_PERMISSION_AUTHORITY"
+    )
+    with pytest.raises(ValueError, match="retired durable configuration"):
+        AgentConfig()
+
+
 def test_ontology_release_signer_is_typed_and_reference_only() -> None:
     with pytest.raises(ValueError, match="runtime-only material"):
         AgentConfig(ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF="literal-material")

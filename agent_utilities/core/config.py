@@ -1843,7 +1843,22 @@ class AgentConfig(BaseSettings):
     @classmethod
     def _reject_retired_configuration(cls, value: Any) -> Any:
         supplied = value.keys() if isinstance(value, Mapping) else ()
-        environment = (key for key in os.environ if key in _RETIRED_CONFIGURATION_KEYS)
+        # ``PERMISSIONS_SIGNING_KEY`` is retired as a configuration input, but
+        # it remains a valid process-bound *secret target* when the active
+        # reference explicitly names it.  Treating the target as another config
+        # source made a correctly reference-backed Kubernetes/OpenBao deployment
+        # crash-loop.  The exception is intentionally exact and one-way: the raw
+        # variable alone is still rejected, as are all other retired keys.
+        permission_target = (
+            os.environ.get("PERMISSIONS_SIGNING_KEY_REF", "").strip()
+            == "env://PERMISSIONS_SIGNING_KEY"
+        )
+        environment = (
+            key
+            for key in os.environ
+            if key in _RETIRED_CONFIGURATION_KEYS
+            and not (key == "PERMISSIONS_SIGNING_KEY" and permission_target)
+        )
         _require_current_configuration_keys(supplied)
         _require_current_configuration_keys(environment, durable=False)
         return value
