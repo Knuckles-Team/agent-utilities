@@ -161,6 +161,7 @@ RUN pip install --break-system-packages --no-cache-dir \
         "redis>=5.0.0" \
         "neo4j>=6.2.0" \
         "falkordb>=1.6.2" \
+        "fastmcp==3.4.5" \
         "llama-index-embeddings-openai>=0.6.0" \
         "python-telegram-bot>=22.8" \
         "mattermostdriver>=7.3.2" \
@@ -190,7 +191,7 @@ RUN pip install --break-system-packages --no-cache-dir \
 # is a plain clap CLI (safe/non-blocking); `graph-os` itself is NOT invoked here — running
 # it would start an MCP server (stdio) rather than return, so only its console-script
 # presence is checked.
-RUN python3 -c "import importlib.metadata as m; import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from pydantic_ai_harness.dynamic_workflow import DynamicWorkflow; from pydantic_ai_harness.experimental.acp import PydanticAIACPAgent; assert m.version('pydantic-ai-slim') == '2.21.0'; assert m.version('pydantic-ai-harness') == '0.14.0'" \
+RUN python3 -c "import importlib.metadata as m; import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from pydantic_ai_harness.dynamic_workflow import DynamicWorkflow; from pydantic_ai_harness.experimental.acp import PydanticAIACPAgent; assert m.version('fastmcp') == '3.4.5'; assert m.version('pydantic-ai-slim') == '2.21.0'; assert m.version('pydantic-ai-harness') == '0.14.0'" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 
