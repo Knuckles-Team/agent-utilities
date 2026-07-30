@@ -100,9 +100,12 @@ graph TD
 | **Process Flows** | Standard Operating Procedures (SOPs) fetched and executed dynamically. | `ProcessFlowNode` and `ProcessStepNode` sequences. |
 | **Output Styles** | Dynamic response style discovery (concise, formal, etc.) via KB. | Styles are stored as `Article` nodes in `kb:output-styles`. |
 
-## Agent Communication Protocol (ACP)
+## Agent coordination and editor ACP
 
-All inter-agent coordination (Teams) and frontend communication (TUI/Web) leverages the **Agent Communication Protocol (ACP)**. This provides a standardized message bus for sideband events (approvals, logs, status) and P2P message routing between agent specialists.
+Team coordination uses the internal session/message bus. Agent Client Protocol
+(ACP) is a different, editor-facing stdio JSON-RPC boundary supplied by Pydantic
+AI Harness. Web and terminal frontends use AG-UI/SSE/REST; compatible editors
+launch `agent-utilities-acp`.
 
 ## Memory & Code Lifecycle (CRUD + Analysis)
 

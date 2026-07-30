@@ -58,7 +58,7 @@ flowchart LR
   `agent-groq`, `agent-mistral`, `agent-anthropic`, `agent-huggingface`) unchanged in shape.
 - `agent-webui` narrowed from the full `pydantic-ai` meta to `pydantic-ai-slim[ui]` (it uses the v2
   `Agent.to_web()`).
-- `[dynamic-workflow]` is an opt-in `pydantic-ai-harness[dynamic-workflow]>=0.13.0,<0.14.0`
+- `[dynamic-workflow]` is an opt-in `pydantic-ai-harness[dynamic-workflow]>=0.14.0,<0.15.0`
   integration. Its GraphOS adapter compiles reviewed declarations into `GraphPlan` and then
   `ExecutionManifest`; it does not expose the upstream sandbox as a second execution plane.
 
@@ -69,12 +69,10 @@ preserves arbitrary usage fields through serialization, and makes bare MCP error
 The adapter's model menus are declarative per-delegation metadata; the canonical model registry
 remains the authority that resolves actual provider configuration.
 
-The production/all-extras lock remains on the compatible 2.16 line while
-`pydantic-acp==1.5.1` caps `pydantic-ai-slim` at 2.16.0. The optional
-`dynamic-workflow` extra is isolated from `[all]`; do not install it together
-with `[acp]` until that cap is lifted. Promote the lock and production image only
-after ACP supports the 2.20 floor. We intentionally do not override the upstream
-compatibility bound.
+The production/all-extras lock now resolves on Pydantic AI 2.21.0. The former
+`pydantic-acp`/`acpkit` stack capped `pydantic-ai-slim` at 2.16.0 and made the
+Harness DynamicWorkflow and ACP extras mutually unsatisfiable. Both capabilities
+now come from Pydantic AI Harness 0.14.0 and share one compatible dependency line.
 
 ## Native ergonomics wired (synergy)
 
@@ -98,33 +96,26 @@ natively — both visible in every built agent's `root_capability` tree.
 ## Native protocol adapters vs. our plugins
 
 v2's native UI/protocol adapters live in `pydantic_ai.ui`: **AG-UI** (`ag_ui`) and **Vercel AI**
-(`vercel_ai`), plus `Agent.to_web()` (browser chat) and `Agent.to_cli()` (interactive terminal
-chat). These are **not** ACP. Zed's **Agent Client Protocol** is still provided by our external
-plugin (`protocols/acp_adapter.py` + `acp_providers.py` on `pydantic-acp` + `acpkit`).
+(`vercel_ai`), plus `Agent.to_web()` and `Agent.to_cli()`. ACP is a separate,
+editor-facing stdio JSON-RPC adapter from
+`pydantic_ai_harness.experimental.acp`; it is unrelated to Code Mode.
 
-### ACP on v2 — reconciled via dependency override
+### Harness ACP boundary
 
-`pydantic-acp` (1.4.0, the optional `[acp]` extra) declares `pydantic-ai-slim>=2.0.0,<=2.9.1` — it
-has since dropped the old v1 exact pin (`==1.106.0`) and is now properly v2-aware, but its own
-declared cap (2.9.1) still trails the 2.14.1 floor the rest of this project runs on. This remains
-a **metadata cap, not a known code incompatibility**: our integration code never imports
-pydantic_ai symbols on the acp path, only pydantic_acp's own public API (`create_acp_agent`,
-`AcpSessionContext`, `acp.schema`), and the acp integration test suite exercises the real thing
-against the resolved version. (`acpkit` does not pin pydantic-ai outside its unused `dev` extra.)
+`agent-utilities[acp]` installs `pydantic-ai-harness[acp]>=0.14,<0.15`.
+Editors launch `agent-utilities-acp` as a subprocess. Harness provides streamed
+text/thinking, rich filesystem/shell tool presentation, deferred-tool approval,
+per-workspace sessions, cancellation, model selection, usage limits, and ACP
+capability negotiation. `FileAcpSessionStore` supplies durable conversation
+restore with validated atomic files.
 
-We therefore relax that one transitive cap with a **dependency override** rather than forking or
-dropping ACP:
+ACP is not mounted at `/acp`: neither Harness nor the retired adapter is an ASGI
+application. Harness 0.14 also does not implement ACP session modes, fork, or
+resume. Ask/plan/execute semantics, graph checkpoints, and plan provenance remain
+Graph-OS/Pydantic Graph responsibilities and are passed through the graph wrapper's
+session-scoped dependencies.
 
-- `pyproject.toml` `[tool.uv] override-dependencies = ["pydantic-ai-slim>=2.14.1,<3.0.0"]` — for
-  `uv lock` / `uv sync`.
-- `overrides.txt` (repo root) — the same override for `uv pip install --override overrides.txt` /
-  `UV_OVERRIDE`.
-- `docker/Dockerfile` builder sets `ENV UV_OVERRIDE=/src/overrides.txt` (no-op for `[serving]`, which
-  has no acp; future-proofs acp-inclusive images).
-- CI: `backend-parity-nightly` (which pulls `[test-backends]` → `[acp]`) installs via
-  `uv pip install --override overrides.txt` (plain pip cannot relax a transitive pin).
-
-With the override, `[acp]`/`[test]`/`[all]` resolve to pydantic-ai-slim **2.14.1** + pydantic-acp
-1.4.0 + acpkit 1.4.0 + agent-client-protocol 0.11.0 cleanly. Remove the override once pydantic-acp
-ships a release whose own cap admits 2.14.1+. **Plain `pip install .[acp]` is unsupported** (no
-override mechanism) — use uv.
+The graph adapter consumes the governed MCP fleet already attached to Graph-OS.
+Client-offered MCP process definitions are rejected instead of silently trusted;
+they must first pass the normal Graph-OS connector configuration, permission, and
+tool-contract path.

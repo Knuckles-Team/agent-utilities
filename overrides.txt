@@ -1,6 +1,4 @@
-# uv dependency override (uv pip install --override overrides.txt / UV_OVERRIDE).
-# Consumed by docker/Dockerfile (ENV UV_OVERRIDE=/tmp/overrides.txt).
+# Optional dependency override file for published-package builds.
 #
-# INTENTIONALLY EMPTY. pydantic-acp 1.5.1 caps pydantic-ai-slim at 2.16.0, so
-# the production/all-extras lock remains on that compatible line. Do not bypass
-# the cap: promote Pydantic AI 2.20 only after ACP publishes compatible metadata.
+# Intentionally empty. The first-party pydantic-ai-harness ACP adapter follows
+# the current Pydantic AI line, so ACP no longer needs a resolver override.

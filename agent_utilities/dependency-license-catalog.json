@@ -1,7 +1,6 @@
 {
   "version": 1,
   "licenses": {
-    "acpkit": "Apache-2.0",
     "agent-terminal-ui": "MIT",
     "agent-utilities": "MIT",
     "agent-webui": "MIT",
@@ -75,7 +74,7 @@
     "psycopg": "LGPL-3.0-only",
     "psycopg-pool": "LGPL-3.0-only",
     "pydantic": "MIT",
-    "pydantic-acp": "Apache-2.0",
+    "pydantic-ai-harness": "MIT",
     "pydantic-ai-skills": "MIT",
     "pydantic-ai-slim": "MIT",
     "pydantic-graph": "MIT",

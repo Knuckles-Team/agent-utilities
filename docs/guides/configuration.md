@@ -178,7 +178,6 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "enable_terminal_ui": false,
   "enable_web_logs": true,
   "enable_acp": false,
-  "acp_port": 8001,
   "acp_session_root": ".acp-sessions",
   "mcp_config": null,
   "max_upload_size": 10485760,

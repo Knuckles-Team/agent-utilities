@@ -111,8 +111,8 @@ RUN uv pip install --system --break-system-packages \
 #    coordinated au change (re-lock + test) out of scope for an image-only fix, so this
 #    extra stays out of the list below; step 2b installs langfuse-agent directly instead.
 #    `logfire` (the plain OTel SDK integration, a normal PyPI package, NOT
-#    workspace-sourced) is kept. `postgresql` (psycopg[binary]/psycopg-pool) and `acp`
-#    (pydantic-acp/acpkit) are added on top, same as before.
+#    workspace-sourced) is kept. `postgresql` (psycopg[binary]/psycopg-pool) and
+#    the first-party Pydantic AI Harness ACP extra are added on top.
 # Targeted copy (not `COPY .`): only what `pip install -e` actually needs — the package
 # itself + packaging metadata. Skips deploy/scripts/tests/docs (dev/CI-only; also already
 # outside this repo's .dockerignore-admitted set) and avoids re-pulling in build-artifacts/.
@@ -138,12 +138,12 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 # uv-only tables entirely and just resolves the standard `epistemic-graph[full]>=2.23.2`
 # PEP 508 requirement from `[project.dependencies]`, already satisfied by step 1's install.
 #
-# ONE pip invocation, not two: the exact `==2.16.0`-family pins below must be visible to
+# ONE pip invocation, not two: the exact Pydantic AI family pins below must be visible to
 # the SAME resolution pass as au's own `>=2.14.1,<3.0.0` floor on pydantic-ai-slim, or
 # pip's backtracking resolver first satisfies the loose floor (walked candidates down from
 # 2.18.0), only to have a second, separate `pip install` immediately reinstall it back down
 # to 2.16.0 — slow (pip has no PubGrub-style resolver; it backtracks) and wasteful. One
-# combined requirement set lets it converge on 2.16.0 directly.
+# combined requirement set lets it converge directly.
 #
 # apt's python3-pip pulls in `packaging` via dpkg rather than pip, which ships no pip
 # RECORD file — pip then refuses to upgrade it in place ("Cannot uninstall packaging 26.0
@@ -164,11 +164,10 @@ RUN pip install --break-system-packages --no-cache-dir \
         "llama-index-embeddings-openai>=0.6.0" \
         "python-telegram-bot>=22.8" \
         "mattermostdriver>=7.3.2" \
-        "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]==2.16.0" \
-        "pydantic-ai==2.16.0" \
-        "pydantic-graph==2.16.0" \
-        "pydantic-acp==1.5.1" \
-        "acpkit==1.5.1" \
+        "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]==2.21.0" \
+        "pydantic-ai==2.21.0" \
+        "pydantic-graph==2.21.0" \
+        "pydantic-ai-harness[acp]==0.14.0" \
         "pydantic-ai-skills==1.2.0" \
         "pydantic-monty==0.0.19" \
         "fasta2a[pydantic-ai]>=0.6.1" \
@@ -179,7 +178,7 @@ RUN pip install --break-system-packages --no-cache-dir \
 #   (neo4j/falkordb/telegram/mattermost/embeddings-openai) is already inside [serving];
 #   repeated here explicitly for deploy-artifact parity/robustness against a future
 #   narrowing of that extra. `redis` (no au extra covers it) and the broader
-#   pydantic-ai-slim extras (ag-ui/ui/google/groq) + pydantic-acp/acpkit are the
+#   pydantic-ai-slim extras (ag-ui/ui/google/groq) + Harness ACP are the
 #   genuinely new-vs-[serving] additions. `/tmp/langfuse-agent-src` (step 2b) is a THIRD
 #   category — a workspace-sourced package restored whole, not a [serving] sub-extra —
 #   resolved in this SAME pass so its own `agent-utilities[mcp]>=2.0.0,<3.0.0` requirement

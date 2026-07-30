@@ -2759,8 +2759,9 @@ class AgentConfig(BaseSettings):
     enable_web_ui: bool = Field(default=False, alias="ENABLE_WEB_UI")
     enable_terminal_ui: bool = Field(default=False, alias="ENABLE_TERMINAL_UI")
     enable_web_logs: bool = Field(default=False, alias="ENABLE_WEB_LOGS")
+    # Deprecated compatibility flag. ACP is a dedicated stdio subprocess
+    # (`agent-utilities-acp`), never an HTTP listener in the gateway process.
     enable_acp: bool = Field(default=False, alias="ENABLE_ACP")
-    acp_port: int = Field(default=8001, alias="ACP_PORT")
     acp_session_root: str = Field(default=".acp-sessions", alias="ACP_SESSION_ROOT")
 
     mcp_url: str | None = Field(default=None, alias="MCP_URL")
@@ -5609,7 +5610,6 @@ def _populate_lazy_config(
     _LAZY_CACHE["DEFAULT_ENABLE_WEB_LOGS"] = cfg.enable_web_logs
     _LAZY_CACHE["DEFAULT_ENABLE_OTEL"] = cfg.enable_otel
     _LAZY_CACHE["DEFAULT_ENABLE_ACP"] = cfg.enable_acp
-    _LAZY_CACHE["DEFAULT_ACP_PORT"] = cfg.acp_port
     _LAZY_CACHE["DEFAULT_ACP_SESSION_ROOT"] = cfg.acp_session_root
 
     _apply_otel_sdk_policy(cfg.enable_otel)
@@ -5824,7 +5824,6 @@ def __dir__() -> list[str]:
             "DEFAULT_ENABLE_WEB_LOGS",
             "DEFAULT_ENABLE_OTEL",
             "DEFAULT_ENABLE_ACP",
-            "DEFAULT_ACP_PORT",
             "DEFAULT_ACP_SESSION_ROOT",
             "DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT",
             "DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL",

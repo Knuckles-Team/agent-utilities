@@ -415,29 +415,25 @@ immediately before applying, same defensive posture as §2(b).
 
 ---
 
-## 5. Image dependency vintage — confirmed gap, not just "plausible" (plan §5.2/§9 blocker #6)
+## 5. Image dependency vintage — superseded ACP remediation
 
-Directly checked, not assumed:
+The original cutover found Pydantic AI 2.7 in the live image and no ACP adapter.
+The subsequent legacy ACP attempt was also invalid: it mounted a stdio protocol
+object as ASGI and capped Pydantic AI at 2.16.
+
+The corrected build uses Pydantic AI 2.21 and
+`pydantic-ai-harness[acp]==0.14.0`. ACP is a separate
+`agent-utilities-acp` editor subprocess, not part of Graph-OS HTTP health.
+Validate the promoted image with:
 
 ```bash
-kubectl exec -n platform deploy/graph-os -- pip show pydantic-ai-slim
-# Version: 2.7.0   (au's locked/required version, uv.lock: 2.16.0)
-kubectl exec -n platform deploy/graph-os -- python -c "import pydantic_acp"
-# ModuleNotFoundError: No module named 'pydantic_acp'   (locked: pydantic-acp==1.5.1)
+kubectl exec -n platform deploy/graph-os -- \
+  python -c "import pydantic_ai; print(pydantic_ai.__version__)"
+kubectl exec -n platform deploy/graph-os -- \
+  python -c "from pydantic_ai_harness.experimental import acp; print(acp.__name__)"
 ```
 
-**Worse than the plan's own hedge** ("plausible, not directly confirmed") —
-`pydantic_acp` isn't merely old, it is **entirely absent** from the running image.
-Mitigating factor: every `pydantic_acp` import in au is lazy (inside function bodies
-in `protocols/acp_adapter.py`/`acp_providers.py`, never at module load time), and
-`graph-os`'s own `kg_server.mcp_server()` boot path never reads `enable_acp` (that
-flag belongs to the separate generic `server/app.py` agent-server builder) — so this
-specific absence is **unlikely to crash `graph-os` on boot**. The `pydantic-ai-slim`
-version gap is broader (core orchestration plumbing PA-R0/R1 was written against,
-not an optional adapter) and was not exhaustively traced against `638ea524`'s actual
-call sites in this pass — the plan's own risk framing stands, now **confirmed rather
-than assumed**: silent misbehavior or an `AttributeError`/`TypeError` class of
-failure, not necessarily a clean crash-loop. **The hostPath source-sync in §4 cannot
+**The hostPath source-sync in §4 cannot
 fix this** — `PYTHONPATH=/au:/eg` only overlays the first-party `agent_utilities`/
 `epistemic_graph` packages; third-party site-packages come from whatever the live
 serving image (`graph-os`'s Deployment `.spec.template.spec.containers[0].image`)

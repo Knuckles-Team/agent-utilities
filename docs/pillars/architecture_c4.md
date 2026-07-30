@@ -730,7 +730,7 @@ graph TD
         direction TB
         PAI[pydantic-ai]
         PGraph[pydantic-graph]
-        PACP[pydantic-acp]
+        PACP[pydantic-ai-harness ACP]
         PAISkills[pydantic-ai-skills]
         FastMCP[ECO-4.0: fastmcp]
         FastAPI[fastapi]
@@ -809,8 +809,8 @@ C4Container
 
     Rel(user, webui, "Uses", "HTTPS/WSS")
     Rel(user, tui, "Uses", "Terminal/CLI")
-    Rel(webui, gateway, "Queries", "ACP /acp (SSE/RPC)")
-    Rel(tui, gateway, "Queries", "ACP /acp (SSE/RPC)")
+    Rel(webui, gateway, "Queries", "AG-UI / SSE")
+    Rel(tui, gateway, "Queries", "AG-UI / SSE")
     Rel(gateway, orchestrator, "Dispatches", "Async Python")
     Rel(gateway, topics, "Enqueues turns in queue mode", "AgentTurnEnvelope")
     Rel(topics, dispatchworkers, "Session-keyed claims", "at-least-once")

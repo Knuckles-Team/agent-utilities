@@ -184,15 +184,12 @@ def build_agent_app(
 
     _name = name or DEFAULT_AGENT_NAME
 
-    if enable_acp and skill_types is None:
-        skill_types = [
-            "universal",
-            "graphs",
-            "tdd-methodology",
-            "manual_testing",
-            "walkthroughs",
-        ]
-        logger.info(f"ACP Enabled: defaulting skill_types to {skill_types}")
+    if enable_acp:
+        logger.warning(
+            "ENABLE_ACP no longer mounts an HTTP endpoint. Agent Client Protocol "
+            "is stdio JSON-RPC; launch `agent-utilities-acp` from the editor. "
+            "This compatibility setting will be removed in a future release."
+        )
     if workspace:
         from agent_utilities.core import workspace as _ws_mod
 
@@ -718,29 +715,6 @@ def build_agent_app(
                 "Failed to load Gateway APIs (exception_type=%s)",
                 type(exc).__name__,
             )
-
-        if enable_acp:
-            from agent_utilities.protocols.acp_adapter import (
-                build_acp_config,
-                create_graph_acp_app,
-                is_acp_available,
-            )
-
-            if is_acp_available():
-                logger.info("Mounting ACP protocol layer at /acp")
-                acp_config = build_acp_config(
-                    session_root=Path(acp_session_root) if acp_session_root else None
-                )
-                acp_app = create_graph_acp_app(
-                    _agent_instance,
-                    acp_config,
-                    graph_bundle=graph_bundle,
-                    mcp_toolsets=_initialized_mcp_toolsets,
-                    concurrency_manager=app.state.concurrency_manager,
-                )
-                app.mount("/acp", acp_app)
-            else:
-                logger.warning("ACP requested but pydantic-acp not installed.")
 
         app.mount("/a2a", a2a_app)
 

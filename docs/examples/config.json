@@ -9,7 +9,6 @@
     "enable_terminal_ui": false,
     "enable_web_logs": true,
     "enable_acp": false,
-    "acp_port": 8001,
     "acp_session_root": ".acp-sessions",
     "provider": null,
     "model_id": null,

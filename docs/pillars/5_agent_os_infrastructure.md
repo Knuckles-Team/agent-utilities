@@ -284,7 +284,7 @@ Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots v
 | Protocol | Approval Mechanism |
 |---|---|
 | AG-UI (web + terminal) | Sideband SSE events + `POST /api/approve` |
-| ACP | pydantic-acp's native `NativeApprovalBridge` (automatic) |
+| ACP editor process | Harness maps deferred tools to native ACP permission prompts |
 | SSE (`/stream`) | Same as AG-UI |
 
 ---

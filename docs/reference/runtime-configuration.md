@@ -223,8 +223,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `ENABLE_WEB_UI` | `bool` | `False` |
 | `ENABLE_TERMINAL_UI` | `bool` | `False` |
 | `ENABLE_WEB_LOGS` | `bool` | `False` |
-| `ENABLE_ACP` | `bool` | `False` |
-| `ACP_PORT` | `int` | `8001` |
+| `ENABLE_ACP` | `bool` | `False` (deprecated; launch `agent-utilities-acp`) |
 | `ACP_SESSION_ROOT` | `str` | `.acp-sessions` |
 | `MCP_URL` | `Union` | `unset` |
 | `MCP_CONFIG` | `Union` | `unset` |

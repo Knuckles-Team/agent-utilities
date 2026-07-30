@@ -12,10 +12,12 @@ graph TD
 
     User --> WebUI
     User --> TUI
-    WebUI -- ACP Protocol /acp --> Backend
+    WebUI -- AG-UI /ag-ui --> Backend
     TUI -- AG-UI /ag-ui --> Backend
-    TUI -- ACP Protocol /acp --> Backend
     External -- AG-UI /ag-ui --> Backend
+    User --> ACP["ACP-compatible editor"]
+    ACP -- stdio JSON-RPC --> ACPProcess["agent-utilities-acp"]
+    ACPProcess --> UnifiedExec
 
     subgraph AgentUtilities [agent-utilities]
         Backend --> UnifiedExec["Unified Execution Layer<br/>(graph/protocol_agnostic_execution.py)"]
@@ -86,18 +88,18 @@ graph TD
 
 The framework provides three canonical protocol adapters:
 
-1. **ACP (Agent Communication Protocol)**: Primary protocol for standardized sessions, planning, and streaming
+1. **ACP (Agent Client Protocol)**: Editor-launched stdio JSON-RPC for coding-agent sessions
 2. **A2A (Agent-to-Agent)**: Peer-to-peer agent communication and coordination
 3. **AG-UI**: Current streaming interface for native Pydantic AI clients
 
 All protocol adapters are centralized in `agent_utilities/protocols/`:
 
-- `acp_adapter.py`: ACP envelope formatting, session management, per-session `agent_factory`
+- `acp_adapter.py`: Harness ACP stdio boundary, durable sessions, and Graph-OS session dependencies
 - `a2a.py`: A2A peer discovery, JSON-RPC client, registry management
 - `a2a_epistemic.py`: durable task/context state, idempotent dispatch recovery,
   delivery leases, and execution fencing
 - `agui_emitter.py`: AG-UI wire format translator for direct graph execution events
-- Server endpoints: `/acp` (MOUNT), `/a2a` (MOUNT), `/ag-ui` (POST)
+- Server endpoints: `/a2a` (MOUNT), `/ag-ui` (POST); ACP is the separate `agent-utilities-acp` process
 
 ### Direct Graph Execution (Fast Path)
 
@@ -113,7 +115,9 @@ This eliminates one full LLM inference round-trip per request. The fast path use
 The graph bundle must contain a real Graph object with `.iter()` support. There
 is no alternate graph execution flag or model-mediated graph path.
 
-The **ACP adapter** uses pydantic-acp's `agent_factory` callback for per-session agent creation, binding graph context directly to each session's closure.
+The **ACP adapter** uses Harness `AcpSessionConfig` to bind immutable,
+per-session graph context to one shared wrapper agent. Editors launch it over
+stdio; it is never mounted as an HTTP application.
 
 The **A2A path** is graph-native
 (CONCEPT:AU-ECO.messaging.native-backend-abstraction): when a `graph_bundle` is
@@ -440,7 +444,6 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 | `/health` | GET | Core | Status-only, non-fingerprinting liveness probe |
 | `/ag-ui` | POST | Agent UI | AG-UI streaming endpoint with sideband graph events |
 | `/stream` | POST | Agent UI | Generic SSE stream endpoint for graph agent execution |
-| `/acp` | MOUNT | ACP | Agent Communication Protocol (pydantic-acp) |
 | `/a2a` | MOUNT | A2A | Agent-to-Agent (fastA2A) JSON-RPC endpoint |
 | `/api/approve` | POST | Human-in-the-Loop | Resolves pending tool approvals and MCP elicitation requests |
 | `/chats` | GET | Core | List all stored chat sessions |
@@ -461,7 +464,8 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 ## The Complete Execution Journey
 
 ### Phase 1: Ingress & Protocol Handling
-1. **Entry**: A user query (text + optional images) arrives via any supported protocol: AG-UI (`/ag-ui`), ACP (`/acp`), SSE (`/stream`), or REST (`/api/chat`).
+1. **Entry**: A user query arrives via AG-UI (`/ag-ui`), SSE (`/stream`),
+   REST (`/api/chat`), A2A (`/a2a`), or the separate ACP stdio process.
 2. **Direct Dispatch Check**: If a `graph_bundle` is present, AG-UI routes directly to `execute_graph_iter()`.
 3. **Unified Execution**: All protocols funnel through the same graph engine via `graph/protocol_agnostic_execution.py`. The `execute_graph_iter()` entry point uses `graph.iter()` for step-by-step control.
 4. **State Initialization**: A fresh `GraphState` is initialized with the synthesized `query_parts`.

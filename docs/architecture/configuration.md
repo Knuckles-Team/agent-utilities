@@ -432,9 +432,8 @@ therefore environment-settable; none are internal-only.
 | `ENABLE_WEB_UI` | `false` | Serve the web UI |
 | `ENABLE_TERMINAL_UI` | `false` | Terminal UI mode (disables `GATEWAY_WORKERS>1`) |
 | `ENABLE_WEB_LOGS` | `true` | Web log streaming |
-| `ENABLE_ACP` | `false` | Agent Client Protocol adapter |
-| `ACP_PORT` | `8001` | ACP port |
-| `ACP_SESSION_ROOT` | `.acp-sessions` | ACP session storage dir |
+| `ENABLE_ACP` | `false` | Deprecated gateway compatibility flag; ACP is launched separately |
+| `ACP_SESSION_ROOT` | `.acp-sessions` | Private durable store used by `agent-utilities-acp` |
 | `DEFAULT_TERMINAL_AGENT` | `agent-terminal-ui` | Terminal agent binary |
 | `MCP_URL` | `None` | Remote MCP server URL the agent attaches to |
 | `MCP_CONFIG` | `None` | Path to `mcp_config.json` |

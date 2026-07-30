@@ -17,7 +17,8 @@ pip install "agent-utilities[serving]"
 pip install "agent-utilities[agent-runtime]"
 
 # Protocol adapters & UI
-pip install agent-utilities[acp]        # Standardized ACP protocol
+pip install "agent-utilities[acp]"      # Harness ACP for editors (stdio)
+# Then configure the editor to launch: agent-utilities-acp
 pip install agent-utilities[ag-ui]      # Agent WebUI streaming
 pip install agent-utilities[terminal]   # Terminal UI
 

@@ -22,7 +22,7 @@ Design notes
   ``DeferredToolResults``, ``ToolApproved``, ``ToolDenied``).
 * Completely decoupled from ACP — works with AG-UI, SSE, or any protocol
   that can POST a JSON response to ``/api/approve``.
-* When running inside an ACP session, pydantic-acp's own
+* When running inside an ACP editor session, Pydantic AI Harness'
   ``NativeApprovalBridge`` handles approvals at the wrapper-agent level,
   so this manager is bypassed automatically.
 """

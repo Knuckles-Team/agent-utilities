@@ -13,34 +13,7 @@ members = [
     "epistemic-graph",
     "langfuse-agent",
 ]
-overrides = [
-    { name = "nltk", specifier = ">=3.10.0" },
-    { name = "opentelemetry-instrumentation-asgi", specifier = "<0.65b0" },
-    { name = "opentelemetry-instrumentation-fastapi", specifier = "<0.65b0" },
-    { name = "opentelemetry-instrumentation-starlette", specifier = "<0.65b0" },
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "rich", specifier = ">=15.0.0" },
-]
-
-[[package]]
-name = "acpkit"
-version = "1.5.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "click" },
-    { name = "pre-commit" },
-    { name = "pydantic-ai" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/85/85/ed2c916a667483e7010c7bdfae7c50d93edea6f35ce412e3ff3e2e7c649e/acpkit-1.5.1.tar.gz", hash = "sha256:fe329daabb0419c1df8bc4940f36e2ffb370913c0e7f7118972a66c8d6601ecf", size = 759773, upload-time = "2026-07-24T13:59:41.249Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/77/34bf4f22bdf78f218d730aab5a29586db3e4cef1c3aeedfa5c5090bf8e1b/acpkit-1.5.1-py3-none-any.whl", hash = "sha256:e3d2198b340d3eabc28bf7fa03ccfcf4e00ff817925db1a79278364d676b6a0b", size = 20965, upload-time = "2026-07-24T13:59:36.498Z" },
-]
-
-[package.optional-dependencies]
-pydantic = [
-    { name = "pydantic-acp" },
-]
+overrides = [{ name = "nltk", specifier = ">=3.10.0" }]
 
 [[package]]
 name = "aenum"
@@ -65,14 +38,14 @@ wheels = [
 
 [[package]]
 name = "agent-client-protocol"
-version = "0.11.0"
+version = "0.11.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6c/93/396d02c91b387b2678f23081869ca47bd495fc6c78789022c683180cf5f1/agent_client_protocol-0.11.0.tar.gz", hash = "sha256:8920a3b27bdcc852fd7c73066f47ab53257dbfbe57b505e20a40c69f80a5391c", size = 87402, upload-time = "2026-07-05T17:07:56.803Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ae/a3/0af4ac4cdb943d0daffd214c02dc5f79596d71d1db40248ee4d54ac596b2/agent_client_protocol-0.11.1.tar.gz", hash = "sha256:96b02a94de53e05ec20f64cedd1b83744b64f3f94dd2b82ae5d0af88388239ea", size = 100326, upload-time = "2026-07-27T18:47:29.298Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/48/a1367dded7765f5489f9840389949d5aeac53a73aeb1b4e6c0ab61e1617a/agent_client_protocol-0.11.0-py3-none-any.whl", hash = "sha256:2d8570cd4911f8af9fbab4808f7b05f09204a756f346c7409ecdcae3f37cdb2f", size = 68089, upload-time = "2026-07-05T17:07:55.518Z" },
+    { url = "https://files.pythonhosted.org/packages/18/28/cc93079c418b03de7a778cabbf66ceac5add98592f5daf30cf6f4b8f9096/agent_client_protocol-0.11.1-py3-none-any.whl", hash = "sha256:42790f0a25b8fd24f5c9b27b7e0c34123fc1a980024ad8ef965d1d169a5e42d4", size = 68122, upload-time = "2026-07-27T18:47:28.27Z" },
 ]
 
 [[package]]
@@ -94,7 +67,7 @@ wheels = [
 
 [[package]]
 name = "agent-utilities"
-source = { editable = "agent-utilities" }
+source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "cryptography" },
@@ -119,8 +92,7 @@ dependencies = [
 
 [package.optional-dependencies]
 acp = [
-    { name = "acpkit", extra = ["pydantic"] },
-    { name = "pydantic-acp" },
+    { name = "pydantic-ai-harness", extra = ["acp"] },
 ]
 ag-ui = [
     { name = "agent-webui" },
@@ -177,7 +149,6 @@ agent-runtime = [
     { name = "wasmtime" },
 ]
 all = [
-    { name = "acpkit", extra = ["pydantic"] },
     { name = "agent-terminal-ui" },
     { name = "agent-webui" },
     { name = "aiohttp" },
@@ -224,7 +195,7 @@ all = [
     { name = "pandas" },
     { name = "playwright" },
     { name = "pyarrow" },
-    { name = "pydantic-acp" },
+    { name = "pydantic-ai-harness", extra = ["acp"] },
     { name = "pydantic-ai-skills" },
     { name = "pydantic-ai-slim", extra = ["ag-ui", "anthropic", "cli", "google", "groq", "huggingface", "mcp", "mistral", "openai", "ui", "web"] },
     { name = "pydantic-graph" },
@@ -273,6 +244,9 @@ documents = [
     { name = "llama-index-readers-file" },
     { name = "nltk" },
     { name = "pypdf" },
+]
+dynamic-workflow = [
+    { name = "pydantic-ai-harness", extra = ["dynamic-workflow"] },
 ]
 embeddings = [
     { name = "llama-index-core" },
@@ -436,6 +410,9 @@ postgresql = [
 pyarrow = [
     { name = "pyarrow" },
 ]
+rdf = [
+    { name = "rdflib" },
+]
 sandbox = [
     { name = "pydantic-monty" },
     { name = "wasmtime" },
@@ -465,6 +442,7 @@ serving = [
     { name = "pyjwt" },
     { name = "python-multipart" },
     { name = "python-telegram-bot" },
+    { name = "rdflib" },
     { name = "skill-graphs" },
     { name = "starlette" },
     { name = "universal-skills" },
@@ -480,7 +458,6 @@ terminal = [
     { name = "agent-terminal-ui" },
 ]
 test = [
-    { name = "acpkit", extra = ["pydantic"] },
     { name = "agent-terminal-ui" },
     { name = "agent-webui" },
     { name = "confluent-kafka" },
@@ -501,7 +478,7 @@ test = [
     { name = "opentelemetry-instrumentation-starlette" },
     { name = "owlready2" },
     { name = "pandas" },
-    { name = "pydantic-acp" },
+    { name = "pydantic-ai-harness", extra = ["acp"] },
     { name = "pydantic-ai-skills" },
     { name = "pydantic-ai-slim", extra = ["ag-ui", "cli", "mcp", "openai", "ui", "web"] },
     { name = "pydantic-graph" },
@@ -526,7 +503,6 @@ test = [
     { name = "yfinance" },
 ]
 test-backends = [
-    { name = "acpkit", extra = ["pydantic"] },
     { name = "agent-terminal-ui" },
     { name = "agent-webui" },
     { name = "aiokafka" },
@@ -552,7 +528,7 @@ test-backends = [
     { name = "pandas" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
-    { name = "pydantic-acp" },
+    { name = "pydantic-ai-harness", extra = ["acp"] },
     { name = "pydantic-ai-skills" },
     { name = "pydantic-ai-slim", extra = ["ag-ui", "cli", "mcp", "openai", "ui", "web"] },
     { name = "pydantic-graph" },
@@ -594,20 +570,19 @@ guardrails = [
 
 [package.metadata]
 requires-dist = [
-    { name = "acpkit", extras = ["pydantic"], marker = "extra == 'acp'", specifier = ">=1.5.1" },
     { name = "agent-terminal-ui", marker = "extra == 'terminal'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "ann", "auth", "browser", "documents", "embeddings-huggingface", "embeddings-ollama", "embeddings-openai", "feeds", "finance", "graph", "langfuse", "logfire", "mcp", "messaging", "owl", "pyarrow", "sandbox", "stardog", "test", "vault"], marker = "extra == 'all'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["acp", "agent-runtime", "event-kafka", "feeds", "finance", "graph", "owl", "sandbox"], marker = "extra == 'test'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["ag-ui", "mcp", "sandbox", "terminal"], marker = "extra == 'agent-runtime'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["agent-headless", "auth", "embeddings-openai", "falkordb", "feeds", "langfuse", "logfire", "mcp", "messaging-mattermost", "messaging-telegram", "metrics", "neo4j"], marker = "extra == 'serving'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["falkordb", "fuseki", "kafka", "neo4j", "owl", "postgresql", "test"], marker = "extra == 'test-backends'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["finance"], marker = "extra == 'finance-kronos'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["mcp", "sandbox"], marker = "extra == 'agent-headless'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["messaging-discord", "messaging-googlechat", "messaging-googlemeet", "messaging-irc", "messaging-line", "messaging-matrix", "messaging-mattermost", "messaging-nextcloud", "messaging-signal", "messaging-slack", "messaging-synology", "messaging-teams", "messaging-telegram", "messaging-twitch", "messaging-voicecall", "messaging-whatsapp"], marker = "extra == 'messaging'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["owl"], marker = "extra == 'stardog'", editable = "agent-utilities" },
+    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "ann", "auth", "browser", "documents", "embeddings-huggingface", "embeddings-ollama", "embeddings-openai", "feeds", "finance", "graph", "langfuse", "logfire", "mcp", "messaging", "owl", "pyarrow", "sandbox", "stardog", "test", "vault"], marker = "extra == 'all'", editable = "." },
+    { name = "agent-utilities", extras = ["acp", "agent-runtime", "event-kafka", "feeds", "finance", "graph", "owl", "sandbox"], marker = "extra == 'test'", editable = "." },
+    { name = "agent-utilities", extras = ["ag-ui", "mcp", "sandbox", "terminal"], marker = "extra == 'agent-runtime'", editable = "." },
+    { name = "agent-utilities", extras = ["agent-headless", "auth", "embeddings-openai", "falkordb", "feeds", "langfuse", "logfire", "mcp", "messaging-mattermost", "messaging-telegram", "metrics", "neo4j", "rdf"], marker = "extra == 'serving'", editable = "." },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", editable = "." },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", editable = "." },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", editable = "." },
+    { name = "agent-utilities", extras = ["falkordb", "fuseki", "kafka", "neo4j", "owl", "postgresql", "test"], marker = "extra == 'test-backends'", editable = "." },
+    { name = "agent-utilities", extras = ["finance"], marker = "extra == 'finance-kronos'", editable = "." },
+    { name = "agent-utilities", extras = ["mcp", "sandbox"], marker = "extra == 'agent-headless'", editable = "." },
+    { name = "agent-utilities", extras = ["messaging-discord", "messaging-googlechat", "messaging-googlemeet", "messaging-irc", "messaging-line", "messaging-matrix", "messaging-mattermost", "messaging-nextcloud", "messaging-signal", "messaging-slack", "messaging-synology", "messaging-teams", "messaging-telegram", "messaging-twitch", "messaging-voicecall", "messaging-whatsapp"], marker = "extra == 'messaging'", editable = "." },
+    { name = "agent-utilities", extras = ["owl"], marker = "extra == 'stardog'", editable = "." },
     { name = "agent-webui", marker = "extra == 'ag-ui'", specifier = ">=1.1.0" },
     { name = "aiohttp", marker = "extra == 'documents'", specifier = ">=3.14.1" },
     { name = "aiokafka", marker = "extra == 'kafka'", specifier = ">=0.14.0" },
@@ -671,9 +646,9 @@ requires-dist = [
     { name = "nltk", marker = "extra == 'documents'", specifier = ">=3.10.0" },
     { name = "numpy", marker = "extra == 'test'", specifier = ">=2.5.1" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.30.0,<2" },
-    { name = "opentelemetry-instrumentation-asgi", marker = "extra == 'test'", specifier = ">=0.65b0" },
-    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'test'", specifier = ">=0.65b0" },
-    { name = "opentelemetry-instrumentation-starlette", marker = "extra == 'test'", specifier = ">=0.65b0" },
+    { name = "opentelemetry-instrumentation-asgi", marker = "extra == 'test'", specifier = ">=0.60b0" },
+    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'test'", specifier = ">=0.60b0" },
+    { name = "opentelemetry-instrumentation-starlette", marker = "extra == 'test'", specifier = ">=0.60b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30.0,<2" },
     { name = "owlready2", marker = "extra == 'owl'", specifier = ">=0.51" },
     { name = "packaging", specifier = ">=26.2.0" },
@@ -688,7 +663,8 @@ requires-dist = [
     { name = "psycopg-pool", marker = "extra == 'postgresql'", specifier = ">=3.3.1" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=17.0.0" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.13.4" },
-    { name = "pydantic-acp", marker = "extra == 'acp'", specifier = ">=1.5.1" },
+    { name = "pydantic-ai-harness", extras = ["acp"], marker = "extra == 'acp'", specifier = ">=0.14.0,<0.15.0" },
+    { name = "pydantic-ai-harness", extras = ["dynamic-workflow"], marker = "extra == 'dynamic-workflow'", specifier = ">=0.14.0,<0.15.0" },
     { name = "pydantic-ai-skills", marker = "extra == 'agent-headless'", specifier = ">=1.2.0" },
     { name = "pydantic-ai-skills", marker = "extra == 'agent-runtime'", specifier = ">=1.2.0" },
     { name = "pydantic-ai-slim", extras = ["ag-ui", "cli", "mcp", "openai", "ui", "web"], marker = "extra == 'agent-runtime'", specifier = ">=2.14.1,<3.0.0" },
@@ -717,6 +693,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rdflib", marker = "extra == 'fuseki'", specifier = ">=7.6.0" },
     { name = "rdflib", marker = "extra == 'owl'", specifier = ">=7.6.0" },
+    { name = "rdflib", marker = "extra == 'rdf'", specifier = ">=7.6.0" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "ruff", marker = "extra == 'test'", specifier = ">=0.15.22" },
     { name = "safetensors", marker = "extra == 'finance-kronos'", specifier = ">=0.8.0" },
@@ -737,7 +714,7 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'finance'", specifier = ">=16.1.1" },
     { name = "yfinance", marker = "extra == 'finance'", specifier = ">=1.5.1" },
 ]
-provides-extras = ["sandbox", "feeds", "kafka", "metrics", "otel", "nats", "pyarrow", "mcp", "agent-runtime", "agent-headless", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "ag-ui", "terminal", "browser", "computer-use", "acp", "documents", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "langfuse", "graph", "ann", "neo4j", "falkordb", "owl", "stardog", "fuseki", "event-kafka", "ingest-dedup", "vault", "auth", "serving", "finance", "finance-kronos", "hr", "medical", "science", "law", "government", "postgresql", "messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-imessage", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud", "messaging", "test", "test-backends", "all"]
+provides-extras = ["sandbox", "feeds", "kafka", "metrics", "otel", "nats", "pyarrow", "mcp", "agent-runtime", "agent-headless", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "dynamic-workflow", "ag-ui", "terminal", "browser", "computer-use", "acp", "documents", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "langfuse", "graph", "ann", "neo4j", "falkordb", "owl", "rdf", "stardog", "fuseki", "event-kafka", "ingest-dedup", "vault", "auth", "serving", "finance", "finance-kronos", "hr", "medical", "science", "law", "government", "postgresql", "messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-imessage", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud", "messaging", "test", "test-backends", "all"]
 
 [package.metadata.requires-dev]
 guardrails = [
@@ -1488,15 +1465,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cfgv"
-version = "3.5.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4e/b5/721b8799b04bf9afe054a3899c6cf4e880fcf8563cc71c15610242490a0c/cfgv-3.5.0.tar.gz", hash = "sha256:d5b1034354820651caa73ede66a6294d6e95c1b00acc5e9b098e917404669132", size = 7334, upload-time = "2025-11-19T20:55:51.612Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl", hash = "sha256:a8dc6b26ad22ff227d2634a65cb388215ce6cc96bbcc5cfde7641ae87e8dacc0", size = 7445, upload-time = "2025-11-19T20:55:50.744Z" },
-]
-
-[[package]]
 name = "charset-normalizer"
 version = "3.4.9"
 source = { registry = "https://pypi.org/simple" }
@@ -1911,15 +1879,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ef/57/9a2d9abdabdc9db8ef28ce0cf4129669e1c8717ba28d607b5ba357c4de3b/discord_py-2.7.1.tar.gz", hash = "sha256:24d5e6a45535152e4b98148a9dd6b550d25dc2c9fb41b6d670319411641249da", size = 1106326, upload-time = "2026-03-03T18:40:46.24Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f7/a7/17208c3b3f92319e7fad259f1c6d5a5baf8fd0654c54846ced329f83c3eb/discord_py-2.7.1-py3-none-any.whl", hash = "sha256:849dca2c63b171146f3a7f3f8acc04248098e9e6203412ce3cf2745f284f7439", size = 1227550, upload-time = "2026-03-03T18:40:44.492Z" },
-]
-
-[[package]]
-name = "distlib"
-version = "0.4.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c9/02/bd72be9134d25ed783ecbbc38a539ffaefbf90c78418c7fb7229600dbac7/distlib-0.4.3.tar.gz", hash = "sha256:f152097224a0ae24be5a0f6bae1b9359af82133bce63f98a95f86cae1aede9ed", size = 615141, upload-time = "2026-06-12T08:04:52.847Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/02/08/9c41fb51ab5b43eb21674aff13df270e8ba6c4b29c8624e328dc7a9482af/distlib-0.4.3-py2.py3-none-any.whl", hash = "sha256:4b0ce306c966eb73bc3a7b6abad017c556dadd92c44701562cd528ac7fde4d5b", size = 470628, upload-time = "2026-06-12T08:04:50.506Z" },
 ]
 
 [[package]]
@@ -2830,15 +2789,6 @@ wheels = [
 ]
 
 [[package]]
-name = "identify"
-version = "2.6.19"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/52/63/51723b5f116cc04b061cb6f5a561790abf249d25931d515cd375e063e0f4/identify-2.6.19.tar.gz", hash = "sha256:6be5020c38fcb07da56c53733538a3081ea5aa70d36a156f83044bfbf9173842", size = 99567, upload-time = "2026-04-17T18:39:50.265Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/84/d9273cd09688070a6523c4aee4663a8538721b2b755c4962aafae0011e72/identify-2.6.19-py2.py3-none-any.whl", hash = "sha256:20e6a87f786f768c092a721ad107fc9df0eb89347be9396cadf3f4abbd1fb78a", size = 99397, upload-time = "2026-04-17T18:39:49.221Z" },
-]
-
-[[package]]
 name = "idna"
 version = "3.18"
 source = { registry = "https://pypi.org/simple" }
@@ -3287,10 +3237,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-utilities", extras = ["agent-runtime", "logfire"], marker = "extra == 'agent'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["mcp"], editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'mcp'", editable = "agent-utilities" },
-    { name = "agent-utilities", extras = ["mcp", "agent-runtime", "logfire"], marker = "extra == 'all'", editable = "agent-utilities" },
+    { name = "agent-utilities", extras = ["agent-runtime", "logfire"], marker = "extra == 'agent'", editable = "." },
+    { name = "agent-utilities", extras = ["mcp"], editable = "." },
+    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'mcp'", editable = "." },
+    { name = "agent-utilities", extras = ["mcp", "agent-runtime", "logfire"], marker = "extra == 'all'", editable = "." },
     { name = "langfuse", specifier = ">=4,<5" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.1" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.7.7" },
@@ -4288,15 +4238,6 @@ wheels = [
 ]
 
 [[package]]
-name = "nodeenv"
-version = "1.10.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/24/bf/d1bda4f6168e0b2e9e5958945e01910052158313224ada5ce1fb2e1113b8/nodeenv-1.10.0.tar.gz", hash = "sha256:996c191ad80897d076bdfba80a41994c2b47c68e224c542b48feba42ba00f8bb", size = 55611, upload-time = "2025-12-20T14:08:54.006Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827", size = 23438, upload-time = "2025-12-20T14:08:52.782Z" },
-]
-
-[[package]]
 name = "numpy"
 version = "2.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4956,22 +4897,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pre-commit"
-version = "4.6.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cfgv" },
-    { name = "identify" },
-    { name = "nodeenv" },
-    { name = "pyyaml" },
-    { name = "virtualenv" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/25/3a/ddb78f32a0814e66b18a099377a106a2dcdce92d86a034d69d65df9b256e/pre_commit-4.6.1.tar.gz", hash = "sha256:03e809865c7d178b9979d06c761fcbfe6808fdaded8581a745bb110e52050421", size = 198646, upload-time = "2026-07-21T20:56:58.225Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/49/bc925106abcdac498074f2cbe6137e94e09f418dd2b7775df5b577dc0313/pre_commit-4.6.1-py2.py3-none-any.whl", hash = "sha256:0e3b2942510d1fb34eec167a3ec57331bf8442122f1153a9fb8b58f5c49b2717", size = 226186, upload-time = "2026-07-21T20:56:57.064Z" },
-]
-
-[[package]]
 name = "prettytable"
 version = "3.18.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5365,31 +5290,24 @@ email = [
 ]
 
 [[package]]
-name = "pydantic-acp"
-version = "1.5.1"
+name = "pydantic-ai-harness"
+version = "0.14.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "agent-client-protocol" },
-    { name = "anyio" },
-    { name = "pydantic" },
+    { name = "httpx" },
     { name = "pydantic-ai-slim" },
-    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c5/12/53bf61f91f64aac92f4257ed5edce58195122bfbd15c94e2bbfffe60ae04/pydantic_acp-1.5.1.tar.gz", hash = "sha256:00df31e9bfbdccd774248446bc3f303a678517390e666922e12d5b9c4b233529", size = 100287, upload-time = "2026-07-24T13:59:44.409Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/5b/e56d80508133773d16eb3f59d2e868fdead1d11dcd8c845587da7605a77d/pydantic_ai_harness-0.14.0.tar.gz", hash = "sha256:a92caeb55b3d27173b90e8f5693f9b87b6fe94d40cc0f68b3b7fad16be4d3e08", size = 1380720, upload-time = "2026-07-30T02:06:48.268Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/ce/91e201a2162e60441beacb384034ddd5759d75fb1b547431fa665c2f7823/pydantic_acp-1.5.1-py3-none-any.whl", hash = "sha256:b5f02a5cabbc9647717a5437390a6830c10114676c94a4d5789954220f76dd86", size = 134947, upload-time = "2026-07-24T13:59:40.206Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/f8/7d5a30f05e4c2b3409ac07fc3239a59023dbde45f33c95cdfb7bfb1f7e79/pydantic_ai_harness-0.14.0-py3-none-any.whl", hash = "sha256:0400604998fa90bd11cacfbaf505a523f305f83372ed590b6a3c07b1caacc35d", size = 453742, upload-time = "2026-07-30T02:06:46.356Z" },
 ]
 
-[[package]]
-name = "pydantic-ai"
-version = "2.16.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic-ai-slim", extra = ["anthropic", "cli", "evals", "google", "logfire", "mcp", "openai", "retries", "web"] },
+[package.optional-dependencies]
+acp = [
+    { name = "agent-client-protocol" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/22/d3069491e73d2dda637afb87e3ad1957fe2924e9954d3cc0b9f1d312fd5e/pydantic_ai-2.16.0.tar.gz", hash = "sha256:89aed181b2f317d0bca958ba1885b8480559583321ee9e6bfd85ad45df0fe905", size = 18761, upload-time = "2026-07-23T02:47:18.419Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/b5/3412d12dbb7b88ee4c7905e6d8046150fe855aa5ff51924e0dc3c5259626/pydantic_ai-2.16.0-py3-none-any.whl", hash = "sha256:7f206e0860f547fd9a72cd95e4a6d10bdaf91e68818ac04d1ee044dd2c261946", size = 7729, upload-time = "2026-07-23T02:47:09.537Z" },
+dynamic-workflow = [
+    { name = "pydantic-monty" },
 ]
 
 [[package]]
@@ -5408,7 +5326,7 @@ wheels = [
 
 [[package]]
 name = "pydantic-ai-slim"
-version = "2.16.0"
+version = "2.21.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "genai-prices" },
@@ -5419,9 +5337,9 @@ dependencies = [
     { name = "pydantic-graph" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/76/6a/3048579c646f4cea7966889009a1d7eef1365f9126393945d39cefad9e83/pydantic_ai_slim-2.16.0.tar.gz", hash = "sha256:36d17cb12edd72ffc62f9e06cc49ac5f23cb77cf6b665c4b1fd11c00dbe6a852", size = 889343, upload-time = "2026-07-23T02:47:20.696Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/c0/c699651a74cac2ac5e4bf19f568edf75fae529e456e2fee00ce94fe18f99/pydantic_ai_slim-2.21.0.tar.gz", hash = "sha256:dbcd6566ca1d05541f098aab42bb3464a1e39dfca6fe1af4d8e16f808e79a56c", size = 912884, upload-time = "2026-07-30T02:10:44.413Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/95/2c79b9f8e875562bae8141078af27428120e8415d493bb07ea36ca5905f9/pydantic_ai_slim-2.16.0-py3-none-any.whl", hash = "sha256:7cad27fb8f45ce4af4e8da83d7f206a3e1038dbc7535625c0ce5518fe378a55d", size = 1077057, upload-time = "2026-07-23T02:47:12.633Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/01/05606613365f19d317eddbf5f2aaea0f947af9175c4ada5a4b577124583e/pydantic_ai_slim-2.21.0-py3-none-any.whl", hash = "sha256:25c34084808b944c000ad520553d8ac50c4d992972662a0e63f700009afb9bad", size = 1102191, upload-time = "2026-07-30T02:10:37.357Z" },
 ]
 
 [package.optional-dependencies]
@@ -5439,9 +5357,6 @@ cli = [
     { name = "pyyaml" },
     { name = "rich" },
 ]
-evals = [
-    { name = "pydantic-evals" },
-]
 google = [
     { name = "google-genai" },
 ]
@@ -5452,9 +5367,6 @@ huggingface = [
     { name = "hf-xet", marker = "platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'" },
     { name = "huggingface-hub" },
 ]
-logfire = [
-    { name = "logfire", extra = ["httpx"] },
-]
 mcp = [
     { name = "fastmcp-slim", extra = ["client"] },
 ]
@@ -5464,9 +5376,6 @@ mistral = [
 openai = [
     { name = "openai" },
     { name = "tiktoken" },
-]
-retries = [
-    { name = "tenacity" },
 ]
 ui = [
     { name = "starlette" },
@@ -5553,25 +5462,8 @@ wheels = [
 ]
 
 [[package]]
-name = "pydantic-evals"
-version = "2.16.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "logfire-api" },
-    { name = "pydantic" },
-    { name = "pydantic-ai-slim" },
-    { name = "pyyaml" },
-    { name = "rich" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/52/f5/7c2bf8ce45da52ed70c030e91ce43747317f61bd0615a40e91f1ec515c70/pydantic_evals-2.16.0.tar.gz", hash = "sha256:717e9615c7688650cdc716046f1d8edfbe0bac1748286c0a2744e3689fb518c7", size = 85147, upload-time = "2026-07-23T02:47:22.089Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/f6/d7f20f976f81d073856138bd046bf1ce5dc96561391526753c1c9076d33c/pydantic_evals-2.16.0-py3-none-any.whl", hash = "sha256:6705b427ea7c77d7f6b7d152ced6f86728931eceb9c57a8aa07ab8225fb1a934", size = 100439, upload-time = "2026-07-23T02:47:14.523Z" },
-]
-
-[[package]]
 name = "pydantic-graph"
-version = "2.16.0"
+version = "2.21.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -5579,9 +5471,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/22/6b6426e14607275f6b15f2a0c4530514c48ff01f86c53bbaac4041d09df9/pydantic_graph-2.16.0.tar.gz", hash = "sha256:f71e5c8e78a4ce56bc044861178e506ebd99881717ae0993924c457f5de6230e", size = 43979, upload-time = "2026-07-23T02:47:23.328Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/d5/d3aa91f4e8dbae1bc863e02bce282b407f9499c6c40f92cada2be7ce5fc6/pydantic_graph-2.21.0.tar.gz", hash = "sha256:65b65134904cd13a7f153f042c41f65ee79cde1759e2f2291008976b18e73c38", size = 44150, upload-time = "2026-07-30T02:10:46.72Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/c0/362a7fb50562d7b51e3d02d454826e0a7b5652f27e5be8e835ddfaf84da6/pydantic_graph-2.16.0-py3-none-any.whl", hash = "sha256:99c25852c436d4d510d1ecdcb53ce4a0b11aa4d1d9d81472727587f2b5a3bc13", size = 51661, upload-time = "2026-07-23T02:47:15.921Z" },
+    { url = "https://files.pythonhosted.org/packages/19/52/f9d1a615464b550a3335a754d8f554768acdbbaf4163093ef57e81da868b/pydantic_graph-2.21.0-py3-none-any.whl", hash = "sha256:28e68554a6b9df8c9b12cc337d492f4c00156a4d67f041a866af2913c73a2b99", size = 51661, upload-time = "2026-07-30T02:10:40.502Z" },
 ]
 
 [[package]]
@@ -5951,19 +5843,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
-]
-
-[[package]]
-name = "python-discovery"
-version = "1.5.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "filelock" },
-    { name = "platformdirs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f1/51/276f964496a5714ab9f320896195639086881c2b39c03b5ad13de84acbb8/python_discovery-1.5.0.tar.gz", hash = "sha256:3e014c6327154d3dda27939a9a0dc9c5c000439f1906d3f303b48f984bd2ecef", size = 72483, upload-time = "2026-07-21T13:14:14.641Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c7/7b/14882602ddee241d7984a742fcb423cb4a30fb0d6efc546ac3129fba475a/python_discovery-1.5.0-py3-none-any.whl", hash = "sha256:70c4fc61b4e7404e44f01d6fc44a715c4d685ca6cea83d295922f05891877c98", size = 34205, upload-time = "2026-07-21T13:14:13.398Z" },
 ]
 
 [[package]]
@@ -7312,21 +7191,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a2/65/b7c6c443ccc58678c91e1e973bbe2a878591538655d6e1d47f24ba1c51f3/uvicorn-0.51.0.tar.gz", hash = "sha256:f6f4b69b657c312f516dd2d268ab9ae6f254b11e4bac504f37b2ab58b24dd0b0", size = 94412, upload-time = "2026-07-08T10:59:05.962Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/45/ec/dbb7e5a6b91f86bfb9eb7d2988a2730907b6a729875b949c7f022e8b88fa/uvicorn-0.51.0-py3-none-any.whl", hash = "sha256:5d38af6cd620f2ae3849fb44fd4879e0890aa1febe8d47eb355fb45d93fe6a5b", size = 73219, upload-time = "2026-07-08T10:59:04.44Z" },
-]
-
-[[package]]
-name = "virtualenv"
-version = "21.7.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "distlib" },
-    { name = "filelock" },
-    { name = "platformdirs" },
-    { name = "python-discovery" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/25/e367a7229b0914772ca8d81b41fde012d9feda68523b52644a571bb21ce8/virtualenv-21.7.0.tar.gz", hash = "sha256:7f9519b9432ff11b6e1a3e94061664efc2ff99ea21780e3cf4f6bd0a5da8b37c", size = 5527510, upload-time = "2026-07-21T13:12:14.109Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/7a/ae29312b1e88a22e81f5d21fc11526d2a114089776c2550d2b205b6c2a47/virtualenv-21.7.0-py3-none-any.whl", hash = "sha256:a8370c1c5530fbabf955e40b8fbbc68a431648b10f9433faa587db30a06e51dd", size = 5507078, upload-time = "2026-07-21T13:12:12.136Z" },
 ]
 
 [[package]]

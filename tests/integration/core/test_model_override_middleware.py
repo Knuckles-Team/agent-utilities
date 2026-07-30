@@ -431,7 +431,7 @@ async def test_stream_graph_reads_contextvar_fallback(registry):
     """When no explicit kwarg is passed, stream_graph reads the CV.
 
     This is the channel used by ACP (which sets the CV in the middleware
-    and then the graph runs several layers deep inside pydantic-acp).
+    and then the graph runs several layers deep behind an ACP adapter).
     """
 
     captured: dict[str, Any] = {}

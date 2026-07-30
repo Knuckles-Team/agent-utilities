@@ -173,11 +173,21 @@ def test_a2a_mount_present(app_with_web_ui: FastAPI) -> None:
 
 
 def test_acp_available_when_acp_installed() -> None:
-    """``is_acp_available()`` returns True when ``pydantic-acp`` is installed."""
-    pytest.importorskip("pydantic_acp")
+    """``is_acp_available()`` follows the first-party Harness ACP extra."""
+    pytest.importorskip("pydantic_ai_harness.experimental.acp")
     from agent_utilities.protocols.acp_adapter import is_acp_available
 
     assert is_acp_available() is True
+
+
+def test_acp_is_not_a_fake_http_mount(app_with_web_ui: FastAPI) -> None:
+    """Agent Client Protocol is stdio JSON-RPC, not a Starlette mount."""
+    mounts = [
+        route
+        for route in app_with_web_ui.routes
+        if isinstance(route, Mount) and getattr(route, "path", None) == "/acp"
+    ]
+    assert mounts == []
 
 
 # ---------------------------------------------------------------------------
@@ -239,9 +249,10 @@ def test_deep_imports() -> None:
     from agent_utilities.knowledge_graph.pipeline.runner import PipelineRunner
     from agent_utilities.protocols.a2a import A2AClient, register_a2a_peer
     from agent_utilities.protocols.acp_adapter import (
-        create_acp_app,
-        create_graph_acp_app,
+        create_acp_agent,
+        create_graph_acp_agent,
         is_acp_available,
+        run_acp_agent_sync,
     )
     from agent_utilities.sdd import SDDManager
 
@@ -252,8 +263,9 @@ def test_deep_imports() -> None:
         create_agent_server,
         A2AClient,
         register_a2a_peer,
-        create_acp_app,
-        create_graph_acp_app,
+        create_acp_agent,
+        create_graph_acp_agent,
+        run_acp_agent_sync,
         is_acp_available,
         create_backend,
         IntelligenceGraphEngine,

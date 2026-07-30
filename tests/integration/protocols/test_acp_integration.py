@@ -1,91 +1,142 @@
 """CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
+from __future__ import annotations
+
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from acp import RequestError, schema
 from pydantic_ai.models.test import TestModel
 
 from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.protocols.acp_adapter import (
     _ACP_INSTALLED,
     build_acp_config,
-    create_graph_acp_app,
+    create_graph_acp_agent,
 )
 
-pytestmark = pytest.mark.skipif(not _ACP_INSTALLED, reason="pydantic-acp not installed")
+pytestmark = pytest.mark.skipif(
+    not _ACP_INSTALLED,
+    reason="pydantic-ai-harness[acp] not installed",
+)
 
 
-@pytest.fixture
-def mock_graph():
-    graph = MagicMock()
-    config: dict[str, Any] = {"mcp_toolsets": []}
-    return graph, config
+class RecordingClient:
+    """Minimal in-memory client for driving the Harness adapter."""
+
+    def __init__(self) -> None:
+        self.updates: list[Any] = []
+
+    def on_connect(self, connection: Any) -> None:
+        return None
+
+    async def session_update(
+        self,
+        session_id: str,
+        update: Any,
+        **kwargs: Any,
+    ) -> None:
+        self.updates.append(update)
 
 
 @pytest.mark.asyncio
-async def test_acp_graph_integration():
-    """Test that ACP requests are correctly routed through the graph pipeline."""
-    agent = create_context_agent(TestModel())
-    config = build_acp_config()
+async def test_graph_adapter_dispatches_through_graph_authority(tmp_path) -> None:
+    import acp
 
-    # Mock the graph execution
-    mock_result = MagicMock()
-    mock_result.results = {"output": "Graph processed this request"}
+    base_agent = create_context_agent(
+        TestModel(call_tools=["execute_graph"]),
+        default_capabilities=False,
+    )
+    graph = MagicMock()
+    graph_config: dict[str, Any] = {"mcp_toolsets": []}
+    adapter = create_graph_acp_agent(
+        base_agent,
+        build_acp_config(tmp_path),
+        graph_bundle=(graph, graph_config),
+    )
+    client = RecordingClient()
+    adapter.on_connect(client)
+    await adapter.initialize(protocol_version=1)
+    session = await adapter.new_session(cwd="/workspace")
 
+    execute = AsyncMock(return_value={"results": {"output": "graph result"}})
     with patch(
         "agent_utilities.graph.protocol_agnostic_execution.execute_graph",
-        return_value=mock_result,
-    ) as mock_execute:
-        # Create the graph-backed ACP app
-        graph_bundle: tuple[Any, ...] = (MagicMock(), {"mcp_toolsets": []})
-        app = create_graph_acp_app(agent, config, graph_bundle=graph_bundle)
+        execute,
+    ):
+        response = await adapter.prompt(
+            session_id=session.session_id,
+            prompt=[acp.text_block("delegate this")],
+        )
 
-        # In a real scenario, we would use an ASGI client (like httpx.AsyncClient with app)
-        # to call the ACP endpoints. For this test, we verify the internal structure.
-
-        # The app should be an ACP agent app that wraps the graph_agent
-        # We can inspect the graph_agent's tools
-        # Depending on how create_acp_app is implemented (likely returns a FastAPI app or similar)
-
-        assert app is not None
-
-        # Verify the graph-agent wrapper binds the execute_graph authority.
-        # We need to look inside the app structure (implementation dependent)
-        # For now, let's verify the tool logic works
-
-        # If we can't easily call the app endpoints, test the execution binding directly
-        # by extracting it from create_graph_acp_app if possible, or mocking the call.
-
-        # A full tool call requires pydantic-acp internals; construction is the seam here.
-        # (This is a bit tricky without knowing pydantic-acp internals, but we can verify the adapter logic)
-
-        mock_execute.assert_not_called()
+    assert response.stop_reason == "end_turn"
+    execute.assert_awaited_once()
+    call = execute.await_args.kwargs
+    assert call["graph"] is graph
+    # TestModel deterministically synthesizes "a" for a required string tool
+    # argument. The assertion proves that the wrapper forwards the model's tool
+    # argument unchanged to the one graph execution authority.
+    assert call["query"] == "a"
+    assert call["mode"] == "ask"
+    assert call["requested_model_id"] == "test"
+    assert client.updates
 
 
 @pytest.mark.asyncio
-async def test_acp_session_lifecycle():
-    """Test the session lifecycle (creation and persistence)."""
-    from pydantic_acp import FileSessionStore
+async def test_graph_adapter_persists_and_loads_session(tmp_path) -> None:
+    base_agent = create_context_agent(
+        TestModel(custom_output_text="hello"),
+        default_capabilities=False,
+    )
+    adapter = create_graph_acp_agent(
+        base_agent,
+        build_acp_config(tmp_path),
+    )
+    client = RecordingClient()
+    adapter.on_connect(client)
+    await adapter.initialize(protocol_version=1)
+    session = await adapter.new_session(cwd="/workspace")
 
-    with patch("pathlib.Path.mkdir"):
-        config = build_acp_config()
-        assert isinstance(config.session_store, FileSessionStore)
+    replacement = create_graph_acp_agent(
+        base_agent,
+        build_acp_config(tmp_path),
+    )
+    replacement.on_connect(RecordingClient())
+    await replacement.initialize(protocol_version=1)
+    result = await replacement.load_session(
+        cwd="/workspace",
+        session_id=session.session_id,
+    )
 
-        # Test session creation would normally happen via the ACP app endpoints
-        # Here we just ensure the config is correct for the session store
-        assert config.session_store.root.name == ".acp-sessions"
+    assert result is not None
 
 
 @pytest.mark.asyncio
-async def test_acp_mode_mapping():
-    """Test that TUI modes map correctly to ACP modes."""
-    config = build_acp_config()
-    bridge = next(b for b in config.capability_bridges if hasattr(b, "modes"))
+async def test_graph_adapter_rejects_untrusted_client_mcp(tmp_path) -> None:
+    base_agent = create_context_agent(
+        TestModel(custom_output_text="hello"),
+        default_capabilities=False,
+    )
+    adapter = create_graph_acp_agent(
+        base_agent,
+        build_acp_config(tmp_path),
+        graph_bundle=(MagicMock(), {"mcp_toolsets": []}),
+    )
+    adapter.on_connect(RecordingClient())
+    await adapter.initialize(protocol_version=1)
 
-    mode_ids = [m.id for m in bridge.modes]
-    assert "ask" in mode_ids
-    assert "plan" in mode_ids
+    with pytest.raises(RequestError) as exc:
+        await adapter.new_session(
+            cwd="/workspace",
+            mcp_servers=[
+                schema.McpServerStdio(
+                    name="untrusted",
+                    command="arbitrary-command",
+                    args=[],
+                    env=[],
+                )
+            ],
+        )
 
-    plan_mode = next(m for m in bridge.modes if m.id == "plan")
-    assert plan_mode.plan_mode is True
+    assert exc.value.code == RequestError.invalid_params({}).code

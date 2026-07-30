@@ -1,14 +1,13 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Multi-agent team coordination capability with ACP integration.
+"""Multi-agent team coordination capability.
 
 CONCEPT:AU-AHE.evaluation.interpretability-tests
 
-Manages team membership, shared WorkItems, and message routing via the
-Agent Communication Protocol (ACP). Persists state to the Knowledge Graph.
-
-Falls back to A2A when ACP is unavailable.
+Manages team membership, shared WorkItems, and internal message routing with
+Knowledge Graph persistence. Agent Client Protocol is a separate editor boundary;
+cross-process agent interoperation uses A2A.
 
 Concept: team-coordination
 """

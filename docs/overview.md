@@ -332,7 +332,8 @@ The Agent OS is a multi-subsystem architecture where the **Active Knowledge Grap
 
 ## Query Lifecycle Walkthrough
 
-1. **Protocol Ingress (ECO-4.0)**: Query arrives via `/acp`, `/ag-ui`, or `/a2a`.
+1. **Protocol Ingress (ECO-4.0)**: Query arrives via `/ag-ui`, `/a2a`, REST/SSE,
+   or the separate ACP stdio editor process.
 2. **Usage Guard (OS-5.1)**: Validates rate limits, execution budgets (ORCH-1.3).
 3. **TeamConfig Check (AHE-3.3)**: Router checks KG for proven specialist coalition.
 4. **Planner (ORCH-1.1)**: HTN goal decomposition and LATS fallback logic.

@@ -33,7 +33,7 @@ class SSEEventHandler(GraphEventHandler):
 
 
 class ACPEventHandler(GraphEventHandler):
-    """Event handler specialized for the Agent Communication Protocol."""
+    """Event handler specialized for the Agent Client Protocol."""
 
     __slots__ = ()
 

@@ -10,7 +10,6 @@ Targets remaining 0%-coverage and low-coverage modules:
 - ``custom_observability.py`` - ``setup_otel`` env-driven branches
 - ``workspace.py`` - path/template/escape helpers
 - ``base_utilities.py`` - remaining type coercions
-- ``acp_providers.py`` - provider registry
 - ``acp_adapter.py`` - event formatting
 - ``mermaid.py`` - subgraph rendering paths
 """
@@ -528,21 +527,6 @@ def test_mermaid_render_fallback():
 
     output = get_graph_mermaid(_MockGraph(), {})
     assert isinstance(output, str)
-
-
-# ---------------------------------------------------------------------------
-# acp_providers.py
-# ---------------------------------------------------------------------------
-
-
-def test_acp_providers_registry_basic():
-    try:
-        from agent_utilities.protocols import acp_providers
-    except ImportError:
-        pytest.skip("acp_providers not importable")
-
-    # Just import and check the module
-    assert acp_providers is not None
 
 
 # ---------------------------------------------------------------------------

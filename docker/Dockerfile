@@ -32,9 +32,8 @@ FROM builder-base AS builder-published
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
-# Relax pydantic-acp's over-strict `pydantic-ai-slim==1.106.0` transitive pin to the
-# v2 floor for any acp-inclusive extra. No-op for [serving] (no acp); future-proofs
-# acp-inclusive images. Mirrors pyproject [tool.uv] override-dependencies.
+# Optional published-package override file. It is currently empty: first-party
+# Harness ACP follows the same Pydantic AI line as the rest of the application.
 COPY overrides.txt /tmp/overrides.txt
 ENV UV_OVERRIDE=/tmp/overrides.txt
 

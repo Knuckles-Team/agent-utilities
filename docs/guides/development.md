@@ -229,4 +229,5 @@ Every agent server automatically hosts an interactive Swagger UI for its APIs.
 - **URL**: `http://localhost:8000/docs`
 - **Spec**: `http://localhost:8000/openapi.json`
 
-This interface allows you to test the `/health`, `/acp`, and `/mcp` endpoints directly from your browser.
+This interface allows you to test `/health` and `/mcp` from a browser. ACP is
+validated separately over stdio with the Harness adapter tests.

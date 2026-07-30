@@ -204,7 +204,7 @@ agent-huggingface = [
 dynamic-workflow = [
     # Optional only: the governed adapter remains on GraphPlan/ParallelEngine and
     # never grants the upstream sandbox a second GraphOS execution plane.
-    "pydantic-ai-harness[dynamic-workflow]>=0.13.0,<0.14.0",
+    "pydantic-ai-harness[dynamic-workflow]>=0.14.0,<0.15.0",
 ]
 ag-ui = [
     "agent-webui>=1.1.0"]
@@ -219,8 +219,7 @@ browser = [
 computer-use = [
     "container-manager-mcp>=2.3.0"]
 acp = [
-    "pydantic-acp>=1.5.1",
-    "acpkit[pydantic]>=1.5.1"
+    "pydantic-ai-harness[acp]>=0.14.0,<0.15.0",
 ]
 documents = [
     "llama-index-core>=0.14.23",
@@ -455,6 +454,7 @@ graph-os-daemon = "agent_utilities.gateway.daemon:main"
 agent-utilities-messaging = "agent_utilities.messaging.daemon:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
 agent-utilities = "agent_utilities.cli:main"
+agent-utilities-acp = "agent_utilities.protocols.acp_adapter:main"
 # Provision the database environment (Stardog + pg-age) from credentials; also
 # `python -m agent_utilities.knowledge_graph.setup.cli`.
 setup-databases = "agent_utilities.knowledge_graph.setup.cli:main"

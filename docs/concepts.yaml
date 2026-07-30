@@ -1789,7 +1789,6 @@ concepts:
   - agent_utilities/orchestration/durable_execution.py
   - agent_utilities/protocols/a2a_epistemic.py
   - agent_utilities/protocols/acp_adapter.py
-  - agent_utilities/protocols/acp_providers.py
   - agent_utilities/security/permissions_kernel.py
   - agent_utilities/server/app.py
   - agent_utilities/server/routers/agent_ui.py

@@ -184,7 +184,6 @@ The source contracts are `agent_utilities/mcp/tool_specs.py`,
 | `/health` | GET | Status-only, non-fingerprinting liveness probe |
 | `/ag-ui` | POST | AG-UI streaming with sideband graph events |
 | `/stream` | POST | SSE stream for graph execution |
-| `/acp` | MOUNT | ACP protocol (sessions, planning, approvals) |
 | `/a2a` | MOUNT | Agent-to-Agent JSON-RPC |
 | `/api/approve` | POST | Resolve pending tool approvals and MCP elicitation |
 | `/chats` | GET | List chat sessions |
@@ -192,6 +191,9 @@ The source contracts are `agent_utilities/mcp/tool_specs.py`,
 | `/mcp/config` | GET | Current MCP server configuration |
 | `/mcp/tools` | GET | List all connected MCP tools |
 | `/mcp/reload` | POST | Hot-reload MCP servers and rebuild graph |
+
+ACP-compatible editors launch `agent-utilities-acp` as a stdio JSON-RPC
+subprocess. It is not an HTTP gateway route.
 
 ### MCP Loading & Registry Architecture
 This diagram illustrates how MCP servers are discovered, specialized, and persisted in the graph.
