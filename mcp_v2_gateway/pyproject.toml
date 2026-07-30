@@ -1,0 +1,19 @@
+[project]
+name = "graphos-mcp-v2-gateway"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "httpx>=0.28.1,<1",
+  "mcp>=2.0.0,<3",
+]
+
+[project.scripts]
+graphos-mcp-v2-gateway = "mcp_v2_gateway.__main__:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["mcp_v2_gateway"]
+package-dir = {mcp_v2_gateway = "."}

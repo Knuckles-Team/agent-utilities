@@ -1,0 +1,17 @@
+services:
+  graphos-mcp-v2-gateway:
+    build:
+      context: ..
+      dockerfile: docker/mcp-v2-gateway.Dockerfile
+    read_only: true
+    user: "10001:10001"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=32m]
+    command: ["--graphos-mcp-url", "${GRAPHOS_MCP_URL:?set GraphOS MCP URL}", "--host", "0.0.0.0", "--port", "8005"]
+    environment:
+      PYTHONUNBUFFERED: "1"
+    # The sidecar must only be reachable through an authenticated TLS ingress.
+    # It forwards the caller's bearer unchanged to GraphOS; it never owns a
+    # second auth, tenant, consent, or durable task store.
+    ports: ["127.0.0.1:8005:8005"]
