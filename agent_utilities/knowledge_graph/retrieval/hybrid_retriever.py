@@ -789,7 +789,16 @@ class HybridRetriever:
                     "[CONCEPT:AU-KG.research.research-pipeline-runner] Retrieval quality gate failed: %s",
                     [m.value for m in report.failure_modes_detected],
                 )
-            return _qa(filtered if report.gate_passed else assembled_subgraph)
+            # CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — ``gate_results``
+            # already returns ``[]`` on failure (its own documented contract: "If it
+            # fails, returns an empty list with the report indicating
+            # gate_passed=False"). Substituting the raw ``assembled_subgraph`` here on
+            # failure was a fail-OPEN bug: it silently shipped every below-threshold/
+            # low-relevance candidate to the caller (and from there into the mandatory
+            # model-transport evidence bundle) as if the gate had passed, with only a
+            # log line marking the discrepancy. Trust ``filtered`` — it already IS the
+            # correct value in both branches.
+            return _qa(filtered)
         except Exception as e:
             logger.debug("Quality gate assessment skipped: %s", e)
             return _qa(assembled_subgraph)
