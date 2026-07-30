@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
+from dataclasses import replace
 from typing import Any
 
 from agent_utilities.core.config import setting
@@ -25,6 +27,87 @@ logger = logging.getLogger(__name__)
 
 _engine: Any = None
 _lock = threading.Lock()
+
+
+def mint_process_identity() -> Any:
+    """Mint the standalone host daemon's verified graph authority.
+
+    The daemon is a long-lived, non-request process, so there is no HTTP
+    middleware to establish an actor or :class:`GraphSession`.  Resolve and
+    validate the configured process credential before constructing any graph
+    backend, and attach a renewable in-memory lease so worker threads retain
+    bounded authority without retaining token material.
+    """
+    from agent_utilities.core.config import config
+    from agent_utilities.security.brain_context import CredentialLease
+    from agent_utilities.security.request_identity import (
+        acquire_process_identity_token,
+        mint_actor_from_token_sync,
+        mint_graph_session,
+    )
+
+    token = acquire_process_identity_token(config)
+    actor = mint_actor_from_token_sync(token)
+    del token
+    expires_at = getattr(actor, "credential_expires_at", None)
+    if expires_at is None:
+        raise RuntimeError("Graph host process identity has no bounded expiry")
+    actor = replace(
+        actor,
+        credential_lease=CredentialLease(int(expires_at)),
+    )
+    session = mint_graph_session(actor)
+    session.ensure_authority_current(minimum_ttl_seconds=30)
+    session.engine_verified_context()
+    logger.info("Verified graph host process authority minted")
+    return session
+
+
+def refresh_process_identity(session: Any) -> Any:
+    """Renew ``session`` in place before its validated credential expires.
+
+    Only the shared expiry lease changes.  Subject, tenant, roles, groups, and
+    actor type must remain byte-for-byte equivalent to the authority captured
+    by the background worker threads.
+    """
+    from agent_utilities.core.config import config
+    from agent_utilities.knowledge_graph.core.session import SessionExpiredError
+    from agent_utilities.security.request_identity import (
+        acquire_process_identity_token,
+        mint_actor_from_token_sync,
+    )
+
+    try:
+        session.ensure_authority_current(minimum_ttl_seconds=30)
+        return session
+    except SessionExpiredError:
+        pass
+
+    lease = getattr(getattr(session, "actor", None), "credential_lease", None)
+    if lease is None:
+        raise RuntimeError("Graph host process authority is not renewable")
+    token = acquire_process_identity_token(config)
+    renewed_actor = mint_actor_from_token_sync(token)
+    del token
+    identity_fields = (
+        "actor_id",
+        "actor_type",
+        "roles",
+        "tenant_id",
+        "authenticated",
+        "groups",
+    )
+    if any(
+        getattr(session.actor, field, None) != getattr(renewed_actor, field, None)
+        for field in identity_fields
+    ):
+        raise RuntimeError("Graph host process authority changed during renewal")
+    expires_at = getattr(renewed_actor, "credential_expires_at", None)
+    if expires_at is None or int(expires_at) <= int(time.time()) + 30:
+        raise RuntimeError("Graph host process authority renewal is too short-lived")
+    lease.renew(int(expires_at))
+    session.ensure_authority_current(minimum_ttl_seconds=30)
+    return session
 
 
 def start_host_daemon(*, defer_background_start: bool = False) -> Any:
@@ -236,16 +319,6 @@ def main() -> None:
     if args.drain_queue:
         drain_task_queue()
 
-    try:
-        start_host_daemon()
-    except KGHostAlreadyRunning as exc:
-        logger.error(
-            "KG host is already running (exception_type=%s)", type(exc).__name__
-        )
-        raise SystemExit(2) from None
-
-    logger.info("graph-os host daemon running")
-
     stop = threading.Event()
 
     def _handle(signum: int, _frame: Any) -> None:
@@ -258,15 +331,29 @@ def main() -> None:
         except (ValueError, OSError):  # not in main thread / unsupported
             pass
 
-    # Daemon threads do the work; this just keeps the process alive and logs a
-    # heartbeat with queue depth periodically.
-    while not stop.wait(timeout=60.0):
-        try:
-            logger.debug("host daemon heartbeat")
-        except Exception:  # noqa: BLE001
-            pass
+    session = mint_process_identity()
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
 
-    stop_host_daemon()
+    with use_actor(session.actor), use_session(session):
+        try:
+            start_host_daemon()
+        except KGHostAlreadyRunning as exc:
+            logger.error(
+                "KG host is already running (exception_type=%s)", type(exc).__name__
+            )
+            raise SystemExit(2) from None
+
+        logger.info("graph-os host daemon running")
+
+        try:
+            # Daemon threads do the work; this main-thread heartbeat also
+            # renews their shared credential lease before expiry.
+            while not stop.wait(timeout=30.0):
+                refresh_process_identity(session)
+                logger.debug("host daemon heartbeat")
+        finally:
+            stop_host_daemon()
 
 
 if __name__ == "__main__":
