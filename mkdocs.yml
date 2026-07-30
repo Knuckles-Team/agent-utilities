@@ -185,6 +185,7 @@ nav:
       - Perspectival Inquiry (STORM, native): architecture/perspectival_inquiry.md
       - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
       - Ontology Library (catalog + anti-drift): architecture/ontology_library.md
+      - Governed JSON-OCEL exchange: architecture/governed_ocel.md
       - Camunda + ARIS ↔ Knowledge Graph: architecture/camunda_aris_kg_integration.md
       - CISO Assistant ↔ Knowledge Graph: architecture/ciso_assistant_kg_integration.md
       - Company Brain Runtime: architecture/company_brain_runtime.md

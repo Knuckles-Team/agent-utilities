@@ -17,6 +17,7 @@ from typing import Any
 
 from .semantic_event_model import (
     EventObjectParticipation,
+    ObjectCentricGraphSlice,
     ProcessEvent,
 )
 
@@ -181,4 +182,33 @@ def project_object_centric_events(
         event_count=len(parsed),
         source_count=len({event.source_ref for event in parsed}),
         lineage_digest=hashlib.sha256(canonical_lineage).hexdigest(),
+    )
+
+
+def project_object_centric_slice(
+    slice_: ObjectCentricGraphSlice,
+    *,
+    object_type: str,
+) -> ProcessTraceProjection:
+    """Project validated OCEL/tEKG source truth without reparsing its records."""
+    return project_object_centric_events(
+        [
+            {
+                "event_id": event.event_id,
+                "activity": event.activity,
+                "occurred_at": event.occurred_at.isoformat(),
+                "objects": [
+                    {
+                        "id": relation.object_id,
+                        "type": relation.object_type,
+                        "qualifier": relation.qualifier,
+                    }
+                    for relation in event.objects
+                ],
+                "source_ref": event.source_ref,
+                "sequence_tiebreaker": event.sequence_tiebreaker,
+            }
+            for event in slice_.events
+        ],
+        object_type=object_type,
     )

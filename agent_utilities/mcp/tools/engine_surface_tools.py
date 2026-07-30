@@ -1304,8 +1304,13 @@ def register_engine_surface_tools(mcp) -> None:
             "alpha-algorithm footprint (causal 'a>b' / parallel 'a||b' / choice 'a#b') "
             "plus start/end activity sets. Alternatively provide provenance-rich "
             "'events' plus an explicit 'object_type' to deterministically project one "
-            "object-centric perspective without an LLM. Event projection writeback is "
-            "fail-closed until the native ProcessModel can retain source lineage. "
+            "object-centric perspective without an LLM. Or provide a governed "
+            "'ocel_json' JSON-OCEL 2.0 document with an authorized 'tenant', "
+            "optional source_ref/mapping_version overrides, and ocel_mode='mine' "
+            "(default) or 'validate'. OCEL import validates source truth, exports a "
+            "canonical deterministic OCEL document, and returns a tenant-scoped tEKG "
+            "ChangeEnvelope plan; it never silently writes source truth. Event projection "
+            "writeback is fail-closed until the native ProcessModel can retain source-event lineage. "
             "Trace writeback (+ 'process_id') ⇒ :ProcessModel node. "
             "• root_cause — bounded-depth ('max_hops'), decaying ('decay') backward "
             "search over a weighted dependency graph ('nodes','edges' cause→effect, "
@@ -1382,6 +1387,8 @@ def register_engine_surface_tools(mcp) -> None:
             '"occurred_at":"2026-01-01T00:00:00Z","source_ref":"src:1",'
             '"objects":[{"id":"u1","type":"User","qualifier":"actor"}]}],'
             '"object_type":"User"} (process); '
+            '{"ocel_json":{"ocel:version":"2.0",...},"tenant":"acme",'
+            '"object_type":"Order","ocel_mode":"mine|validate"} (process); '
             '{"nodes":["a","b"],"scores":[0.1,0.9],"edges":[["a","b",1.0]],"symptom":"b"} '
             "(root_cause); "
             '{"nodes":["a","b"],"seed":[1.0,0.0],"edges":[["a","b",1.0]]} '
@@ -1424,6 +1431,91 @@ def register_engine_surface_tools(mcp) -> None:
                     "actions": sorted(valid_actions),
                 }
             )
+        if action == "process" and "ocel_json" in params:
+            if "traces" in params or "events" in params:
+                return json.dumps(
+                    {
+                        "surface": "mining",
+                        "action": action,
+                        "code": "invalid_request",
+                        "error": "provide OCEL input instead of events or traces",
+                    }
+                )
+            from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
+                project_object_centric_slice,
+            )
+            from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
+                export_ocel_json,
+                import_ocel_json,
+            )
+            from agent_utilities.usage.authorization import resolve_usage_tenant
+
+            try:
+                tenant = resolve_usage_tenant(
+                    str(params.pop("tenant", "") or "") or None
+                )
+                if not tenant:
+                    raise ValueError("tenant is required for governed OCEL import")
+                slice_, provenance = import_ocel_json(
+                    params.pop("ocel_json"),
+                    tenant=tenant,
+                    source_ref=str(params.pop("source_ref", "") or ""),
+                    mapping_version=str(params.pop("mapping_version", "") or ""),
+                )
+                ocel_mode = str(params.pop("ocel_mode", "mine") or "mine").strip()
+                if ocel_mode not in {"mine", "validate"}:
+                    raise ValueError("ocel_mode must be 'mine' or 'validate'")
+                envelope = slice_.to_change_envelope(
+                    tenant=tenant,
+                    provenance=provenance,
+                )
+                exported = export_ocel_json(
+                    slice_, tenant=tenant, provenance=provenance
+                )
+                evidence = {
+                    "mode": "ocel_2.0",
+                    "tenant": tenant,
+                    "content_hash": slice_.canonical_digest(),
+                    "idempotency_key": envelope.idempotency_key,
+                    "mapping_version": slice_.mapping_version,
+                    "node_count": len(envelope.typed_payload["entities"]),
+                    "relationship_count": len(envelope.typed_payload["relationships"]),
+                }
+                if ocel_mode == "validate":
+                    return json.dumps(
+                        {
+                            "surface": "mining",
+                            "action": action,
+                            "ocel": exported,
+                            "tekg": evidence,
+                        },
+                        default=_json_default,
+                    )
+                projection = project_object_centric_slice(
+                    slice_,
+                    object_type=str(params.pop("object_type", "") or ""),
+                )
+            except (PermissionError, TypeError, ValueError) as exc:
+                return _surface_error(
+                    exc,
+                    surface="mining",
+                    action=action,
+                    code="invalid_request",
+                )
+            params["traces"] = projection.engine_traces()
+            response = json.loads(
+                _invoke(
+                    surface="mining",
+                    action=action,
+                    graph=graph,
+                    candidates=(("mining", action),),
+                    params=params,
+                )
+            )
+            response["projection"] = projection.public_metadata()
+            response["ocel"] = exported
+            response["tekg"] = evidence
+            return json.dumps(response, default=_json_default)
         if action == "process" and "events" in params:
             if "traces" in params:
                 return json.dumps(

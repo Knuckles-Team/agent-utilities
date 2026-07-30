@@ -4004,12 +4004,13 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   doc: the exact shape
 - id: AU-KG.ingest.semantic-event-contract
-  name: OCEL-shaped source truth
+  name: JSON-OCEL is an interchange
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/ingestion/ocel_adapter.py
   - agent_utilities/knowledge_graph/ingestion/semantic_event_model.py
-  doc: OCEL-shaped source truth
+  doc: JSON-OCEL is an interchange
 - id: AU-KG.ingest.skill-workflow-corpus
   name: ingest the universal-skills workflow corpus as
   pillar: AU-KG
