@@ -4101,8 +4101,11 @@ class TaskManagerMixin(GraphEngineProtocol):
             cancellation_event.set()
             logger.warning(
                 "[KG-2.286] task %s (%s) exceeded soft timeout %.0fs — "
-                "cooperative cancellation requested; its fixed worker and live "
-                "lease remain quarantined until the in-flight body exits",
+                "cooperative cancellation requested; its fixed worker stays "
+                "quarantined until the in-flight body exits, but its WorkItem "
+                "lease STOPS being renewed from here "
+                "(CONCEPT:AU-ORCH.scheduling.soft-timeout-lease-quarantine) so "
+                "the job becomes reclaimable on lease expiry",
                 job_id,
                 task_type,
                 timeout,
