@@ -21,7 +21,13 @@ from pydantic_ai.mcp import MCPToolset
 
 from agent_utilities.core.config import setting
 from agent_utilities.core.contextual_model import create_context_agent
+from agent_utilities.mcp.protocol_compat import (
+    force_legacy_protocol_mode,
+    install_mcp_v2_bridge,
+)
 from agent_utilities.mcp.toolset_factory import build_http_toolset
+
+install_mcp_v2_bridge()
 
 
 def load_mcp_servers(config_path: str) -> Any:
@@ -434,7 +440,7 @@ def create_agent(
                 ts = None
                 if type(server).__name__ == "FastMCP":
                     # v2: a FastMCP server instance is wrapped directly by MCPToolset
-                    ts = MCPToolset(server)
+                    ts = force_legacy_protocol_mode(MCPToolset(server))
                 else:
                     ts = server
 

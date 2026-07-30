@@ -20,6 +20,13 @@ path for remote MCP clients; boolean verification controls are not supported.
 
 from typing import Any
 
+from agent_utilities.mcp.protocol_compat import (
+    force_legacy_protocol_mode,
+    install_mcp_v2_bridge,
+)
+
+install_mcp_v2_bridge()
+
 DEFAULT_MCP_TIMEOUT = 60.0
 
 
@@ -101,7 +108,7 @@ def build_http_toolset(
             auth=auth,
             httpx_client_factory=_httpx_client_factory(trust, timeout),
         )
-        return (
+        return force_legacy_protocol_mode(
             MCPToolset(transport, id=toolset_id)
             if toolset_id
             else MCPToolset(transport)
@@ -123,4 +130,6 @@ def build_stdio_toolset(
     from pydantic_ai.mcp import MCPToolset, StdioTransport
 
     transport = StdioTransport(command=command, args=args, env=env)
-    return MCPToolset(transport, id=toolset_id) if toolset_id else MCPToolset(transport)
+    return force_legacy_protocol_mode(
+        MCPToolset(transport, id=toolset_id) if toolset_id else MCPToolset(transport)
+    )

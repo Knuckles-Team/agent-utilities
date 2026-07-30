@@ -1,9 +1,20 @@
 """Wire-level compatibility guard for the 2026 MCP Tasks extension.
 
-FastMCP 3.4.5 pins MCP Python SDK <2 and carries the 2025-11-25 experimental
-Tasks types. GraphOS must not advertise the newer extension until the official
-SDK v2 protocol is integrated. This exercises real FastMCP initialization
-metadata and handler registration rather than a local capability model.
+GraphOS must not advertise the MCP Tasks extension (`io.modelcontextprotocol/tasks`,
+served over `tasks/get` / `tasks/update` / `tasks/cancel` by the separate
+`fastmcp-tasks` package, SEP-2663) until it is actually wired up. This exercises
+real FastMCP initialization metadata and handler registration rather than a local
+capability model.
+
+CONCEPT:AU-ECO.mcp.protocol-compat-bridge — MCP SDK v2's `LowLevelServer` (the
+`mcp._mcp_server` this test drives) renamed the request-handler store from a
+public `request_handlers` dict keyed by request-model CLASS to a private
+`_request_handlers` dict keyed by wire-protocol METHOD STRING (e.g. `"tools/list"`),
+reached through the public `get_request_handler(method: str) -> HandlerEntry | None`
+accessor. The behavior under test — GraphOS doesn't register the tasks-extension
+handlers — still holds; only the introspection mechanism needed to update, so this
+asserts the public accessor by the extension's real method names instead of poking
+the private class-keyed dict.
 """
 
 from __future__ import annotations
@@ -23,18 +34,11 @@ def test_graphos_does_not_advertise_unimplemented_2026_tasks_extension() -> None
     extensions = (capabilities.model_extra or {}).get("extensions", {})
     assert "io.modelcontextprotocol/tasks" not in extensions
 
-    handlers = mcp._mcp_server.request_handlers
-    assert not any(
-        request_type.__name__
-        in {
-            "GetTaskRequest",
-            "GetTaskPayloadRequest",
-            "ListTasksRequest",
-            "CancelTaskRequest",
-            "UpdateTaskRequest",
-        }
-        for request_type in handlers
-    )
+    # The tasks extension (fastmcp-tasks, SEP-2663) registers exactly these three
+    # methods when mounted; none should be reachable on a GraphOS server that never
+    # mounted it.
+    for method in ("tasks/get", "tasks/update", "tasks/cancel"):
+        assert mcp._mcp_server.get_request_handler(method) is None
 
 
 @pytest.mark.asyncio

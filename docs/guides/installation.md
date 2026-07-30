@@ -65,10 +65,8 @@ pip install agent-utilities[stardog]
 # ---------------------------------------------------------
 # 6. Tools & Infrastructure
 # ---------------------------------------------------------
-pip install agent-utilities[mcp]        # MCP Server hosting capabilities (fastmcp 3.x)
-pip install agent-utilities[mcp-v4]     # SERVER-only: fastmcp 4 beta line (Phase 0, opt-in;
-                                         # mutually exclusive with [mcp]/[agent-runtime]/[test]/[all] —
-                                         # see the CONCEPT comment above `mcp-v4` in pyproject.toml)
+pip install agent-utilities[mcp]        # MCP Server hosting capabilities (fastmcp 4 by default —
+                                         # see CONCEPT:AU-ECO.mcp.protocol-compat-bridge in pyproject.toml)
 pip install agent-utilities[logfire]    # Observability & Tracing
 pip install agent-utilities[vault]      # HashiCorp Vault & OpenBao secrets
 pip install agent-utilities[auth]       # JWT/OIDC support

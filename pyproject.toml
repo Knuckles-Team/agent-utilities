@@ -138,7 +138,17 @@ pyarrow = [
     "pyarrow>=17.0.0"
 ]
 mcp = [
-    "fastmcp>=3.4.4",
+    # fastmcp 4 is the default (CONCEPT:AU-ECO.mcp.protocol-compat-bridge). Empirically
+    # verified (see agent_utilities/mcp/protocol_compat.py + docs/architecture/fastmcp4-default.md):
+    # `pydantic_ai.mcp` (pydantic-ai-slim 2.21.0, the latest published release) imports
+    # and runs cleanly against fastmcp 4.0.0b1 / mcp 2.0.0 once (a) the underlying
+    # `fastmcp.Client` is pinned to `mode="legacy"` and (b) four upstream attribute/
+    # exception renames not covered by fastmcp's own `_compat.py` bridge are patched.
+    # Both are bridged by this package at MCP-client construction time, not by pinning
+    # fastmcp back to 3.x. `pydantic-ai-slim[mcp]`'s own `fastmcp-slim[client]<4` cap
+    # is relaxed via `[tool.uv] override-dependencies` below — see that comment for the
+    # full justification.
+    "fastmcp>=4.0.0b1",
     # Schema-only dependency. The native middleware avoids eunomia-mcp's
     # unpatched python-jose/ecdsa transitive chain and unsafe HTTP defaults.
     "eunomia-core>=0.3.10",
@@ -155,30 +165,6 @@ mcp = [
     # `[agent-google]`, `[agent-groq]`, `[agent-mistral]`, `[agent-huggingface]`.
     # `pydantic-ai-slim[openai]` is the lean provider extra (httpx + openai SDK, no
     # torch) — dependency-discipline safe on the serving plane.
-    "pydantic-ai-slim[openai]>=2.14.1,<3.0.0"
-]
-# Phase 0 of the fastmcp-3 -> fastmcp-4 migration (servers-first strategy): a NEW,
-# additive extra that installs the fastmcp 4 beta line ALONGSIDE `[mcp]` (which stays
-# on fastmcp 3 and is NOT modified/removed here). This extra is for SERVER-side code
-# only (everything that constructs `FastMCP(...)` — currently only
-# `agent_utilities/mcp/server_factory.py`). CLIENT-side code that imports
-# `pydantic_ai.mcp` (`agent/factory.py`, `mcp/toolset_factory.py`,
-# `graph/executor.py`, `core/config.py`) MUST stay on `pydantic-ai-slim[mcp]`, which
-# still pins `fastmcp-slim[client]<4` — do not install `[mcp-v4]` in a process that
-# also needs `pydantic-ai-slim[mcp]`; the two are mutually exclusive fastmcp majors in
-# the same environment. A fastmcp-4 SERVER negotiates protocol version down to
-# whatever an older (fastmcp-3) client requests, so a fastmcp-3 client can still talk
-# to a fastmcp-4-hosted graph-os server — see the cross-version regression test in
-# `tests/integration/test_fastmcp_cross_version.py`. Otherwise identical to `[mcp]`:
-# same schema/security-floor deps, only the fastmcp floor differs.
-mcp-v4 = [
-    "fastmcp>=4.0.0b1",
-    "eunomia-core>=0.3.10",
-    "fastapi>=0.139.2",
-    "httpx>=0.28.1",
-    "pyjwt>=2.13.0",
-    "starlette>=1.3.1",
-    "python-multipart>=0.0.32",
     "pydantic-ai-slim[openai]>=2.14.1,<3.0.0"
 ]
 agent-runtime = [
@@ -613,29 +599,36 @@ override-dependencies = [
     # CONCEPT:PHASE2-RECONCILE — nltk transitively pinned below 3.10 by an older
     # fleet dependency; the ecosystem-wide resolve needs the 3.10+ floor.
     "nltk>=3.10.0",
-]
-# `[mcp]` (fastmcp 3.x) and `[mcp-v4]` (fastmcp 4.x beta) pin mutually exclusive
-# major versions of the same `fastmcp`/`fastmcp-slim` packages. Without this,
-# uv's single unified lock graph would pick ONE fastmcp version for the whole
-# lock (silently moving `[mcp]` onto the fastmcp-4 beta too). Declaring them
-# conflicting extras forks the resolution so each keeps its own floor —
-# `[mcp]` stays on fastmcp 3.x by default; `[mcp-v4]` is the opt-in fork.
-# `agent-runtime`/`agent-headless`/`serving`/`test`/`test-backends`/`all` all pull
-# in `[mcp]` transitively (never `[mcp-v4]`), so each is listed here too — without
-# this, a bare `pip install .[mcp-v4]` alone (no other extra requested) would still
-# get silently downgraded (uv's lock must stay valid for `[mcp-v4]` combined with
-# any extra NOT declared conflicting, so leaving these out re-widens the same
-# unified-graph problem one level down: pydantic-ai-slim gets pulled back to the
-# last pre-`fastmcp-slim[client]<4` release, 2.18.0, to stay simultaneously valid
-# for a `[mcp-v4,test]`-style combination nobody asked for).
-conflicts = [
-    [{ extra = "mcp" }, { extra = "mcp-v4" }],
-    [{ extra = "mcp-v4" }, { extra = "agent-runtime" }],
-    [{ extra = "mcp-v4" }, { extra = "agent-headless" }],
-    [{ extra = "mcp-v4" }, { extra = "serving" }],
-    [{ extra = "mcp-v4" }, { extra = "test" }],
-    [{ extra = "mcp-v4" }, { extra = "test-backends" }],
-    [{ extra = "mcp-v4" }, { extra = "all" }],
+    # CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the default (see the
+    # `[mcp]` extra above). `fastmcp==4.0.0b1` pins an exact `fastmcp-slim[client,server]
+    # ==4.0.0b1`, but `pydantic-ai-slim[mcp]` (as of 2.21.0, the latest published release)
+    # still declares `fastmcp-slim[client]<4,>=3.3.0` — a real, hard conflict with no
+    # unified-lock solution. That cap is conservative rather than a known incompatibility:
+    # pydantic-ai-slim 2.18.0 declared the same extra with NO upper bound, and the `<4`
+    # was added defensively while fastmcp 4 was still pre-release (2.19.0), not in
+    # response to an observed break. This override relaxes it project-wide. This is safe
+    # because of empirical, not assumed, verification: a live fastmcp-4 server was driven
+    # end-to-end through `pydantic_ai.mcp.MCPToolset` (connect, list tools, call a tool)
+    # under fastmcp 4.0.0b1 / mcp 2.0.0 / pydantic-ai-slim 2.21.0 and it fully round-trips
+    # once `agent_utilities/mcp/protocol_compat.py`'s two bridges are applied (both wired
+    # into every toolset-construction call site in this package — see that module's
+    # docstring for exactly what each bridges and why). Revisit the moment
+    # pydantic-ai-slim ships a release that natively supports fastmcp 4 (drop this
+    # override and protocol_compat.py's `mode="legacy"` pin together).
+    #
+    # Both `client` and `server` extras MUST be listed here even though this
+    # override exists to fix pydantic-ai-slim's CLIENT-side cap: uv's override
+    # replaces the ENTIRE requirement (extras included) for every requester of
+    # `fastmcp-slim` project-wide, including `fastmcp`'s own metadata pin
+    # (`fastmcp-slim[client,server]==4.0.0b1`) that server-side code
+    # (`agent_utilities/mcp/server_factory.py`, `from fastmcp import Context`)
+    # needs. Verified empirically: an override listing only `[client]` silently
+    # strips the `server` extra's transitive deps (`uncalled-for`, `cyclopts`,
+    # `griffelib`, …) project-wide, breaking every `from fastmcp import
+    # FastMCP/Context` — a real regression this exact override could have
+    # caused, caught only by installing the full `agent-runtime` extra into a
+    # real venv and importing `fastmcp.Context`.
+    "fastmcp-slim[client,server]>=4.0.0b1",
 ]
 
 # CONCEPT:PHASE2-RECONCILE — searxng has no published wheel for the current

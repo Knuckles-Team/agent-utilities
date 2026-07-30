@@ -1055,10 +1055,18 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 from pydantic_ai.mcp import load_mcp_toolsets
 
                 from agent_utilities.core.workspace import resolve_mcp_config_path
+                from agent_utilities.mcp.protocol_compat import (
+                    force_legacy_protocol_mode,
+                    install_mcp_v2_bridge,
+                )
+
+                install_mcp_v2_bridge()
 
                 mcp_path = resolve_mcp_config_path(None)
                 if mcp_path and mcp_path.exists():
-                    all_servers = load_mcp_toolsets(mcp_path)
+                    all_servers = force_legacy_protocol_mode(
+                        load_mcp_toolsets(mcp_path)
+                    )
                     for srv in all_servers:
                         srv_id = getattr(srv, "id", getattr(srv, "name", str(srv)))
                         current = srv_id.lower().replace("-", "_")

@@ -6504,6 +6504,12 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
     from pydantic_ai.mcp import load_mcp_toolsets
 
     from agent_utilities.base_utilities import expand_env_vars
+    from agent_utilities.mcp.protocol_compat import (
+        force_legacy_protocol_mode,
+        install_mcp_v2_bridge,
+    )
+
+    install_mcp_v2_bridge()
 
     try:
         path = Path(config_path)
@@ -6620,7 +6626,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
             tmp_path = tmp.name
 
         try:
-            servers = load_mcp_toolsets(tmp_path)
+            servers = force_legacy_protocol_mode(load_mcp_toolsets(tmp_path))
             # Re-attach IDs from config
             config_data = json.loads(expanded_content)
             mcp_servers_cfg = config_data.get("mcpServers", {})
