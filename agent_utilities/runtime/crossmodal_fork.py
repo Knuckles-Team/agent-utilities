@@ -40,19 +40,25 @@ branch count). This is the rung the ``max_concurrency>1`` path targets to make p
 O(1) in copies. Still external: the vLLM/LMCache connector that maps live attention KV pages
 onto this store — the engine provides the zero-copy substrate, not the model-side page mapping.
 
-:class:`CrossModalForkFanout` now *drives* that substrate as an OPT-IN rung: pass
-:meth:`CrossModalForkFanout.fan_out`'s ``kv_page_keys`` (the engine KV-page keys of the retrieved
-context) and it snapshots+forks them so the branches share those pages zero-copy. Omit
-``kv_page_keys`` to run without engine page sharing. The implementation wires only the
-SHARING/plumbing of pages that already live in the store; producing the pages (mapping live
-attention KV onto the store) remains the external vLLM/LMCache job, so an absent/unreachable KV
-backend degrades to the copy path rather than failing the cohort.
+:class:`CrossModalForkFanout` *drives* that substrate as a DEFAULT-ON rung: for a >1-branch
+fan-out it derives page keys from the retrieved candidate set itself (content-hashed and stored
+into the shared KV store) whenever the resolved backend advertises fork support, and snapshots+
+forks them so the branches share those pages zero-copy — no caller wiring required. Pass
+:meth:`CrossModalForkFanout.fan_out`'s ``kv_page_keys`` explicitly to use real engine KV-page keys
+instead (e.g. an actual vLLM/LMCache prefix-hash mapping), or pass ``kv_page_keys=[]`` to opt out
+entirely. The implementation wires the SHARING/plumbing of pages; producing RAW vLLM/LMCache
+attention-KV tensors from nothing remains the external vLLM/LMCache job, so an absent/unreachable/
+unsupported KV backend transparently degrades to the copy path rather than failing the cohort —
+every engagement and every fallback (with its reason) is recorded via
+``agent_utilities.observability.gateway_metrics.KVCACHE_FORK_EVENTS``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
+import json
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -154,6 +160,64 @@ class CrossModalForkResult:
         )
 
 
+def _record_fork_outcome(
+    result: str, *, reason: str = "", shared_bytes: int = 0
+) -> None:
+    """Best-effort KV-fork telemetry (WS-4 idiom — never breaks the fan-out on failure).
+
+    ``result`` is ``"forked"`` (the CoW snapshot/fork rung engaged) or ``"fallback"``
+    (it transparently degraded to the per-branch copy path, ``reason`` explaining why:
+    ``backend_unavailable`` / ``fork_unsupported`` / ``snapshot_failed`` /
+    ``no_derivable_pages``). Local import + broad except mirrors
+    ``remote_backend._record_kvcache_client_outcome`` so this hot fan-out path never
+    takes on a hard dependency on the ``metrics`` extra.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            KVCACHE_FORK_EVENTS,
+            KVCACHE_FORK_SHARED_BYTES,
+        )
+
+        KVCACHE_FORK_EVENTS.labels(result=result, reason=reason).inc()
+        if shared_bytes:
+            KVCACHE_FORK_SHARED_BYTES.set(shared_bytes)
+    except Exception as exc:  # noqa: BLE001 — metrics must never break the fan-out
+        logger.debug("KV-fork telemetry recording failed: %s", exc)
+
+
+def _derive_kv_page_keys(backend: Any, candidates: list[dict[str, Any]]) -> list[str]:
+    """Default-on derivation of KV-fork page keys from the retrieved candidate set.
+
+    A caller with a genuine vLLM/LMCache prefix-hash mapping passes real
+    ``kv_page_keys`` explicitly; absent that, the retrieved candidate set is ITSELF
+    content-addressable, so each candidate is content-hashed and ``put`` into the
+    SAME shared, content-addressed KV store the vLLM/LMCache connector uses (dedup
+    applies identically — two branches, or two separate fan-outs, that retrieved the
+    identical candidate share the one stored page). This is what makes the rung
+    DEFAULT-ON rather than requiring a caller to already have engine-side KV pages:
+    the candidate set becomes its own shareable page set.
+
+    Best-effort and order-preserving: a candidate that fails to serialize or store is
+    simply skipped (never raised) so one bad candidate never disables the whole rung.
+    """
+    keys: list[str] = []
+    for candidate in candidates:
+        try:
+            payload = json.dumps(candidate, sort_keys=True, default=str).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            logger.debug("KV-fork candidate not serializable, skipped: %s", exc)
+            continue
+        key = hashlib.sha256(payload).hexdigest()
+        try:
+            if not backend.put(key, payload):
+                continue
+        except Exception as exc:  # noqa: BLE001 — a failed store just drops this page
+            logger.debug("KV-fork candidate store failed for %s: %s", key, exc)
+            continue
+        keys.append(key)
+    return keys
+
+
 def _pick_warm_fork_sandbox(preferred: str = "") -> Any | None:
     """Cheapest available warm-fork rung from the ORCH-1.86 registry, or ``None``.
 
@@ -221,12 +285,16 @@ class CrossModalForkFanout:
     :class:`~agent_utilities.rlm.sandboxes.base.ForkableSandbox`; when unset the cheapest
     available warm-fork rung is auto-selected.
 
-    ``kv_backend`` is the OPTIONAL zero-copy KV-fork rung
+    ``kv_backend`` is the zero-copy KV-fork rung
     (:class:`~agent_utilities.kvcache.EpistemicGraphKVBackend`, CONCEPT:EG-KG.memory.zero-copy-snapshot-fork).
-    It is only engaged when a caller passes ``kv_page_keys`` to :meth:`fan_out`; leave it ``None``
-    and the fan-out runs without engine page sharing. Inject one to reuse a pooled connector, or
-    leave it ``None`` and one is lazily built from the governed KV-cache configuration when the
-    rung is requested.
+    **Default-on**: :meth:`fan_out` engages it automatically for a >1-branch cohort
+    whenever the resolved backend advertises fork support (``supports_fork()``),
+    deriving page keys from the retrieved candidate set — no caller wiring required.
+    Transparent fallback when the backend is unreachable, unsupported, or a caller
+    opts out with ``kv_page_keys=[]``: the fan-out runs on the ordinary copy path,
+    never a hard failure. Inject ``kv_backend`` to reuse a pooled connector; leave it
+    ``None`` and one is lazily built from the governed KV-cache configuration the
+    first time the rung is attempted.
     """
 
     def __init__(
@@ -265,6 +333,37 @@ class CrossModalForkFanout:
             self._kv_backend = None
         return self._kv_backend
 
+    def _auto_kv_page_keys(self, candidates: list[dict[str, Any]]) -> list[str]:
+        """DEFAULT-ON derivation of ``kv_page_keys`` when a caller doesn't supply real ones.
+
+        Only reached when :meth:`fan_out` was called with no explicit ``kv_page_keys``
+        AND the cohort has more than one branch (a single branch has no sharing to
+        gain). Resolves the KV backend, cheaply probes its fork-surface capability
+        (:meth:`~agent_utilities.kvcache.EpistemicGraphKVBackend.supports_fork` when the
+        backend exposes it — absent on a bare test double, which then just tries and
+        degrades naturally), and derives pages from the candidate set
+        (:func:`_derive_kv_page_keys`). Every dead end records a ``"fallback"``
+        telemetry event with the specific reason and returns ``[]`` — never raises.
+        """
+        backend = self._resolve_kv_backend()
+        if backend is None:
+            _record_fork_outcome("fallback", reason="backend_unavailable")
+            return []
+        supports = getattr(backend, "supports_fork", None)
+        if callable(supports):
+            try:
+                supported = supports()
+            except Exception as exc:  # noqa: BLE001 — probe failure ⇒ unsupported
+                logger.debug("KV-fork capability probe failed: %s", exc)
+                supported = False
+            if not supported:
+                _record_fork_outcome("fallback", reason="fork_unsupported")
+                return []
+        keys = _derive_kv_page_keys(backend, candidates)
+        if not keys:
+            _record_fork_outcome("fallback", reason="no_derivable_pages")
+        return keys
+
     def _snapshot_and_fork(
         self, kv_page_keys: Sequence[str], branch_count: int
     ) -> tuple[int | None, list[int | None], dict[str, Any]]:
@@ -272,7 +371,8 @@ class CrossModalForkFanout:
 
         Returns ``(snapshot_id, per_branch_ids, fork_stats)``. Every failure degrades to a
         no-op (``(None, [], {})`` or ``None`` branch entries); branch execution continues without
-        engine page sharing.
+        engine page sharing. Records a ``"forked"``/``"fallback"`` telemetry event either way
+        (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) so the rung's engagement rate is observable.
 
         HONEST SCOPE (read before relying on this): this shares KV pages that ALREADY EXIST
         in the engine's content-addressed store — it is the SHARING/plumbing rung, NOT page
@@ -282,14 +382,19 @@ class CrossModalForkFanout:
         """
         backend = self._resolve_kv_backend()
         if backend is None:
+            _record_fork_outcome("fallback", reason="backend_unavailable")
             return None, [], {}
         snap_id = backend.snapshot(list(kv_page_keys))
         if snap_id is None:
+            _record_fork_outcome("fallback", reason="snapshot_failed")
             return None, [], {}
         branch_ids: list[int | None] = [
             backend.fork(snap_id) for _ in range(branch_count)
         ]
         stats = backend.fork_stats()
+        _record_fork_outcome(
+            "forked", shared_bytes=int(stats.get("shared_bytes", 0) or 0)
+        )
         return snap_id, branch_ids, stats
 
     async def fan_out(
@@ -314,21 +419,40 @@ class CrossModalForkFanout:
         to keep resource use conservative; raise it only when the selected backend and host
         capacity support concurrent branches.
 
-        ``kv_page_keys`` is the OPTIONAL zero-copy KV-fork rung (default ``None`` ⇒ OFF, and the
-        fan-out behaves EXACTLY as before). When supplied — the engine KV-page keys of the
-        retrieved context — the candidate set's pages are pinned into one engine snapshot and one
-        copy-on-write branch is forked per cohort branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork),
-        so branches SHARE those pages by ``Arc`` (one physical copy regardless of branch count)
-        without copying those pages per branch. That shared-immutable / per-branch-CoW topology
-        is what makes ``max_concurrency>1`` efficient. Each
-        branch's KV branch id is exposed to its snippet as ``kv_branch_id``; the fork ids +
-        ``/kv/fork/stats`` land on the result (:attr:`CrossModalForkResult.kv_fork_shared`).
+        ``kv_page_keys`` is the zero-copy KV-fork rung's page-key override — the engine
+        KV-page keys of the retrieved context, when the caller already has a genuine
+        vLLM/LMCache prefix-hash mapping. **DEFAULT-ON**: when left ``None`` (the
+        default) and the cohort has more than one branch, the rung is attempted
+        automatically — the candidate set is content-hashed and stored into the
+        engine's shared KV store (:func:`_derive_kv_page_keys`), so pages exist to
+        share even with no external LLM-side KV mapping. Either way, once page keys
+        are in hand, they are pinned into one engine snapshot and one copy-on-write
+        branch is forked per cohort branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork),
+        so branches SHARE those pages by ``Arc`` (one physical copy regardless of branch
+        count) without copying those pages per branch — replacing the per-branch
+        ``copy.deepcopy`` of the candidate set with one shared, engine-resident copy.
+        That shared-immutable / per-branch-CoW topology is what makes
+        ``max_concurrency>1`` efficient. Each branch's KV branch id is exposed to its
+        snippet as ``kv_branch_id``; the fork ids + ``/kv/fork/stats`` land on the
+        result (:attr:`CrossModalForkResult.kv_fork_shared`). Pass an explicit empty
+        sequence (``[]``) to opt fully out (no auto-derivation attempted either).
 
-        HONEST SCOPE: this wires the SHARING/plumbing of KV pages only — it does NOT produce them.
-        The vLLM/LMCache model-side mapping of live attention KV onto the engine store is external;
-        if the context's pages were never offloaded there, snapshot/fork is a safe no-op and the
-        fan-out transparently falls back to the copy path. A KV backend / reachable engine failure
-        likewise degrades to the copy path — it never fails the cohort.
+        **Transparent fallback, always.** Every dead end — an unreachable engine, a
+        backend build that doesn't advertise the fork surface, a snapshot that pins
+        no pages — degrades to the ordinary per-branch copy path and records a
+        ``"fallback"`` telemetry event with the reason
+        (:data:`~agent_utilities.observability.gateway_metrics.KVCACHE_FORK_EVENTS`);
+        a successful engagement records ``"forked"`` plus the shared-byte count. This
+        NEVER fails the cohort and never silently serves stale/wrong pages — a failed
+        rung is simply absent from the result, not miscounted as engaged.
+
+        HONEST SCOPE: this wires the SHARING/plumbing of KV pages only — it does NOT produce
+        raw vLLM/LMCache attention-KV tensors from nothing; the model-side mapping of live
+        attention KV onto the engine store remains external. What this rung DOES own end to
+        end is the CANDIDATE SET itself: turning it into engine-resident, content-addressed,
+        ref-counted pages that N branches share zero-copy instead of each holding its own
+        ``deepcopy`` — a genuine, self-contained memory win with no external LLM cooperation
+        required.
         """
         branch_list = list(branches)
         guard = _RecomputeGuard(self._resolve_retriever())
@@ -354,16 +478,22 @@ class CrossModalForkFanout:
                 ),
             )
 
-        # Optional zero-copy KV-fork rung (default-off): pin the retrieved context's KV pages
-        # into ONE snapshot and fork one CoW branch per cohort branch so they share those pages
-        # by Arc. A no-op (None ids) when the rung is off or the engine is unreachable — the
-        # branch execution below is IDENTICAL either way; this only adds page-sharing + branch ids.
+        # Zero-copy KV-fork rung (DEFAULT-ON): pin the retrieved context's KV pages into
+        # ONE snapshot and fork one CoW branch per cohort branch so they share those pages
+        # by Arc. Explicit kv_page_keys wins; otherwise — when there is more than one
+        # branch to share across — pages are auto-derived from the candidate set. A no-op
+        # (None ids) when the rung can't engage (unreachable engine, unsupported build, an
+        # explicit empty [] opt-out, or a single branch with nothing to share) — the branch
+        # execution below is IDENTICAL either way; this only adds page-sharing + branch ids.
         kv_snapshot_id: int | None = None
         kv_branch_ids: list[int | None] = []
         kv_fork_stats: dict[str, Any] = {}
-        if kv_page_keys:
+        effective_kv_page_keys = kv_page_keys
+        if effective_kv_page_keys is None and len(branch_list) > 1:
+            effective_kv_page_keys = self._auto_kv_page_keys(candidates)
+        if effective_kv_page_keys:
             kv_snapshot_id, kv_branch_ids, kv_fork_stats = self._snapshot_and_fork(
-                kv_page_keys, len(branch_list)
+                effective_kv_page_keys, len(branch_list)
             )
 
         from agent_utilities.rlm.sandboxes.base import SandboxEnv

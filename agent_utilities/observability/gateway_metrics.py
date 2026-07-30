@@ -57,7 +57,10 @@ __all__ = [
     "ENGINE_SHARD_UP",
     "KG_INGEST_CONSUMER_LAG",
     "KG_INGEST_QUEUE_DEPTH",
+    "KVCACHE_CHECKPOINT_OPS",
     "KVCACHE_CLIENT_REQUESTS",
+    "KVCACHE_FORK_EVENTS",
+    "KVCACHE_FORK_SHARED_BYTES",
     "LANE_IN_FLIGHT",
     "LANE_QUEUE_DEPTH",
     "MCP_CHILD_BREAKER_STATE",
@@ -412,6 +415,29 @@ KVCACHE_CLIENT_REQUESTS = _counter(
     "client-side half of the EG-187 remote KV-cache contract; GET /kv/stats on "
     "the engine exposes the aggregate server-side occupancy/dedup counters.",
     ("outcome",),
+)
+KVCACHE_FORK_EVENTS = _counter(
+    "agent_utilities_kvcache_fork_events_total",
+    "Zero-copy KV-fork rung outcomes (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) by "
+    "result and reason. result='forked' when the CoW snapshot/fork rung engaged for a "
+    "branch fan-out; result='fallback' when it transparently degraded to the per-branch "
+    "copy path (reason one of backend_unavailable|fork_unsupported|snapshot_failed|"
+    "no_derivable_pages) — never a hard failure, the cohort still runs either way.",
+    ("result", "reason"),
+)
+KVCACHE_FORK_SHARED_BYTES = _gauge(
+    "agent_utilities_kvcache_fork_shared_bytes",
+    "Bytes shared (Arc'd across branches, not copied) as of the most recent KV-fork "
+    "rung engagement — the zero-copy proof (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) "
+    "surfaced as a scrapeable gauge alongside GET /kv/fork/stats on the engine.",
+)
+KVCACHE_CHECKPOINT_OPS = _counter(
+    "agent_utilities_kvcache_checkpoint_ops_total",
+    "KVCheckpoint operations (CONCEPT:AU-KG.memory.kv-checkpoint-resource) by op "
+    "(create|instantiate_agent|restore_conversation) and outcome (ok|not_found|"
+    "cross_tenant_denied|stale|cold_start_fallback) — the fail-closed/traced-fallback "
+    "proof for checkpoint load.",
+    ("op", "outcome"),
 )
 
 

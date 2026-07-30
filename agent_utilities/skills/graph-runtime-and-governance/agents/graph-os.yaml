@@ -8,6 +8,7 @@ claims:
     - graph_configure
     - graph_governance
     - graph_incident
+    - graph_kv_checkpoint
     - graph_kvcache
     - graph_observe
     - graph_secret

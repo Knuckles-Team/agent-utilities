@@ -134,6 +134,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_secret": ("manage",),
         "graph_sessions": ("manage", "ask"),
         "graph_kvcache": ("manage",),
+        "graph_kv_checkpoint": ("write", "act"),
         "graph_schedules": ("manage", "act"),
         "graph_ontology": ("write", "ask", "manage"),
         "ontology_property_types": ("manage", "ask"),

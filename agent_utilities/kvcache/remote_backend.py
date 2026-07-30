@@ -147,6 +147,9 @@ class EpistemicGraphKVBackend:
         self.config = config or KvCacheConfig()
         self._owns_client = client is None
         self._client = client if client is not None else self._build_client()
+        # Cached zero-copy fork-surface capability probe (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork,
+        # see :meth:`supports_fork`) — None until first probed.
+        self._fork_supported: bool | None = None
 
     # -- construction ---------------------------------------------------------
     @classmethod
@@ -425,6 +428,24 @@ class EpistemicGraphKVBackend:
             resp.status_code,
         )
         return False
+
+    def supports_fork(self) -> bool:
+        """Whether this engine build/instance advertises the zero-copy fork surface.
+
+        Cheap capability probe for DEFAULT-ON callers (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork,
+        e.g. :class:`~agent_utilities.runtime.crossmodal_fork.CrossModalForkFanout`'s
+        automatic ``kv_page_keys`` derivation): reuses :meth:`fork_stats`'s
+        ``GET /kv/fork/stats`` call and treats a non-empty response as "supported" —
+        that endpoint is fork-surface-only, so ANY real response (even all-zero
+        counters) proves the surface exists, while :meth:`fork_stats` already
+        collapses every transport/protocol error to the empty ``{}`` that is this
+        method's single "unsupported" signal. Cached per-instance after the first
+        probe (fork-eligible callers fan out repeatedly, so this must not cost a
+        round trip on every call); a fresh instance re-probes.
+        """
+        if self._fork_supported is None:
+            self._fork_supported = bool(self.fork_stats())
+        return self._fork_supported
 
     def fork_stats(self) -> dict[str, Any]:
         """Fetch snapshot/branch occupancy via ``GET /kv/fork/stats``.
