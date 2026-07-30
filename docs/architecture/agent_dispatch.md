@@ -9,6 +9,7 @@ turn inline and there is no dispatch-backend selector.
 request
   -> fail-closed queue-depth admission check
   -> submit WorkItem
+  -> graph_jobs status/cancel projects or transitions that WorkItem
   -> atomically admit AgentTurnEnvelope under the depth bound
   -> worker claims WorkItem with lease epoch + fencing token
   -> execute with periodic lease heartbeat
@@ -96,6 +97,8 @@ its tenant/group has no remaining queued work.
 - Claim/execute/commit implementation:
   `agent_utilities/orchestration/agent_dispatch_worker.py`
 - Work authority: `agent_utilities/orchestration/work_item.py`
+- Job projection/cancellation: `graph_jobs(action=status|cancel)` and
+  `/api/graph/jobs` over the same WorkItem authority
 - Queue controls: `TASK_QUEUE_BACKEND`, `AGENT_TURNS_PARTITIONS`,
   `AGENT_DISPATCH_MAX_DEPTH`, `AGENT_DISPATCH_CLAIM_TTL_S`,
   `AGENT_DISPATCH_RENEW_INTERVAL_S`

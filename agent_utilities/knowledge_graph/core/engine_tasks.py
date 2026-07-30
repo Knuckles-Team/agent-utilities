@@ -4484,9 +4484,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     IngestionEngine,
                 )
 
-                self_tools = await IngestionEngine(
-                    kg_engine=self
-                )._ingest_self_tools()
+                self_tools = await IngestionEngine(kg_engine=self)._ingest_self_tools()
                 if self_tools.status == "failed":
                     raise RuntimeError("self tool-surface ingestion failed")
                 self._update_task_status(

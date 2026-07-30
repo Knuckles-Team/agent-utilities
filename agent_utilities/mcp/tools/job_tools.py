@@ -19,12 +19,13 @@ def register_job_tools(mcp: Any) -> None:
         description=(
             "Submit and inspect durable orchestration WorkItems. Actions: 'dispatch' "
             "(enqueue a task and return its job handle), 'status' (read a WorkItem, "
-            "RunTrace, or workflow-session trace by id)."
+            "RunTrace, or workflow-session trace by id), or 'cancel' (request "
+            "cooperative cancellation through the same WorkItem authority)."
         ),
         tags=["graph-os", "jobs", "orchestration"],
     )
     async def graph_jobs(
-        action: str = Field(default="status", description="dispatch | status"),
+        action: str = Field(default="status", description="dispatch | status | cancel"),
         task: str = Field(default="", description="Task to dispatch."),
         job_id: str = Field(default="", description="Job/run/session id for status."),
         agent_name: str = Field(
@@ -79,6 +80,24 @@ def register_job_tools(mcp: Any) -> None:
                 else:
                     result = orchestrator.get_task_status(job_id)
                 return json.dumps(result, default=str)
+            if action == "cancel":
+                if not job_id:
+                    return "Error: job_id required"
+                from agent_utilities.orchestration import work_item as _wi
+
+                item_id = _wi.orchestrator_work_item_id(job_id)
+                view = getattr(engine, "_work_item_engine", engine)
+                if not _wi.cancel_work_item(view, item_id):
+                    return json.dumps(
+                        {
+                            "status": "not_cancelled",
+                            "job_id": job_id,
+                            "error": "Job is missing, terminal, or held by an active lease",
+                        }
+                    )
+                return json.dumps(
+                    {"status": "cancelled", "job_id": job_id}, default=str
+                )
             return f"Error: Unknown graph_jobs action '{action}'"
         except PermissionError:
             raise
