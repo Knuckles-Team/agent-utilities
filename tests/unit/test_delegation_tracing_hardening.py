@@ -260,6 +260,19 @@ def test_run_trace_status_surfaces_execution_mode() -> None:
                 "status": "completed",
                 "execution_mode": "pydantic_graph",
                 "duration_ms": 12.5,
+                "graph_evidence_schema_version": "graph-execution-evidence-v1",
+                "graph_topology": "basic",
+                "graph_topology_digest": "sha256:topology",
+                "graph_version_digest": "sha256:version",
+                "graph_runtime_version": "2.21.0",
+                "graph_node_sequence": ["router", "__end__"],
+                "graph_transition_sequence": (
+                    '[{"scheduled_tasks":[{"node_id":"router",'
+                    '"task_id":"task:router"}],"sequence":1}]'
+                ),
+                "graph_transition_count": 1,
+                "graph_checkpoint_ids": ["ckpt:fixture:1"],
+                "graph_resume_supported": False,
             }
         ],
         [],
@@ -268,6 +281,7 @@ def test_run_trace_status_surfaces_execution_mode() -> None:
                 "status": "completed",
                 "execution_mode": "pydantic_graph",
                 "duration_ms": 12.5,
+                "graph_transition_sequence": "[]",
             }
         ],
         [],
@@ -280,7 +294,98 @@ def test_run_trace_status_surfaces_execution_mode() -> None:
     provenance = orchestrator._run_provenance("run:fixture")
 
     assert trace["execution_mode"] == "pydantic_graph"
+    assert trace["graph_topology_digest"] == "sha256:topology"
+    assert trace["graph_version_digest"] == "sha256:version"
+    assert trace["graph_runtime_version"] == "2.21.0"
+    assert trace["graph_node_sequence"] == ["router", "__end__"]
+    assert trace["graph_transition_sequence"] == [
+        {
+            "scheduled_tasks": [{"node_id": "router", "task_id": "task:router"}],
+            "sequence": 1,
+        }
+    ]
+    assert trace["graph_checkpoint_ids"] == ["ckpt:fixture:1"]
+    assert trace["graph_resume_supported"] is False
     assert provenance["execution_mode"] == "pydantic_graph"
+    query = backend.execute.call_args_list[0].args[0]
+    for field in (
+        "graph_evidence_schema_version",
+        "graph_topology",
+        "graph_topology_digest",
+        "graph_version_digest",
+        "graph_runtime_version",
+        "graph_node_sequence",
+        "graph_transition_sequence",
+        "graph_transition_count",
+        "graph_checkpoint_ids",
+        "graph_resume_supported",
+    ):
+        assert f"t.{field} AS {field}" in query
+
+
+@pytest.mark.asyncio
+async def test_graph_jobs_status_returns_durable_graph_execution_evidence(
+    monkeypatch,
+) -> None:
+    from unittest.mock import MagicMock
+
+    import agent_utilities.mcp.kg_server as kg
+    from agent_utilities.mcp.tools.job_tools import register_job_tools
+
+    backend = MagicMock()
+    backend.execute.side_effect = [
+        [
+            {
+                "status": "completed",
+                "execution_mode": "pydantic_graph",
+                "graph_evidence_schema_version": "graph-execution-evidence-v1",
+                "graph_topology": "basic",
+                "graph_topology_digest": "sha256:topology",
+                "graph_version_digest": "sha256:version",
+                "graph_runtime_version": "2.21.0",
+                "graph_node_sequence": ["router", "dispatcher", "__end__"],
+                "graph_transition_sequence": (
+                    '[{"scheduled_tasks":[{"node_id":"router",'
+                    '"task_id":"task:router"}],"sequence":1}]'
+                ),
+                "graph_transition_count": 1,
+                "graph_checkpoint_ids": ["ckpt:fixture:1"],
+                "graph_resume_supported": False,
+            }
+        ],
+        [],
+    ]
+    engine = MagicMock()
+    engine.backend = backend
+    register_job_tools(_FakeMCP())
+    monkeypatch.setattr(kg, "_get_engine", lambda: engine)
+
+    raw = await kg._execute_tool(
+        "graph_jobs",
+        action="status",
+        job_id="run:durable-graph-evidence",
+    )
+    status = json.loads(raw)
+
+    assert status["status"] == "completed"
+    assert status["execution_mode"] == "pydantic_graph"
+    assert status["graph_evidence_schema_version"] == "graph-execution-evidence-v1"
+    assert status["graph_topology"] == "basic"
+    assert status["graph_topology_digest"] == "sha256:topology"
+    assert status["graph_version_digest"] == "sha256:version"
+    assert status["graph_runtime_version"] == "2.21.0"
+    assert status["graph_node_sequence"] == ["router", "dispatcher", "__end__"]
+    assert status["graph_transition_sequence"] == [
+        {
+            "scheduled_tasks": [{"node_id": "router", "task_id": "task:router"}],
+            "sequence": 1,
+        }
+    ]
+    assert status["graph_transition_count"] == 1
+    assert status["graph_checkpoint_ids"] == ["ckpt:fixture:1"]
+    assert status["graph_resume_supported"] is False
+    assert status["run_id"] == "run:durable-graph-evidence"
+    assert status["tool_calls"] == []
 
 
 @pytest.mark.asyncio
