@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import Field
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import (
     public_error_json,
@@ -523,7 +524,8 @@ def register_write_ingest_tools(mcp):
                         t_type = (
                             "codebase" if ct == ContentType.CODEBASE else "document"
                         )
-                        jid = engine.submit_task(
+                        jid = await run_blocking_ordered(
+                            engine.submit_task,
                             target_path=p,
                             is_codebase=(t_type == "codebase"),
                             provenance={
@@ -590,7 +592,8 @@ def register_write_ingest_tools(mcp):
                     prov["extract_papers"] = True
                 elif flag in ("no_papers", "extract_papers=false", "false"):
                     prov["extract_papers"] = False
-                jid = engine.submit_task(
+                jid = await run_blocking_ordered(
+                    engine.submit_task,
                     target_path=url,
                     is_codebase=False,
                     provenance=prov,
@@ -654,12 +657,16 @@ def register_write_ingest_tools(mcp):
                     return json.dumps(
                         {"status": "ignored", "reason": "invalid payload JSON"}
                     )
-                return json.dumps(handle_gitlab_webhook(engine, payload))
+                webhook_result = await run_blocking_ordered(
+                    handle_gitlab_webhook, engine, payload
+                )
+                return json.dumps(webhook_result)
 
             elif action == "corpus":
                 if not corpus_name:
                     return "Error: corpus_name required"
-                engine.add_node(
+                await run_blocking_ordered(
+                    engine.add_node,
                     f"corpus_{corpus_name}",
                     "Corpus",
                     base_path=base_path,
@@ -959,7 +966,8 @@ def register_write_ingest_tools(mcp):
                 # poll with ``action=job_status job_id=<id>``.
                 try:
                     root = target_path if isinstance(target_path, str) else ""
-                    jid = engine.submit_task(
+                    jid = await run_blocking_ordered(
+                        engine.submit_task,
                         target_path=root or "universal-skills",
                         is_codebase=False,
                         provenance={"agent_id": agent_id},
@@ -1160,15 +1168,18 @@ def register_write_ingest_tools(mcp):
                 if not path.exists() or not path.is_file():
                     return f"Error: knowledge pack file not found at {target_path}"
 
-                with open(path, encoding="utf-8") as f:
-                    if path.suffix in [".yaml", ".yml"]:
-                        data = yaml.safe_load(f)
-                    else:
-                        data = json.load(f)
+                def _load_knowledge_pack_file() -> Any:
+                    with open(path, encoding="utf-8") as f:
+                        if path.suffix in [".yaml", ".yml"]:
+                            return yaml.safe_load(f)
+                        return json.load(f)
 
+                data = await run_blocking_ordered(_load_knowledge_pack_file)
                 bundle = KnowledgePackBundle.from_dict(data)
                 await KnowledgePackHydrator.hydrate(bundle)
-                KnowledgePackImporter.seed_into_kg(bundle, engine)
+                await run_blocking_ordered(
+                    KnowledgePackImporter.seed_into_kg, bundle, engine
+                )
                 return f"Knowledge pack from {target_path} hydrated and ingested."
 
             elif action == "import_pack":
@@ -1186,8 +1197,11 @@ def register_write_ingest_tools(mcp):
                         {"error": "import_pack requires target_path (skill-graph dir)"}
                     )
                 try:
-                    stats = import_skill_graph_pack(
-                        engine, target_path, dedup=(corpus_name == "dedup")
+                    stats = await run_blocking_ordered(
+                        import_skill_graph_pack,
+                        engine,
+                        target_path,
+                        dedup=(corpus_name == "dedup"),
                     )
                     return json.dumps(
                         {"status": "imported", "stats": stats}, default=str
@@ -1221,7 +1235,9 @@ def register_write_ingest_tools(mcp):
                 if not text and target_path:
                     p = Path(target_path)
                     if p.exists() and p.is_file():
-                        text = p.read_text(encoding="utf-8", errors="ignore")
+                        text = await run_blocking_ordered(
+                            p.read_text, encoding="utf-8", errors="ignore"
+                        )
                         source_ref = persistence_reference(
                             "fact_source", target_path, namespace="fact-extraction"
                         )
@@ -1240,7 +1256,16 @@ def register_write_ingest_tools(mcp):
                     if ev["type"] == "fact":
                         facts.append(ExtractedFact(**ev["fact"]))
 
-                stats = persist_facts(EngineStoreAdapter(engine), facts)
+                # CONCEPT:AU-ORCH.execution.event-loop-blocking-sweep — persist_facts
+                # loops over every extracted fact issuing a synchronous
+                # add_node/add_edge KG round trip, so it must not run inline on
+                # the request-serving loop. The scanner in
+                # scripts/check_event_loop_blocking.py only matches ``engine.*``
+                # shaped attribute calls and therefore cannot see a blocking call
+                # made through a plain helper like this one (D-W15-6).
+                stats = await run_blocking_ordered(
+                    persist_facts, EngineStoreAdapter(engine), facts
+                )
                 unique = sum(1 for f in facts if not f.is_duplicate)
                 return json.dumps(
                     {
@@ -1320,7 +1345,9 @@ def register_write_ingest_tools(mcp):
                 if target_path:
                     p = Path(target_path)
                     if p.exists() and p.is_file():
-                        text = text or p.read_text(encoding="utf-8", errors="ignore")
+                        text = text or await run_blocking_ordered(
+                            p.read_text, encoding="utf-8", errors="ignore"
+                        )
                         doc_id = "doc:source:" + persistence_reference(
                             "document_source", target_path, namespace="topic-classifier"
                         )
@@ -1384,7 +1411,9 @@ def register_write_ingest_tools(mcp):
 
                         p = Path(target_path)
                         text = (
-                            p.read_text(encoding="utf-8", errors="ignore")
+                            await run_blocking_ordered(
+                                p.read_text, encoding="utf-8", errors="ignore"
+                            )
                             if p.exists() and p.is_file()
                             else target_path
                         )
@@ -1658,7 +1687,8 @@ def register_write_ingest_tools(mcp):
                 # two real uploads into one. A unique target keeps job ids distinct.
                 engine = kg_server._get_engine()
                 target = f"session-upload:{_uuid.uuid4().hex}"
-                jid = engine.submit_task(
+                jid = await run_blocking_ordered(
+                    engine.submit_task,
                     target_path=target,
                     is_codebase=False,
                     provenance={"agent_id": "ingest_sessions"},
