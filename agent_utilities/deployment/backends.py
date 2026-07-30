@@ -4,8 +4,10 @@ from __future__ import annotations
 """Multi-backend deployment planner for the self-composing ``graph-os`` entrypoint.
 
 ``graph-os`` (the ``mcp_server()`` entrypoint + :mod:`agent_utilities.mcp.co_service_supervisor`)
-already composes its co-services (messaging, the KG host daemon, agent-webui) IN
-one process wherever it runs. This module answers the follow-on question —
+already composes its served co-services (messaging and agent-webui discovery) IN
+one process wherever it runs. The background KG host remains an explicit gateway
+or ``graph-os-daemon`` role; a client-role GraphOS is never promoted. This module
+answers the follow-on question —
 *where* should that one process run: this process, a docker/podman container, a
 Kubernetes pod, or a plain host process managed by systemd — using the SAME
 composition detection (:func:`agent_utilities.mcp.co_service_supervisor.detect_composition`)
@@ -198,20 +200,15 @@ class InProcessBackend:
 
         This starts co-services only (not the MCP transport loop itself, which
         blocks) — the same real, tested entry points ``kg_server.mcp_server()``
-        calls: :func:`bring_up_host_daemon_if_needed` and
-        :func:`start_co_services`. The returned ``CoServiceSupervisor`` is the
-        caller's to stop.
+        calls :func:`start_co_services`. The returned ``CoServiceSupervisor`` is
+        the caller's to stop.
         """
         if dry_run:
             return {"applied": False, "plan": plan}
         if session is None:
             raise ValueError("apply(dry_run=False) requires a verified session")
-        from agent_utilities.mcp.co_service_supervisor import (
-            bring_up_host_daemon_if_needed,
-            start_co_services,
-        )
+        from agent_utilities.mcp.co_service_supervisor import start_co_services
 
-        bring_up_host_daemon_if_needed()
         supervisor = start_co_services(session, engine)
         return {"applied": True, "supervisor": supervisor}
 
@@ -229,10 +226,11 @@ def render_compose(
 ) -> str:
     """Render the compose YAML for one self-composing ``graph-os`` service.
 
-    Only ONE ``graph-os`` service is ever rendered — messaging and the host
-    daemon are co-services of that SAME process (self-composing), not separate
-    containers; only ``agent-webui`` is a genuinely separate service (a Node/Vite
-    frontend — see ``co_service_supervisor``'s module docstring). This is the
+    Only ONE served ``graph-os`` service is rendered — messaging is an in-process
+    co-service and ``agent-webui`` is a genuinely separate service (a Node/Vite
+    frontend — see ``co_service_supervisor``'s module docstring). An explicit
+    client deployment must pair this plan with a gateway or standalone
+    ``graph-os-daemon`` host; it is never hidden inside the served process. This is the
     lightweight single-node case (``agent-utilities-deployment`` tiny/single-node-
     prod profiles); a hardened multi-secret production Swarm profile already
     exists at ``deploy/swarm/graphos.stack.yml`` and should be extended, not

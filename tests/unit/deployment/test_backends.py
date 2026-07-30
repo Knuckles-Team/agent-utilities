@@ -17,7 +17,6 @@ import yaml
 from agent_utilities.deployment import backends
 from agent_utilities.deployment.backends import PlanOnlyBackendError
 from agent_utilities.knowledge_graph.core.session import GraphSession
-from agent_utilities.mcp import co_service_supervisor as cosvc
 from agent_utilities.messaging import daemon as messaging_daemon
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import ActorContext
@@ -47,7 +46,6 @@ def _detect_no_composition(monkeypatch):
     monkeypatch.setattr(
         messaging_daemon, "configured_platforms", lambda engine=None: []
     )
-    monkeypatch.setattr(cosvc, "host_daemon_needed", lambda: False)
 
     class _Cfg:
         enable_web_ui = False

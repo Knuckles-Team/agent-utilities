@@ -226,21 +226,15 @@ kubectl rollout status deployment/graph-os-host -n platform
   — the originals, confirmed still present on disk, not deleted by this step) — or
   `kubectl apply -f graph-os-host-pre-cutover-<ts>.yaml` using the saved backup.
 
-**Option 2 — RETIRE (simpler; a genuine, code-verified alternative worth the
-operator's consideration, not just a fallback).** `graph-os` runs `KG_DAEMON_ROLE=client`;
-`co_service_supervisor.host_daemon_needed()` (`agent_utilities/mcp/co_service_supervisor.py:113-123`)
-is `True` exactly when the deployment is `client`-configured **and no host currently
-holds the lock** — so if `graph-os-host` (the only `auto`-role pod) is scaled to 0,
-`graph-os`'s own process would self-elect and bring up the KG host daemon **in-process**
-(`bring_up_host_daemon_if_needed()`, called before `_start_engine_bootstrap` in
-`kg_server.py:3833`) with zero coverage gap — this is the exact designed fallback, not
-an improvised one. This drops one pod from the fleet at the cost of collapsing the
-documented "twin daemon" separation (host-daemon CPU work would now share process/GIL
-with `graph-os`'s own MCP serving — the same isolation concern
-`messaging/daemon.py`'s own module docstring cites as the reason messaging got its
-*own* process). **Recommendation: Option 1 (align)** for Phase-10 — it's a pure
-hostPath fix with no architecture change, and the isolation trade-off in Option 2
-deserves its own deliberate decision, not a side effect of fixing drift.
+**Option 2 — RETIRE only with a replacement host (not recommended for this
+cutover).** `graph-os` runs `KG_DAEMON_ROLE=client`, which is now a hard
+serving-plane boundary: it never self-promotes when the host lock is empty, and
+stale `KG_LOOP=1` does not start maintenance schedules or autonomous evolution
+inside the MCP process. Scaling `graph-os-host` to zero without first deploying
+another explicit gateway/`graph-os-daemon` host therefore leaves the durable
+queue undrained. **Recommendation: Option 1 (align)** for Phase-10. If the twin is
+retired later, create and validate its replacement host first, then scale the old
+host down only after queue-drain, scheduler, and loop telemetry have moved.
 
 - **Status: BLOCKED — needs execution at cutover** (real work item, not yet applied).
 
