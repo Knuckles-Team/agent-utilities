@@ -9,6 +9,7 @@ tool surface into the stateless 2026 JSON-RPC envelope.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -128,7 +129,7 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
         self._timeout = timeout_seconds
 
     async def list_tools(self, context: GatewayRequestContext) -> dict[str, Any]:
-        return await self._request("tools/list", {}, context)
+        return await self._request("tools/list", {}, context, activate_graph_jobs=True)
 
     async def call_tool(
         self,
@@ -137,7 +138,10 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
         context: GatewayRequestContext,
     ) -> dict[str, Any]:
         return await self._request(
-            "tools/call", {"name": name, "arguments": arguments}, context
+            "tools/call",
+            {"name": name, "arguments": arguments},
+            context,
+            activate_graph_jobs=name == "graph_jobs",
         )
 
     async def _request(
@@ -145,6 +149,8 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
         method: str,
         params: dict[str, Any],
         context: GatewayRequestContext,
+        *,
+        activate_graph_jobs: bool = False,
     ) -> dict[str, Any]:
         headers = {
             "Authorization": context.authorization,
@@ -176,12 +182,12 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
             )
             if initialized.status_code != 200:
                 raise GatewayProtocolError(-32001, "Downstream authorization failed")
-            _parse_downstream_payload(initialized, expected_id=initialize_id)
             session_id = initialized.headers.get("mcp-session-id")
             if not session_id:
                 raise GatewayProtocolError(-32603, "Downstream MCP session unavailable")
             headers["Mcp-Session-Id"] = session_id
             try:
+                _parse_downstream_payload(initialized, expected_id=initialize_id)
                 acknowledged = await client.post(
                     self._url,
                     headers=headers,
@@ -195,26 +201,136 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
                     raise GatewayProtocolError(
                         -32603, "Downstream MCP initialization failed"
                     )
-                request_id = secrets.token_hex(12)
-                response = await client.post(
-                    self._url,
-                    headers=headers,
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": request_id,
-                        "method": method,
-                        "params": params,
-                    },
-                )
-                if response.status_code != 200:
-                    raise GatewayProtocolError(-32603, "Downstream MCP request failed")
-                return _parse_downstream_payload(response, expected_id=request_id)
+                if activate_graph_jobs:
+                    # The condensed GraphOS surface scopes load_tools exposure to
+                    # this legacy MCP session.  Each public gateway request opens a
+                    # new session, so discovery and Tasks must activate the one
+                    # owned capability again before advertising or calling it.
+                    await self._post_request(client, headers, "tools/list", {})
+                    await self._post_request(
+                        client,
+                        headers,
+                        "tools/call",
+                        {
+                            "name": "load_tools",
+                            "arguments": {
+                                "tools": ["graph_jobs"],
+                                "auto_unload": True,
+                            },
+                        },
+                    )
+                    activated_tools = await self._post_request(
+                        client, headers, "tools/list", {}
+                    )
+                    if not _has_tool(activated_tools, "graph_jobs"):
+                        raise GatewayProtocolError(
+                            -32603, "Downstream graph_jobs tool unavailable"
+                        )
+                    if method == "tools/list":
+                        return activated_tools
+                return await self._post_request(client, headers, method, params)
             finally:
+                await self._finish_session_cleanup(
+                    client,
+                    headers,
+                    activate_graph_jobs=activate_graph_jobs,
+                )
+
+    async def _finish_session_cleanup(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        *,
+        activate_graph_jobs: bool,
+    ) -> None:
+        """Finish bounded cleanup before propagating caller cancellation."""
+        cleanup_task = asyncio.create_task(
+            self._cleanup_session(
+                client,
+                headers,
+                activate_graph_jobs=activate_graph_jobs,
+            )
+        )
+        cancelled: asyncio.CancelledError | None = None
+        while not cleanup_task.done():
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError as exc:
+                if cleanup_task.done():
+                    cleanup_task.result()
+                cancelled = exc
+        cleanup_task.result()
+        if cancelled is not None:
+            raise cancelled
+
+    async def _cleanup_session(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        *,
+        activate_graph_jobs: bool,
+    ) -> None:
+        """Retract visibility and terminate one legacy session within fixed bounds."""
+        try:
+            if activate_graph_jobs:
                 try:
-                    await client.delete(self._url, headers=headers)
-                except httpx.HTTPError:
-                    # Cleanup is best-effort after a session has been established.
+                    await asyncio.wait_for(
+                        self._post_request(
+                            client,
+                            headers,
+                            "tools/call",
+                            {
+                                "name": "unload_tools",
+                                "arguments": {"tools": ["graph_jobs"]},
+                            },
+                        ),
+                        timeout=self._timeout,
+                    )
+                except (GatewayProtocolError, httpx.HTTPError, TimeoutError):
+                    # Retraction is idempotent and best-effort; DELETE still
+                    # terminates the short-lived downstream session.
+                    _LOGGER.warning("Downstream MCP session visibility cleanup failed")
+        finally:
+            try:
+                terminated = await asyncio.wait_for(
+                    client.delete(self._url, headers=headers),
+                    timeout=self._timeout,
+                )
+                if not 200 <= terminated.status_code < 300:
                     _LOGGER.warning("Downstream MCP session cleanup failed")
+            except (httpx.HTTPError, TimeoutError):
+                # Cleanup is best-effort after a session has been established.
+                _LOGGER.warning("Downstream MCP session cleanup failed")
+
+    async def _post_request(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        method: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        request_id = secrets.token_hex(12)
+        response = await client.post(
+            self._url,
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": method,
+                "params": params,
+            },
+        )
+        if response.status_code != 200:
+            raise GatewayProtocolError(-32603, "Downstream MCP request failed")
+        return _parse_downstream_payload(response, expected_id=request_id)
+
+
+def _has_tool(result: Mapping[str, Any], name: str) -> bool:
+    """Whether a legacy tools/list result exposes an exact named tool."""
+    tools = result.get("tools")
+    return isinstance(tools, list) and any(
+        isinstance(tool, dict) and tool.get("name") == name for tool in tools
+    )
 
 
 def _parse_downstream_payload(

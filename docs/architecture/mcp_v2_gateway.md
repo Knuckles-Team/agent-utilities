@@ -3,7 +3,8 @@
 `mcp_v2_gateway` is a separately packaged Streamable HTTP sidecar for the
 2026-07-28 MCP protocol. It exists because GraphOS's in-process FastMCP 3.4.x
 environment pins `mcp<2`; the sidecar's own environment installs
-`mcp>=2,<3` and cannot share that dependency resolution.
+`mcp>=2,<3`, requires Python 3.11 or newer, and cannot share that dependency
+resolution.
 
 ```mermaid
 flowchart LR
@@ -43,11 +44,30 @@ client-to-server notification methods. `tools/list` always returns the required
 `cacheScope: private`; malformed `x-mcp-header` tool definitions are excluded.
 
 The downstream compatibility client performs the older initialize/initialized
-sequence, scopes the legacy session to one public request, matches the final
-JSON-RPC response by id even when progress notifications precede it over SSE,
-and then closes the session. Deploy it in the same pod/process network and use
-`http://127.0.0.1` for GraphOS, or use an authenticated HTTPS GraphOS endpoint.
-Plaintext non-loopback downstream URLs fail closed.
+sequence and matches the final JSON-RPC response by id even when progress
+notifications precede it over SSE. Each downstream catalog lookup, tool call, or
+status poll owns a fresh legacy session; a single public request can therefore use
+more than one. A normal tool call uses a catalog session and a call session. A
+Tasks dispatch uses a catalog session, a dispatch session, and a status-poll
+session.
+
+Any session that needs `graph_jobs` first lists the default surface, invokes
+`load_tools` with `auto_unload: true`, and confirms `graph_jobs` in a second
+`tools/list` on that same session. Missing activation or confirmation fails
+closed. A successful tool call auto-retracts its visibility; every list, call,
+failure, and poll path also attempts an idempotent `unload_tools` before DELETE.
+Unload and DELETE run in a bounded child cleanup task shielded from caller
+cancellation. Cancellation received during cleanup is propagated only after both
+cleanup stages have had their attempt, so a repeated cancel cannot strand the
+short-lived session or its dynamic tool visibility.
+GraphOS prunes empty `_session_loaded` and `_auto_unload` entries, preventing
+concurrent gateway sessions from sharing or accumulating visibility state.
+Authorization, parameter/tenant headers, and trace context remain unchanged
+through initialize, activation, confirmation, call or poll, unload, and DELETE.
+
+Deploy the gateway in the same pod/process network and use `http://127.0.0.1`
+for GraphOS, or use an authenticated HTTPS GraphOS endpoint. Plaintext
+non-loopback downstream URLs fail closed.
 
 ## Tasks extension
 
