@@ -169,7 +169,12 @@ async def test_execute_capability_binds_a_resolved_tool_via_capability_contract(
     assert call["agent_name"] == "agent-utilities-expert"
     assert call["tool_server"] == "github-mcp"
     assert call["allowed_tools"] == ["list_issues"]
-    assert call["skill_name"] is None
+    # The delegate must be named on BOTH keywords: run_agent enforces
+    # "tool_server requires skill_name" AND "skill_name must match the
+    # dispatched agent_name". This previously asserted None, which encoded the
+    # defect -- the real run_agent (mocked out here) raised ValueError on every
+    # auto-resolved Tool. See tests/unit/test_capability_binding_survives_real_guards.py.
+    assert call["skill_name"] == "agent-utilities-expert"
 
 
 @pytest.mark.asyncio
@@ -416,7 +421,9 @@ async def test_graph_orchestrate_binds_a_tool_and_a_skill_through_the_same_path(
     tool_call = execute.await_args.kwargs
     assert tool_call["allowed_tools"] == ["list_issues"]
     assert tool_call["tool_server"] == "github-mcp"
-    assert tool_call.get("skill_name", "") == ""
+    # Was `== ""`, which encoded the defect: execute_capability rejects
+    # tool_server without skill_name before any work begins.
+    assert tool_call["skill_name"] == "agent-utilities-expert"
 
     await kg_server._execute_tool(
         "graph_orchestrate",

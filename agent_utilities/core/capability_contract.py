@@ -32,7 +32,20 @@ from typing import Any, Literal
 
 CapabilityKind = Literal["tool", "skill", "workflow", "agent"]
 
-__all__ = ["Capability", "CapabilityKind", "capability_kind_from_node"]
+__all__ = [
+    "Capability",
+    "CapabilityKind",
+    "DEFAULT_TOOL_DELEGATE",
+    "capability_kind_from_node",
+]
+
+
+#: The delegate a bare fleet ``Tool`` capability binds through. A Tool node is a
+#: capability, not an agent — running it means running this expert scoped to that
+#: single tool (``allowed_tools=[tool]`` + ``tool_server=<server>``). Kept here,
+#: not imported from ``orchestration.manager``, to avoid a core -> orchestration
+#: import cycle; ``manager._DEFAULT_DELEGATE`` aliases this so the two cannot drift.
+DEFAULT_TOOL_DELEGATE = "agent-utilities-expert"
 
 
 @dataclass(frozen=True)
@@ -76,7 +89,22 @@ class Capability:
         ``self.kind`` at the call site.
         """
         if self.kind == "tool":
-            binding: dict[str, Any] = {"allowed_tools": [self.name]}
+            # A bare fleet Tool is not itself a dispatchable agent: it binds as
+            # "run the default delegate, scoped to exactly this one tool". That
+            # means ``skill_name`` MUST be set alongside ``tool_server`` --
+            # BOTH ``Orchestrator.execute_capability`` and
+            # ``orchestration.agent_runner.run_agent`` enforce
+            # ``tool_server requires skill_name`` (and run_agent additionally
+            # requires ``skill_name == agent_name``). Omitting it made every
+            # kind="tool" binding raise ValueError before any work began --
+            # including the exact "spread bind into graph_orchestrate" usage
+            # this contract's own docs prescribe. Every fleet Tool node carries
+            # a non-empty ``mcp_server``, so this was not an edge case: it was
+            # every real resolution of this kind.
+            binding: dict[str, Any] = {
+                "skill_name": DEFAULT_TOOL_DELEGATE,
+                "allowed_tools": [self.name],
+            }
             if self.server:
                 binding["tool_server"] = self.server
             return binding

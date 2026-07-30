@@ -2088,16 +2088,27 @@ def _register_skill_providers(mcp: Any) -> None:
 
     A fastmcp-4-server-built process gains ``skill://{name}/SKILL.md``,
     ``skill://{name}/_manifest``, and ``skill://{name}/{path*}`` resources that
-    an mcp/fastmcp-3 client can already read (proven cross-version:
-    ``tests/integration/mcp/test_fastmcp_cross_version.py``). The default
-    ``[mcp]`` extra stays on fastmcp 3, which has no ``SkillProvider``/
-    ``add_provider`` — this degrades to a single debug-level log line and never
-    raises, so no au-built server crashes for lacking the ``[mcp-v4]`` extra.
+    an mcp/fastmcp-3 client can already read.
+
+    INERT ON THE CURRENT DEFAULT. The ``[mcp]`` extra pins fastmcp 3, which has
+    no ``SkillProvider``/``add_provider``, so in every supported install today
+    this function takes the degrade path and registers nothing — the server-side
+    half of Skills-over-MCP is built but not reachable. There is no opt-in extra
+    that turns it on either: the ``[mcp-v4]`` extra an earlier revision of this
+    docstring pointed at was never merged to ``main`` (the fastmcp-4-default
+    change it belonged to could not be locked by this repo's own workspace
+    locking entrypoint). Recorded as D-W15-7/D-W15-8 in
+    ``reports/deferred/waves1-5-gate.md``. The CLIENT-side half — ranking and
+    binding ``skill://`` resources discovered on OTHER servers over the wire —
+    works today on fastmcp 3 and is unaffected.
+
+    Degrades to a single debug-level log line and never raises.
     """
     if not hasattr(mcp, "add_provider"):
         logger.debug(
-            "Skipping skill-over-MCP providers: FastMCP server has no "
-            "add_provider (fastmcp < 4; install the [mcp-v4] extra to enable)."
+            "Skipping skill-over-MCP providers: this FastMCP build has no "
+            "add_provider (fastmcp < 4). Server-side skill:// resources stay "
+            "inert until au's fastmcp-4 upgrade lands (D-W15-7)."
         )
         return
 

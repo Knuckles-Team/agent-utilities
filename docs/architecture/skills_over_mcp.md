@@ -18,7 +18,7 @@ independent of the upstream wire draft (MCP SEP-2640, "In Review").
 ```mermaid
 flowchart LR
     subgraph Server["au-built MCP server (server_factory.create_mcp_server)"]
-        SkillDirs["resolve_skill_provider_dirs()\n(core/providers.py)"] --> SkillProvider["SkillProvider\n(fastmcp>=4, [mcp-v4])"]
+        SkillDirs["resolve_skill_provider_dirs()\n(core/providers.py)"] --> SkillProvider["SkillProvider\n(fastmcp>=4 — INERT today)"]
         SkillProvider -->|"skill://{name}/SKILL.md\nskill://{name}/_manifest"| Resources[MCP Resources]
     end
 
@@ -48,11 +48,20 @@ Degradation is explicit and observable, never a crash: `hasattr(mcp,
 "add_provider")` gates the whole registration, so the default `[mcp]` extra
 (fastmcp 3.x, no `SkillProvider`) logs one `DEBUG` line and returns. A single
 bad provider directory logs a `WARNING` and is skipped — it does not sink the
-others. `[mcp-v4]` is the only extra that lights this capability up.
+others.
+
+> **The server-side half is INERT on `main` today.** The `[mcp]` extra pins
+> fastmcp 3, which has no `add_provider`, and there is no opt-in extra that turns
+> it on: the `[mcp-v4]` extra an earlier draft of this page pointed at was never
+> merged (the fastmcp-4-default change it belonged to could not be locked by this
+> repo's own workspace locking entrypoint). So `_register_skill_providers`
+> currently registers nothing in every supported install. See D-W15-7/D-W15-8 in
+> `reports/deferred/waves1-5-gate.md`. The **client-side** half — probing,
+> ranking, and binding `skill://` resources served by OTHER servers — works today
+> on fastmcp 3 and is what the rest of this page describes.
 
 This is why the strategy works at all: a fastmcp-3 (or plain `mcp`) client can
-already read a fastmcp-4 server's `skill://` resources (proven in
-`tests/integration/mcp/test_fastmcp_cross_version.py`, Lane 2.1) — so upgrading
+already read a fastmcp-4 server's `skill://` resources — so upgrading
 every au client is not a precondition for serving skills over the wire.
 
 ## B — Client side: ingest `skill://` resources into the KG

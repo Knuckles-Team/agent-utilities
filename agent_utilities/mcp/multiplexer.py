@@ -2250,19 +2250,34 @@ class MCPMultiplexer:
         embed = self._embed_fn
         if embed is None:
             return
-        tools: list[tuple[str, str]] = []  # (bare_tool, cache_key)
+        # Tools AND skills, in ONE pass. Skills were previously skipped entirely,
+        # so `semantic.get(skill, ...)` in discover_tools always returned 0.0 and
+        # skills were ranked on token overlap alone while tools additionally got a
+        # cosine term. That is not one capability space: whenever the embedder is
+        # warm — the production condition this whole feature exists for — skills
+        # were structurally under-ranked against tools for any query where intent
+        # similarity matters more than literal token overlap.
+        names: list[tuple[str, str]] = []  # (bare_name, cache_key)
         pending_text: list[str] = []
         pending_key: list[str] = []
         for server, info in probe.items():
             if info.get("error"):
                 continue
-            for entry in info.get("tools", []):
-                tool = entry["name"]
-                key = f"{server}::{tool}"
-                tools.append((tool, key))
-                if key not in self._tool_embeddings:
-                    pending_text.append(f"{tool}. {entry.get('description', '')}"[:512])
-                    pending_key.append(key)
+            for kind in ("tools", "skills"):
+                for entry in info.get(kind, []) or []:
+                    name = entry.get("name")
+                    if not name:
+                        continue
+                    # Namespaced by kind as well as server: a skill and a tool may
+                    # legitimately share a name on the same server, and they must
+                    # not share one cached embedding.
+                    key = f"{server}::{kind}::{name}"
+                    names.append((name, key))
+                    if key not in self._tool_embeddings:
+                        pending_text.append(
+                            f"{name}. {entry.get('description', '')}"[:512]
+                        )
+                        pending_key.append(key)
         try:
             if pending_text:
                 vecs = await asyncio.to_thread(embed, pending_text)
@@ -2278,12 +2293,12 @@ class MCPMultiplexer:
             return
         if not qv:
             return
-        for tool, key in tools:
+        for name, key in names:
             vec = self._tool_embeddings.get(key)
             if vec:
                 c = _cosine(qv, vec)
                 if c > 0:
-                    semantic[tool] = max(semantic.get(tool, 0.0), c)
+                    semantic[name] = max(semantic.get(name, 0.0), c)
 
     async def discover_tools(
         self, query: str, top_k: int | None = None, loaded: set[str] | None = None

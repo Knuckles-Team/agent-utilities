@@ -178,9 +178,13 @@ async def test_discover_tools_ranks_skills_and_tools_in_one_result_set(tmp_path)
     assert kinds == {"tool", "skill"}
     tool_hit = next(r for r in results if r["kind"] == "tool")
     skill_hit = next(r for r in results if r["kind"] == "skill")
+    # A tool binds as "the default delegate, scoped to this one tool" -- the
+    # skill_name is load-bearing, not decoration: both execute_capability and
+    # run_agent reject tool_server without it.
     assert tool_hit["bind"] == {
         "tool_server": CNT,
         "allowed_tools": [CNT_TOOL],
+        "skill_name": "agent-utilities-expert",
     }
     assert skill_hit["bind"] == {
         "tool_server": CNT,
@@ -208,3 +212,91 @@ async def test_discover_tools_skill_absent_when_server_has_no_skills(tmp_path):
 
     discovery = await mux.discover_tools("manage docker containers", top_k=5)
     assert all(r["kind"] == "tool" for r in discovery["results"])
+
+
+async def test_semantic_scoring_covers_skills_not_only_tools(tmp_path):
+    """Skills must get the SAME embedding term tools do.
+
+    Waves 1-5 merge gate regression: ``_embed_semantic_scores`` iterated
+    ``info["tools"]`` only, so ``semantic.get(skill, 0.0)`` in ``discover_tools``
+    was always 0.0 and skills were ranked on token overlap alone while tools
+    additionally carried a cosine term. Whenever the embedder is warm — the
+    production condition this whole feature exists for — skills were
+    structurally under-ranked against tools for exactly the intent-similarity
+    queries the feature was built to serve. The existing ranking test set
+    ``_kg_call`` rather than ``_embed_fn``, so ``_embed_fn is None`` and
+    ``_embed_semantic_scores`` returned before reaching the buggy loop — it only
+    ever exercised the token-overlap-only regime where the two kinds happen to
+    be symmetric.
+    """
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage docker containers")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    mux._probe_cache[CNT] = {
+        "tools": [
+            {"name": CNT_TOOL, "description": "alpha", "inputSchema": {}},
+        ],
+        "skills": [
+            {
+                "name": "container-runbook",
+                "uri": "skill://container-runbook/SKILL.md",
+                "description": "beta",
+            }
+        ],
+        "error": None,
+    }
+
+    # A deterministic "embedder": the query vector matches the SKILL's text and
+    # is orthogonal to the tool's, so a correctly-covered skill outranks the tool.
+    def _embed(texts):
+        out = []
+        for text in texts:
+            lowered = text.lower()
+            if "beta" in lowered or "runbook" in lowered:
+                out.append([1.0, 0.0])
+            elif "alpha" in lowered or CNT_TOOL in lowered:
+                out.append([0.0, 1.0])
+            else:
+                out.append([1.0, 0.0])  # the query
+        return out
+
+    mux._embed_fn = _embed  # type: ignore[assignment]
+
+    semantic: dict[str, float] = {}
+    await mux._embed_semantic_scores("beta runbook", mux._probe_cache, semantic)
+
+    assert semantic.get("container-runbook", 0.0) > 0.0, (
+        "the skill received no semantic score — skills are not in the same "
+        "ranking space as tools"
+    )
+    assert semantic.get(CNT_TOOL, 0.0) == 0.0
+
+    discovery = await mux.discover_tools("beta runbook", top_k=5)
+    results = discovery["results"]
+    skill_hit = next(r for r in results if r["kind"] == "skill")
+    tool_hits = [r for r in results if r["kind"] == "tool"]
+    assert not tool_hits or skill_hit["score"] > tool_hits[0]["score"]
+
+
+async def test_semantic_cache_key_separates_a_skill_from_a_same_named_tool(tmp_path):
+    """A skill and a tool may share a name on one server; they must not share
+    one cached embedding."""
+    mux = _mux_with_children(tmp_path, {CNT: [("deploy", "tool description")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    mux._probe_cache[CNT] = {
+        "tools": [{"name": "deploy", "description": "tool description"}],
+        "skills": [{"name": "deploy", "description": "skill description"}],
+        "error": None,
+    }
+    embedded: list[str] = []
+
+    def _embed(texts):
+        embedded.extend(texts)
+        return [[1.0, 0.0] for _ in texts]
+
+    mux._embed_fn = _embed  # type: ignore[assignment]
+    await mux._embed_semantic_scores("deploy", mux._probe_cache, {})
+
+    assert f"{CNT}::tools::deploy" in mux._tool_embeddings
+    assert f"{CNT}::skills::deploy" in mux._tool_embeddings
+    assert any("tool description" in t for t in embedded)
+    assert any("skill description" in t for t in embedded)

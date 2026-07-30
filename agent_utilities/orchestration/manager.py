@@ -27,7 +27,11 @@ from agent_utilities.security.threat_defense_engine import PromptInjectionScanne
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DELEGATE = "agent-utilities-expert"
+# Aliased from the capability contract so the delegate a resolved Tool binds
+# through cannot drift between the two modules.
+from agent_utilities.core.capability_contract import (  # noqa: E402
+    DEFAULT_TOOL_DELEGATE as _DEFAULT_DELEGATE,
+)
 _GATEWAY_OUTPUT_LIMIT = 12_000
 _GATEWAY_MERMAID_LIMIT = 8_000
 _GATEWAY_TRACE_TOOL_LIMIT = 32
@@ -794,6 +798,7 @@ class Orchestrator:
         call_agent_name = target["name"]
         call_tool_server = tool_server or None
         call_allowed_tools = allowed_tools
+        call_skill_name = skill_name or None
         if target["kind"] == "tool":
             from agent_utilities.core.capability_contract import Capability
 
@@ -806,10 +811,17 @@ class Orchestrator:
             call_agent_name = _DEFAULT_DELEGATE
             call_tool_server = binding.get("tool_server") or call_tool_server
             call_allowed_tools = binding.get("allowed_tools") or call_allowed_tools
+            # ``run_agent`` enforces both "tool_server requires skill_name" AND
+            # "skill_name must match the dispatched agent_name", so the delegate
+            # has to be named on BOTH keywords. Leaving skill_name empty here
+            # made every auto-resolved Tool raise ValueError inside run_agent --
+            # and every fleet Tool node carries a non-empty mcp_server, so this
+            # was every real resolution of this kind, not an edge case.
+            call_skill_name = _DEFAULT_DELEGATE
 
         raw = await self.execute_agent(
             agent_name=call_agent_name,
-            skill_name=skill_name or None,
+            skill_name=call_skill_name,
             tool_server=call_tool_server,
             execution_mode=execution_mode,
             task=task,
