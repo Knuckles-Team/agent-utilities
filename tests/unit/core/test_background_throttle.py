@@ -45,6 +45,7 @@ def test_foreground_lease_coordinates_independent_throttles(tmp_path, monkeypatc
     foreground.set_foreground(True)
     foreground.set_foreground(True)
     assert host.foreground_active
+    assert host.should_yield_background
     foreground.set_foreground(False)
     assert host.foreground_active
     with host.background_slot(wait_foreground=False) as acquired:
@@ -97,9 +98,32 @@ def test_foreground_lease_expires_after_a_crashed_process(tmp_path, monkeypatch)
     assert host.foreground_active
     # Deliberately do not release the writer: this models a killed foreground
     # process, whose last heartbeat must not leave the host paused forever.
+    assert writer._lease_stop is not None
     writer._lease_stop.set()
     time.sleep(0.16)
     assert not host.foreground_active
+
+
+def test_rapid_foreground_reentry_cannot_revive_an_old_heartbeat(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
+    throttle = BackgroundThrottle(
+        lease_ttl=0.12, lease_heartbeat=0.02, lease_scan_interval=0.0
+    )
+
+    throttle.set_foreground(True)
+    first_stop = throttle._lease_stop
+    assert first_stop is not None
+    throttle.set_foreground(False)
+    throttle.set_foreground(True)
+    second_stop = throttle._lease_stop
+    assert second_stop is not None and second_stop is not first_stop
+    assert first_stop.is_set()
+
+    throttle.set_foreground(False)
+    time.sleep(0.04)
+    assert not list(_lease_dir(tmp_path).glob("*.json"))
 
 
 def test_foreground_lease_scan_is_bounded(tmp_path, monkeypatch):
