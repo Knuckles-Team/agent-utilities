@@ -114,26 +114,22 @@ def client_no_web_ui(app_no_web_ui: FastAPI) -> Iterator[TestClient]:
 
 
 def test_health(client_with_web_ui: TestClient) -> None:
-    """``/health`` is LIVENESS: always 200, with the real shared health report
-    as body (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split) — never the
-    old unconditional ``{"status": "ok"}`` stub.
-    """
+    """``/health`` is dependency-free and non-fingerprinting."""
     resp = client_with_web_ui.get("/health")
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] in ("healthy", "unhealthy")
-    assert isinstance(body["checks"], list)
-    assert any(c["name"] == "engine" for c in body["checks"])
+    assert resp.json() == {"status": "ok"}
     assert resp.headers["cache-control"] == "no-store"
 
 
 def test_health_ready_reflects_the_same_report_in_its_status_code(
     client_with_web_ui: TestClient,
 ) -> None:
-    """``/health/ready`` is READINESS: the SAME report, but 200/503 mirrors it."""
+    """``/health/ready`` exposes only the readiness decision."""
     resp = client_with_web_ui.get("/health/ready")
     body = resp.json()
-    assert resp.status_code == (200 if body["status"] == "healthy" else 503)
+    assert body["status"] in {"ready", "not_ready"}
+    assert set(body) == {"status"}
+    assert resp.status_code == (200 if body["status"] == "ready" else 503)
 
 
 def test_rest_health_routes_share_the_reserved_async_collector() -> None:
@@ -159,12 +155,14 @@ def test_rest_health_routes_share_the_reserved_async_collector() -> None:
         return_value=report,
     ) as collector:
         with TestClient(app) as client:
-            for path in ("/health", "/health/ready", "/api/dashboard/health"):
-                response = client.get(path)
-                assert response.status_code == 200
-                assert response.json() == report
+            liveness = client.get("/health")
+            readiness = client.get("/health/ready")
+            dashboard = client.get("/api/dashboard/health")
 
-    assert collector.await_count == 3
+    assert liveness.json() == {"status": "ok"}
+    assert readiness.json() == {"status": "ready"}
+    assert dashboard.json() == report
+    assert collector.await_count == 2
 
 
 def test_mcp_config(client_with_web_ui: TestClient) -> None:

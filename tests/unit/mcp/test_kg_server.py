@@ -79,34 +79,24 @@ def mock_engine():
 
 
 @pytest.mark.asyncio
-async def test_graphos_health_is_liveness_always_200_with_real_report(server_tools):
-    """``/health`` is LIVENESS: always 200, and the body is the real shared
-    health report (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split) — no
-    longer the unconditional ``{"status": "ok"}`` stub that never checked
-    anything. Still non-fingerprinting: no raw endpoint/hostname strings, only
-    counts/booleans/resolved-mode/platform-id detail.
-    """
+async def test_graphos_health_is_dependency_free_status_only_liveness(server_tools):
+    """``/health`` reveals no dependency or topology detail."""
     response = await server_tools["health_check"](MagicMock())
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    body = json.loads(response.body)
-    assert body["status"] in ("healthy", "unhealthy")
-    names = {c["name"] for c in body["checks"]}
-    assert "engine" in names
-    for check in body["checks"]:
-        assert check["status"] in ("ok", "unhealthy", "not_configured")
-        assert isinstance(check["latency_ms"], (int, float))
+    assert json.loads(response.body) == {"status": "ok"}
 
 
 @pytest.mark.asyncio
 async def test_graphos_health_ready_reflects_status_in_http_code(server_tools):
-    """``/health/ready`` is READINESS: the same report, 200/503 mirrors it
-    (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split)."""
+    """``/health/ready`` maps detailed health to a status-only response."""
     response = await server_tools["readiness_check"](MagicMock())
 
     body = json.loads(response.body)
-    assert response.status_code == (200 if body["status"] == "healthy" else 503)
+    assert body["status"] in {"ready", "not_ready"}
+    assert response.status_code == (200 if body["status"] == "ready" else 503)
+    assert set(body) == {"status"}
 
 
 def test_graphos_health_live_path_bypasses_saturated_default_executor(
@@ -121,6 +111,7 @@ def test_graphos_health_live_path_bypasses_saturated_default_executor(
     """
     from agent_utilities.observability import runtime_health as runtime_health
 
+    collector_thread: dict[str, str] = {}
     release = threading.Event()
     started = threading.Event()
 
@@ -129,11 +120,11 @@ def test_graphos_health_live_path_bypasses_saturated_default_executor(
         release.wait(timeout=5.0)
 
     def _fast_report() -> dict:
+        collector_thread["name"] = threading.current_thread().name
         return {
             "status": "healthy",
             "checks": [],
             "generated_at": "synthetic",
-            "collector_thread": threading.current_thread().name,
         }
 
     monkeypatch.setattr(runtime_health, "collect_health", _fast_report)
@@ -149,7 +140,7 @@ def test_graphos_health_live_path_bypasses_saturated_default_executor(
             while not started.is_set():
                 await asyncio.sleep(0)
             response = await asyncio.wait_for(
-                server_tools["health_check"](MagicMock()), timeout=0.5
+                server_tools["readiness_check"](MagicMock()), timeout=0.5
             )
             assert not blocking_work.done()
             return response
@@ -165,8 +156,8 @@ def test_graphos_health_live_path_bypasses_saturated_default_executor(
 
     body = json.loads(response.body)
     assert response.status_code == 200
-    assert body["status"] == "healthy"
-    assert body["collector_thread"].startswith("au-health-collector")
+    assert body == {"status": "ready"}
+    assert collector_thread["name"].startswith("au-health-collector")
 
 
 # ── graph_ingest: ingestion ──────────────────────────────────────────
