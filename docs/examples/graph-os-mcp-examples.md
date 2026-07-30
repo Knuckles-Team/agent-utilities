@@ -153,19 +153,21 @@ Dispatch subagents, handle consensus, and manage loop controls.
 **Example 1: Dispatch Subagent**
 ```json
 {
-  "action": "dispatch",
   "agent_name": "repository-manager",
   "task": "Fix the linting errors in main.py",
   "max_steps": 5
 }
 ```
 
-**Example 2: Start Debate**
-Run the TradingAgents swarm debate to vet financial hypotheses.
+**Example 2: Validate a named skill through a real Pydantic graph**
 ```json
 {
-  "action": "start_debate",
-  "task": "Should we long AAPL given the latest earnings?"
+  "skill_name": "change-review",
+  "tool_server": "itsm-api",
+  "execution_mode": "pydantic_graph",
+  "task": "Review one synthetic change and its approvals.",
+  "allowed_tools": "get_change,list_approvals",
+  "required_tools": "get_change,list_approvals"
 }
 ```
 
@@ -175,7 +177,6 @@ Hand the spawned agent budgeted context, a least-privilege tool allow-list, a cr
 is `{"output", "mermaid", "channel_id"}`.
 ```json
 {
-  "action": "execute_agent",
   "agent_name": "github-mcp",
   "task": "List the latest workflow run for Knuckles-Team/agent-utilities",
   "context_ref": "ctx:sess-42:brief",

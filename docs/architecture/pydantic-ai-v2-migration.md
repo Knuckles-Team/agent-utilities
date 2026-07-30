@@ -17,7 +17,7 @@ several APIs we used, which required real changes:
 | `pydantic_ai.mcp.load_mcp_servers` | `load_mcp_toolsets` | `graph/executor.py`, `core/config.py` |
 | `pydantic_graph.persistence` (package) + `Graph.run(persistence=)` | our own `BaseStatePersistence` (write-only snapshot stores) | `core/checkpoint/manager.py` |
 | `Agent.to_a2a()` | `fasta2a.pydantic_ai.agent_to_a2a` | `server/app.py` |
-| `pydantic_graph.beta.*` | promoted to top-level `pydantic_graph` | guarded imports across `graph/*`, `orchestration/engine.py` |
+| `pydantic_graph.beta.*` | promoted to top-level `pydantic_graph` | guarded imports across `graph/*`, `orchestration/engine.py`; `iter_graph` retains an `EndMarker` fallback for supported pre-promotion 2.x environments while the production lock resolves Pydantic AI 2.21 |
 | `stream.usage()` (method) | `stream.usage` (property) | `graph/_router_impl.py`, `graph/executor.py` |
 | `RunUsage.request_tokens` / `response_tokens` | `input_tokens` / `output_tokens` | `graph/state.py`, `observability/token_tracker.py` |
 

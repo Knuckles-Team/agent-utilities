@@ -13,6 +13,12 @@ from agent_utilities.observability.trace_ontology import (
     trace_id as canonical_trace_id,
 )
 from agent_utilities.orchestration.agent_runner import ProgressSink, run_agent
+from agent_utilities.orchestration.execution_contract import (
+    ExecutionMode,
+    validate_execution_mode,
+    validate_pydantic_graph_contract,
+    validate_tool_contract,
+)
 from agent_utilities.orchestration.response_format import (
     ResponseFormat,
     validate_response_format,
@@ -387,6 +393,10 @@ class Orchestrator:
         run_id: str | None = None,
         include_run_summary: bool = False,
         progress_sink: ProgressSink | None = None,
+        required_tools: list[str] | None = None,
+        skill_name: str | None = None,
+        tool_server: str | None = None,
+        execution_mode: ExecutionMode = "auto",
     ) -> str:
         """Execute a single agent against a task.
 
@@ -412,6 +422,10 @@ class Orchestrator:
         exception-isolated, so a slow/failing sink can never stall or fail the run.
         """
         response_format = validate_response_format(response_format)
+        execution_mode = validate_execution_mode(execution_mode)
+        allowed_tools, required_tools = validate_tool_contract(
+            allowed_tools, required_tools
+        )
         self._scan_task(task)
         logger.info(f"Executing agent {agent_name} for task: {task[:50]}...")
         # CONCEPT:AU-ORCH.scheduling.resource-priority-edict — a delegation is
@@ -444,6 +458,10 @@ class Orchestrator:
                 budget_tokens=budget_tokens,
                 context_ref=context_ref,
                 allowed_tools=allowed_tools,
+                required_tools=required_tools,
+                skill_name=skill_name,
+                tool_server=tool_server,
+                execution_mode=execution_mode,
                 cred_ref=cred_ref,
                 session_id=session_id,
                 open_channel=open_channel,
@@ -617,11 +635,15 @@ class Orchestrator:
         *,
         task: str,
         agent_name: str = "",
+        skill_name: str = "",
+        tool_server: str = "",
+        execution_mode: ExecutionMode = "auto",
         max_steps: int = 30,
         context: str | None = None,
         budget_tokens: int | None = None,
         context_ref: str | None = None,
         allowed_tools: list[str] | None = None,
+        required_tools: list[str] | None = None,
         cred_ref: str | None = None,
         open_channel: bool = False,
         reasoning_effort: str | None = None,
@@ -629,10 +651,31 @@ class Orchestrator:
         response_format: ResponseFormat = "text",
     ) -> dict[str, Any]:
         """Resolve and execute one task through the bounded GraphOS skill gateway."""
+        execution_mode = validate_execution_mode(execution_mode)
+        allowed_tools, required_tools = validate_tool_contract(
+            allowed_tools, required_tools
+        )
+        if agent_name.strip() and skill_name.strip():
+            raise ValueError("agent_name and skill_name are mutually exclusive")
+        if tool_server.strip() and not skill_name.strip():
+            raise ValueError("tool_server requires skill_name")
+        validate_pydantic_graph_contract(
+            execution_mode,
+            skill_name=skill_name,
+            tool_server=tool_server,
+            allowed_tools=allowed_tools,
+        )
         self._scan_task(task)
         target = await asyncio.to_thread(
-            self.resolve_capability, task, agent_name=agent_name
+            self.resolve_capability, task, agent_name=skill_name or agent_name
         )
+        if skill_name:
+            target = {
+                **target,
+                "kind": "skill",
+                "name": skill_name,
+                "source": "caller_skill",
+            }
 
         if target["kind"] == "workflow":
             from agent_utilities.knowledge_graph.core.workflow_gate import (
@@ -677,6 +720,9 @@ class Orchestrator:
 
         raw = await self.execute_agent(
             agent_name=target["name"],
+            skill_name=skill_name or None,
+            tool_server=tool_server or None,
+            execution_mode=execution_mode,
             task=task,
             max_steps=max_steps,
             return_mermaid=True,
@@ -684,6 +730,7 @@ class Orchestrator:
             budget_tokens=budget_tokens,
             context_ref=context_ref,
             allowed_tools=allowed_tools,
+            required_tools=required_tools,
             cred_ref=cred_ref,
             open_channel=open_channel,
             reasoning_effort=reasoning_effort,
@@ -704,7 +751,9 @@ class Orchestrator:
         # Defense in depth for the public gateway envelope. ``run_agent`` rejects
         # ungrounded tool-required executions before recording the trace, but a
         # malformed/legacy runner response must not be re-labelled as success here.
-        if allowed_tools and int(provenance.get("tool_call_count") or 0) == 0:
+        if (allowed_tools or required_tools) and int(
+            provenance.get("tool_call_count") or 0
+        ) == 0:
             refusal = (
                 "Tool-required execution produced no recorded ToolCall provenance; "
                 "refusing an ungrounded result."

@@ -36,12 +36,15 @@ flowchart TD
     SKILL --> RA
     RA --> RES["_resolve_agent_from_kg<br/>Server · CallableResource · Skill→runnable (AU-ORCH.dispatch.dispatch-half-skill-ingestion)"]
     RES --> BIND["bind real MCP toolset internally<br/>(stdio / HTTP + OIDC client credentials)"]
-    BIND --> MODE{"actual execution mode"}
-    MODE -->|"single_server_agent"| LLM["direct Pydantic AI agent<br/>LOCAL vLLM"]
-    MODE -->|"pydantic_graph"| PG["pydantic_graph.run span<br/>only around Graph.run()"]
-    MODE -->|"direct_completion / service_registry / parallel_engine"| OTHER["other native executor"]
+    BIND --> MODE{"requested execution_mode"}
+    MODE -->|"auto"| ACTUAL{"actual execution mode"}
+    MODE -->|"pydantic_graph"| PG["pydantic_graph.run span<br/>pinned skill + exact tool catalog"]
+    ACTUAL -->|"single_server_agent"| LLM
+    ACTUAL -->|"pydantic_graph"| PG
+    ACTUAL -->|"direct_completion / service_registry / parallel_engine"| OTHER["other native executor"]
     PG --> LLM
     OTHER --> LLM
+    LLM["LOCAL vLLM (qwen, model_router)"]
     LLM --> TOOL["REAL MCP tool call"]
     TOOL --> TRACE["RunTrace.execution_mode + :ToolCall provenance<br/>(KG-2.296) + action_outcome"]
     RA --> RID["bounded result + resolution + approval_request<br/>run_id / trace_ref (AU-ORCH.execution.rich-result-wrapper)"]
@@ -73,6 +76,29 @@ flowchart TD
   RETURN t.execution_mode, tc.tool_name, tc.status, tc.args_digest, tc.result_digest
   ORDER BY tc.sequence
   ```
+
+### Explicit Pydantic graph validation route
+
+`graph_orchestrate` accepts a closed, fail-closed validation contract:
+
+- `skill_name` names one already-ingested `AGENT_SKILL`; a missing or incomplete
+  runnable skill is rejected rather than replaced by a generic agent.
+- `tool_server` names one exact MCP server from the live fleet catalog. Its transport
+  still comes from deployment configuration, never from graph-stored endpoint data.
+- `allowed_tools` is the complete callable catalog exposed to this run.
+- `required_tools` is an optional subset that must each appear in persisted
+  `ToolCall` provenance. One successful tool call cannot falsely certify a multi-tool
+  validation campaign.
+- `execution_mode="pydantic_graph"` requires `skill_name`, `tool_server`, and a
+  non-empty `allowed_tools` catalog. It bypasses the direct-agent optimization and
+  forces the request through `AgentOrchestrationEngine.execute_graph` and a real
+  `pydantic-graph` `graph.run`. The router's one-server node retains the validated
+  skill instructions and now carries its tool-call history into the normal
+  `RunTrace -[:USED_TOOL]-> ToolCall` persistence path.
+
+`auto` remains the default for ordinary work. The explicit graph mode exists for
+topology validation, graph tracing, and controlled certification; it does not weaken
+ActionPolicy, identity, token, turn, or tool-scope gates.
 
 ## Why this is the delegation keystone
 

@@ -182,6 +182,9 @@ bounded, without leaking secrets:
 | `context_ref` | Same, but the content is fetched from a persisted `ContextBlob` by id | Cross-process handoff; the run's `RunTrace` links the consumed blob for provenance |
 | `budget_tokens` | Hard `UsageLimits.total_tokens_limit` on the spawned run | `spawn_usage_limits` |
 | `allowed_tools` | Least-privilege allow-list; tools/toolsets are intersected with it | `apply_tool_scope` |
+| `required_tools` | Subset of `allowed_tools` that must each have recorded `ToolCall` provenance | post-run grounding gate |
+| `skill_name` + `tool_server` | Pin one ingested skill and one exact configured MCP server catalog | fail-closed KG skill resolution + live fleet toolset binding |
+| `execution_mode=pydantic_graph` | Require `skill_name`, `tool_server`, and non-empty `allowed_tools`, then force the pinned skill/tool catalog through a real `pydantic-graph` `graph.run` | `run_agent` → `_execute_graph` → `AgentOrchestrationEngine.execute_graph` |
 | `cred_ref` | A **reference** (secret key) resolved to the raw token on the transient `AgentDeps.auth_token` at spawn | `_resolve_invoker_cred` — the raw secret is **never** written to a graph node, `GraphState`, or logs |
 
 > **Security invariant:** only a *reference* to a credential ever travels through the graph or the

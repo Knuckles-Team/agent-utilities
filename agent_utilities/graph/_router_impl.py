@@ -389,7 +389,9 @@ async def router_step(
             _, _scoped_ts = apply_tool_scope(
                 ctx.state, [], _guarded_ts
             )  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            _skill_prompt = str(deps.tag_prompts.get(str(_srv), "") or "").strip()
+            _skill_prompt = str(
+                deps.pinned_skill_prompt or deps.tag_prompts.get(str(_srv), "") or ""
+            ).strip()
             _direct_agent = create_context_agent(
                 model=deps.agent_model,
                 permissions_kernel=ctx.deps.permissions_kernel,
@@ -411,6 +413,10 @@ async def router_step(
                     ctx.state
                 ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff budget
             )
+            from ..orchestration.tool_provenance import extract_tool_calls
+
+            _tool_calls = extract_tool_calls(_direct_res)
+            ctx.state.tool_calls.extend(_tool_calls)
             emit_graph_event(
                 deps.event_queue,
                 "routing_completed",
@@ -425,7 +431,10 @@ async def router_step(
                         "direct_dispatch": True,
                         "server": _srv,
                         "domain": _srv,
+                        "execution_mode": deps.execution_mode,
+                        "skill": deps.pinned_skill_name,
                     },
+                    tool_calls=_tool_calls,
                 )
             )
         except (PermissionError, UsageLimitExceeded):

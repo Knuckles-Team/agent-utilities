@@ -12,6 +12,7 @@ end-to-end by ``test_workflow_e2e.py``.
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -112,6 +113,111 @@ async def test_run_agent_no_mermaid_still_surfaces_run_id(monkeypatch):
     assert payload["output"] == "no-diagram"
     assert payload["run_id"].startswith("run:")
     assert payload["mermaid"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.concept("AU-ORCH.execution.execution-seam-closure")
+async def test_forced_pydantic_graph_routes_named_skill_and_required_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skill_meta = {
+        "type": "server",
+        "skill_id": "resource:skill:change-review",
+        "skill_instruction_digest": "digest",
+        "skill_source_ref": "skill://change-review",
+        "skill_of_server": "itsm-api",
+        "system_prompt": "Follow the ingested change-review procedure.",
+        "tools": [{"name": "get_change"}],
+    }
+    monkeypatch.setattr(
+        agent_runner, "_resolve_agent_from_kg", lambda _engine, _name: skill_meta
+    )
+    monkeypatch.setattr(
+        agent_runner,
+        "_bind_explicit_tool_server",
+        lambda *_args, **_kwargs: skill_meta,
+    )
+    monkeypatch.setattr(
+        agent_runner,
+        "_build_execution_config",
+        lambda *_args, **_kwargs: {
+            "agent_model": "synthetic-model",
+            "selected_model_class": "standard",
+            "mcp_toolsets": [object()],
+            "invoker_allowed_tools": ["get_change"],
+        },
+    )
+    monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
+    persisted: list[dict] = []
+    monkeypatch.setattr(
+        agent_runner,
+        "_persist_tool_calls",
+        lambda _engine, _run, _agent, _server, calls: persisted.extend(calls),
+    )
+    monkeypatch.setattr(agent_runner, "_configured_fleet_server_prefix", lambda _s: "")
+
+    direct_loop = AsyncMock()
+    monkeypatch.setattr(agent_runner, "_execute_single_server", direct_loop)
+    graph_run = AsyncMock(
+        return_value={
+            "results": {"output": "validated change"},
+            "tool_calls": [
+                {
+                    "tool_name": "get_change",
+                    "args": "{}",
+                    "result": "change",
+                    "error": "",
+                }
+            ],
+        }
+    )
+    monkeypatch.setattr(agent_runner, "_execute_graph", graph_run)
+
+    raw = await agent_runner.run_agent(
+        agent_name="change-review",
+        skill_name="change-review",
+        tool_server="itsm-api",
+        execution_mode="pydantic_graph",
+        allowed_tools=["get_change"],
+        required_tools=["get_change"],
+        task="Review one synthetic change.",
+        engine=object(),
+        return_mermaid=True,
+        include_run_summary=True,
+    )
+
+    payload = json.loads(raw)
+    assert payload["output"] == "validated change"
+    assert payload["run_summary"]["stage_reached"] == "pydantic-graph"
+    direct_loop.assert_not_awaited()
+    graph_run.assert_awaited_once()
+    config = graph_run.await_args.kwargs["config"]
+    assert config["execution_mode"] == "pydantic_graph"
+    assert config["pinned_skill_name"] == "change-review"
+    assert config["pinned_skill_prompt"].startswith("Follow the ingested")
+    assert persisted[0]["tool_name"] == "get_change"
+
+    graph_run.reset_mock()
+    persisted.clear()
+    raw = await agent_runner.run_agent(
+        agent_name="change-review",
+        skill_name="change-review",
+        tool_server="itsm-api",
+        execution_mode="pydantic_graph",
+        allowed_tools=["get_change", "list_approvals"],
+        required_tools=["get_change", "list_approvals"],
+        task="Review one synthetic change and its approvals.",
+        engine=object(),
+        return_mermaid=True,
+        include_run_summary=True,
+    )
+
+    payload = json.loads(raw)
+    assert payload["run_summary"]["outcome"] == "degraded"
+    assert "list_approvals" in payload["output"]
+    assert persisted[0]["tool_name"] == "get_change"
+    direct_loop.assert_not_awaited()
+    graph_run.assert_awaited_once()
 
 
 @pytest.mark.asyncio

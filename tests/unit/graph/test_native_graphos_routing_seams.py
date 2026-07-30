@@ -261,6 +261,90 @@ async def test_execute_graph_forwards_agent_name_and_exact_invoker_capabilities(
 
 
 @pytest.mark.asyncio
+async def test_pydantic_graph_mode_reaches_real_graph_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def run(*, state: GraphState, deps: GraphDeps) -> GraphResponse:
+        captured["state"] = state
+        captured["deps"] = deps
+        return GraphResponse(
+            status="completed",
+            results={"output": "graph validated"},
+            tool_calls=[
+                {
+                    "tool_name": "get_change",
+                    "args": "{}",
+                    "result": "change",
+                    "error": "",
+                }
+            ],
+        )
+
+    graph = SimpleNamespace(run=AsyncMock(side_effect=run))
+    monkeypatch.setattr(
+        builder,
+        "create_graph_agent",
+        lambda **_kwargs: (
+            graph,
+            {
+                "tag_prompts": {"change-review": "Follow the ingested skill."},
+                "tag_env_vars": {},
+                "mcp_toolsets": [],
+                "router_model": None,
+                "agent_model": None,
+                "execution_mode": "pydantic_graph",
+                "pinned_skill_name": "change-review",
+                "pinned_skill_prompt": "Follow the ingested skill.",
+                "invoker_allowed_tools": ["get_change"],
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        orchestration_engine_module, "create_model", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        orchestration_engine_module,
+        "get_discovery_registry",
+        lambda: SimpleNamespace(agents=[]),
+    )
+    monkeypatch.setattr(orchestration_engine_module, "tracer", None)
+
+    from agent_utilities.core.registry import service_adapter
+
+    monkeypatch.setattr(
+        service_adapter.ServiceRegistry,
+        "instance",
+        classmethod(lambda _cls: SimpleNamespace(initialize=lambda: 0)),
+    )
+
+    result = await agent_runner._execute_graph(
+        config={
+            "tag_prompts": {"change-review": "Follow the ingested skill."},
+            "mcp_toolsets": [],
+            "execution_mode": "pydantic_graph",
+            "pinned_skill_name": "change-review",
+            "pinned_skill_prompt": "Follow the ingested skill.",
+            "invoker_allowed_tools": ["get_change"],
+            "execution_shape": SimpleNamespace(direct_complete=True),
+        },
+        query="Review one synthetic change.",
+        run_id="synthetic-graph-run",
+        max_steps=3,
+        agent_meta={"type": "skill"},
+        agent_name="change-review",
+    )
+
+    graph.run.assert_awaited_once()
+    assert result["results"]["output"] == "graph validated"
+    assert result["tool_calls"][0]["tool_name"] == "get_change"
+    assert captured["deps"].execution_mode == "pydantic_graph"
+    assert captured["deps"].pinned_skill_name == "change-review"
+    assert captured["state"].invoker_allowed_tools == ["get_change"]
+
+
+@pytest.mark.asyncio
 async def test_router_direct_dispatch_reads_authority_from_graph_deps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -281,6 +365,9 @@ async def test_router_direct_dispatch_reads_authority_from_graph_deps(
         tag_env_vars={},
         mcp_toolsets=[native],
         agent_model=None,
+        execution_mode="pydantic_graph",
+        pinned_skill_name="query-skill",
+        pinned_skill_prompt="Follow the ingested query skill instructions.",
         execution_shape=SimpleNamespace(run_discovery=False),
         permissions_kernel=kernel,
         agent_identity=identity,
@@ -305,6 +392,17 @@ async def test_router_direct_dispatch_reads_authority_from_graph_deps(
     )
     monkeypatch.setattr(_router_impl, "create_context_agent", create_agent)
     monkeypatch.setattr(_router_impl, "spawn_usage_limits", lambda _state: object())
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.tool_provenance.extract_tool_calls",
+        lambda _result: [
+            {
+                "tool_name": "_graph_lookup",
+                "args": "{}",
+                "result": "delegated result",
+                "error": "",
+            }
+        ],
+    )
 
     def adapt_graph_deps(
         graph_deps: GraphDeps,
@@ -324,6 +422,13 @@ async def test_router_direct_dispatch_reads_authority_from_graph_deps(
     assert isinstance(result, End)
     assert result.data.results == {"output": "delegated result"}
     assert result.data.metadata["direct_dispatch"] is True
+    assert result.data.metadata["execution_mode"] == "pydantic_graph"
+    assert result.data.metadata["skill"] == "query-skill"
+    assert result.data.tool_calls[0]["tool_name"] == "_graph_lookup"
+    assert state.tool_calls == result.data.tool_calls
+    assert (
+        "Follow the ingested query skill instructions." in constructed["system_prompt"]
+    )
     assert constructed["permissions_kernel"] is kernel
     assert constructed["agent_identity"] is identity
     assert constructed["permission_engine"] is knowledge_engine

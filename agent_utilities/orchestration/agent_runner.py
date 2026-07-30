@@ -33,6 +33,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.orchestration.execution_contract import (
+    ExecutionMode,
+    missing_required_tools,
+    validate_execution_mode,
+    validate_pydantic_graph_contract,
+    validate_tool_contract,
+)
 from agent_utilities.orchestration.response_format import (
     ResponseFormat,
     validate_response_format,
@@ -525,6 +532,10 @@ async def run_agent(
     run_id: str | None = None,
     include_run_summary: bool = False,
     progress_sink: ProgressSink | None = None,
+    required_tools: list[str] | None = None,
+    skill_name: str | None = None,
+    tool_server: str | None = None,
+    execution_mode: ExecutionMode = "auto",
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -580,9 +591,23 @@ async def run_agent(
 
     """
     response_format = validate_response_format(response_format)
+    requested_execution_mode = validate_execution_mode(execution_mode)
+    allowed_tools, required_tools = validate_tool_contract(
+        allowed_tools, required_tools
+    )
+    if skill_name and skill_name != agent_name:
+        raise ValueError("skill_name must match the dispatched agent_name")
+    if tool_server and not skill_name:
+        raise ValueError("tool_server requires skill_name")
+    validate_pydantic_graph_contract(
+        requested_execution_mode,
+        skill_name=skill_name,
+        tool_server=tool_server,
+        allowed_tools=allowed_tools,
+    )
     run_id = run_id or new_run_id()
     start_time = time.monotonic()
-    execution_mode = "other"
+    actual_execution_mode = "other"
     logger.info(
         "[ORCH-1.21] Starting agent execution: agent=%s, run_id=%s, task=%.100s...",
         agent_name,
@@ -776,6 +801,21 @@ async def run_agent(
     else:
         agent_meta = _unresolved_agent_meta()
 
+    if skill_name:
+        if not agent_meta.get("skill_id"):
+            raise LookupError(
+                f"ingested skill '{skill_name}' was not found or runnable"
+            )
+        if tool_server:
+            agent_meta = await asyncio.to_thread(
+                _bind_explicit_tool_server,
+                engine,
+                agent_meta,
+                tool_server,
+                skill_name,
+                allowed_tools,
+            )
+
     # Step 2b: Prime the recent compressed mementos for this run OFF the event loop.
     # CONCEPT:AU-KG.memory.refresh-per-session-memento — read the per-session memento cache (zero I/O); only on a cold
     # miss do we fetch via ``to_thread`` so the synchronous backend round-trip never
@@ -807,6 +847,10 @@ async def run_agent(
         allowed_tools=allowed_tools,
     )
     config["response_format"] = response_format
+    config["execution_mode"] = requested_execution_mode
+    if skill_name:
+        config["pinned_skill_name"] = skill_name
+        config["pinned_skill_prompt"] = str(agent_meta.get("system_prompt") or "")
     # CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context + token budget into the spawn.
     # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
     # from the epistemic-graph and link it to this run's RunTrace for provenance.
@@ -940,7 +984,35 @@ async def run_agent(
     route: dict[str, Any] = {}
     stage_reached = "dispatch"
     try:
-        if _is_bound_template_agent(agent_meta, config):
+        if requested_execution_mode == "pydantic_graph":
+            actual_execution_mode = "pydantic_graph"
+            route = {
+                "agents": ["pydantic-graph", agent_name],
+                "servers": [tool_server] if tool_server else [],
+                "why": "caller forced the governed pydantic-graph graph.run route",
+            }
+            stage_reached = "pydantic-graph"
+            await _emit(
+                progress_sink,
+                run_id=run_id,
+                stage="route",
+                status="ok",
+                detail=str(route["why"]),
+                evidence={
+                    "agents": route["agents"],
+                    "servers": route["servers"],
+                    "skill": skill_name or "",
+                },
+            )
+            result = await _execute_graph(
+                config=config,
+                query=task,
+                run_id=run_id,
+                max_steps=max_steps,
+                agent_meta=agent_meta,
+                agent_name=agent_name,
+            )
+        elif _is_bound_template_agent(agent_meta, config):
             # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — a KG-bound persona (e.g. agent-utilities-expert)
             # runs a DIRECT grounding loop: its recovered persona prompt drives the
             # run and its now-bound toolsets (graph-os + the fleet) let it query the
@@ -963,7 +1035,7 @@ async def run_agent(
                 evidence={"agents": route["agents"], "servers": route["servers"]},
             )
             try:
-                execution_mode = "single_server_agent"
+                actual_execution_mode = "single_server_agent"
                 result = await _execute_single_server(
                     config=config,
                     task=task,
@@ -979,7 +1051,7 @@ async def run_agent(
                 stage_reached = (
                     f"bound-template: {agent_name} (fallback: multi-agent-graph)"
                 )
-                execution_mode = "pydantic_graph"
+                actual_execution_mode = "pydantic_graph"
                 result = await _execute_graph(
                     config=config,
                     query=task,
@@ -1021,7 +1093,7 @@ async def run_agent(
                 evidence={"servers": _focused_servers},
             )
             try:
-                execution_mode = "single_server_agent"
+                actual_execution_mode = "single_server_agent"
                 result = await _execute_focused_tools(
                     task=task,
                     shape=shape,
@@ -1057,7 +1129,7 @@ async def run_agent(
                     agent_name or ",".join(servers), err
                 )
         elif _is_single_server_agent(agent_meta, config):
-            execution_mode = "single_server_agent"
+            actual_execution_mode = "single_server_agent"
             route = {
                 "agents": [],
                 "servers": [agent_name],
@@ -1089,7 +1161,7 @@ async def run_agent(
                 bound_tool_grounding=True,
             )
         else:
-            execution_mode = "pydantic_graph"
+            actual_execution_mode = "pydantic_graph"
             route = {
                 "agents": ["multi-agent-graph"],
                 "servers": [],
@@ -1156,7 +1228,7 @@ async def run_agent(
                     model_ref=_model_ref,
                     model_class=_model_class,
                     model_name=str(config.get("agent_model") or ""),
-                    execution_mode=execution_mode,
+                    execution_mode=actual_execution_mode,
                     delegation=_spawn_delegation,
                 )
             except Exception as trace_exc:  # noqa: BLE001 — best-effort; never block cancellation
@@ -1195,7 +1267,7 @@ async def run_agent(
             model_ref=_model_ref,
             model_class=_model_class,
             model_name=str(config.get("agent_model") or ""),
-            execution_mode=execution_mode,
+            execution_mode=actual_execution_mode,
             delegation=_spawn_delegation,
         )
         # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
@@ -1248,7 +1320,7 @@ async def run_agent(
                     stage_reached=stage_reached,
                     run_id=run_id,
                     raw_failure=err_msg,
-                    execution_mode=execution_mode,
+                    execution_mode=actual_execution_mode,
                 )
                 if include_run_summary
                 else None
@@ -1265,12 +1337,47 @@ async def run_agent(
     # A caller that requested tools, or explicitly selected a server, must be grounded
     # by a real captured ToolCall.  Text that merely *looks* like a tool invocation is
     # model output, not provenance, and must never be reported as a successful run.
-    tool_required = bool(allowed_tools) or agent_meta.get("type") == "server"
+    tool_required = (
+        bool(allowed_tools)
+        or bool(required_tools)
+        or agent_meta.get("type") == "server"
+    )
     if tool_required and not _has_grounded_tool_call(result):
         result = _fleet_server_failed_result(
             agent_name,
             "tool-required execution finished without recorded ToolCall provenance",
         )
+    elif required_tools and isinstance(result, dict):
+        calls = result.get("tool_calls")
+        observed = [
+            str(call.get("tool_name") or "")
+            for call in (calls if isinstance(calls, list) else [])
+            if isinstance(call, dict)
+        ]
+        observed_aliases: dict[str, str] = {}
+        server_name = tool_server or _bound_server
+        public_prefix = (
+            _configured_fleet_server_prefix(server_name) if server_name else ""
+        )
+        if public_prefix and server_name:
+            from agent_utilities.mcp.multiplexer import clean_tool_name
+
+            observed_aliases = {
+                clean_tool_name(public_prefix, server_name, name): name
+                for name in observed
+                if name
+            }
+        missing = missing_required_tools(
+            required_tools,
+            observed,
+            observed_aliases=observed_aliases,
+        )
+        if missing:
+            result = _fleet_server_failed_result(
+                tool_server or agent_name,
+                "required tools produced no ToolCall provenance: " + ", ".join(missing),
+                tool_calls=calls if isinstance(calls, list) else [],
+            )
 
     # Step 5: Record provenance. A delegation that fell through to the graph's "no data"
     # sentinel (or returned an empty answer) is a DEGRADED outcome, not a success —
@@ -1282,10 +1389,10 @@ async def run_agent(
     if isinstance(result, dict):
         _result_metadata = result.setdefault("metadata", {})
         if isinstance(_result_metadata, dict):
-            execution_mode = str(
-                _result_metadata.get("execution_mode") or execution_mode
+            actual_execution_mode = str(
+                _result_metadata.get("execution_mode") or actual_execution_mode
             )
-            _result_metadata["execution_mode"] = execution_mode
+            _result_metadata["execution_mode"] = actual_execution_mode
     # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the REAL cause of a
     # degraded outcome (e.g. _fleet_server_failed_result's already-composed truthful message,
     # or a GraphResponse.error from a critical graph failure) so BOTH the durable RunTrace
@@ -1299,7 +1406,7 @@ async def run_agent(
         stage_reached=stage_reached,
         run_id=run_id,
         raw_failure=_raw_failure,
-        execution_mode=execution_mode,
+        execution_mode=actual_execution_mode,
     )
     if isinstance(result, dict):
         _meta = result.setdefault("metadata", {})
@@ -1373,7 +1480,7 @@ async def run_agent(
         model_ref=_model_ref,
         model_class=_model_class,
         model_name=str(config.get("agent_model") or ""),
-        execution_mode=execution_mode,
+        execution_mode=actual_execution_mode,
         tool_call_count=(
             len(result["tool_calls"])
             if isinstance(result, dict) and isinstance(result.get("tool_calls"), list)
@@ -1869,6 +1976,54 @@ def _resolve_agent_from_kg(
         logger.debug("Semantic search failed for '%s': %s", agent_name, e)
 
     return meta
+
+
+def _bind_explicit_tool_server(
+    engine: IntelligenceGraphEngine,
+    skill_meta: dict[str, Any],
+    tool_server: str,
+    skill_name: str,
+    allowed_tools: list[str] | None,
+) -> dict[str, Any]:
+    """Bind one exact fleet catalog to an already-validated ingested skill."""
+
+    server_name = str(tool_server or "").strip()
+    if not server_name:
+        raise ValueError("tool_server is required")
+    server_meta = _resolve_agent_from_kg(engine, server_name)
+    if server_meta.get("type") != "server":
+        raise LookupError(f"configured MCP server '{server_name}' was not found")
+
+    declared = {
+        str(tool.get("name") or "").strip()
+        for tool in server_meta.get("tools") or []
+        if isinstance(tool, dict) and str(tool.get("name") or "").strip()
+    }
+    requested = set(allowed_tools or [])
+    if declared and not requested.issubset(declared):
+        unknown = sorted(requested - declared)
+        raise PermissionError(
+            "allowed_tools contains tools outside the configured server catalog: "
+            + ", ".join(unknown)
+        )
+
+    combined = dict(server_meta)
+    for key in (
+        "skill_id",
+        "skill_instruction_digest",
+        "skill_source_ref",
+        "system_prompt",
+    ):
+        combined[key] = skill_meta.get(key, "")
+    combined["skill_of_server"] = server_name
+    combined["toolset_id"] = server_name
+    logger.info(
+        "[ORCH-1.21] Bound ingested skill '%s' to explicit MCP server '%s' (%d tools)",
+        skill_name,
+        server_name,
+        len(server_meta.get("tools") or []),
+    )
+    return combined
 
 
 # ---------------------------------------------------------------------------
@@ -2412,7 +2567,12 @@ _EXECUTE_AGENT_WALL_CLOCK_S = 300.0
 _DELEGATION_BUDGET_WARN_FRACTION = 0.8
 
 
-def _fleet_server_failed_result(agent_name: str, error: str) -> dict[str, Any]:
+def _fleet_server_failed_result(
+    agent_name: str,
+    error: str,
+    *,
+    tool_calls: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """A degraded result for a resolved fleet-server delegation that failed.
 
     CONCEPT:AU-ORCH.execution.no-silent-hallucination — returned INSTEAD of falling through to the
@@ -2432,7 +2592,7 @@ def _fleet_server_failed_result(agent_name: str, error: str) -> dict[str, Any]:
         # Keep the zero explicit: the RunTrace writer distinguishes a known
         # ungrounded tool-required execution from a legacy result with no
         # provenance field at all.
-        "tool_calls": [],
+        "tool_calls": list(tool_calls or []),
         "metadata": {"degraded": True, "outcome": "fleet_server_failed"},
     }
 
@@ -2943,6 +3103,8 @@ async def _execute_graph(
     # Pydantic output schema. The lean chat fast path is intentionally text-only,
     # so a JSON request must reach GraphDeps and the final synthesizer.
     if config.get("response_format", "text") == "json":
+        _direct = False
+    if config.get("execution_mode") == "pydantic_graph":
         _direct = False
     if _direct:
         try:

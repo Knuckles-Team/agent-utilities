@@ -194,6 +194,15 @@ class GraphDeps:
     response_format: ResponseFormat = "text"
     """Closed final-response contract for this execution."""
 
+    execution_mode: Literal["auto", "pydantic_graph"] = "auto"
+    """The caller-selected orchestration route for this run."""
+
+    pinned_skill_name: str = ""
+    """Exact ingested skill whose instructions govern a forced graph run."""
+
+    pinned_skill_prompt: str = ""
+    """Validated instruction body for :attr:`pinned_skill_name`."""
+
     def __post_init__(self) -> None:
         """Normalize graph models through the mandatory context boundary.
 

@@ -2443,6 +2443,28 @@ def register_analysis_tools(mcp):
                 "skill/workflow from the KG."
             ),
         ),
+        skill_name: str = Field(
+            default="",
+            description=(
+                "Exact ingested AGENT_SKILL name. Mutually exclusive with agent_name "
+                "and resolved fail-closed from the Knowledge Graph."
+            ),
+        ),
+        tool_server: str = Field(
+            default="",
+            description=(
+                "Exact configured MCP server catalog to bind to skill_name. The "
+                "server transport comes from the live fleet configuration."
+            ),
+        ),
+        execution_mode: Literal["auto", "pydantic_graph"] = Field(
+            default="auto",
+            description=(
+                "auto selects the leanest governed route; pydantic_graph requires "
+                "skill_name, tool_server, and non-empty allowed_tools, then forces "
+                "that contract through a real pydantic-graph graph.run."
+            ),
+        ),
         max_steps: int = Field(
             default=30, description="Maximum delegated tool-loop steps."
         ),
@@ -2462,6 +2484,13 @@ def register_analysis_tools(mcp):
             default="",
             description=(
                 "Least-privilege tool allow-list as a JSON list or comma-separated string."
+            ),
+        ),
+        required_tools: str | list[str] = Field(
+            default="",
+            description=(
+                "Tools that must each have recorded ToolCall provenance before the "
+                "run can succeed. Must be a subset of allowed_tools."
             ),
         ),
         cred_ref: str = Field(
@@ -2494,6 +2523,9 @@ def register_analysis_tools(mcp):
     ) -> str:
         """Resolve and execute one governed local-vLLM delegation."""
         response_format = validate_response_format(response_format)
+        skill_name = skill_name if isinstance(skill_name, str) else ""
+        tool_server = tool_server if isinstance(tool_server, str) else ""
+        execution_mode = execution_mode if isinstance(execution_mode, str) else "auto"
         engine = kg_server._get_engine()
         if engine is None:
             return "Error: IntelligenceGraphEngine not active."
@@ -2503,11 +2535,23 @@ def register_analysis_tools(mcp):
             allowed_tool_values = (
                 allowed_tools
                 if isinstance(allowed_tools, list)
-                else allowed_tools.split(",")
+                else (
+                    allowed_tools.split(",") if isinstance(allowed_tools, str) else []
+                )
+            )
+            required_tool_values = (
+                required_tools
+                if isinstance(required_tools, list)
+                else (
+                    required_tools.split(",") if isinstance(required_tools, str) else []
+                )
             )
             payload = await Orchestrator(engine).execute_capability(
                 task=task,
                 agent_name=agent_name,
+                skill_name=skill_name,
+                tool_server=tool_server,
+                execution_mode=execution_mode,
                 max_steps=max_steps,
                 context=context or None,
                 budget_tokens=budget_tokens or None,
@@ -2516,6 +2560,14 @@ def register_analysis_tools(mcp):
                     [
                         name.strip()
                         for name in allowed_tool_values
+                        if isinstance(name, str) and name.strip()
+                    ]
+                    or None
+                ),
+                required_tools=(
+                    [
+                        name.strip()
+                        for name in required_tool_values
                         if isinstance(name, str) and name.strip()
                     ]
                     or None

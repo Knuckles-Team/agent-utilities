@@ -472,6 +472,9 @@ class AgentOrchestrationEngine:
             agent_identity=config.get("agent_identity"),
             knowledge_engine=config.get("knowledge_engine"),
             response_format=config.get("response_format", "text"),
+            execution_mode=config.get("execution_mode", "auto"),
+            pinned_skill_name=config.get("pinned_skill_name", ""),
+            pinned_skill_prompt=config.get("pinned_skill_prompt", ""),
         )
 
         state = GraphState(
@@ -1011,6 +1014,9 @@ class AgentOrchestrationEngine:
             agent_identity=config.get("agent_identity"),
             knowledge_engine=config.get("knowledge_engine"),
             response_format=config.get("response_format", "text"),
+            execution_mode=config.get("execution_mode", "auto"),
+            pinned_skill_name=config.get("pinned_skill_name", ""),
+            pinned_skill_prompt=config.get("pinned_skill_prompt", ""),
         )
 
         state = GraphState(
@@ -1189,7 +1195,17 @@ class AgentOrchestrationEngine:
 
         """
 
-        from pydantic_graph import EndMarker
+        # Pydantic Graph 2.21 promotes ``EndMarker`` to the top-level package,
+        # while older supported 2.x installations retain it under ``beta.graph``.
+        # Keep iter-mode graph execution valid across the promoted dependency
+        # boundary instead of making the import location part of our API.
+        from importlib import import_module
+
+        import pydantic_graph
+
+        end_marker_type = getattr(pydantic_graph, "EndMarker", None)
+        if end_marker_type is None:
+            end_marker_type = import_module("pydantic_graph.beta.graph").EndMarker
 
         if run_id is None:
             run_id = secrets.token_hex(16)
@@ -1261,6 +1277,9 @@ class AgentOrchestrationEngine:
             agent_identity=config.get("agent_identity"),
             knowledge_engine=config.get("knowledge_engine"),
             response_format=config.get("response_format", "text"),
+            execution_mode=config.get("execution_mode", "auto"),
+            pinned_skill_name=config.get("pinned_skill_name", ""),
+            pinned_skill_prompt=config.get("pinned_skill_prompt", ""),
         )
 
         state = GraphState(
@@ -1337,7 +1356,7 @@ class AgentOrchestrationEngine:
             try:
                 async with graph.iter(state=state, deps=deps) as graph_run:
                     async for event in graph_run:
-                        if isinstance(event, EndMarker):
+                        if isinstance(event, end_marker_type):
                             # Graph completed — yield final result
                             yield {
                                 "type": "graph_complete",

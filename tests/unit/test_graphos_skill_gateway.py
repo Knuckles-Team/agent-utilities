@@ -10,6 +10,14 @@ import pytest
 from agent_utilities.orchestration.manager import Orchestrator
 
 
+class _FakeMCP:
+    def tool(self, *, name: str, description: str = "", tags=None):
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+
 def _orchestrator(engine: MagicMock) -> Orchestrator:
     orchestrator = object.__new__(Orchestrator)
     orchestrator.engine = engine
@@ -150,6 +158,118 @@ async def test_execute_capability_runs_resolved_skill_and_returns_bounded_eviden
 
 
 @pytest.mark.asyncio
+async def test_execute_capability_forwards_explicit_pydantic_graph_contract() -> None:
+    engine = MagicMock()
+    orchestrator = _orchestrator(engine)
+    orchestrator.resolve_capability = MagicMock(  # type: ignore[method-assign]
+        return_value={
+            "kind": "agent",
+            "name": "change-review",
+            "id": "",
+            "score": 1.0,
+            "source": "caller",
+            "alternatives": [],
+        }
+    )
+    orchestrator.execute_agent = AsyncMock(  # type: ignore[method-assign]
+        return_value=json.dumps(
+            {
+                "output": "validated",
+                "run_id": "run:0123456789abcdef0123456789abcdef",
+                "run_summary": {"outcome": "ok"},
+            }
+        )
+    )
+    orchestrator._run_provenance = MagicMock(  # type: ignore[method-assign]
+        return_value={
+            "status": "completed",
+            "tool_call_count": 2,
+            "tool_calls": [
+                {"tool_name": "get_change", "status": "ok"},
+                {"tool_name": "list_approvals", "status": "ok"},
+            ],
+        }
+    )
+
+    result = await orchestrator.execute_capability(
+        task="Review one synthetic change.",
+        skill_name="change-review",
+        tool_server="itsm-api",
+        execution_mode="pydantic_graph",
+        allowed_tools=["get_change", "list_approvals"],
+        required_tools=["get_change", "list_approvals"],
+    )
+
+    assert result["resolution"]["kind"] == "skill"
+    assert result["resolution"]["source"] == "caller_skill"
+    call = orchestrator.execute_agent.await_args.kwargs
+    assert call["skill_name"] == "change-review"
+    assert call["tool_server"] == "itsm-api"
+    assert call["execution_mode"] == "pydantic_graph"
+    assert call["allowed_tools"] == ["get_change", "list_approvals"]
+    assert call["required_tools"] == ["get_change", "list_approvals"]
+
+
+def test_required_tools_must_be_inside_allowed_catalog() -> None:
+    from agent_utilities.orchestration.execution_contract import (
+        missing_required_tools,
+        validate_pydantic_graph_contract,
+        validate_tool_contract,
+    )
+
+    with pytest.raises(PermissionError, match="subset"):
+        validate_tool_contract(["get_change"], ["delete_change"])
+    with pytest.raises(ValueError, match="skill_name, tool_server, allowed_tools"):
+        validate_pydantic_graph_contract(
+            "pydantic_graph",
+            skill_name="",
+            tool_server="",
+            allowed_tools=None,
+        )
+    assert missing_required_tools(
+        ["get_change", "list_approvals"],
+        ["get_change"],
+    ) == ["list_approvals"]
+
+
+@pytest.mark.asyncio
+async def test_graph_orchestrate_public_tool_exposes_pydantic_graph_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent_utilities.mcp.kg_server as kg_server
+    from agent_utilities.mcp.tools.analysis_tools import register_analysis_tools
+
+    register_analysis_tools(_FakeMCP())
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: MagicMock())
+    execute = AsyncMock(
+        return_value={
+            "output": "validated",
+            "run_id": "run:0123456789abcdef0123456789abcdef",
+            "provenance": {"tool_call_count": 1},
+        }
+    )
+    monkeypatch.setattr(Orchestrator, "execute_capability", execute)
+
+    raw = await kg_server._execute_tool(
+        "graph_orchestrate",
+        task="Review a synthetic change.",
+        skill_name="change-review",
+        tool_server="itsm-api",
+        execution_mode="pydantic_graph",
+        allowed_tools=["get_change"],
+        required_tools=["get_change"],
+    )
+
+    assert json.loads(raw)["output"] == "validated"
+    call = execute.await_args.kwargs
+    assert call["skill_name"] == "change-review"
+    assert call["tool_server"] == "itsm-api"
+    assert call["execution_mode"] == "pydantic_graph"
+    assert call["allowed_tools"] == ["get_change"]
+    assert call["required_tools"] == ["get_change"]
+
+
+@pytest.mark.asyncio
 async def test_execute_capability_refuses_ungrounded_tool_required_envelope() -> None:
     """The result wrapper must not turn pseudo tool-call text into gateway success."""
     engine = MagicMock()
@@ -167,7 +287,7 @@ async def test_execute_capability_refuses_ungrounded_tool_required_envelope() ->
     orchestrator.execute_agent = AsyncMock(  # type: ignore[method-assign]
         return_value=json.dumps(
             {
-                "output": "```json\n{\"tool\": \"repository-manager\"}\n```",
+                "output": '```json\n{"tool": "repository-manager"}\n```',
                 "run_id": "run:0123456789abcdef0123456789abcdef",
                 "run_summary": {"outcome": "ok"},
             }
