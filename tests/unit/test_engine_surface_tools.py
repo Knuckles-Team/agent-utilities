@@ -610,6 +610,63 @@ def test_graph_mine_alias_process_mining_hits_process(monkeypatch, tools):
     assert calls == [("process", {"traces": [["a", "b"]]})]
 
 
+def test_graph_mine_projects_object_events_in_one_native_call(monkeypatch, tools):
+    calls: list = []
+    mining = SimpleNamespace(process=_recording_method(calls, "process"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    events = [
+        {
+            "event_id": "e2",
+            "activity": "ship",
+            "occurred_at": "2026-01-02T00:00:00Z",
+            "source_ref": "source:2",
+            "objects": [{"id": "o1", "type": "Order"}],
+        },
+        {
+            "event_id": "e1",
+            "activity": "create",
+            "occurred_at": "2026-01-01T00:00:00Z",
+            "source_ref": "source:1",
+            "objects": [{"id": "o1", "type": "Order"}],
+        },
+    ]
+
+    out = json.loads(
+        tools["graph_mine"](
+            action="process",
+            params_json=json.dumps({"events": events, "object_type": "Order"}),
+            graph="",
+        )
+    )
+
+    assert calls == [("process", {"traces": [["create", "ship"]]})]
+    assert out["projection"] == {
+        "mode": "object_type_projection",
+        "object_type": "Order",
+        "trace_count": 1,
+        "event_count": 2,
+        "source_count": 2,
+        "lineage_digest": out["projection"]["lineage_digest"],
+    }
+    assert len(out["projection"]["lineage_digest"]) == 64
+
+
+def test_graph_mine_event_projection_writeback_fails_closed(tools):
+    out = json.loads(
+        tools["graph_mine"](
+            action="process",
+            params_json=json.dumps(
+                {"events": [], "object_type": "Order", "writeback": True}
+            ),
+            graph="",
+        )
+    )
+    assert out["code"] == "lineage_required"
+    assert "writeback is disabled" in out["error"]
+
+
 def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):
     """'entity-resolution' normalizes to 'entity_resolution' (the existing
     hyphen->underscore fold) THEN resolves via the alias map to
@@ -1061,9 +1118,7 @@ def test_graph_pipeline_unknown_action_is_reported(tools):
 
 def test_graph_pipeline_degrades_when_surface_absent(monkeypatch, tools):
     """A no-ml-pipeline engine build (client has no .pipeline) degrades cleanly."""
-    monkeypatch.setattr(
-        engine_surface_tools, "_client", lambda graph: _fake_client()
-    )
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     out = json.loads(
         tools["graph_pipeline"](
             action="train",

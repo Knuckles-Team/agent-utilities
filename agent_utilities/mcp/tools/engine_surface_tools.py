@@ -1302,8 +1302,11 @@ def register_engine_surface_tools(mcp) -> None:
             "• process — process mining over ordered event 'traces' (activity-label "
             "sequences, repeats allowed): mines the directly-follows graph + the "
             "alpha-algorithm footprint (causal 'a>b' / parallel 'a||b' / choice 'a#b') "
-            "plus start/end activity sets. writeback (+ 'process_id') ⇒ :ProcessModel "
-            "node. "
+            "plus start/end activity sets. Alternatively provide provenance-rich "
+            "'events' plus an explicit 'object_type' to deterministically project one "
+            "object-centric perspective without an LLM. Event projection writeback is "
+            "fail-closed until the native ProcessModel can retain source lineage. "
+            "Trace writeback (+ 'process_id') ⇒ :ProcessModel node. "
             "• root_cause — bounded-depth ('max_hops'), decaying ('decay') backward "
             "search over a weighted dependency graph ('nodes','edges' cause→effect, "
             "per-node anomaly 'scores') to rank the most-likely upstream root cause of a "
@@ -1374,7 +1377,11 @@ def register_engine_surface_tools(mcp) -> None:
             '{"series":[...],"control":[...],"intervention_index":10,"writeback":true} '
             "(causal_impact); "
             '{"traces":[["login","browse","checkout"]]} or '
-            '{"traces":[...],"process_id":"checkout-flow","writeback":true} (process); '
+            '{"traces":[...],"process_id":"checkout-flow","writeback":true} or '
+            '{"events":[{"event_id":"e1","activity":"login",'
+            '"occurred_at":"2026-01-01T00:00:00Z","source_ref":"src:1",'
+            '"objects":[{"id":"u1","type":"User","qualifier":"actor"}]}],'
+            '"object_type":"User"} (process); '
             '{"nodes":["a","b"],"scores":[0.1,0.9],"edges":[["a","b",1.0]],"symptom":"b"} '
             "(root_cause); "
             '{"nodes":["a","b"],"seed":[1.0,0.0],"edges":[["a","b",1.0]]} '
@@ -1417,6 +1424,56 @@ def register_engine_surface_tools(mcp) -> None:
                     "actions": sorted(valid_actions),
                 }
             )
+        if action == "process" and "events" in params:
+            if "traces" in params:
+                return json.dumps(
+                    {
+                        "surface": "mining",
+                        "action": action,
+                        "code": "invalid_request",
+                        "error": "provide either events or traces, not both",
+                    }
+                )
+            if params.get("writeback") is True:
+                return json.dumps(
+                    {
+                        "surface": "mining",
+                        "action": action,
+                        "code": "lineage_required",
+                        "error": (
+                            "object-centric event projection writeback is disabled "
+                            "until ProcessModel writeback retains source-event lineage"
+                        ),
+                    }
+                )
+            from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
+                project_object_centric_events,
+            )
+
+            try:
+                projection = project_object_centric_events(
+                    params.pop("events"),
+                    object_type=str(params.pop("object_type", "") or ""),
+                )
+            except (TypeError, ValueError) as exc:
+                return _surface_error(
+                    exc,
+                    surface="mining",
+                    action=action,
+                    code="invalid_request",
+                )
+            params["traces"] = projection.engine_traces()
+            response = json.loads(
+                _invoke(
+                    surface="mining",
+                    action=action,
+                    graph=graph,
+                    candidates=(("mining", action),),
+                    params=params,
+                )
+            )
+            response["projection"] = projection.public_metadata()
+            return json.dumps(response, default=_json_default)
         return _invoke(
             surface="mining",
             action=action,
