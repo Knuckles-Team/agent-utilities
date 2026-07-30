@@ -130,3 +130,67 @@ def test_onyx_parity_catalog_covers_sources():
     )
 
     assert all(s["route"] in families for s in ONYX_CONNECTOR_PARITY.values())
+
+
+# ── _run_async hard deadline (CONCEPT:AU-ORCH.scheduling.hard-io-deadline) ───────────
+
+
+@pytest.mark.concept("AU-ORCH.scheduling.hard-io-deadline")
+def test_run_async_timeout_frees_the_caller_without_joining_the_stuck_coroutine():
+    """Cooperative cancellation cannot stop an uncooperative synchronous/blocked
+    call (the proven root cause of a wedged task-queue worker,
+    CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness). ``_run_async``'s
+    ``timeout`` bounds how long the CALLER waits, not how long the coroutine is
+    allowed to run: the caller must be released on schedule even though the
+    coroutine itself never finishes in time, proving the calling worker thread
+    is genuinely freed rather than merely asked (and possibly ignored) to stop.
+    """
+    import asyncio
+    import concurrent.futures
+    import time
+
+    from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
+        _run_async,
+    )
+
+    async def _slow_uncooperative_call() -> str:
+        # Deliberately longer than the timeout below, standing in for a hung
+        # MCP server / subprocess spawn with no cooperative cancellation point
+        # the caller can reach in time.
+        await asyncio.sleep(2.0)
+        return "should never be observed by the caller"
+
+    async def _caller() -> float:
+        # Exercise the "called from inside a running loop" branch — the real
+        # call site (an async task body calling into _sync_fleet) always has
+        # one; this is what makes _run_async spawn the abandoned worker thread
+        # instead of running the coroutine on the current thread directly.
+        start = time.monotonic()
+        with pytest.raises(concurrent.futures.TimeoutError):
+            _run_async(_slow_uncooperative_call(), timeout=0.2)
+        return time.monotonic() - start
+
+    elapsed = asyncio.run(_caller())
+    # Freed close to the requested deadline, nowhere near the coroutine's own
+    # 2s runtime — the caller did not wait for (or join) the abandoned thread.
+    assert elapsed < 1.0
+
+
+@pytest.mark.concept("AU-ORCH.scheduling.hard-io-deadline")
+def test_run_async_without_timeout_preserves_prior_blocking_behavior():
+    """No ``timeout`` given is a purely additive default: identical to the
+    pre-fix behavior of waiting for the coroutine to finish."""
+    import asyncio
+
+    from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
+        _run_async,
+    )
+
+    async def _quick() -> str:
+        await asyncio.sleep(0.01)
+        return "done"
+
+    async def _caller() -> str:
+        return _run_async(_quick())
+
+    assert asyncio.run(_caller()) == "done"

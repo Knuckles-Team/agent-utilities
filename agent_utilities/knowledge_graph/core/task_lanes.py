@@ -60,7 +60,20 @@ TASK_LANES: dict[str, dict] = {
         # a single ``source_sync(full)`` of a large source (freshrss's ~11k backlog) fans out as a
         # self-continuing chain of these, draining the whole corpus under this lane's background
         # priority + the accelerator capacity guard so it cannot time out or OOM.
-        "task_types": frozenset({"connector_sync", "feed_sweep", "connector_drain"}),
+        # capability_hydration = CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness — the priority-1
+        # fleet MCP tool-schema probe (boot + hourly ``fleet-tool-schema-sync``). It is
+        # network/IO-bound exactly like a connector delta sync, so it shares this lane's
+        # soft-timeout envelope, but is a DISTINCT task type (not ``connector_sync``) so
+        # the worker pool can reserve it a claim floor separate from the dozens of
+        # ordinary per-connector jobs the */20m sweep fans out into this same lane.
+        "task_types": frozenset(
+            {
+                "connector_sync",
+                "feed_sweep",
+                "connector_drain",
+                "capability_hydration",
+            }
+        ),
         "model_role": "lite",
     },
     "research": {

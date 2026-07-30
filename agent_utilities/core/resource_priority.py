@@ -118,7 +118,19 @@ class PriorityClass(Enum):
 # toolset must load before anything can orchestrate — so these task types are HIGH
 # (HYDRATION), NOT the BACKGROUND_INGESTION their ingestion lane would otherwise
 # imply. The lane still governs worker-slot fairness; only the LLM priority differs.
-HYDRATION_TASK_TYPES: frozenset[str] = frozenset({"skill_workflows"})
+#
+# ``capability_hydration`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) is the
+# priority-1 boot/scheduled probe that elevates the live fleet's MCP tool schemas to
+# ``:Tool``/``:MCPServer`` KG nodes (``_enqueue_fleet_tool_schema_hydration`` /
+# ``deploy/schedules.yml``'s ``fleet-tool-schema-sync``). It rides the SAME
+# ``connectors`` lane as ordinary per-connector ``connector_sync`` sweep work (so it
+# shares that lane's soft-timeout envelope), but a distinct task type so it can be
+# claimed with its own reserved-worker floor (:func:`.engine_tasks.start_task_workers`)
+# instead of only ever landing on a worker the moment one of potentially dozens of
+# concurrent legacy connector syncs happens to free up.
+HYDRATION_TASK_TYPES: frozenset[str] = frozenset(
+    {"skill_workflows", "capability_hydration"}
+)
 
 # Hydration shares orchestration's rank: high, never below background — the edict's
 # "NOT deprioritised" exception expressed as a rank, not a special case.

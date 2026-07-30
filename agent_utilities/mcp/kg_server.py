@@ -2889,6 +2889,16 @@ def _enqueue_fleet_tool_schema_hydration(engine: Any) -> None:
     work and belong on the durable connector lane.  A stable target lets the
     WorkItem queue deduplicate restarts in the same hour without its O(N)
     target scan. A later hour gets a fresh delta probe.
+
+    ``task_type="capability_hydration"`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness), NOT the
+    generic ``connector_sync`` the */20m fleet sweep uses for every OTHER connector.
+    Both ride the same ``connectors`` lane (same soft-timeout envelope), but a
+    distinct type lets the worker pool reserve this job a claim floor
+    (:func:`agent_utilities.knowledge_graph.core.engine_tasks.start_task_workers`)
+    instead of it only ever landing on a worker the moment one of potentially
+    dozens of concurrently-running legacy connector syncs happens to free up —
+    the proven starvation mode where priority alone could not preempt
+    already-running work.
     """
     submit = getattr(engine, "submit_task", None)
     if not callable(submit):
@@ -2897,7 +2907,7 @@ def _enqueue_fleet_tool_schema_hydration(engine: Any) -> None:
         target_path="fleet",
         is_codebase=False,
         provenance={"sync_mode": "delta", "boot_hydration": True},
-        task_type="connector_sync",
+        task_type="capability_hydration",
         priority=1,
         skip_dedupe=True,
         job_id=f"boot:fleet-tool-schemas:{datetime.now(UTC):%Y%m%d%H}",

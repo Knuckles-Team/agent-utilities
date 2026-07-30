@@ -3330,12 +3330,36 @@ class TaskManagerMixin(GraphEngineProtocol):
         # ORCH-1.81: record the live pool size so the admission registry/policy
         # (hot spare, per-lane min coverage, codebase cap) size to this host's pool.
         self._ingest_worker_count = int(worker_count)
-        logger.info(f"Starting {worker_count} TaskManager workers...")
+
+        # CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness — reserve a small floor of
+        # this pool for HYDRATION-priority work (:data:`~agent_utilities.core.
+        # resource_priority.HYDRATION_TASK_TYPES`, e.g. the fleet tool-schema
+        # boot/scheduled probe) so it always has a worker that checks it FIRST,
+        # regardless of how many ordinary connector-sync jobs occupy the rest of
+        # the pool. Reuses the existing hot-spare sizing
+        # (``SchedulerConfig.reserved`` / ``KG_SCHED_RESERVED``, same knob the
+        # interactive-lane floor uses) rather than introducing a second reservation
+        # knob. Degenerates to 0 on a single-worker pool — same "one worker serves
+        # everything" floor as the interactive reservation.
+        from .worker_scheduler import scheduler_config_from_env
+
+        hydration_reserved_count = 0
+        if worker_count > 1:
+            hydration_reserved_count = min(
+                max(1, scheduler_config_from_env(worker_count).reserved),
+                worker_count - 1,
+            )
+
+        logger.info(
+            f"Starting {worker_count} TaskManager workers "
+            f"({hydration_reserved_count} hydration-reserved)..."
+        )
         for i in range(worker_count):
             t = _authorized_background_thread(
                 background_session,
                 self._task_worker_loop,
                 name=f"KGTaskWorker-{i}",
+                args=(i < hydration_reserved_count,),
             )
             t.start()
 
@@ -3554,8 +3578,32 @@ class TaskManagerMixin(GraphEngineProtocol):
             claim = self._active_work_item_claims.get(job_id)
             return dict(claim) if claim is not None else None
 
-    def _start_work_item_lease_heartbeat(self, job_id: str) -> None:
-        """Renew one claimed ingestion WorkItem until its task body returns."""
+    def _start_work_item_lease_heartbeat(
+        self,
+        job_id: str,
+        *,
+        cancellation_event: threading.Event | None = None,
+    ) -> None:
+        """Renew one claimed ingestion WorkItem's lease — until its task body
+        returns, OR until ``cancellation_event`` fires, whichever comes first.
+
+        CONCEPT:AU-ORCH.scheduling.soft-timeout-lease-quarantine — a claimed task that has already
+        exceeded its lane's soft timeout (:mod:`.task_lanes`) has, by definition,
+        overrun its expected envelope; renewing its lease forever just because the
+        cooperative cancellation it was sent went unheeded turns one uncooperative
+        synchronous call into a PERMANENT hole in the pool (proven live: both the
+        boot fleet-tool-schema hydration job and its hourly schedule counterpart
+        were observed renewing past their soft timeout with the worker still
+        wedged). Once ``cancellation_event`` is set, renewal STOPS here — the
+        lease is left to expire on its own TTL (``_TASK_WORK_ITEM_LEASE_SEC``) so
+        another worker (this host or another) can reclaim the WorkItem and make
+        progress on it, instead of the job being quarantined indefinitely
+        alongside a thread Python cannot forcibly reclaim. This is safe against a
+        duplicate/stale commit from the abandoned original run:
+        ``_require_live_work_item_lease`` re-checks (and re-attempts) the lease
+        immediately before any terminal write, so a run whose lease has already
+        moved on can never commit a result out from under the new owner.
+        """
         claim = self._active_work_item_claim(job_id)
         if claim is None:
             raise RuntimeError(f"ingestion job {job_id!r} has no active WorkItem claim")
@@ -3568,6 +3616,16 @@ class TaskManagerMixin(GraphEngineProtocol):
             from agent_utilities.orchestration import work_item as _wi
 
             while not stop.wait(_TASK_WORK_ITEM_HEARTBEAT_SEC):
+                if cancellation_event is not None and cancellation_event.is_set():
+                    lost.set()
+                    logger.warning(
+                        "ingestion WorkItem lease renewal stopped for %s — its "
+                        "soft timeout already fired; the lease will expire and "
+                        "the job becomes reclaimable rather than being renewed "
+                        "indefinitely",
+                        job_id,
+                    )
+                    return
                 active_claim = self._active_work_item_claim(job_id)
                 if active_claim is None:
                     return
@@ -3640,18 +3698,57 @@ class TaskManagerMixin(GraphEngineProtocol):
         return dict(metadata)
 
     def _claim_next_task(
-        self, worker_id: str | None = None
+        self,
+        worker_id: str | None = None,
+        *,
+        hydration_reserved: bool = False,
     ) -> tuple[str, dict[str, Any]] | None:
-        """Claim the next runnable ingestion WorkItem natively."""
+        """Claim the next runnable ingestion WorkItem natively.
+
+        ``hydration_reserved`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) — this
+        worker is one of the pool's reserved hydration slots
+        (:func:`start_task_workers`): it FIRST tries to claim one of the small,
+        foundational :data:`~agent_utilities.core.resource_priority.HYDRATION_TASK_TYPES`
+        (e.g. ``capability_hydration``), scoped per type via ``resource_class``/
+        ``fairness_group`` so it never picks up an ordinary ``connector_sync``
+        sharing the same lane. Only when NONE of those are pending does it fall
+        through to the normal unrestricted claim, so a reserved worker still does
+        useful background work rather than idling — it just never lets that work
+        block it from claiming hydration work the instant some is enqueued. This
+        is what gives priority-1 capability/boot work a real floor: unlike the
+        ordinary rotation, this worker's NEXT claim attempt (which happens as
+        soon as its current task ends) always checks hydration lanes first, so
+        it cannot be starved by however many concurrent legacy connector syncs
+        are occupying the rest of the pool.
+        """
         from agent_utilities.orchestration import work_item as _wi
 
         token = self._get_host_token()
-        claim = _wi.claim_next(
-            self._work_item_engine,
-            queue="ingest_task",
-            token=token,
-            lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
-        )
+        claim = None
+        if hydration_reserved:
+            from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
+            from agent_utilities.knowledge_graph.core.task_lanes import (
+                lane_for_task_type,
+            )
+
+            for hydration_type in sorted(HYDRATION_TASK_TYPES):
+                claim = _wi.claim_next(
+                    self._work_item_engine,
+                    queue="ingest_task",
+                    resource_class=lane_for_task_type(hydration_type),
+                    fairness_group=hydration_type,
+                    token=token,
+                    lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
+                )
+                if claim is not None:
+                    break
+        if claim is None:
+            claim = _wi.claim_next(
+                self._work_item_engine,
+                queue="ingest_task",
+                token=token,
+                lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
+            )
         if claim is None:
             return None  # authoritative negative; no secondary scan/fallback
         if not _wi.mark_running(self._work_item_engine, claim["work_item_id"], claim):
@@ -3726,8 +3823,13 @@ class TaskManagerMixin(GraphEngineProtocol):
             self._worker_registry().start(worker_id, lane_for_task_type(tkind), tkind)
         return job_id, meta
 
-    def _task_worker_loop(self):
-        """Distributed polling loop that picks up pending tasks natively."""
+    def _task_worker_loop(self, hydration_reserved: bool = False):
+        """Distributed polling loop that picks up pending tasks natively.
+
+        ``hydration_reserved`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) marks this
+        as one of the pool's reserved hydration-priority workers — see
+        :meth:`_claim_next_task` and :meth:`start_task_workers`.
+        """
         # ORCH-1.81: a stable per-thread id keys this worker in the admission
         # registry, so the policy knows what THIS worker is processing.
         worker_id = threading.current_thread().name
@@ -3738,7 +3840,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                 is_codebase = False
                 task_type = "document"
 
-                claimed = self._claim_next_task(worker_id=worker_id)
+                claimed = self._claim_next_task(
+                    worker_id=worker_id, hydration_reserved=hydration_reserved
+                )
                 if claimed:
                     job_id, meta = claimed
                     if meta:
@@ -3868,11 +3972,24 @@ class TaskManagerMixin(GraphEngineProtocol):
         budget and starve live queries (CONCEPT:AU-KG.compute.registered-edge-type read/ingest plane
         isolation). Lightweight types (diff/conversation/…) run unthrottled.
         """
+        # CONCEPT:AU-ORCH.scheduling.soft-timeout-lease-quarantine — shared with the lease
+        # heartbeat below so renewal STOPS the moment this task's soft timeout fires
+        # (see :meth:`_start_work_item_lease_heartbeat`), instead of an unconditional
+        # heartbeat keeping an already-exceeded task's lease alive indefinitely.
+        cancellation_event = threading.Event()
         lease_heartbeat_active = self._active_work_item_claim(job_id) is not None
         if lease_heartbeat_active:
-            self._start_work_item_lease_heartbeat(job_id)
+            self._start_work_item_lease_heartbeat(
+                job_id, cancellation_event=cancellation_event
+            )
         try:
-            self._execute_claimed_task_body(job_id, target_path, is_codebase, task_type)
+            self._execute_claimed_task_body(
+                job_id,
+                target_path,
+                is_codebase,
+                task_type,
+                cancellation_event=cancellation_event,
+            )
         finally:
             if lease_heartbeat_active:
                 self._stop_work_item_lease_heartbeat(job_id)
@@ -3883,6 +4000,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         target_path: Path,
         is_codebase: bool,
         task_type: str = "document",
+        *,
+        cancellation_event: threading.Event,
     ) -> None:
         """Execute the bounded task body while its enclosing lease stays live."""
         _HEAVY_TASK_TYPES = {
@@ -3917,16 +4036,22 @@ class TaskManagerMixin(GraphEngineProtocol):
         # worker instead of spawning a per-attempt daemon.  A tiny authorized
         # watchdog only sets the cancellation event and then exits.  Cooperative
         # loops stop promptly.  An uncooperative synchronous call remains
-        # quarantined in its original fixed-capacity worker, whose lease heartbeat
-        # stays live; it cannot become a detached zombie or trigger a duplicate
-        # retry.  Network clients must still enforce their own I/O timeout because
-        # Python cannot safely kill an arbitrary running thread.
+        # quarantined in its original fixed-capacity worker — Python cannot
+        # safely kill an arbitrary running thread, so that worker slot is not
+        # freed here (bound the call itself at its transport layer instead; see
+        # ``_sync_fleet``'s ``_run_async(..., timeout=...)`` for a worked
+        # example). What IS bounded here is the WorkItem's *lease*: this same
+        # ``cancellation_event`` stops :meth:`_start_work_item_lease_heartbeat`
+        # from renewing past the soft timeout (CONCEPT:AU-ORCH.scheduling.soft-timeout-lease-quarantine), so the
+        # lease expires and another worker/host can pick the job back up instead
+        # of it being quarantined forever alongside the stuck thread. A late
+        # write from the abandoned original run is fenced out by
+        # ``_require_live_work_item_lease`` before any terminal commit.
         from .task_lanes import task_soft_timeout
 
         timeout = task_soft_timeout(task_type)
         heavy = task_type in _HEAVY_TASK_TYPES
         outcome: dict[str, BaseException] = {}
-        cancellation_event = threading.Event()
         body_done = threading.Event()
 
         def _run_body() -> None:
@@ -4605,11 +4730,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                         "edges_added": self_tools.edges_created,
                     },
                 )
-            elif task_type == "connector_sync":
+            elif task_type in ("connector_sync", "capability_hydration"):
                 # CONCEPT:AU-ORCH.scheduling.connector-sync-lane — one external connector's delta sync, run as a LANED task
                 # (the 'connectors' lane). The */20m fleet sweep enqueues one of these per
                 # connector so they fan out in PARALLEL instead of one slow connector
                 # (gitlab/servicenow) blocking the rest in a sequential inline loop.
+                #
+                # ``capability_hydration`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) is the SAME
+                # dispatch — its metadata's ``target`` is always ``"fleet"`` — but a
+                # distinct task type so it can be given its own reserved-worker floor
+                # (see ``start_task_workers``) instead of competing 1:1 with however
+                # many ordinary ``connector_sync`` jobs the */20m sweep has in flight.
                 from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
                 connector_meta = self._ingest_task_metadata(job_id)
