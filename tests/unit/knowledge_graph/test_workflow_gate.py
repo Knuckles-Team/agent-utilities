@@ -255,7 +255,9 @@ class TestExecuteWorkflowWiring:
         from agent_utilities.mcp.tools import workflow_tools
 
         source = inspect.getsource(workflow_tools)
-        gate_idx = source.find("gate = _workflow_gate(engine, workflow)")
+        gate_idx = source.find(
+            "gate = await asyncio.to_thread(_workflow_gate, engine, workflow)"
+        )
         dispatch_idx = source.find("await orchestrator.execute_workflow(")
         assert gate_idx != -1, "execute must run the ORCH-1.42 gate"
         assert dispatch_idx != -1
@@ -372,7 +374,10 @@ class TestDispatchWorkflowWiring:
             'if action in {"execute", "execute_dynamic", "dispatch"}:'
         )
         assert branch_idx != -1
-        gate_idx = source.find("gate = _workflow_gate(engine, workflow)", branch_idx)
+        gate_idx = source.find(
+            "gate = await asyncio.to_thread(_workflow_gate, engine, workflow)",
+            branch_idx,
+        )
         task_idx = source.find("asyncio.create_task(", branch_idx)
         assert gate_idx != -1, "dispatch_workflow must run the ORCH-1.42 gate"
         assert task_idx != -1

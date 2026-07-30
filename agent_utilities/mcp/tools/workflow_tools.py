@@ -109,7 +109,9 @@ def register_workflow_tools(mcp: Any) -> None:
                         "status": "compiled",
                         "workflow_id": workflow_id,
                         "name": compiled_name,
-                        "mermaid": _workflow_mermaid(engine, compiled_name),
+                        "mermaid": await asyncio.to_thread(
+                            _workflow_mermaid, engine, compiled_name
+                        ),
                     },
                     default=str,
                 )
@@ -125,16 +127,21 @@ def register_workflow_tools(mcp: Any) -> None:
                     workflow, name=name or None
                 )
                 report["status"] = "compiled"
-                report["mermaid"] = _workflow_mermaid(engine, report["name"])
+                report["mermaid"] = await asyncio.to_thread(
+                    _workflow_mermaid, engine, report["name"]
+                )
                 return json.dumps(report, default=str)
 
             if action == "list":
                 from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
+                workflows = await asyncio.to_thread(
+                    WorkflowStore(engine).list_workflows, limit
+                )
                 return json.dumps(
                     {
                         "source": "kg",
-                        "workflows": WorkflowStore(engine).list_workflows(limit=limit),
+                        "workflows": workflows,
                     },
                     default=str,
                 )
@@ -142,7 +149,7 @@ def register_workflow_tools(mcp: Any) -> None:
             if action in {"execute", "execute_dynamic", "dispatch"}:
                 if not workflow:
                     raise ValueError("workflow is required")
-                gate = _workflow_gate(engine, workflow)
+                gate = await asyncio.to_thread(_workflow_gate, engine, workflow)
                 if gate.get("allowed") is not True:
                     return _gate_denial(workflow, gate)
 
@@ -155,7 +162,9 @@ def register_workflow_tools(mcp: Any) -> None:
                     return json.dumps(
                         {
                             "result": result,
-                            "mermaid": _workflow_mermaid(engine, workflow),
+                            "mermaid": await asyncio.to_thread(
+                                _workflow_mermaid, engine, workflow
+                            ),
                         },
                         default=str,
                     )
@@ -174,7 +183,9 @@ def register_workflow_tools(mcp: Any) -> None:
                     return json.dumps(
                         {
                             "result": dynamic_result,
-                            "mermaid": _workflow_mermaid(engine, workflow),
+                            "mermaid": await asyncio.to_thread(
+                                _workflow_mermaid, engine, workflow
+                            ),
                         },
                         default=str,
                     )
@@ -234,8 +245,11 @@ def register_workflow_tools(mcp: Any) -> None:
                     export_workflow,
                 )
 
+                exported = await asyncio.to_thread(
+                    export_workflow, engine, workflow, fmt=export_format
+                )
                 return json.dumps(
-                    export_workflow(engine, workflow, fmt=export_format),
+                    exported,
                     indent=2,
                     default=str,
                 )

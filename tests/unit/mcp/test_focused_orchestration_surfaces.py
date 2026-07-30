@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
+import threading
+import time
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -172,6 +175,56 @@ async def test_execute_dynamic_live_route_reaches_governed_orchestrator(
             "unavailable_fallback": "error",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_catalog_read_does_not_block_the_server_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A slow native graph read must not starve health/MCP request handling."""
+
+    from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
+
+    engine = object()
+    entered = threading.Event()
+    fallback_release = threading.Event()
+
+    def slow_list(_self, limit: int):
+        entered.set()
+        # The fallback prevents a broken implementation from hanging pytest,
+        # while elapsed-time below distinguishes event-loop blocking.
+        fallback_release.wait(0.5)
+        return [{"name": "slow", "step_count": limit}]
+
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(WorkflowStore, "list_workflows", slow_list)
+    tool = _register_all().tools["graph_workflows"]
+
+    started = time.monotonic()
+    request = asyncio.create_task(
+        tool(
+            action="list",
+            workflow="",
+            task="",
+            name="",
+            export_format="json",
+            max_steps=30,
+            limit=1,
+            max_agent_calls=50,
+            max_concurrency=8,
+            budget_tokens=None,
+            model_class="standard",
+            dynamic_fallback="error",
+        )
+    )
+    assert await asyncio.to_thread(entered.wait, 0.2)
+    # Reaching this line before releasing the graph read proves the shared
+    # event loop remained schedulable.
+    fallback_release.set()
+    payload = json.loads(await asyncio.wait_for(request, timeout=1.0))
+
+    assert payload["workflows"][0]["name"] == "slow"
+    assert time.monotonic() - started < 0.3
 
 
 def test_budget_domain_action_uses_composed_engine_capability(monkeypatch) -> None:
