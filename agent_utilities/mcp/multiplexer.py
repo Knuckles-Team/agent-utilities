@@ -48,6 +48,7 @@ from mcp import StdioServerParameters, stdio_client
 from mcp import types as mcp_types  # stable alias: the ``mcp`` param shadows the pkg
 from mcp.client.session import ClientSession
 
+from agent_utilities.core.capability_contract import Capability
 from agent_utilities.core.config import setting
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
@@ -85,6 +86,12 @@ _MAX_DISCOVERED_TOOLS = 2_048
 # contains hundreds of independently bounded JSON Schemas, so it gets its own
 # aggregate structural allowance while retaining the same byte/depth limits.
 _MAX_CATALOG_NODES = 131_072
+# Skills-over-MCP (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider): a probed
+# server's Resources may include ``skill://{name}/SKILL.md`` entries. Bounded
+# the same way as the tool catalog so a hostile/misbehaving child cannot force
+# an unbounded resource listing into the KG.
+_MAX_DISCOVERED_SKILLS = 2_048
+_SKILL_RESOURCE_RE = re.compile(r"^skill://(?P<name>[^/]+)/SKILL\.md$")
 _SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "service"})
 _RUNTIME_CHILD_POLICY_GROUP = "agent_utilities.mcp_child_policies"
 _RUNTIME_CHILD_POLICY_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
@@ -406,6 +413,48 @@ def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
     except ToolError:
         raise RuntimeError("MCP child tool catalog exceeded its boundary") from None
     return tools
+
+
+def _bounded_skill_catalog(raw_resources: Any) -> list[dict[str, Any]]:
+    """Project a probed child's Resources into its Skills-over-MCP subset.
+
+    A fastmcp-4 ``SkillProvider``/``ClaudeSkillsProvider`` exposes each skill
+    as ``skill://{name}/SKILL.md`` (+ a sibling ``_manifest`` resource this
+    projection ignores — the manifest is fetched on demand, not during probe).
+    Non-skill resources are silently dropped: this function answers "which
+    skills does this server serve", not "list every resource". Bounded and
+    validated exactly like :func:`_bounded_tool_catalog` so a hostile/
+    misbehaving child cannot force an unbounded catalog into the KG.
+    """
+    if not isinstance(raw_resources, list | tuple):
+        raise RuntimeError("MCP child resource catalog is invalid")
+    if len(raw_resources) > _MAX_DISCOVERED_TOOLS:
+        raise RuntimeError("MCP child resource catalog exceeded its boundary")
+
+    skills: list[dict[str, Any]] = []
+    for resource in raw_resources:
+        uri = getattr(resource, "uri", None)
+        uri_text = str(uri) if uri is not None else ""
+        match = _SKILL_RESOURCE_RE.match(uri_text)
+        if not match:
+            continue
+        name = match.group("name")
+        description = getattr(resource, "description", "") or ""
+        if (
+            not isinstance(name, str)
+            or not 1 <= len(name.encode("utf-8")) <= 256
+            or any(ord(character) < 32 for character in name)
+            or not isinstance(description, str)
+        ):
+            raise RuntimeError("MCP child resource catalog is invalid")
+        skills.append({"name": name, "uri": uri_text, "description": description})
+        if len(skills) > _MAX_DISCOVERED_SKILLS:
+            raise RuntimeError("MCP child skill catalog exceeded its boundary")
+    try:
+        _assert_bounded_json_value(skills, max_nodes=_MAX_CATALOG_NODES)
+    except ToolError:
+        raise RuntimeError("MCP child skill catalog exceeded its boundary") from None
+    return skills
 
 
 def _read_catalog_text(path: Path) -> str:
@@ -1975,7 +2024,7 @@ class MCPMultiplexer:
             self._probe_cache[server_name] = info
             return info
 
-        async def _probe() -> list[dict]:
+        async def _probe() -> tuple[list[dict], list[dict]]:
             # Enter AND exit the transports within this single coroutine so the
             # anyio cancel scopes are not crossed between tasks. ``wait_for``
             # runs this whole coroutine as one task, so the stack is opened and
@@ -1997,21 +2046,53 @@ class MCPMultiplexer:
                             runtime_policy,
                             tools,
                         )
-                    return _bounded_tool_catalog(tools)
+                    skills = await self._probe_skills(server_name, session)
+                    return _bounded_tool_catalog(tools), skills
             finally:
                 if runtime_policy is not None:
                     _close_runtime_child_policy(runtime_policy)
                     self._child_policy_admitted_tools.pop(server_name, None)
 
         try:
-            tools = await asyncio.wait_for(_probe(), timeout=probe_to)
-            info = {"tools": tools, "error": None}
+            tools, skills = await asyncio.wait_for(_probe(), timeout=probe_to)
+            info = {"tools": tools, "skills": skills, "error": None}
         except TimeoutError:
-            info = {"tools": [], "error": f"timeout after {probe_to:g}s"}
+            info = {"tools": [], "skills": [], "error": f"timeout after {probe_to:g}s"}
         except Exception as e:
-            info = {"tools": [], "error": _format_probe_error(e)}
+            info = {"tools": [], "skills": [], "error": _format_probe_error(e)}
         self._probe_cache[server_name] = info
         return info
+
+    async def _probe_skills(self, server_name: str, session: Any) -> list[dict]:
+        """Best-effort ``skill://`` resource enumeration for one probed session
+        (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
+
+        Skills-over-MCP is only a fastmcp-4 server capability (draft MCP
+        SEP-2640) — a fastmcp-3 or pre-skills server has no ``skill://``
+        resources, and some MCP servers do not implement ``resources/list`` at
+        all. Either case degrades to an empty list rather than failing the
+        tool probe that already succeeded above.
+        """
+        try:
+            result = await session.list_resources()
+        except Exception as exc:  # resources/list is optional
+            logger.debug(
+                "Server %s does not support skill resource discovery "
+                "(exception_type=%s)",
+                server_name,
+                type(exc).__name__,
+            )
+            return []
+        try:
+            return _bounded_skill_catalog(result.resources)
+        except Exception as exc:  # a malformed catalog must not fail tool probing
+            logger.warning(
+                "Server %s returned an invalid skill resource catalog "
+                "(exception_type=%s)",
+                server_name,
+                type(exc).__name__,
+            )
+            return []
 
     @classmethod
     async def probe_declaration(
@@ -2169,19 +2250,34 @@ class MCPMultiplexer:
         embed = self._embed_fn
         if embed is None:
             return
-        tools: list[tuple[str, str]] = []  # (bare_tool, cache_key)
+        # Tools AND skills, in ONE pass. Skills were previously skipped entirely,
+        # so `semantic.get(skill, ...)` in discover_tools always returned 0.0 and
+        # skills were ranked on token overlap alone while tools additionally got a
+        # cosine term. That is not one capability space: whenever the embedder is
+        # warm — the production condition this whole feature exists for — skills
+        # were structurally under-ranked against tools for any query where intent
+        # similarity matters more than literal token overlap.
+        names: list[tuple[str, str]] = []  # (bare_name, cache_key)
         pending_text: list[str] = []
         pending_key: list[str] = []
         for server, info in probe.items():
             if info.get("error"):
                 continue
-            for entry in info.get("tools", []):
-                tool = entry["name"]
-                key = f"{server}::{tool}"
-                tools.append((tool, key))
-                if key not in self._tool_embeddings:
-                    pending_text.append(f"{tool}. {entry.get('description', '')}"[:512])
-                    pending_key.append(key)
+            for kind in ("tools", "skills"):
+                for entry in info.get(kind, []) or []:
+                    name = entry.get("name")
+                    if not name:
+                        continue
+                    # Namespaced by kind as well as server: a skill and a tool may
+                    # legitimately share a name on the same server, and they must
+                    # not share one cached embedding.
+                    key = f"{server}::{kind}::{name}"
+                    names.append((name, key))
+                    if key not in self._tool_embeddings:
+                        pending_text.append(
+                            f"{name}. {entry.get('description', '')}"[:512]
+                        )
+                        pending_key.append(key)
         try:
             if pending_text:
                 vecs = await asyncio.to_thread(embed, pending_text)
@@ -2197,12 +2293,12 @@ class MCPMultiplexer:
             return
         if not qv:
             return
-        for tool, key in tools:
+        for name, key in names:
             vec = self._tool_embeddings.get(key)
             if vec:
                 c = _cosine(qv, vec)
                 if c > 0:
-                    semantic[tool] = max(semantic.get(tool, 0.0), c)
+                    semantic[name] = max(semantic.get(name, 0.0), c)
 
     async def discover_tools(
         self, query: str, top_k: int | None = None, loaded: set[str] | None = None
@@ -2253,6 +2349,12 @@ class MCPMultiplexer:
             except TimeoutError:
                 logger.warning("find_tools semantic rerank exceeded its latency budget")
 
+        # One ranked capability space (CONCEPT:AU-KG.retrieval.unified-capability-contract):
+        # fleet tools AND fleet-served skill:// resources are scored with the
+        # SAME token-overlap+semantic backbone and merged into one ``ranked``
+        # list, each item carrying a ``bind`` dict — the exact kwargs
+        # `graph_orchestrate` needs to run it — so a caller never has to know
+        # in advance whether the winning candidate is a tool or a skill.
         ranked: list[dict] = []
         unavailable: dict[str, str] = {}
         for server, info in probe.items():
@@ -2273,8 +2375,18 @@ class MCPMultiplexer:
                 if score <= 0:
                     continue
                 prefixed = clean_tool_name(self.server_prefix(server), server, tool)
+                capability = Capability(
+                    kind="tool",
+                    id=f"tool_{server}_{tool}",
+                    name=tool,
+                    description=desc,
+                    score=score,
+                    server=server,
+                    source="fleet_probe",
+                )
                 ranked.append(
                     {
+                        "kind": "tool",
                         "server": server,
                         "tool": tool,
                         "prefixed_name": prefixed,
@@ -2283,6 +2395,39 @@ class MCPMultiplexer:
                         "mountable": server in catalog,
                         "mounted": prefixed
                         in (loaded if loaded is not None else self._exposed),
+                        "bind": capability.to_binding(),
+                    }
+                )
+            for entry in info.get("skills", []) or []:
+                skill = entry.get("name")
+                if not skill:
+                    continue
+                desc = entry.get("description", "")
+                score = semantic.get(skill, 0.0) + self._relevance(
+                    query, f"{skill} {desc}"
+                )
+                if score <= 0:
+                    continue
+                capability = Capability(
+                    kind="skill",
+                    id=f"skill_{server}_{skill}",
+                    name=skill,
+                    description=desc,
+                    score=score,
+                    server=server,
+                    source="fleet_probe",
+                )
+                ranked.append(
+                    {
+                        "kind": "skill",
+                        "server": server,
+                        "skill": skill,
+                        "uri": entry.get("uri", ""),
+                        "description": desc,
+                        "score": round(score, 4),
+                        "mountable": server in catalog,
+                        "mounted": False,
+                        "bind": capability.to_binding(),
                     }
                 )
 

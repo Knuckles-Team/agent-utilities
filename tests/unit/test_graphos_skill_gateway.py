@@ -98,6 +98,85 @@ def test_resolve_capability_falls_back_to_kg_bound_expert() -> None:
     }
 
 
+def test_resolve_capability_recognizes_a_bare_tool_hit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``:Tool`` node (CONCEPT:AU-KG.retrieval.unified-capability-contract) must resolve
+    to kind="tool" with its owning server, not be silently dropped."""
+    from agent_utilities.knowledge_graph.core import secured_reads
+
+    monkeypatch.setattr(secured_reads, "permit", lambda node_ids: node_ids)
+    engine = MagicMock()
+    engine.search_hybrid.return_value = [
+        {
+            "id": "tool_github-mcp_list_issues",
+            "node_type": "Tool",
+            "name": "list_issues",
+            "mcp_server": "github-mcp",
+            "score": 0.87,
+        }
+    ]
+
+    resolved = _orchestrator(engine).resolve_capability("list open GitHub issues")
+
+    assert resolved["kind"] == "tool"
+    assert resolved["name"] == "list_issues"
+    assert resolved["server"] == "github-mcp"
+
+
+@pytest.mark.asyncio
+async def test_execute_capability_binds_a_resolved_tool_via_capability_contract() -> (
+    None
+):
+    """When resolution lands on a bare tool (no caller skill_name/agent_name),
+    execute_capability must bind it through the same Capability contract a
+    ranked find/find_tools result would — the default expert scoped to just
+    that one tool — instead of mis-using the tool name as an agent name."""
+    engine = MagicMock()
+    orchestrator = _orchestrator(engine)
+    orchestrator.resolve_capability = MagicMock(
+        return_value={
+            "kind": "tool",
+            "name": "list_issues",
+            "id": "tool_github-mcp_list_issues",
+            "score": 0.87,
+            "source": "kg_hybrid",
+            "server": "github-mcp",
+            "alternatives": [],
+        }
+    )
+    orchestrator.execute_agent = AsyncMock(
+        return_value=json.dumps(
+            {
+                "output": "issues listed",
+                "run_id": "run:0123456789abcdef0123456789abcdef",
+                "run_summary": {"outcome": "ok"},
+            }
+        )
+    )
+    orchestrator._run_provenance = MagicMock(
+        return_value={
+            "status": "completed",
+            "tool_call_count": 1,
+            "tool_calls": [{"tool_name": "list_issues", "status": "ok"}],
+        }
+    )
+
+    result = await orchestrator.execute_capability(task="List open GitHub issues.")
+
+    assert result["resolution"]["kind"] == "tool"
+    call = orchestrator.execute_agent.await_args.kwargs
+    assert call["agent_name"] == "agent-utilities-expert"
+    assert call["tool_server"] == "github-mcp"
+    assert call["allowed_tools"] == ["list_issues"]
+    # The delegate must be named on BOTH keywords: run_agent enforces
+    # "tool_server requires skill_name" AND "skill_name must match the
+    # dispatched agent_name". This previously asserted None, which encoded the
+    # defect -- the real run_agent (mocked out here) raised ValueError on every
+    # auto-resolved Tool. See tests/unit/test_capability_binding_survives_real_guards.py.
+    assert call["skill_name"] == "agent-utilities-expert"
+
+
 @pytest.mark.asyncio
 async def test_execute_capability_runs_resolved_skill_and_returns_bounded_evidence() -> (
     None
@@ -297,6 +376,63 @@ async def test_graph_orchestrate_public_tool_exposes_pydantic_graph_contract(
     assert call["execution_mode"] == "pydantic_graph"
     assert call["allowed_tools"] == ["get_change"]
     assert call["required_tools"] == ["get_change"]
+
+
+@pytest.mark.asyncio
+async def test_graph_orchestrate_binds_a_tool_and_a_skill_through_the_same_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Capability resolved from ranked intent search binds through
+    ``graph_orchestrate`` without the caller branching on ``kind``
+    (CONCEPT:AU-KG.retrieval.unified-capability-contract): spreading a tool's
+    ``to_binding()`` and a skill's ``to_binding()`` reach the SAME MCP tool
+    with the SAME keyword surface."""
+    import agent_utilities.mcp.kg_server as kg_server
+    from agent_utilities.core.capability_contract import Capability
+    from agent_utilities.mcp.tools.analysis_tools import register_analysis_tools
+
+    register_analysis_tools(_FakeMCP())
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: MagicMock())
+    execute = AsyncMock(
+        return_value={
+            "output": "ok",
+            "run_id": "run:0123456789abcdef0123456789abcdef",
+            "provenance": {"tool_call_count": 1},
+        }
+    )
+    monkeypatch.setattr(Orchestrator, "execute_capability", execute)
+
+    tool_capability = Capability(
+        kind="tool",
+        id="tool_github-mcp_list_issues",
+        name="list_issues",
+        server="github-mcp",
+    )
+    skill_capability = Capability(
+        kind="skill",
+        id="skill_docs-mcp_release-notes-writer",
+        name="release-notes-writer",
+        server="docs-mcp",
+    )
+
+    await kg_server._execute_tool(
+        "graph_orchestrate", task="List open issues.", **tool_capability.to_binding()
+    )
+    tool_call = execute.await_args.kwargs
+    assert tool_call["allowed_tools"] == ["list_issues"]
+    assert tool_call["tool_server"] == "github-mcp"
+    # Was `== ""`, which encoded the defect: execute_capability rejects
+    # tool_server without skill_name before any work begins.
+    assert tool_call["skill_name"] == "agent-utilities-expert"
+
+    await kg_server._execute_tool(
+        "graph_orchestrate",
+        task="Draft release notes.",
+        **skill_capability.to_binding(),
+    )
+    skill_call = execute.await_args.kwargs
+    assert skill_call["skill_name"] == "release-notes-writer"
+    assert skill_call["tool_server"] == "docs-mcp"
 
 
 @pytest.mark.asyncio

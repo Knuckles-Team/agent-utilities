@@ -167,6 +167,102 @@ def test_sync_source_routes_fleet_to_handler():
     assert res["details"]["tools_written"] == 3
 
 
+# ── Skills-over-MCP ingestion (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider) ──
+
+
+CATALOG_WITH_SKILLS = {
+    "docs-mcp": {
+        "tools": [{"name": "search_docs", "description": "Search the docs"}],
+        "skills": [
+            {
+                "name": "release-notes-writer",
+                "uri": "skill://release-notes-writer/SKILL.md",
+                "description": "Draft release notes from a changelog",
+            }
+        ],
+        "error": None,
+    },
+    "skills-only-mcp": {
+        "tools": [],
+        "skills": [
+            {
+                "name": "onboarding-guide",
+                "uri": "skill://onboarding-guide/SKILL.md",
+                "description": "Walk a new hire through setup",
+            }
+        ],
+        "error": None,
+    },
+}
+
+
+def test_write_fleet_nodes_creates_skill_nodes_with_ranker_schema():
+    engine = FakeEngine()
+    counts = _write_fleet_nodes(engine, CATALOG_WITH_SKILLS)
+
+    assert counts["skills_written"] == 2
+    assert counts["tools_written"] == 1
+    assert counts["servers_written"] == 2
+
+    node_type, props = engine.nodes["skill_docs-mcp_release-notes-writer"]
+    assert node_type == "Skill"
+    assert props["name"] == "release-notes-writer"
+    assert props["mcp_server"] == "docs-mcp"
+    assert props["kind"] == "mcp_skill"
+    assert props["source_ref"] == "skill://release-notes-writer"
+    assert props["requires_approval"] is False
+    assert isinstance(props["relevance_score"], (int, float))
+
+
+def test_write_fleet_nodes_links_skill_to_server():
+    engine = FakeEngine()
+    _write_fleet_nodes(engine, CATALOG_WITH_SKILLS)
+    assert (
+        "mcp_server_docs-mcp",
+        "skill_docs-mcp_release-notes-writer",
+        "SERVES",
+    ) in engine.edges
+
+
+def test_write_fleet_nodes_writes_server_with_only_skills_and_no_tools():
+    """A server that serves ZERO tools but at least one skill:// resource must
+    still be written (previously any server with an empty tool list was
+    dropped outright)."""
+    engine = FakeEngine()
+    _write_fleet_nodes(engine, CATALOG_WITH_SKILLS)
+    assert engine.nodes["mcp_server_skills-only-mcp"][0] == "MCPServer"
+    assert "skill_skills-only-mcp_onboarding-guide" in engine.nodes
+
+
+def test_fleet_skill_id_is_namespaced_away_from_in_loop_skill_identity():
+    """A fleet-probed skill must NEVER collide with the canonical
+    ``skill:<slug>`` identity a richer in-loop ``ingest_runnable_skill`` writes
+    (body/instruction) — a per-server-namespaced id keeps a thin fleet re-probe
+    from ever overwriting those fields."""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+
+    engine = FakeEngine()
+    _write_fleet_nodes(engine, CATALOG_WITH_SKILLS)
+    assert "skill:release-notes-writer" not in engine.nodes
+    assert "skill_docs-mcp_release-notes-writer" in engine.nodes
+    # The canonical reference is still recorded so ranking/binding can relate
+    # the two identities without merging them.
+    props = engine.nodes["skill_docs-mcp_release-notes-writer"][1]
+    assert props["source_ref"] == skill_reference("release-notes-writer")
+
+
+def test_sync_fleet_reports_skills_written(monkeypatch):
+    import agent_utilities.orchestration.fleet_reconciler as fleet_reconciler
+
+    monkeypatch.setattr(fleet_reconciler, "resolve_registry_path", lambda: None)
+    engine = FakeEngine()
+    res = _sync_fleet(engine, mode="full", client=CATALOG_WITH_SKILLS)
+    assert res["status"] == "ok"
+    assert res["skills_written"] == 2
+
+
 def test_derive_tool_mode_classifies_variant():
     """CONCEPT:AU-KG.ontology.capability-node-aliases-lexical — condensed = action+params_json schema; verbose = typed params."""
     from agent_utilities.knowledge_graph.core.source_sync import _derive_tool_mode

@@ -337,16 +337,29 @@ def _derive_tool_mode(input_schema: dict | None) -> str:
 def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     """Write a probed multiplexer catalog into the KG as capability nodes.
 
-    ``catalog`` is the ``{server: {"tools": [{name, description, ...}], "error":
-    str|None}}`` map returned by :meth:`MCPMultiplexer.probe_catalog`. For each
-    reachable server every tool becomes a ``Tool`` node carrying the schema the
-    dispatcher reads (``name``, ``description``, ``mcp_server``, ``tags``,
-    ``relevance_score``, ``requires_approval``) plus ``synonyms`` for the lexical
-    gate, linked to its (defensively upserted) ``MCPServer`` via ``SERVES``.
-    Idempotent: stable node ids + the write-layer content-hash delta skip
-    unchanged tools on re-sync. Factored out of :func:`_sync_fleet` so it is
+    ``catalog`` is the ``{server: {"tools": [{name, description, ...}],
+    "skills": [{name, uri, description}], "error": str|None}}`` map returned by
+    :meth:`MCPMultiplexer.probe_catalog` (``skills`` is the Skills-over-MCP
+    subset of a probed server's Resources, CONCEPT:AU-ECO.mcp.skills-over-mcp-provider — absent/empty for
+    a fastmcp-3 or pre-skills server). For each reachable server every tool
+    becomes a ``Tool`` node and every ``skill://{name}/SKILL.md`` resource
+    becomes a ``Skill`` node, both carrying the schema the dispatcher/ranker
+    reads (``name``, ``description``, ``mcp_server``, ``tags``,
+    ``relevance_score``, ``requires_approval``) plus ``synonyms`` for the
+    lexical gate, linked to their (defensively upserted) ``MCPServer`` via
+    ``SERVES``. A fleet ``Skill`` node is id-namespaced per-server
+    (``skill_{server}_{name}``), distinct from a locally-executed skill's
+    canonical ``skill:<slug>`` identity (:func:`~..ingestion.skill_workflow_ingest.skill_reference`)
+    so a thin fleet probe write can never clobber a richer in-loop skill's
+    ``body``/``instruction`` properties — ``kind='mcp_skill'`` plus
+    ``source_ref='skill://<slug>'`` still lets ranking recognize both as the
+    same capability *kind*. Idempotent: stable node ids + the write-layer
+    content-hash delta (over the whole probed slice) skip unchanged
+    tools/skills on re-sync. Factored out of :func:`_sync_fleet` so it is
     testable without spawning any servers.
     """
+    from ..ingestion.skill_workflow_ingest import skill_reference
+
     entities: list[dict[str, Any]] = []
     relationships: list[dict[str, Any]] = []
     unreachable: dict[str, str] = {}
@@ -359,7 +372,8 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
             unreachable[server_name] = str(err)
             continue
         tools = info.get("tools") or []
-        if not tools:
+        skills = info.get("skills") or []
+        if not tools and not skills:
             continue
 
         synonyms = derive_capability_synonyms(server_name)
@@ -402,6 +416,33 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                 {"source": server_node_id, "target": tool_node_id, "type": "SERVES"}
             )
 
+        for entry in skills:
+            if not isinstance(entry, dict):
+                continue
+            skill_name = entry.get("name")
+            if not skill_name:
+                continue
+            skill_node_id = f"skill_{server_name}_{skill_name}"
+            entities.append(
+                {
+                    "id": skill_node_id,
+                    "type": "Skill",
+                    "name": skill_name,
+                    "description": entry.get("description", "") or "",
+                    "mcp_server": server_name,
+                    "tags": [product] if product else [],
+                    "relevance_score": 0.5,
+                    "requires_approval": False,
+                    "synonyms": synonyms,
+                    "kind": "mcp_skill",
+                    "source_ref": skill_reference(skill_name),
+                    "disabled": _existing_disabled(engine, skill_node_id),
+                }
+            )
+            relationships.append(
+                {"source": server_node_id, "target": skill_node_id, "type": "SERVES"}
+            )
+
     if entities:
         _ingest_graph_slice_via_envelope(
             engine, "fleet", entities, relationships, source_instance="catalog"
@@ -410,6 +451,7 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     return {
         "servers_written": sum(1 for item in entities if item["type"] == "MCPServer"),
         "tools_written": sum(1 for item in entities if item["type"] == "Tool"),
+        "skills_written": sum(1 for item in entities if item["type"] == "Skill"),
         "unreachable": unreachable,
     }
 

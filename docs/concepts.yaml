@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1056
+total_concepts: 1058
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1526,6 +1526,15 @@ concepts:
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/observability/gateway_metrics.py
   doc: Profile differences from the engine-client breaker
+- id: AU-ECO.mcp.skills-over-mcp-provider
+  name: absent/empty for
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/mcp/server_factory.py
+  doc: absent/empty for
 - id: AU-ECO.mcp.standardized-interfaces
   name: MCP Standardized Interfaces
   pillar: AU-ECO
@@ -6092,6 +6101,16 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
   doc: social-closer / triviality gate
+- id: AU-KG.retrieval.unified-capability-contract
+  name: a resolved
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/capability_contract.py
+  - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/orchestration/manager.py
+  doc: a resolved
 - id: AU-KG.retrieval.unset-dependency-free
   name: Unset → the dependency-free
   pillar: AU-KG

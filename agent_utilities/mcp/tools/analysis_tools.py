@@ -2473,21 +2473,26 @@ def register_analysis_tools(mcp):
             default="",
             description=(
                 "Optional registered agent name. Empty resolves the best ingested "
-                "skill/workflow from the KG."
+                "skill/workflow/fleet-tool from the KG's unified capability ranking "
+                "(CONCEPT:AU-KG.retrieval.unified-capability-contract) — a resolved "
+                "Tool binds the default expert scoped to just that tool, exactly "
+                "like passing skill_name+tool_server+allowed_tools explicitly."
             ),
         ),
         skill_name: str = Field(
             default="",
             description=(
-                "Exact ingested AGENT_SKILL name. Mutually exclusive with agent_name "
-                "and resolved fail-closed from the Knowledge Graph."
+                "Exact ingested AGENT_SKILL name (in-loop OR a fleet-served "
+                "skill:// resource). Mutually exclusive with agent_name and "
+                "resolved fail-closed from the Knowledge Graph."
             ),
         ),
         tool_server: str = Field(
             default="",
             description=(
-                "Exact configured MCP server catalog to bind to skill_name. The "
-                "server transport comes from the live fleet configuration."
+                "Exact configured MCP server catalog to bind to skill_name, OR "
+                "the server hosting a resolved/ranked fleet tool. The server "
+                "transport comes from the live fleet configuration."
             ),
         ),
         execution_mode: Literal["auto", "pydantic_graph"] = Field(
