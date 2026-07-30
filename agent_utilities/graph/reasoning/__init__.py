@@ -19,7 +19,7 @@ network, matching this repo's existing convention
 (:mod:`agent_utilities.harness.graph_search_evolution`).
 
 Survey (design note for the concept above — see
-``reports/deferred/lane-4.3.md`` for the full account): before this package
+``reports/deferred/waves1-5-gate.md`` for the full account): before this package
 existed, none of the six topologies existed as a named, reusable graph-topology
 resource. The closest prior art:
 

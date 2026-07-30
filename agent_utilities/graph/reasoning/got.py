@@ -73,6 +73,7 @@ def run_got(
     plan: list[GotOp],
     *,
     budgets: Budgets | None = None,
+    tracker: BudgetTracker | None = None,
 ) -> tuple[ReasoningState, TerminationProof]:
     """Execute an explicit GoT plan over the shared reasoning state.
 
@@ -83,7 +84,7 @@ def run_got(
     """
     budgets = budgets or Budgets(loop_budget=GOT_SPEC.loop_budget)
     state = ReasoningState(topology="got")
-    tracker = BudgetTracker(budgets)
+    tracker = tracker or BudgetTracker(budgets)
     root = ThoughtNode(node_id="root", kind=NodeKind.ROOT, content=question, depth=0)
     state.add_node(root)
 

@@ -84,12 +84,25 @@ def _select(state: ReasoningState, root_id: str, c: float) -> str:
 
 
 def _expand(
-    state: ReasoningState, node_id: str, expand_fn: ExpandFn, counter: list[int]
+    state: ReasoningState,
+    node_id: str,
+    expand_fn: ExpandFn,
+    counter: list[int],
+    branching_factor: int,
 ) -> list[str]:
-    """Materialize this node's children (the expansion phase)."""
+    """Materialize this node's children (the expansion phase), capped at
+    ``branching_factor``.
+
+    The cap mirrors ToT's (:mod:`.tot`) and is what keeps ONE loop tick's work
+    bounded: without it a caller-supplied ``expand_fn`` returning a huge (or
+    generated) child list ran a full simulate+backpropagate per child with no
+    budget check in between, so a declared ``loop_budget``/``time_budget_s``
+    could be overshot by orders of magnitude before the next
+    :meth:`BudgetTracker.tick_loop`.
+    """
     parent = state.nodes[node_id]
     child_ids: list[str] = []
-    for content in expand_fn(parent.content):
+    for content in list(expand_fn(parent.content))[:branching_factor]:
         counter[0] += 1
         child_id = f"r{counter[0]}"
         child = ThoughtNode(
@@ -130,7 +143,9 @@ def run_rap(
     *,
     question: str,
     budgets: Budgets | None = None,
+    tracker: BudgetTracker | None = None,
     exploration_c: float = 1.4,
+    branching_factor: int = 4,
 ) -> tuple[ReasoningState, TerminationProof]:
     """Run RAP: select → expand → simulate → backpropagate, one loop-tick per
     iteration, until a goal is hit or the budget is exhausted.
@@ -144,7 +159,7 @@ def run_rap(
     """
     budgets = budgets or Budgets(loop_budget=RAP_SPEC.loop_budget)
     state = ReasoningState(topology="rap")
-    tracker = BudgetTracker(budgets)
+    tracker = tracker or BudgetTracker(budgets)
     root = ThoughtNode(node_id="r0", kind=NodeKind.ROOT, content=question, depth=0)
     state.add_node(root)
     counter = [0]
@@ -170,7 +185,9 @@ def run_rap(
                 _backpropagate(state, leaf_id, reward)
                 continue
 
-            child_ids = _expand(state, leaf_id, expand_fn, counter)
+            child_ids = _expand(
+                state, leaf_id, expand_fn, counter, branching_factor
+            )
             if not child_ids:
                 leaf.is_terminal = True
                 reward = _simulate(state, leaf_id, simulate_fn)
@@ -178,6 +195,11 @@ def run_rap(
                 continue
 
             for child_id in child_ids:
+                # Re-check the time/token/cost axes BETWEEN children, not only
+                # once per outer loop tick: a single expansion fans out up to
+                # ``branching_factor`` simulations, and a declared
+                # ``time_budget_s`` must be able to trip inside that fan-out.
+                tracker.check_time_and_cost()
                 reward = _simulate(state, child_id, simulate_fn)
                 _backpropagate(state, child_id, reward)
     except BudgetExhausted as exc:

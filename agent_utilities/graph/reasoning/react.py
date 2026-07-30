@@ -64,6 +64,7 @@ def run_react(
     *,
     question: str,
     budgets: Budgets | None = None,
+    tracker: BudgetTracker | None = None,
     max_retries_per_action: int = 2,
     doom_loop_detector: DoomLoopDetector | None = None,
 ) -> tuple[ReasoningState, TerminationProof]:
@@ -79,7 +80,7 @@ def run_react(
         loop_budget=REACT_SPEC.loop_budget, tool_budget=REACT_SPEC.tool_budget
     )
     state = ReasoningState(topology="react")
-    tracker = BudgetTracker(budgets)
+    tracker = tracker or BudgetTracker(budgets)
     detector = doom_loop_detector or DoomLoopDetector()
     root = ThoughtNode(node_id="t0", kind=NodeKind.ROOT, content=question, depth=0)
     state.add_node(root)

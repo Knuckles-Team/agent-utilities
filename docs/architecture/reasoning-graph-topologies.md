@@ -102,5 +102,5 @@ the looser `pass_rate` but never toward `accuracy`/`reliability`.
 
 ## Deferred
 
-See `reports/deferred/lane-4.3.md` for the recorded dependency on the parallel budget/repair
+See `reports/deferred/waves1-5-gate.md` (D-W15-1..3) for the recorded dependency on the parallel budget/repair
 lane and the not-yet-built MCP/REST live entrypoint for this package.

@@ -77,6 +77,7 @@ def run_tot(
     *,
     question: str,
     budgets: Budgets | None = None,
+    tracker: BudgetTracker | None = None,
     strategy: Literal["bfs", "dfs"] = "bfs",
     branching_factor: int = 3,
     beam_width: int = 3,
@@ -96,7 +97,7 @@ def run_tot(
     spec = TOT_BFS_SPEC if strategy == "bfs" else TOT_DFS_SPEC
     budgets = budgets or Budgets(loop_budget=spec.loop_budget)
     state = ReasoningState(topology=spec.name)
-    tracker = BudgetTracker(budgets)
+    tracker = tracker or BudgetTracker(budgets)
     root = ThoughtNode(
         node_id="n0", kind=NodeKind.ROOT, content=question, depth=0, value=1.0
     )

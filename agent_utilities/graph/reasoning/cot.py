@@ -14,11 +14,13 @@ recorded (never the model's raw private reasoning — see
 **Self-consistent CoT**: fans out ``num_samples`` independent CoT chains
 sharing one :class:`~.budgets.Budgets` (candidate distribution — each sample
 is one :class:`~.state.CandidateVote` with its own cost/confidence), then
-aggregates by majority vote over normalized final answers. Diversity-aware
-pruning (dropping near-duplicate chains before voting) reuses
-:func:`agent_utilities.graph.test_time_diversity.select_diverse` when an
-embedding function is supplied — the voting/aggregation itself is new (VPO's
-module provides diversity selection, not a vote).
+aggregates by majority vote over exact normalized final answers.
+
+Diversity-aware pruning (dropping near-duplicate chains before voting via
+:func:`agent_utilities.graph.test_time_diversity.select_diverse`) is NOT wired
+here: :func:`run_self_consistent_cot` takes no embedding function, so voting is
+plain normalized-string majority and near-duplicate chains each get a full vote.
+Recorded as D-W15-2 in ``reports/deferred/waves1-5-gate.md``.
 """
 
 import logging
@@ -68,6 +70,7 @@ def run_cot(
     *,
     question: str,
     budgets: Budgets | None = None,
+    tracker: BudgetTracker | None = None,
 ) -> tuple[ReasoningState, TerminationProof]:
     """Run one linear Chain-of-Thought reasoning chain.
 
@@ -78,7 +81,7 @@ def run_cot(
     """
     budgets = budgets or Budgets(loop_budget=COT_SPEC.loop_budget)
     state = ReasoningState(topology="cot")
-    tracker = BudgetTracker(budgets)
+    tracker = tracker or BudgetTracker(budgets)
     root = ThoughtNode(node_id="n0", kind=NodeKind.ROOT, content=question, depth=0)
     state.add_node(root)
     parent_id = root.node_id
@@ -121,6 +124,7 @@ def run_self_consistent_cot(
     question: str,
     num_samples: int,
     budgets: Budgets | None = None,
+    tracker: BudgetTracker | None = None,
     cost_fn: Callable[[str], int] | None = None,
 ) -> tuple[ReasoningState, TerminationProof, str]:
     """Fan out ``num_samples`` independent CoT chains and vote on the answer.
@@ -139,7 +143,7 @@ def run_self_consistent_cot(
     num_samples = max(1, num_samples)
     budgets = budgets or Budgets(loop_budget=SELF_CONSISTENT_COT_SPEC.loop_budget)
     state = ReasoningState(topology="self_consistent_cot")
-    tracker = BudgetTracker(budgets)
+    tracker = tracker or BudgetTracker(budgets)
     root = ThoughtNode(node_id="root", kind=NodeKind.ROOT, content=question, depth=0)
     state.add_node(root)
 
