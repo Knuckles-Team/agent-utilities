@@ -1665,13 +1665,16 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
                 }
             }
         servers = _load_mcp_config()
-        cfg = servers.get(self.server) or servers.get(f"{self.server}-mcp")
-        if not cfg:
+        from .mcp_package import _configured_mcp_server
+
+        resolved = _configured_mcp_server(servers, self.server)
+        if resolved is None:
             raise McpToolSourceError(
                 f"MCP server {self.server!r} not found in mcp_config.json; "
                 "pass an explicit 'url'/'command' or an injected 'client'."
             )
-        return {"mcpServers": {self.server: dict(cfg)}}
+        configured_name, cfg = resolved
+        return {"mcpServers": {configured_name: cfg}}
 
     def _open_client(self) -> Any:
         """Build the fastmcp client for one run (lazy import, clear error).
