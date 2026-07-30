@@ -2122,7 +2122,10 @@ def _get_engine():
 
         def _factory():
             backend = create_backend()
-            return IntelligenceGraphEngine(backend=backend)
+            return IntelligenceGraphEngine(
+                backend=backend,
+                defer_background_start=True,
+            )
 
         return IntelligenceGraphEngine.get_or_create(factory=_factory)
 
@@ -3174,10 +3177,10 @@ def _process_authority_refresh_loop(session: Any) -> None:
 def _start_process_authority_supervisor(session: Any) -> None:
     """Start the sole external-authority renewal supervisor when required."""
     global _PROCESS_AUTHORITY_THREAD
-    if getattr(getattr(session, "actor", None), "credential_lease", None) is None:
-        return
     _stop_process_authority_supervisor()
     _PROCESS_AUTHORITY_STOP.clear()
+    if getattr(getattr(session, "actor", None), "credential_lease", None) is None:
+        return
     thread = threading.Thread(
         target=_process_authority_refresh_loop,
         args=(session,),
@@ -3234,6 +3237,7 @@ def _wait_for_engine_materialization(
     *,
     timeout_seconds: float = _ENGINE_MATERIALIZATION_TIMEOUT_SECONDS,
     poll_seconds: float = _ENGINE_MATERIALIZATION_POLL_SECONDS,
+    stop_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Wait for a lazy-open graph to become complete before boot writes begin.
 
@@ -3283,6 +3287,7 @@ def _wait_for_engine_materialization(
         graph_name,
         timeout_seconds,
     )
+    shutdown = stop_event or _PROCESS_AUTHORITY_STOP
     deadline = time.monotonic() + max(0.0, timeout_seconds)
     last_progress: tuple[str, int | None, int | None] | None = None
     manifest_visible: bool | None = None
@@ -3370,7 +3375,10 @@ def _wait_for_engine_materialization(
                 f"GraphOS boot hydration (graph={graph_name!r}, "
                 f"timeout_seconds={timeout_seconds:g}, last={last_progress!r})"
             )
-        time.sleep(max(0.0, poll_seconds))
+        if shutdown.wait(max(0.0, poll_seconds)):
+            raise InterruptedError(
+                "GraphOS shutdown cancelled the graph materialization barrier"
+            )
 
 
 def _start_engine_bootstrap(session: Any) -> None:

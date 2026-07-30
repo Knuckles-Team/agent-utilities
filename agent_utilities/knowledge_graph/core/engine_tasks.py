@@ -461,6 +461,28 @@ def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
     }.get(status, "unknown")
 
 
+def _retryable_partial_materialization(error: BaseException) -> dict[str, Any] | None:
+    """Return the engine's typed hydration signal, never a text lookalike.
+
+    A catalog-known graph deliberately rejects every graph operation while its
+    bounded lazy-open rebuild is incomplete.  That is availability state, not
+    an ingestion failure.  Only the exact retryable wire payload is safe to
+    defer; malformed, stale, and terminal materialization errors continue
+    through ordinary failure handling.
+    """
+    try:
+        payload = json.loads(str(error))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if (
+        isinstance(payload, dict)
+        and payload.get("code") == "PARTIAL_MATERIALIZATION"
+        and payload.get("retryable") is True
+    ):
+        return payload
+    return None
+
+
 # Enrichment pass sizing (config discipline): per-tick LLM-card batch budget. The
 # per-batch summarization concurrency is CPU/mem auto-sized via
 # compute_ingest_worker_count(); these batch caps are bounded constants, not env
@@ -3644,20 +3666,32 @@ class TaskManagerMixin(GraphEngineProtocol):
             raise _wi.WorkItemBackendUnavailable(
                 "ClaimWorkItem returned an ingest item without payload_ref"
             )
+        # Claim authority must be locally visible before the metadata read. The
+        # read is graph-scoped and can be the first operation to observe a lazy
+        # materialization transition; remembering only afterwards stranded an
+        # already-consumed native attempt with no job id on the worker frame.
+        self._remember_work_item_claim(job_id, claim)
         try:
             meta = self._ingest_task_metadata(job_id)
-        except _wi.WorkItemBackendUnavailable:
-            _wi.commit_result(
-                self._work_item_engine,
-                claim["work_item_id"],
-                claim,
-                outcome="failed",
-                error_ref=f"invalid_ingest_definition:{job_id}",
-                retryable=False,
-            )
+        except Exception as exc:
+            materialization = _retryable_partial_materialization(exc)
+            if materialization is not None:
+                self._defer_task_for_materialization(job_id, materialization)
+                return None
+            if isinstance(exc, _wi.WorkItemBackendUnavailable):
+                try:
+                    _wi.commit_result(
+                        self._work_item_engine,
+                        claim["work_item_id"],
+                        claim,
+                        outcome="failed",
+                        error_ref=f"invalid_ingest_definition:{job_id}",
+                        retryable=False,
+                    )
+                finally:
+                    self._active_work_item_claim(job_id, pop=True)
             raise
         tkind = str(meta.get("type") or "document")
-        self._remember_work_item_claim(job_id, claim)
         if worker_id is not None:
             from agent_utilities.knowledge_graph.core.task_lanes import (
                 lane_for_task_type,
@@ -3726,6 +3760,53 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._worker_registry().finish(worker_id)
 
             except Exception as e:
+                materialization = _retryable_partial_materialization(e)
+                if materialization is not None:
+                    if job_id:
+                        try:
+                            deferred = self._defer_task_for_materialization(
+                                job_id, materialization
+                            )
+                        except Exception as defer_error:  # noqa: BLE001 - infrastructure transition is logged below
+                            self._active_work_item_claim(job_id, pop=True)
+                            logger.error(
+                                "TaskManager could not defer %s while the graph was "
+                                "materializing: %s",
+                                job_id,
+                                defer_error,
+                            )
+                        else:
+                            if deferred:
+                                logger.info(
+                                    "TaskManager deferred materializing task %s "
+                                    "(phase=%s cursor=%s)",
+                                    job_id,
+                                    materialization.get("phase"),
+                                    materialization.get("completeness_cursor"),
+                                )
+                            else:
+                                logger.warning(
+                                    "TaskManager discarded fenced claim for "
+                                    "materializing task %s (phase=%s cursor=%s)",
+                                    job_id,
+                                    materialization.get("phase"),
+                                    materialization.get("completeness_cursor"),
+                                )
+                        # A materialization transition is infrastructure state,
+                        # never an application attempt. Do not fall through to
+                        # the generic retry/dead-letter path even if the fenced
+                        # control transition was lost to another owner.
+                        continue
+                    else:
+                        logger.info(
+                            "TaskManager waiting for graph materialization before "
+                            "claiming work (phase=%s cursor=%s)",
+                            materialization.get("phase"),
+                            materialization.get("completeness_cursor"),
+                        )
+                        time.sleep(5)
+                        continue
+
                 logger.error(f"TaskManager worker error: {e}")
                 if job_id:
                     try:
@@ -5396,6 +5477,46 @@ class TaskManagerMixin(GraphEngineProtocol):
         self._active_work_item_claim(job_id, pop=True)
         if result == "dead_letter":
             logger.warning("ingestion WorkItem %s exhausted retries", job_id)
+
+    def _defer_task_for_materialization(
+        self, job_id: str, materialization: dict[str, Any]
+    ) -> bool:
+        """Release a claimed task immediately without consuming an attempt.
+
+        GraphOS does its bounded materialization wait before workers start, so
+        an in-flight task must never wait behind the same graph-wide gate while
+        holding a short renewable lease.  The engine-native defer is one fenced
+        transition: success restores the exact prior attempt count; a rejected
+        transition means this worker no longer owns the lease and is never
+        converted into an application failure.
+        """
+        from agent_utilities.orchestration import work_item as _wi
+
+        claim = self._active_work_item_claim(job_id)
+        if claim is None:
+            raise _wi.WorkItemBackendUnavailable(
+                f"ingestion job {job_id!r} has no active native WorkItem claim"
+            )
+        work_item_id = str(
+            claim.get("work_item_id") or _wi.ingest_task_work_item_id(job_id)
+        )
+        logger.debug(
+            "Deferring ingestion job %s at materialization phase=%s cursor=%s",
+            job_id,
+            materialization.get("phase"),
+            materialization.get("completeness_cursor"),
+        )
+        try:
+            deferred = _wi.defer_work_item(
+                self._work_item_engine,
+                work_item_id,
+                claim,
+                next_retry_at=time.time() + 1.0,
+                reason_ref="partial_materialization",
+            )
+        finally:
+            self._active_work_item_claim(job_id, pop=True)
+        return bool(deferred)
 
     def aggregate_ingest_metrics(self, window_sec: int = 86400) -> dict[str, Any]:
         """Per-category ingest metrics from ingestion WorkItems.
