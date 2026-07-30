@@ -43,12 +43,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Paths that must stay reachable without credentials (container/LB liveness).
+# Paths that must stay reachable without credentials (container/LB probes).
 HEALTH_PATHS: frozenset[str] = frozenset(
-    {"/health", "/healthz", "/api/health", "/api/healthz"}
+    {"/health", "/health/ready", "/healthz", "/api/health", "/api/healthz"}
 )
 
-# Only non-fingerprinting liveness routes bypass the identity boundary.
+# Only non-fingerprinting liveness/readiness routes bypass the identity boundary.
 # Remote metrics must authenticate just like any other operational endpoint.
 UNAUTHENTICATED_PATHS: frozenset[str] = HEALTH_PATHS
 

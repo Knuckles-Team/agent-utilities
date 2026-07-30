@@ -3573,19 +3573,19 @@ def _build_server(
     # endpoint DSNs, tokens, or credentials.
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
-        from agent_utilities.observability.runtime_health import collect_health
+        from agent_utilities.observability.runtime_health import collect_health_async
 
-        report = await asyncio.to_thread(collect_health)
+        report = await collect_health_async()
         return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
     @mcp.custom_route("/health/ready", methods=["GET"])
     async def readiness_check(request: Request) -> JSONResponse:  # noqa: ARG001
         from agent_utilities.observability.runtime_health import (
-            collect_health,
+            collect_health_async,
             is_overall_healthy,
         )
 
-        report = await asyncio.to_thread(collect_health)
+        report = await collect_health_async()
         status_code = 200 if is_overall_healthy(report) else 503
         return JSONResponse(
             report, status_code=status_code, headers={"Cache-Control": "no-store"}

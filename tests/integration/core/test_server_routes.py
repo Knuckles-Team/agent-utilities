@@ -22,7 +22,7 @@ graph database.
 import os
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -134,6 +134,37 @@ def test_health_ready_reflects_the_same_report_in_its_status_code(
     resp = client_with_web_ui.get("/health/ready")
     body = resp.json()
     assert resp.status_code == (200 if body["status"] == "healthy" else 503)
+
+
+def test_rest_health_routes_share_the_reserved_async_collector() -> None:
+    """Top-level liveness/readiness and the dashboard route all invoke the
+    owning async health seam, so no REST consumer can drift back to the shared
+    default executor.
+    """
+    report = {
+        "status": "healthy",
+        "checks": [{"name": "engine", "status": "ok", "latency_ms": 0.0}],
+        "generated_at": "synthetic",
+    }
+    from agent_utilities.gateway.api import dashboard_router
+    from agent_utilities.server.routers.core import router as core_router
+
+    app = FastAPI()
+    app.include_router(core_router)
+    app.include_router(dashboard_router, prefix="/api/dashboard")
+
+    with patch(
+        "agent_utilities.observability.runtime_health.collect_health_async",
+        new_callable=AsyncMock,
+        return_value=report,
+    ) as collector:
+        with TestClient(app) as client:
+            for path in ("/health", "/health/ready", "/api/dashboard/health"):
+                response = client.get(path)
+                assert response.status_code == 200
+                assert response.json() == report
+
+    assert collector.await_count == 3
 
 
 def test_mcp_config(client_with_web_ui: TestClient) -> None:

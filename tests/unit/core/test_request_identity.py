@@ -548,12 +548,13 @@ class TestActorIdentityMiddleware:
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
-    async def test_health_is_the_only_unauthenticated_exemption(self):
+    @pytest.mark.parametrize("path", ["/health", "/health/ready"])
+    async def test_health_probes_are_unauthenticated_exemptions(self, path):
         cfg = _make_config()
         captured: dict = {}
         mw = ActorIdentityMiddleware(_make_inner_app(captured))
         with mock.patch("agent_utilities.core.config.config", cfg):
-            sent = await _call(mw, path="/health")
+            sent = await _call(mw, path=path)
         assert _status(sent) == 200
         assert captured["actor"].authenticated is False
         assert captured["session"] is None

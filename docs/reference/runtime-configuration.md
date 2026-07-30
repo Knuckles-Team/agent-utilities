@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-543 typed fields · 347 runtime-only call-site inputs.
+542 typed fields · 347 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -223,7 +223,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `ENABLE_WEB_UI` | `bool` | `False` |
 | `ENABLE_TERMINAL_UI` | `bool` | `False` |
 | `ENABLE_WEB_LOGS` | `bool` | `False` |
-| `ENABLE_ACP` | `bool` | `False` (deprecated; launch `agent-utilities-acp`) |
+| `ENABLE_ACP` | `bool` | `False` |
 | `ACP_SESSION_ROOT` | `str` | `.acp-sessions` |
 | `MCP_URL` | `Union` | `unset` |
 | `MCP_CONFIG` | `Union` | `unset` |

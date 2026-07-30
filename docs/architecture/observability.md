@@ -25,6 +25,28 @@ How MCP services and deployed workloads expose bounded operational signals.
 | Logs | promtail (docker SD) | Loki | container stdout/stderr, labelled stack/service |
 | Traces | OTEL | Tempo + Langfuse | Langfuse for LLM traces |
 
+## Reserved health control lane
+
+GraphOS and REST liveness/readiness routes share one asynchronous adapter,
+`observability.runtime_health.collect_health_async()`. It submits the synchronous,
+truthful `collect_health()` core to a dedicated two-thread collector executor,
+never asyncio's process-wide default executor. Native engine backups, connector
+calls, and agent orchestration can saturate general blocking workers without
+delaying kubelet's liveness request. The inner probe pool remains separately
+bounded, and readiness still reflects engine reachability rather than merely
+keeping the process alive.
+
+```mermaid
+flowchart LR
+    MCP["GraphOS /health<br/>/health/ready"] --> A["collect_health_async()"]
+    REST["REST /health<br/>/health/ready<br/>dashboard /health"] --> A
+    A --> C["reserved collector executor<br/>2 workers"]
+    C --> H["collect_health()<br/>one truthful report"]
+    H --> P["bounded health-probe pool"]
+    P --> E["engine + configured dependencies"]
+    G["asyncio default executor<br/>models · connectors · backup"] -. "no probe dependency" .-> A
+```
+
 Self-hosted Langfuse uses the same runtime TLS-profile resolver as every other
 outbound integration. Certificate material, proxy details, endpoints, and keys
 remain behind AgentConfig refs; content capture is off. See

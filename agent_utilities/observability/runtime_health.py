@@ -7,9 +7,10 @@ Both the REST gateway (``agent_utilities/server/routers/core.py``'s ``/health``
 and ``/health/ready``, plus ``graph_configure(action="health")``'s REST twin
 ``POST /api/graph/configure``) and the MCP server
 (``agent_utilities/mcp/kg_server.py``'s ``/health``/``/health/ready`` routes and
-its ``graph_configure`` tool) dispatch into :func:`collect_health` — there is
-exactly one implementation of "is this deployment actually healthy", never two
-that can drift (CONCEPT:AU-OS.config.two-surfaces-by-default).
+its ``graph_configure`` tool) dispatch into :func:`collect_health` — async
+transports through :func:`collect_health_async` — so there is exactly one
+implementation of "is this deployment actually healthy", never two that can
+drift (CONCEPT:AU-OS.config.two-surfaces-by-default).
 
 Replaces the historical stub that returned ``{"status": "ok"}`` unconditionally
 and never checked anything — which reported healthy through a ~2.5-minute real
@@ -56,19 +57,37 @@ the same convention already used by ``deployment/doctor.py``'s ``_check_engine``
 (an endpoint string can embed a local path or user-specific topology detail).
 """
 
+import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as _FutureTimeoutError
-from typing import Any
+from typing import Any, TypedDict, cast
 from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["collect_health", "is_overall_healthy"]
+__all__ = [
+    "HealthCheck",
+    "HealthReport",
+    "collect_health",
+    "collect_health_async",
+    "is_overall_healthy",
+]
 
-# One small shared worker pool for every probe — created once, reused across
+# The outer async route hop has its OWN reserved lane. asyncio.to_thread() uses
+# the process-wide default executor, which is shared with model, orchestration,
+# backup, and connector work. During a long native backup that pool saturated;
+# otherwise-cheap /health calls queued behind it until kubelet killed the healthy
+# foreground process. Two workers let liveness and readiness overlap without
+# competing with general work. This is a correctness constant, not an operator
+# tuning surface (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
+_COLLECTOR_EXECUTOR = ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="au-health-collector"
+)
+
+# One small shared worker pool for every individual probe — created once, reused across
 # every /health hit. Sized generously above the current check count so every
 # check always gets its own thread and none queue behind another.
 _EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="au-health-probe")
@@ -79,6 +98,24 @@ _PROBE_TIMEOUT_S = 0.75
 # itself — this is what makes "/health must never hang" true even if a check's
 # own internal bound is buggy or missing.
 _CHECK_WALL_TIMEOUT_S = 2.0
+
+
+class HealthCheck(TypedDict, total=False):
+    """One non-secret, bounded runtime dependency check."""
+
+    name: str
+    status: str
+    latency_ms: float
+    reason: str
+    detail: dict[str, Any]
+
+
+class HealthReport(TypedDict):
+    """Stable contract shared by every liveness/readiness transport."""
+
+    status: str
+    checks: list[HealthCheck]
+    generated_at: str
 
 
 # --------------------------------------------------------------------------- #
@@ -509,7 +546,7 @@ def _run_bounded(name: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def collect_health() -> dict[str, Any]:
+def collect_health() -> HealthReport:
     """Run every runtime-health check concurrently and return one truthful report.
 
     Returns::
@@ -541,15 +578,18 @@ def collect_health() -> dict[str, Any]:
     except Exception as exc:
         # Config itself is unreadable — that is unambiguously unhealthy, not a
         # reason to fall back to "ok".
-        return {
-            "status": "unhealthy",
-            "checks": [
-                _unhealthy(
-                    "config", f"AgentConfig() raised {type(exc).__name__}: {exc}"
+        return HealthReport(
+            status="unhealthy",
+            checks=[
+                cast(
+                    HealthCheck,
+                    _unhealthy(
+                        "config", f"AgentConfig() raised {type(exc).__name__}: {exc}"
+                    ),
                 )
             ],
-            "generated_at": _now_iso(),
-        }
+            generated_at=_now_iso(),
+        )
 
     def _bind(fn: Callable[[Any], dict[str, Any]]) -> Callable[[], dict[str, Any]]:
         return lambda: fn(cfg)
@@ -558,10 +598,27 @@ def collect_health() -> dict[str, Any]:
     overall = (
         "unhealthy" if any(c["status"] == "unhealthy" for c in checks) else "healthy"
     )
-    return {"status": overall, "checks": checks, "generated_at": _now_iso()}
+    return HealthReport(
+        status=overall,
+        checks=cast(list[HealthCheck], checks),
+        generated_at=_now_iso(),
+    )
 
 
-def is_overall_healthy(report: dict[str, Any]) -> bool:
+async def collect_health_async() -> HealthReport:
+    """Collect health without competing for asyncio's shared default executor.
+
+    HTTP liveness/readiness callers must use this helper instead of
+    :func:`asyncio.to_thread`. The reserved collector pool keeps the control
+    lane runnable while unrelated blocking work saturates the default pool;
+    :func:`collect_health` retains the one truthful implementation and its
+    bounded per-check probe pool.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_COLLECTOR_EXECUTOR, collect_health)
+
+
+def is_overall_healthy(report: Mapping[str, Any]) -> bool:
     """True iff a :func:`collect_health` report's rollup is healthy."""
     # Readiness answers ONE question: can this process serve requests right now.
     # That depends on the engine it reads and writes through — not on optional

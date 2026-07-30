@@ -46,11 +46,9 @@ async def health_check(request: Request):
     fine process. Use ``GET /health/ready`` for the readiness signal that DOES
     flip status code (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
     """
-    import asyncio
+    from agent_utilities.observability.runtime_health import collect_health_async
 
-    from agent_utilities.observability.runtime_health import collect_health
-
-    report = await asyncio.to_thread(collect_health)
+    report = await collect_health_async()
     return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
@@ -61,14 +59,12 @@ async def readiness_check(request: Request):
     kubelet uses this to stop routing traffic to a genuinely unhealthy pod
     without restarting the process (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
     """
-    import asyncio
-
     from agent_utilities.observability.runtime_health import (
-        collect_health,
+        collect_health_async,
         is_overall_healthy,
     )
 
-    report = await asyncio.to_thread(collect_health)
+    report = await collect_health_async()
     status_code = 200 if is_overall_healthy(report) else 503
     return JSONResponse(
         report, status_code=status_code, headers={"Cache-Control": "no-store"}
