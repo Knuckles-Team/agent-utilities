@@ -1306,8 +1306,8 @@ def register_engine_surface_tools(mcp) -> None:
             "'events' plus an explicit 'object_type' to deterministically project one "
             "object-centric perspective without an LLM. Or provide a governed "
             "'ocel_json' JSON-OCEL 2.0 document with an authorized 'tenant', "
-            "optional source_ref/mapping_version overrides, and ocel_mode='mine' "
-            "(default) or 'validate'. OCEL import validates source truth, exports a "
+            "optional source_ref/mapping_version/provenance transport metadata, and "
+            "ocel_mode='mine' (default) or 'validate'. OCEL import validates source truth, exports a "
             "canonical deterministic OCEL document, and returns a tenant-scoped tEKG "
             "ChangeEnvelope plan; it never silently writes source truth. Event projection "
             "writeback is fail-closed until the native ProcessModel can retain source-event lineage. "
@@ -1387,7 +1387,8 @@ def register_engine_surface_tools(mcp) -> None:
             '"occurred_at":"2026-01-01T00:00:00Z","source_ref":"src:1",'
             '"objects":[{"id":"u1","type":"User","qualifier":"actor"}]}],'
             '"object_type":"User"} (process); '
-            '{"ocel_json":{"ocel:version":"2.0",...},"tenant":"acme",'
+            '{"ocel_json":{"eventTypes":[],"objectTypes":[],"events":[],"objects":[]},'
+            '"tenant":"acme",'
             '"object_type":"Order","ocel_mode":"mine|validate"} (process); '
             '{"nodes":["a","b"],"scores":[0.1,0.9],"edges":[["a","b",1.0]],"symptom":"b"} '
             "(root_cause); "
@@ -1461,6 +1462,7 @@ def register_engine_surface_tools(mcp) -> None:
                     tenant=tenant,
                     source_ref=str(params.pop("source_ref", "") or ""),
                     mapping_version=str(params.pop("mapping_version", "") or ""),
+                    provenance=params.pop("provenance", None),
                 )
                 ocel_mode = str(params.pop("ocel_mode", "mine") or "mine").strip()
                 if ocel_mode not in {"mine", "validate"}:
@@ -1469,9 +1471,7 @@ def register_engine_surface_tools(mcp) -> None:
                     tenant=tenant,
                     provenance=provenance,
                 )
-                exported = export_ocel_json(
-                    slice_, tenant=tenant, provenance=provenance
-                )
+                exported = export_ocel_json(slice_)
                 evidence = {
                     "mode": "ocel_2.0",
                     "tenant": tenant,
