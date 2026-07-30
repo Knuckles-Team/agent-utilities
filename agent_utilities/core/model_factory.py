@@ -104,6 +104,28 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _single_system_message_profile(base: dict[str, Any]) -> dict[str, Any]:
+    """Make OpenAI-compatible chat requests portable to strict local gateways.
+
+    Some vLLM/LiteLLM chat templates reject a second leading ``system`` message
+    with ``"System message must be at the beginning."``. Pydantic AI already
+    owns the correct normalization: this profile bit makes its OpenAI adapter
+    merge consecutive leading system messages after it has inserted dynamic
+    instructions. Applying the override as a profile callable preserves every
+    capability inferred by the provider/model profile.
+
+    The normalization is harmless for OpenAI's own API and prevents the common
+    graph-os shape of ``governed evidence + agent instructions`` from failing
+    before a bound MCP tool can be called.
+    """
+    from pydantic_ai.profiles import merge_profile
+
+    return merge_profile(
+        base,
+        {"openai_chat_supports_multiple_system_messages": False},
+    )
+
+
 def _validated_http_options(
     timeout: float,
     headers: dict | None,
@@ -576,7 +598,10 @@ def _create_model_impl(
             )
             openai_provider = OpenAIProvider(openai_client=openai_client)
             return OpenAIChatModel(
-                settings=_rsettings, model_name=_model_id, provider=openai_provider
+                settings=_rsettings,
+                model_name=_model_id,
+                provider=openai_provider,
+                profile=_single_system_message_profile,
             )
 
         raise RuntimeError("OpenAI's DNS-pinned client runtime is unavailable")
@@ -596,7 +621,10 @@ def _create_model_impl(
             )
             openai_provider = OpenAIProvider(openai_client=openai_client)
             return OpenAIChatModel(
-                settings=_rsettings, model_name=_model_id, provider=openai_provider
+                settings=_rsettings,
+                model_name=_model_id,
+                provider=openai_provider,
+                profile=_single_system_message_profile,
             )
 
         raise RuntimeError("Ollama's DNS-pinned client runtime is unavailable")
@@ -620,7 +648,10 @@ def _create_model_impl(
                 )
                 ds_provider = DeepSeekProvider(openai_client=openai_client)
                 return OpenAIChatModel(
-                    settings=_rsettings, model_name=_model_id, provider=ds_provider
+                    settings=_rsettings,
+                    model_name=_model_id,
+                    provider=ds_provider,
+                    profile=_single_system_message_profile,
                 )
         except ImportError:
             pass
@@ -750,6 +781,7 @@ def _create_model_impl(
                 settings=_rsettings,
                 model_name=_model_id,
                 provider=OpenAIProvider(openai_client=custom_client),
+                profile=_single_system_message_profile,
             )
         raise RuntimeError("Custom provider DNS-pinned client runtime is unavailable")
 

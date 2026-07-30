@@ -52,7 +52,10 @@ flowchart TD
 - **Local LLM by default.** Steps run through `run_agent` → `create_agent` with the configured
   default configured chat model — the standard model-router path, so priority-aware
   admission can tag these runs ORCHESTRATION/INTERACTIVE and they are never stuck behind
-  ingestion enrichment.
+  ingestion enrichment. The OpenAI-compatible model profile normalizes the mandatory
+  governed-evidence prefix and dynamic agent instructions into one leading system message.
+  This keeps the same path portable to strict vLLM/LiteLLM chat templates that reject a
+  second system message before the focused agent can call its bound MCP tool.
 - **Full visibility.** Reuses the existing `KGTraceBackend`/RunTrace + `action_outcome`
   (AU-AHE.evaluation.action-outcome-feedback). Query a delegated run:
   ```cypher
