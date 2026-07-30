@@ -676,9 +676,9 @@ def test_boot_hydration_plan_uses_fixed_priority_and_queues_only_configured_work
         )
 
     assert calls == [
-        "capabilities",
         "self",
         "fleet",
+        "capabilities",
         "prompts",
         "ontologies",
         "sources",
@@ -686,9 +686,9 @@ def test_boot_hydration_plan_uses_fixed_priority_and_queues_only_configured_work
     assert [
         (name, priority) for name, priority, status in records if status == "running"
     ] == [
-        ("capabilities", 1),
         ("graphos_tool_surface", 1),
         ("fleet_tool_schemas", 1),
+        ("capabilities", 1),
         ("prompts", 2),
         ("ontologies", 3),
         ("code_and_connectors", 4),

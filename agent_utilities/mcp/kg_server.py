@@ -2903,7 +2903,7 @@ def _run_boot_hydration_plan(
 ) -> None:
     """Run GraphOS boot hydration in its fixed resource-priority order.
 
-    1. runnable skills plus MCP declarations and GraphOS tool metadata;
+    1. bounded GraphOS/fleet tool metadata, then runnable skills and MCP declarations;
     2. prompts/agent templates;
     3. package ontologies; and
     4. codebases and configured connectors through their durable delta queues.
@@ -2912,13 +2912,13 @@ def _run_boot_hydration_plan(
     priority classes from making progress.
     """
     steps = (
+        ("graphos_tool_surface", 1, lambda: _ingest_self_tool_surface_at_boot(engine)),
+        ("fleet_tool_schemas", 1, lambda: _enqueue_fleet_tool_schema_hydration(engine)),
         (
             "capabilities",
             1,
             lambda: _ingest_capabilities(engine, skip_skill_names=skip_skill_names),
         ),
-        ("graphos_tool_surface", 1, lambda: _ingest_self_tool_surface_at_boot(engine)),
-        ("fleet_tool_schemas", 1, lambda: _enqueue_fleet_tool_schema_hydration(engine)),
         ("prompts", 2, _ingest_prompts_at_boot),
         ("ontologies", 3, lambda: _sync_ontologies_at_boot(engine)),
         (
