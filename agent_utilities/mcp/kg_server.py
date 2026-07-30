@@ -3182,7 +3182,11 @@ def _stop_process_authority_supervisor() -> None:
 
 
 _BUNDLED_SKILL_READINESS: dict[str, Any] = {}
-_ENGINE_MATERIALIZATION_TIMEOUT_SECONDS = 300.0
+# A 9–10 GiB four-shard graph can legitimately need just over five minutes to
+# rebuild its lazy-open indexes on slower storage. Keep this within the
+# deployment's ten-minute startup probe while avoiding a pointless restart at
+# the former five-minute boundary, which merely repeated the cold-open work.
+_ENGINE_MATERIALIZATION_TIMEOUT_SECONDS = 540.0
 _ENGINE_MATERIALIZATION_POLL_SECONDS = 0.25
 
 
