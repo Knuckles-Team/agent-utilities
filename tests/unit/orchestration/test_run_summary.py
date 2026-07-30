@@ -13,7 +13,7 @@ the old hardcoded "delegation produced no usable data" sentinel), with a resolva
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -173,7 +173,13 @@ async def test_run_agent_fleet_gate_failure_produces_a_transparent_run_summary()
     code (only the KG-engine boundary and the network tool call are mocked)."""
     from types import SimpleNamespace
 
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     shape = SimpleNamespace(
@@ -249,7 +255,13 @@ async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenanc
     """
     from types import SimpleNamespace
 
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
     shape = SimpleNamespace(
         tool_servers=("repository-manager-mcp",),
@@ -311,7 +323,13 @@ async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenanc
 
 @pytest.mark.asyncio
 async def test_run_agent_success_run_summary_has_ok_outcome_and_no_failure() -> None:
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     with (
@@ -367,7 +385,13 @@ async def test_run_agent_without_include_run_summary_keeps_bare_string_contract(
     None
 ):
     """The default (existing) contract is untouched for a caller that never opts in."""
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     with (
@@ -404,7 +428,13 @@ async def test_run_agent_cancellation_best_effort_records_a_timeout_trace() -> N
     REAL node."""
     import asyncio as _asyncio
 
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     with (
@@ -443,7 +473,13 @@ async def test_run_agent_cancellation_trace_write_never_blocks_the_reraise() -> 
     propagate cleanly (never swallowed/converted)."""
     import asyncio as _asyncio
 
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     with (

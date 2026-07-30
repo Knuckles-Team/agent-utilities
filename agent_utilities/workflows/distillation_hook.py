@@ -17,6 +17,7 @@ Configuration (from ``config.json``)::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -91,7 +92,7 @@ class WorkflowDistillationHook:
             return outcome
 
         pattern_key = _compute_pattern_key(plan)
-        success_count = self._record_success(pattern_key)
+        success_count = await asyncio.to_thread(self._record_success, pattern_key)
 
         if success_count < self.promotion_threshold:
             outcome["reason"] = (
@@ -176,8 +177,10 @@ class WorkflowDistillationHook:
                 from ..core.registry.kg_adapter import RegistryMixin
 
                 if isinstance(self.engine, RegistryMixin):
-                    self.engine.record_team_outcome(
-                        team_config_id, reward=quality_score
+                    await asyncio.to_thread(
+                        self.engine.record_team_outcome,
+                        team_config_id,
+                        reward=quality_score,
                     )
             except Exception as e:
                 logger.debug("[ORCH-1.8] TeamConfig reward update failed: %s", e)
@@ -193,6 +196,13 @@ class WorkflowDistillationHook:
         self, pattern_key: str, plan: GraphPlan, team_config_id: str | None
     ) -> Path:
         """Scaffold a new skill directory from a proven execution pattern."""
+        return await asyncio.to_thread(
+            self._scaffold_skill_sync, pattern_key, plan, team_config_id
+        )
+
+    def _scaffold_skill_sync(
+        self, pattern_key: str, plan: GraphPlan, team_config_id: str | None
+    ) -> Path:
         import hashlib
         import time
         from pathlib import Path

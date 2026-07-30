@@ -21,7 +21,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -61,7 +61,13 @@ def _mocked_focused_run(result: dict[str, Any]) -> Iterator[None]:
     shape = SimpleNamespace(
         tool_servers=("github-mcp",), resolve_agent=False, direct_complete=False
     )
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
     with (
         patch.object(agent_runner, "_get_or_create_engine", return_value=fake_engine),

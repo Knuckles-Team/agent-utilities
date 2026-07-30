@@ -143,6 +143,15 @@ def _foreground_execution(fn):
     return wrapper
 
 
+async def _offload_sync(operation, *args, **kwargs):
+    """Run a synchronous integration without occupying the request event loop."""
+
+    result = await asyncio.to_thread(operation, *args, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
 def _is_agent_error(output: str) -> bool:
     """True when a spawned-agent output string is a structured error envelope.
 
@@ -600,7 +609,7 @@ class AgentOrchestrationEngine:
 
             # Standardize tag_prompts from the registry for high-fidelity routing.
             # We merge existing prompts with registry-provided domain tags.
-            registry = get_discovery_registry()
+            registry = await _offload_sync(get_discovery_registry)
             for agent in registry.agents:
                 # Domain tags (like 'git_operations') are the primary routing targets
                 # MCPAgent uses 'name' as the primary identifier
@@ -623,7 +632,7 @@ class AgentOrchestrationEngine:
                 from ..core.registry.service_adapter import ServiceRegistry
 
                 svc_registry = ServiceRegistry.instance()
-                svc_count = svc_registry.initialize()
+                svc_count = await _offload_sync(svc_registry.initialize)
                 logger.debug(
                     "run_graph: Service registry initialized with %d services",
                     svc_count,
@@ -764,7 +773,8 @@ class AgentOrchestrationEngine:
                         _usage = result.metadata.get("token_usage", {}) or {}
                     elif isinstance(result, dict):
                         _usage = result.get("metadata", {}).get("token_usage", {}) or {}
-                    _exporter.export_graph_run(
+                    await _offload_sync(
+                        _exporter.export_graph_run,
                         run_id=run_id,
                         query=query,
                         status="success" if result else "timeout",
@@ -796,7 +806,8 @@ class AgentOrchestrationEngine:
             try:
                 from ..observability.self_ingest import emit_run_trace
 
-                emit_run_trace(
+                await _offload_sync(
+                    emit_run_trace,
                     run_id=run_id,
                     status="success" if result else "timeout",
                     duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
@@ -829,7 +840,8 @@ class AgentOrchestrationEngine:
                     _rt_model = str(_md.get("model", "") or "")
                 from agent_utilities.security.brain_context import current_actor
 
-                get_usage_recorder().record_run(
+                await _offload_sync(
+                    get_usage_recorder().record_run,
                     run_id=run_id,
                     query=query,
                     status="success" if result else "timeout",
@@ -1389,7 +1401,9 @@ class AgentOrchestrationEngine:
         graph_evidence.bind_state(state)
 
         # Merge registry tags into deps (same as run_graph)
-        registry = get_discovery_registry()
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+        # backend round-trip; keep it off the event loop (mirrors execute_graph above).
+        registry = await _offload_sync(get_discovery_registry)
         for agent in registry.agents:
             if agent.name and agent.name not in deps.tag_prompts:
                 deps.tag_prompts[agent.name] = agent.description or agent.name

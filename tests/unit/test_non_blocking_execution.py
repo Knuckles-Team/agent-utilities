@@ -103,7 +103,11 @@ def test_build_execution_config_applies_chat_profile(monkeypatch) -> None:
     monkeypatch.setattr(
         config,
         "chat_models",
-        [ChatModelConfig(id="synthetic-standard", provider="openai", intelligence_level="normal")],
+        [
+            ChatModelConfig(
+                id="synthetic-standard", provider="openai", intelligence_level="normal"
+            )
+        ],
     )
     meta: dict[str, Any] = {"type": "unknown", "capabilities": [], "tools": []}
 
@@ -130,7 +134,11 @@ def test_build_execution_config_injects_code_context_prime(monkeypatch) -> None:
     monkeypatch.setattr(
         config,
         "chat_models",
-        [ChatModelConfig(id="synthetic-standard", provider="openai", intelligence_level="normal")],
+        [
+            ChatModelConfig(
+                id="synthetic-standard", provider="openai", intelligence_level="normal"
+            )
+        ],
     )
     meta: dict[str, Any] = {"type": "unknown", "capabilities": [], "tools": []}
     cfg = _build_execution_config(
@@ -368,6 +376,93 @@ def test_graph_cache_key_is_structural_only() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shape_planning_and_run_provenance_do_not_block_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Slow native planning and trace writes must leave the request loop schedulable."""
+    import asyncio
+    import threading
+    import time
+
+    from agent_utilities.core.config import ChatModelConfig, config
+    from agent_utilities.orchestration import agent_runner, execution_profile
+
+    monkeypatch.setattr(
+        config,
+        "chat_models",
+        [
+            ChatModelConfig(
+                id="synthetic-standard", provider="openai", intelligence_level="normal"
+            )
+        ],
+    )
+    planner_entered = threading.Event()
+    planner_release = threading.Event()
+    trace_entered = threading.Event()
+    trace_release = threading.Event()
+    planner_threads: list[int] = []
+    trace_threads: list[int] = []
+    main_thread = threading.get_ident()
+    real_plan = execution_profile.plan_execution_shape
+
+    def slow_plan(task: str, **kwargs: Any):
+        planner_threads.append(threading.get_ident())
+        planner_entered.set()
+        planner_release.wait(0.5)
+        return real_plan(
+            task,
+            profile_hint=kwargs.get("profile_hint"),
+            engine=None,
+        )
+
+    def slow_trace(*_args: Any, **_kwargs: Any) -> None:
+        trace_threads.append(threading.get_ident())
+        trace_entered.set()
+        trace_release.wait(0.5)
+
+    async def no_mementos(*_args: Any, **_kwargs: Any) -> list[str]:
+        return []
+
+    async def no_code_context(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def complete_graph(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "completed",
+            "results": {"output": "done"},
+            "metadata": {"execution_mode": "pydantic_graph"},
+        }
+
+    monkeypatch.setattr(execution_profile, "plan_execution_shape", slow_plan)
+    monkeypatch.setattr(agent_runner, "_prime_recent_mementos", no_mementos)
+    monkeypatch.setattr(agent_runner, "_prime_code_context", no_code_context)
+    monkeypatch.setattr(agent_runner, "_execute_graph", complete_graph)
+    monkeypatch.setattr(agent_runner, "_record_execution_trace", slow_trace)
+    monkeypatch.setattr(agent_runner, "_write_step_credit", lambda *_a, **_k: None)
+
+    started = time.monotonic()
+    run = asyncio.create_task(
+        agent_runner.run_agent(
+            agent_name="messaging-assistant",
+            task="analyze this deployment failure and build a recovery plan",
+            engine=object(),
+        )
+    )
+    assert await asyncio.to_thread(planner_entered.wait, 0.2)
+    assert time.monotonic() - started < 0.3
+    planner_release.set()
+
+    trace_started = time.monotonic()
+    assert await asyncio.to_thread(trace_entered.wait, 0.2)
+    assert time.monotonic() - trace_started < 0.3
+    trace_release.set()
+
+    assert await asyncio.wait_for(run, timeout=1.0) == "done"
+    assert planner_threads and planner_threads[0] != main_thread
+    assert trace_threads and trace_threads[0] != main_thread
+
+
+@pytest.mark.asyncio
 async def test_resolve_agent_runs_off_the_event_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -386,7 +481,11 @@ async def test_resolve_agent_runs_off_the_event_loop(
     monkeypatch.setattr(
         config,
         "chat_models",
-        [ChatModelConfig(id="synthetic-standard", provider="openai", intelligence_level="normal")],
+        [
+            ChatModelConfig(
+                id="synthetic-standard", provider="openai", intelligence_level="normal"
+            )
+        ],
     )
     main_thread = threading.get_ident()
     resolve_threads: list[int] = []
@@ -438,7 +537,11 @@ async def test_passthrough_agent_skips_resolution(
     monkeypatch.setattr(
         config,
         "chat_models",
-        [ChatModelConfig(id="synthetic-standard", provider="openai", intelligence_level="normal")],
+        [
+            ChatModelConfig(
+                id="synthetic-standard", provider="openai", intelligence_level="normal"
+            )
+        ],
     )
     called: list[str] = []
 

@@ -8,6 +8,7 @@ payload + ``WorkflowContextRouter`` behaviour.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -81,7 +82,12 @@ class WorkflowContextRouter:
                 scoped_query = query
                 if required_caps:
                     scoped_query = f"{query} :: caps={','.join(required_caps)}"
-                results = self.engine.search_hybrid(scoped_query, top_k=top_k) or []
+                results = (
+                    await asyncio.to_thread(
+                        self.engine.search_hybrid, scoped_query, top_k=top_k
+                    )
+                    or []
+                )
                 if token_budget:
                     from ....knowledge_graph.retrieval.budget import fit_within
 

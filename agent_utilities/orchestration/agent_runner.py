@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 import logging
 import re
@@ -51,6 +52,59 @@ if TYPE_CHECKING:
     from agent_utilities.orchestration.execution_profile import ExecutionProfile
 
 logger = logging.getLogger(__name__)
+
+
+async def _call_without_blocking(
+    operation: Callable[..., Any], *args: Any, **kwargs: Any
+) -> Any:
+    """Run a capability without executing synchronous work on the event loop."""
+
+    if inspect.iscoroutinefunction(operation):
+        return await operation(*args, **kwargs)
+    result = await asyncio.to_thread(operation, *args, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
+def _resolve_context_ref(
+    engine: IntelligenceGraphEngine,
+    context_ref: str,
+    run_id: str,
+) -> str | None:
+    """Resolve and provenance-link a persisted context in one blocking worker."""
+
+    rows = engine.query_cypher(
+        "MATCH (c:ContextBlob) WHERE c.id = $id "
+        "RETURN c.id AS id, c.content AS content",
+        {"id": context_ref},
+    )
+    if not rows or not rows[0].get("content"):
+        return None
+    add_edge = getattr(engine, "add_edge", None)
+    if callable(add_edge):
+        with contextlib.suppress(Exception):
+            from agent_utilities.observability.trace_ontology import trace_id
+
+            add_edge(trace_id(run_id), context_ref, "HAS_CONTEXT")
+    return str(rows[0]["content"])
+
+
+def _anchor_run_to_session(
+    engine: IntelligenceGraphEngine,
+    *,
+    session_id: str,
+    run_id: str,
+) -> None:
+    """Persist the session/run relationship through the synchronous graph API."""
+
+    from agent_utilities.observability.trace_ontology import trace_id
+
+    snode = f"session:{session_id}"
+    engine.add_node(
+        snode, "Session", properties={"id": snode, "session_id": session_id}
+    )
+    engine.add_edge(snode, trace_id(run_id), "HAS_RUN")
 
 
 def _render_agent_result(
@@ -654,13 +708,14 @@ async def run_agent(
         logger.info(
             "[ORCH-1.9] Executing full Enterprise Autonomous Company orchestration"
         )
-        manifest = manifest_for_enterprise(task, engine)
+        manifest = await _call_without_blocking(manifest_for_enterprise, task, engine)
         pe = ParallelEngine(engine=engine)
 
         try:
             pe_result = await pe.execute(manifest)
             duration_ms = (time.monotonic() - start_time) * 1000
-            _record_execution_trace(
+            await _call_without_blocking(
+                _record_execution_trace,
                 engine,
                 run_id,
                 "enterprise",
@@ -675,7 +730,8 @@ async def run_agent(
             )
         except Exception as e:
             logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
-            _record_execution_trace(
+            await _call_without_blocking(
+                _record_execution_trace,
                 engine,
                 run_id,
                 "enterprise",
@@ -692,8 +748,6 @@ async def run_agent(
 
     # Step 1b: Check if agent_name maps to a native ServiceRegistry capability (e.g. trading_swarm)
     try:
-        import inspect
-
         from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry.instance()
@@ -724,37 +778,22 @@ async def run_agent(
                     except Exception:
                         task_data = {"raw_task": task}
 
-                    result = (
-                        await instance.analyze(task_data)
-                        if getattr(instance.analyze, "__iscoroutinefunction__", False)
-                        else instance.analyze(task_data)
-                    )
+                    result = await _call_without_blocking(instance.analyze, task_data)
                 elif hasattr(instance, "select_pattern"):
                     handled = True
                     # Specifically for SubagentPatternRouter
-                    result = (
-                        await instance.select_pattern(needs_collaboration=True)
-                        if getattr(
-                            instance.select_pattern, "__iscoroutinefunction__", False
-                        )
-                        else instance.select_pattern(needs_collaboration=True)
+                    result = await _call_without_blocking(
+                        instance.select_pattern, needs_collaboration=True
                     )
                 elif hasattr(instance, "run"):
                     handled = True
-                    result = (
-                        await instance.run(task)
-                        if getattr(instance.run, "__iscoroutinefunction__", False)
-                        else instance.run(task)
-                    )
+                    result = await _call_without_blocking(instance.run, task)
                 elif hasattr(instance, "execute"):
                     handled = True
-                    result = (
-                        await instance.execute(task)
-                        if getattr(instance.execute, "__iscoroutinefunction__", False)
-                        else instance.execute(task)
-                    )
+                    result = await _call_without_blocking(instance.execute, task)
                 if handled:
-                    _record_execution_trace(
+                    await _call_without_blocking(
+                        _record_execution_trace,
                         engine,
                         run_id,
                         agent_name,
@@ -781,7 +820,12 @@ async def run_agent(
     # simple chat reply.
     from agent_utilities.orchestration.execution_profile import plan_execution_shape
 
-    shape = plan_execution_shape(task, profile_hint=execution_profile, engine=engine)
+    shape = await _call_without_blocking(
+        plan_execution_shape,
+        task,
+        profile_hint=execution_profile,
+        engine=engine,
+    )
 
     # Step 2: Query KG for agent metadata — ONLY when the shape targets a specific specialist.
     # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — ``_resolve_agent_from_kg`` runs synchronous backend round-trips;
@@ -800,7 +844,9 @@ async def run_agent(
     if (
         shape.resolve_agent or agent_name.strip()
     ) and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
-        agent_meta = await asyncio.to_thread(_resolve_agent_from_kg, engine, agent_name)
+        agent_meta = await _call_without_blocking(
+            _resolve_agent_from_kg, engine, agent_name
+        )
     else:
         agent_meta = _unresolved_agent_meta()
 
@@ -810,7 +856,7 @@ async def run_agent(
                 f"ingested skill '{skill_name}' was not found or runnable"
             )
         if tool_server:
-            agent_meta = await asyncio.to_thread(
+            agent_meta = await _call_without_blocking(
                 _bind_explicit_tool_server,
                 engine,
                 agent_meta,
@@ -859,22 +905,9 @@ async def run_agent(
     # from the epistemic-graph and link it to this run's RunTrace for provenance.
     if context_ref and not context:
         try:
-            _rows = engine.query_cypher(
-                "MATCH (c:ContextBlob) WHERE c.id = $id "
-                "RETURN c.id AS id, c.content AS content",
-                {"id": context_ref},
+            context = await _call_without_blocking(
+                _resolve_context_ref, engine, context_ref, run_id
             )
-            if _rows and _rows[0].get("content"):
-                context = str(_rows[0]["content"])
-                # Provenance: link this run to the context it consumed (CONCEPT:AU-ORCH.session.carry-invoker).
-                _add_edge = getattr(engine, "add_edge", None)
-                if callable(_add_edge):
-                    with contextlib.suppress(Exception):
-                        from agent_utilities.observability.trace_ontology import (
-                            trace_id,
-                        )
-
-                        _add_edge(trace_id(run_id), context_ref, "HAS_CONTEXT")
         except Exception as _ctx_exc:  # noqa: BLE001
             logger.warning(
                 "context_ref %s resolution failed: %s", context_ref, _ctx_exc
@@ -928,7 +961,9 @@ async def run_agent(
     if open_channel or session_id:
         from agent_utilities.messaging import agent_channel
 
-        channel_id = agent_channel.open_channel(engine, session_id or run_id, run_id)
+        channel_id = await _call_without_blocking(
+            agent_channel.open_channel, engine, session_id or run_id, run_id
+        )
         if channel_id:
             config["message_channel_id"] = channel_id
 
@@ -964,7 +999,13 @@ async def run_agent(
     # for the execution block below (so the spawn's engine calls carry the delegation envelope in
     # `on` mode) and passed explicitly to the RunTrace so provenance records the chain regardless
     # of context scope. `off` mode returns None (legacy identity, zero overhead).
-    _spawn_delegation = _prepare_spawn_delegation(agent_name, run_id, config)
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — in `on`/`warn` mode this performs a
+    # SYNCHRONOUS RFC 8693 token-exchange HTTP POST to the IdP token endpoint (a real network
+    # round-trip, not just a KG hit); run it off the event loop like every other blocking
+    # capability in this function.
+    _spawn_delegation = await _call_without_blocking(
+        _prepare_spawn_delegation, agent_name, run_id, config
+    )
 
     # Step 4: Execute. A resolved single MCP-server agent runs a DETERMINISTIC
     # direct tool loop (bind only that server's toolset, no router); anything else
@@ -1209,11 +1250,12 @@ async def run_agent(
             # caller that pre-generated one via the ``run_id=`` param specifically so it
             # survives a cancellation) would resolve to nothing. Best-effort record a
             # "timeout" RunTrace with whatever route/stage this run reached before it was cut
-            # off, so that trace_ref is a REAL troubleshooting entry point. Synchronous (no
-            # ``await``), so it runs safely to completion even though cancellation has already
-            # been delivered to this coroutine; never allowed to block or convert the re-raise.
+            # off, so that trace_ref is a REAL troubleshooting entry point. The graph client is
+            # synchronous, so persist in a worker: cancellation has already reached this
+            # coroutine, but it must not turn the timeout-cleanup path into an event-loop stall.
             try:
-                _record_execution_trace(
+                await _call_without_blocking(
+                    _record_execution_trace,
                     engine,
                     run_id,
                     agent_name,
@@ -1256,7 +1298,8 @@ async def run_agent(
             err_msg,
         )
         # Record failure provenance
-        _record_execution_trace(
+        await _call_without_blocking(
+            _record_execution_trace,
             engine,
             run_id,
             agent_name,
@@ -1275,7 +1318,14 @@ async def run_agent(
         )
         # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
-        _write_step_credit(engine, run_id, agent_name, None, success=False)
+        await _call_without_blocking(
+            _write_step_credit,
+            engine,
+            run_id,
+            agent_name,
+            None,
+            success=False,
+        )
         # CONCEPT:AU-ORCH.execution.planner-failure-feedback/1.71 — fold the failure back into the planner: evict this job's
         # cached recipe AND teach the shape policy (this archetype failed for this task-class).
         from agent_utilities.orchestration.execution_profile import record_shape_outcome
@@ -1480,7 +1530,8 @@ async def run_agent(
         _record_delegation_over_budget(
             agent_name, duration_ms / 1000.0, "degraded" if degraded else "ok"
         )
-    _record_execution_trace(
+    await _call_without_blocking(
+        _record_execution_trace,
         engine,
         run_id,
         agent_name,
@@ -1526,18 +1577,32 @@ async def run_agent(
     # node on this run's RunTrace, so the delegated action is fully visible over
     # graph-os ("what tools, what args, what result"). Best-effort, never breaks.
     if isinstance(result, dict) and result.get("tool_calls"):
-        _persist_tool_calls(
-            engine, run_id, agent_name, agent_name, result["tool_calls"]
+        await _call_without_blocking(
+            _persist_tool_calls,
+            engine,
+            run_id,
+            agent_name,
+            agent_name,
+            result["tool_calls"],
         )
     # Self-healing (CONCEPT:AU-AHE.evaluation.action-outcome-feedback): a degraded run teaches the
     # reward-EMA that this agent/task-class produced a non-answer, so routing prefers
     # actions that actually achieve the goal. Best-effort; never breaks the run.
     if degraded:
-        _record_degraded_feedback(engine, agent_name, task, result)
+        await _call_without_blocking(
+            _record_degraded_feedback, engine, agent_name, task, result
+        )
     # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): credit the intermediate agent-steps of
     # this run into the capability reward-EMA so routing learns from the steps,
     # not only the final answer. Guarded — never breaks the run path.
-    _write_step_credit(engine, run_id, agent_name, result, success=not degraded)
+    await _call_without_blocking(
+        _write_step_credit,
+        engine,
+        run_id,
+        agent_name,
+        result,
+        success=not degraded,
+    )
     # CONCEPT:AU-ORCH.execution.shape-policy-learning — teach the shape policy whether this archetype
     # SUCCEEDED for this task-class, rewarded by speed (success × how little of the budget it spent).
     from agent_utilities.orchestration.execution_profile import record_shape_outcome
@@ -1552,14 +1617,13 @@ async def run_agent(
     # CONCEPT:AU-ORCH.session.session-anchored-collections-native — anchor this run to its Session (id-addressable) so "list runs by
     # session" is a reliable single-hop traversal, mirroring HAS_CONTEXT/HAS_MESSAGE.
     if session_id:
-        snode = f"session:{session_id}"
         with contextlib.suppress(Exception):
-            from agent_utilities.observability.trace_ontology import trace_id
-
-            engine.add_node(
-                snode, "Session", properties={"id": snode, "session_id": session_id}
+            await _call_without_blocking(
+                _anchor_run_to_session,
+                engine,
+                session_id=session_id,
+                run_id=run_id,
             )
-            engine.add_edge(snode, trace_id(run_id), "HAS_RUN")
 
     logger.info(
         "[ORCH-1.21] Agent execution complete: agent=%s, run_id=%s, duration=%.0fms",
@@ -3134,7 +3198,8 @@ async def _execute_graph(
             )
 
     # Build graph from config
-    graph, full_config = create_graph_agent(
+    graph, full_config = await _call_without_blocking(
+        create_graph_agent,
         tag_prompts=config["tag_prompts"],
         tag_env_vars=config.get("tag_env_vars", {}),
         mcp_config=config.get("mcp_config"),
