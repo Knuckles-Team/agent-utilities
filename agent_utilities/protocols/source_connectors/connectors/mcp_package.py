@@ -88,6 +88,35 @@ def _load_mcp_config() -> dict[str, Any]:
         return {}
 
 
+def _configured_mcp_server(
+    servers: dict[str, Any], server_name: str
+) -> tuple[str, dict[str, Any]] | None:
+    """Resolve one configured MCP server without changing connector ownership.
+
+    Connector packages are named by their distribution role (for example,
+    ``servicenow-api``), while deployed MCP endpoints conventionally use the
+    ``*-mcp`` service name.  Prefer the declared name and its existing
+    ``<name>-mcp`` compatibility form, then use the fleet's documented
+    ``*-api``/``*-agent`` -> ``*-mcp`` deployment alias.  This only selects a
+    server already present in the operator-owned ``mcp_config.json``; it never
+    synthesizes a transport or relaxes provider/manifest verification.
+    """
+
+    requested = str(server_name or "").strip()
+    if not requested:
+        return None
+    candidates = [requested, f"{requested}-mcp"]
+    for suffix in ("-api", "-agent"):
+        if requested.endswith(suffix):
+            candidates.append(f"{requested[: -len(suffix)]}-mcp")
+            break
+    for candidate in dict.fromkeys(candidates):
+        config = servers.get(candidate)
+        if isinstance(config, dict):
+            return candidate, dict(config)
+    return None
+
+
 def _decode_tool_result(result: Any) -> Any:
     """Decode an MCP ``call_tool`` result into a Python object.
 
@@ -127,12 +156,13 @@ def _default_call_tool(server_name: str) -> CallToolFn:
     avoids holding child processes open).
     """
     servers = _load_mcp_config()
-    cfg = servers.get(server_name) or servers.get(f"{server_name}-mcp")
-    if not cfg or not cfg.get("command"):
+    resolved = _configured_mcp_server(servers, server_name)
+    if resolved is None or not resolved[1].get("command"):
         raise KeyError(
             f"No MCP server {server_name!r} in mcp_config.json (need a 'command'). "
             "Pass call_tool=... to use this connector offline."
         )
+    _configured_name, cfg = resolved
 
     def _call(tool_name: str, arguments: dict[str, Any]) -> Any:
         async def _run() -> Any:

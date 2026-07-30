@@ -70,6 +70,22 @@ def test_open_client_logs_legacy_fastmcp_auth_fallback(
     assert "auth keyword is unavailable" in caplog.text
 
 
+def test_api_provider_server_resolves_deployed_mcp_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A signed package identity can reach its separately named MCP service."""
+    from agent_utilities.protocols.source_connectors.connectors import mcp_tool
+
+    deployed = {"url": "https://servicenow.example.test/mcp"}
+    monkeypatch.setattr(
+        mcp_tool, "_load_mcp_config", lambda: {"servicenow-mcp": deployed}
+    )
+
+    connector = McpToolSourceConnector(server="servicenow-api", tool="incidents")
+
+    assert connector._client_target() == {"mcpServers": {"servicenow-mcp": deployed}}
+
+
 def make_sql_server(rows: list[dict] | None = None, page_size: int = 2) -> FastMCP:
     """A fake sql-mcp: keyset-paginated sql_query + sql_schema columns."""
     table = (
