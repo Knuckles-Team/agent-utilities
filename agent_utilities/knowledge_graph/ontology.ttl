@@ -100,6 +100,7 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
         <http://knuckles.team/kg/personal>,
         <http://knuckles.team/kg/plane>,
         <http://knuckles.team/kg/portainer>,
+        <http://knuckles.team/kg/process_intelligence>,
         <http://knuckles.team/kg/pulselink>,
         <http://knuckles.team/kg/qbittorrent>,
         <http://knuckles.team/kg/quant>,
@@ -978,4 +979,3 @@ bfo:0000001 a owl:Class ;
 
 [] a owl:AllDisjointClasses ;
     owl:members ( :Person :Organization :Server :Incident :Event ) .
-

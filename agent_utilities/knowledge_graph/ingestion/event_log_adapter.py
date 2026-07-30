@@ -15,26 +15,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from .semantic_event_model import (
+    EventObjectParticipation,
+    ProcessEvent,
+)
 
-@dataclass(frozen=True, slots=True)
-class EventObjectReference:
-    """One qualified event-to-object participation."""
-
-    object_id: str
-    object_type: str
-    qualifier: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class EventRecord:
-    """Validated minimum event record retained before any trace projection."""
-
-    event_id: str
-    activity: str
-    occurred_at: datetime
-    objects: tuple[EventObjectReference, ...]
-    source_ref: str
-    sequence_tiebreaker: str = ""
+EventObjectReference = EventObjectParticipation
+EventRecord = ProcessEvent
 
 
 @dataclass(frozen=True, slots=True)

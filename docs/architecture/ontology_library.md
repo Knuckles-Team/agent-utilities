@@ -90,6 +90,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_native_source_connector.ttl` | `…/kg/native_source_connector` | Generated OWL mirror of the native_source_connector connector manifest (every resource, relation, and field) — `scripts/generate_connector_manifests.py --connector native_source_connector` (AU-KG.ontology.connector-manifest-compiler). |
 | `ontology_orchestration.ttl` | `…/kg/orchestration` | Orchestration: skill proposals, workflow/process distillation. |
 | `ontology_personal.ttl` | `…/kg/personal` | Personal-knowledge domain. |
+| `ontology_process_intelligence.ttl` | `…/kg/process_intelligence` | OCEL-shaped object-centric events, temporal Event Knowledge Graph state, process perspectives/conformance, and governed neural graph representations/predictions. |
 | `ontology_sdd.ttl` | `…/kg/sdd` | Spec-driven development (Requirements, Features, TestCases). |
 | `ontology_sdlc_lifecycle.ttl` | `…/kg/sdlc_lifecycle` | SDLC lifecycle spine: the cross-cutting supertypes (`:Ticket`, `:PipelineRun`, `:CodeChange`, `:Validation`, `:ControlGate`, `:Approval`, `:EscalationRequest`, `:LifecycleStep`) + predicates (`:triggers`/`:specifies`/`:implements`/`:proposes`/`:triggersPipeline`/`:builds`/`:builtFrom`/`:deployedAs`/`:validatedBy`/`:resolves`) that unify the per-package incident/ticket/spec/MR/CI/image/deploy nodes into one enter-anywhere loop (`:Procedure`≡`:WorkflowDefinition`). |
 | `ontology_software.ttl` | `…/kg/software` | Software: code, tests, assertions. |
@@ -148,4 +149,5 @@ IRI). They are validated for well-formedness by the gate via pyshacl.
 | `shapes/harness.shapes.ttl` | Harness-engineering SHACL shapes. |
 | `shapes/feed.shapes.ttl` | Feed-ingestion SHACL shapes (`:FeedSource` must carry `source_system`). |
 | `shapes/temporal.shapes.ttl` | Bi-temporal fact invariants (CONCEPT:AU-KG.domains.ohlcv-gap-fill): well-formed validity window + a superseded fact must have its belief window closed (KG-2.251). |
+| `shapes/process_intelligence.shapes.ttl` | Required object/event participation and proposal-only neural/entity-resolution invariants for the unified OCEL/tEKG/neural graph contract. |
 | `shapes/portfolio_intelligence.shapes.ttl` | Portfolio comparative-intelligence decision shapes (CONCEPT:AU-KG.enrichment.portfolio-intelligence): a `:Recommendation` must carry a valid adopt/reject/consolidate/migrate `:verdict` + non-empty `:rationale`; an `:Assessment` must record its `:assessmentScore`; a `:ComparisonCriterion` must declare its kind + weight. |
