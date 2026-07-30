@@ -901,7 +901,7 @@ def test_graphos_startup_failure_releases_process_authority(failure_point: str) 
     args.port = 8000
     args.auth_type = "none"
     mcp = MagicMock()
-    session = MagicMock()
+    session = _verified_session("graphos-bootstrap")
     fleet = MagicMock()
     fleet.aclose = AsyncMock()
     security = MagicMock()
