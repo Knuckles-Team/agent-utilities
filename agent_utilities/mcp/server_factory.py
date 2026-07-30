@@ -2071,4 +2071,58 @@ def create_mcp_server(
             type(exc).__name__,
         )
 
+    _register_skill_providers(mcp)
+
     return args, mcp, middlewares
+
+
+def _register_skill_providers(mcp: Any) -> None:
+    """Expose this server's skills as ``skill://`` MCP resources (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
+
+    Wires FastMCP-4's Skills-over-MCP ``SkillProvider`` onto the just-built
+    server for every directory :func:`resolve_skill_provider_dirs` already
+    resolves (fleet-contributed + this package's own skills) — the SAME
+    discovery the in-loop ``SkillsToolset``/``agent-utilities install`` use, so
+    a skill has one discovery path with two projections (in-loop execution vs
+    wire distribution), not a second registry to keep in sync.
+
+    A fastmcp-4-server-built process gains ``skill://{name}/SKILL.md``,
+    ``skill://{name}/_manifest``, and ``skill://{name}/{path*}`` resources that
+    an mcp/fastmcp-3 client can already read (proven cross-version:
+    ``tests/integration/mcp/test_fastmcp_cross_version.py``). The default
+    ``[mcp]`` extra stays on fastmcp 3, which has no ``SkillProvider``/
+    ``add_provider`` — this degrades to a single debug-level log line and never
+    raises, so no au-built server crashes for lacking the ``[mcp-v4]`` extra.
+    """
+    if not hasattr(mcp, "add_provider"):
+        logger.debug(
+            "Skipping skill-over-MCP providers: FastMCP server has no "
+            "add_provider (fastmcp < 4; install the [mcp-v4] extra to enable)."
+        )
+        return
+
+    try:
+        from fastmcp.server.providers.skills import SkillProvider
+
+        from agent_utilities.core.providers import resolve_skill_provider_dirs
+
+        registered = 0
+        for provider_name, root_dir in resolve_skill_provider_dirs():
+            try:
+                mcp.add_provider(SkillProvider(root_dir))
+                registered += 1
+            except Exception as exc:  # one bad provider dir must not sink the rest
+                logger.warning(
+                    "Could not register skill provider %s (exception_type=%s)",
+                    provider_name,
+                    type(exc).__name__,
+                )
+        logger.info(
+            "Registered %d skill-over-MCP provider(s) as skill:// resources",
+            registered,
+        )
+    except Exception as exc:  # fastmcp-4 skills support is optional
+        logger.warning(
+            "Could not register skill-over-MCP providers (exception_type=%s)",
+            type(exc).__name__,
+        )

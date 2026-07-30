@@ -66,6 +66,16 @@ def _search_hit_properties(hit: dict[str, Any]) -> dict[str, Any]:
 
 
 def _search_hit_kind(hit: dict[str, Any]) -> str:
+    """Classify one ``search_hybrid`` hit's capability kind.
+
+    Delegates to the shared, table-driven
+    :func:`~agent_utilities.core.capability_contract.capability_kind_from_node`
+    (CONCEPT:AU-KG.retrieval.unified-capability-contract) — the same
+    classifier ``find``/``find_tools`` use — so a ``Tool`` node resolves to
+    ``"tool"`` here too instead of being silently dropped as unclassified.
+    """
+    from agent_utilities.core.capability_contract import capability_kind_from_node
+
     props = _search_hit_properties(hit)
     node_type = str(
         props.get("node_type")
@@ -73,16 +83,12 @@ def _search_hit_kind(hit: dict[str, Any]) -> str:
         or props.get("label")
         or props.get("kind")
         or ""
-    ).casefold()
-    resource_type = str(props.get("resource_type") or "").casefold()
-    node_id = str(props.get("id") or "").casefold()
-    if node_type == "workflowdefinition" or node_id.startswith(
-        ("workflow:", "skill_workflow:")
-    ):
-        return "workflow"
-    if resource_type == "agent_skill" or node_type in {"skill", "agentskill"}:
-        return "skill"
-    return ""
+    )
+    resource_type = str(props.get("resource_type") or "")
+    node_id = str(props.get("id") or "")
+    return capability_kind_from_node(
+        node_type=node_type, resource_type=resource_type, node_id=node_id
+    )
 
 
 def _search_hit_score(hit: dict[str, Any], rank: int) -> float:
@@ -569,6 +575,11 @@ class Orchestrator:
                     "id": str(props.get("id") or ""),
                     "score": _search_hit_score(hit, rank),
                     "source": "kg_hybrid",
+                    # Owning MCP server for a "tool" (or a fleet-served
+                    # "skill") kind — "" for a purely local skill/agent.
+                    # Carried so a resolved capability can be bound without
+                    # the caller re-deriving it (CONCEPT:AU-KG.retrieval.unified-capability-contract).
+                    "server": str(props.get("mcp_server") or ""),
                 }
             )
 
@@ -774,10 +785,32 @@ class Orchestrator:
                 "approval_request": _approval_request(result),
             }
 
+        # A ``target`` resolved (not caller-supplied — an explicit skill_name
+        # was already folded into ``target["kind"] == "skill"`` above) to a
+        # bare ``Tool`` node binds through the SAME Capability contract a
+        # ranked ``find``/``find_tools`` result would (CONCEPT:AU-KG.retrieval.unified-capability-contract):
+        # run the default expert scoped to just that one fleet tool, rather
+        # than the wrong-shaped ``agent_name=<tool name>``.
+        call_agent_name = target["name"]
+        call_tool_server = tool_server or None
+        call_allowed_tools = allowed_tools
+        if target["kind"] == "tool":
+            from agent_utilities.core.capability_contract import Capability
+
+            binding = Capability(
+                kind="tool",
+                id=str(target.get("id") or ""),
+                name=target["name"],
+                server=str(target.get("server") or "") or None,
+            ).to_binding()
+            call_agent_name = _DEFAULT_DELEGATE
+            call_tool_server = binding.get("tool_server") or call_tool_server
+            call_allowed_tools = binding.get("allowed_tools") or call_allowed_tools
+
         raw = await self.execute_agent(
-            agent_name=target["name"],
+            agent_name=call_agent_name,
             skill_name=skill_name or None,
-            tool_server=tool_server or None,
+            tool_server=call_tool_server,
             execution_mode=execution_mode,
             task=task,
             max_steps=max_steps,
@@ -785,7 +818,7 @@ class Orchestrator:
             context=context,
             budget_tokens=budget_tokens,
             context_ref=context_ref,
-            allowed_tools=allowed_tools,
+            allowed_tools=call_allowed_tools,
             required_tools=required_tools,
             cred_ref=cred_ref,
             open_channel=open_channel,

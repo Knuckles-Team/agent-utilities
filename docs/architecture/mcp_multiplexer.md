@@ -56,6 +56,12 @@ categories. A failed connection is distinct from an authoritative empty tool
 catalog, so ingestion never fabricates tools from configuration flags after an
 authentication, trust, or transport failure.
 
+The same bounded probe also enumerates a child's Skills-over-MCP `skill://`
+Resources alongside its Tools (best-effort — a server without resource-listing
+support degrades to no skills, never a failed tool probe), so `find_tools`
+ranks skills and tools in one result set. See
+[Skills-over-MCP](skills_over_mcp.md) for the full unified-capability design.
+
 Interactive discovery uses one shared wall-clock budget for catalog probes and
 semantic reranking. When the request names a configured domain such as GitHub or
 Mattermost, GraphOS probes that matching server first through the same canonical
