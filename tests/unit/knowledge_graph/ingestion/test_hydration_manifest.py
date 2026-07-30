@@ -238,6 +238,114 @@ def test_build_hydration_manifest_no_service_authority_is_honest():
     assert skill_row.service_authority_attempted is False
 
 
+def _verified_service_session():
+    """The shape ``start_background_daemons`` captures: a verified, authenticated
+    process authority — the SAME factory pattern the other GraphSession tests use."""
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.security.brain_context import ActorContext, ActorType
+
+    return GraphSession(
+        actor=ActorContext(
+            actor_id="graph-os-background",
+            actor_type=ActorType.AUTOMATED_SERVICE,
+            tenant_id="tenant-a",
+            authenticated=True,
+        ),
+        tenant="tenant-a",
+        scopes=frozenset({"kg:read"}),
+        graph="tenant-a",
+    )
+
+
+@pytest.mark.concept("AU-KG.audit.hydration-absent-vs-hidden")
+def test_service_authority_reader_is_none_without_a_distinct_session(monkeypatch):
+    """A second reader over the SAME ambient identity is NOT a second authority.
+
+    Engine reads resolve their principal from the task-local ``GraphSession``
+    (``GraphComputeClient._send``), not from the engine object, so wrapping a
+    second engine handle with no session of its own would produce an identical
+    read while the manifest advertised an independent confirmation. When the
+    active engine has captured no background session, the service reader must
+    be honestly absent.
+    """
+    from agent_utilities.knowledge_graph.core import engine as engine_mod
+
+    class _EngineWithoutBackgroundSession:
+        def query_cypher(self, _cypher):
+            return [{"c": 7}]
+
+    monkeypatch.setattr(
+        engine_mod.IntelligenceGraphEngine,
+        "get_active",
+        classmethod(lambda cls: _EngineWithoutBackgroundSession()),
+    )
+
+    assert hm.resolve_service_authority_reader() is None
+
+
+@pytest.mark.concept("AU-KG.audit.hydration-absent-vs-hidden")
+def test_service_authority_reader_binds_the_background_session(monkeypatch):
+    """With a captured background session it IS a second authority: the reader
+    must bind that session for the duration of the read, so the divergence
+    check compares two genuinely different identities."""
+    from agent_utilities.knowledge_graph.core import engine as engine_mod
+    from agent_utilities.knowledge_graph.core import session as session_mod
+
+    service_session = _verified_service_session()
+    seen: list[object] = []
+
+    class _EngineWithBackgroundSession:
+        _background_worker_session = service_session
+
+        def query_cypher(self, _cypher):
+            seen.append(session_mod.current_session())
+            return [{"c": 3}]
+
+    monkeypatch.setattr(
+        engine_mod.IntelligenceGraphEngine,
+        "get_active",
+        classmethod(lambda cls: _EngineWithBackgroundSession()),
+    )
+
+    reader = hm.resolve_service_authority_reader()
+    assert reader is not None
+    assert reader.count_label("Server") == 3
+    assert seen == [service_session]
+    # ...and it restores the ambient session afterwards.
+    assert session_mod.current_session() is not service_session
+
+
+@pytest.mark.concept("AU-KG.audit.hydration-absent-vs-hidden")
+def test_service_authority_reader_is_none_when_it_would_be_the_same_identity(
+    monkeypatch,
+):
+    """If the ambient serving session already IS the background session, the
+    two reads cannot differ — claiming an independent confirmation would be a
+    fabrication, so the reader is honestly absent."""
+    from agent_utilities.knowledge_graph.core import engine as engine_mod
+    from agent_utilities.knowledge_graph.core import session as session_mod
+
+    service_session = _verified_service_session()
+
+    class _EngineWithBackgroundSession:
+        _background_worker_session = service_session
+
+        def query_cypher(self, _cypher):
+            return [{"c": 3}]
+
+    monkeypatch.setattr(
+        engine_mod.IntelligenceGraphEngine,
+        "get_active",
+        classmethod(lambda cls: _EngineWithBackgroundSession()),
+    )
+
+    token = session_mod.set_session(service_session)
+    try:
+        assert hm.resolve_service_authority_reader() is None
+    finally:
+        session_mod.reset_session(token)
+
+
 @pytest.mark.concept("AU-KG.audit.hydration-manifest-signed")
 def test_error_summary_classifies_by_stage_and_exception_type():
     serving = FakeReader(raises_for={"Server"}).as_reader("serving")

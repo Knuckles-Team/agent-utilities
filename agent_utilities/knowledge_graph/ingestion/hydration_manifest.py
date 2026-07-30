@@ -191,20 +191,43 @@ def resolve_serving_reader(engine: Any) -> GraphReader | None:
 
 
 def resolve_service_authority_reader() -> GraphReader | None:
-    """The graph-os SERVER's own internal engine handle, if one is active.
+    """The graph-os SERVER's own background authority, if one is captured.
 
-    This is genuinely a distinct identity from a served caller's per-request
-    ``GraphSession``: it is the SAME internal handle
-    ``agent_utilities.mcp.kg_server``'s boot hydration and ``DeltaManifest``
-    already use for maintenance work, not a caller-supplied credential and not
-    an authority synthesized here. Returns ``None`` (never a fabricated
-    elevated read) when no server-owned engine is active in this process —
-    e.g. when the manifest is built from a standalone script with no live
-    engine, or before boot has activated one.
+    IDENTITY COMES FROM THE AMBIENT ``GraphSession``, NOT FROM THE ENGINE
+    OBJECT. Every engine operation resolves its principal/tenant/RLS grant from
+    the task-local :func:`~..core.session.current_session` immediately before
+    the native client signs the frame (see ``GraphComputeClient._send``, which
+    raises ``SessionRequiredError`` when none is bound). So wrapping a second
+    engine handle changes NOTHING about who the read runs as — a second reader
+    is only genuinely a second authority if it BINDS a different session for
+    the duration of its call.
+
+    This therefore binds the process's own verified background session
+    (``_background_worker_session``, captured by
+    :meth:`~..core.engine_tasks.TaskManagerMixin.start_background_daemons` — the
+    same authority boot hydration and the ingestion workers already run under),
+    and returns ``None`` — never a fabricated elevated read — when:
+
+    * no server-owned engine is active in this process (a standalone script, or
+      before boot activated one); or
+    * that engine captured no background session (daemons never started); or
+    * the ambient serving session IS that background session, in which case a
+      "second" read would be the same identity and reporting it as an
+      independent confirmation would be a lie.
+
+    When this returns ``None`` the manifest honestly records
+    ``service_authority_attempted=False`` and :func:`_fuse_verdict` degrades to
+    "an RLS visibility gap cannot be ruled out" instead of claiming a
+    divergence check that never happened.
     """
     try:
         from agent_utilities.knowledge_graph.core.engine import (
             IntelligenceGraphEngine,
+        )
+        from agent_utilities.knowledge_graph.core.session import (
+            GraphSession,
+            current_session,
+            use_session,
         )
 
         engine = IntelligenceGraphEngine.get_active()
@@ -216,7 +239,27 @@ def resolve_service_authority_reader() -> GraphReader | None:
     query_cypher = getattr(engine, "query_cypher", None)
     if not callable(query_cypher):
         return None
-    return GraphReader(query=query_cypher, authority="service")
+
+    service_session = getattr(engine, "_background_worker_session", None)
+    if not isinstance(service_session, GraphSession):
+        logger.debug(
+            "service-authority reader unavailable: the active engine has no "
+            "captured background session, so a second read would run under the "
+            "SAME ambient identity as the serving read"
+        )
+        return None
+    if current_session() is service_session:
+        logger.debug(
+            "service-authority reader unavailable: the ambient serving session "
+            "IS the server's background session, so the two reads cannot differ"
+        )
+        return None
+
+    def _query(cypher: str) -> Any:
+        with use_session(service_session):
+            return query_cypher(cypher)
+
+    return GraphReader(query=_query, authority="service")
 
 
 # ---------------------------------------------------------------------------
