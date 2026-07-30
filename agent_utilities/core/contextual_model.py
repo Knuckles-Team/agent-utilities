@@ -659,9 +659,7 @@ async def _compiled_evidence_and_bundle_bounded(
             _ctx_compile_degradation_streak,
             _ctx_compile_breaker_reopen_at - time.monotonic(),
         )
-        return _degrade_for_policy(
-            messages, model_name, reason="circuit_breaker_open"
-        )
+        return _degrade_for_policy(messages, model_name, reason="circuit_breaker_open")
 
     try:
         result = await asyncio.wait_for(

@@ -45,7 +45,10 @@ class _FakeBundle:
     """
 
     def __init__(
-        self, *, retrieval_quality_gate_failed: bool = False, retrieval_quality_reason: str = ""
+        self,
+        *,
+        retrieval_quality_gate_failed: bool = False,
+        retrieval_quality_reason: str = "",
     ) -> None:
         self.retrieval_quality_gate_failed = retrieval_quality_gate_failed
         self.retrieval_quality_reason = retrieval_quality_reason
