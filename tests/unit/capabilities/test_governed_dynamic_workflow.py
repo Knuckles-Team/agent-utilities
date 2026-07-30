@@ -81,6 +81,13 @@ def test_rejects_budget_dag_and_model_menu_escapes() -> None:
         GovernedDynamicWorkflow(
             steps=[DelegationStep(id="a", description="a", depends_on=["missing"])]
         )
+    with pytest.raises(ValidationError, match="must form a DAG"):
+        GovernedDynamicWorkflow(
+            steps=[
+                DelegationStep(id="a", description="a", depends_on=["b"]),
+                DelegationStep(id="b", description="b", depends_on=["a"]),
+            ]
+        )
 
 
 async def test_execute_uses_parallel_engine_and_propagates_cancellation() -> None:

@@ -74,6 +74,16 @@ class GovernedDynamicWorkflow(BaseModel):
             raise ValueError(
                 f"dynamic workflow has unknown dependencies: {sorted(unknown)}"
             )
+        remaining = {step.id: set(step.depends_on) for step in self.steps}
+        while remaining:
+            ready = {step_id for step_id, deps in remaining.items() if not deps}
+            if not ready:
+                raise ValueError("dynamic workflow dependencies must form a DAG")
+            remaining = {
+                step_id: deps - ready
+                for step_id, deps in remaining.items()
+                if step_id not in ready
+            }
         return self
 
     def to_graph_plan(self) -> GraphPlan:
@@ -147,4 +157,8 @@ class GovernedDynamicWorkflow(BaseModel):
                 "governed dynamic workflow cancelled during dispatch"
             )
         cancelled.cancel()
+        try:
+            await cancelled
+        except asyncio.CancelledError:
+            pass
         return await execution

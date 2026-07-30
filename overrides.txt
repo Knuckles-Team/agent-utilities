@@ -1,6 +1,6 @@
 # uv dependency override (uv pip install --override overrides.txt / UV_OVERRIDE).
 # Consumed by docker/Dockerfile (ENV UV_OVERRIDE=/tmp/overrides.txt).
 #
-pydantic-ai-slim>=2.20.0,<3.0.0
-# pydantic-acp 1.5.1 still caps slim at 2.16.0. This mirrors `[tool.uv]` until
-# upstream releases metadata admitting the tested 2.20 floor.
+# INTENTIONALLY EMPTY. pydantic-acp 1.5.1 caps pydantic-ai-slim at 2.16.0, so
+# the production/all-extras lock remains on that compatible line. Do not bypass
+# the cap: promote Pydantic AI 2.20 only after ACP publishes compatible metadata.

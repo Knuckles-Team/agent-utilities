@@ -1,7 +1,7 @@
 # Pydantic AI v2 migration
 
 `agent-utilities` (and the fleet that inherits from it) runs on **Pydantic AI v2**
-(`pydantic-ai-slim>=2.20.0,<3.0.0`, `pydantic-graph>=2.20.0,<3.0.0`). This page records the
+(`pydantic-ai-slim>=2.14.1,<3.0.0`, `pydantic-graph>=2.14.1,<3.0.0`). This page records the
 v2-specific changes so the architecture docs stay in sync with the code.
 
 ## Why it was a real migration, not a rename
@@ -64,14 +64,17 @@ flowchart LR
 
 ## 2.20 reconciliation
 
-The intended 2.20 refresh adds OpenAI Responses `reasoning.context` support for GPT-5.4/5.5/5.6,
+The reconciled 2.20 refresh adds OpenAI Responses `reasoning.context` support for GPT-5.4/5.5/5.6,
 preserves arbitrary usage fields through serialization, and makes bare MCP errors recoverable.
 The adapter's model menus are declarative per-delegation metadata; the canonical model registry
 remains the authority that resolves actual provider configuration.
 
-The repository lock remains on 2.16 while `pydantic-acp==1.5.1` caps
-`pydantic-ai-slim` at 2.16.0. Promote the lock and production image only after ACP supports the
-2.20 floor (or a workspace-level compatibility override is approved).
+The production/all-extras lock remains on the compatible 2.16 line while
+`pydantic-acp==1.5.1` caps `pydantic-ai-slim` at 2.16.0. The optional
+`dynamic-workflow` extra is isolated from `[all]`; do not install it together
+with `[acp]` until that cap is lifted. Promote the lock and production image only
+after ACP supports the 2.20 floor. We intentionally do not override the upstream
+compatibility bound.
 
 ## Native ergonomics wired (synergy)
 
