@@ -6,6 +6,7 @@ import asyncio
 import json as jsonlib
 from collections.abc import Mapping
 
+import anyio
 import httpx
 import pytest
 
@@ -270,6 +271,37 @@ class StatefulLegacyHTTPClient:
             await asyncio.sleep(0)
         self.deletes.append(dict(headers))
         return httpx.Response(200, request=httpx.Request("DELETE", url))
+
+
+class CancellingLegacyHTTPClient(StatefulLegacyHTTPClient):
+    """Hold a live call or unload so cancellation can hit either window."""
+
+    def __init__(self, *, block_unload: bool = False) -> None:
+        super().__init__()
+        self.block_unload = block_unload
+        self.graph_jobs_call_started = anyio.Event()
+        self.unload_started = anyio.Event()
+        self.release_unload = anyio.Event()
+        self.unload_attempts = 0
+
+    async def post(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        json: dict[str, object],
+    ) -> httpx.Response:
+        params = json.get("params")
+        tool_name = params.get("name") if isinstance(params, dict) else None
+        if json.get("method") == "tools/call" and tool_name == "graph_jobs":
+            self.graph_jobs_call_started.set()
+            await anyio.sleep_forever()
+        if json.get("method") == "tools/call" and tool_name == "unload_tools":
+            self.unload_attempts += 1
+            self.unload_started.set()
+            if self.block_unload:
+                await self.release_unload.wait()
+        return await super().post(url, headers=headers, json=json)
 
 
 def _assert_every_session_step_preserves_headers(
@@ -1061,6 +1093,68 @@ async def test_downstream_graph_jobs_activation_fails_closed_when_not_listed(
         and params.get("name") == "graph_jobs"
         for _, request in fake.posts
     )
+
+
+@pytest.mark.asyncio
+async def test_anyio_cancel_scope_cleans_one_shot_session_and_propagates_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = CancellingLegacyHTTPClient()
+    monkeypatch.setattr(
+        "mcp_v2_gateway.gateway.httpx.AsyncClient",
+        lambda **_kwargs: fake,
+    )
+    client = StreamableHTTPGraphOSClient("http://127.0.0.1:8000/mcp")
+    cancelled = anyio.Event()
+
+    async def call_graph_jobs() -> None:
+        try:
+            await client.call_tool("graph_jobs", {"action": "status"}, _context())
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(call_graph_jobs)
+        await fake.graph_jobs_call_started.wait()
+        assert fake.graph_jobs_loaded
+        task_group.cancel_scope.cancel()
+
+    assert cancelled.is_set()
+    assert fake.unload_attempts == 1
+    assert len(fake.deletes) == 1
+    assert fake.graph_jobs_loaded == set()
+    assert fake.auto_unload == set()
+
+
+@pytest.mark.asyncio
+async def test_second_task_cancel_during_unload_still_deletes_and_propagates_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = CancellingLegacyHTTPClient(block_unload=True)
+    monkeypatch.setattr(
+        "mcp_v2_gateway.gateway.httpx.AsyncClient",
+        lambda **_kwargs: fake,
+    )
+    client = StreamableHTTPGraphOSClient("http://127.0.0.1:8000/mcp")
+    task = asyncio.create_task(
+        client.call_tool("graph_jobs", {"action": "status"}, _context())
+    )
+
+    await fake.graph_jobs_call_started.wait()
+    task.cancel()
+    await fake.unload_started.wait()
+    task.cancel()
+    fake.release_unload.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert task.cancelled()
+    assert fake.unload_attempts == 1
+    assert len(fake.deletes) == 1
+    assert fake.graph_jobs_loaded == set()
+    assert fake.auto_unload == set()
 
 
 @pytest.mark.asyncio
