@@ -14,6 +14,7 @@ from agent_utilities.knowledge_graph.core.engine_tasks import (
     TaskManagerMixin,
     _retryable_partial_materialization,
 )
+from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
 from agent_utilities.orchestration import work_item as wi
 
 
@@ -157,6 +158,51 @@ def test_claimed_metadata_read_partial_is_deferred_before_returning() -> None:
     assert harness._active_work_item_claim("job-1") is None
 
 
+def test_hydration_reserved_claim_still_defers_on_partial_materialization() -> None:
+    """Wave-0's materialization deferral and the reserved-hydration claim floor
+    must BOTH survive in the same ``_claim_next_task``.
+
+    The reserved path (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness)
+    prepends hydration-scoped claim attempts ahead of the unrestricted claim;
+    the materialization path (CONCEPT:AU-KG.ingest.partial-materialization)
+    releases the lease immediately, without consuming an attempt, when the
+    metadata read observes a lazy materialization transition. They touch
+    adjacent regions of one function, so a merge could silently drop either.
+    """
+    harness = Harness()
+    partial = RuntimeError(
+        '{"code":"PARTIAL_MATERIALIZATION","phase":"partial","retryable":true}'
+    )
+    attempts: list[dict[str, Any]] = []
+
+    def _claim_next(_engine: object, **kwargs: Any) -> dict[str, Any] | None:
+        attempts.append(kwargs)
+        # Nothing pending in the hydration-scoped lanes; the reserved worker
+        # falls through to ordinary work rather than idling.
+        if kwargs.get("fairness_group"):
+            return None
+        return _claim()
+
+    with (
+        patch.object(wi, "claim_next", side_effect=_claim_next),
+        patch.object(wi, "mark_running", return_value=True),
+        patch.object(harness, "_ingest_task_metadata", side_effect=partial),
+        patch.object(wi, "defer_work_item", return_value=True) as defer,
+    ):
+        result = harness._claim_next_task(hydration_reserved=True)
+
+    # Lane 1.6 intent: hydration lanes were probed FIRST, per task type.
+    assert [kw.get("fairness_group") for kw in attempts[:-1]] == sorted(
+        HYDRATION_TASK_TYPES
+    )
+    assert attempts[-1].get("fairness_group") is None
+    # Lane 0.6 intent: the lease is released immediately, no attempt consumed,
+    # and no stale local claim is stranded.
+    assert result is None
+    assert defer.call_count == 1
+    assert harness._active_work_item_claim("job-1") is None
+
+
 def test_claim_next_task_drops_local_claim_when_materialization_defer_fails() -> None:
     """An unexpected failure releasing the native lease must not strand the
     in-memory claim or escape as an application error.
@@ -243,7 +289,13 @@ def test_worker_waits_for_retryable_materialization_before_claiming() -> None:
         def __init__(self) -> None:
             self.failed = False
 
-        def _claim_next_task(self, *, worker_id: str | None = None):
+        def _claim_next_task(
+            self, *, worker_id: str | None = None, hydration_reserved: bool = False
+        ):
+            # Mirrors the real signature: the pool marks a small reserved subset
+            # of workers hydration-first (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness);
+            # an ordinary worker is always claimed unreserved.
+            assert hydration_reserved is False
             raise RuntimeError(
                 '{"code":"PARTIAL_MATERIALIZATION","phase":"partial",'
                 '"retryable":true,"completeness_cursor":{"node_offset":16384}}'
@@ -276,7 +328,13 @@ def test_worker_never_routes_partial_materialization_to_failure_attempt() -> Non
             self.failed = False
             self.deferred = False
 
-        def _claim_next_task(self, *, worker_id: str | None = None):
+        def _claim_next_task(
+            self, *, worker_id: str | None = None, hydration_reserved: bool = False
+        ):
+            # Mirrors the real signature: the pool marks a small reserved subset
+            # of workers hydration-first (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness);
+            # an ordinary worker is always claimed unreserved.
+            assert hydration_reserved is False
             self.claims += 1
             if self.claims > 1:
                 raise KeyboardInterrupt
@@ -318,7 +376,13 @@ def test_worker_generic_error_path_is_unchanged() -> None:
         def __init__(self) -> None:
             self.failed_with: tuple[str, str] | None = None
 
-        def _claim_next_task(self, *, worker_id: str | None = None):
+        def _claim_next_task(
+            self, *, worker_id: str | None = None, hydration_reserved: bool = False
+        ):
+            # Mirrors the real signature: the pool marks a small reserved subset
+            # of workers hydration-first (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness);
+            # an ordinary worker is always claimed unreserved.
+            assert hydration_reserved is False
             return "job-1", {"target": "workspace:repo", "type": "codebase"}
 
         def _execute_claimed_task(self, *_args: object) -> None:
