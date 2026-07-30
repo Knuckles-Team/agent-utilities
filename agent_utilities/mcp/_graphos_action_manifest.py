@@ -1867,6 +1867,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_observe",
+        "action": "error_detail",
+        "name": "graph_observe_error_detail",
+    },
+    {
+        "tool": "graph_observe",
         "action": "failure_cluster",
         "name": "graph_observe_failure_cluster",
     },

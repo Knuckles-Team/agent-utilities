@@ -233,22 +233,50 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "assertions + low scores joined to their trace's agent, grouped; query=agent/"
             "capability filter), 'prompt_regression' (mean score per prompt version — which "
             "regressed), 'failure_cluster' (failing traces clustered by the failed assertion "
-            "— systemic breaks across agents)."
+            "— systemic breaks across agents), 'error_detail' (resolve a failed operation's "
+            "opaque `error.detail_ref` back to its sanitized error_class/failing_layer/"
+            "traceback — query=the detail_ref; scoped to the caller's own tenant authority, "
+            "fails closed — CONCEPT:AU-KG.audit.error-detail-resolution)."
         ),
         tags=["graph-os", "observe", "eval"],
     )
     async def graph_observe(
         action: str = Field(
             default="trace_rootcause",
-            description="trace_rootcause | prompt_regression | failure_cluster",
+            description="trace_rootcause | prompt_regression | failure_cluster | error_detail",
         ),
         query: str = Field(
             default="",
-            description="Optional agent/capability filter (trace_rootcause).",
+            description="Agent/capability filter (trace_rootcause) or a detail_ref (error_detail).",
         ),
         top_k: int = Field(default=20, description="Max rows/clusters."),
     ) -> str:
         """Observability + eval analytics over the trace/score subgraph (KG-2.257)."""
+        if action == "error_detail":
+            # Resolving a previously recorded failure is unrelated to the
+            # trace/score subgraph below and needs no active engine — it must
+            # keep working even when the engine the ORIGINAL failure came from
+            # is unavailable (that is frequently WHY the caller is resolving
+            # it in the first place).
+            from agent_utilities.security.brain_context import IdentityRequiredError
+            from agent_utilities.security.error_surface import (
+                resolve_error_detail_for_actor,
+            )
+
+            try:
+                detail = resolve_error_detail_for_actor(query)
+            except (IdentityRequiredError, PermissionError) as exc:
+                return public_error_text(exc, code="permission_denied")
+            if detail is None:
+                return json.dumps({"resolved": False, "detail_ref": query})
+            # tenant_id is internal bookkeeping for the authority check above
+            # (already the caller's own tenant, having passed that check) —
+            # omit it from the returned shape rather than echo it back.
+            public_detail = {k: v for k, v in detail.items() if k != "tenant_id"}
+            return json.dumps(
+                {"resolved": True, "detail_ref": query, **public_detail}, default=str
+            )
+
         engine = kg_server._get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."

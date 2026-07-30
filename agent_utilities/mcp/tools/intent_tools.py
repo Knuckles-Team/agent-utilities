@@ -33,7 +33,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from agent_utilities.knowledge_graph.retrieval.capability_context import load_cpds
 from agent_utilities.mcp import kg_server
@@ -1004,8 +1004,24 @@ def _intent_security_failure(
 
 
 def _execution_succeeded(result: Any) -> bool:
-    """Classify only the observed tool result; caller feedback is never read."""
+    """Classify only the observed tool result; caller feedback is never read.
 
+    Many graph-os tools (``graph_query``, ``graph_ask``, ``nl_query``, the
+    ``analyze``/``analysis`` surfaces, …) return a typed :class:`EvidenceBundle`
+    rather than a plain dict/str. Before the ``BaseModel`` branch below existed,
+    such a result matched none of the dict/str cases and fell through to
+    ``result is not None`` — which a real, non-empty ``EvidenceBundle`` always
+    satisfies, so a FAILED operation (an ``EvidenceBundle`` whose dedicated
+    ``error`` field is populated) was reported as succeeded. Dumping the model
+    first routes it through the same dict-shaped checks below, so
+    ``EvidenceBundle.error`` (truthy exactly when the source payload carried a
+    real operation failure — never fabricated, see
+    ``agent_utilities.models.evidence_bundle``) is honored as the single source
+    of truth instead of being invisible to this classifier.
+    """
+
+    if isinstance(result, BaseModel):
+        return _execution_succeeded(result.model_dump())
     if isinstance(result, dict):
         if result.get("error") or result.get("ok") is False:
             return False
