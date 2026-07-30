@@ -138,3 +138,76 @@ def test_lost_or_stopped_heartbeat_fences_terminal_commit(monkeypatch):
             "job-1", harness._active_work_item_claim("job-1")
         )
     harness._stop_work_item_lease_heartbeat("job-1")
+
+
+def test_soft_timeout_cancellation_stops_lease_renewal(monkeypatch):
+    """CONCEPT:AU-ORCH.scheduling.soft-timeout-lease-quarantine — once a task's soft
+    timeout fires (the SAME ``cancellation_event`` the timeout watchdog sets in
+    ``_execute_claimed_task``), the heartbeat must stop renewing so the lease
+    expires and the job becomes reclaimable — instead of an already-exceeded
+    task's lease being renewed forever (the proven starvation mode: live traces
+    showed jobs renewing their lease long past the lane's 180s/600s soft
+    timeout while their worker stayed wedged).
+    """
+    harness = _LeaseHarness()
+    cancellation_event = threading.Event()
+    heartbeat_calls: list[dict] = []
+
+    def heartbeat(_engine, item_id, claim, *, lease_ttl_s):
+        heartbeat_calls.append({"item_id": item_id})
+        return True
+
+    from agent_utilities.orchestration import work_item
+
+    monkeypatch.setattr(engine_tasks, "_authorized_background_thread", _thread)
+    monkeypatch.setattr(engine_tasks, "_TASK_WORK_ITEM_HEARTBEAT_SEC", 0.01)
+    monkeypatch.setattr(work_item, "heartbeat", heartbeat)
+
+    # Soft timeout already fired BEFORE the heartbeat loop gets a chance to tick —
+    # the watchdog and the heartbeat both observe the same event.
+    cancellation_event.set()
+    harness._start_work_item_lease_heartbeat(
+        "job-1", cancellation_event=cancellation_event
+    )
+
+    deadline = time.monotonic() + 1.0
+    lost_flag = None
+    while time.monotonic() < deadline:
+        with harness._work_item_lease_heartbeats_lock:
+            lost_flag = harness._work_item_lease_heartbeats["job-1"][1]
+        if lost_flag.is_set():
+            break
+        time.sleep(0.01)
+    assert lost_flag is not None and lost_flag.is_set()
+
+    # It never renewed even once — renewal stopped BEFORE the first attempt.
+    assert heartbeat_calls == []
+    # And the fencing guard now refuses a terminal write from this abandoned run.
+    with pytest.raises(
+        work_item.WorkItemBackendUnavailable, match="lost its WorkItem lease"
+    ):
+        harness._require_live_work_item_lease(
+            "job-1", harness._active_work_item_claim("job-1")
+        )
+    harness._stop_work_item_lease_heartbeat("job-1")
+
+
+def test_lease_heartbeat_without_cancellation_event_is_unaffected(monkeypatch):
+    """Backward compatibility: omitting ``cancellation_event`` (existing callers /
+    the Kafka consumer path) renews exactly as before — this is purely additive."""
+    harness = _LeaseHarness()
+    renewed = threading.Event()
+
+    def heartbeat(_engine, item_id, claim, *, lease_ttl_s):
+        renewed.set()
+        return True
+
+    from agent_utilities.orchestration import work_item
+
+    monkeypatch.setattr(engine_tasks, "_authorized_background_thread", _thread)
+    monkeypatch.setattr(engine_tasks, "_TASK_WORK_ITEM_HEARTBEAT_SEC", 0.01)
+    monkeypatch.setattr(work_item, "heartbeat", heartbeat)
+
+    harness._start_work_item_lease_heartbeat("job-1")
+    assert renewed.wait(timeout=1.0)
+    harness._stop_work_item_lease_heartbeat("job-1")

@@ -69,6 +69,22 @@ logger = logging.getLogger(__name__)
 # Actions that route to source sync (used by the scheduler dispatch).
 SYNC_ACTIONS = {"delta", "full", "reconcile"}
 
+# CONCEPT:AU-ORCH.scheduling.hard-io-deadline — the fleet MCP tool-schema probe
+# (:func:`_sync_fleet`) is synchronous, network-bound work invoked INLINE from an
+# async task body (``connector_sync``/``capability_hydration`` in the ``connectors``
+# lane, and the ``fleet-tool-schema-sync`` scheduled job in ``maint``) — it does not
+# hit an ``await`` the surrounding cooperative-cancellation watchdog can act on.
+# Proven live: both call sites were observed exceeding their lane's soft timeout
+# (180s / 600s) with the worker still wedged afterward. Bound it at BOTH layers:
+# a cooperative ``budget`` into ``probe_catalog`` (cancels straggling per-server
+# probes cleanly — the correct outcome) and a slightly longer hard ``timeout`` on
+# the outer sync wait (the backstop for whatever that cooperative cancellation
+# itself cannot unblock, e.g. a child-process spawn that blocks before its first
+# ``await``). Sized as a fraction of the tightest lane bound (``connectors``,
+# 180s) so the whole call reliably returns well inside it, in either lane.
+_FLEET_PROBE_BUDGET_FRACTION = 0.6
+_FLEET_PROBE_GRACE_SEC = 15.0
+
 
 def _read_envelope_watermark(
     engine: Any,
@@ -519,9 +535,17 @@ def _sync_fleet(
                 "source": "fleet",
                 "reason": "no mcp_config.json with servers found",
             }
+        from .task_lanes import lane_soft_timeout
+
+        probe_budget = max(
+            10.0, lane_soft_timeout("connectors") * _FLEET_PROBE_BUDGET_FRACTION
+        )
         try:
             mux = MCPMultiplexer(config_path)
-            catalog = _run_async(mux.probe_catalog())
+            catalog = _run_async(
+                mux.probe_catalog(budget=probe_budget),
+                timeout=probe_budget + _FLEET_PROBE_GRACE_SEC,
+            )
         except Exception as exc:  # noqa: BLE001 — probe is best-effort
             return {"status": "error", "source": "fleet", "reason": str(exc)}
 

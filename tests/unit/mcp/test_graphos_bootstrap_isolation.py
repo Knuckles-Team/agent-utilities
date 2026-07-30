@@ -82,7 +82,7 @@ def test_background_task_worker_binds_captured_session_and_actor() -> None:
     engine._workers_running = False
     engine._task_queue_backend_name = "sqlite"
 
-    def one_shot_worker() -> None:
+    def one_shot_worker(hydration_reserved: bool = False) -> None:
         seen.append((current_session(), current_actor()))
         finished.set()
 
@@ -104,6 +104,99 @@ def test_background_task_worker_binds_captured_session_and_actor() -> None:
     assert finished.wait(2.0)
     assert seen == [(session, session.actor)]
     assert engine._background_worker_session is session
+
+
+def test_start_task_workers_reserves_a_hydration_floor_of_the_pool() -> None:
+    """CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness — a small floor of the
+    worker pool is always started with ``hydration_reserved=True`` so it
+    prioritizes claiming priority-1 capability/boot hydration work (see
+    ``_claim_next_task``) ahead of ordinary connector-sync work, no matter how
+    saturated the rest of the pool is. Sized via the SAME
+    ``SchedulerConfig.reserved`` / ``KG_SCHED_RESERVED`` knob the existing
+    interactive-lane worker floor already uses — reuse, not a new reservation
+    mechanism.
+    """
+    from agent_utilities.knowledge_graph.core.worker_scheduler import (
+        scheduler_config_from_env,
+    )
+
+    session = _verified_session()
+    seen: list[bool] = []
+    lock = threading.Lock()
+    worker_count = 4
+    all_started = threading.Event()
+
+    def worker(hydration_reserved: bool = False) -> None:
+        with lock:
+            seen.append(hydration_reserved)
+            if len(seen) == worker_count:
+                all_started.set()
+
+    engine = TaskManagerMixin.__new__(TaskManagerMixin)
+    engine.backend = object()
+    engine._worker_lock = threading.Lock()
+    engine._workers_running = False
+    engine._task_queue_backend_name = "sqlite"
+    engine._task_worker_loop = worker
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.host_lock.effective_daemon_role",
+            return_value="host",
+        ),
+        patch(
+            "agent_utilities.core.config.DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+            True,
+        ),
+        use_actor(session.actor),
+        use_session(session),
+    ):
+        engine.start_task_workers(worker_count=worker_count)
+
+    assert all_started.wait(2.0)
+    expected_reserved = min(
+        max(1, scheduler_config_from_env(worker_count).reserved), worker_count - 1
+    )
+    assert 1 <= expected_reserved < worker_count
+    assert sum(seen) == expected_reserved
+
+
+def test_start_task_workers_single_worker_pool_reserves_nothing() -> None:
+    """Degenerate case (mirrors the interactive-lane floor's own degenerate
+    case): a single-worker pool cannot reserve a floor without starving
+    ordinary throughput entirely, so it reserves 0 — the one worker serves
+    everything, same as before this change."""
+    session = _verified_session()
+    seen: list[bool] = []
+    finished = threading.Event()
+
+    def worker(hydration_reserved: bool = False) -> None:
+        seen.append(hydration_reserved)
+        finished.set()
+
+    engine = TaskManagerMixin.__new__(TaskManagerMixin)
+    engine.backend = object()
+    engine._worker_lock = threading.Lock()
+    engine._workers_running = False
+    engine._task_queue_backend_name = "sqlite"
+    engine._task_worker_loop = worker
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.host_lock.effective_daemon_role",
+            return_value="host",
+        ),
+        patch(
+            "agent_utilities.core.config.DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+            True,
+        ),
+        use_actor(session.actor),
+        use_session(session),
+    ):
+        engine.start_task_workers(worker_count=1)
+
+    assert finished.wait(2.0)
+    assert seen == [False]
 
 
 def test_background_authority_fails_closed_when_actor_and_session_differ() -> None:
@@ -898,7 +991,7 @@ def test_fleet_tool_schema_boot_hydration_is_durable_priority_one() -> None:
         target_path="fleet",
         is_codebase=False,
         provenance={"sync_mode": "delta", "boot_hydration": True},
-        task_type="connector_sync",
+        task_type="capability_hydration",
         priority=1,
         skip_dedupe=True,
         job_id=ANY,
