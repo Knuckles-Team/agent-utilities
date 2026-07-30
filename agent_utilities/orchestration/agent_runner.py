@@ -1250,12 +1250,20 @@ async def run_agent(
             # caller that pre-generated one via the ``run_id=`` param specifically so it
             # survives a cancellation) would resolve to nothing. Best-effort record a
             # "timeout" RunTrace with whatever route/stage this run reached before it was cut
-            # off, so that trace_ref is a REAL troubleshooting entry point. The graph client is
-            # synchronous, so persist in a worker: cancellation has already reached this
-            # coroutine, but it must not turn the timeout-cleanup path into an event-loop stall.
+            # off, so that trace_ref is a REAL troubleshooting entry point.
+            #
+            # DELIBERATELY SYNCHRONOUS — do NOT route this one through
+            # ``_call_without_blocking``/``asyncio.to_thread`` like the rest of this
+            # function's graph I/O. Cancellation has ALREADY been delivered to this
+            # coroutine, so any ``await`` here is a suspension point that a second
+            # ``cancel()`` (a supervisor retrying, or shutdown) re-raises through —
+            # measured: under a double-cancel the awaited variant loses the write
+            # entirely and this trace_ref resolves to nothing again, which is the exact
+            # bug this block exists to prevent. A bounded, once-per-cancelled-run
+            # blocking write is the correct trade against silently losing the only
+            # durable record of a timed-out run.
             try:
-                await _call_without_blocking(
-                    _record_execution_trace,
+                _record_execution_trace(
                     engine,
                     run_id,
                     agent_name,

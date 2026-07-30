@@ -1211,3 +1211,70 @@ def test_focused_tools_reply_budget_is_tighter_than_full() -> None:
     assert one.reply_budget_s == 130.0  # 90 + 40*1
     assert two.reply_budget_s == 170.0  # 90 + 40*2
     assert two.reply_budget_s < full.reply_budget_s
+
+
+def test_cancelled_run_trace_write_survives_a_repeated_cancel() -> None:
+    """Regression (wave-0 gate, D-33): ``run_agent``'s CancelledError branch writes the
+    only durable RunTrace a timed-out run ever gets, and it MUST NOT be awaited.
+
+    Lane 0.7's event-loop-isolation sweep routed that write through
+    ``asyncio.to_thread``; that introduces a suspension point AFTER cancellation has
+    already been delivered, so a second ``cancel()`` (a supervisor retrying, or
+    shutdown) re-raises through it and the write is lost — the exact failure the block
+    exists to prevent. This pins the synchronous shape by reproducing both variants.
+    """
+
+    import asyncio
+
+    recorded: list[str] = []
+
+    def _blocking_trace(tag: str) -> None:
+        import time as _t
+
+        _t.sleep(0.05)
+        recorded.append(tag)
+
+    async def _worker(awaited: bool) -> None:
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            if awaited:
+                await asyncio.to_thread(_blocking_trace, "trace")
+            else:
+                _blocking_trace("trace")
+            raise
+
+    async def _double_cancel(awaited: bool) -> list[str]:
+        recorded.clear()
+        task = asyncio.create_task(_worker(awaited))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return list(recorded)
+
+    # The synchronous shape (what agent_runner uses) always lands the trace...
+    assert asyncio.run(_double_cancel(awaited=False)) == ["trace"]
+    # ...while the awaited shape silently loses it.
+    assert asyncio.run(_double_cancel(awaited=True)) == []
+
+    # And the live code is the synchronous shape: the CancelledError branch must not
+    # await its _record_execution_trace call.
+    import inspect
+
+    from agent_utilities.orchestration import agent_runner
+
+    src = inspect.getsource(agent_runner.run_agent)
+    branch = src.split("if isinstance(e, asyncio.CancelledError):", 1)[1]
+    branch = branch.split("_record_delegation_over_budget", 1)[0]
+    # Comments in this branch legitimately NAME the helper to explain why it is not
+    # used here, so compare against code lines only.
+    code = "\n".join(
+        line for line in branch.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "_record_execution_trace(" in code
+    assert "_call_without_blocking" not in code
