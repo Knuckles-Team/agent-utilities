@@ -6,7 +6,10 @@ Tests use the synthesized graph-os tool names: graph_query, graph_search,
 graph_write, graph_ingest, graph_analyze, graph_orchestrate, graph_configure.
 """
 
+import asyncio
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -104,6 +107,66 @@ async def test_graphos_health_ready_reflects_status_in_http_code(server_tools):
 
     body = json.loads(response.body)
     assert response.status_code == (200 if body["status"] == "healthy" else 503)
+
+
+def test_graphos_health_live_path_bypasses_saturated_default_executor(
+    monkeypatch, server_tools
+):
+    """A real GraphOS route stays responsive when general blocking work fills
+    asyncio's default executor.
+
+    This reproduces the production failure mode: a long native backup and
+    orchestration occupied the shared pool, so the old ``asyncio.to_thread``
+    route queued until kubelet killed the healthy process.
+    """
+    from agent_utilities.observability import runtime_health as runtime_health
+
+    release = threading.Event()
+    started = threading.Event()
+
+    def _occupy_default_pool() -> None:
+        started.set()
+        release.wait(timeout=5.0)
+
+    def _fast_report() -> dict:
+        return {
+            "status": "healthy",
+            "checks": [],
+            "generated_at": "synthetic",
+            "collector_thread": threading.current_thread().name,
+        }
+
+    monkeypatch.setattr(runtime_health, "collect_health", _fast_report)
+    default_executor = ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="saturated-general-work"
+    )
+
+    async def _exercise_route():
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(default_executor)
+        blocking_work = loop.run_in_executor(None, _occupy_default_pool)
+        try:
+            while not started.is_set():
+                await asyncio.sleep(0)
+            response = await asyncio.wait_for(
+                server_tools["health_check"](MagicMock()), timeout=0.5
+            )
+            assert not blocking_work.done()
+            return response
+        finally:
+            release.set()
+            await blocking_work
+
+    try:
+        response = asyncio.run(_exercise_route())
+    finally:
+        release.set()
+        default_executor.shutdown(wait=True)
+
+    body = json.loads(response.body)
+    assert response.status_code == 200
+    assert body["status"] == "healthy"
+    assert body["collector_thread"].startswith("au-health-collector")
 
 
 # ── graph_ingest: ingestion ──────────────────────────────────────────

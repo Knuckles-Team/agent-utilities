@@ -66,9 +66,10 @@ Facts to know, verified against `agent_utilities/security/auth.py` and
   - the minted actor carries `authenticated=True`
 - An **invalid** token is always 401 — even when `KG_AUTH_REQUIRED=0`.
 - With `KG_AUTH_REQUIRED=1`, requests with **no** token are 401 except the
-  exempt paths: `/health`, `/healthz`, `/api/health`, `/api/healthz` and
-  `/metrics` (scrapers cannot mint JWTs; `/metrics` carries only aggregate
-  counters).
+  exempt paths: `/health`, `/health/ready`, `/healthz`, `/api/health`,
+  `/api/healthz` and `/metrics` (probes and scrapers cannot mint JWTs; the
+  health report carries no identity or raw topology detail, and `/metrics`
+  carries only aggregate counters).
 - With `KG_AUTH_REQUIRED=0` (the default), unauthenticated requests pass
   through with a one-time prominent startup warning — the legacy honor-system
   mode.
@@ -151,6 +152,7 @@ All captured by driving `ActorIdentityMiddleware` directly in the smoke run
 | Expired token | `401` | `{"error": "Token has expired"}` |
 | Wrong `iss`/`aud` | `401` | `{"error": "Invalid token claim: ..."}` |
 | No token, `GET /health` | `200` | (exempt) |
+| No token, `GET /health/ready` | `200` or `503` | (exempt; reflects engine readiness) |
 | No token, `GET /metrics` | `200` | (exempt) |
 | Valid token | `200` | (request proceeds as the minted actor) |
 | `KG_AUTH_REQUIRED=1` but `AUTH_JWT_JWKS_URI` unset, no token | `401` | `{"error": "Authentication required (KG_AUTH_REQUIRED=1): provide a valid JWT Bearer token (server misconfigured: AUTH_JWT_JWKS_URI unset)"}` |

@@ -183,11 +183,9 @@ async def health_check() -> JSONResponse:
     app for the readiness twin that reflects status in the HTTP code
     (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
     """
-    import asyncio
+    from agent_utilities.observability.runtime_health import collect_health_async
 
-    from agent_utilities.observability.runtime_health import collect_health
-
-    report = await asyncio.to_thread(collect_health)
+    report = await collect_health_async()
     return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
