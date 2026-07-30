@@ -1123,11 +1123,10 @@ class KGTraceBackend(TraceBackend):
                 chosen_model_id=decision.chosen_model_id,
                 candidates=candidates,
             )
-        except Exception as exc:  # pragma: no cover - best-effort
-            logger.debug(
-                "KGTraceBackend routing decision build failed (%s)",
-                type(exc).__name__,
-            )
+        except Exception as exc:  # noqa: BLE001 - routing provenance is
+            # observability, never load-bearing: a malformed decision must not
+            # break the routing call it describes. The cause IS logged.
+            logger.debug("KGTraceBackend routing decision build failed: %s", exc)
             return
         clean = self._sanitize_node(node)
         if clean is None:
@@ -1139,11 +1138,10 @@ class KGTraceBackend(TraceBackend):
                 link = getattr(self.backend, "link_nodes", None)
                 if callable(link):
                     link(trace_id, clean.id, RegistryEdgeType.HAS_ROUTING_DECISION)
-            except Exception as exc:  # pragma: no cover - best-effort
-                logger.debug(
-                    "KGTraceBackend routing decision persist failed (%s)",
-                    type(exc).__name__,
-                )
+            except Exception as exc:  # noqa: BLE001 - an unreachable graph
+                # backend must not break the routing call this describes. The
+                # cause IS logged so a persistent failure is diagnosable.
+                logger.debug("KGTraceBackend routing decision persist failed: %s", exc)
 
     @staticmethod
     def _node_props(node: Any) -> dict[str, Any]:

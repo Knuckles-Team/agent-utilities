@@ -2122,18 +2122,17 @@ def _register_skill_providers(mcp: Any) -> None:
             try:
                 mcp.add_provider(SkillProvider(root_dir))
                 registered += 1
-            except Exception as exc:  # one bad provider dir must not sink the rest
+            except Exception as exc:  # noqa: BLE001 - one unreadable provider
+                # directory must not sink the whole sweep. The cause IS logged
+                # so a systematically broken provider is diagnosable.
                 logger.warning(
-                    "Could not register skill provider %s (exception_type=%s)",
-                    provider_name,
-                    type(exc).__name__,
+                    "Could not register skill provider %s: %s", provider_name, exc
                 )
         logger.info(
             "Registered %d skill-over-MCP provider(s) as skill:// resources",
             registered,
         )
-    except Exception as exc:  # fastmcp-4 skills support is optional
-        logger.warning(
-            "Could not register skill-over-MCP providers (exception_type=%s)",
-            type(exc).__name__,
-        )
+    except Exception as exc:  # noqa: BLE001 - server-side skill:// support is
+        # optional (see the INERT note above); its absence must never stop a
+        # server being built. The cause IS logged.
+        logger.warning("Could not register skill-over-MCP providers: %s", exc)

@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-360 publishable pages · 174 direct nav targets · 118 public capabilities · 766 action rows · 543 typed configuration fields · 348 runtime-only call-site inputs.
+362 publishable pages · 177 direct nav targets · 119 public capabilities · 770 action rows · 543 typed configuration fields · 348 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -206,7 +206,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Mandatory ContextCompiler model boundary](../architecture/mandatory-context-compiler.md) — direct nav
 - [MCP authentication and network trust](../architecture/mcp_auth.md) — direct nav
 - [GraphOS Embedded Fleet Gateway](../architecture/mcp_multiplexer.md) — catalog
-- [GraphOS MCP v2 compatibility gateway](../architecture/mcp_v2_gateway.md) — catalog
+- [GraphOS MCP v2 compatibility gateway](../architecture/mcp_v2_gateway.md) — direct nav
 - [Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — direct nav
 - [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — direct nav
 - [Model Registry as Graph Resources + Rejected-Alternative Routing Provenance](../architecture/model_registry_graph_resources.md) — direct nav
@@ -233,6 +233,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Privacy-safe external graph ingestion](../architecture/privacy-safe-external-ingestion.md) — direct nav
 - [Pydantic AI v2 migration](../architecture/pydantic-ai-v2-migration.md) — direct nav
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — direct nav
+- [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — direct nav
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — direct nav
 - [Runtime-Reliability Loop — detect → signal → gap → heal](../architecture/runtime-reliability-loop.md) — direct nav
 - [Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)](../architecture/sampling_profiles.md) — direct nav
@@ -240,6 +241,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Self-Improving Reasoning Substrate](../architecture/self_improving_reasoning_substrate.md) — direct nav
 - [Shortcut-Resistant Search-Task Synthesis](../architecture/shortcut_resistant_search_synthesis.md) — catalog
 - [Skill-Workflow → Knowledge-Graph Ingestion](../architecture/skill_workflow_ingestion.md) — catalog
+- [Skills-over-MCP: One Ranked Capability Space (CONCEPT:AU-KG.retrieval.unified-capability-contract)](../architecture/skills_over_mcp.md) — direct nav
 - [Durable-State Externalization & Multi-Host Operation](../architecture/state_externalization.md) — direct nav
 - [Canonical execution trace and outcome ontology](../architecture/trace_outcome_ontology.md) — direct nav
 - [Cross-layer deployment troubleshooting — the troubleshoot context provider](../architecture/troubleshooting.md) — direct nav

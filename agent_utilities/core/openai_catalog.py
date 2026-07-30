@@ -85,7 +85,12 @@ async def verify_openai_model(
     client = AsyncOpenAI(**client_kwargs)
     try:
         record = await client.models.retrieve(model_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - DELIBERATELY type-name-only: an
+        # OpenAI SDK error message can embed the API key that was sent (proven by
+        # test_verify_openai_model_missing_never_leaks_the_api_key), so logging
+        # `exc` here would leak the credential. The failure is still reported
+        # honestly as exists=False plus the exception class, never a fabricated
+        # "exists".
         logger.debug(
             "OpenAI catalogue verification failed for a configured model "
             "(exception_type=%s)",
@@ -100,7 +105,10 @@ async def verify_openai_model(
     finally:
         try:
             await client.close()
-        except Exception:  # pragma: no cover - client close is best-effort
+        except Exception:  # noqa: BLE001 - closing the throwaway client is
+            # cleanup AFTER the verification result is already determined; a
+            # close failure must not turn a completed verification into an
+            # error, and there is nothing actionable to report.
             pass
     return OpenAIModelVerification(
         model_id=model_id,

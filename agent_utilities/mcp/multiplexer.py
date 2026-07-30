@@ -2075,22 +2075,25 @@ class MCPMultiplexer:
         """
         try:
             result = await session.list_resources()
-        except Exception as exc:  # resources/list is optional
+        except Exception as exc:  # noqa: BLE001 - resources/list is an OPTIONAL
+            # MCP method; a server that doesn't implement it must still
+            # contribute the tools its probe already returned. The cause IS
+            # logged so a real transport failure stays diagnosable.
             logger.debug(
-                "Server %s does not support skill resource discovery "
-                "(exception_type=%s)",
+                "Server %s does not support skill resource discovery: %s",
                 server_name,
-                type(exc).__name__,
+                exc,
             )
             return []
         try:
             return _bounded_skill_catalog(result.resources)
-        except Exception as exc:  # a malformed catalog must not fail tool probing
+        except Exception as exc:  # noqa: BLE001 - a malformed skill catalog from
+            # one server must not fail the tool probe that already succeeded.
+            # The cause IS logged.
             logger.warning(
-                "Server %s returned an invalid skill resource catalog "
-                "(exception_type=%s)",
+                "Server %s returned an invalid skill resource catalog: %s",
                 server_name,
-                type(exc).__name__,
+                exc,
             )
             return []
 
