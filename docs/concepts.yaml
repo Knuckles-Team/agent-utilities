@@ -2101,6 +2101,20 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/mcp/tools/audit_tools.py
   doc: routes to the engine
+- id: AU-KG.audit.hydration-absent-vs-hidden
+  name: AU-KG.audit.hydration-absent-vs-hidden
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py
+  doc: AU-KG.audit.hydration-absent-vs-hidden
+- id: AU-KG.audit.hydration-manifest-signed
+  name: builds ON
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py
+  doc: builds ON
 - id: AU-KG.audit.kg-native-audit-sink
   name: PA-R1.7
   pillar: AU-KG
