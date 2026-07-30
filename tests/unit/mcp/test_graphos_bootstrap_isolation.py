@@ -707,6 +707,8 @@ def test_fleet_tool_schema_boot_hydration_is_durable_priority_one() -> None:
         provenance={"sync_mode": "delta", "boot_hydration": True},
         task_type="connector_sync",
         priority=1,
+        skip_dedupe=True,
+        job_id=ANY,
     )
 
 
@@ -807,6 +809,8 @@ def test_self_tool_surface_boot_hydration_registers_provider_and_enqueues() -> N
             provenance={"boot_hydration": True},
             task_type="self_tool_surface",
             priority=1,
+            skip_dedupe=True,
+            job_id=ANY,
         )
     finally:
         ingestion_engine.register_self_tool_surface_provider(None)

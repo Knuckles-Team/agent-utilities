@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -2883,7 +2884,8 @@ def _enqueue_fleet_tool_schema_hydration(engine: Any) -> None:
 
     MCP declarations are cheap and synchronous; the live schemas are network
     work and belong on the durable connector lane.  A stable target lets the
-    WorkItem queue deduplicate an already-running hourly or prior boot probe.
+    WorkItem queue deduplicate restarts in the same hour without its O(N)
+    target scan. A later hour gets a fresh delta probe.
     """
     submit = getattr(engine, "submit_task", None)
     if not callable(submit):
@@ -2894,6 +2896,8 @@ def _enqueue_fleet_tool_schema_hydration(engine: Any) -> None:
         provenance={"sync_mode": "delta", "boot_hydration": True},
         task_type="connector_sync",
         priority=1,
+        skip_dedupe=True,
+        job_id=f"boot:fleet-tool-schemas:{datetime.now(UTC):%Y%m%d%H}",
     )
     logger.info("Queued fleet MCP tool-schema boot hydration: %s", job_id)
 
@@ -3000,12 +3004,22 @@ def _ingest_self_tool_surface_at_boot(engine: Any) -> None:
         submit = getattr(engine, "submit_task", None)
         if not callable(submit):
             return
+        surface_digest = hashlib.sha256(
+            json.dumps(
+                _graphos_self_tool_surface(),
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()[:16]
         job_id = submit(
             target_path="graph-os",
             is_codebase=False,
             provenance={"boot_hydration": True},
             task_type="self_tool_surface",
             priority=1,
+            skip_dedupe=True,
+            job_id=f"boot:self-tool-surface:{surface_digest}",
         )
         logger.info("Queued self tool-surface boot hydration: %s", job_id)
     except Exception as exc:
