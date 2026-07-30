@@ -40,7 +40,7 @@ def test_stamp_ownership_private_by_default():
 
 def test_stamp_ownership_skips_privileged():
     props: dict = {}
-    ts.stamp_ownership(props, _user("root", "acme", roles=("admin",)))
+    ts.stamp_ownership(props, _user("root", "acme", roles=("kg:admin",)))
     assert ts.OWNER_KEY not in props  # privileged writes stay unowned/visible
     assert props[ts.TENANT_KEY] == "acme"  # but still tenant-attributed
 
@@ -69,9 +69,15 @@ def test_visibility_predicate_for_user():
 
 
 def test_visibility_predicate_none_for_privileged():
-    assert ts.visibility_predicate(_user("root", roles=("admin",))) is None
+    assert ts.visibility_predicate(_user("root", roles=("kg:admin",))) is None
     with pytest.raises(PermissionError):
         ts.visibility_predicate(ActorContext(actor_id="system", roles=("system",)))
+
+
+def test_generic_admin_role_is_not_graph_privileged():
+    predicate = ts.visibility_predicate(_user("app-admin", roles=("admin",)))
+    assert predicate is not None
+    assert "_owner_id = 'app-admin'" in predicate
 
 
 def test_visibility_predicate_unsafe_id_fails_closed():
@@ -94,7 +100,7 @@ def test_apply_visibility_injects_before_return():
 
 def test_apply_visibility_noop_for_privileged():
     q = "MATCH (n) RETURN n"
-    assert ts.apply_visibility(q, _user("root", roles=("admin",))) == q
+    assert ts.apply_visibility(q, _user("root", roles=("kg:admin",))) == q
 
 
 # --- accessible graphs -----------------------------------------------------
@@ -210,9 +216,7 @@ def test_make_private_sets_owner_to_caller():
 def test_share_with_org_missing_node_returns_false():
     store = _FakeStore(rows=[])  # existence check finds nothing
     assert (
-        ts.share_with_org(
-            "does-not-exist", store=store, actor=_user("alice", "acme")
-        )
+        ts.share_with_org("does-not-exist", store=store, actor=_user("alice", "acme"))
         is False
     )
     # No SET was ever issued — only the existence-check read happened.
@@ -316,5 +320,5 @@ def test_share_transition_rejects_cross_tenant_admin():
         ts.share_with_org(
             "n1",
             store=store,
-            actor=_user("root", "acme", roles=("admin",)),
+            actor=_user("root", "acme", roles=("kg:admin",)),
         )

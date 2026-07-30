@@ -117,7 +117,16 @@ def test_property_redaction_requires_clearance_and_marking():
         "id": "node-a",
         "public": "visible",
     }
-    assert p.redact_object(row, _actor("admin"))["secret"] == "hidden"
+    assert p.redact_object(row, _actor("kg:admin"))["secret"] == "hidden"
+
+
+def test_generic_admin_role_is_not_graph_privileged():
+    row = {
+        "id": "node-a",
+        "secret": "hidden",
+        "__classification__": {"secret": "restricted"},
+    }
+    assert "secret" not in p.redact_object(row, _actor("admin"))
 
 
 def test_role_only_system_is_not_privileged():

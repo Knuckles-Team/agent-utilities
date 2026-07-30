@@ -61,8 +61,9 @@ _CLASS_ORDER: dict[str, int] = {
 }
 
 # Roles that are never redacted/blocked regardless of marking (matches the
-# privileged identities at the verified identity boundary).
-_PRIVILEGED_ROLES: frozenset[str] = frozenset({"admin"})
+# explicit graph-administration capability projected at the verified identity
+# boundary). A generic application ``admin`` role is not graph authority.
+_PRIVILEGED_ROLES: frozenset[str] = frozenset({"kg:admin"})
 
 # Property keys that identify a row/object and must survive redaction so the
 # caller can still correlate the filtered object back to its source.
