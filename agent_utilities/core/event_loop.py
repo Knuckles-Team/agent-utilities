@@ -83,8 +83,17 @@ async def run_blocking_ordered(
         # caller's explicit request.
         try:
             worker.result()
-        except BaseException:  # caller cancellation supersedes worker failure
-            pass
+        except BaseException as worker_exc:  # noqa: BLE001 — caller cancellation supersedes worker failure
+            # The caller asked to cancel, so CancelledError is the public outcome
+            # either way — but a worker that ALSO failed is real information, and
+            # discarding it silently would make a crash inside the offloaded
+            # synchronous call invisible whenever the call was concurrently
+            # cancelled. Record the real cause before cancellation wins.
+            logger.debug(
+                "run_blocking_ordered: worker failed while the caller was "
+                "cancelling; cancellation supersedes it: %s",
+                worker_exc,
+            )
         raise asyncio.CancelledError
     return worker.result()
 
