@@ -10,6 +10,7 @@ import pytest
 
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import intent_tools
+from agent_utilities.models.evidence_bundle import EvidenceBundle
 
 
 @pytest.fixture(autouse=True)
@@ -1031,6 +1032,134 @@ async def test_dispatch_reports_cpd_capability_source_for_a_cpd_backed_tool(
     assert result["executed"] is True
     assert result["routing"]["capability_source"] == "packaged_graphos_cpd"
     assert "calibrated_outcome_reward" in result["routing"]
+
+
+# ---------------------------------------------------------------------------
+# N1 regression — provenance must never report "succeeded" for a genuinely
+# failed operation result (CONCEPT:AU-KG.retrieval / result_provenance truthfulness).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    (
+        pytest.param(
+            EvidenceBundle(
+                claims=[{"status": "failed"}],
+                error={"code": "operation_failed", "retryable": False},
+            ),
+            False,
+            id="evidence_bundle_with_error_field_is_a_failure",
+        ),
+        pytest.param(
+            EvidenceBundle(answer_candidate="42 row(s)", claims=[{"id": "n1"}]),
+            True,
+            id="evidence_bundle_without_error_field_is_a_success",
+        ),
+        pytest.param(EvidenceBundle(), True, id="empty_evidence_bundle_is_a_success"),
+    ),
+)
+def test_execution_succeeded_classifies_evidence_bundle_by_its_error_field(
+    result, expected
+):
+    """The N1 root cause: before the `BaseModel` branch existed, an
+    `EvidenceBundle` (the sole typed response of `graph_query`/`graph_ask`/
+    `nl_query`/the analysis surfaces) matched neither the dict nor the str
+    case in `_execution_succeeded` and fell through to `result is not None`
+    — always True, regardless of a populated `.error`. Dumping the model
+    first routes it through the SAME dict-shaped `error` check as any other
+    tool result, so a failed operation can never be misreported as a success."""
+
+    assert intent_tools._execution_succeeded(result) is expected
+
+
+@pytest.mark.asyncio
+async def test_dispatch_never_reports_succeeded_provenance_for_a_failed_evidence_bundle(
+    monkeypatch,
+):
+    """End-to-end N1 regression: a tool that fails and surfaces that failure
+    through its typed `EvidenceBundle.error` field must produce
+    `result_provenance.status == "failed"` — the live defect showed this
+    field reporting "succeeded" alongside a `claims[0].status == "failed"`."""
+
+    async def fake_failing_graph_query(cypher: str = "", **_kw) -> EvidenceBundle:
+        return EvidenceBundle.from_payload(
+            {
+                "schema_version": "1",
+                "operation_id": "operation:test",
+                "status": "failed",
+                "error": {
+                    "code": "operation_failed",
+                    "retryable": False,
+                    "correlation_id": "correlation:test",
+                    "detail_ref": "correlation:test",
+                },
+            },
+            operation="graph_query",
+        )
+
+    monkeypatch.setitem(
+        kg_server.REGISTERED_TOOLS, "graph_query", fake_failing_graph_query
+    )
+
+    result = await intent_tools.dispatch_intent(
+        "ask", "run a cypher query against the graph", hints={"tool": "graph_query"}
+    )
+
+    assert result["executed"] is True
+    assert result["result"].error is not None
+    assert result["result"].claims[0]["status"] == "failed"
+    assert (
+        result["routing"]["decision_trace"]["result_provenance"]["status"] == "failed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_failed_evidence_bundle_is_recorded_as_a_failed_outcome_not_a_success(
+    monkeypatch,
+):
+    """The learning signal an unpinned, unambiguous dispatch feeds the shared
+    `OutcomeRouter` must reflect the REAL outcome. Before the N1 fix, this
+    exact scenario (an unpinned `ask` whose chosen tool returns a failed
+    `EvidenceBundle`) recorded `success=True` — silently teaching the router
+    that a failing tool was reliable, biasing every future routing decision's
+    `calibrated_outcome_reward` upward for a tool that is actually failing."""
+
+    async def fake_failing_calibrator(**_kw) -> EvidenceBundle:
+        return EvidenceBundle(error={"code": "operation_failed", "retryable": False})
+
+    _install_test_capability(
+        monkeypatch,
+        "fake_failing_quasar_calibrator",
+        fake_failing_calibrator,
+        verbs=("ask",),
+        one_line="Read the unique failing quasar resonance lattice telemetry.",
+        mutates=False,
+        idempotent=True,
+    )
+    scope_ref = "pref_intent_policy_verified_failure"
+    monkeypatch.setattr(intent_tools, "_outcome_scope_ref", lambda: scope_ref)
+    task_class = intent_tools._reward_task_class("ask", scope_ref)
+    before = intent_tools._outcome_router().reward_of(
+        task_class, "fake_failing_quasar_calibrator"
+    )
+
+    executed = await intent_tools.dispatch_intent(
+        "ask", "read the unique failing quasar resonance lattice telemetry"
+    )
+
+    assert executed["executed"] is True
+    assert (
+        executed["routing"]["decision_trace"]["result_provenance"]["status"] == "failed"
+    )
+    assert executed["routing"]["learning"]["recorded"] is True
+    after = intent_tools._outcome_router().reward_of(
+        task_class, "fake_failing_quasar_calibrator"
+    )
+    assert after <= before, (
+        "a failed EvidenceBundle result must never raise the calibrated "
+        "reward the router learns for this tool"
+    )
 
 
 @pytest.mark.asyncio

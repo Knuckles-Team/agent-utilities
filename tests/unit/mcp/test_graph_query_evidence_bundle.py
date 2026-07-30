@@ -151,3 +151,48 @@ def test_graph_query_degrades_cleanly_with_no_compute_surface(
     assert out["reasoning_trace"][-1]["payload"]["rows"] == _ROWS
     assert out["claims"] == []
     assert out["confidence"] is None
+
+
+def test_graph_query_failure_carries_a_populated_error_field_never_fabricated_success(
+    monkeypatch,
+):
+    """CONCEPT:AU-KG.retrieval N1 regression — a genuinely FAILED `graph_query`
+    (the backend raises) must surface through the sole typed `EvidenceBundle`
+    with its dedicated ``error`` field populated, not silently look identical
+    to a healthy empty-result bundle.
+
+    ``_run_graph_query`` catches the engine exception and returns
+    ``public_error_json(e)`` (the ``OperationResult`` failure envelope as a
+    JSON string); `EvidenceBundle.from_payload` used to fold that whole
+    envelope into a single opaque ``claims[0]`` entry with NO dedicated
+    success/failure signal anywhere on the bundle itself — exactly the shape
+    the live defect report showed (``claims[0].status == "failed"`` alongside
+    a provenance layer that still called the dispatch "succeeded"). The new
+    ``error`` field is the single source of truth a caller must check instead
+    of re-deriving status from `claims` shape.
+    """
+    _register_query_tools()
+
+    class _RaisingEngine:
+        def query_cypher(self, cypher, params, as_of=None, include_epistemic=False):
+            raise RuntimeError("backend unavailable")
+
+    engine = _RaisingEngine()
+    monkeypatch.setattr(
+        kg_server, "_resolve_read_engines", _fake_resolve_read_engines(engine)
+    )
+
+    bundle = asyncio.run(
+        kg_server._execute_tool("graph_query", cypher="MATCH (a:Agent) RETURN a")
+    )
+    out = bundle.model_dump()
+
+    assert out["error"] is not None
+    assert out["error"]["code"] == "operation_failed"
+    assert out["answer_candidate"] == ""
+    assert out["next_actions"] == ["review the structured error and retry"]
+    # The raw envelope (including the new error_class/failing_layer/message
+    # diagnostics from the N2 fix) is still losslessly retained in the trace.
+    trace_payload = out["reasoning_trace"][-1]["payload"]
+    assert trace_payload["status"] == "failed"
+    assert trace_payload["error_class"] == "RuntimeError"
