@@ -77,10 +77,17 @@ class FakeEngine:
         # that ordering here.
         data = dict(properties or props or {})
         data["type"] = node_type
+        data["node_type"] = node_type
         self.graph.add_node(node_id, data)
 
     def link_nodes(self, source, target, rel_type, properties=None):
-        self.graph.add_edge(source, target, type=str(rel_type), **(properties or {}))
+        self.graph.add_edge(
+            source,
+            target,
+            type=str(rel_type),
+            relationship=str(rel_type),
+            **(properties or {}),
+        )
 
     # ── query surface for fire_ready_agent_tasks ────────────────────
     def query_cypher(self, query: str, params: dict | None = None):
@@ -100,6 +107,16 @@ class FakeEngine:
                 if n.get("type") == "AgentTask" and nid in wanted
             ]
         return []
+
+
+class CollisionSensitiveEngine(FakeEngine):
+    """Mirror the native typed mutation seam's reserved ``node_id`` argument."""
+
+    def add_node(self, node_id, node_type, properties=None, **props):
+        merged = dict(properties or props or {})
+        if "node_id" in merged:
+            raise TypeError("add_node() got multiple values for argument 'node_id'")
+        super().add_node(node_id, node_type, properties=merged)
 
 
 def _team(execution_mode: str = "sequential") -> TeamComposition:
@@ -193,6 +210,33 @@ def test_to_durable_task_dag_round_trips_depends_on_through_workflow_store():
     ):
         task = engine.graph._nodes[f"{dag_id}:task:{step_id}"]
         assert task["depends_on_task_ids"] == [f"{dag_id}:task:{d}" for d in deps]
+
+
+def test_workflow_store_round_trips_on_native_collision_sensitive_seam():
+    """Saving a real step DAG never sends ``node_id`` as a typed property."""
+
+    engine = CollisionSensitiveEngine()
+    store = WorkflowStore(engine)
+    store.save_workflow("native_roundtrip", _team().to_graph_plan())
+
+    loaded = store.load_workflow("native_roundtrip")
+    assert loaded is not None
+    assert [step.id for step in loaded.steps] == [
+        "researcher",
+        "writer",
+        "reviewer",
+    ]
+    step_nodes = [
+        props
+        for props in engine.graph._nodes.values()
+        if props.get("type") == "WorkflowStep"
+    ]
+    assert all("node_id" not in props for props in step_nodes)
+    assert [props["step_id"] for props in step_nodes] == [
+        "researcher",
+        "writer",
+        "reviewer",
+    ]
 
 
 def test_to_durable_task_dag_fan_in_has_no_depends_on():
