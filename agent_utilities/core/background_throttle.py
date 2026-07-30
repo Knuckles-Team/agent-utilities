@@ -59,7 +59,7 @@ class BackgroundThrottle:
         self._lease_heartbeat = max(0.01, min(lease_heartbeat, self._lease_ttl / 2))
         self._lease_scan_interval = max(0.0, lease_scan_interval)
         self._lease_id = uuid.uuid4().hex
-        self._lease_stop = threading.Event()
+        self._lease_stop: threading.Event | None = None
         self._lease_thread: threading.Thread | None = None
         self._lease_cache_active = False
         self._lease_cache_at = 0.0
@@ -223,10 +223,10 @@ class BackgroundThrottle:
             self._lease_cache_at = now
             return active
 
-    def _heartbeat_lease(self) -> None:
-        while not self._lease_stop.wait(self._lease_heartbeat):
+    def _heartbeat_lease(self, stop: threading.Event) -> None:
+        while not stop.wait(self._lease_heartbeat):
             with self._lock:
-                if not self._foreground.is_set():
+                if not self._foreground.is_set() or self._lease_stop is not stop:
                     return
                 self._write_lease()
 
@@ -238,10 +238,12 @@ class BackgroundThrottle:
                 self._fg_depth += 1
                 if self._fg_depth == 1:
                     self._foreground.set()
-                    self._lease_stop.clear()
+                    stop = threading.Event()
+                    self._lease_stop = stop
                     self._write_lease()
                     self._lease_thread = threading.Thread(
                         target=self._heartbeat_lease,
+                        args=(stop,),
                         name="foreground-lease-heartbeat",
                         daemon=True,
                     )
@@ -250,7 +252,9 @@ class BackgroundThrottle:
                 self._fg_depth = max(0, self._fg_depth - 1)
                 if self._fg_depth == 0:
                     self._foreground.clear()
-                    self._lease_stop.set()
+                    if self._lease_stop is not None:
+                        self._lease_stop.set()
+                        self._lease_stop = None
                     self._remove_lease()
                     self._lease_cache_at = 0.0
 
@@ -305,7 +309,7 @@ class BackgroundThrottle:
         """True when background work should stand down — interactive foreground
         work OR a bulk ingest is in flight. The single check every background
         drain (maintenance, embedding backfill, relevance sweep) consults."""
-        return self._foreground.is_set() or self._ingest.is_set()
+        return self.foreground_active or self._ingest.is_set()
 
     def wait_while_busy(
         self, poll: float = 0.5, max_wait: float | None = 120.0
