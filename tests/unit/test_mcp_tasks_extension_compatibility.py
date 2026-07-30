@@ -35,51 +35,49 @@ async def test_graph_jobs_cancel_uses_the_dispatched_work_item(monkeypatch) -> N
     import json
 
     import agent_utilities.mcp.kg_server as kg
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
     from agent_utilities.mcp.tools.job_tools import register_job_tools
-    from agent_utilities.models.company_brain import ActorType
-    from agent_utilities.security.brain_context import ActorContext
+    from agent_utilities.orchestration.work_item import orchestrator_work_item_id
 
     class _MCP:
         def tool(self, **_kwargs):
             return lambda function: function
 
-    actor = ActorContext(
-        actor_id="principal:mcp-task-test",
-        actor_type=ActorType.AUTOMATED_SERVICE,
-        roles=("kg:read", "kg:write"),
-        tenant_id="tenant-mcp-task-test",
-        authenticated=True,
-    )
-    session = GraphSession(
-        actor=actor,
-        tenant=actor.tenant_id,
-        scopes=frozenset({"kg:read", "kg:write"}),
-        policy_version="test",
-        audience="agent-services",
-    )
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    job_id = "job:mcp-task-cancel"
+    item_id = orchestrator_work_item_id(job_id)
 
-    GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    class _Authority:
+        def __init__(self) -> None:
+            self.node = {
+                "id": item_id,
+                "tenant": "tenant-test",
+                "status": "ready",
+                "depends_on": [],
+                "downstream_ids": [],
+                "metadata": {},
+            }
+            self.cancel_requests: list[dict] = []
+
+        def query_cypher(self, _query: str, params: dict | None = None):
+            return [self.node] if (params or {}).get("id") == item_id else []
+
+        def cancel_work_item(self, request: dict):
+            self.cancel_requests.append(request)
+            self.node["status"] = "cancelled"
+            return {"status": "cancelled"}
+
+    authority = _Authority()
+
+    class _Engine:
+        _work_item_engine = authority
+
+    engine = _Engine()
     register_job_tools(_MCP())
     monkeypatch.setattr(kg, "_get_engine", lambda: engine)
 
-    with use_session(session):
-        dispatched = json.loads(
-            await kg._execute_tool("graph_jobs", action="dispatch", task="cancel me")
-        )
-        cancelled = json.loads(
-            await kg._execute_tool(
-                "graph_jobs", action="cancel", job_id=dispatched["job_id"]
-            )
-        )
-        status = json.loads(
-            await kg._execute_tool(
-                "graph_jobs", action="status", job_id=dispatched["job_id"]
-            )
-        )
+    cancelled = json.loads(
+        await kg._execute_tool("graph_jobs", action="cancel", job_id=job_id)
+    )
 
-    assert cancelled == {"status": "cancelled", "job_id": dispatched["job_id"]}
-    assert status["status"] == "cancelled"
+    assert cancelled == {"status": "cancelled", "job_id": job_id}
+    assert authority.node["status"] == "cancelled"
+    assert authority.cancel_requests[0]["work_item_id"] == item_id
