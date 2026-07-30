@@ -163,7 +163,14 @@ def _first_int(rows: Any, label: str) -> int:
                 return int(value)
             except (TypeError, ValueError):
                 continue
-        return 0
+        # No int-convertible value in the row. This is the SAME unexpected shape
+        # the tuple/list branch below raises on, and this module must never
+        # fabricate a count: returning 0 here would make "the query came back
+        # malformed" indistinguishable from "this label genuinely has 0 nodes" —
+        # exactly the absent-vs-hidden ambiguity the manifest exists to resolve.
+        raise GraphReaderError(
+            f"count query returned a row with no integer value for label {label!r}"
+        )
     try:
         return int(row[0])
     except (TypeError, ValueError, IndexError, KeyError) as exc:
@@ -789,7 +796,9 @@ def build_hydration_manifest(
         from agent_utilities._version import __version__ as au_version_value
 
         au_version = au_version_value
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - au_version is provenance metadata only; an
+        # unimportable _version must leave the field honestly absent (None), never
+        # block manifest construction and never invent a version string.
         au_version = None
 
     coverage = tuple(

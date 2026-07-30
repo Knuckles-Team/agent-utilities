@@ -438,3 +438,34 @@ def test_persist_hydration_manifest_writes_one_stable_node():
 @pytest.mark.concept("AU-KG.audit.hydration-manifest-signed")
 def test_persist_hydration_manifest_is_a_noop_without_add_node():
     hm.persist_hydration_manifest(object(), {"generated_at": "x"})  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# _first_int must never fabricate a count (waves 1-5 gate regression)
+# ---------------------------------------------------------------------------
+
+
+def test_first_int_reads_a_dict_row():
+    assert hm._first_int([{"c": 7}], "Server") == 7
+
+
+def test_first_int_returns_zero_only_for_a_genuinely_empty_result():
+    assert hm._first_int([], "Server") == 0
+
+
+def test_first_int_raises_on_a_dict_row_with_no_integer_value():
+    """A malformed row must NOT be reported as a real count of 0.
+
+    Regression (waves 1-5 gate): the dict branch returned 0 when no value was
+    int-convertible, while the tuple/list branch raised on the same class of
+    malformed row. That asymmetry made "the count query came back malformed"
+    indistinguishable from "this label genuinely has 0 nodes" — the exact
+    absent-vs-hidden ambiguity this module exists to resolve.
+    """
+    with pytest.raises(hm.GraphReaderError):
+        hm._first_int([{"c": None}], "Server")
+
+
+def test_first_int_raises_on_a_malformed_sequence_row():
+    with pytest.raises(hm.GraphReaderError):
+        hm._first_int([("not-a-number",)], "Server")
