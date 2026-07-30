@@ -6,7 +6,10 @@ Tests use the synthesized graph-os tool names: graph_query, graph_search,
 graph_write, graph_ingest, graph_analyze, graph_orchestrate, graph_configure.
 """
 
+import asyncio
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -76,34 +79,85 @@ def mock_engine():
 
 
 @pytest.mark.asyncio
-async def test_graphos_health_is_liveness_always_200_with_real_report(server_tools):
-    """``/health`` is LIVENESS: always 200, and the body is the real shared
-    health report (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split) — no
-    longer the unconditional ``{"status": "ok"}`` stub that never checked
-    anything. Still non-fingerprinting: no raw endpoint/hostname strings, only
-    counts/booleans/resolved-mode/platform-id detail.
-    """
+async def test_graphos_health_is_dependency_free_status_only_liveness(server_tools):
+    """``/health`` reveals no dependency or topology detail."""
     response = await server_tools["health_check"](MagicMock())
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    body = json.loads(response.body)
-    assert body["status"] in ("healthy", "unhealthy")
-    names = {c["name"] for c in body["checks"]}
-    assert "engine" in names
-    for check in body["checks"]:
-        assert check["status"] in ("ok", "unhealthy", "not_configured")
-        assert isinstance(check["latency_ms"], (int, float))
+    assert json.loads(response.body) == {"status": "ok"}
 
 
 @pytest.mark.asyncio
 async def test_graphos_health_ready_reflects_status_in_http_code(server_tools):
-    """``/health/ready`` is READINESS: the same report, 200/503 mirrors it
-    (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split)."""
+    """``/health/ready`` maps detailed health to a status-only response."""
     response = await server_tools["readiness_check"](MagicMock())
 
     body = json.loads(response.body)
-    assert response.status_code == (200 if body["status"] == "healthy" else 503)
+    assert body["status"] in {"ready", "not_ready"}
+    assert response.status_code == (200 if body["status"] == "ready" else 503)
+    assert set(body) == {"status"}
+
+
+def test_graphos_health_live_path_bypasses_saturated_default_executor(
+    monkeypatch, server_tools
+):
+    """A real GraphOS route stays responsive when general blocking work fills
+    asyncio's default executor.
+
+    This reproduces the production failure mode: a long native backup and
+    orchestration occupied the shared pool, so the old ``asyncio.to_thread``
+    route queued until kubelet killed the healthy process.
+    """
+    from agent_utilities.observability import runtime_health as runtime_health
+
+    collector_thread: dict[str, str] = {}
+    release = threading.Event()
+    started = threading.Event()
+
+    def _occupy_default_pool() -> None:
+        started.set()
+        release.wait(timeout=5.0)
+
+    def _fast_report() -> dict:
+        collector_thread["name"] = threading.current_thread().name
+        return {
+            "status": "healthy",
+            "checks": [],
+            "generated_at": "synthetic",
+        }
+
+    monkeypatch.setattr(runtime_health, "collect_health", _fast_report)
+    default_executor = ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="saturated-general-work"
+    )
+
+    async def _exercise_route():
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(default_executor)
+        blocking_work = loop.run_in_executor(None, _occupy_default_pool)
+        try:
+            while not started.is_set():
+                await asyncio.sleep(0)
+            response = await asyncio.wait_for(
+                server_tools["readiness_check"](MagicMock()), timeout=0.5
+            )
+            assert not blocking_work.done()
+            return response
+        finally:
+            release.set()
+            await blocking_work
+
+    try:
+        response = asyncio.run(_exercise_route())
+    finally:
+        release.set()
+        default_executor.shutdown(wait=True)
+
+    body = json.loads(response.body)
+    assert response.status_code == 200
+    assert body == {"status": "ready"}
+    assert collector_thread["name"].startswith("au-health-collector")
 
 
 # ── graph_ingest: ingestion ──────────────────────────────────────────

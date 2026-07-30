@@ -202,12 +202,15 @@ curl -s localhost:8004/health/ready   # 200/503 mapped onto the SAME report
 ```
 
 `/health` and `/health/ready` both call the shared
-`observability.runtime_health.collect_health()` core, so they report the SAME
-truthful engine-reachability detail the REST gateway's `/health` uses — a
-self-contained pod that failed to bring its local engine up shows unhealthy in the
-body even though the liveness endpoint itself still answers (kubelet must not
-crash-loop the pod for a dependency a restart can't fix; `/health/ready` is what
-should gate Service routing).
+`observability.runtime_health.collect_health_async()` adapter and the same
+`collect_health()` core, so they report the SAME truthful engine-reachability
+detail the REST gateway's `/health` uses. The async adapter owns a reserved
+two-thread control lane: probes never queue behind model, orchestration,
+connector, or backup work in asyncio's general executor. A self-contained pod
+that failed to bring its local engine up therefore shows unhealthy in the body
+while liveness itself remains responsive (kubelet must not crash-loop the pod
+for a dependency a restart cannot fix; `/health/ready` is what should gate
+Service routing).
 
 ## Wiring proof (this session)
 

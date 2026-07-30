@@ -202,9 +202,11 @@ The pieces (all CONCEPT:AU-OS.identity.authenticated-identity-enforcement, valid
   the server-side `ActorContext` from the claims (`sub`/`client_id`/`azp` →
   actor, `roles`/`realm_access.roles`/`scope` → roles,
   `tenant_id`/`tenant`/`org_id`/`tid` → tenant). Missing or invalid credentials
-  get 401; only health paths (`/health`, `/healthz`, `/api/health`,
-  `/api/healthz`) stay open, returning only `{"status":"ok"}` with
-  `Cache-Control: no-store`; readiness and topology detail remain authenticated.
+  get 401; only health paths (`/health`, `/health/ready`, `/healthz`,
+  `/api/health`, `/api/healthz`) stay open with `Cache-Control: no-store`.
+  Liveness and readiness share the same non-secret runtime report; readiness
+  maps engine reachability onto HTTP 200/503 while liveness remains 200.
+  Identity and raw topology detail are never included.
   Caller-supplied `_actor`/`_roles`/`_tenant` kwargs are rejected.
   `KG_POLICY_VERSION` is required and stamped into the session. Only an explicit
   or identity-mapped `kg:admin` capability grants graph administration; a generic
