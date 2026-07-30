@@ -34,7 +34,7 @@ recorded in `unsourced_fields` with a one-line reason (see `_NO_SOURCE_REASONS`)
 fabricated or plausible-looking default. Today that covers prompt/KV-cache behaviour,
 per-domain quality, prefill/decode latency distributions, availability/error/throttle
 history, privacy/residency eligibility, and local-serving hardware fields (see
-`reports/deferred/lane-5.1-5.2.md` D-5.1-1..3 for the follow-up aggregation work each one
+`reports/deferred/waves1-5-gate.md` D-W15-9..10 for the follow-up aggregation work each one
 needs).
 
 ```mermaid
@@ -71,9 +71,19 @@ the existing `pick_for_task`/`pick_for_task_adaptive` — it **delegates the act
 to them (so the explanation can never disagree with the live picker) and additionally scores
 every candidate in the eligible pool: tag match, tier rank under the same
 `_TIER_PRIORITY` table the picker uses, a derived score, and — for every non-chosen
-candidate — a `rejection_reason` (missing required tag(s), or a worse tier rank for the
-requested complexity). The result is bounded to `MAX_ROUTING_CANDIDATES` (8) regardless of
-registry size, so persisting one decision per routing call never writes an unbounded dump.
+candidate — a `rejection_reason` (missing required tag(s), or a worse tier rank).
+
+Ranking is done against the **effective** tier the picker actually selects from, not the
+caller's nominal `complexity`: confidence-gated routing (`pick_for_task_adaptive`) may
+shift the tier up or down, and both sides now derive it from the one shared
+`_effective_tier` helper so they cannot drift. Scoring in the unshifted frame made the
+chosen model come out with the LOWEST score in its own record and left the real reason
+(the confidence gate) unstated — a persisted `RoutingDecisionNode` an auditor would read
+exactly backwards. When a shift happened the reason says so explicitly
+(`... for complexity 'light' (confidence-shifted from 'medium')`). Surfacing the shift as
+a first-class field on `RoutingDecision` rather than inside the reason string is
+D-W15-9. The result is bounded to `MAX_ROUTING_CANDIDATES` (8) regardless of registry
+size, so persisting one decision per routing call never writes an unbounded dump.
 
 ```mermaid
 sequenceDiagram
@@ -140,7 +150,7 @@ api-token pattern).
 
 ## Deferred
 
-Full list in `reports/deferred/lane-5.1-5.2.md` (D-5.1-1..6): the telemetry-aggregation
+Full list in `reports/deferred/waves1-5-gate.md` (D-W15-9..10): the telemetry-aggregation
 pipeline behind `observed_*`, local-serving hardware fields on `ModelDefinition`, privacy/
 residency declaration, and a pre-existing `KGTraceBackend`/`IntelligenceGraphEngine.add_node`
 duck-type mismatch discovered (not introduced) while wiring `record_routing_decision`.

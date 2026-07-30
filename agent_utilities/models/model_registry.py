@@ -491,6 +491,34 @@ class ModelRegistry(BaseModel):
         idx = _TIER_ORDER.index(tier)
         return _TIER_ORDER[min(len(_TIER_ORDER) - 1, idx + 1)]
 
+
+    def _effective_tier(
+        self,
+        *,
+        complexity: str,
+        confidence_signal: float,
+        routing_percentile: float,
+    ) -> str:
+        """The tier confidence-gated routing will ACTUALLY select from.
+
+        Shared by :meth:`pick_for_task_adaptive` (which picks from it) and
+        :meth:`explain_pick_for_task` (which must rank the rejected
+        alternatives against it). Keeping it in one place is the point:
+        explain_pick_for_task previously re-derived its ranking from the
+        caller's NOMINAL ``complexity``, so whenever the confidence gate
+        shifted the tier the persisted provenance scored every candidate —
+        including the chosen one — in the wrong frame, and the chosen model
+        came out with the LOWEST score and no stated reason.
+        """
+        threshold = routing_percentile / 100.0
+        if confidence_signal > threshold:
+            # High confidence → cheaper model is sufficient
+            return self._tier_down(complexity)
+        if confidence_signal < (1.0 - threshold):
+            # Low confidence → escalate to a more capable tier
+            return self._tier_up(complexity)
+        return complexity
+
     def pick_for_task_adaptive(
         self,
         *,
@@ -532,15 +560,11 @@ class ModelRegistry(BaseModel):
         Raises:
             ValueError: If the registry is empty.
         """
-        threshold = routing_percentile / 100.0
-        effective_tier = complexity
-
-        if confidence_signal > threshold:
-            # High confidence → cheaper model is sufficient
-            effective_tier = self._tier_down(complexity)
-        elif confidence_signal < (1.0 - threshold):
-            # Low confidence → escalate to more capable model
-            effective_tier = self._tier_up(complexity)
+        effective_tier = self._effective_tier(
+            complexity=complexity,
+            confidence_signal=confidence_signal,
+            routing_percentile=routing_percentile,
+        )
 
         return self.pick_for_task(
             complexity=effective_tier, required_tags=required_tags
@@ -581,7 +605,18 @@ class ModelRegistry(BaseModel):
             ValueError: If the registry is empty (same as the underlying pickers).
         """
         required = required_tags or []
+        # Rank against the tier the picker ACTUALLY selects from, not the
+        # caller's nominal complexity: confidence-gated routing may shift it
+        # (``_effective_tier``), and scoring the alternatives in the unshifted
+        # frame made the chosen model look like the worst candidate in its own
+        # provenance record.
+        effective_complexity = complexity
         if confidence_signal is not None and routing_percentile is not None:
+            effective_complexity = self._effective_tier(
+                complexity=complexity,
+                confidence_signal=confidence_signal,
+                routing_percentile=routing_percentile,
+            )
             chosen = self.pick_for_task_adaptive(
                 complexity=complexity,
                 confidence_signal=confidence_signal,
@@ -591,7 +626,7 @@ class ModelRegistry(BaseModel):
         else:
             chosen = self.pick_for_task(complexity=complexity, required_tags=required)
 
-        order = _TIER_PRIORITY[complexity]
+        order = _TIER_PRIORITY[effective_complexity]
         tagged = [m for m in self.models if all(t in m.tags for t in required)]
         pool = tagged if tagged else self.models
 
@@ -610,10 +645,15 @@ class ModelRegistry(BaseModel):
                     chosen_rank = (
                         order.index(chosen.tier) if chosen.tier in order else len(order)
                     )
+                    shifted = (
+                        ""
+                        if effective_complexity == complexity
+                        else f" (confidence-shifted from {complexity!r})"
+                    )
                     reason = (
                         f"tier {m.tier!r} ranked #{rank + 1} vs chosen "
                         f"{chosen.tier!r} ranked #{chosen_rank + 1} for complexity "
-                        f"{complexity!r}"
+                        f"{effective_complexity!r}{shifted}"
                     )
             scored.append(
                 CandidateScore(
@@ -630,9 +670,10 @@ class ModelRegistry(BaseModel):
 
         bounded = scored[:MAX_ROUTING_CANDIDATES]
         if not any(c.model_id == chosen.id for c in bounded):
-            # The chosen candidate always has the top score under this ranking, so
-            # this is defensive only (e.g. a future scoring change) — never drop the
-            # actual decision from its own record.
+            # With the ranking frame aligned to the picker's effective tier the
+            # chosen candidate normally has the top score, but a tie or a future
+            # scoring change must never drop the actual decision from its own
+            # record.
             chosen_candidate = next(
                 (c for c in scored if c.model_id == chosen.id), None
             )
