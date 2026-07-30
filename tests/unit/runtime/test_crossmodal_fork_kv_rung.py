@@ -1,15 +1,21 @@
-"""The OPTIONAL zero-copy KV-fork rung on :class:`CrossModalForkFanout`.
+"""The DEFAULT-ON zero-copy KV-fork rung on :class:`CrossModalForkFanout`.
 
 CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout + CONCEPT:EG-KG.memory.zero-copy-snapshot-fork.
-Proves the two things the rung must guarantee:
+Proves what the rung must guarantee:
 
-* **Default-off / opt-in** — with no ``kv_page_keys`` the KV backend is never touched and the
-  result's KV fields stay empty.
-* **Opt-in plumbing** — with ``kv_page_keys`` supplied the fan-out snapshots the pages
-  ONCE, forks one copy-on-write branch per cohort branch, exposes each branch's KV
-  branch id to its snippet as ``kv_branch_id``, and lands the fork ids + ``/kv/fork/stats``
-  on the result. Degrades to the copy path (never fails the cohort) when the backend is
-  unavailable.
+* **Default-on, auto-derived** — with no ``kv_page_keys`` and more than one branch, a
+  backend that advertises ``supports_fork()`` gets pages derived from the candidate set
+  automatically (content-hashed + stored), and the fan-out snapshots them ONCE, forks one
+  copy-on-write branch per cohort branch, exposes each branch's KV branch id to its
+  snippet as ``kv_branch_id``, and lands the fork ids + ``/kv/fork/stats`` on the result.
+* **Explicit override** — ``kv_page_keys`` supplied by the caller wins over auto-derivation.
+* **Explicit opt-out** — ``kv_page_keys=[]`` disables the rung entirely, no auto-derivation
+  attempted.
+* **No sharing benefit, no attempt** — a single-branch cohort never touches the backend
+  (nothing to share).
+* **Transparent fallback** — an unavailable backend, one that doesn't advertise fork
+  support, or one that can't derive any pages degrades to the copy path; the cohort never
+  fails either way.
 
 A fake in-process KV backend stands in for the engine ``/kv`` fork surface, so these run
 without a live engine (the driver's own live roundtrip is covered in
@@ -89,12 +95,23 @@ def _retriever(_query: str) -> list[dict]:
 class _FakeKvBackend:
     """In-process stand-in for :class:`EpistemicGraphKVBackend`'s fork rung, with call spies."""
 
-    def __init__(self, *, snapshot_id: int | None = 42) -> None:
+    def __init__(
+        self, *, snapshot_id: int | None = 42, fork_supported: bool = True
+    ) -> None:
         self._snapshot_id = snapshot_id
+        self._fork_supported = fork_supported
         self.snapshot_calls: list[list[str]] = []
         self.fork_calls: list[int] = []
+        self.put_calls: list[str] = []
         self._next_branch = 100
         self.fork_stats_calls = 0
+
+    def supports_fork(self) -> bool:
+        return self._fork_supported
+
+    def put(self, key: str, value: bytes) -> bool:
+        self.put_calls.append(key)
+        return True
 
     def snapshot(self, keys):
         self.snapshot_calls.append(list(keys))
@@ -117,28 +134,99 @@ class _FakeKvBackend:
         }
 
 
-# ── default-off: existing behavior is byte-for-byte unchanged ──────────────────
-async def test_kv_rung_default_off_does_not_touch_backend(clean_registry, sandbox):
+class _MinimalFakeKvBackend:
+    """A KV backend double with NO ``supports_fork``/``put`` (e.g. a stale test double or a
+    minimal remote implementation) — proves the rung degrades gracefully rather than
+    assuming every backend exposes the newer capability-probe/derive surface."""
+
+    def __init__(self) -> None:
+        self.snapshot_calls: list[list[str]] = []
+
+    def snapshot(self, keys):  # pragma: no cover - never reached (put fails first)
+        self.snapshot_calls.append(list(keys))
+        return None
+
+
+# ── default-on: auto-derives pages from the candidate set and forks ────────────
+async def test_kv_rung_default_on_auto_derives_and_forks(clean_registry, sandbox):
     kv = _FakeKvBackend()
+    fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
+
+    # No kv_page_keys, >1 branch, backend supports fork ⇒ the rung engages automatically.
+    res = await fanout.fan_out("q", ["kv_branch_id"] * 3)
+
+    # One content-hash key derived + stored per candidate (2 candidates from _retriever).
+    assert len(kv.put_calls) == 2
+    assert kv.snapshot_calls == [kv.put_calls]
+    assert kv.fork_calls == [42, 42, 42]
+
+    assert res.kv_snapshot_id == 42
+    assert res.kv_branch_ids == [100, 101, 102]
+    assert res.kv_fork_shared is True
+
+    got = {b.index: b.output for b in res.branches}
+    assert got == {0: 100, 1: 101, 2: 102}
+
+
+# ── single branch: nothing to share, the rung is never attempted ──────────────
+async def test_kv_rung_skips_auto_derivation_for_a_single_branch(
+    clean_registry, sandbox
+):
+    kv = _FakeKvBackend()
+    fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
+
+    res = await fanout.fan_out("q", ["length"])
+
+    assert kv.put_calls == []
+    assert kv.snapshot_calls == []
+    assert res.kv_snapshot_id is None
+
+
+# ── explicit opt-out: kv_page_keys=[] disables the rung entirely ──────────────
+async def test_kv_rung_explicit_empty_list_opts_out(clean_registry, sandbox):
+    kv = _FakeKvBackend()
+    fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
+
+    res = await fanout.fan_out("q", ["length"] * 3, kv_page_keys=[])
+
+    assert kv.put_calls == []
+    assert kv.snapshot_calls == []
+    assert res.kv_snapshot_id is None
+    assert all(b.ok for b in res.branches)
+
+
+# ── unsupported backend: capability probe says no, auto-derivation skipped ────
+async def test_kv_rung_falls_back_when_backend_does_not_support_fork(
+    clean_registry, sandbox
+):
+    kv = _FakeKvBackend(fork_supported=False)
     fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
 
     res = await fanout.fan_out("q", ["length"] * 3)
 
-    # No kv_page_keys ⇒ the rung stays dormant; the copy path ran exactly as before.
+    assert kv.put_calls == []  # never even tried to derive pages
     assert kv.snapshot_calls == []
-    assert kv.fork_calls == []
     assert res.kv_snapshot_id is None
-    assert res.kv_branch_ids == []
-    assert res.kv_fork_stats == {}
-    assert res.kv_fork_shared is False
     assert all(b.ok for b in res.branches)
     assert all(b.output == 2 for b in res.branches)
 
 
-# ── opt-in: snapshot once, fork per branch, surface ids + stats ────────────────
-async def test_kv_rung_opt_in_snapshots_once_and_forks_per_branch(
+# ── minimal backend with no capability surface: degrades, never crashes ───────
+async def test_kv_rung_degrades_gracefully_for_a_minimal_backend(
     clean_registry, sandbox
 ):
+    kv = _MinimalFakeKvBackend()
+    fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
+
+    res = await fanout.fan_out("q", ["length"] * 3)
+
+    assert kv.snapshot_calls == []  # derivation failed (no .put) before any snapshot
+    assert res.kv_snapshot_id is None
+    assert all(b.ok for b in res.branches)
+
+
+# ── explicit override: caller-supplied kv_page_keys wins over auto-derivation ──
+async def test_kv_rung_explicit_keys_win_over_auto_derivation(clean_registry, sandbox):
     kv = _FakeKvBackend()
     fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
 
@@ -150,6 +238,8 @@ async def test_kv_rung_opt_in_snapshots_once_and_forks_per_branch(
         kv_page_keys=["page-a", "page-b"],
     )
 
+    # No auto-derivation — the caller's own keys were used verbatim.
+    assert kv.put_calls == []
     # Snapshot pinned the caller's pages exactly ONCE for the whole cohort.
     assert kv.snapshot_calls == [["page-a", "page-b"]]
     # One CoW branch forked per cohort branch, all off the single snapshot.

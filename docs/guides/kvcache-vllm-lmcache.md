@@ -533,6 +533,64 @@ the *epistemic* quality path (Seam 6 app-level) and the *serving-latency* path
 (the rest of this doc) now connect end-to-end instead of independently hitting
 the same backend as they did before this wire.
 
+## Zero-copy branch forking (default-on) + KV checkpoints
+
+Two capabilities build on the `/kv/snapshot` → `/kv/snapshot/<id>/fork` →
+`/kv/branch/<bid>/<key>` primitive documented above
+(CONCEPT:EG-KG.memory.zero-copy-snapshot-fork):
+
+**1. Default-on CoW fork for branch fan-out.**
+`CrossModalForkFanout.fan_out` (`agent_utilities/runtime/crossmodal_fork.py`, driven
+live by the `graph_fork` MCP tool with `context_query` set) now engages the
+snapshot/fork rung **automatically** for a >1-branch cohort whenever the resolved
+`EpistemicGraphKVBackend` advertises `supports_fork()` — no caller wiring required.
+When a caller doesn't already have real vLLM/LMCache prefix-hash keys, the
+retrieved candidate set is itself content-hashed and stored into the shared KV
+store so there are real pages to snapshot+fork over, replacing a per-branch
+`copy.deepcopy` of the candidate set with one shared, ref-counted, engine-resident
+copy. Every dead end (engine unreachable, an older build that doesn't expose the
+fork surface, an empty derivation) degrades transparently to the ordinary copy
+path — never a hard failure — and every engagement/fallback is recorded via
+`agent_utilities_kvcache_fork_events_total{result,reason}` and
+`agent_utilities_kvcache_fork_shared_bytes` (`observability/gateway_metrics.py`).
+Pass `kv_page_keys=[]` to opt out entirely, or real page keys to bypass
+auto-derivation. The STORE-side `KVCacheLayeringPolicy` (this doc's app-level
+section) also folds in `agent_utilities.core.resource_priority.PriorityClass`:
+`BACKGROUND_INGESTION` never stores (so background fan-out can't pressure-evict
+a foreground branch's shared prefix) and `INTERACTIVE` halves the cache-worthiness
+thresholds, biasing a live user's borderline execution toward staying cached.
+
+**2. KV checkpoints as first-class graph resources.**
+`agent_utilities.kvcache.KVCheckpointStore` (`agent_utilities/kvcache/checkpoint.py`,
+live via the `graph_kv_checkpoint` MCP tool / `POST /graph/kv_checkpoint`) lets an
+operator checkpoint a KV-cache blob at a point of ideal understanding, then either
+initialise a new agent from it or reset an existing conversation back to it:
+
+```mermaid
+flowchart LR
+    run["Live run\n(a point of ideal\nunderstanding)"] -->|create_checkpoint| ckpt[("KVCheckpoint node\n(model/quant/engine/version/\nprefix-digest/tenant/policy)")]
+    ckpt -->|hasBlob| blob[("content-addressed\nBlob (engine store)")]
+    ckpt -->|instantiate_agent\n(fail-closed load)| newrun["New :AgentRun\n(initializedFrom edge)"]
+    ckpt -->|restore_conversation\n(fail-closed load)| conv["Existing conversation\n(restoredFrom edge)"]
+    conv -.->|allow_cold_start=true\nonly| cold["Explicit, traced\ncold start"]
+```
+
+The checkpoint id is a sha256 over **six** components — model identity,
+quantization, serving engine + version, prefix digest, tenant, and policy version
+(`KVCheckpointKey.checkpoint_id`) — so any single change mints a wholly different
+id; there is no accidental cross-context reuse. `get_checkpoint` (the one load
+primitive every operation routes through) independently re-checks the loaded
+node's stored tenant/policy version against the caller's, refusing
+(`CrossTenantCheckpointError` / `StaleCheckpointError`) rather than degrading — a
+cross-tenant checkpoint load is treated as a security incident, not a
+correctness nicety. The heavy KV blob never lands in a node property; it stays
+behind the engine's content-addressed blob store (GC-bracketed exactly like
+`MediaStore`'s asset occurrences) and only the digest/blob_id travel with the
+checkpoint's provenance. `restore_conversation`'s `allow_cold_start=True` is the
+only sanctioned fallback — explicit, opt-in, logged, and telemetered
+(`agent_utilities_kvcache_checkpoint_ops_total{op,outcome}`) rather than a silent
+degrade to a cold start.
+
 ## Rollback
 
 Redeploy the live service from the base compose only (drops the override, back to

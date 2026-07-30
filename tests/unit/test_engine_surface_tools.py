@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent_utilities.kvcache import KVCheckpointStore
 from agent_utilities.kvcache.remote_backend import KvCacheStats
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import engine_surface_tools
@@ -65,6 +66,7 @@ def _recording_method(recorder: list, name: str):
 _EXPECTED_ROUTES = {
     "graph_broker": "/graph/broker",
     "graph_kvcache": "/graph/kvcache",
+    "graph_kv_checkpoint": "/graph/kv_checkpoint",
     "graph_federated_search": "/graph/federated-search",
     "graph_promql": "/graph/promql",
     "graph_traces": "/graph/traces",
@@ -249,6 +251,203 @@ def test_kg_2_310_kvcache_contains(monkeypatch, tools):
     monkeypatch.setattr(engine_surface_tools, "_kv_backend", lambda: kv)
     out = json.loads(tools["graph_kvcache"](action="contains", key="k", value_b64=""))
     assert out["present"] is True
+
+
+# ── graph_kv_checkpoint (CONCEPT:AU-KG.memory.kv-checkpoint-resource) ───────
+class _FakeCheckpointBlob:
+    def __init__(self) -> None:
+        self.data: dict[str, bytes] = {}
+
+    def store(self, data: bytes) -> str:
+        import hashlib
+
+        digest = hashlib.sha256(data).hexdigest()
+        self.data[digest] = data
+        return digest
+
+    def incref(self, digest: str) -> int:
+        return 1
+
+    def unref(self, digest: str) -> int:
+        return 0
+
+    def fetch(self, digest: str) -> bytes:
+        return self.data[digest]
+
+
+class _FakeCheckpointTxn:
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+        self._n = 0
+
+    def begin(self, graph=None):
+        self._n += 1
+        return f"txn{self._n}"
+
+    def add_node(self, txn, node_id, props):
+        self.nodes[node_id] = dict(props)
+
+    def blob_ref(self, txn, node_id, digest):
+        return True
+
+    def commit(self, txn) -> bool:
+        return True
+
+
+class _FakeCheckpointNodes:
+    def __init__(self, backing: dict[str, dict]) -> None:
+        self._backing = backing
+
+    def has(self, node_id: str) -> bool:
+        return node_id in self._backing
+
+    def properties(self, node_id: str):
+        return self._backing.get(node_id)
+
+
+class _FakeCheckpointEdges:
+    def __init__(self) -> None:
+        self.edges: list[tuple] = []
+
+    def add(self, source, dest, props):
+        self.edges.append((source, dest, props))
+
+
+def _fake_checkpoint_store():
+    """A real :class:`KVCheckpointStore` bound to a fake engine client, matching
+    ``tests/unit/kvcache/test_checkpoint.py``'s pattern — proves the MCP tool wires
+    through to the real store logic, not a hand-rolled tool-level stand-in."""
+    client = SimpleNamespace(
+        blob=_FakeCheckpointBlob(),
+        txn=_FakeCheckpointTxn(),
+        nodes=None,
+        edges=_FakeCheckpointEdges(),
+    )
+    client.nodes = _FakeCheckpointNodes(client.txn.nodes)
+    return KVCheckpointStore(SimpleNamespace(_client=client, graph_name="__commons__"))
+
+
+def _kv_checkpoint_call(tools, **overrides):
+    """Call ``graph_kv_checkpoint`` with every parameter explicitly supplied.
+
+    The ``_CollectingMCP`` fixture captures the RAW undecorated tool function, so a
+    parameter left unspecified keeps its literal ``pydantic.Field(...)`` default
+    object (a ``FieldInfo``, not the resolved default value) — the real
+    ``mcp.tool()`` decorator resolves that, this fake doesn't. Every call site must
+    therefore pass the full parameter set, like every other tool test in this file.
+    """
+    defaults = dict(
+        action="",
+        data_b64="",
+        model_identity="",
+        quantization="",
+        serving_engine="",
+        engine_version="",
+        prefix_digest="",
+        tenant="",
+        policy_version="",
+        run_id="",
+        point="",
+        provenance_json="{}",
+        checkpoint_id="",
+        requesting_tenant="",
+        current_policy_version="",
+        new_run_id="",
+        conversation_id="",
+        allow_cold_start=False,
+        graph="",
+    )
+    defaults.update(overrides)
+    return json.loads(tools["graph_kv_checkpoint"](**defaults))
+
+
+def test_kg_2_310_kv_checkpoint_create_then_instantiate_and_restore(monkeypatch, tools):
+    """CONCEPT:AU-KG.memory.kv-checkpoint-resource — end-to-end through the MCP tool:
+    create → instantiate_agent (lineage edge) → restore_conversation (bytes back)."""
+    store = _fake_checkpoint_store()
+    monkeypatch.setattr(engine_surface_tools, "_checkpoint_store", lambda graph: store)
+
+    created = _kv_checkpoint_call(
+        tools,
+        action="create",
+        data_b64=base64.b64encode(b"kv-bytes").decode(),
+        model_identity="m",
+        quantization="q",
+        serving_engine="vllm",
+        engine_version="1",
+        prefix_digest="d",
+        tenant="tenant-a",
+        policy_version="p1",
+        run_id="run-1",
+        point="checkpoint-a",
+    )
+    checkpoint_id = created["result"]["checkpoint_id"]
+    assert checkpoint_id
+
+    instantiated = _kv_checkpoint_call(
+        tools,
+        action="instantiate_agent",
+        checkpoint_id=checkpoint_id,
+        requesting_tenant="tenant-a",
+        new_run_id="run-2",
+    )
+    assert instantiated["result"]["checkpoint_id"] == checkpoint_id
+
+    restored = _kv_checkpoint_call(
+        tools,
+        action="restore_conversation",
+        checkpoint_id=checkpoint_id,
+        conversation_id="conv-1",
+        requesting_tenant="tenant-a",
+    )
+    assert restored["result"]["restored"] is True
+    assert restored["result"]["cold_start"] is False
+    # The heavy blob bytes are NEVER inlined over the MCP JSON surface.
+    assert "data" not in restored["result"]
+    assert restored["result"]["size_bytes"] == len(b"kv-bytes")
+
+
+def test_kg_2_310_kv_checkpoint_cross_tenant_refused(monkeypatch, tools):
+    """CONCEPT:AU-KG.memory.kv-checkpoint-resource — a cross-tenant load through the
+    MCP tool surfaces a typed error, never a silent degrade."""
+    store = _fake_checkpoint_store()
+    monkeypatch.setattr(engine_surface_tools, "_checkpoint_store", lambda graph: store)
+
+    created = _kv_checkpoint_call(
+        tools,
+        action="create",
+        data_b64=base64.b64encode(b"kv-bytes").decode(),
+        model_identity="m",
+        quantization="q",
+        serving_engine="vllm",
+        engine_version="1",
+        prefix_digest="d",
+        tenant="tenant-a",
+        run_id="run-1",
+        point="checkpoint-a",
+    )
+    checkpoint_id = created["result"]["checkpoint_id"]
+
+    denied = _kv_checkpoint_call(
+        tools,
+        action="restore_conversation",
+        checkpoint_id=checkpoint_id,
+        conversation_id="conv-1",
+        requesting_tenant="tenant-b",
+    )
+    assert denied["error"]["code"] == "permission_denied"
+
+    # allow_cold_start makes the fallback explicit instead of an error payload.
+    cold = _kv_checkpoint_call(
+        tools,
+        action="restore_conversation",
+        checkpoint_id=checkpoint_id,
+        conversation_id="conv-1",
+        requesting_tenant="tenant-b",
+        allow_cold_start=True,
+    )
+    assert cold["result"]["cold_start"] is True
+    assert cold["result"]["fallback_reason"] == "CrossTenantCheckpointError"
 
 
 # ── graph_federated_search ───────────────────────────────────────────────────

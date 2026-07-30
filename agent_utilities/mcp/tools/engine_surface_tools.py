@@ -195,6 +195,49 @@ def _kv_backend() -> Any:
     return EpistemicGraphKVBackend.from_env()
 
 
+class _EngineComputeAdapter:
+    """Minimal ``compute`` shape (``._client`` + ``.graph_name``) the MediaStore-style
+    graph-resource stores expect, built from the low-level engine client this module
+    already resolves (CONCEPT:AU-KG.memory.kv-checkpoint-resource). No new transport —
+    reuses the same :func:`_client` every other tool in this module rides."""
+
+    def __init__(self, client: Any, graph_name: str) -> None:
+        self._client = client
+        self.graph_name = graph_name
+
+
+def _checkpoint_error_code(exc: Exception) -> str:
+    """Map a :class:`~agent_utilities.kvcache.KVCheckpointError` to one of the
+    platform's registered public error codes (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
+
+    Deliberately coarse: :func:`~agent_utilities.security.error_surface.public_error_payload`
+    only recognizes a small fixed code vocabulary and collapses anything else to
+    ``operation_failed`` — and collapsing here is itself the correct security
+    posture, not a limitation. Distinguishing "not found" from "cross-tenant" from
+    "stale" on the PUBLIC surface would let a caller enumerate which checkpoint ids
+    exist under a tenant they don't own; only ``CrossTenantCheckpointError`` gets
+    its own (still generic) ``permission_denied`` code, everything else falls to
+    the default ``operation_failed``.
+    """
+    from agent_utilities.kvcache import CrossTenantCheckpointError
+
+    if isinstance(exc, CrossTenantCheckpointError):
+        return "permission_denied"
+    return "operation_failed"
+
+
+def _checkpoint_store(graph: str) -> Any:
+    """Build a :class:`~agent_utilities.kvcache.KVCheckpointStore` bound to the
+    live engine client for ``graph`` (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
+
+    Isolated behind this indirection so unit tests can inject a fake compute
+    object, matching every other resolver in this module.
+    """
+    from agent_utilities.kvcache import KVCheckpointStore
+
+    return KVCheckpointStore(_EngineComputeAdapter(_client(graph), graph))
+
+
 def _json_default(obj: Any) -> Any:
     if isinstance(obj, bytes | bytearray):
         return {"__bytes_b64__": base64.b64encode(bytes(obj)).decode("ascii")}
@@ -891,6 +934,206 @@ def register_engine_surface_tools(mcp) -> None:
                     pass
 
     kg_server.REGISTERED_TOOLS["graph_kvcache"] = graph_kvcache
+
+    # ══════════════════════════════════════════════════════════════════
+    # graph_kv_checkpoint — KV-cache checkpoints as graph resources
+    # (CONCEPT:AU-KG.memory.kv-checkpoint-resource)
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_kv_checkpoint",
+        description=(
+            "CONCEPT:AU-KG.memory.kv-checkpoint-resource — checkpoint a KV-cache at a point of "
+            "ideal understanding, then initialise a new agent from it or reset a "
+            "conversation back to it. The heavy KV blob lives behind the engine's "
+            "content-addressed blob store; the response never inlines it — only "
+            "provenance (checkpoint_id/digest/blob_id) so a caller with real access to "
+            "the blob store can fetch it directly. Actions: 'create' (data_b64 + the "
+            "full key: model_identity/quantization/serving_engine/engine_version/"
+            "prefix_digest/tenant/policy_version, plus run_id/point) → checkpoint "
+            "provenance; 'instantiate_agent' (checkpoint_id + requesting_tenant + "
+            "new_run_id) → fail-closed load + an initializedFrom lineage edge from a "
+            "fresh AgentRun node; 'restore_conversation' (checkpoint_id + "
+            "conversation_id + requesting_tenant) → fail-closed load + a restoredFrom "
+            "lineage edge, or set allow_cold_start=true for an EXPLICIT, traced "
+            "cold-start fallback instead of raising. A tenant mismatch or a stale "
+            "policy_version is ALWAYS refused (cross-tenant checkpoint reuse is a "
+            "security boundary, never bypassable)."
+        ),
+        tags=["graph-os", "engine", "kvcache", "checkpoint", "memory"],
+    )
+    def graph_kv_checkpoint(
+        action: str = Field(
+            default="", description="create | instantiate_agent | restore_conversation"
+        ),
+        data_b64: str = Field(
+            default="", description="Base64 KV-cache blob bytes (create only)."
+        ),
+        model_identity: str = Field(default="", description="create: key component."),
+        quantization: str = Field(default="", description="create: key component."),
+        serving_engine: str = Field(default="", description="create: key component."),
+        engine_version: str = Field(default="", description="create: key component."),
+        prefix_digest: str = Field(default="", description="create: key component."),
+        tenant: str = Field(
+            default="", description="create: owning tenant (mandatory key component)."
+        ),
+        policy_version: str = Field(
+            default="", description="create: key component (defaults to '')."
+        ),
+        run_id: str = Field(default="", description="create: the source run's id."),
+        point: str = Field(
+            default="", description="create: label for the checkpointed point."
+        ),
+        provenance_json: str = Field(
+            default="{}", description="create: free-form provenance JSON object."
+        ),
+        checkpoint_id: str = Field(
+            default="",
+            description="instantiate_agent/restore_conversation: the checkpoint to load.",
+        ),
+        requesting_tenant: str = Field(
+            default="",
+            description="instantiate_agent/restore_conversation: the caller's tenant "
+            "(checked against the checkpoint's stored tenant, fail-closed).",
+        ),
+        current_policy_version: str = Field(
+            default="",
+            description="instantiate_agent/restore_conversation: current policy "
+            "version to validate against (empty ⇒ skip the staleness check).",
+        ),
+        new_run_id: str = Field(
+            default="", description="instantiate_agent: the new run's id."
+        ),
+        conversation_id: str = Field(
+            default="", description="restore_conversation: the conversation to reset."
+        ),
+        allow_cold_start: bool = Field(
+            default=False,
+            description="restore_conversation: on an invalid/foreign/stale "
+            "checkpoint, return an explicit traced cold-start result instead of "
+            "raising.",
+        ),
+        graph: str = Field(
+            default="", description="Target graph (default engine graph)."
+        ),
+    ) -> str:
+        """Thin verb over :class:`~agent_utilities.kvcache.KVCheckpointStore` (CONCEPT:AU-KG.memory.kv-checkpoint-resource)."""
+        from agent_utilities.kvcache import KVCheckpointError, KVCheckpointKey
+
+        try:
+            store = _checkpoint_store(graph)
+        except Exception as exc:  # noqa: BLE001 — engine down is a normal degrade
+            return _surface_error(
+                exc,
+                surface="kv_checkpoint",
+                action=action,
+                code="dependency_unavailable",
+            )
+
+        if action == "create":
+            try:
+                data = base64.b64decode(data_b64) if data_b64 else b""
+                provenance = json.loads(provenance_json) if provenance_json else {}
+            except (ValueError, TypeError) as exc:
+                return _surface_error(
+                    exc, surface="kv_checkpoint", action=action, code="invalid_request"
+                )
+            try:
+                key = KVCheckpointKey(
+                    model_identity=model_identity,
+                    quantization=quantization,
+                    serving_engine=serving_engine,
+                    engine_version=engine_version,
+                    prefix_digest=prefix_digest,
+                    tenant=tenant,
+                    policy_version=policy_version,
+                )
+            except Exception as exc:  # noqa: BLE001 — bad/missing key component
+                return _surface_error(
+                    exc, surface="kv_checkpoint", action=action, code="invalid_request"
+                )
+            try:
+                record = store.create_checkpoint(
+                    data,
+                    key=key,
+                    run_id=run_id,
+                    point=point,
+                    provenance=provenance if isinstance(provenance, dict) else {},
+                )
+            except Exception as exc:  # noqa: BLE001 — surface engine errors as data
+                return _surface_error(exc, surface="kv_checkpoint", action=action)
+            if record is None:
+                return json.dumps(
+                    {
+                        "surface": "kv_checkpoint",
+                        "action": action,
+                        "error": "checkpoint creation failed (empty payload or engine write failure)",
+                    }
+                )
+            return json.dumps(
+                {
+                    "surface": "kv_checkpoint",
+                    "action": action,
+                    "result": record.model_dump(),
+                },
+                default=_json_default,
+            )
+
+        if action == "instantiate_agent":
+            try:
+                record = store.instantiate_agent(
+                    checkpoint_id,
+                    requesting_tenant=requesting_tenant,
+                    new_run_id=new_run_id,
+                    current_policy_version=current_policy_version or None,
+                )
+            except KVCheckpointError as exc:
+                return _surface_error(
+                    exc,
+                    surface="kv_checkpoint",
+                    action=action,
+                    code=_checkpoint_error_code(exc),
+                )
+            return json.dumps(
+                {
+                    "surface": "kv_checkpoint",
+                    "action": action,
+                    "result": record.model_dump(),
+                },
+                default=_json_default,
+            )
+
+        if action == "restore_conversation":
+            try:
+                res = store.restore_conversation(
+                    checkpoint_id,
+                    conversation_id=conversation_id,
+                    requesting_tenant=requesting_tenant,
+                    current_policy_version=current_policy_version or None,
+                    allow_cold_start=allow_cold_start,
+                )
+            except KVCheckpointError as exc:
+                return _surface_error(
+                    exc,
+                    surface="kv_checkpoint",
+                    action=action,
+                    code=_checkpoint_error_code(exc),
+                )
+            # Never inline the heavy blob bytes over the JSON tool surface — only
+            # provenance; a caller that needs the bytes fetches them directly from
+            # the engine's own blob store by digest (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
+            payload = res.model_dump(exclude={"data"})
+            payload["size_bytes"] = len(res.data) if res.data is not None else 0
+            return json.dumps(
+                {"surface": "kv_checkpoint", "action": action, "result": payload},
+                default=_json_default,
+            )
+
+        return json.dumps(
+            {"surface": "kv_checkpoint", "error": f"unknown action {action!r}"}
+        )
+
+    kg_server.REGISTERED_TOOLS["graph_kv_checkpoint"] = graph_kv_checkpoint
+    kg_server.ACTION_TOOL_ROUTES["graph_kv_checkpoint"] = "/graph/kv_checkpoint"
     kg_server.ACTION_TOOL_ROUTES["graph_kvcache"] = "/graph/kvcache"
 
     # ══════════════════════════════════════════════════════════════════

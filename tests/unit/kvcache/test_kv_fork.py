@@ -222,6 +222,28 @@ def test_branch_get_miss_returns_none_mock() -> None:
     assert backend.branch_get(bid, "never-pinned") is None
 
 
+def test_supports_fork_true_when_fork_surface_reachable_mock() -> None:
+    """CONCEPT:EG-KG.memory.zero-copy-snapshot-fork — a reachable fork surface reports supported,
+    cached after the first probe (a second call doesn't re-hit the transport)."""
+    server = _FakeForkServer()
+    backend = _backend(server)
+    assert backend.supports_fork() is True
+    assert backend._fork_supported is True  # noqa: SLF001 — cached, not re-probed
+    assert backend.supports_fork() is True
+
+
+def test_supports_fork_false_when_engine_unreachable_mock() -> None:
+    """CONCEPT:EG-KG.memory.zero-copy-snapshot-fork — an unreachable engine reports unsupported
+    (never raises) so a DEFAULT-ON caller degrades to the copy path."""
+
+    def boom(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("engine unreachable")
+
+    client = create_http_client(base_url=BASE, transport=httpx.MockTransport(boom))
+    backend = EpistemicGraphKVBackend(KvCacheConfig(base_url=BASE), client=client)
+    assert backend.supports_fork() is False
+
+
 # ── live-integration (skipped when the engine KV surface is unreachable) ───────
 def _engine_reachable(base_url: str) -> bool:
     try:
