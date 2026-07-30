@@ -3557,38 +3557,28 @@ def _build_server(
     #
     # ``/health`` is LIVENESS: it always answers 200 (this process itself is up
     # and answering requests) even when the body reports "unhealthy" — a
-    # downstream dependency being down must NOT make kubelet kill/restart an
-    # otherwise-fine process (that would crash-loop the pod for something a
-    # restart cannot fix). The body is the truthful, loud signal: real engine
-    # reachability + circuit-breaker state, plus every configured co-service/
-    # dependency — never a placeholder that reports "ok" regardless of reality.
-    #
-    # ``/health/ready`` is READINESS: the SAME report, but its overall status
-    # maps onto the HTTP status code (200 healthy / 503 unhealthy) so kubelet
-    # pulls this pod out of Service routing while it's genuinely broken,
-    # without touching the process.
-    #
-    # Both stay status-only-by-default in the sense that only non-secret detail
-    # (counts, booleans, resolved modes, platform ids) is ever included — no
-    # endpoint DSNs, tokens, or credentials.
+    # /health is a dependency-free, status-only liveness signal. The readiness
+    # twin executes the truthful bounded collector on its reserved control lane,
+    # but returns only ready/not_ready because both routes are intentionally
+    # unauthenticated for kubelet. Detailed component data stays behind
+    # graph_configure(action="health") and authenticated dashboard surfaces.
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
-        from agent_utilities.observability.runtime_health import collect_health
-
-        report = await asyncio.to_thread(collect_health)
-        return JSONResponse(report, headers={"Cache-Control": "no-store"})
+        return JSONResponse({"status": "ok"}, headers={"Cache-Control": "no-store"})
 
     @mcp.custom_route("/health/ready", methods=["GET"])
     async def readiness_check(request: Request) -> JSONResponse:  # noqa: ARG001
         from agent_utilities.observability.runtime_health import (
-            collect_health,
+            collect_health_async,
             is_overall_healthy,
         )
 
-        report = await asyncio.to_thread(collect_health)
-        status_code = 200 if is_overall_healthy(report) else 503
+        report = await collect_health_async()
+        ready = is_overall_healthy(report)
         return JSONResponse(
-            report, status_code=status_code, headers={"Cache-Control": "no-store"}
+            {"status": "ready" if ready else "not_ready"},
+            status_code=200 if ready else 503,
+            headers={"Cache-Control": "no-store"},
         )
 
     # ARD registry surface (CONCEPT:AU-ECO.mcp.eco-serves-two-ard/ECO-4.97) — the graph-os twin of the

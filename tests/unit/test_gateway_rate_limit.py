@@ -172,6 +172,7 @@ class TestRateLimitMiddleware:
         mw = GatewayRateLimitMiddleware(_ok_app, rate=1.0, burst=1.0)
         assert "/metrics" in EXEMPT_PATHS
         assert "/api/health" in EXEMPT_PATHS
+        assert "/health/ready" in EXEMPT_PATHS
         for _ in range(10):
             assert _status(await _call(mw, path="/metrics")) == 200
             assert _status(await _call(mw, path="/api/health")) == 200

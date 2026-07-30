@@ -86,6 +86,25 @@ capabilities or creates another writable lifecycle. Raw WorkItems remain
 queryable through governed `graph_query` Cypher when an operator needs the DAG
 or audit view.
 
+`graph_jobs(action="cancel")` is the matching cooperative cancellation request.
+It uses the native `CancelWorkItem` transition and returns `not_cancelled` when
+the job is missing, terminal, or cannot be cancelled under its active lease.
+
+### MCP Tasks compatibility
+
+GraphOS maps asynchronous job handles to the durable WorkItem authority; it
+does not create a second task store. The 2026-07-28 MCP Tasks extension requires
+per-request capability negotiation, `server/discover`, polymorphic
+`resultType: "task"` responses, and `tasks/get`, `tasks/update`, and
+`tasks/cancel` wire handlers. FastMCP 3.4.5 explicitly depends on MCP Python SDK
+`<2` and exposes the incompatible 2025-11-25 experimental lifecycle instead.
+The official MCP Python SDK 2.0.0 now implements the new protocol, but it cannot
+be installed underneath this FastMCP release without violating that dependency
+contract. GraphOS therefore disables FastMCP's legacy Tasks capability rather
+than falsely advertising the extension. Status and cancellation remain
+available through `graph_jobs` and `/api/graph/jobs`; full Tasks support requires
+the governed MCP SDK v2 migration or a tested dual-stack protocol adapter.
+
 ## Operational checks
 
 - Run `agent-utilities-doctor --only engine a2a_persistence` before dispatch.

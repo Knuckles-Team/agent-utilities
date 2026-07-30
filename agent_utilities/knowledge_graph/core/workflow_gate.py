@@ -83,11 +83,24 @@ def _find_workflow(
                 step_rows = backend.execute(
                     "MATCH (w:WorkflowDefinition {id: $wid})-[:HAS_STEP]->"
                     "(s:WorkflowStep) "
-                    "RETURN s.id AS sid, s.node_id AS node_id, "
+                    "RETURN s.id AS sid, s.step_id AS step_id, "
+                    "s.node_id AS legacy_node_id, "
                     "s.step_order AS step_order",
                     {"wid": wid},
                 )
-                steps = [dict(r) for r in step_rows or []]
+                steps = []
+                for row in step_rows or []:
+                    item = dict(row)
+                    if item.get("step_id") is not None:
+                        item["node_id"] = item.get("step_id")
+                    elif item.get("legacy_node_id") is not None:
+                        # Preserve a malformed explicit blank so SHACL rejects
+                        # it; only an actually absent legacy property falls
+                        # back to the storage identity.
+                        item["node_id"] = item.get("legacy_node_id")
+                    else:
+                        item["node_id"] = item.get("sid")
+                    steps.append(item)
                 return wid, props, steps
         except Exception as exc:  # noqa: BLE001 — fall through to compute graph
             logger.debug("[ORCH-1.42] backend workflow lookup failed: %s", exc)
@@ -116,10 +129,16 @@ def _find_workflow(
                 if rel != "HAS_STEP":
                     continue
                 sdata = dict(graph.nodes[tgt])
+                if "step_id" in sdata:
+                    logical_id = sdata.get("step_id")
+                elif "node_id" in sdata:
+                    logical_id = sdata.get("node_id")
+                else:
+                    logical_id = tgt
                 steps.append(
                     {
                         "sid": tgt,
-                        "node_id": sdata.get("node_id"),
+                        "node_id": logical_id,
                         "step_order": sdata.get("step_order"),
                     }
                 )

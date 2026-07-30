@@ -72,6 +72,29 @@ slot ahead of background ingestion, because all three reserved lanes key off the
 | **Engine read** | epistemic-graph reserved read lane (EG-KG.coordination.reserved-read-lane) | a read slot kept for interactive reads under a write-storm |
 | **Shared LLM** | `core/resource_priority.py` `PriorityModelGate` (CONCEPT:AU-ORCH.scheduling.also-fold-vllm-scheduler) | `reserve` permits kept free for interactive/orchestration/hydration |
 
+### Split-process foreground handoff
+
+`BackgroundThrottle` is the cooperative checkpoint used by host maintenance,
+ingestion, and enrichment loops.  A foreground graph execution enters it through
+`orchestration.engine._foreground_execution`.  In a split deployment those calls
+run in `graph-os` while the background loops run in `graph-os-host`, so the
+foreground signal is also published as a short-lived lease below the shared
+`AGENT_UTILITIES_DATA_DIR/runtime/foreground-leases/` root.  Each foreground
+process writes one random-named, expiry-only record, refreshes it in the
+background, and removes it on normal completion.  A host reads at most 128
+private regular files per bounded cache interval; malformed, symlinked,
+world-readable, or expired records are ignored.  Consequently a crashed client
+stops pausing the host after the TTL, while normal local nesting remains a fast
+in-process event check.
+
+```mermaid
+flowchart LR
+  FG["graph-os foreground execution"] -->|local depth + heartbeat| LEASE["private expiry-only lease\nshared data runtime"]
+  LEASE -->|bounded cached scan| HOST["graph-os-host BackgroundThrottle"]
+  HOST -->|checkpoint / slot yield| BG["maintenance, ingest, enrichment"]
+  FG -->|same-process fast path| LOCAL["local BackgroundThrottle event"]
+```
+
 The LLM gate, for one generator model:
 
 1. **Hard capacity** — at most `capacity` calls in flight (subsumes the plain

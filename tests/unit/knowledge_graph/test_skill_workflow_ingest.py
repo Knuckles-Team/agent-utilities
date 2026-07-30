@@ -337,6 +337,7 @@ def test_ingest_step_props_do_not_collide_with_node_id_argument(corpus):
     assert report["errors"] == 0
     steps = eng.of_type("WorkflowStep")
     assert len(steps) == 5  # 3 (infra) + 2 (finance), matches the DAG test above
+    assert all(step.get("step_id") for step in steps.values())
     skills = eng.of_type("Skill")
     assert skills  # USES_SKILL-linked Skill nodes also require steps to land
 

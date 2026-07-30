@@ -27,8 +27,9 @@ LeanIX ITComponents, ServiceNow products/CIs, and ERPNext Assets reason together
 
 ## 1. Configure credentials
 
-ServiceNow (`servicenow-api` env): `SERVICENOW_URL`, `SERVICENOW_USER`,
-`SERVICENOW_PASSWORD` (or OAuth); **`SERVICENOW_ENABLE_WRITE`** (fail-closed write gate).
+ServiceNow (`servicenow-api` env): `SERVICENOW_INSTANCE` (or `SERVICENOW_URL`),
+`SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD` (or OAuth); **`SERVICENOW_ENABLE_WRITE`**
+(fail-closed write gate).
 ERPNext (`erpnext-agent` env): `ERPNEXT_URL`, `ERPNEXT_TOKEN` (`api_key:api_secret`);
 **`ERPNEXT_ENABLE_WRITE`** (fail-closed write gate).
 
@@ -83,7 +84,7 @@ Scheduled `servicenow-inventory-push` ships **disabled** (it mutates the SoR).
 
 | Symptom | Fix |
 |---|---|
-| `source_sync source=servicenow` → `skipped: no source client` | `servicenow-api` absent or `SERVICENOW_URL/USER/PASSWORD` unset (the gateway env must carry them). |
+| `source_sync source=servicenow` → `skipped: no source client` | `servicenow-api` absent or `SERVICENOW_INSTANCE/USERNAME/PASSWORD` unset (the gateway env must carry them). |
 | 0 TRM/asset nodes | The instance lacks `cmdb_model`/`alm_asset` plugins, or the technical user can't read them — the extractor probes-and-skips unknown classes. |
 | `graph_writeback` → `refused` | Intended fail-closed — set `SERVICENOW_ENABLE_WRITE` / `ERPNEXT_ENABLE_WRITE` after reviewing the dry-run. |
 | Inventory push re-creates existing CIs | Reconciliation needs `ALIGNED_WITH` identity — run a reasoning cycle so infra/LeanIX/CMDB nodes are aligned before pushing; candidates already in-`domain` are always skipped. |

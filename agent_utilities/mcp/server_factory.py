@@ -1602,6 +1602,13 @@ def create_mcp_server(
         auth=auth,
         instructions=instructions,
         lifespan=_fleet_registration_lifespan_factory(args, name),
+        # FastMCP 3.4.5 pins MCP Python SDK <2 and therefore implements the
+        # superseded 2025-11-25 task protocol, not the 2026-07-28
+        # ``io.modelcontextprotocol/tasks`` extension. Do not advertise that
+        # incompatible lifecycle. Official MCP SDK 2.0 support requires a
+        # deliberate FastMCP migration/dual-stack adapter; durable WorkItem
+        # status/cancellation remains available through normal MCP/REST actions.
+        tasks=False,
     )
 
     # Operational routes live outside the tool authorization path. Health is a

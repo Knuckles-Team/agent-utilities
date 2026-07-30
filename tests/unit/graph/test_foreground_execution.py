@@ -30,6 +30,22 @@ async def test_foreground_execution_marks_the_shared_lease_during_a_run() -> Non
 
 
 @pytest.mark.asyncio
+async def test_foreground_execution_pauses_a_separate_host_throttle(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
+    host = background_throttle.BackgroundThrottle(lease_scan_interval=0.0)
+
+    @_foreground_execution
+    async def run() -> None:
+        assert host.foreground_active
+        with host.background_slot(wait_foreground=False) as acquired:
+            assert acquired is False
+
+    await run()
+
+
+@pytest.mark.asyncio
 async def test_foreground_execution_keeps_the_lease_for_the_full_stream() -> None:
     seen: list[bool] = []
 
