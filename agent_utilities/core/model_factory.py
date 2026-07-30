@@ -188,12 +188,46 @@ def _resolve_role_model(role: str):
         # CONCEPT:AU-ORCH.routing.adaptive-role-routing — route adaptively from the learned per-role confidence
         # (cheaper/local when it keeps succeeding, escalate when it fails); fall back
         # to the static role pick when adaptive selection has nothing to say.
-        from agent_utilities.core.model_router import pick_adaptive
+        from agent_utilities.core.model_router import pick_adaptive_with_decision
 
-        return pick_adaptive(registry, role) or registry.pick_for_role(role)
+        model, decision = pick_adaptive_with_decision(registry, role)
+        if model is None:
+            model = registry.pick_for_role(role)
+            try:
+                spec = registry.resolve_role(role)
+                decision = registry.explain_pick_for_task(
+                    complexity=spec.tier,
+                    required_tags=spec.tags,
+                    route_key=str(role),
+                )
+            except Exception:  # pragma: no cover - decision recording is best-effort
+                decision = None
+        _record_routing_decision(decision)
+        return model
     except Exception:  # pragma: no cover - defensive
         logging.getLogger(__name__).debug("Role resolution failed")
         return None
+
+
+def _record_routing_decision(decision: Any) -> None:
+    """Attach a ``RoutingDecision`` to the current trace, if both a decision and an
+    installed KG trace sink exist (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance). Best-effort and a
+    complete no-op when no sink is wired (e.g. unit tests) — mirrors
+    ``wrap_model_for_tracing``'s zero-overhead-when-unwired contract."""
+    if decision is None:
+        return
+    try:
+        from agent_utilities.harness.tracing import get_kg_trace_sink, get_trace_id
+
+        sink = get_kg_trace_sink()
+        trace_id = get_trace_id()
+        if sink is None or trace_id is None:
+            return
+        record = getattr(sink, "record_routing_decision", None)
+        if callable(record):
+            record(trace_id=trace_id, decision=decision)
+    except Exception:  # pragma: no cover - never break model construction
+        logging.getLogger(__name__).debug("routing decision recording failed")
 
 
 def create_model(
@@ -587,6 +621,17 @@ def _create_model_impl(
     if _provider == "openai":
         target_base_url = base_url or config.openai_base_url
         target_api_key = api_key if api_key is not None else config.openai_api_key
+        if not target_api_key:
+            # CONCEPT:AU-ORCH.adapter.openai-catalog-verification — an OpenBao-backed secret reference
+            # (env://, vault://, secret://) takes precedence over a plain literal env var when
+            # neither an explicit api_key nor the literal OPENAI_API_KEY is configured. Reuses the
+            # SAME three/four-tier CredentialResolver the "custom"/"proxy" provider path below
+            # already calls, so there is one canonical OpenAI credential source, not two.
+            from agent_utilities.core.credentials import CredentialResolver
+
+            creds = CredentialResolver().resolve("openai")
+            target_api_key = creds.api_key
+            target_base_url = target_base_url or creds.base_url
 
         if AsyncOpenAI is not None and OpenAIProvider is not None:
             openai_client = AsyncOpenAI(

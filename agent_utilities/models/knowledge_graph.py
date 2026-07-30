@@ -77,6 +77,10 @@ class RegistryNodeType(StrEnum):
     # content-addressed-artifact contract as SKILL_VERSION/SPEC_VERSION, applied to a
     # reasoning topology instead of a skill/spec.
     REASONING_TOPOLOGY_VERSION = "reasoning_topology_version"
+    # Model profiles as first-class graph resources (CONCEPT:AU-KG.ontology.model-profile-graph-resource) — a
+    # provider+model's capability/cost/observability contract, content-addressed like every
+    # other ArtifactVersionNode.
+    MODEL_PROFILE = "model_profile"
     ENTITY = "entity"
     EVENT = "event"
     REFLECTION = "reflection"
@@ -185,7 +189,9 @@ class RegistryNodeType(StrEnum):
     PLATFORM_SERVICE = "platform_service"
     GPU_ACCELERATOR = "gpu_accelerator"
     STORAGE_ARRAY = "storage_array"
-    # Squeeze Evolve Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
+    # Squeeze Evolve Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation) — the chosen model +
+    # its rejected alternatives for one routing decision (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance),
+    # see RoutingDecisionNode.
     ROUTING_DECISION = "routing_decision"
     # Schema Packs (CONCEPT:AU-KG.ingest.engineering-rules)
     SCHEMA_PACK = "schema_pack"
@@ -526,6 +532,9 @@ class RegistryEdgeType(StrEnum):
     # KG-native observability (CONCEPT:AU-OS.config.model-factory-passthrough): trace → span → generation subgraph.
     HAS_SPAN = "has_span"
     HAS_GENERATION = "has_generation"
+    # CONCEPT:AU-ORCH.routing.rejected-candidate-provenance — a trace's model-routing decision (chosen + rejected
+    # candidates), so "why was model X picked over Y" is a graph query, not a discarded log line.
+    HAS_ROUTING_DECISION = "has_routing_decision"
     AFFECTS = "affects"
     CAUSED_BY = "caused_by"
     INFLUENCED = "influenced"
@@ -1519,6 +1528,33 @@ class GenerationNode(RegistryNode):
     tool_calls: int = 0
 
 
+class RoutingDecisionNode(RegistryNode):
+    """One model-routing decision's chosen model + its rejected alternatives (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance).
+
+    The router (:meth:`~agent_utilities.models.model_registry.ModelRegistry.explain_pick_for_task`)
+    already picks a model but historically discarded everything it considered — no
+    counterfactual, so model choice could never become an evolution target. This node
+    is the persisted record: the candidate set, each candidate's score/features, and
+    WHY it was (or was not) chosen, bounded to
+    :data:`agent_utilities.models.model_registry.MAX_ROUTING_CANDIDATES` entries per
+    decision so a request never writes an unbounded dump. Attached to the owning
+    trace via ``RegistryEdgeType.HAS_ROUTING_DECISION`` (mirrors ``GenerationNode``'s
+    trace attachment).
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ROUTING_DECISION
+    trace_id: str | None = None
+    route_key: str = ""
+    complexity: str = "medium"
+    required_tags: list[str] = Field(default_factory=list)
+    confidence_signal: float | None = None
+    routing_percentile: float | None = None
+    chosen_model_id: str = ""
+    # Bounded list of {"model_id", "tier", "tag_match", "tier_rank", "score",
+    # "rejected", "rejection_reason"} dicts — see ``CandidateScore``.
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class OnlineScoreNode(RegistryNode):
     """A score produced by online-scoring over a live trace (CONCEPT:AU-AHE.harness.receives-trace-id-must) —
     an LLM-judge dimension or a (sandboxed) custom metric. Linked SCORED_BY the trace."""
@@ -1580,6 +1616,92 @@ class ArtifactVersionNode(RegistryNode):
     task_count: int = 0  # generalizes SkillVersionNode.benchmark_task_count
     notes: list[str] = Field(default_factory=list)  # generalizes reflect_notes
     transfer_scores: dict[str, float] = Field(default_factory=dict)
+
+
+class ModelProfileVersionNode(ArtifactVersionNode):
+    """A provider+model's capability/cost/observability contract as a graph resource
+    (CONCEPT:AU-KG.ontology.model-profile-graph-resource).
+
+    Generalizes :class:`ArtifactVersionNode`'s content-addressed lifecycle (same
+    pattern :class:`SpecVersionNode` used to add the spec/develop vector) to the
+    model-routing vector: model definitions currently live only in code/config, so
+    "which model was configured for role X on date Y" or "which quality/latency
+    history informed a routing change" had nowhere to be queried. A profile is
+    content-addressed on ``(provider, model_id, tier, cost, context_window,
+    max_output_tokens)`` — see :func:`agent_utilities.models.model_profile.profile_version_hash`.
+
+    **Honesty contract**: every field below is nullable/absent by default. A field
+    is populated ONLY when a real value was sourced (from the ``ModelDefinition``
+    config, an observed trace/eval statistic, or a live provider catalogue check);
+    a field with no source stays ``None``/empty and its key + reason is recorded in
+    ``unsourced_fields`` — never a fabricated or defaulted-looking number. See
+    ``agent_utilities/models/model_profile.py`` for the builder that enforces this.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.MODEL_PROFILE
+
+    # Identity (sourced from ModelDefinition; provider + model_id are the durable,
+    # immutable identity — never rewritten across versions of the same model).
+    provider: str = ""
+    model_id: str = ""
+    tier: str = "medium"
+
+    # Modalities / limits (sourced from ModelDefinition config where set).
+    modalities: list[str] = Field(
+        default_factory=list, description="e.g. 'text', 'vision', 'audio'."
+    )
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+
+    # Capability (sourced from ModelDefinition.tags / provider catalogue check).
+    supports_structured_output: bool | None = None
+    supports_tool_calls: bool | None = None
+    reasoning_modes: list[str] = Field(default_factory=list)
+    supported_effort_levels: list[str] = Field(default_factory=list)
+
+    # Prompt/KV cache behaviour — no source today in this repo (no cache-hit
+    # telemetry pipeline); stays null, recorded in unsourced_fields.
+    prompt_cache_supported: bool | None = None
+    cache_hit_rate: float | None = None
+
+    # Observed quality by skill/domain/topology — populated only from real eval/
+    # outcome records (e.g. OutcomeEvaluationNode aggregates); empty until wired to
+    # one.
+    quality_by_domain: dict[str, float] = Field(default_factory=dict)
+
+    # Latency distributions (ms) — populated only from real GenerationNode
+    # aggregates (``prefill_ms_p50``/``p95``/... keys); absent otherwise.
+    prefill_latency_ms: dict[str, float] = Field(default_factory=dict)
+    decode_latency_ms: dict[str, float] = Field(default_factory=dict)
+
+    # Availability / error / throttle history — populated only from real trace
+    # aggregates; absent otherwise.
+    availability_ratio: float | None = None
+    error_rate: float | None = None
+    throttle_rate: float | None = None
+
+    # Privacy / residency eligibility — deployment-declared, not inferred.
+    privacy_eligible: bool | None = None
+    data_residency: str | None = None
+
+    # Cost per 1M tokens (USD). ``ModelCostRate`` only carries input/output; this
+    # resource ALSO models cached-input/tool/infra cost, each null unless sourced.
+    input_cost_per_million: float | None = None
+    cached_input_cost_per_million: float | None = None
+    output_cost_per_million: float | None = None
+    tool_cost_per_million: float | None = None
+    infra_cost_per_hour: float | None = None
+
+    # Local-serving characteristics — only meaningful for locally-hosted models;
+    # null for a cloud API model.
+    quantization: str | None = None
+    serving_engine: str | None = None
+    accelerator: str | None = None
+    memory_gb: float | None = None
+
+    # field_name -> human-readable reason it has no source today (CONCEPT:AU-KG.ontology.model-profile-graph-resource
+    # honesty contract). Never includes a field that IS populated.
+    unsourced_fields: dict[str, str] = Field(default_factory=dict)
 
 
 class PromptVersionNode(ArtifactVersionNode):

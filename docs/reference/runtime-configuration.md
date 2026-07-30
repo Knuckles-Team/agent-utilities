@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-542 typed fields · 348 runtime-only call-site inputs.
+543 typed fields · 348 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -129,6 +129,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | Environment key | Type | Default |
 |---|---|---|
 | `OPENAI_API_KEY` | `Union` | `explicit runtime process value only` |
+| `OPENAI_API_KEY_REF` | `Union` | `unset` |
 | `OPENAI_BASE_URL` | `Union` | `unset` |
 | `ANTHROPIC_API_KEY` | `Union` | `explicit runtime process value only` |
 | `GEMINI_API_KEY` | `Union` | `explicit runtime process value only` |
@@ -923,7 +924,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MODEL_CONTEXT_ORDERING_VERSION` | 1 |
 | `MODEL_CONTEXT_REDACTION_VERSION` | 1 |
 | `MODEL_CONTEXT_TOKEN_BUDGET` | 1 |
-| `MODEL_ID` | 3 |
+| `MODEL_ID` | 2 |
 | `MODEL_LATENCY_GRADIENT_TARGET` | 1 |
 | `MODEL_MAX_CONCURRENCY` | 1 |
 | `MODEL_MAX_CONCURRENT_REQUESTS` | 1 |
@@ -956,7 +957,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `POSTGRES_DSN` | 1 |
 | `POSTIZ_TOKEN` | 1 |
 | `POSTIZ_URL` | 1 |
-| `PROVIDER` | 3 |
+| `PROVIDER` | 2 |
 | `PYTEST_CURRENT_TEST` | 1 |
 | `QUERY_ROUTER_L1_THRESHOLD` | 1 |
 | `QUERY_ROUTER_STRATEGY` | 1 |

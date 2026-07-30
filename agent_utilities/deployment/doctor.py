@@ -2404,6 +2404,102 @@ def _check_mcp_fleet_secrets() -> dict[str, Any]:
     )
 
 
+def _check_openai_catalog(live: bool = False) -> dict[str, Any]:
+    """Verify configured OpenAI models against the live catalogue (CONCEPT:AU-ORCH.adapter.openai-catalog-verification).
+
+    Static (default): reports which credential tier resolved (secret_ref/env/file/
+    none) and how many OpenAI-provider models are configured in the active model
+    registry, without a network call. ``live=True`` additionally calls
+    ``verify_openai_model`` for each configured model id, so a wrong/renamed/
+    inaccessible model id is caught before a deployment relies on it rather than
+    assumed to exist. Never reports the resolved API key value.
+    """
+    try:
+        from agent_utilities.core.credentials import CredentialResolver
+        from agent_utilities.models.model_registry import load_active_registry
+
+        creds = CredentialResolver().resolve("openai")
+        registry = load_active_registry()
+        openai_models = [m for m in registry.models if m.provider == "openai"]
+        data: dict[str, Any] = {
+            "credential_source": creds.source,
+            "credential_configured": bool(creds.api_key),
+            "configured_model_count": len(openai_models),
+            "live_probed": False,
+            "redacted": True,
+        }
+    except Exception as exc:  # noqa: BLE001 - doctor is a redaction boundary
+        return _result(
+            "openai_catalog",
+            "error",
+            f"openai catalog check failed ({type(exc).__name__})",
+            data={"redacted": True},
+        )
+
+    if not openai_models:
+        return _result(
+            "openai_catalog",
+            "skip",
+            "no OpenAI-provider models are configured in the active model registry",
+            data=data,
+        )
+    if not creds.api_key:
+        return _result(
+            "openai_catalog",
+            "fail",
+            "OpenAI models are configured but no API key/secret reference is available",
+            remediation=(
+                "Set OPENAI_API_KEY_REF to an env://, vault://, or secret:// "
+                "reference (preferred) or the literal OPENAI_API_KEY."
+            ),
+            data=data,
+        )
+    if not live:
+        return _result(
+            "openai_catalog",
+            "ok",
+            f"{len(openai_models)} OpenAI model(s) configured with a resolvable "
+            "credential (pass live=True to verify against the live catalogue)",
+            data=data,
+        )
+
+    from agent_utilities.core.openai_catalog import verify_openai_model
+
+    async def _verify_all() -> list[Any]:
+        return [
+            await verify_openai_model(
+                m.model_id,
+                api_key=creds.api_key,
+                base_url=m.base_url or creds.base_url,
+            )
+            for m in openai_models
+        ]
+
+    verifications = _run_async_doctor_probe(_verify_all)
+    data["live_probed"] = True
+    verified = sum(1 for v in verifications if v.exists)
+    data["verified_count"] = verified
+    data["unverified_model_ids"] = [v.model_id for v in verifications if not v.exists]
+    if verified < len(openai_models):
+        return _result(
+            "openai_catalog",
+            "fail",
+            f"{len(openai_models) - verified} of {len(openai_models)} configured "
+            "OpenAI model(s) were not found in the live catalogue",
+            remediation=(
+                "Correct the model_id or confirm the credential has access to it."
+            ),
+            data=data,
+        )
+    return _result(
+        "openai_catalog",
+        "ok",
+        f"all {len(openai_models)} configured OpenAI model(s) verified against "
+        "the live catalogue",
+        data=data,
+    )
+
+
 def _check_provider_profiles() -> dict[str, Any]:
     """Resolve enabled provider profiles without exposing deployment metadata."""
 
@@ -4004,6 +4100,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "eunomia": _check_eunomia,
     "runtime_integrations": _check_runtime_integrations,
     "provider_profiles": _check_provider_profiles,
+    "openai_catalog": _check_openai_catalog,
     "workspace_config": _check_workspace_config,
     "engine_request_context": _check_engine_request_context,
     "engine": _check_engine,
@@ -4127,7 +4224,13 @@ def run_doctor(
             res = (
                 fn(live=live)
                 if name
-                in {"graph_connections", "mcp_fleet", "langfuse", "native_optimizer"}
+                in {
+                    "graph_connections",
+                    "mcp_fleet",
+                    "langfuse",
+                    "native_optimizer",
+                    "openai_catalog",
+                }
                 else fn()
             )
         except Exception as exc:  # noqa: BLE001 — a check must never crash the doctor

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1052
+total_concepts: 1055
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4844,6 +4844,17 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/lifecycle.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: manage arbitrary
+- id: AU-KG.ontology.model-profile-graph-resource
+  name: only fields the ModelDefinition actually
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/gateway/ontology_api.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/models/model_profile.py
+  - agent_utilities/models/model_registry.py
+  doc: only fields the ModelDefinition actually
 - id: AU-KG.ontology.object-path-finder
   name: finds the shortest path between two specific object ids and returns the hop-by-hop relationship
     chain — the object-agnostic generalization of the existing
@@ -6286,6 +6297,17 @@ concepts:
   - agent_utilities/core/execution/adapters/base.py
   - agent_utilities/core/execution/engine.py
   doc: additive multi-CLI adapter dispatch. When a manifest requests an external runtime
+- id: AU-ORCH.adapter.openai-catalog-verification
+  name: the OpenBao-backed alternative to the literal
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/core/credentials.py
+  - agent_utilities/core/model_factory.py
+  - agent_utilities/core/openai_catalog.py
+  - agent_utilities/deployment/doctor.py
+  doc: the OpenBao-backed alternative to the literal
 - id: AU-ORCH.adapter.shareable-team-compositions
   name: Shareable Team Compositions
   pillar: AU-ORCH
@@ -6308,12 +6330,12 @@ concepts:
   - agent_utilities/core/execution/stream_handlers.py
   doc: Stream-format dispatch
 - id: AU-ORCH.adapter.three-tier-credential-resolution
-  name: Three-tier credential resolution
+  name: Four-tier credential resolution
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/core/credentials.py
-  doc: Three-tier credential resolution
+  doc: Four-tier credential resolution
 - id: AU-ORCH.adapter.transport-toolset-factory
   name: the transport invokes this factory with a transport-version
   pillar: AU-ORCH
@@ -7464,6 +7486,17 @@ concepts:
   code_paths:
   - agent_utilities/graph/routing/strategies/fast_path.py
   doc: the original rule was far too narrow
+- id: AU-ORCH.routing.rejected-candidate-provenance
+  name: a routing decision must record enough to be a real
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/core/model_factory.py
+  - agent_utilities/core/model_router.py
+  - agent_utilities/harness/trace_backend.py
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/models/model_registry.py
+  doc: a routing decision must record enough to be a real
 - id: AU-ORCH.routing.resolve-body-single-canonical
   name: resolve the body via the single canonical resolver so
   pillar: AU-ORCH

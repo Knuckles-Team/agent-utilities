@@ -140,6 +140,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "ontology_value_types": ("manage", "ask"),
         "ontology_interface": ("manage", "ask"),
         "ontology_sampling_profile": ("manage", "ask"),
+        "ontology_model_profile": ("manage", "ask"),
         "object_permissioning": ("manage",),
         "engine_tenants": ("manage",),
         "engine_lifecycle": ("manage", "act"),
