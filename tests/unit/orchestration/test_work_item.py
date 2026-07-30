@@ -101,7 +101,9 @@ class FakeStatechartClient:
         for t in definition["transitions"]:
             if t["from"] != inst["active"] or t["event"] != event:
                 continue
-            if self._guard_holds(t.get("guard") or {"op": "always"}, payload, inst["context"]):
+            if self._guard_holds(
+                t.get("guard") or {"op": "always"}, payload, inst["context"]
+            ):
                 inst["active"] = t["to"]
                 inst["version"] += 1
                 fired = True
@@ -330,7 +332,9 @@ class NativeEngine:
     def renew_work_item_lease(self, request: dict[str, Any]) -> dict[str, Any]:
         self.native_calls.append("renew")
         node = self.nodes.get(request["work_item_id"])
-        if not self._owns(node, request):
+        if not self._owns(node, request) or float(
+            (node or {}).get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
             return {"renewed": False}
         node["lease_expires_at"] = float(request["now_unix"]) + float(
             request["lease_ttl"]
@@ -353,7 +357,9 @@ class NativeEngine:
             return {"status": "missing"}
         if node.get("status") in wi.TERMINAL_WORK_ITEM_STATUSES:
             return {"status": "noop"}
-        if not self._owns(node, request):
+        if not self._owns(node, request) or float(
+            (node or {}).get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
             return {"status": "fenced"}
         outcome = request["outcome"]
         if outcome == "failed" and request["retryable"]:
@@ -400,13 +406,20 @@ class NativeEngine:
     def defer_work_item(self, request: dict[str, Any]) -> dict[str, Any]:
         self.native_calls.append("defer")
         node = self.nodes.get(request["work_item_id"])
-        if not self._owns(node, request):
+        if not self._owns(node, request) or float(
+            (node or {}).get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
             return {"status": "fenced"}
+        next_epoch = int(node.get("lease_epoch") or 0) + 1
         node.update(
             status="ready",
             next_retry_at=request["next_retry_at"],
+            attempt=max(0, int(node.get("attempt") or 0) - 1),
+            defer_count=int(node.get("defer_count") or 0) + 1,
             lease_owner=None,
             lease_expires_at=None,
+            lease_epoch=next_epoch,
+            fencing_token=next_epoch,
         )
         return {"status": "deferred"}
 
@@ -630,13 +643,42 @@ def test_native_cancel_and_defer(engine: NativeEngine) -> None:
         engine, kind="generic", payload_ref="d", tenant="tenant-a"
     )
     claim = wi.claim_and_start(engine, deferred, token="worker", now=10.0)
+    assert wi.get_work_item(engine, deferred)["attempt"] == 1
     assert wi.defer_work_item(engine, deferred, claim, next_retry_at=70.0, now=11.0)
-    assert wi.get_work_item(engine, deferred)["next_retry_at"] == 70.0
+    deferred_item = wi.get_work_item(engine, deferred)
+    assert deferred_item["next_retry_at"] == 70.0
+    assert deferred_item["attempt"] == 0
     cancelled = wi.submit_work_item(
         engine, kind="generic", payload_ref="c", tenant="tenant-a"
     )
     assert wi.cancel_work_item(engine, cancelled, reason="operator")
     assert wi.get_work_item(engine, cancelled)["status"] == "cancelled"
+
+
+def test_native_defer_rejects_expired_lease_without_changing_attempt(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="d", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(
+        engine,
+        item_id,
+        token="worker",
+        now=10.0,
+        lease_ttl_s=1.0,
+    )
+
+    assert not wi.defer_work_item(
+        engine,
+        item_id,
+        claim,
+        next_retry_at=80.0,
+        now=12.0,
+    )
+    item = wi.get_work_item(engine, item_id)
+    assert item["status"] == "leased"
+    assert item["attempt"] == 1
 
 
 def test_ingest_claim_never_creates_a_missing_work_item(engine: NativeEngine) -> None:
@@ -870,13 +912,20 @@ class CasEngine:
 
     def defer_work_item(self, request: dict[str, Any]) -> dict[str, Any]:
         node = self.nodes.get(request["work_item_id"])
-        if not self._owns(node, request):
+        if not self._owns(node, request) or float(
+            (node or {}).get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
             return {"status": "fenced"}
+        next_epoch = int(node.get("lease_epoch") or 0) + 1
         node.update(
             status="ready",
             next_retry_at=request["next_retry_at"],
+            attempt=max(0, int(node.get("attempt") or 0) - 1),
+            defer_count=int(node.get("defer_count") or 0) + 1,
             lease_owner=None,
             lease_expires_at=None,
+            lease_epoch=next_epoch,
+            fencing_token=next_epoch,
         )
         return {"status": "deferred"}
 
@@ -1182,9 +1231,7 @@ def test_claim_next_without_resource_class_searches_all_lanes(
 
 def test_cas_backend_unavailable_fails_loud_not_silent() -> None:
     no_cas = NoCasEngine()
-    no_cas.add_node(
-        "workitem:x", "WorkItem", properties={"status": "ready"}
-    )
+    no_cas.add_node("workitem:x", "WorkItem", properties={"status": "ready"})
     with pytest.raises(wi.WorkItemBackendUnavailable):
         wi.claim_specific(no_cas, "workitem:x", now=1.0)
 
@@ -1228,9 +1275,7 @@ def test_reap_expired_lease_requeues_to_ready_and_stale_commit_is_fenced(
         cas_engine, item_id, claim, outcome="succeeded", result_ref="ref:1"
     )
     assert outcome == "fenced"
-    assert (
-        wi.get_work_item(cas_engine, item_id)["status"] == "leased"
-    )
+    assert wi.get_work_item(cas_engine, item_id)["status"] == "leased"
 
 
 def test_reap_expired_lease_exhausted_retries_goes_to_dead_letter(
@@ -1370,10 +1415,7 @@ def test_cancel_work_item_cannot_override_a_real_terminal_outcome(
     )
 
     assert wi.cancel_work_item(cas_engine, item_id) is False
-    assert (
-        wi.get_work_item(cas_engine, item_id)["status"]
-        == "succeeded"
-    )
+    assert wi.get_work_item(cas_engine, item_id)["status"] == "succeeded"
 
 
 # ---------------------------------------------------------------------------
@@ -1390,10 +1432,7 @@ def test_child_becomes_ready_exactly_when_all_parents_succeed(
         cas_engine, kind="generic", payload_ref="child", depends_on=[parent1, parent2]
     )
 
-    assert (
-        wi.get_work_item(cas_engine, child)["status"]
-        == "submitted"
-    )
+    assert wi.get_work_item(cas_engine, child)["status"] == "submitted"
     assert wi.get_work_item(cas_engine, child)["dep_count"] == 2
 
     claim1 = wi.claim_and_start(cas_engine, parent1, token="host:1", now=1000.0)
@@ -1430,19 +1469,20 @@ def test_downstream_release_is_idempotent_no_double_release(
     wi.commit_result(
         cas_engine, parent, claim, outcome="succeeded", result_ref="r1", now=1001.0
     )
-    assert (
-        wi.get_work_item(cas_engine, child)["status"] == "ready"
-    )
+    assert wi.get_work_item(cas_engine, child)["status"] == "ready"
 
     # Redelivered commit of the same parent (idempotent no-op) must not
     # touch the child a second time.
     wi.commit_result(
-        cas_engine, parent, claim, outcome="succeeded", result_ref="r1-again", now=1002.0
+        cas_engine,
+        parent,
+        claim,
+        outcome="succeeded",
+        result_ref="r1-again",
+        now=1002.0,
     )
     assert wi.get_work_item(cas_engine, child)["dep_count"] == 0
-    assert (
-        wi.get_work_item(cas_engine, child)["status"] == "ready"
-    )
+    assert wi.get_work_item(cas_engine, child)["status"] == "ready"
 
 
 # ---------------------------------------------------------------------------

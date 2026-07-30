@@ -422,6 +422,117 @@ def test_materialization_gate_preserves_nonpartial_engine_error() -> None:
     engine.client.tenants.list.assert_not_called()
 
 
+def test_materialization_gate_timeout_is_bounded_by_monotonic_deadline() -> None:
+    from agent_utilities.mcp import kg_server
+
+    engine = SimpleNamespace(
+        graph_name="__commons__",
+        client=SimpleNamespace(
+            tenants=SimpleNamespace(
+                list=MagicMock(
+                    return_value=[
+                        {
+                            "name": "__commons__",
+                            "materialization": "partial",
+                            "valid": False,
+                        }
+                    ]
+                )
+            )
+        ),
+        query_cypher=MagicMock(
+            side_effect=RuntimeError(
+                '{"code":"PARTIAL_MATERIALIZATION","retryable":true}'
+            )
+        ),
+    )
+    clock = iter([100.0, 101.0])
+    with patch.object(kg_server.time, "monotonic", side_effect=lambda: next(clock)):
+        with pytest.raises(TimeoutError, match="timeout_seconds=1"):
+            kg_server._wait_for_engine_materialization(
+                engine,
+                timeout_seconds=1.0,
+                poll_seconds=0.0,
+                stop_event=threading.Event(),
+            )
+
+
+def test_materialization_gate_shutdown_cancels_wait_promptly() -> None:
+    from agent_utilities.mcp import kg_server
+
+    stop = threading.Event()
+    stop.set()
+    engine = SimpleNamespace(
+        graph_name="__commons__",
+        client=SimpleNamespace(
+            tenants=SimpleNamespace(
+                list=MagicMock(
+                    return_value=[
+                        {
+                            "name": "__commons__",
+                            "materialization": "partial",
+                            "valid": False,
+                        }
+                    ]
+                )
+            )
+        ),
+        query_cypher=MagicMock(
+            side_effect=RuntimeError(
+                '{"code":"PARTIAL_MATERIALIZATION","retryable":true}'
+            )
+        ),
+    )
+
+    with pytest.raises(InterruptedError, match="shutdown cancelled"):
+        kg_server._wait_for_engine_materialization(
+            engine,
+            timeout_seconds=540.0,
+            poll_seconds=60.0,
+            stop_event=stop,
+        )
+
+
+def test_get_engine_defers_background_work_until_materialization_barrier() -> None:
+    from agent_utilities.mcp import kg_server
+
+    constructed: dict[str, Any] = {}
+
+    class Engine:
+        @staticmethod
+        def get_active():
+            return None
+
+        @staticmethod
+        def get_or_create(*, factory):
+            return factory()
+
+        def __init__(self, *, backend, defer_background_start: bool) -> None:
+            constructed.update(
+                backend=backend,
+                defer_background_start=defer_background_start,
+            )
+
+    backend = object()
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.backends.create_backend",
+            return_value=backend,
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine",
+            Engine,
+        ),
+    ):
+        resolved = kg_server._get_engine()
+
+    assert isinstance(resolved, Engine)
+    assert constructed == {
+        "backend": backend,
+        "defer_background_start": True,
+    }
+
+
 def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
     from agent_utilities.mcp import kg_server
 
