@@ -10,6 +10,9 @@ repos:
     exclude: ^(tests/|test/|scripts/|script/)
   - id: check-yaml
     args: ["--unsafe"]
+    # Helm templates contain Go actions and are validated by `helm lint` plus
+    # rendered Kubernetes dry-run tests, not by a raw YAML parser.
+    exclude: ^agent_utilities/skills/workflows/agent-os-genesis/assets/helm/.*/templates/
   - id: check-toml
   - id: check-json
   - id: fix-byte-order-marker

@@ -92,8 +92,11 @@ class FileAcpSessionStore:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         try:
             self.root.chmod(0o700)
-        except OSError:
-            logger.warning("Could not restrict ACP session directory permissions")
+        except OSError as exc:
+            logger.warning(
+                "Could not restrict ACP session directory permissions: %s",
+                exc,
+            )
         self._adapter = TypeAdapter(StoredSession)
 
     def _path(self, session_id: str) -> Path:
@@ -119,8 +122,11 @@ class FileAcpSessionStore:
         except BaseException:
             try:
                 os.close(fd)
-            except OSError:
-                pass
+            except OSError as close_exc:
+                logger.debug(
+                    "Could not close failed ACP session-store descriptor: %s",
+                    close_exc,
+                )
             temporary_path.unlink(missing_ok=True)
             raise
 
@@ -372,7 +378,7 @@ def main() -> None:
 
         workspace_module.WORKSPACE_DIR = args.workspace
 
-    from agent_utilities.agent import create_agent
+    from agent_utilities.agent.factory import create_agent
 
     graph_bundle = None
     if args.graph:
