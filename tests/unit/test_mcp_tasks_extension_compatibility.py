@@ -1,9 +1,9 @@
 """Wire-level compatibility guard for the 2026 MCP Tasks extension.
 
-FastMCP 3.4.5 currently carries the 2025-11-25 experimental Tasks types, so
-GraphOS must not advertise the newer extension until it can register all of its
-handlers.  This exercises the real FastMCP initialization metadata, rather than
-testing a local capability model.
+FastMCP 3.4.5 pins MCP Python SDK <2 and carries the 2025-11-25 experimental
+Tasks types. GraphOS must not advertise the newer extension until the official
+SDK v2 protocol is integrated. This exercises real FastMCP initialization
+metadata and handler registration rather than a local capability model.
 """
 
 from __future__ import annotations
@@ -25,7 +25,14 @@ def test_graphos_does_not_advertise_unimplemented_2026_tasks_extension() -> None
 
     handlers = mcp._mcp_server.request_handlers
     assert not any(
-        request_type.__name__ in {"TasksGetRequest", "TasksUpdateRequest"}
+        request_type.__name__
+        in {
+            "GetTaskRequest",
+            "GetTaskPayloadRequest",
+            "ListTasksRequest",
+            "CancelTaskRequest",
+            "UpdateTaskRequest",
+        }
         for request_type in handlers
     )
 
