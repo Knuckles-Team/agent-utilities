@@ -305,6 +305,111 @@ def test_packaged_skill_readiness_blocks_background_bootstrap_and_preserves_auth
     assert background_started.is_set()
 
 
+def test_materialization_gate_waits_for_complete_valid_manifest() -> None:
+    from agent_utilities.mcp import kg_server
+
+    manifests = iter(
+        [
+            [
+                {
+                    "name": "__commons__",
+                    "materialization": "partial",
+                    "valid": False,
+                    "completeness_cursor": {
+                        "node_offset": 4096,
+                        "edge_offset": 0,
+                    },
+                }
+            ],
+            [
+                {
+                    "name": "__commons__",
+                    "materialization": "complete",
+                    "valid": True,
+                    "completeness_cursor": None,
+                }
+            ],
+        ]
+    )
+    client = SimpleNamespace(tenants=SimpleNamespace(list=lambda: next(manifests)))
+    engine = SimpleNamespace(
+        graph_name="__commons__",
+        client=client,
+        query_cypher=MagicMock(
+            side_effect=RuntimeError(
+                '{"code":"PARTIAL_MATERIALIZATION","retryable":true}'
+            )
+        ),
+    )
+
+    report = kg_server._wait_for_engine_materialization(
+        engine,
+        timeout_seconds=1.0,
+        poll_seconds=0.0,
+    )
+
+    assert report["materialization"] == "complete"
+    assert report["valid"] is True
+    engine.query_cypher.assert_called_once()
+
+
+def test_materialization_gate_preserves_nonpartial_engine_error() -> None:
+    from agent_utilities.mcp import kg_server
+
+    engine = SimpleNamespace(
+        graph_name="__commons__",
+        client=SimpleNamespace(tenants=SimpleNamespace(list=MagicMock())),
+        query_cypher=MagicMock(side_effect=PermissionError("access denied")),
+    )
+
+    with pytest.raises(PermissionError, match="access denied"):
+        kg_server._wait_for_engine_materialization(engine)
+    engine.client.tenants.list.assert_not_called()
+
+
+def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
+    from agent_utilities.mcp import kg_server
+
+    session = _verified_session()
+    calls: list[str] = []
+
+    class Engine:
+        backend = object()
+
+    class DeferredBackground:
+        def start(self) -> None:
+            calls.append("background")
+
+    with (
+        patch.object(kg_server, "_get_engine", return_value=Engine()),
+        patch.object(
+            kg_server,
+            "_wait_for_engine_materialization",
+            side_effect=lambda _engine: calls.append("materialization"),
+        ),
+        patch.object(
+            kg_server,
+            "_ensure_bundled_skills_ready",
+            side_effect=lambda _engine: (
+                calls.append("skills")
+                or {
+                    "required": 10,
+                    "already_ready": 10,
+                    "ingested": 0,
+                    "ready": 10,
+                }
+            ),
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
+            return_value=DeferredBackground(),
+        ),
+    ):
+        kg_server._start_engine_bootstrap(session)
+
+    assert calls == ["materialization", "skills", "background"]
+
+
 def test_packaged_skill_readiness_failure_is_controlled_and_serves_degraded(
     caplog,
 ) -> None:

@@ -3182,6 +3182,8 @@ def _stop_process_authority_supervisor() -> None:
 
 
 _BUNDLED_SKILL_READINESS: dict[str, Any] = {}
+_ENGINE_MATERIALIZATION_TIMEOUT_SECONDS = 300.0
+_ENGINE_MATERIALIZATION_POLL_SECONDS = 0.25
 
 
 def _set_bundled_skill_readiness(report: dict[str, Any]) -> None:
@@ -3201,8 +3203,115 @@ def bundled_skill_readiness() -> dict[str, Any]:
     return dict(_BUNDLED_SKILL_READINESS)
 
 
+def _wait_for_engine_materialization(
+    engine: Any,
+    *,
+    timeout_seconds: float = _ENGINE_MATERIALIZATION_TIMEOUT_SECONDS,
+    poll_seconds: float = _ENGINE_MATERIALIZATION_POLL_SECONDS,
+) -> dict[str, Any]:
+    """Wait for a lazy-open graph to become complete before boot writes begin.
+
+    The epistemic engine deliberately serves its catalog before a cold graph has
+    finished paging into memory.  Reads and writes against that graph correctly
+    fail with ``PARTIAL_MATERIALIZATION`` until its durable manifest is both
+    ``complete`` and ``valid``.  GraphOS boot hydration and task workers are not
+    ordinary retrying callers: starting them during that interval can discard
+    their one-shot startup work.  This barrier starts lazy-open with one bounded
+    read, then observes the authoritative ``ListGraphs`` manifest until it is
+    safe to perform any boot mutation.
+
+    Lightweight test engines and non-native backends have neither ``client`` nor
+    ``graph_name`` and therefore do not participate in this native lifecycle.
+    A graph absent from a new empty engine is likewise left for normal creation.
+    """
+    client = getattr(engine, "client", None)
+    graph_name = str(getattr(engine, "graph_name", "") or "")
+    query_cypher = getattr(engine, "query_cypher", None)
+    tenants = getattr(client, "tenants", None)
+    list_graphs = getattr(tenants, "list", None)
+    if not graph_name or not callable(query_cypher) or not callable(list_graphs):
+        return {"graph": graph_name or None, "materialization": "not_applicable"}
+
+    try:
+        query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
+    except Exception as exc:
+        detail = str(exc)
+        if "PARTIAL_MATERIALIZATION" not in detail:
+            if "not found" in detail.lower():
+                return {"graph": graph_name, "materialization": "absent"}
+            raise
+    else:
+        return {
+            "graph": graph_name,
+            "materialization": "complete",
+            "valid": True,
+        }
+
+    logger.info(
+        "GraphOS waiting for epistemic graph materialization before hydration "
+        "(graph=%s timeout_seconds=%g)",
+        graph_name,
+        timeout_seconds,
+    )
+    deadline = time.monotonic() + max(0.0, timeout_seconds)
+    last_progress: tuple[str, int | None, int | None] | None = None
+    while True:
+        entries = list_graphs() or []
+        entry = next(
+            (
+                value
+                for value in entries
+                if (value.get("name") if isinstance(value, dict) else None)
+                == graph_name
+            ),
+            None,
+        )
+        if isinstance(entry, dict):
+            phase = str(entry.get("materialization") or "unknown")
+            valid = entry.get("valid") is True
+            cursor = entry.get("completeness_cursor")
+            node_offset = (
+                cursor.get("node_offset") if isinstance(cursor, dict) else None
+            )
+            edge_offset = (
+                cursor.get("edge_offset") if isinstance(cursor, dict) else None
+            )
+            progress = (phase, node_offset, edge_offset)
+            if progress != last_progress:
+                logger.info(
+                    "Epistemic graph materialization progress "
+                    "(graph=%s phase=%s node_offset=%s edge_offset=%s)",
+                    graph_name,
+                    phase,
+                    node_offset,
+                    edge_offset,
+                )
+                last_progress = progress
+            if phase == "complete" and valid:
+                logger.info(
+                    "Epistemic graph materialization ready "
+                    "(graph=%s node_offset=%s edge_offset=%s)",
+                    graph_name,
+                    node_offset,
+                    edge_offset,
+                )
+                return dict(entry)
+            if phase == "failed":
+                raise RuntimeError(
+                    "epistemic graph materialization failed "
+                    f"(graph={graph_name!r}, cursor={cursor!r})"
+                )
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                "epistemic graph did not become completely materialized before "
+                f"GraphOS boot hydration (graph={graph_name!r}, "
+                f"timeout_seconds={timeout_seconds:g}, last={last_progress!r})"
+            )
+        time.sleep(max(0.0, poll_seconds))
+
+
 def _start_engine_bootstrap(session: Any) -> None:
-    """Establish critical skill readiness, then start noncritical services."""
+    """Establish engine/skill readiness, then start noncritical services."""
     from agent_utilities.knowledge_graph.core.engine_tasks import (
         _authorized_background_thread,
         _require_verified_background_session,
@@ -3212,12 +3321,21 @@ def _start_engine_bootstrap(session: Any) -> None:
     from agent_utilities.skills import BUNDLED_SKILLS
 
     verified_session = _require_verified_background_session(session)
+    with (
+        use_actor(verified_session.actor),
+        use_session(verified_session),
+    ):
+        engine = _get_engine()
+        # Correctness gate: unlike missing packaged skills, a partially
+        # materialized graph cannot safely accept one-shot boot hydration or
+        # worker claims.  Let this failure stop startup so the orchestrator can
+        # retry the process instead of advertising a silently incomplete graph.
+        _wait_for_engine_materialization(engine)
     try:
         with (
             use_actor(verified_session.actor),
             use_session(verified_session),
         ):
-            engine = _get_engine()
             readiness = _ensure_bundled_skills_ready(engine)
     except Exception as exc:
         # Log the cause, not just its class. Reporting only `exception_type=X`
