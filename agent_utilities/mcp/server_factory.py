@@ -1602,6 +1602,13 @@ def create_mcp_server(
         auth=auth,
         instructions=instructions,
         lifespan=_fleet_registration_lifespan_factory(args, name),
+        # FastMCP 3.4.5 still implements the superseded 2025-11-25 task
+        # protocol (``tasks/result``/``tasks/list``), not the 2026-07-28
+        # ``io.modelcontextprotocol/tasks`` extension.  Do not accidentally
+        # advertise that incompatible lifecycle while GraphOS has no matching
+        # SDK wire handlers.  The durable WorkItem status/cancellation surface
+        # remains available through the normal MCP and REST actions.
+        tasks=False,
     )
 
     # Operational routes live outside the tool authorization path. Health is a
