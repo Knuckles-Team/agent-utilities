@@ -284,3 +284,27 @@ def test_detail_persistence_sink_is_called_best_effort_and_never_breaks_recordin
     finally:
         error_surface.register_detail_persistence_sink(None)
     assert payload2["error"]["detail_ref"]
+
+
+def test_public_error_payload_survives_a_broken_identity_layer(monkeypatch) -> None:
+    """Regression (wave-0 gate): ``_recording_actor_tenant`` is a best-effort
+    diagnostics helper — if the identity layer itself raises, recording the
+    failure detail must still succeed (with an empty tenant scope) rather than
+    turning the caller's original exception into a SECOND, different failure."""
+    from agent_utilities.security import error_surface
+
+    def _boom():
+        raise RuntimeError("identity layer is down")
+
+    monkeypatch.setattr(error_surface, "current_actor", _boom)
+    payload = public_error_payload(RuntimeError("original failure"))
+
+    assert payload["status"] == "failed"
+    detail_ref = payload["error"]["detail_ref"]
+    assert detail_ref
+    # Recorded with an EMPTY tenant scope — which means no tenant-scoped caller
+    # can resolve it (fail closed), but the record itself exists for the
+    # unscoped internal lookup.
+    record = resolve_error_detail(detail_ref)
+    assert record is not None
+    assert record["tenant_id"] == ""
