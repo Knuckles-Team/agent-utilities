@@ -718,6 +718,12 @@ class AgentOrchestrationEngine:
                         "is_error": True,
                         "execution_mode": "pydantic_graph",
                     },
+                    # A budget, timeout, or model failure can happen after a
+                    # real tool completed.  Preserve the calls accumulated by
+                    # graph nodes so the outer required-tool gate and durable
+                    # RunTrace record what actually happened instead of
+                    # reporting zero provenance.
+                    tool_calls=list(getattr(state, "tool_calls", []) or []),
                     execution_evidence=graph_evidence.evidence(state=state),
                 ).model_dump()
 
