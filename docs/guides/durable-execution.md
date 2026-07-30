@@ -94,14 +94,16 @@ the job is missing, terminal, or cannot be cancelled under its active lease.
 
 GraphOS maps asynchronous job handles to the durable WorkItem authority; it
 does not create a second task store. The 2026-07-28 MCP Tasks extension requires
-the `io.modelcontextprotocol/tasks` capability plus `tasks/get`, `tasks/update`,
-and `tasks/cancel` wire handlers. FastMCP 3.4.5 still exposes the incompatible
-2025-11-25 experimental lifecycle (`tasks/result` and `tasks/list`) and its
-installed MCP types do not contain the 2026 request/result handlers. GraphOS
-therefore explicitly disables that legacy capability rather than advertising a
-Tasks surface it cannot serve. Status and cancellation remain available through
-the same `graph_jobs` MCP tool and `/api/graph/jobs` REST route; mid-flight
-input is not exposed as MCP Tasks until the SDK ships the 2026 extension API.
+per-request capability negotiation, `server/discover`, polymorphic
+`resultType: "task"` responses, and `tasks/get`, `tasks/update`, and
+`tasks/cancel` wire handlers. FastMCP 3.4.5 explicitly depends on MCP Python SDK
+`<2` and exposes the incompatible 2025-11-25 experimental lifecycle instead.
+The official MCP Python SDK 2.0.0 now implements the new protocol, but it cannot
+be installed underneath this FastMCP release without violating that dependency
+contract. GraphOS therefore disables FastMCP's legacy Tasks capability rather
+than falsely advertising the extension. Status and cancellation remain
+available through `graph_jobs` and `/api/graph/jobs`; full Tasks support requires
+the governed MCP SDK v2 migration or a tested dual-stack protocol adapter.
 
 ## Operational checks
 
