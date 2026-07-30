@@ -35,6 +35,10 @@ TASK_LANES: dict[str, dict] = {
                 "content_url",
                 "diff",
                 "skill_workflows",
+                # Local, no-LLM graph-os capability materialization. It is
+                # durable and preemptible like every other memory-generation
+                # write rather than a synchronous boot side effect.
+                "self_tool_surface",
                 # CONCEPT:AU-KG.ingest.drain-session-bundle — remote chat/session bundle uploads land in
                 # the usage store off the request path; a bulk write, so it rides
                 # the ingestion lane (not the best-effort maint lane).

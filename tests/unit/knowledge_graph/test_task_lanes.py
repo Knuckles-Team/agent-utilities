@@ -14,6 +14,7 @@ def test_lane_for_task_type_maps_functional_domains():
 
     assert lane_for_task_type("codebase") == "ingestion"
     assert lane_for_task_type("document") == "ingestion"
+    assert lane_for_task_type("self_tool_surface") == "ingestion"
     assert lane_for_task_type("conversation") == "queries"
     assert lane_for_task_type("research_paper_fetch") == "research"
     assert lane_for_task_type("deep_extract") == "extraction"  # ORCH-1.76 own lane

@@ -3790,6 +3790,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             "background_research",
             "relevance_sweep",
             "skill_workflows",
+            "self_tool_surface",
             # Async session-bundle upload (CONCEPT:AU-KG.ingest.drain-session-bundle): each session fans out
             # to many usage-store rows, so it drains under the background throttle.
             "session_upload",
@@ -4474,6 +4475,31 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # Score all ingested papers and codebases against a target
                 result = await self._run_relevance_sweep(job_id, str(target))
                 self._update_task_status(job_id, "completed", result)
+            elif task_type == "self_tool_surface":
+                # graph-os registers the provider before publishing this
+                # priority-one WorkItem. Keep the ChangeEnvelope write on the
+                # bounded memory-generation lane so cold materialization or
+                # write contention never blocks the boot-plan producer.
+                from agent_utilities.knowledge_graph.ingestion.engine import (
+                    IngestionEngine,
+                )
+
+                self_tools = await IngestionEngine(
+                    kg_engine=self
+                )._ingest_self_tools()
+                if self_tools.status == "failed":
+                    raise RuntimeError("self tool-surface ingestion failed")
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {
+                        "target": str(target),
+                        "type": task_type,
+                        "status": self_tools.status,
+                        "nodes_added": self_tools.nodes_created,
+                        "edges_added": self_tools.edges_created,
+                    },
+                )
             elif task_type == "connector_sync":
                 # CONCEPT:AU-ORCH.scheduling.connector-sync-lane — one external connector's delta sync, run as a LANED task
                 # (the 'connectors' lane). The */20m fleet sweep enqueues one of these per

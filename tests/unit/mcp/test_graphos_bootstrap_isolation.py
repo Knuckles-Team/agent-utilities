@@ -782,40 +782,16 @@ def test_self_tool_surface_boot_hydration_leg_is_isolated_from_failure(caplog) -
     ):
         kg_server._ingest_self_tool_surface_at_boot(object())  # must not raise
 
-    assert "Self tool-surface boot ingestion failed" in caplog.text
+    assert "Self tool-surface boot enqueue failed" in caplog.text
 
 
-def test_self_tool_surface_provider_failure_is_isolated_inside_ingest(caplog) -> None:
-    """A separate, deeper isolation layer: even if the REGISTERED provider
-    itself raises, ``_ingest_self_tools`` catches it internally and returns a
-    ``failed`` :class:`IngestionResult` — the boot wrapper still completes
-    normally (logging the failed status at INFO, not ERROR) because nothing
-    propagates out of ``_ingest_self_tools`` for it to catch."""
-    from agent_utilities.mcp import kg_server
-
-    with (
-        patch.object(
-            kg_server,
-            "_graphos_self_tool_surface",
-            side_effect=RuntimeError("boom"),
-        ),
-        caplog.at_level("INFO", logger="agent_utilities.mcp.kg_server"),
-    ):
-        kg_server._ingest_self_tool_surface_at_boot(object())  # must not raise
-
-    assert "Self tool-surface boot ingestion failed" not in caplog.text
-    assert "status=failed" in caplog.text
-
-
-def test_self_tool_surface_boot_hydration_registers_provider_and_ingests() -> None:
-    """The Phase E leg registers the in-process provider and drives
-    ``IngestionEngine._ingest_self_tools`` exactly once per boot."""
+def test_self_tool_surface_boot_hydration_registers_provider_and_enqueues() -> None:
+    """The Phase E leg registers the provider and publishes one durable task."""
     from agent_utilities.knowledge_graph.ingestion import engine as ingestion_engine
     from agent_utilities.mcp import kg_server
 
     fake_kg_engine = MagicMock()
-    fake_kg_engine.backend = MagicMock()
-    fake_kg_engine.graph_compute = MagicMock()
+    fake_kg_engine.submit_task.return_value = "job-self-tools"
 
     try:
         kg_server._ingest_self_tool_surface_at_boot(fake_kg_engine)
@@ -825,8 +801,60 @@ def test_self_tool_surface_boot_hydration_registers_provider_and_ingests() -> No
             ingestion_engine._SELF_TOOL_SURFACE_PROVIDER
             is kg_server._graphos_self_tool_surface
         )
+        fake_kg_engine.submit_task.assert_called_once_with(
+            target_path="graph-os",
+            is_codebase=False,
+            provenance={"boot_hydration": True},
+            task_type="self_tool_surface",
+            priority=1,
+        )
     finally:
         ingestion_engine.register_self_tool_surface_provider(None)
+
+
+@pytest.mark.anyio
+async def test_self_tool_surface_work_item_materializes_and_completes() -> None:
+    """The durable worker owns the actual native materialization and outcome."""
+    result = SimpleNamespace(
+        status="success",
+        nodes_created=96,
+        edges_created=95,
+    )
+    ingestion = MagicMock()
+    ingestion._ingest_self_tools = AsyncMock(return_value=result)
+    worker = SimpleNamespace(
+        _update_task_status=MagicMock(),
+        _fail_or_retry_task=MagicMock(),
+        _checkpoint_db=MagicMock(),
+    )
+
+    with patch(
+        "agent_utilities.knowledge_graph.ingestion.engine.IngestionEngine",
+        return_value=ingestion,
+    ) as constructor:
+        await TaskManagerMixin._run_background_task(
+            worker,
+            "job-self-tools",
+            Path("graph-os"),
+            False,
+            "self_tool_surface",
+        )
+
+    constructor.assert_called_once_with(kg_engine=worker)
+    ingestion._ingest_self_tools.assert_awaited_once_with()
+    worker._update_task_status.assert_called_once_with(
+        "job-self-tools",
+        "completed",
+        {
+            "target": "graph-os",
+            "type": "self_tool_surface",
+            "status": "success",
+            "nodes_added": 96,
+            "edges_added": 95,
+        },
+    )
+    worker._fail_or_retry_task.assert_not_called()
+    worker._checkpoint_db.assert_called_once_with()
 
 
 def test_graphos_self_tool_surface_reads_registered_tools_in_process() -> None:

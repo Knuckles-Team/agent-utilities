@@ -2982,31 +2982,34 @@ def _graphos_self_tool_surface() -> list[dict[str, Any]]:
 
 
 def _ingest_self_tool_surface_at_boot(engine: Any) -> None:
-    """Ingest graph-os's own ~95 tools as ``:MCPServer``/``:Tool`` nodes at boot.
+    """Queue graph-os's own ~95 ``:MCPServer``/``:Tool`` nodes at boot.
 
-    CONCEPT:AU-KG.ingest.self-tool-surface (Phase E → Phase F wiring). Registers
-    the in-process provider above, then drives
-    :meth:`~agent_utilities.knowledge_graph.ingestion.engine.IngestionEngine._ingest_self_tools`
-    once. That method is itself purely in-process/synchronous under the hood
-    (no network, no self-probe — see its docstring); this wrapper just adds the
-    same best-effort isolation as every other boot-hydration leg so a failure
-    here never blocks serving.
+    CONCEPT:AU-KG.ingest.self-tool-surface (Phase E → Phase F wiring). The
+    provider is registered synchronously because workers share this process,
+    while the native ChangeEnvelope materialization runs as a fenced,
+    checkpointable priority-one WorkItem. Queue publication therefore cannot
+    hold up prompts, ontologies, or later boot-plan checkpoints when the
+    operational graph is cold or write-contended.
     """
     try:
         from agent_utilities.knowledge_graph.ingestion.engine import (
-            IngestionEngine,
             register_self_tool_surface_provider,
         )
 
         register_self_tool_surface_provider(_graphos_self_tool_surface)
-        result = asyncio.run(IngestionEngine(kg_engine=engine)._ingest_self_tools())
-        logger.info(
-            "Self tool-surface boot ingestion: status=%s nodes=%d",
-            result.status,
-            result.nodes_created,
+        submit = getattr(engine, "submit_task", None)
+        if not callable(submit):
+            return
+        job_id = submit(
+            target_path="graph-os",
+            is_codebase=False,
+            provenance={"boot_hydration": True},
+            task_type="self_tool_surface",
+            priority=1,
         )
+        logger.info("Queued self tool-surface boot hydration: %s", job_id)
     except Exception as exc:
-        logger.error("Self tool-surface boot ingestion failed: %s", exc)
+        logger.error("Self tool-surface boot enqueue failed: %s", exc)
 
 
 def _sync_ontologies_at_boot(engine: Any) -> None:
