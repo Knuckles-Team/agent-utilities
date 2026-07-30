@@ -33,6 +33,7 @@ import asyncio
 import logging
 import os
 import re
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -1085,6 +1086,63 @@ class KGTraceBackend(TraceBackend):
             except Exception as exc:  # pragma: no cover - best-effort
                 logger.debug(
                     "KGTraceBackend event persist failed (%s)", type(exc).__name__
+                )
+
+    def record_routing_decision(
+        self,
+        *,
+        trace_id: str,
+        decision: Any,
+    ) -> None:
+        """Persist one bounded ``RoutingDecisionNode`` and attach it to ``trace_id``
+        (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance) — the model-routing counterfactual (chosen +
+        rejected candidates + why) that model selection previously discarded. ``decision``
+        is a :class:`~agent_utilities.models.model_registry.RoutingDecision`. Best-effort
+        and privacy-sanitized exactly like ``record_event``; never raises.
+        """
+        _, identifier_report = self._privacy.sanitize_text(trace_id)
+        if identifier_report.changed:
+            logger.debug("KGTraceBackend routing decision skipped: unsafe trace id")
+            return
+        try:
+            from agent_utilities.models.knowledge_graph import (
+                RegistryEdgeType,
+                RoutingDecisionNode,
+            )
+
+            candidates = [c.model_dump() for c in decision.candidates]
+            node = RoutingDecisionNode(
+                id=f"routing_decision:{trace_id}:{uuid.uuid4()}",
+                name=f"route:{decision.route_key}",
+                trace_id=trace_id,
+                route_key=decision.route_key,
+                complexity=str(decision.complexity),
+                required_tags=list(decision.required_tags),
+                confidence_signal=decision.confidence_signal,
+                routing_percentile=decision.routing_percentile,
+                chosen_model_id=decision.chosen_model_id,
+                candidates=candidates,
+            )
+        except Exception as exc:  # pragma: no cover - best-effort
+            logger.debug(
+                "KGTraceBackend routing decision build failed (%s)",
+                type(exc).__name__,
+            )
+            return
+        clean = self._sanitize_node(node)
+        if clean is None:
+            logger.debug("KGTraceBackend routing decision skipped: unsafe content")
+            return
+        if self.backend is not None and hasattr(self.backend, "add_node"):
+            try:
+                self.backend.add_node(clean.id, **self._node_props(clean))
+                link = getattr(self.backend, "link_nodes", None)
+                if callable(link):
+                    link(trace_id, clean.id, RegistryEdgeType.HAS_ROUTING_DECISION)
+            except Exception as exc:  # pragma: no cover - best-effort
+                logger.debug(
+                    "KGTraceBackend routing decision persist failed (%s)",
+                    type(exc).__name__,
                 )
 
     @staticmethod

@@ -33,6 +33,22 @@ ModelTier = Literal["light", "medium", "heavy", "reasoning"]
 # Ordered tier list for CONCEPT:AU-ORCH.routing.confidence-gated-routing-log confidence-gated routing helpers.
 _TIER_ORDER: list[ModelTier] = ["light", "medium", "heavy", "reasoning"]
 
+# Per-complexity tier fallback order, biased toward capability (heavier tiers fall back
+# to reasoning, lighter tiers fall back through medium/heavy). Shared by `pick_for_task`
+# and `explain_pick_for_task` (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance) so the
+# explanation is guaranteed to rank candidates exactly the way the picker does.
+_TIER_PRIORITY: dict[ModelTier, list[ModelTier]] = {
+    "light": ["light", "medium", "heavy", "reasoning"],
+    "medium": ["medium", "heavy", "light", "reasoning"],
+    "heavy": ["heavy", "reasoning", "medium", "light"],
+    "reasoning": ["reasoning", "heavy", "medium", "light"],
+}
+
+# Hard ceiling on the number of candidates a single routing decision persists
+# (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance) — a routing decision must record enough to be a real
+# counterfactual without ever writing an unbounded per-request dump.
+MAX_ROUTING_CANDIDATES = 8
+
 # CONCEPT:AU-ORCH.routing.conductor-per-step-model — Role-Specialized Model Routing.
 # Functional roles a pipeline stage can request. Assimilated from Quarq Agent's
 # three-specialized-model pattern (planner / generator / learner; agent-oss/agent.py:58-92),
@@ -114,6 +130,50 @@ _ROLE_TASK_CLASS: dict[str, str] = {
     "rlm-sublm": "code",
     "rlm-root": "reasoning",
 }
+
+
+class CandidateScore(BaseModel):
+    """One candidate's score/features from a routing decision (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance).
+
+    ``score`` and ``tier_rank`` are derived purely from :data:`_TIER_PRIORITY` (the
+    SAME deterministic ordering :meth:`ModelRegistry.pick_for_task` uses) — never a
+    fabricated quality number. ``rejection_reason`` is empty for the chosen
+    candidate.
+    """
+
+    model_id: str
+    tier: ModelTier
+    tag_match: bool
+    tier_rank: int = Field(
+        description="Position in the tier-preference order for the requested "
+        "complexity (0 = most preferred)."
+    )
+    score: float = Field(description="1 / (1 + tier_rank); higher is better.")
+    rejected: bool
+    rejection_reason: str = ""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RoutingDecision(BaseModel):
+    """The chosen route + its bounded candidate set (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance).
+
+    Returned by :meth:`ModelRegistry.explain_pick_for_task`, which reuses
+    :meth:`ModelRegistry.pick_for_task`/:meth:`ModelRegistry.pick_for_task_adaptive`
+    for the actual choice so the explanation can never disagree with the picker.
+    ``candidates`` is capped at :data:`MAX_ROUTING_CANDIDATES`, so persisting this
+    once per routing decision is bounded regardless of registry size.
+    """
+
+    route_key: str = ""
+    complexity: ModelTier = "medium"
+    required_tags: list[str] = Field(default_factory=list)
+    confidence_signal: float | None = None
+    routing_percentile: float | None = None
+    chosen_model_id: str
+    candidates: list[CandidateScore] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ModelCostRate(BaseModel):
@@ -316,19 +376,12 @@ class ModelRegistry(BaseModel):
             ValueError: If the registry is empty.
         """
         required = required_tags or []
-        tier_priority: dict[ModelTier, list[ModelTier]] = {
-            "light": ["light", "medium", "heavy", "reasoning"],
-            "medium": ["medium", "heavy", "light", "reasoning"],
-            "heavy": ["heavy", "reasoning", "medium", "light"],
-            "reasoning": ["reasoning", "heavy", "medium", "light"],
-        }
-
         tagged = [m for m in self.models if all(t in m.tags for t in required)]
 
         for candidates in (tagged, self.models):
             if not candidates:
                 continue
-            for t in tier_priority[complexity]:
+            for t in _TIER_PRIORITY[complexity]:
                 for m in candidates:
                     if m.tier == t:
                         return m
@@ -493,6 +546,109 @@ class ModelRegistry(BaseModel):
             complexity=effective_tier, required_tags=required_tags
         )
 
+    # ── CONCEPT:AU-ORCH.routing.rejected-candidate-provenance rejected-alternative provenance ─────────────────
+
+    def explain_pick_for_task(
+        self,
+        *,
+        complexity: ModelTier = "medium",
+        required_tags: list[str] | None = None,
+        confidence_signal: float | None = None,
+        routing_percentile: float | None = None,
+        route_key: str = "",
+    ) -> RoutingDecision:
+        """Pick a model exactly like :meth:`pick_for_task`/:meth:`pick_for_task_adaptive`,
+        but ALSO return the bounded candidate set with each candidate's score/features and
+        why it was rejected (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance).
+
+        Delegates the actual choice to the existing pickers so this can never select a
+        different model than the live routing path — it only adds the counterfactual the
+        router previously discarded. Candidates are capped at
+        :data:`MAX_ROUTING_CANDIDATES` (ranked by score, chosen candidate always kept),
+        so persisting one decision per routing call is bounded regardless of how many
+        models are configured.
+
+        Args:
+            complexity: Base tier of the task being spawned.
+            required_tags: Tags every candidate must carry (AND semantics).
+            confidence_signal: When given (with ``routing_percentile``), routes via
+                :meth:`pick_for_task_adaptive`; otherwise via :meth:`pick_for_task`.
+            routing_percentile: Paired with ``confidence_signal``.
+            route_key: Caller-supplied label for the route (e.g. a functional role or
+                task-class); stored as-is, defaults to ``complexity`` when empty.
+
+        Raises:
+            ValueError: If the registry is empty (same as the underlying pickers).
+        """
+        required = required_tags or []
+        if confidence_signal is not None and routing_percentile is not None:
+            chosen = self.pick_for_task_adaptive(
+                complexity=complexity,
+                confidence_signal=confidence_signal,
+                routing_percentile=routing_percentile,
+                required_tags=required,
+            )
+        else:
+            chosen = self.pick_for_task(complexity=complexity, required_tags=required)
+
+        order = _TIER_PRIORITY[complexity]
+        tagged = [m for m in self.models if all(t in m.tags for t in required)]
+        pool = tagged if tagged else self.models
+
+        scored: list[CandidateScore] = []
+        for m in pool:
+            tag_match = all(t in m.tags for t in required)
+            rank = order.index(m.tier) if m.tier in order else len(order)
+            score = 1.0 / (1 + rank)
+            rejected = m.id != chosen.id
+            reason = ""
+            if rejected:
+                if not tag_match:
+                    missing = ", ".join(t for t in required if t not in m.tags)
+                    reason = f"missing required tag(s): {missing}"
+                else:
+                    chosen_rank = (
+                        order.index(chosen.tier) if chosen.tier in order else len(order)
+                    )
+                    reason = (
+                        f"tier {m.tier!r} ranked #{rank + 1} vs chosen "
+                        f"{chosen.tier!r} ranked #{chosen_rank + 1} for complexity "
+                        f"{complexity!r}"
+                    )
+            scored.append(
+                CandidateScore(
+                    model_id=m.id,
+                    tier=m.tier,
+                    tag_match=tag_match,
+                    tier_rank=rank,
+                    score=score,
+                    rejected=rejected,
+                    rejection_reason=reason,
+                )
+            )
+        scored.sort(key=lambda c: c.score, reverse=True)
+
+        bounded = scored[:MAX_ROUTING_CANDIDATES]
+        if not any(c.model_id == chosen.id for c in bounded):
+            # The chosen candidate always has the top score under this ranking, so
+            # this is defensive only (e.g. a future scoring change) — never drop the
+            # actual decision from its own record.
+            chosen_candidate = next(
+                (c for c in scored if c.model_id == chosen.id), None
+            )
+            if chosen_candidate is not None:
+                bounded = [chosen_candidate, *bounded[: MAX_ROUTING_CANDIDATES - 1]]
+
+        return RoutingDecision(
+            route_key=route_key or str(complexity),
+            complexity=complexity,
+            required_tags=list(required),
+            confidence_signal=confidence_signal,
+            routing_percentile=routing_percentile,
+            chosen_model_id=chosen.id,
+            candidates=bounded,
+        )
+
     def add(self, model: ModelDefinition) -> None:
         """Append a model to the registry.
 
@@ -585,7 +741,16 @@ def inference_owl_ttl(registry: ModelRegistry | None = None) -> str:
     for model in reg.models:
         mid = f"kg:model_{_frag(model.id)}"
         lines.append(f"{mid} rdf:type kg:Model ;")
+        lines.append(f'    kg:provider "{model.provider}" ;')
         lines.append(f'    kg:modelId "{model.model_id}" ;')
+        # CONCEPT:AU-KG.ontology.model-profile-graph-resource — only fields the ModelDefinition actually
+        # carries are emitted; an unconfigured limit/cost is omitted, never defaulted to 0/absent-as-zero.
+        if model.context_window is not None:
+            lines.append(f"    kg:contextWindow {model.context_window} ;")
+        if model.max_output_tokens is not None:
+            lines.append(f"    kg:maxOutputTokens {model.max_output_tokens} ;")
+        lines.append(f"    kg:inputCostPerMillion {model.cost.input} ;")
+        lines.append(f"    kg:outputCostPerMillion {model.cost.output} ;")
         lines.append(f'    kg:tier "{model.tier}" .')
         lines.append("")
 

@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-357 publishable pages · 172 direct nav targets · 117 public capabilities · 760 action rows · 542 typed configuration fields · 348 runtime-only call-site inputs.
+360 publishable pages · 174 direct nav targets · 118 public capabilities · 766 action rows · 543 typed configuration fields · 348 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -183,6 +183,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Gateway daemon — the one host process and everything it runs](../architecture/gateway_daemon.md) — direct nav
 - [Scaling the Gateway](../architecture/gateway_scaling.md) — direct nav
 - [Global Workspace Attention (GWT)](../architecture/global_workspace_attention.md) — direct nav
+- [Governed JSON-OCEL exchange](../architecture/governed_ocel.md) — direct nav
 - [Graph Authority Convergence](../architecture/graph-authority-convergence.md) — direct nav
 - [Graph Backend Architecture](../architecture/graph_backends_architecture.md) — direct nav
 - [Epistemic Graph Service Layer Architecture](../architecture/graph_service_layer.md) — catalog
@@ -205,8 +206,10 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Mandatory ContextCompiler model boundary](../architecture/mandatory-context-compiler.md) — direct nav
 - [MCP authentication and network trust](../architecture/mcp_auth.md) — direct nav
 - [GraphOS Embedded Fleet Gateway](../architecture/mcp_multiplexer.md) — catalog
+- [GraphOS MCP v2 compatibility gateway](../architecture/mcp_v2_gateway.md) — catalog
 - [Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — direct nav
 - [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — direct nav
+- [Model Registry as Graph Resources + Rejected-Alternative Routing Provenance](../architecture/model_registry_graph_resources.md) — direct nav
 - [Modular prompt & skill contribution](../architecture/modular-prompt-skill-contribution.md) — direct nav
 - [Multi-Agent Social System (MASS)](../architecture/multi_agent_social_system.md) — direct nav
 - [Multi-Source Assimilation Program](../architecture/multi_source_assimilation.md) — direct nav

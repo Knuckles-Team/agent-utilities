@@ -203,6 +203,7 @@ nav:
       - Failure-Driven Evolution: architecture/failure_driven_evolution.md
       - The Evolvable Surface (native programs): architecture/evolvable_surface.md
       - Task-Aware Sampling Profiles: architecture/sampling_profiles.md
+      - Model Registry as Graph Resources + Routing Provenance: architecture/model_registry_graph_resources.md
       - Edit-Application Engine: architecture/edit_application_engine.md
       - Durable-State Externalization: architecture/state_externalization.md
       - Adaptive Model Concurrency (vLLM auto-scale): architecture/adaptive_model_concurrency.md

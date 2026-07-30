@@ -286,3 +286,84 @@ def test_pick_for_task_returns_default_when_all_filters_fail():
     )
     match = reg.pick_for_task(complexity="reasoning", required_tags=["nothing"])
     assert match.id == "only"
+
+
+# ── explain_pick_for_task / rejected-alternative provenance (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance) ──
+
+
+def test_explain_pick_for_task_agrees_with_pick_for_task(sample_registry):
+    picked = sample_registry.pick_for_task(complexity="heavy")
+    decision = sample_registry.explain_pick_for_task(complexity="heavy")
+    assert decision.chosen_model_id == picked.id
+
+
+def test_explain_pick_for_task_records_rejected_candidates_with_reasons(
+    sample_registry,
+):
+    decision = sample_registry.explain_pick_for_task(
+        complexity="heavy", route_key="judge"
+    )
+    assert decision.route_key == "judge"
+    ids = {c.model_id for c in decision.candidates}
+    # Every model in the registry is a candidate (no required_tags filter).
+    assert ids == {"local-fast", "cloud-mini", "cloud-opus", "cloud-reasoning"}
+    chosen = next(
+        c for c in decision.candidates if c.model_id == decision.chosen_model_id
+    )
+    assert chosen.rejected is False
+    assert chosen.rejection_reason == ""
+    rejected = [c for c in decision.candidates if c.rejected]
+    assert rejected  # at least one alternative was considered and rejected
+    for c in rejected:
+        assert c.rejection_reason  # every rejection is explained, never silent
+
+
+def test_explain_pick_for_task_required_tag_rejection_reason(sample_registry):
+    decision = sample_registry.explain_pick_for_task(
+        complexity="reasoning", required_tags=["tools"]
+    )
+    # cloud-reasoning has no 'tools' tag -> excluded from the tagged pool entirely,
+    # so it is never even scored as a candidate here (tagged pool wins over the
+    # full pool per pick_for_task's algorithm).
+    ids = {c.model_id for c in decision.candidates}
+    assert "cloud-reasoning" not in ids
+    assert ids == {"cloud-mini", "cloud-opus"}
+
+
+def test_explain_pick_for_task_is_bounded(sample_registry):
+    from agent_utilities.models.model_registry import (
+        MAX_ROUTING_CANDIDATES,
+        ModelDefinition,
+        ModelRegistry,
+    )
+
+    many = ModelRegistry(
+        models=[
+            ModelDefinition(
+                id=f"m{i}",
+                name=f"m{i}",
+                provider="openai",
+                model_id=f"m{i}",
+                tier="medium",
+            )
+            for i in range(MAX_ROUTING_CANDIDATES + 10)
+        ]
+    )
+    decision = many.explain_pick_for_task(complexity="medium")
+    assert len(decision.candidates) <= MAX_ROUTING_CANDIDATES
+    assert decision.chosen_model_id in {c.model_id for c in decision.candidates}
+
+
+def test_explain_pick_for_task_adaptive_records_confidence(sample_registry):
+    decision = sample_registry.explain_pick_for_task(
+        complexity="heavy",
+        confidence_signal=0.9,
+        routing_percentile=50.0,
+        route_key="learner",
+    )
+    picked = sample_registry.pick_for_task_adaptive(
+        complexity="heavy", confidence_signal=0.9, routing_percentile=50.0
+    )
+    assert decision.chosen_model_id == picked.id
+    assert decision.confidence_signal == 0.9
+    assert decision.routing_percentile == 50.0

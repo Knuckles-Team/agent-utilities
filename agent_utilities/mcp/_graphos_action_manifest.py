@@ -1805,9 +1805,9 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "sync_second_brain",
         "name": "graph_ingest_sync_second_brain",
     },
+    {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {"tool": "graph_jobs", "action": "dispatch", "name": "graph_jobs_dispatch"},
     {"tool": "graph_jobs", "action": "status", "name": "graph_jobs_status"},
-    {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {"tool": "graph_kvcache", "action": "contains", "name": "graph_kvcache_contains"},
     {"tool": "graph_kvcache", "action": "exists", "name": "graph_kvcache_exists"},
     {"tool": "graph_kvcache", "action": "get", "name": "graph_kvcache_get"},
@@ -1859,12 +1859,12 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_message", "action": "open", "name": "graph_message_open"},
     {"tool": "graph_message", "action": "receive", "name": "graph_message_receive"},
     {"tool": "graph_message", "action": "send", "name": "graph_message_send"},
-    {"tool": "graph_mine", "action": None, "name": "graph_mine"},
     {
         "tool": "graph_mine_deep",
         "action": "deep_forecast",
         "name": "graph_mine_deep_deep_forecast",
     },
+    {"tool": "graph_mine", "action": "process", "name": "graph_mine_process"},
     {
         "tool": "graph_observe",
         "action": "error_detail",
@@ -2231,6 +2231,26 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "ontology_link_materialize",
         "action": "types",
         "name": "ontology_link_materialize_types",
+    },
+    {
+        "tool": "ontology_model_profile",
+        "action": "get",
+        "name": "ontology_model_profile_get",
+    },
+    {
+        "tool": "ontology_model_profile",
+        "action": "list",
+        "name": "ontology_model_profile_list",
+    },
+    {
+        "tool": "ontology_model_profile",
+        "action": "owl",
+        "name": "ontology_model_profile_owl",
+    },
+    {
+        "tool": "ontology_model_profile",
+        "action": "sync",
+        "name": "ontology_model_profile_sync",
     },
     {
         "tool": "ontology_property_types",

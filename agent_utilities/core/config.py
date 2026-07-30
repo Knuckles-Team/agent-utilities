@@ -2356,6 +2356,11 @@ class AgentConfig(BaseSettings):
 
     # --- Provider API Keys (global fallbacks for ad-hoc model creation) ---
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_api_key_ref: str | None = Field(default=None, alias="OPENAI_API_KEY_REF")
+    """Runtime secret reference (``env://``, ``vault://``, ``secret://``) for the OpenAI API key
+    (CONCEPT:AU-ORCH.adapter.openai-catalog-verification) — the OpenBao-backed alternative to the literal
+    ``OPENAI_API_KEY``. Resolved by ``core.credentials.CredentialResolver``, which checks this
+    reference BEFORE the literal env var/config-file tiers."""
     openai_base_url: str | None = Field(default=None, alias="OPENAI_BASE_URL")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")

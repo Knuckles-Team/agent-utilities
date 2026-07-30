@@ -1,9 +1,17 @@
-"""CONCEPT:AU-ORCH.adapter.three-tier-credential-resolution — Three-tier credential resolution (env > file > none).
+"""CONCEPT:AU-ORCH.adapter.three-tier-credential-resolution — Four-tier credential resolution
+(secret_ref > env > file > none).
 
 Assimilated from open-design's ``media-config`` resolution order: a provider's API key/base-url is
 resolved from the process environment first (CI/Docker/systemd), then a JSON config file (packaged or
 GUI-persisted installs), then ``None``. No secrets in argv/logs; no separate vault required (though a
 vault can populate the env tier).
+
+CONCEPT:AU-ORCH.adapter.openai-catalog-verification adds a HIGHER-precedence tier: a provider whose
+AgentConfig carries a ``<provider>_api_key_ref`` field (see ``_REF_CONFIG_FIELDS``) resolves through
+the SAME ``env://``/``vault://``/``secret://`` runtime-reference convention already used elsewhere in
+this repo (e.g. ``ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF``), so an OpenBao-backed key never has to be
+a literal in the environment or the media-config file. Resolution is best-effort: an unresolvable
+reference falls through to the env/file/none tiers rather than raising.
 """
 
 from __future__ import annotations
@@ -37,6 +45,14 @@ _BASE_URL_KEYS: dict[str, tuple[str, ...]] = {
     "vllm": ("VLLM_BASE_URL",),
 }
 
+# Provider -> the AgentConfig field holding its runtime secret reference
+# (CONCEPT:AU-ORCH.adapter.openai-catalog-verification). Only OpenAI is wired today (the task at hand); add a
+# provider here as a real second reference field is configured, following the SAME
+# ``<provider>_api_key_ref`` naming as ``openai_api_key_ref``.
+_REF_CONFIG_FIELDS: dict[str, str] = {
+    "openai": "openai_api_key_ref",
+}
+
 
 @dataclass(slots=True)
 class ProviderCredentials:
@@ -45,7 +61,7 @@ class ProviderCredentials:
     provider: str
     api_key: str | None = None
     base_url: str | None = None
-    source: str = "none"  # which tier won: "env" | "file" | "none"
+    source: str = "none"  # which tier won: "secret_ref" | "env" | "file" | "none"
 
 
 class CredentialResolver:
@@ -97,9 +113,42 @@ class CredentialResolver:
                 return v
         return None
 
+    def _from_secret_ref(self, provider: str) -> str | None:
+        """Resolve ``provider``'s configured runtime secret reference, if any.
+
+        Returns ``None`` (never raises) when no ref field is configured for this
+        provider, none is set, or it fails to resolve — callers fall through to the
+        env/file/none tiers exactly as if this tier did not exist.
+        """
+        ref_field = _REF_CONFIG_FIELDS.get(provider)
+        if not ref_field:
+            return None
+        try:
+            from agent_utilities.core.config import config as _cfg
+
+            reference = getattr(_cfg, ref_field, None)
+        except Exception:
+            return None
+        if not reference:
+            return None
+        try:
+            from agent_utilities.security.cli_secrets import (
+                resolve_runtime_secret_reference,
+            )
+
+            return resolve_runtime_secret_reference(reference)
+        except Exception:
+            logger.debug(
+                "credential secret reference unresolved for provider=%s", provider
+            )
+            return None
+
     def resolve(self, provider: str) -> ProviderCredentials:
-        """Return resolved credentials for ``provider`` (env > file > none)."""
+        """Return resolved credentials for ``provider`` (secret_ref > env > file > none)."""
         p = provider.lower()
+        ref_key = self._from_secret_ref(p)
+        if ref_key:
+            return ProviderCredentials(p, api_key=ref_key, source="secret_ref")
         env_key = self._from_env(_ENV_KEYS.get(p, ()))
         env_url = self._from_env(_BASE_URL_KEYS.get(p, ()))
         if env_key or env_url:

@@ -461,6 +461,75 @@ def register_ontology_tools(mcp):
     kg_server.REGISTERED_TOOLS["ontology_sampling_profile"] = ontology_sampling_profile
 
     @mcp.tool(
+        name="ontology_model_profile",
+        description=(
+            "Model profiles as first-class graph resources (CONCEPT:AU-KG.ontology.model-profile-graph-resource): "
+            "'list' the configured registry's models as profile previews (no KG write), "
+            "'sync' upserts a ModelProfileVersionNode per configured model into the KG, "
+            "'get' reads one persisted profile by model id, 'owl' emits the registry's OWL projection."
+        ),
+        tags=["graph-os", "ontology"],
+    )
+    def ontology_model_profile(
+        action: str = Field(
+            default="list",
+            description="'list' | 'sync' | 'get' | 'owl'.",
+        ),
+        model_id: str = Field(
+            default="", description="Registry model id for action='get'."
+        ),
+    ) -> str:
+        """List/sync/get model profiles, or emit their OWL projection."""
+        from agent_utilities.models.model_profile import (
+            build_model_profile,
+            model_profile_id,
+            sync_model_profiles,
+        )
+        from agent_utilities.models.model_registry import (
+            inference_owl_ttl,
+            load_active_registry,
+        )
+
+        try:
+            registry = load_active_registry()
+            if action == "list":
+                previews = [
+                    build_model_profile(m).model_dump() for m in registry.models
+                ]
+                return json.dumps({"profiles": previews}, default=str)
+            if action == "sync":
+                engine = kg_server._get_engine()
+                ids = sync_model_profiles(engine, registry)
+                return json.dumps({"synced": ids, "count": len(ids)})
+            if action == "get":
+                definition = registry.get_by_id(model_id)
+                if definition is None:
+                    return json.dumps({"error": f"unknown model id: {model_id!r}"})
+                engine = kg_server._get_engine()
+                get_node = getattr(engine, "get_node", None)
+                node_id = model_profile_id(definition)
+                stored = get_node(node_id) if callable(get_node) else None
+                if stored:
+                    return json.dumps({"profile": stored, "id": node_id}, default=str)
+                # Not yet synced to the KG — return the honest live projection instead
+                # of a bare "not found" so `get` is useful before the first `sync`.
+                return json.dumps(
+                    {
+                        "profile": build_model_profile(definition).model_dump(),
+                        "id": node_id,
+                        "synced": False,
+                    },
+                    default=str,
+                )
+            if action == "owl":
+                return json.dumps({"owl": inference_owl_ttl(registry)})
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return public_error_json(e)
+
+    kg_server.REGISTERED_TOOLS["ontology_model_profile"] = ontology_model_profile
+
+    @mcp.tool(
         name="ontology_leanix_sync",
         description="Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion (CONCEPT:AU-KG.ingest.enterprise-source-extractor). dry_run=true previews without writing.",
         tags=["graph-os", "ontology"],
