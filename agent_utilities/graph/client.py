@@ -1,6 +1,7 @@
 # agent_utilities/graph/client.py
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -21,11 +22,14 @@ async def get_process_graph_backend(*, session: GraphSession | None = None):
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
     from ..knowledge_graph.core.session import resolve_session
 
-    resolve_session(session, required_scope="kg:read")
-    engine = IntelligenceGraphEngine.get_or_create()
-    if engine.backend is None:
-        raise RuntimeError("The process graph engine has no active backend")
-    return engine.backend
+    def _resolve_backend():
+        resolve_session(session, required_scope="kg:read")
+        engine = IntelligenceGraphEngine.get_or_create()
+        if engine.backend is None:
+            raise RuntimeError("The process graph engine has no active backend")
+        return engine.backend
+
+    return await asyncio.to_thread(_resolve_backend)
 
 
 async def create_or_merge_node(
@@ -37,15 +41,14 @@ async def create_or_merge_node(
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
     from ..knowledge_graph.core.session import resolve_session
 
-    session = resolve_session(session, required_scope="kg:write")
-    engine = IntelligenceGraphEngine.get_or_create()
-
     props = node.to_cypher_props()
     node_id = props.get("id")
     if not node_id:
         raise ValueError(f"Node {node} missing 'id' property")
 
-    try:
+    def _merge():
+        resolved_session = resolve_session(session, required_scope="kg:write")
+        engine = IntelligenceGraphEngine.get_or_create()
         # The first label is the canonical engine type; retain the complete
         # validated label set as data without issuing a second backend write.
         node_type = node.labels[0]
@@ -54,8 +57,11 @@ async def create_or_merge_node(
             node_id,
             node_type,
             {k: v for k, v in props.items() if k != "id"},
-            session=session,
+            session=resolved_session,
         )
+
+    try:
+        return await asyncio.to_thread(_merge)
     except Exception as e:
         logger.error("Graph node merge failed (%s)", type(e).__name__)
         raise

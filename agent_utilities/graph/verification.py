@@ -550,7 +550,9 @@ async def synthesizer_step(
     logger.info("[LAYER:GRAPH:SYNTHESIZER] Composing final response...")
     _emit_node_lifecycle(ctx.deps.event_queue, "synthesizer", "node_start")
 
-    validator_prompt = load_specialized_prompts("verifier")
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — prompt load is file I/O + registry
+    # lookup; keep it off the event loop.
+    validator_prompt = await asyncio.to_thread(load_specialized_prompts, "verifier")
 
     results_summary = "\n".join(
         [f"### {node}: {val}" for node, val in ctx.state.results_registry.items()]
@@ -690,7 +692,8 @@ async def synthesizer_step(
             f"- Verification attempts: {ctx.state.verification_attempts}"
         )
         if ctx.deps.knowledge_engine:
-            ctx.deps.knowledge_engine.add_memory(
+            await asyncio.to_thread(
+                ctx.deps.knowledge_engine.add_memory,
                 memory_entry,
                 name=f"Execution {ctx.state.session_id or 'unknown'}",
                 category="historical_execution",
@@ -715,7 +718,7 @@ async def synthesizer_step(
             from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
             memory_retriever = MemoryRetriever(ctx.deps.knowledge_engine)
-            memory_retriever.update_after_session(ctx.state)
+            await asyncio.to_thread(memory_retriever.update_after_session, ctx.state)
             logger.info(
                 "[CONCEPT:AU-KG.maintenance.post-execution-feedback] Self-Model updated: domain=%s, success=%s",
                 ctx.state.routed_domain,
@@ -733,8 +736,10 @@ async def synthesizer_step(
 
                 if isinstance(ctx.deps.knowledge_engine, RegistryMixin):
                     reward = 1.0 if execution_success else 0.0
-                    ctx.deps.knowledge_engine.record_team_outcome(
-                        team_config_id, reward=reward
+                    await asyncio.to_thread(
+                        ctx.deps.knowledge_engine.record_team_outcome,
+                        team_config_id,
+                        reward=reward,
                     )
                     logger.info(
                         "[CONCEPT:AU-AHE.evaluation.interpretability-tests] TeamConfig '%s' outcome recorded: reward=%.1f",
@@ -752,10 +757,16 @@ async def synthesizer_step(
                 from ..workflows.distillation_hook import WorkflowDistillationHook
 
                 plan_meta = ctx.state.plan.metadata if ctx.state.plan else {}
-                hook = WorkflowDistillationHook(engine=ctx.deps.knowledge_engine)
+                _engine = ctx.deps.knowledge_engine
 
                 async def _fire_distillation() -> None:
                     try:
+                        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — construction reads
+                        # distillation config off disk; keep it off the event loop even
+                        # though this already runs in a background task.
+                        hook = await asyncio.to_thread(
+                            WorkflowDistillationHook, engine=_engine
+                        )
                         await hook.on_execution_complete(
                             run_id=ctx.state.session_id or "unknown",
                             plan=ctx.state.plan,
@@ -926,8 +937,10 @@ async def _distill_experience_from_retry(
             )
             from ..knowledge_graph.core.ogm import KGMapper
 
+            # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — OGM upsert is a synchronous
+            # engine write; keep it off the event loop.
             ogm = KGMapper(ctx.deps.knowledge_engine)
-            ogm.upsert(node)
+            await asyncio.to_thread(ogm.upsert, node)
             logger.info(f"Distilled Experience Node: {exp_id}")
     except Exception as e:
         logger.warning(f"Experience distillation failed: {e}")
@@ -1017,8 +1030,10 @@ async def parallel_trajectory_distiller(
 
             from ..knowledge_graph.core.ogm import KGMapper
 
+            # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — OGM upsert is a synchronous
+            # engine write; keep it off the event loop.
             ogm = KGMapper(deps.knowledge_engine)
-            ogm.upsert(node)
+            await asyncio.to_thread(ogm.upsert, node)
             logger.info(
                 f"Distilled Parallel Experience Node (CONCEPT:AU-AHE.evaluation.backtest-harness): {exp_id} with EncPI mapping."
             )

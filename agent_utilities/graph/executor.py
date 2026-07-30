@@ -426,7 +426,9 @@ async def _get_domain_tools(
     from ..tools.developer_tools import developer_tools
     from ..tools.sdd_tools import sdd_tools
 
-    registry = get_discovery_registry()
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+    # backend round-trip; keep it off the event loop.
+    registry = await asyncio.to_thread(get_discovery_registry)
     agent = next((a for a in registry.agents if a.name == node_id), None)
     skill_tags = agent.capabilities if agent else []
 
@@ -930,7 +932,8 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         try:
             cap_rows = []
             if ctx.deps.knowledge_engine.backend:
-                cap_rows = ctx.deps.knowledge_engine.backend.execute(
+                cap_rows = await asyncio.to_thread(
+                    ctx.deps.knowledge_engine.backend.execute,
                     "MATCH (a {name: $name})-[:has_capability]->(c:AgentCapability) "
                     "WHERE c.auto_activate = true RETURN c",
                     {"name": agent_name},
@@ -971,7 +974,9 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
             from .workspace_attention import WorkspaceAttention
 
             wa = WorkspaceAttention(ctx.deps.knowledge_engine)
-            attention_score = wa.get_attention_score(agent_name)
+            attention_score = await asyncio.to_thread(
+                wa.get_attention_score, agent_name
+            )
             if attention_score is not None:
                 logger.info(
                     f"[GWT] Specialist '{agent_name}' attention score: {attention_score:.2f}"
@@ -1455,7 +1460,9 @@ async def _attempt_specialist_fallback(
         no suitable fallback could be identified or executed.
 
     """
-    registry = get_discovery_registry()
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+    # backend round-trip; keep it off the event loop.
+    registry = await asyncio.to_thread(get_discovery_registry)
     siblings = [
         a
         for a in registry.agents
@@ -1575,7 +1582,9 @@ async def _execute_agent_package_logic(
     else:
         # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Unified specialist execution
         # Try specialized prompt-based execution first (loads persona, injects tools + skills)
-        registry = get_discovery_registry()
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+        # backend round-trip; keep it off the event loop.
+        registry = await asyncio.to_thread(get_discovery_registry)
         mcp_agent = next(
             (a for a in registry.agents if agent_matches_node_id(a, node_id)),
             None,
@@ -1620,7 +1629,9 @@ async def agent_package_step(
     """
     from agent_utilities.agent.discovery import discover_agents
 
-    discovered = discover_agents()
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — discovery reads the KG registry
+    # synchronously; keep it off the event loop.
+    discovered = await asyncio.to_thread(discover_agents)
     if node_id not in discovered:
         logger.error(f"Agent package node '{node_id}' not found in discovery.")
         return "Error"
@@ -1655,16 +1666,29 @@ async def _execute_specialized_step(
         ctx_deps=ctx.deps, ctx_state=ctx.state, agent_name=prompt_name
     )
 
-    prompt = load_specialized_prompts(prompt_name)
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — the persona/memory/tool-guidance prompt
+    # loads (file I/O + registry lookup) and the registry hydration below are all SYNCHRONOUS
+    # and independent of each other; batch them into ONE thread hop instead of four.
+    def _read_specialist_bindings() -> tuple[str, str, str, Any]:
+        return (
+            load_specialized_prompts(prompt_name),
+            load_specialized_prompts("memory_instruction"),
+            load_specialized_prompts("tool_guidance"),
+            get_discovery_registry(),
+        )
+
+    (
+        prompt,
+        memory_instruction,
+        tool_guidance,
+        registry,
+    ) = await asyncio.to_thread(_read_specialist_bindings)
 
     # Dynamic Skill Distribution
     custom_tools, skill_toolsets = await _get_domain_tools(prompt_name, ctx.deps)
     logger.info(
         f"[LAYER:GRAPH:EXPERT] Specialized step '{prompt_name}' started. Tools loaded: {len(custom_tools)}, Toolsets: {len(skill_toolsets)}"
     )
-
-    memory_instruction = load_specialized_prompts("memory_instruction")
-    tool_guidance = load_specialized_prompts("tool_guidance")
 
     # Include validation feedback if this is a re-dispatch from verifier
     feedback_section = ""
@@ -1681,7 +1705,6 @@ async def _execute_specialized_step(
     from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
 
     # Resolve tags from the unified registry instead of the deprecated NODE_SKILL_MAP
-    registry = get_discovery_registry()
     agent_info = next((a for a in registry.agents if a.name == prompt_name), None)
     tool_tags = [prompt_name]
     if agent_info and agent_info.capabilities:
@@ -1756,8 +1779,13 @@ async def _execute_specialized_step(
 
     # CONCEPT:AU-ORCH.routing.conductor-per-step-model — honor a Conductor-assigned per-step model_id (ctx.inputs is
     # the current ExecutionStep/Task); falls back to override/tier routing when unset.
-    specialist_model = pick_specialist_model(
-        ctx.deps, prompt_name, step_model_id=getattr(ctx.inputs, "model_id", None)
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — internally does registry hydration +
+    # WorkspaceAttention/MemoryRetriever KG round-trips; keep it off the event loop.
+    specialist_model = await asyncio.to_thread(
+        pick_specialist_model,
+        ctx.deps,
+        prompt_name,
+        step_model_id=getattr(ctx.inputs, "model_id", None),
     )
 
     # CONCEPT:AU-ORCH.session.invoker-agent-handoff — enforce the invoker's least-privilege tool allow-list (if any).

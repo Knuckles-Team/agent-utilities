@@ -100,7 +100,9 @@ async def researcher_step(
             research_query = step_input.description
 
     # Intelligent Researcher Sub-Agents (for internal reasoning)
-    researcher_prompt = load_specialized_prompts("researcher")
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — prompt load is file I/O + registry
+    # lookup; keep it off the event loop.
+    researcher_prompt = await asyncio.to_thread(load_specialized_prompts, "researcher")
 
     from ..tools.developer_tools import project_search
     from ..tools.knowledge_tools import knowledge_tools  # lazy: break import cycle
@@ -185,7 +187,9 @@ async def planner_step(
         feedback=ctx.state.validation_feedback or "",
     )
 
-    planner_prompt = load_specialized_prompts("planner")
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — prompt load is file I/O + registry
+    # lookup; keep it off the event loop.
+    planner_prompt = await asyncio.to_thread(load_specialized_prompts, "planner")
     agent_context = await fetch_epistemic_context()
 
     # FU-4 (CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid) — bound the accumulated re-plan context so it can't grow
@@ -241,8 +245,9 @@ async def planner_step(
     process_context = ""
     if ctx.deps.knowledge_engine:
         logger.info("Planner: Discovering relevant policies and processes from KG...")
-        relevant_policies = ctx.deps.knowledge_engine.find_relevant_policies(
-            ctx.state.query
+        relevant_policies = await asyncio.to_thread(
+            ctx.deps.knowledge_engine.find_relevant_policies,
+            ctx.state.query,
         )
         if relevant_policies:
             policies_context = "### APPLICABLE POLICIES\n" + "\n".join(
@@ -420,7 +425,7 @@ async def fetch_epistemic_context() -> str:
     """
     # 1. Fetch agents from Knowledge Graph
     try:
-        registry = get_discovery_registry()
+        registry = await asyncio.to_thread(get_discovery_registry)
         agents_info = []
         for agent in registry.agents:
             agents_info.append(f"- {agent.name}: {agent.description}")
@@ -436,8 +441,12 @@ async def fetch_epistemic_context() -> str:
 
     # 2. Run git status
     try:
-        git_status = subprocess.check_output(
-            ["git", "status", "--short"], text=True
+        git_status = (
+            await asyncio.to_thread(
+                subprocess.check_output,
+                ["git", "status", "--short"],
+                text=True,
+            )
         ).strip()
     except Exception:
         git_status = "Not a git repository or git not installed."
@@ -447,18 +456,20 @@ async def fetch_epistemic_context() -> str:
     try:
         from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        engine = IntelligenceGraphEngine.get_active()
-        if engine and engine.graph:
-            # Sample top nodes for awareness
+        def _read_kg_context() -> str:
+            engine = IntelligenceGraphEngine.get_active()
+            if not engine or not engine.graph:
+                return ""
             all_ids = engine.graph.node_ids()
-            if all_ids:
-                kg_entries = []
-                for node_id in all_ids[:5]:
-                    data = engine.graph._get_node_properties(node_id)
-                    name = data.get("name", node_id)
-                    desc = str(data.get("description", ""))[:120]
-                    kg_entries.append(f"- {name}: {desc}")
-                kg_context = "\n".join(kg_entries)
+            kg_entries = []
+            for node_id in all_ids[:5]:
+                data = engine.graph._get_node_properties(node_id)
+                name = data.get("name", node_id)
+                desc = str(data.get("description", ""))[:120]
+                kg_entries.append(f"- {name}: {desc}")
+            return "\n".join(kg_entries)
+
+        kg_context = await asyncio.to_thread(_read_kg_context)
     except Exception as e:
         logger.debug("KG context unavailable: %s", e)
 
@@ -490,7 +501,9 @@ async def architect_step(
 
     """
     logger.info("Architect: Designing system changes...")
-    architect_prompt = load_specialized_prompts("architect")
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — prompt load is file I/O + registry
+    # lookup; keep it off the event loop.
+    architect_prompt = await asyncio.to_thread(load_specialized_prompts, "architect")
 
     from ..tools.knowledge_tools import knowledge_tools  # lazy: break import cycle
 
@@ -646,7 +659,11 @@ async def memory_selection_step(
         )
 
     _emit_node_lifecycle(ctx.deps.event_queue, "memory_selection", "node_start")
-    prompt_content = load_specialized_prompts("memory_selection")
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — prompt load is file I/O + registry
+    # lookup; keep it off the event loop.
+    prompt_content = await asyncio.to_thread(
+        load_specialized_prompts, "memory_selection"
+    )
     root = ctx.state.project_root or os.getcwd()
 
     # Phase 1: Workspace documentation inventory — pruned/capped/cached and run OFF the event
@@ -1092,7 +1109,9 @@ async def execute_recursive_graph(
         "recursion_depth": context.recursion_depth,
     }
 
-    graph = create_master_graph(config=config)
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — master-graph materialization does
+    # synchronous A2A/KG agent discovery; keep it off the event loop.
+    graph = await asyncio.to_thread(create_master_graph, config=config)
 
     from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 

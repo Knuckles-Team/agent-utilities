@@ -6,6 +6,7 @@ and the Knowledge Graph (LadybugDB), including automatic outcome recording
 and self-improvement triggers.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -71,9 +72,12 @@ async def record_specialist_outcome_hook(
     )
     props["duration_ms"] = max(0.0, float(duration) * 1000.0)
 
-    try:
+    def _persist_outcome() -> None:
         engine.add_node(oid, OUTCOME_NODE_LABEL, properties=props)
         engine.link_nodes(tid, oid, TRACE_PRODUCED_OUTCOME_EDGE)
+
+    try:
+        await asyncio.to_thread(_persist_outcome)
         logger.debug("Recorded normalized execution outcome")
     except Exception as e:
         logger.warning(f"Failed to record outcome to graph: {e}")
