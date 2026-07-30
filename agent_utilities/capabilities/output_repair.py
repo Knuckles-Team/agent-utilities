@@ -21,10 +21,16 @@ outcome **visible**:
 
 * every attempt (classification + what repair was tried) is appended to
   :attr:`StructuredOutputRepair.attempts` and, on success, stamped onto the
-  ``AgentRunResult`` as ``output_repair_attempts`` so a repaired run can never
-  be read back as an indistinguishable clean first-try success
+  ``AgentRunResult`` as ``output_repair_attempts`` (and, on the failure path,
+  onto the propagated exception) so a caller holding the result or the error can
+  never read a repaired run back as an indistinguishable clean first-try success
   (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency's truthfulness
-  contract, extended to output repair);
+  contract, extended to output repair). SCOPE: this is visibility to the direct
+  caller only -- ``orchestration/agent_runner.py::_record_execution_trace``,
+  which writes the RunTrace/KG/OTel record, does not yet read
+  ``output_repair_attempts``, so a repaired run is still indistinguishable from
+  a clean one in the persisted trace. Recorded as D-W15-13 in
+  ``reports/deferred/waves1-5-gate.md``;
 * exhausting the bound raises :class:`StructuredOutputRepairExhausted` — a
   plain (non-``ModelRetry``) exception carrying the full attempt list — so the
   run fails closed with a typed, inspectable error instead of either an
@@ -391,6 +397,26 @@ class StructuredOutputRepair(AbstractCapability[Any]):
             self._record("budget_exceeded_mid_output", "propagated", str(error))
         elif isinstance(error, ContentFilterError):
             self._record("refused", "propagated", str(error))
+        if self.attempts:
+            # ``for_run`` hands every run its OWN instance, and this path raises
+            # rather than returning an ``AgentRunResult`` -- so an attempt list
+            # kept only on ``self`` is dropped the instant this returns and is
+            # provably unrecoverable by any caller. Attach it to the exception,
+            # which is the one object that does survive out to the caller, so
+            # the recording is real provenance and not a write to nowhere.
+            try:
+                error.output_repair_attempts = [  # type: ignore[attr-defined]
+                    a.to_dict() for a in self.attempts
+                ]
+            except AttributeError:  # noqa: BLE001 - an exception type with
+                # __slots__ (or a read-only attribute) cannot carry provenance;
+                # the ORIGINAL error must still propagate untouched, so this is
+                # a genuine no-op rather than a swallowed failure.
+                logger.debug(
+                    "output-repair provenance could not be attached to %s "
+                    "(immutable exception type); the error itself is unchanged",
+                    type(error).__name__,
+                )
         raise error
 
     async def after_run(self, ctx: RunContext[Any], *, result: Any) -> Any:

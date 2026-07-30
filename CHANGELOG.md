@@ -19,8 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure (malformed JSON, schema-invalid, truncated, refused, empty,
   wrong-type, budget-exceeded-mid-output), drives a bounded classify-then-
   repair loop with a typed `StructuredOutputRepairExhausted` fail-closed
-  error, and stamps `output_repair_attempts` on a repaired run's result so it
-  is never indistinguishable from a clean first-try success.
+  error, and stamps `output_repair_attempts` on a repaired run's result (or on
+  the propagated exception when the run fails) so a caller can never read it
+  back as a clean first-try success. The persisted RunTrace does not surface
+  the field yet (D-W15-13).
 - **Explicit, complete execution budgets.** `ExecutionBudget` now ships real
   finite defaults for every dimension (node transitions, tool calls, tokens,
   cost, wall-clock — never silently unbounded) with a new `max_tool_calls`

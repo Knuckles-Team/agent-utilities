@@ -11,6 +11,7 @@ Extracted from the monolithic steps.py for maintainability.
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 from pydantic_ai import ModelSettings
@@ -812,6 +813,15 @@ async def synthesizer_step(
     )
 
 
+#: Every ``pydantic_ai.exceptions.UsageLimitExceeded`` message names the limit it
+#: tripped as ``<something>_limit of <n>``, in one of two voices: "Exceeded the
+#: total_tokens_limit of 500000 (...)" (already spent) or "The next request would
+#: exceed the request_limit of 50" / "The next tool call(s) would exceed the
+#: tool_calls_limit of 50 (...)" (projected). Matching the shape rather than an
+#: enumerated list keeps this correct when upstream adds another limit axis.
+_USAGE_LIMIT_MESSAGE = re.compile(r"exceed(?:ed|s)?\s+the\s+\w*_limit\s+of\b", re.I)
+
+
 async def error_recovery_step(
     ctx: StepContext,
 ) -> str | End[dict]:
@@ -853,10 +863,30 @@ async def error_recovery_step(
     # duration cap was silently retried for up to 2 more planner rounds — each one
     # burning more of the resource that was already exhausted — before finally
     # terminating.
-    is_budget_exceeded = error_str.lower().startswith("execution budget exceeded")
-    is_terminal = is_budget_exceeded or any(
-        kw in error_str.lower() for kw in terminal_keywords
+    #
+    # Two corrections found by the waves 1-5 merge gate:
+    #
+    # (a) ``startswith`` was the wrong test. A budget tripped INSIDE a
+    #     specialist node is re-raised by ``_router_impl.expert_executor_step``
+    #     as ``"Node {id} failed: {detail}"``, so the very prefix this check
+    #     keyed on is no longer at position 0 and the classification silently
+    #     inverted for every in-node trip. Substring match.
+    #
+    # (b) The pydantic-ai-native ``UsageLimits`` caps this change ALSO
+    #     introduced (``per_request_input_tokens_limit`` &c., set in
+    #     ``graph/executor.py::spawn_usage_limits`` and friends) raise
+    #     ``UsageLimitExceeded`` with an entirely different message shape
+    #     ("Exceeded the per_request_input_tokens_limit of 50000 (...)"), which
+    #     matched neither the prefix nor ``terminal_keywords`` — so a hard,
+    #     provider-enforced token cap was routed straight back to the planner
+    #     for up to 2 more rounds, stacking with ``expert_executor_step``'s own
+    #     ``max_retries=2``. That is the exact anti-pattern this change claims
+    #     to have fixed, reintroduced through the new code path.
+    lowered = error_str.lower()
+    is_budget_exceeded = "execution budget exceeded" in lowered or bool(
+        _USAGE_LIMIT_MESSAGE.search(error_str)
     )
+    is_terminal = is_budget_exceeded or any(kw in lowered for kw in terminal_keywords)
 
     if not is_terminal and ctx.state.retry_count < 2:
         ctx.state.retry_count += 1

@@ -699,9 +699,14 @@ def spawn_usage_limits(state: Any, *, request_limit: int = 8) -> Any:
     token budget (``GraphState.invoker_budget_tokens``), also enforce it as
     ``total_tokens_limit`` so the spawned agent cannot exceed the budget the invoker allotted.
     Every spawn also gets ``per_request_input_tokens_limit`` (CONCEPT:AU-ORCH.execution.execution-budget-caps)
-    so a single oversized tool result cannot blow the spawn's budget in one request —
-    this is exactly the ServiceNow production failure class: a fleet tool that
-    silently ignored an unknown ``limit`` argument returned 212 KB from one call.
+    so an oversized tool result terminates the spawn instead of compounding across
+    its remaining requests — this is exactly the ServiceNow production failure
+    class: a fleet tool that silently ignored an unknown ``limit`` argument
+    returned 212 KB from one call. Note the cap is checked against the
+    provider-reported ``input_tokens`` of the RESPONSE (pydantic-ai's
+    ``count_tokens_before_request`` stays at its default ``False``), so that one
+    oversized request is still sent and billed; what the cap prevents is carrying
+    it forward. See D-W15-12 in ``reports/deferred/waves1-5-gate.md``.
     """
     from pydantic_ai.usage import UsageLimits
 

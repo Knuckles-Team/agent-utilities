@@ -142,6 +142,63 @@ async def test_error_recovery_step_never_retries_any_budget_exhaustion(error_tex
     assert ctx.state.retry_count == 0
 
 
+@pytest.mark.parametrize(
+    "error_text",
+    [
+        # Wrapped by _router_impl.expert_executor_step, which re-raises every
+        # in-node failure as "Node {id} failed: {detail}" -- so the budget
+        # prefix is no longer at position 0.
+        "Node researcher failed: Execution budget exceeded: max total tokens.",
+        # pydantic-ai's own UsageLimits caps, in both voices it raises them.
+        "Exceeded the per_request_input_tokens_limit of 50000 (input_tokens=212000)",
+        "Exceeded the total_tokens_limit of 500000 (total_tokens=500001)",
+        "The next request would exceed the request_limit of 50",
+        "The next tool call(s) would exceed the tool_calls_limit of 50 (tool_calls=50).",
+        "Node researcher failed: Exceeded the output_tokens_limit of 4096 "
+        "(output_tokens=5000)",
+    ],
+)
+@pytest.mark.asyncio
+async def test_error_recovery_step_never_retries_a_wrapped_or_usage_limit_budget(
+    error_text,
+):
+    """Regression (waves 1-5 gate): the terminal classification missed two whole
+    shapes of the same condition.
+
+    ``startswith("execution budget exceeded")`` inverted the moment a budget
+    tripped INSIDE a specialist node, because ``expert_executor_step`` re-raises
+    it as ``"Node {id} failed: ..."``. And the pydantic-ai-native
+    ``UsageLimitExceeded`` messages raised by the ``UsageLimits`` caps this same
+    change introduced match neither that prefix nor ``terminal_keywords`` -- so a
+    hard, provider-enforced token cap was routed back to the planner for up to 2
+    more rounds, stacking with ``expert_executor_step``'s own ``max_retries=2``.
+    That is precisely the anti-pattern this change claims to have fixed.
+    """
+    ctx = _error_recovery_ctx(error_text, retry_count=0)
+
+    result = await error_recovery_step(ctx)
+
+    from pydantic_graph import End
+
+    assert isinstance(result, End)
+    assert result.data["budget_exceeded"] is True
+    assert ctx.state.retry_count == 0
+
+
+@pytest.mark.asyncio
+async def test_error_recovery_step_does_not_over_match_ordinary_limit_wording():
+    """The usage-limit matcher keys on the ``<name>_limit of <n>`` shape, so
+    ordinary prose mentioning a limit is still a recoverable error."""
+    ctx = _error_recovery_ctx(
+        "tool returned an error: rate limit reached, please retry", retry_count=0
+    )
+
+    result = await error_recovery_step(ctx)
+
+    assert result == "planner"
+    assert ctx.state.retry_count == 1
+
+
 @pytest.mark.asyncio
 async def test_error_recovery_step_still_retries_a_recoverable_error():
     """Regression guard: a non-budget, non-policy-violation error is still

@@ -74,8 +74,10 @@ a run needed a retry:
   storm, never pydantic-ai's own generic `UnexpectedModelBehavior`.
 - **Truthful provenance**: every attempt (classification + what was tried) is
   recorded, and a successful repair stamps `output_repair_attempts` onto the
-  `AgentRunResult` — a repaired run is never indistinguishable from a clean
-  first-try success.
+  `AgentRunResult` (a failed one stamps it onto the propagated exception) — a
+  caller holding either can never read a repaired run back as a clean first-try
+  success. Note this is caller-level visibility only: the persisted RunTrace/KG
+  record does not read the field yet (D-W15-13).
 - **Budget exhaustion is never retried** (`on_run_error`): `UsageLimitExceeded`
   mid-output or an upstream `ContentFilterError` refusal is recorded but
   always propagated — repairing a budget violation would only spend more of

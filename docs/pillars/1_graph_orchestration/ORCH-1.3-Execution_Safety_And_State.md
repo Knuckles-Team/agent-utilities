@@ -24,8 +24,20 @@ Every `UsageLimits` construction site (the planner, verifier, spawned-task
 agents, the governed dynamic-workflow orchestrator, and the direct
 single-server tool loop) also sets `per_request_input_tokens_limit`
 (pydantic-ai-slim 2.21.0+, `orchestration/loop_guards.DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT`)
-so a single oversized tool result cannot blow the run in one request,
-regardless of tool behaviour.
+so an oversized tool result terminates the run instead of compounding across
+further requests.
+
+**What that cap does and does not do.** `count_tokens_before_request` is left at
+its default `False`, so pydantic-ai checks `per_request_input_tokens_limit`
+against the provider-reported `input_tokens` of the **response** — the oversized
+request is sent and billed once, and `UsageLimitExceeded` is raised on the way
+back out. It is a stop, not a pre-flight rejection: the 212 KB ServiceNow
+payload would still be sent to the model exactly once, and the run then
+terminates rather than carrying that context into every subsequent request.
+Turning the cap into a true pre-flight guard means setting
+`count_tokens_before_request=True`, which adds a provider `count_tokens` round
+trip to every request; that trade-off has not been taken and is recorded as
+D-W15-12 in `reports/deferred/waves1-5-gate.md`.
 
 **Termination is an explicit, classified condition, not a bare error.** ANY
 budget exhaustion (all five dimensions, not just the node-transition cap) is

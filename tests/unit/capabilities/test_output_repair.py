@@ -11,6 +11,7 @@ seam (default-ON, opt-out, retries threading).
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -294,3 +295,41 @@ def test_create_context_agent_respects_explicit_retries():
         FunctionModel(func), output_type=Out, retries={"output": 9}
     )
     assert agent._max_output_retries == 9
+
+
+@pytest.mark.asyncio
+async def test_budget_exceeded_mid_output_provenance_survives_the_raise():
+    """The recorded attempt must reach the caller, not a dropped instance.
+
+    Regression (waves 1-5 gate): ``on_run_error`` recorded the attempt onto the
+    per-run instance ``for_run()`` hands out, then raised — so nothing retained
+    that instance and the record was provably unrecoverable. The test that
+    covered this path asserted only ``pytest.raises(UsageLimitExceeded)`` and
+    would have passed with the ``_record(...)`` call deleted outright.
+    """
+    capability = await StructuredOutputRepair().for_run(MagicMock())
+    error = UsageLimitExceeded("Exceeded the total_tokens_limit of 10 (total_tokens=11)")
+
+    with pytest.raises(UsageLimitExceeded) as excinfo:
+        await capability.on_run_error(MagicMock(), error=error)
+
+    attempts = getattr(excinfo.value, "output_repair_attempts", None)
+    assert attempts, "the propagated exception must carry the recorded attempt"
+    assert attempts[0]["classification"] == "budget_exceeded_mid_output"
+    assert attempts[0]["action"] == "propagated"
+
+
+@pytest.mark.asyncio
+async def test_immutable_exception_type_still_propagates_unchanged():
+    """A __slots__ exception cannot carry provenance — the ORIGINAL error must
+    still propagate untouched rather than being masked by an AttributeError."""
+
+    class _Slotted(UsageLimitExceeded):
+        __slots__ = ()
+
+    capability = await StructuredOutputRepair().for_run(MagicMock())
+    error = _Slotted("Exceeded the total_tokens_limit of 10 (total_tokens=11)")
+
+    with pytest.raises(_Slotted) as excinfo:
+        await capability.on_run_error(MagicMock(), error=error)
+    assert excinfo.value is error
