@@ -277,6 +277,14 @@ def engine_cross_modal_candidates(
     )
 
 
+#: Process-wide lazily-built KV-fork backend (see
+#: :meth:`CrossModalForkFanout._resolve_kv_backend`). It owns a pooled, never-closed
+#: ``httpx.Client``, and the fanout object itself is rebuilt per MCP call, so this must
+#: NOT be per-instance state.
+_SHARED_KV_BACKEND: Any | None = None
+_SHARED_KV_BACKEND_RESOLVED = False
+
+
 class CrossModalForkFanout:
     """Retrieve an engine cross-modal candidate set once, then warm-fork N branches over it.
 
@@ -313,25 +321,39 @@ class CrossModalForkFanout:
         return engine_cross_modal_candidates
 
     def _resolve_kv_backend(self) -> Any | None:
-        """Return the injected KV-fork backend, else lazily build one from the KV-cache env.
+        """Return the injected KV-fork backend, else the PROCESS-WIDE lazy one.
 
         Lazy + guarded: importing this module must never pull ``httpx`` / the kvcache
         stack, and a host without a reachable engine must degrade to the copy path
         (``None``) rather than crash. Only called when the rung is actually requested.
+
+        The lazily built backend is cached on the MODULE, not on ``self``. It owns a
+        pooled ``httpx.Client`` (``max_connections=32``) that nothing ever closes, and
+        ``CrossModalForkFanout()`` is constructed FRESH on every ``graph_fork`` MCP call
+        (``mcp/tools/engine_surface_tools.py``). Caching per instance therefore built —
+        and leaked — a brand-new keep-alive connection pool per call once this rung
+        became default-on for every >1-branch cohort, exhausting sockets/file
+        descriptors under sustained traffic. One process-wide backend also restores the
+        point of ``EpistemicGraphKVBackend.supports_fork``'s own probe cache, which a
+        per-call instance defeated (its docstring promises the probe costs at most one
+        round trip, which only holds if the backend outlives the call).
         """
         if self._kv_backend is not None:
             return self._kv_backend
-        try:
-            from agent_utilities.kvcache import EpistemicGraphKVBackend
+        global _SHARED_KV_BACKEND, _SHARED_KV_BACKEND_RESOLVED
+        if not _SHARED_KV_BACKEND_RESOLVED:
+            _SHARED_KV_BACKEND_RESOLVED = True
+            try:
+                from agent_utilities.kvcache import EpistemicGraphKVBackend
 
-            self._kv_backend = EpistemicGraphKVBackend.from_env()
-        except Exception as exc:  # noqa: BLE001 — no engine / no deps ⇒ copy path
-            logger.debug(
-                "KV-fork rung unavailable; using copy path (exception_type=%s)",
-                type(exc).__name__,
-            )
-            self._kv_backend = None
-        return self._kv_backend
+                _SHARED_KV_BACKEND = EpistemicGraphKVBackend.from_env()
+            except Exception as exc:  # noqa: BLE001 — no engine / no deps ⇒ copy path
+                logger.debug(
+                    "KV-fork rung unavailable; using copy path (exception_type=%s)",
+                    type(exc).__name__,
+                )
+                _SHARED_KV_BACKEND = None
+        return _SHARED_KV_BACKEND
 
     def _auto_kv_page_keys(self, candidates: list[dict[str, Any]]) -> list[str]:
         """DEFAULT-ON derivation of ``kv_page_keys`` when a caller doesn't supply real ones.
@@ -429,8 +451,19 @@ class CrossModalForkFanout:
         are in hand, they are pinned into one engine snapshot and one copy-on-write
         branch is forked per cohort branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork),
         so branches SHARE those pages by ``Arc`` (one physical copy regardless of branch
-        count) without copying those pages per branch — replacing the per-branch
-        ``copy.deepcopy`` of the candidate set with one shared, engine-resident copy.
+        count) inside the ENGINE.
+
+        **Scope, honestly.** This rung is an engine-side side-store plus its
+        provenance/telemetry — it does NOT remove the per-branch
+        ``copy.deepcopy(candidates)`` in ``_run_branch`` below, which still runs
+        unconditionally for every branch. Nothing yet reads the candidate set back
+        through ``backend.branch_get(...)``; each branch is handed its own in-process
+        deep copy exactly as before and only ``kv_branch_id`` is additionally exposed.
+        So the in-process fan-out memory footprint is unchanged by this rung. Making
+        the fork load-bearing means branches must source their candidates from the
+        engine-resident copy instead of an in-process dict — a redesign of the
+        fan-out data path, recorded as D-W15-11 in
+        ``reports/deferred/waves1-5-gate.md``.
         That shared-immutable / per-branch-CoW topology is what makes
         ``max_concurrency>1`` efficient. Each branch's KV branch id is exposed to its
         snippet as ``kv_branch_id``; the fork ids + ``/kv/fork/stats`` land on the

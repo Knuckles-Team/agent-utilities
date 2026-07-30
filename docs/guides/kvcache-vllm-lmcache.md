@@ -546,9 +546,19 @@ snapshot/fork rung **automatically** for a >1-branch cohort whenever the resolve
 `EpistemicGraphKVBackend` advertises `supports_fork()` — no caller wiring required.
 When a caller doesn't already have real vLLM/LMCache prefix-hash keys, the
 retrieved candidate set is itself content-hashed and stored into the shared KV
-store so there are real pages to snapshot+fork over, replacing a per-branch
-`copy.deepcopy` of the candidate set with one shared, ref-counted, engine-resident
-copy. Every dead end (engine unreachable, an older build that doesn't expose the
+store so there are real pages to snapshot+fork over, held once inside the engine as
+one shared, ref-counted copy that every branch's CoW fork points at.
+
+**What this rung does not do (yet).** It does **not** remove the per-branch
+`copy.deepcopy(candidates)` in `_run_branch` — that still runs unconditionally for
+every branch, and nothing yet reads the candidate set back through
+`backend.branch_get(...)`. The engine-side shared copy is a side-store plus its
+provenance/telemetry; the in-process fan-out memory footprint is unchanged. Making
+the fork load-bearing means sourcing each branch's candidates from the
+engine-resident copy instead of an in-process dict, which is a redesign of the
+fan-out data path — recorded as D-W15-11 in `reports/deferred/waves1-5-gate.md`.
+
+Every dead end (engine unreachable, an older build that doesn't expose the
 fork surface, an empty derivation) degrades transparently to the ordinary copy
 path — never a hard failure — and every engagement/fallback is recorded via
 `agent_utilities_kvcache_fork_events_total{result,reason}` and

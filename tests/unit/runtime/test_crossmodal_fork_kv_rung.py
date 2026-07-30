@@ -276,3 +276,83 @@ async def test_kv_rung_degrades_to_copy_path_when_snapshot_fails(
     # The cohort still ran on the copy path (kv_branch_id simply never bound).
     assert all(b.ok for b in res.branches), [b.error for b in res.branches]
     assert all(b.output == 2 for b in res.branches)
+
+
+def test_kv_backend_is_resolved_once_per_process_not_per_fanout(monkeypatch):
+    """The lazily-built KV backend must NOT be rebuilt per fanout instance.
+
+    Regression (waves 1-5 gate): the backend was cached on ``self``, but
+    ``CrossModalForkFanout()`` is constructed fresh on every ``graph_fork`` MCP
+    call, and ``EpistemicGraphKVBackend.from_env()`` owns a pooled ``httpx.Client``
+    (``max_connections=32``) that nothing ever closes. Once this rung became
+    default-on for every >1-branch cohort, that leaked a brand-new keep-alive
+    connection pool per call. It also defeated ``supports_fork``'s own probe cache,
+    whose docstring promises at most one round trip.
+    """
+    import agent_utilities.runtime.crossmodal_fork as cmf
+
+    monkeypatch.setattr(cmf, "_SHARED_KV_BACKEND", None, raising=False)
+    monkeypatch.setattr(cmf, "_SHARED_KV_BACKEND_RESOLVED", False, raising=False)
+
+    builds: list[int] = []
+
+    class _Backend:
+        pass
+
+    class _Module:
+        @staticmethod
+        def from_env():
+            builds.append(1)
+            return _Backend()
+
+    import sys
+    import types
+
+    fake = types.ModuleType("agent_utilities.kvcache")
+    fake.EpistemicGraphKVBackend = _Module
+    monkeypatch.setitem(sys.modules, "agent_utilities.kvcache", fake)
+
+    first = cmf.CrossModalForkFanout()._resolve_kv_backend()
+    second = cmf.CrossModalForkFanout()._resolve_kv_backend()
+    third = cmf.CrossModalForkFanout()._resolve_kv_backend()
+
+    assert builds == [1], f"backend rebuilt per fanout instance: {len(builds)} builds"
+    assert first is second is third
+
+
+def test_unreachable_engine_is_resolved_once_and_stays_the_copy_path(monkeypatch):
+    """A failed resolve must also be remembered — not retried on every call."""
+    import agent_utilities.runtime.crossmodal_fork as cmf
+
+    monkeypatch.setattr(cmf, "_SHARED_KV_BACKEND", None, raising=False)
+    monkeypatch.setattr(cmf, "_SHARED_KV_BACKEND_RESOLVED", False, raising=False)
+
+    attempts: list[int] = []
+
+    class _Module:
+        @staticmethod
+        def from_env():
+            attempts.append(1)
+            raise RuntimeError("no engine")
+
+    import sys
+    import types
+
+    fake = types.ModuleType("agent_utilities.kvcache")
+    fake.EpistemicGraphKVBackend = _Module
+    monkeypatch.setitem(sys.modules, "agent_utilities.kvcache", fake)
+
+    assert cmf.CrossModalForkFanout()._resolve_kv_backend() is None
+    assert cmf.CrossModalForkFanout()._resolve_kv_backend() is None
+    assert attempts == [1]
+
+
+def test_injected_backend_still_wins_over_the_process_wide_one(monkeypatch):
+    import agent_utilities.runtime.crossmodal_fork as cmf
+
+    sentinel = object()
+    monkeypatch.setattr(cmf, "_SHARED_KV_BACKEND", object(), raising=False)
+    monkeypatch.setattr(cmf, "_SHARED_KV_BACKEND_RESOLVED", True, raising=False)
+
+    fanout = cmf.CrossModalForkFanout(kv_backend=sentinel)
+    assert fanout._resolve_kv_backend() is sentinel
