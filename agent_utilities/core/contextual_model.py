@@ -915,11 +915,28 @@ def create_context_agent(
             merge_capabilities,
         )
         from agent_utilities.capabilities.hooks import HooksCapability
+        from agent_utilities.capabilities.output_repair import (
+            DEFAULT_MAX_OUTPUT_REPAIRS,
+            output_repair_retries,
+        )
 
         supplied = list(kwargs.get("capabilities", ()) or ())
         defaults = default_runtime_capabilities()
         defaults.append(HooksCapability(hooks=[]))
         kwargs["capabilities"] = merge_capabilities(supplied, defaults)
+        # The default StructuredOutputRepair capability raises ModelRetry up to
+        # DEFAULT_MAX_OUTPUT_REPAIRS times before failing closed with its own typed
+        # error; pydantic-ai's own output-retry budget defaults to 1, which would
+        # otherwise raise a generic UnexpectedModelBehavior on OUR second retry and
+        # pre-empt the classified/attempt-recorded exhaustion path. Never override an
+        # explicit caller-supplied ``retries=``.
+        if "retries" not in kwargs:
+            retries = output_repair_retries(
+                structured_output_repair=True,
+                max_output_repairs=DEFAULT_MAX_OUTPUT_REPAIRS,
+            )
+            if retries:
+                kwargs["retries"] = retries
     toolsets = list(kwargs.get("toolsets", ()) or ())
     raw_mcp_bound = any(
         hasattr(toolset, "list_tools") or hasattr(toolset, "direct_call_tool")

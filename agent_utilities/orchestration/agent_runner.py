@@ -2917,17 +2917,27 @@ async def _execute_single_server(
         prompt = f"Context:\n{ctx_blob}\n\nTask:\n{task}"
 
     run_kwargs: dict[str, Any] = {"message_history": []}
-    limit_kwargs: dict[str, Any] = {}
+    # CONCEPT:AU-ORCH.execution.execution-budget-caps — always bound a single
+    # request's input tokens, regardless of whether an invoker token/step budget
+    # was set: a fleet tool that silently ignores an unknown ``limit`` argument
+    # and returns a huge payload (the real 212 KB production incident) must not
+    # blow this run in one request even when the caller never requested a budget.
+    from agent_utilities.orchestration.loop_guards import (
+        DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+    )
+
+    limit_kwargs: dict[str, Any] = {
+        "per_request_input_tokens_limit": DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT
+    }
     budget = config.get("invoker_budget_tokens")
     if budget:
         limit_kwargs["total_tokens_limit"] = int(budget)
     # max_steps bounds model round-trips; keep headroom for tool call/response turns.
     if max_steps:
         limit_kwargs["request_limit"] = max(int(max_steps) * 2, 10)
-    if limit_kwargs:
-        from pydantic_ai.usage import UsageLimits
+    from pydantic_ai.usage import UsageLimits
 
-        run_kwargs["usage_limits"] = UsageLimits(**limit_kwargs)
+    run_kwargs["usage_limits"] = UsageLimits(**limit_kwargs)
 
     # CONCEPT:AU-ORCH.execution.delegation-wall-clock — bound the direct tool loop with a wall-clock.
     # ``usage_limits`` caps model round-trips but NOT time: a fleet tool that blocks (e.g.

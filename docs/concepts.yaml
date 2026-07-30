@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1047
+total_concepts: 1052
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -702,6 +702,14 @@ concepts:
   - agent_utilities/knowledge_graph/research/code_synthesis.py
   doc: autonomous single-file code-synthesis stage that generates a real diff for an attributed promoted
     proposal so the deployed evolution loop emits code instead of only a prose plan
+- id: AU-AHE.harness.structured-output-repair
+  name: classify → bounded targeted
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/composition.py
+  - agent_utilities/capabilities/output_repair.py
+  doc: classify → bounded targeted
 - id: AU-AHE.harness.swe-failure-remediation
   name: SWE-failure-driven remediation
   pillar: AU-AHE
@@ -6638,6 +6646,13 @@ concepts:
   - agent_utilities/harness/continuous_evaluation_engine.py
   - agent_utilities/rlm/eval_set_optimizer.py
   doc: Eval-Set Optimization & Compounding Learning Loop
+- id: AU-ORCH.execution.event-loop-blocking-sweep
+  name: persist_facts
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: persist_facts
 - id: AU-ORCH.execution.execution-budget-caps
   name: Execution Budget. Defines caps for this session
   pillar: AU-ORCH
@@ -6645,12 +6660,17 @@ concepts:
   code_paths:
   - agent_utilities/base_utilities.py
   - agent_utilities/capabilities/checkpointing.py
+  - agent_utilities/capabilities/governed_dynamic_workflow.py
+  - agent_utilities/capabilities/output_repair.py
   - agent_utilities/core/checkpoint/manager.py
   - agent_utilities/graph/_router_impl.py
+  - agent_utilities/graph/executor.py
   - agent_utilities/graph/hierarchical_planner.py
   - agent_utilities/graph/state.py
+  - agent_utilities/graph/verification.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/models/usage.py
+  - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
   - agent_utilities/tools/sdd_tools.py
   doc: Execution Budget. Defines caps for this session
@@ -6746,6 +6766,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/capabilities/output_repair.py
   - agent_utilities/messaging/backends/mattermost.py
   - agent_utilities/messaging/backends/telegram.py
   - agent_utilities/messaging/base.py
@@ -7734,6 +7755,16 @@ concepts:
   code_paths:
   - agent_utilities/rlm/sandboxes/wasm_backend.py
   doc: AU-ORCH.sandbox.wasm-backend
+- id: AU-ORCH.scheduling.acquisition-lane-fairness
+  name: reserve a small floor of
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/core/resource_priority.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/mcp/kg_server.py
+  doc: reserve a small floor of
 - id: AU-ORCH.scheduling.also-fold-vllm-scheduler
   name: the vLLM scheduler
   pillar: AU-ORCH
@@ -7765,6 +7796,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: external connector delta syncs
+- id: AU-ORCH.scheduling.hard-io-deadline
+  name: the fleet MCP tool-schema probe
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_package.py
+  doc: the fleet MCP tool-schema probe
 - id: AU-ORCH.scheduling.low-value-high-volume
   name: a low-value/high-volume
   pillar: AU-ORCH
@@ -7790,6 +7829,13 @@ concepts:
   code_paths:
   - agent_utilities/harness/evolve_agent.py
   doc: RLM for AHE Evolution Loop
+- id: AU-ORCH.scheduling.soft-timeout-lease-quarantine
+  name: a claimed task that has already
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: a claimed task that has already
 - id: AU-ORCH.scheduling.ticket-workflow-playbook
   name: Ticket-driven workflow playbook
   pillar: AU-ORCH

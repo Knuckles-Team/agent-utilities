@@ -14,6 +14,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GraphResponse`, `RunTrace`, and OpenTelemetry. The contract explicitly marks
   the current state snapshots as non-resumable; `graph_jobs action=status`
   returns the complete durable evidence record with structured transitions.
+- **Structured-output failure taxonomy + bounded repair.** A new default-ON
+  `StructuredOutputRepair` capability classifies every structured-output
+  failure (malformed JSON, schema-invalid, truncated, refused, empty,
+  wrong-type, budget-exceeded-mid-output), drives a bounded classify-then-
+  repair loop with a typed `StructuredOutputRepairExhausted` fail-closed
+  error, and stamps `output_repair_attempts` on a repaired run's result (or on
+  the propagated exception when the run fails) so a caller can never read it
+  back as a clean first-try success. The persisted RunTrace does not surface
+  the field yet (D-W15-13).
+- **Explicit, complete execution budgets.** `ExecutionBudget` now ships real
+  finite defaults for every dimension (node transitions, tool calls, tokens,
+  cost, wall-clock — never silently unbounded) with a new `max_tool_calls`
+  cap distinct from the node-transition cap, and every `UsageLimits`
+  construction site adopts `per_request_input_tokens_limit` (pydantic-ai-slim
+  2.21.0) so a single oversized tool result cannot blow a run in one request.
+
+### Fixed
+- **Budget exhaustion is always terminal.** `error_recovery_step` previously
+  only treated the node-transition budget as non-retryable; a token, cost, or
+  duration budget was silently retried through the planner for up to 2 more
+  rounds — each spending more of the very resource that already tripped.
+  Every budget dimension is now classified and terminated immediately, and
+  `run_graph` surfaces a truthful `outcome: "budget_exceeded"` +
+  `budget_dimension`, preserving partial specialist results alongside the
+  error instead of discarding them.
 
 ## [2.1.1] - 2026-07-28 — Native-cache, connector, teardown, and intent hardening
 

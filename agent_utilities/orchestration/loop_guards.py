@@ -53,6 +53,16 @@ DEFAULT_NO_PROGRESS_WINDOW = 3
 #: is treated as a real pass for ``research`` / ``skill`` loops.
 DEFAULT_GOAL_EVAL_THRESHOLD = 0.7
 
+#: Default ``UsageLimits.per_request_input_tokens_limit`` (pydantic-ai-slim
+#: 2.21.0+) applied at every spawn/planner/verifier ``UsageLimits`` construction
+#: site. A ``request_limit``/``total_tokens_limit`` bounds the NUMBER of model
+#: round-trips or the run's cumulative usage, but neither stops a single
+#: oversized tool result (e.g. a fleet tool that silently ignores an unknown
+#: ``limit`` argument and returns 212 KB from one call) from blowing past the
+#: run's effective budget in one request. This caps any single request's input
+#: tokens regardless of tool behaviour.
+DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT = 50_000
+
 
 class ConsecutiveFailureGuard:
     """Per-loop consecutive-failure guard (threshold + reset-on-progress).
@@ -306,6 +316,7 @@ __all__ = [
     "DEFAULT_FAILURE_THRESHOLD",
     "DEFAULT_GOAL_EVAL_THRESHOLD",
     "DEFAULT_NO_PROGRESS_WINDOW",
+    "DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT",
     "ConsecutiveFailureGuard",
     "GoalEvaluation",
     "GoalEvaluator",

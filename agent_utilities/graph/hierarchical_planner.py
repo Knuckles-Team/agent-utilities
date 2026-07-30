@@ -236,8 +236,16 @@ async def planner_step(
     # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — bound planner requests (default pydantic-ai cap is 50).
     from pydantic_ai.usage import UsageLimits
 
+    from agent_utilities.orchestration.loop_guards import (
+        DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+    )
+
     _planner_usage_limits = UsageLimits(
-        request_limit=int(setting("PLANNER_REQUEST_LIMIT", "6"))
+        request_limit=int(setting("PLANNER_REQUEST_LIMIT", "6")),
+        # CONCEPT:AU-ORCH.execution.execution-budget-caps — a single oversized tool
+        # result (e.g. a fleet tool ignoring an unknown ``limit`` argument) must not
+        # blow the planner's budget in one request.
+        per_request_input_tokens_limit=DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
     )
 
     # 0. Discover Processes and Policies from Knowledge Graph

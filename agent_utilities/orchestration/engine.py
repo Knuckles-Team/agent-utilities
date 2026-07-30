@@ -932,16 +932,51 @@ class AgentOrchestrationEngine:
                 "run_graph: graph terminated via error_recovery with an unrecovered error: %s",
                 err_text[:300],
             )
+            # CONCEPT:AU-ORCH.execution.execution-budget-caps — termination is an
+            # explicit, classified condition, not a bare "something went wrong": a
+            # budget exhaustion (node transitions, tool calls, tokens, cost, or
+            # duration — ``error_recovery_step`` stamps ``budget_exceeded`` for all
+            # five) is reported as its own outcome/dimension rather than folded into
+            # the generic "graph_terminal_error" every other terminal failure shares.
+            budget_exceeded = bool(result.get("budget_exceeded"))
+            budget_dimension = None
+            if budget_exceeded:
+                for dim in (
+                    "max node transitions",
+                    "max tool calls",
+                    "max total tokens",
+                    "max cost usd",
+                    "max duration",
+                ):
+                    if dim in err_text.lower():
+                        budget_dimension = dim.replace("max ", "").replace(" ", "_")
+                        break
+            partial_results = result.get("results")
+            failure_results: dict[str, Any] = {
+                "output": f"The task could not be completed: {err_text}"
+            }
+            if isinstance(partial_results, dict) and partial_results:
+                # Preserve everything completed so far -- a budget/error
+                # termination must not discard partial specialist output that was
+                # already produced before the cap tripped.
+                failure_results["partial_results"] = partial_results
             return GraphResponse(
                 status="failed",
                 error=err_text,
-                results={"output": f"The task could not be completed: {err_text}"},
+                results=failure_results,
                 mermaid=mermaid_prefix if mermaid_prefix else None,
                 metadata={
                     "run_id": run_id,
                     "domain": state.routed_domain,
                     "degraded": True,
-                    "outcome": "graph_terminal_error",
+                    "outcome": "budget_exceeded"
+                    if budget_exceeded
+                    else "graph_terminal_error",
+                    **(
+                        {"budget_dimension": budget_dimension}
+                        if budget_dimension
+                        else {}
+                    ),
                     "execution_mode": "pydantic_graph",
                 },
                 tool_calls=list(getattr(state, "tool_calls", []) or []),

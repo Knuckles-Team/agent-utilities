@@ -282,6 +282,8 @@ def create_agent(
     stuck_loop_detection: bool = True,
     stuck_loop_max_repeated: int = 3,
     stuck_loop_action: Literal["warn", "error"] = "warn",
+    structured_output_repair: bool = True,
+    max_output_repairs: int | None = None,
     hooks: list[Any] | None = None,
     context_warnings: bool = True,
     max_context_tokens: int | None = None,
@@ -633,6 +635,8 @@ def create_agent(
         checkpoint_store=checkpoint_store,
         checkpoint_frequency=checkpoint_frequency,
         include_teams=include_teams,
+        structured_output_repair=structured_output_repair,
+        max_output_repairs=max_output_repairs,
     )
 
     # CONCEPT:AU-ORCH.routing.sampling-profile-selection (v2 synergy) — native provider-side extended thinking. Opt-in
@@ -676,6 +680,11 @@ def create_agent(
             for ts in agent_toolsets
         ]
 
+    from agent_utilities.capabilities.output_repair import (
+        DEFAULT_MAX_OUTPUT_REPAIRS,
+        output_repair_retries,
+    )
+
     agent = create_context_agent(
         model=model,
         permissions_kernel=(
@@ -695,8 +704,16 @@ def create_agent(
         capabilities=agent_capabilities,
         # create_agent has already assembled the complete, flag-respecting capability
         # set (via the shared default_runtime_capabilities factory), so the single
-        # composition seam must not re-add defaults on top of an explicit opt-out.
+        # composition seam must not re-add defaults on top of an explicit opt-out —
+        # including the retries= bump StructuredOutputRepair needs, computed here
+        # from the SAME structured_output_repair/max_output_repairs flags.
         default_capabilities=False,
+        retries=output_repair_retries(
+            structured_output_repair=structured_output_repair,
+            max_output_repairs=max_output_repairs
+            if max_output_repairs is not None
+            else DEFAULT_MAX_OUTPUT_REPAIRS,
+        ),
         # pydantic-ai v2 default; set explicitly. Function tools requested
         # alongside an output/deferred tool now run — side-effecting tools are
         # kept safe by the tool_guard ApprovalRequiredToolset (they become

@@ -44,11 +44,25 @@ import time
 
 class ExecutionBudget(BaseModel):
     """CONCEPT:AU-ORCH.execution.execution-budget-caps — Execution Budget.
-    Tracks limits for cost, tokens, and time to prevent runaway recursive executions.
+    Tracks limits for cost, tokens, tool calls, and time to prevent runaway
+    recursive executions.
+
+    Every cap defaults to a real, finite ceiling — never unbounded — so a graph
+    run is always governed even when a caller never touches this model: a
+    5,000-token invoker budget can still be blown by an oversized tool result
+    or an unattended research loop without a *graph-level* backstop. Pass an
+    explicit ``None`` to deliberately opt a single dimension out for a run that
+    genuinely needs it (e.g. an offline batch backfill with no wall-clock
+    concern) — enforcement lives in ``graph/_router_impl.py::dispatcher_step``.
     """
 
-    max_cost_usd: float | None = None
-    max_total_tokens: int | None = None
+    max_cost_usd: float | None = 10.0
+    max_total_tokens: int | None = 500_000
     max_node_transitions: int | None = 50
+    max_tool_calls: int | None = 200
+    """CONCEPT:AU-ORCH.execution.execution-budget-caps — caps ``len(GraphState.tool_calls)``.
+    Distinct from ``max_node_transitions``: a single node can invoke several tool
+    calls, so a tool-call budget catches a runaway *within* a small number of
+    transitions that the transition cap alone would not."""
     start_time: float = Field(default_factory=time.time)
-    max_duration_seconds: float | None = None
+    max_duration_seconds: float | None = 600.0
