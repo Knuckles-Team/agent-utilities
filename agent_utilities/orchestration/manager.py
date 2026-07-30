@@ -218,7 +218,9 @@ class Orchestrator:
         RunTrace node directly (by ``run_id`` or its opaque canonical trace id) and
         every ``ToolCall`` it made, in call order, so the caller sees the run's true
         status/output/duration AND each tool call's name/args/result/status — not an
-        empty shell.
+        empty shell. Native Pydantic Graph runs also return their complete persisted
+        topology/version/runtime/transition/checkpoint evidence; the stored transition
+        JSON is decoded to the public structured-list form.
         """
         trace_id = canonical_trace_id(run_id)
         backend = getattr(self.engine, "backend", None)
@@ -234,6 +236,16 @@ class Orchestrator:
                 "t.attribution_ref AS attribution_ref, t.task AS task, t.timestamp AS timestamp, "
                 "t.duration_ms AS duration_ms, t.result_preview AS result_preview, "
                 "t.error AS error, t.execution_mode AS execution_mode, "
+                "t.graph_evidence_schema_version AS graph_evidence_schema_version, "
+                "t.graph_topology AS graph_topology, "
+                "t.graph_topology_digest AS graph_topology_digest, "
+                "t.graph_version_digest AS graph_version_digest, "
+                "t.graph_runtime_version AS graph_runtime_version, "
+                "t.graph_node_sequence AS graph_node_sequence, "
+                "t.graph_transition_sequence AS graph_transition_sequence, "
+                "t.graph_transition_count AS graph_transition_count, "
+                "t.graph_checkpoint_ids AS graph_checkpoint_ids, "
+                "t.graph_resume_supported AS graph_resume_supported, "
                 "t.skill_ref AS skill_ref, "
                 "t.server_ref AS server_ref, t.model_ref AS model_ref, "
                 "t.model_class AS model_class, "
@@ -250,6 +262,15 @@ class Orchestrator:
         if not rows:
             return {"status": "not_found", "run_id": run_id}
         trace: dict[str, Any] = dict(rows[0])
+        transition_sequence = trace.get("graph_transition_sequence")
+        if isinstance(transition_sequence, str):
+            decoded_transitions: Any = None
+            try:
+                decoded_transitions = json.loads(transition_sequence)
+            except (TypeError, ValueError):
+                decoded_transitions = None
+            if isinstance(decoded_transitions, list):
+                trace["graph_transition_sequence"] = decoded_transitions
         try:
             tc_rows = backend.execute(
                 # NOTE: the node carrying the ``{id: $tid}`` property-map filter MUST be

@@ -37,7 +37,9 @@ checkpoint, so a durable trace and its live OpenTelemetry trace can be
 correlated without synthesizing events. Public GraphOS delegation retains the
 typed record through the rich `run_agent`/`execute_capability` envelope and the
 `graph_orchestrate` MCP response; callers using the default bare-string
-contract are unchanged.
+contract are unchanged. `graph_jobs action=status` reads the same durable
+fields back from `RunTrace` and returns `graph_transition_sequence` as a
+structured list.
 
 ## Identity and privacy
 
