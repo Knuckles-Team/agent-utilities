@@ -14,6 +14,7 @@ timestamps and opaque strings are never used as ordering cursors.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Mapping
@@ -203,6 +204,7 @@ def trace_properties(
     skill_used: str = "",
     bound_server: str = "",
     execution_mode: str = "",
+    graph_execution_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the canonical, persistence-sanitized ``RunTrace`` properties."""
 
@@ -249,6 +251,28 @@ def trace_properties(
         )
     if execution_mode:
         props["execution_mode"] = str(execution_mode)
+    if graph_execution_evidence:
+        from agent_utilities.models.graph import GraphExecutionEvidence
+
+        evidence = GraphExecutionEvidence.model_validate(graph_execution_evidence)
+        props.update(
+            {
+                "graph_evidence_schema_version": evidence.schema_version,
+                "graph_topology": evidence.topology,
+                "graph_topology_digest": evidence.topology_digest,
+                "graph_version_digest": evidence.version_digest,
+                "graph_runtime_version": evidence.runtime_version,
+                "graph_node_sequence": list(evidence.node_sequence),
+                "graph_transition_sequence": json.dumps(
+                    [transition.model_dump() for transition in evidence.transitions],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                "graph_transition_count": len(evidence.transitions),
+                "graph_checkpoint_ids": list(evidence.checkpoint_ids),
+                "graph_resume_supported": evidence.resume_supported,
+            }
+        )
     return props
 
 

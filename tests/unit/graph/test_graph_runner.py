@@ -33,6 +33,8 @@ async def test_run_graph_basic(mock_graph):
     assert response["status"] == "completed"
     assert response["results"]["output"] == "final answer"
     assert response["metadata"]["execution_mode"] == "pydantic_graph"
+    assert response["execution_evidence"]["node_sequence"] == []
+    assert response["execution_evidence"]["resume_supported"] is False
     mock_graph.run.assert_called_once()
 
 

@@ -927,7 +927,7 @@ async def dispatcher_step(
             logger.error("Dispatcher: Doom loop detected: %s", incident.name)
             ctx.state.error = f"Doom loop detected: {incident.name}"
             return "error_recovery"
-    except ImportError:
+    except ImportError:  # noqa: BLE001 — optional stability detector is not installed
         pass
     except Exception as e:
         logger.debug("Doom loop detection skipped: %s", e)
@@ -944,7 +944,12 @@ async def dispatcher_step(
             checkpointer = CheckpointManager.create(
                 persistence_type="kg", engine=ctx.deps.knowledge_engine
             )
-            checkpointer.save(ctx.state, session_id=ctx.state.session_id)
+            checkpoint_id = checkpointer.save(
+                ctx.state, session_id=ctx.state.session_id
+            )
+            if isinstance(checkpoint_id, str) and checkpoint_id:
+                ctx.state.checkpoint_ids.append(checkpoint_id)
+                ctx.state.checkpoint_ts = time.time()
     except Exception as e:
         logger.debug("State checkpointing skipped: %s", e)
 

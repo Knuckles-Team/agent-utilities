@@ -489,9 +489,7 @@ class TelemetryEngine:
                 )
                 self._token_tracker.record(record)
             except Exception as exc:
-                logger.debug(
-                    "Token recording failed (exception_type=%s)", type(exc).__name__
-                )
+                logger.debug("Token recording failed: %s", exc)
         if self._token_counter is not None and usage:
             try:
                 attrs = {
@@ -517,6 +515,7 @@ class TelemetryEngine:
         model: str = "",
         tool_call_count: int | None = None,
         execution_mode: str = "",
+        graph_execution_evidence: dict[str, Any] | None = None,
         **metadata: Any,
     ) -> None:
         """Record the end of a graph execution.
@@ -525,7 +524,10 @@ class TelemetryEngine:
         onto the run's span BEFORE it closes (an ended span rejects further
         attributes) — the caller passes whatever it has: a run that never
         resolved a model, or whose tool calls weren't tallied, simply omits
-        them (X2 "tokens/tool-call count if available").
+        them (X2 "tokens/tool-call count if available").  Validated graph
+        execution evidence is projected onto the same root span; its checkpoint
+        identifiers remain observational and explicitly carry
+        ``resume_supported=false``.
         """
         self._lazy_init()
         run_ref = _telemetry_ref("run", run_id)
@@ -568,6 +570,63 @@ class TelemetryEngine:
                     )
                 if execution_mode:
                     span.set_attribute("agent_utilities.execution.mode", execution_mode)
+                if graph_execution_evidence:
+                    from agent_utilities.models import GraphExecutionEvidence
+
+                    evidence = GraphExecutionEvidence.model_validate(
+                        graph_execution_evidence
+                    )
+                    if evidence.topology_digest:
+                        span.set_attribute(
+                            "agent_utilities.graph.topology_digest",
+                            evidence.topology_digest,
+                        )
+                    if evidence.version_digest:
+                        span.set_attribute(
+                            "agent_utilities.graph.version_digest",
+                            evidence.version_digest,
+                        )
+                    if evidence.runtime_version:
+                        span.set_attribute(
+                            "agent_utilities.graph.runtime_version",
+                            evidence.runtime_version,
+                        )
+                    if evidence.node_sequence:
+                        span.set_attribute(
+                            "agent_utilities.graph.node_sequence",
+                            tuple(evidence.node_sequence),
+                        )
+                    span.set_attribute(
+                        "agent_utilities.graph.transition_count",
+                        len(evidence.transitions),
+                    )
+                    if evidence.checkpoint_ids:
+                        span.set_attribute(
+                            "agent_utilities.graph.checkpoint_ids",
+                            tuple(evidence.checkpoint_ids),
+                        )
+                    span.set_attribute(
+                        "agent_utilities.graph.resume_supported",
+                        evidence.resume_supported,
+                    )
+                    for transition in evidence.transitions:
+                        span.add_event(
+                            "pydantic_graph.transition",
+                            attributes={
+                                "sequence": transition.sequence,
+                                "node_ids": tuple(
+                                    task.node_id for task in transition.scheduled_tasks
+                                ),
+                                "task_ids": tuple(
+                                    task.task_id for task in transition.scheduled_tasks
+                                ),
+                            },
+                        )
+                    for checkpoint_id in evidence.checkpoint_ids:
+                        span.add_event(
+                            "pydantic_graph.checkpoint",
+                            attributes={"checkpoint_id": checkpoint_id},
+                        )
             except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
                 logger.debug(
                     "TelemetryEngine: span attribute set failed (exception_type=%s)",

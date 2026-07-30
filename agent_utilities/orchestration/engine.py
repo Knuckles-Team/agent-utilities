@@ -57,6 +57,10 @@ from agent_utilities.security.persistence_privacy import persistence_reference
 from ..graph.mermaid import get_graph_mermaid
 from ..graph.state import REQUESTED_MODEL_ID_CTX, GraphDeps, GraphState
 from ..models import GraphResponse
+from .graph_execution_evidence import (
+    GraphExecutionEvidenceCollector,
+    run_with_execution_evidence,
+)
 
 try:
     from opentelemetry import trace
@@ -67,22 +71,37 @@ except ImportError:
 
 
 def _pydantic_graph_span(
-    *, run_id: str, query: str, topology: str
+    *,
+    run_id: str,
+    query: str,
+    topology: str,
+    operation: str = "run",
+    evidence: GraphExecutionEvidenceCollector | None = None,
 ) -> contextlib.AbstractContextManager[Any]:
-    """Return a span context for the actual ``pydantic_graph.Graph.run`` call."""
+    """Return a span context for one actual Pydantic Graph execution API."""
 
     if tracer is None:
         return contextlib.nullcontext(None)
+    attributes: dict[str, Any] = {
+        "agent_utilities.execution.mode": "pydantic_graph",
+        "query_length": len(query),
+        "run_ref": persistence_reference(
+            "run", run_id, namespace="orchestration-trace"
+        ),
+        "topology": topology,
+    }
+    if evidence is not None:
+        attributes.update(
+            {
+                "agent_utilities.graph.topology_digest": evidence.topology_digest,
+                "agent_utilities.graph.version_digest": evidence.version_digest,
+                "agent_utilities.graph.runtime_version": evidence.runtime_version,
+                "agent_utilities.graph.resume_supported": False,
+            }
+        )
     return tracer.start_as_current_span(
-        "pydantic_graph.run",
-        attributes={
-            "agent_utilities.execution.mode": "pydantic_graph",
-            "query_length": len(query),
-            "run_ref": persistence_reference(
-                "run", run_id, namespace="orchestration-trace"
-            ),
-            "topology": topology,
-        },
+        f"pydantic_graph.{operation}",
+        attributes=attributes,
     )
 
 
@@ -502,6 +521,8 @@ class AgentOrchestrationEngine:
                 "message_channel_id"
             ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
+        graph_evidence = GraphExecutionEvidenceCollector(graph, topology=topology)
+        graph_evidence.bind_state(state)
 
         if persist:
             path = Path(state_dir)
@@ -639,7 +660,7 @@ class AgentOrchestrationEngine:
                         "run_graph: Prompt scanner warnings: %d patterns below threshold",
                         len(scan_result.matches),
                     )
-            except ImportError:
+            except ImportError:  # noqa: BLE001 — optional prompt scanner is not installed
                 pass  # Scanner not available
             except Exception as e:
                 logger.debug("run_graph: Prompt scanning skipped: %s", e)
@@ -649,15 +670,30 @@ class AgentOrchestrationEngine:
                 if tracer is None:
                     logger.info("run_graph: Running pydantic_graph.run (no tracer)...")
                 with _pydantic_graph_span(
-                    run_id=run_id, query=query, topology=topology
+                    run_id=run_id,
+                    query=query,
+                    topology=topology,
+                    evidence=graph_evidence,
                 ) as span:
-                    with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
-                        result = await graph.run(state=state, deps=deps)
-                    if scope.cancel_called:
-                        logger.error(
-                            f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms"
-                        )
-                        result = "timeout"
+                    graph_evidence.attach_span(span)
+                    try:
+                        with anyio.move_on_after(
+                            DEFAULT_GRAPH_TIMEOUT / 1000.0
+                        ) as scope:
+                            result = await run_with_execution_evidence(
+                                graph,
+                                state=state,
+                                deps=deps,
+                                collector=graph_evidence,
+                            )
+                        if scope.cancel_called:
+                            logger.error(
+                                "run_graph: Graph execution TIMEOUT after %sms",
+                                DEFAULT_GRAPH_TIMEOUT,
+                            )
+                            result = "timeout"
+                    finally:
+                        graph_evidence.finish_span(state=state)
                     if span is not None:
                         span.set_status(
                             trace.Status(
@@ -668,8 +704,8 @@ class AgentOrchestrationEngine:
                         )
             except Exception as e:
                 logger.error(
-                    "run_graph: critical graph execution failure (%s)",
-                    type(e).__name__,
+                    "run_graph: critical graph execution failure: %s",
+                    e,
                 )
                 emit_graph_event(
                     deps.event_queue, "graph_complete", run_id=run_id, status="error"
@@ -682,6 +718,7 @@ class AgentOrchestrationEngine:
                         "is_error": True,
                         "execution_mode": "pydantic_graph",
                     },
+                    execution_evidence=graph_evidence.evidence(state=state),
                 ).model_dump()
 
             # CONCEPT:AU-ORCH.execution.node-direct-end — a node may END the run directly with End[GraphResponse]
@@ -731,6 +768,9 @@ class AgentOrchestrationEngine:
                         metadata={
                             "domain": state.routed_domain,
                             "execution_mode": "pydantic_graph",
+                            "graph_topology_digest": graph_evidence.topology_digest,
+                            "graph_version_digest": graph_evidence.version_digest,
+                            "graph_transition_count": len(graph_evidence.transitions),
                         },
                         evidence=(
                             config.get("trace_evidence")
@@ -758,6 +798,9 @@ class AgentOrchestrationEngine:
                     attributes={
                         "domain": state.routed_domain,
                         "execution_mode": "pydantic_graph",
+                        "graph_topology_digest": graph_evidence.topology_digest,
+                        "graph_version_digest": graph_evidence.version_digest,
+                        "graph_transition_count": len(graph_evidence.transitions),
                     },
                 )
             except Exception as _si_exc:  # noqa: BLE001 — telemetry must never crash a run
@@ -816,6 +859,7 @@ class AgentOrchestrationEngine:
 
         if isinstance(result, GraphResponse):
             result.mermaid = mermaid_prefix if mermaid_prefix else None
+            result.execution_evidence = graph_evidence.evidence(state=state)
             result.metadata.update(
                 {
                     "run_id": run_id,
@@ -855,6 +899,7 @@ class AgentOrchestrationEngine:
                     "execution_mode": "pydantic_graph",
                 },
                 tool_calls=list(getattr(state, "tool_calls", []) or []),
+                execution_evidence=graph_evidence.evidence(state=state),
             ).model_dump()
 
         # Guard: a terminal error_recovery_step End({"error": ..., "results": {...}}) is a
@@ -882,6 +927,7 @@ class AgentOrchestrationEngine:
                     "execution_mode": "pydantic_graph",
                 },
                 tool_calls=list(getattr(state, "tool_calls", []) or []),
+                execution_evidence=graph_evidence.evidence(state=state),
             ).model_dump()
 
         return GraphResponse(
@@ -894,6 +940,7 @@ class AgentOrchestrationEngine:
                 "execution_mode": "pydantic_graph",
             },
             tool_calls=list(getattr(state, "tool_calls", []) or []),
+            execution_evidence=graph_evidence.evidence(state=state),
         ).model_dump()
 
     @_foreground_execution
@@ -1022,6 +1069,7 @@ class AgentOrchestrationEngine:
         state = GraphState(
             query=query,
             query_parts=query_parts or [],
+            session_id=run_id,
             mode=mode,
             topology=topology,
             invoker_context=config.get(
@@ -1043,6 +1091,8 @@ class AgentOrchestrationEngine:
                 "message_channel_id"
             ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
+        graph_evidence = GraphExecutionEvidenceCollector(graph, topology=topology)
+        graph_evidence.bind_state(state)
 
         if persist:
             path = Path(state_dir)
@@ -1085,12 +1135,24 @@ class AgentOrchestrationEngine:
                     ]
 
                     with _pydantic_graph_span(
-                        run_id=run_id, query=query, topology=topology
-                    ):
-                        result = await asyncio.wait_for(
-                            graph.run(state=state, deps=deps),
-                            timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
-                        )
+                        run_id=run_id,
+                        query=query,
+                        topology=topology,
+                        evidence=graph_evidence,
+                    ) as span:
+                        graph_evidence.attach_span(span)
+                        try:
+                            result = await asyncio.wait_for(
+                                run_with_execution_evidence(
+                                    graph,
+                                    state=state,
+                                    deps=deps,
+                                    collector=graph_evidence,
+                                ),
+                                timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
+                            )
+                        finally:
+                            graph_evidence.finish_span(state=state)
                     graph_result_holder["value"] = result
             except TimeoutError:
                 await eq.put({"type": "error", "error": "Graph execution timed out"})
@@ -1131,7 +1193,19 @@ class AgentOrchestrationEngine:
             final_output = next(iter(state.results_registry.values()), None)
         if not final_output:
             final_output = "No output generated."
-        yield f"data: {json.dumps({'type': 'final_output', 'content': final_output})}\n\n"
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "type": "final_output",
+                    "content": final_output,
+                    "execution_evidence": graph_evidence.evidence(
+                        state=state
+                    ).model_dump(),
+                }
+            )
+            + "\n\n"
+        )
 
     @_foreground_execution
     async def iter_graph(
@@ -1151,13 +1225,13 @@ class AgentOrchestrationEngine:
         r"""Execute graph step-by-step using ``graph.iter()`` for maximum control.
 
         Unlike :func:`run_graph` which delegates to ``graph.run()`` (blocking
-        until completion), this function uses the beta ``graph.iter()`` API to
+        until completion), this function uses the ``graph.iter()`` API to
         yield per-step execution events.  This enables:
 
         * **Progress streaming** — each step yields metadata about the active
           node, enabling real-time AG-UI sideband updates.
-        * **Pause/resume** — callers can stop iterating and serialize
-          ``GraphState`` to disk, resuming later.
+        * **Caller-controlled iteration** — callers can stop consuming without
+          claiming that the current write-only snapshots can resume the run.
         * **Elicitation** — between steps the function checks
           ``state.human_approval_required`` and, if an ``elicitation_callback``
           is provided, pauses for human input before continuing.
@@ -1184,10 +1258,8 @@ class AgentOrchestrationEngine:
         Yields:
             Dictionaries with the following ``type`` keys:
 
-            * ``"node_start"`` — a graph node is about to execute
-            * ``"node_complete"`` — a graph node has finished
+            * ``"node_transition"`` — a graph task batch was scheduled
             * ``"elicitation"`` — the graph is pausing for human input
-            * ``"state_snapshot"`` — periodic serialization of ``GraphState``
             * ``"graph_complete"`` — the graph has finished executing
             * ``"error"`` — an error occurred during execution
 
@@ -1285,6 +1357,7 @@ class AgentOrchestrationEngine:
         state = GraphState(
             query=query,
             query_parts=query_parts or [],
+            session_id=run_id,
             mode=mode,
             topology=topology,
             invoker_context=config.get(
@@ -1306,6 +1379,8 @@ class AgentOrchestrationEngine:
                 "message_channel_id"
             ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
         )
+        graph_evidence = GraphExecutionEvidenceCollector(graph, topology=topology)
+        graph_evidence.bind_state(state)
 
         # Merge registry tags into deps (same as run_graph)
         registry = get_discovery_registry()
@@ -1353,68 +1428,96 @@ class AgentOrchestrationEngine:
                 )
 
             step_count = 0
-            try:
-                async with graph.iter(state=state, deps=deps) as graph_run:
-                    async for event in graph_run:
-                        if isinstance(event, end_marker_type):
-                            # Graph completed — yield final result
+            with _pydantic_graph_span(
+                run_id=run_id,
+                query=query,
+                topology=topology,
+                operation="iter",
+                evidence=graph_evidence,
+            ) as span:
+                graph_evidence.attach_span(span)
+                try:
+                    async with graph.iter(state=state, deps=deps) as graph_run:
+                        async for event in graph_run:
+                            if isinstance(event, end_marker_type):
+                                # Graph completed — yield the final result and
+                                # the complete evidence accumulated before it.
+                                yield {
+                                    "type": "graph_complete",
+                                    "run_id": run_id,
+                                    "output": event.value,
+                                    "state_snapshot": self._build_state_snapshot(state),
+                                    "execution_evidence": graph_evidence.evidence(
+                                        state=state
+                                    ).model_dump(),
+                                }
+                                break
+
+                            # event is Sequence[GraphTask] — tasks scheduled next.
+                            graph_evidence.record_event(event, state=state)
+                            step_count += 1
+                            active_nodes = [
+                                {
+                                    "node_id": str(t.node_id),
+                                    "task_id": str(t.task_id),
+                                }
+                                for t in event
+                            ]
+
                             yield {
-                                "type": "graph_complete",
+                                "type": "node_transition",
+                                "step": step_count,
                                 "run_id": run_id,
-                                "output": event.value,
+                                "active_nodes": active_nodes,
                                 "state_snapshot": self._build_state_snapshot(state),
                             }
-                            break
 
-                        # event is Sequence[GraphTask] — list of active tasks
-                        step_count += 1
-                        active_nodes = [
-                            {"node_id": str(t.node_id), "task_id": str(t.task_id)}
-                            for t in event
-                        ]
+                            # Drain sideband events emitted by the step
+                            while not eq.empty():
+                                sideband_event = eq.get_nowait()
+                                yield {"type": "sideband", "event": sideband_event}
 
-                        yield {
-                            "type": "node_transition",
-                            "step": step_count,
-                            "run_id": run_id,
-                            "active_nodes": active_nodes,
-                            "state_snapshot": self._build_state_snapshot(state),
-                        }
+                            # Elicitation check: pause for human approval if needed
+                            if (
+                                state.human_approval_required
+                                and elicitation_callback is not None
+                            ):
+                                yield {
+                                    "type": "elicitation",
+                                    "reason": "human_approval_required",
+                                    "state_snapshot": self._build_state_snapshot(state),
+                                }
+                                redirect = await elicitation_callback(state)
+                                state.human_approval_required = False
+                                if redirect:
+                                    logger.info(
+                                        "run_graph_iter: Elicitation redirect to '%s'",
+                                        redirect,
+                                    )
+                                    # The dispatcher reads this on its next turn.
+                                    state.user_redirect_feedback = redirect
 
-                        # Drain sideband events emitted by the step
-                        while not eq.empty():
-                            sideband_event = eq.get_nowait()
-                            yield {"type": "sideband", "event": sideband_event}
-
-                        # Elicitation check: pause for human approval if needed
-                        if (
-                            state.human_approval_required
-                            and elicitation_callback is not None
-                        ):
-                            yield {
-                                "type": "elicitation",
-                                "reason": "human_approval_required",
-                                "state_snapshot": self._build_state_snapshot(state),
-                            }
-                            redirect = await elicitation_callback(state)
-                            state.human_approval_required = False
-                            if redirect:
-                                logger.info(
-                                    f"run_graph_iter: Elicitation redirect to '{redirect}'"
-                                )
-                                # The redirect will be picked up by the next
-                                # dispatcher iteration via state.user_redirect_feedback
-                                state.user_redirect_feedback = redirect
-
-            except TimeoutError:
-                yield {
-                    "type": "error",
-                    "run_id": run_id,
-                    "error": "Graph execution timed out",
-                }
-            except Exception as e:
-                logger.error(f"run_graph_iter: CRITICAL ERROR: {e}")
-                yield {"type": "error", "run_id": run_id, "error": str(e)}
+                except TimeoutError:
+                    yield {
+                        "type": "error",
+                        "run_id": run_id,
+                        "error": "Graph execution timed out",
+                        "execution_evidence": graph_evidence.evidence(
+                            state=state
+                        ).model_dump(),
+                    }
+                except Exception as e:
+                    logger.error("run_graph_iter: CRITICAL ERROR: %s", e)
+                    yield {
+                        "type": "error",
+                        "run_id": run_id,
+                        "error": str(e),
+                        "execution_evidence": graph_evidence.evidence(
+                            state=state
+                        ).model_dump(),
+                    }
+                finally:
+                    graph_evidence.finish_span(state=state)
 
             # Drain any remaining sideband events
             while not eq.empty():
@@ -1426,7 +1529,8 @@ class AgentOrchestrationEngine:
         """Build a lightweight serializable snapshot of the current graph state.
 
         This snapshot is included in every yielded event for observability,
-        audit trails, and potential pause/resume support.
+        audit trails, and checkpoint evidence.  It is not a runnable resume
+        payload.
 
         Args:
             state: The current GraphState instance.
@@ -1442,6 +1546,10 @@ class AgentOrchestrationEngine:
             "topology": state.topology,
             "node_history": list(state.node_history),
             "node_transitions": state.node_transitions,
+            "graph_node_sequence": list(state.graph_node_sequence),
+            "graph_transition_sequence": list(state.graph_transition_sequence),
+            "checkpoint_ids": list(state.checkpoint_ids),
+            "resume_supported": False,
             "error": state.error,
             "results_registry_keys": list(state.results_registry.keys()),
             "session_id": state.session_id,

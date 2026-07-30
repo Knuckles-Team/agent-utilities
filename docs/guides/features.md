@@ -529,7 +529,11 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Topological Session Persistence (CONCEPT:AU-OS.safety.doom-loop-detection)**: Pins the model for multi-turn conversations directly to the SessionNode to avoid jarring mid-thread model bouncing.
 - **KG-Driven Pydantic Graph Engine (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)**: Shifts from synthesizing graph configurations to dynamically polling the Knowledge Graph for state transitions at every step.
 - **KG Graph Materialization Factory (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)**: `build_pydantic_graph_from_kg()` factory that materializes executable pydantic-graph topologies from KG-stored `AgentTemplate` blueprints. Performs topological sort (Kahn's algorithm) on `DEPENDS_ON` edges, resolves prompts via `USES_PROMPT`, binds tools via `REQUIRES_TOOLSET`, and produces `KGGraphResult` structures with full provenance tracking. Integrated into the router hot path as a 3-stage strategy: TeamConfig match → KG Template materialization → LLM fallback.
-- **Ontological State Checkpointing (CONCEPT:AU-KG.research.research-pipeline-runner)**: Persists Pydantic Graph active states as ExecutionStateNodes, enabling zero-latency resume and background agent handoffs.
+- **Ontological State Checkpointing (CONCEPT:AU-KG.research.research-pipeline-runner)**:
+  persists observational Pydantic Graph state snapshots as
+  `ExecutionStateNode`/`SessionCheckpoint` evidence. The emitted checkpoint IDs
+  support audit and handoff correlation; Pydantic Graph v2 cannot yet consume
+  them as runnable resume tokens.
 - **Adaptive Tool Provisioning (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: Real-time provisioning of MCP tools, APIs, and native functions into an execution context strictly driven by KG capabilities.
 - **Graph-Native Team Evolution (CONCEPT:AU-AHE.evaluation.backtest-harness)**: Analyzes historical execution traces to autonomously propose architectural topological mutations and capability expansions.
 - **Native Innovation Discovery Engine (CONCEPT:AU-KG.query.object-graph-mapper)**: Backend-native biomimicry and technology signal extraction via `discover_innovations()`. Performs vector search + keyword-driven signal enrichment (14 biomimicry, 28 tech keywords) with zero LLM calls. Exposed through the `graph_search(mode='discover')` MCP tool for instant innovation cross-referencing across all ingested research papers and codebases.

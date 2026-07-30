@@ -775,6 +775,7 @@ class Orchestrator:
             or None,
             "channel_id": payload.get("channel_id"),
             "run_summary": payload.get("run_summary"),
+            "execution_evidence": payload.get("execution_evidence"),
             "resolution": target,
             "provenance": provenance,
             "approval_request": _approval_request(payload),

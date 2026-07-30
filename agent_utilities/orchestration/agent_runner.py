@@ -61,6 +61,7 @@ def _render_agent_result(
     mermaid: Any = None,
     channel_id: str | None = None,
     run_summary: dict[str, Any] | None = None,
+    execution_evidence: dict[str, Any] | None = None,
 ) -> str:
     """Render one agent result through the sole public delegation envelope.
 
@@ -79,6 +80,8 @@ def _render_agent_result(
         payload["channel_id"] = channel_id
     if run_summary is not None:
         payload["run_summary"] = run_summary
+    if execution_evidence is not None:
+        payload["execution_evidence"] = execution_evidence
     return json.dumps(payload, default=str)
 
 
@@ -1334,6 +1337,17 @@ async def run_agent(
         # delegation explicitly.
         _reset_delegation(_delegation_token)
 
+    # Preserve graph evidence across the tool-grounding gate below. A missing
+    # required ToolCall can replace the user-facing result with a truthful
+    # failure envelope, but it must not erase the topology that reached that
+    # failure.
+    graph_execution_evidence = (
+        result.get("execution_evidence")
+        if isinstance(result, dict)
+        and isinstance(result.get("execution_evidence"), dict)
+        else None
+    )
+
     # A caller that requested tools, or explicitly selected a server, must be grounded
     # by a real captured ToolCall.  Text that merely *looks* like a tool invocation is
     # model output, not provenance, and must never be reported as a successful run.
@@ -1378,6 +1392,8 @@ async def run_agent(
                 "required tools produced no ToolCall provenance: " + ", ".join(missing),
                 tool_calls=calls if isinstance(calls, list) else [],
             )
+    if graph_execution_evidence is not None and isinstance(result, dict):
+        result["execution_evidence"] = graph_execution_evidence
 
     # Step 5: Record provenance. A delegation that fell through to the graph's "no data"
     # sentinel (or returned an empty answer) is a DEGRADED outcome, not a success —
@@ -1481,6 +1497,7 @@ async def run_agent(
         model_class=_model_class,
         model_name=str(config.get("agent_model") or ""),
         execution_mode=actual_execution_mode,
+        graph_execution_evidence=graph_execution_evidence,
         tool_call_count=(
             len(result["tool_calls"])
             if isinstance(result, dict) and isinstance(result.get("tool_calls"), list)
@@ -1615,6 +1632,7 @@ async def run_agent(
             mermaid=mermaid,
             channel_id=channel_id,
             run_summary=run_summary if include_run_summary else None,
+            execution_evidence=graph_execution_evidence,
         )
 
     return _render_agent_result(
@@ -3247,6 +3265,7 @@ def _record_execution_trace(
     model_name: str = "",
     tool_call_count: int | None = None,
     execution_mode: str = "other",
+    graph_execution_evidence: dict[str, Any] | None = None,
     delegation: Any = None,
 ) -> None:
     """Record an execution trace in the KG for auditability.
@@ -3278,6 +3297,7 @@ def _record_execution_trace(
             model=model_name,
             tool_call_count=tool_call_count,
             execution_mode=execution_mode,
+            graph_execution_evidence=graph_execution_evidence,
         )
     except Exception as exc:  # noqa: BLE001 — tracing must never break a run
         logger.debug(
@@ -3314,6 +3334,7 @@ def _record_execution_trace(
         skill_used=skill_used,
         bound_server=bound_server,
         execution_mode=execution_mode,
+        graph_execution_evidence=graph_execution_evidence,
     )
     if model_ref:
         props["model_ref"] = model_ref

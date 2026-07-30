@@ -151,8 +151,9 @@ async def execute_graph_iter(
 
     Unlike :func:`execute_graph_stream` (which runs the graph in a background
     task and streams SSE events), this function drives the graph step-by-step
-    in the caller's task, enabling pause/resume, elicitation, and per-node
-    observability.
+    in the caller's task, enabling elicitation and per-node observability.
+    Terminal/error events include observational execution and checkpoint
+    evidence, but the current snapshots are not runnable resume tokens.
 
     Args:
         graph: The Pydantic Graph instance to execute.

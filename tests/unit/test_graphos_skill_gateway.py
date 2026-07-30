@@ -177,6 +177,17 @@ async def test_execute_capability_forwards_explicit_pydantic_graph_contract() ->
                 "output": "validated",
                 "run_id": "run:0123456789abcdef0123456789abcdef",
                 "run_summary": {"outcome": "ok"},
+                "execution_evidence": {
+                    "schema_version": "graph-execution-evidence-v1",
+                    "topology": "basic",
+                    "topology_digest": "sha256:topology",
+                    "version_digest": "sha256:version",
+                    "runtime_version": "2.21.0",
+                    "node_sequence": ["router", "dispatcher", "__end__"],
+                    "transitions": [],
+                    "checkpoint_ids": [],
+                    "resume_supported": False,
+                },
             }
         )
     )
@@ -202,6 +213,10 @@ async def test_execute_capability_forwards_explicit_pydantic_graph_contract() ->
 
     assert result["resolution"]["kind"] == "skill"
     assert result["resolution"]["source"] == "caller_skill"
+    assert result["execution_evidence"]["schema_version"] == (
+        "graph-execution-evidence-v1"
+    )
+    assert result["execution_evidence"]["node_sequence"][-1] == "__end__"
     call = orchestrator.execute_agent.await_args.kwargs
     assert call["skill_name"] == "change-review"
     assert call["tool_server"] == "itsm-api"
@@ -246,6 +261,17 @@ async def test_graph_orchestrate_public_tool_exposes_pydantic_graph_contract(
             "output": "validated",
             "run_id": "run:0123456789abcdef0123456789abcdef",
             "provenance": {"tool_call_count": 1},
+            "execution_evidence": {
+                "schema_version": "graph-execution-evidence-v1",
+                "topology": "basic",
+                "topology_digest": "sha256:topology",
+                "version_digest": "sha256:version",
+                "runtime_version": "2.21.0",
+                "node_sequence": ["router", "dispatcher", "__end__"],
+                "transitions": [],
+                "checkpoint_ids": [],
+                "resume_supported": False,
+            },
         }
     )
     monkeypatch.setattr(Orchestrator, "execute_capability", execute)
@@ -260,7 +286,11 @@ async def test_graph_orchestrate_public_tool_exposes_pydantic_graph_contract(
         required_tools=["get_change"],
     )
 
-    assert json.loads(raw)["output"] == "validated"
+    response = json.loads(raw)
+    assert response["output"] == "validated"
+    assert response["execution_evidence"]["schema_version"] == (
+        "graph-execution-evidence-v1"
+    )
     call = execute.await_args.kwargs
     assert call["skill_name"] == "change-review"
     assert call["tool_server"] == "itsm-api"

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +16,47 @@ class WideSearchWorkboard(BaseModel):
     conflict_log: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class GraphTaskEvidence(BaseModel):
+    """One task scheduled by Pydantic Graph during a graph transition."""
+
+    node_id: str
+    task_id: str
+
+
+class GraphTransitionEvidence(BaseModel):
+    """One ordered scheduler transition emitted by ``pydantic_graph``.
+
+    A transition can schedule multiple tasks when the graph fans out.  These
+    records describe scheduling truth only; they do not claim that a task
+    completed successfully.
+    """
+
+    sequence: int
+    scheduled_tasks: list[GraphTaskEvidence] = Field(default_factory=list)
+
+
+class GraphExecutionEvidence(BaseModel):
+    """Versioned, persistence-safe evidence from one real graph execution.
+
+    ``checkpoint_ids`` contains only identifiers returned by the configured
+    checkpoint backend.  ``resume_supported`` is deliberately fixed to false:
+    the current Pydantic Graph v2 compatibility checkpoint is an observational
+    state snapshot, not a runnable graph-resume token.
+    """
+
+    schema_version: Literal["graph-execution-evidence-v1"] = (
+        "graph-execution-evidence-v1"
+    )
+    topology: str
+    topology_digest: str = ""
+    version_digest: str = ""
+    runtime_version: str = ""
+    node_sequence: list[str] = Field(default_factory=list)
+    transitions: list[GraphTransitionEvidence] = Field(default_factory=list)
+    checkpoint_ids: list[str] = Field(default_factory=list)
+    resume_supported: Literal[False] = False
+
+
 class GraphResponse(BaseModel):
     status: str = "pending"
     results: dict[str, Any] = Field(default_factory=dict)
@@ -27,11 +68,12 @@ class GraphResponse(BaseModel):
     # :ToolCall nodes for the graph path too — not only the direct single-server loop
     # (CONCEPT:AU-KG.temporal.message-history-read).
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    execution_evidence: GraphExecutionEvidence | None = None
 
 
 from agent_utilities.models.sdd import Task
 
-ExecutionStep = Task
+ExecutionStep: TypeAlias = Task
 
 
 class ParallelBatch(BaseModel):

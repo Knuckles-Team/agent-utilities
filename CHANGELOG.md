@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Truthful Pydantic Graph execution evidence.** Real blocking and iterative
+  graph runs now carry deterministic topology/runtime digests, ordered scheduler
+  task batches, and only backend-confirmed checkpoint identifiers through
+  `GraphResponse`, `RunTrace`, and OpenTelemetry. The contract explicitly marks
+  the current state snapshots as non-resumable.
+
 ## [2.1.1] - 2026-07-28 — Native-cache, connector, teardown, and intent hardening
 
 ### Added
