@@ -2912,8 +2912,8 @@ def _run_boot_hydration_plan(
     priority classes from making progress.
     """
     steps = (
-        ("graphos_tool_surface", 1, lambda: _ingest_self_tool_surface_at_boot(engine)),
         ("fleet_tool_schemas", 1, lambda: _enqueue_fleet_tool_schema_hydration(engine)),
+        ("graphos_tool_surface", 1, lambda: _ingest_self_tool_surface_at_boot(engine)),
         (
             "capabilities",
             1,
