@@ -39,6 +39,29 @@ prints findings for human triage. A follow-up can freeze a baseline
 (mirroring ``check_no_env_sprawl.py``'s ratchet) once the population has been triaged,
 turning this into an enforcing gate against *new* violations only.
 
+KNOWN SCOPE LIMIT — plain-``def`` tool handlers are NOT covered. This scanner walks
+``ast.AsyncFunctionDef`` bodies only. A large share of this package's MCP tool handlers
+(``graph_query``, ``graph_ask``, ``nl_query``, ``ask_data``, ``graph_table``,
+``graph_search``, ``graph_code_nav``, ``graph_write``, ``graph_kv_checkpoint``, …) are
+plain ``def``. On the REST/native-delegation path ``kg_server._execute_tool`` hops those
+onto a thread; on the MCP wire path this package imports the standalone ``fastmcp``
+distribution (``from fastmcp import FastMCP`` in ``agent_utilities/mcp/server_factory.py``),
+whose ``FunctionTool._execute`` dispatches a sync body through
+``call_sync_fn_in_threadpool`` whenever ``run_in_thread`` is set — and it defaults to
+``True`` and is never overridden anywhere in this repo. So sync handlers are in fact
+already thread-hopped on BOTH paths today. (An earlier version of this note claimed they
+were invoked inline via ``call_fn_with_arg_validation`` → ``return fn(**args)``; that is
+the OTHER, SDK-bundled ``mcp.server.fastmcp`` implementation, which this package does not
+use.) They are still out of scope for this scanner, but as an untriaged population rather
+than an unprotected one — and widening to sync defs must not assume the inline-dispatch
+risk this note used to assert.
+
+SECOND SCOPE LIMIT — only ``engine.*``-shaped attribute calls and a fixed set of
+``pathlib``/``open`` file operations are matched. A blocking call reached through a plain
+helper function (``persist_facts(store, facts)``, which loops over synchronous KG writes)
+is invisible to this AST walk; catching that class needs a call graph, not a syntax
+scan. Recorded as D-W15-6 in ``reports/deferred/waves1-5-gate.md``.
+
 Usage:
   python3 scripts/check_event_loop_blocking.py              # scan agent_utilities/
   python3 scripts/check_event_loop_blocking.py PATH [PATH…] # scan specific paths
@@ -86,6 +109,11 @@ _BLOCKING_ATTR_SUFFIXES: tuple[tuple[str, str], ...] = (
     ("write_text", "blocking file write: Path.write_text"),
     ("read_bytes", "blocking file read: Path.read_bytes"),
     ("write_bytes", "blocking file write: Path.write_bytes"),
+    ("submit_task", "engine write: submit_task (durable WorkItem enqueue)"),
+    ("get_blast_radius", "engine read: get_blast_radius"),
+    ("search_hybrid", "engine read: search_hybrid"),
+    ("get_shortest_path", "engine read: get_shortest_path"),
+    ("execute_federated_query", "engine read: execute_federated_query"),
     ("get_text_embedding", "blocking remote-embedder call: get_text_embedding"),
     (
         "get_text_embedding_batch",

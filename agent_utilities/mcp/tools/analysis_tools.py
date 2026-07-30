@@ -656,7 +656,8 @@ def register_analysis_tools(mcp):
                 "background_research",
                 "relevance_sweep",
             ):
-                job_id = engine.submit_task(
+                job_id = await run_blocking_ordered(
+                    engine.submit_task,
                     target_path=query or target or "none",
                     is_codebase=False,
                     task_type=action,
@@ -672,7 +673,9 @@ def register_analysis_tools(mcp):
             elif action == "blast_radius":
                 if not node_id:
                     return "Error: node_id required for blast_radius"
-                radius = engine.get_blast_radius(node_id, depth)
+                radius = await run_blocking_ordered(
+                    engine.get_blast_radius, node_id, depth
+                )
                 if not radius:
                     return f"No dependencies found for {node_id} within depth {depth}."
                 return "\n".join(
@@ -1203,7 +1206,12 @@ def register_analysis_tools(mcp):
 
                 if not query:
                     return "Error: contradictions needs the new claim text in `query`."
-                neighbours = engine.search_hybrid(query, top_k=top_k) or []
+                neighbours = (
+                    await run_blocking_ordered(
+                        engine.search_hybrid, query, top_k=top_k
+                    )
+                    or []
+                )
                 existing = [
                     Claim(
                         id=str(n.get("id") or (n.get("node", {}) or {}).get("id") or i),

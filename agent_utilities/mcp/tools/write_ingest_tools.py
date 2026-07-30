@@ -524,7 +524,8 @@ def register_write_ingest_tools(mcp):
                         t_type = (
                             "codebase" if ct == ContentType.CODEBASE else "document"
                         )
-                        jid = engine.submit_task(
+                        jid = await run_blocking_ordered(
+                            engine.submit_task,
                             target_path=p,
                             is_codebase=(t_type == "codebase"),
                             provenance={
@@ -591,7 +592,8 @@ def register_write_ingest_tools(mcp):
                     prov["extract_papers"] = True
                 elif flag in ("no_papers", "extract_papers=false", "false"):
                     prov["extract_papers"] = False
-                jid = engine.submit_task(
+                jid = await run_blocking_ordered(
+                    engine.submit_task,
                     target_path=url,
                     is_codebase=False,
                     provenance=prov,
@@ -964,7 +966,8 @@ def register_write_ingest_tools(mcp):
                 # poll with ``action=job_status job_id=<id>``.
                 try:
                     root = target_path if isinstance(target_path, str) else ""
-                    jid = engine.submit_task(
+                    jid = await run_blocking_ordered(
+                        engine.submit_task,
                         target_path=root or "universal-skills",
                         is_codebase=False,
                         provenance={"agent_id": agent_id},
@@ -1253,7 +1256,16 @@ def register_write_ingest_tools(mcp):
                     if ev["type"] == "fact":
                         facts.append(ExtractedFact(**ev["fact"]))
 
-                stats = persist_facts(EngineStoreAdapter(engine), facts)
+                # CONCEPT:AU-ORCH.execution.event-loop-blocking-sweep — persist_facts
+                # loops over every extracted fact issuing a synchronous
+                # add_node/add_edge KG round trip, so it must not run inline on
+                # the request-serving loop. The scanner in
+                # scripts/check_event_loop_blocking.py only matches ``engine.*``
+                # shaped attribute calls and therefore cannot see a blocking call
+                # made through a plain helper like this one (D-W15-6).
+                stats = await run_blocking_ordered(
+                    persist_facts, EngineStoreAdapter(engine), facts
+                )
                 unique = sum(1 for f in facts if not f.is_duplicate)
                 return json.dumps(
                     {
@@ -1675,7 +1687,8 @@ def register_write_ingest_tools(mcp):
                 # two real uploads into one. A unique target keeps job ids distinct.
                 engine = kg_server._get_engine()
                 target = f"session-upload:{_uuid.uuid4().hex}"
-                jid = engine.submit_task(
+                jid = await run_blocking_ordered(
+                    engine.submit_task,
                     target_path=target,
                     is_codebase=False,
                     provenance={"agent_id": "ingest_sessions"},
