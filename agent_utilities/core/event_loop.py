@@ -83,7 +83,7 @@ async def run_blocking_ordered(
         # caller's explicit request.
         try:
             worker.result()
-        except BaseException:  # noqa: BLE001 — caller cancellation supersedes worker failure
+        except BaseException:  # caller cancellation supersedes worker failure
             pass
         raise asyncio.CancelledError
     return worker.result()
@@ -104,7 +104,7 @@ def allow_nested_run_sync() -> None:
     """
     try:
         asyncio.get_running_loop()
-    except RuntimeError:  # noqa: BLE001 — absence of a running loop is the branch
+    except RuntimeError:
         # No running loop in this thread: run_sync works natively. Do NOT
         # patch — nest_asyncio.apply() here would mutate global asyncio
         # internals for zero benefit (and break asyncio.current_task() on

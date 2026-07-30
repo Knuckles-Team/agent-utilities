@@ -29,6 +29,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.execution_manifest import ExecutionManifest, ExecutionResult
 from agent_utilities.models.graph import GraphPlan
 from agent_utilities.models.sdd import Task
@@ -709,7 +710,14 @@ class GovernedDynamicWorkflow(BaseModel):
                 timeout=self.resource_limits.max_duration_secs,
             )
         except BaseException as exc:
-            self._persist_parent_trace(
+            # ``_persist_parent_trace`` performs synchronous native graph writes
+            # (RunTrace/Session nodes, PARENT_RUN edges). Run it on a worker so
+            # a foreground DynamicWorkflow completion/failure never blocks the
+            # shared GraphOS event loop, and keep it ordered so the trace is
+            # guaranteed to land before this exception (including
+            # cancellation) is re-raised to the caller.
+            await run_blocking_ordered(
+                self._persist_parent_trace,
                 orchestrator,
                 workflow_run_id=workflow_run_id,
                 status=(
@@ -755,7 +763,10 @@ class GovernedDynamicWorkflow(BaseModel):
             "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
             "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
         }
-        self._persist_parent_trace(
+        # Same worker isolation as the failure path above, so a successful
+        # completion's lineage write cannot block the shared event loop either.
+        await run_blocking_ordered(
+            self._persist_parent_trace,
             orchestrator,
             workflow_run_id=workflow_run_id,
             status="completed",
