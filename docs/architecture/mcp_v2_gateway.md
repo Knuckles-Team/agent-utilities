@@ -3,7 +3,8 @@
 `mcp_v2_gateway` is a separately packaged Streamable HTTP sidecar for the
 2026-07-28 MCP protocol. It exists because GraphOS's in-process FastMCP 3.4.x
 environment pins `mcp<2`; the sidecar's own environment installs
-`mcp>=2,<3` and cannot share that dependency resolution.
+`mcp>=2,<3`, requires Python 3.11 or newer, and cannot share that dependency
+resolution.
 
 ```mermaid
 flowchart LR
@@ -55,6 +56,10 @@ Any session that needs `graph_jobs` first lists the default surface, invokes
 `tools/list` on that same session. Missing activation or confirmation fails
 closed. A successful tool call auto-retracts its visibility; every list, call,
 failure, and poll path also attempts an idempotent `unload_tools` before DELETE.
+Unload and DELETE run in a bounded child cleanup task shielded from caller
+cancellation. Cancellation received during cleanup is propagated only after both
+cleanup stages have had their attempt, so a repeated cancel cannot strand the
+short-lived session or its dynamic tool visibility.
 GraphOS prunes empty `_session_loaded` and `_auto_unload` entries, preventing
 concurrent gateway sessions from sharing or accumulating visibility state.
 Authorization, parameter/tenant headers, and trace context remain unchanged

@@ -9,6 +9,7 @@ tool surface into the stateless 2026 JSON-RPC envelope.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -229,9 +230,52 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
                         return activated_tools
                 return await self._post_request(client, headers, method, params)
             finally:
-                if activate_graph_jobs:
-                    try:
-                        await self._post_request(
+                await self._finish_session_cleanup(
+                    client,
+                    headers,
+                    activate_graph_jobs=activate_graph_jobs,
+                )
+
+    async def _finish_session_cleanup(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        *,
+        activate_graph_jobs: bool,
+    ) -> None:
+        """Finish bounded cleanup before propagating caller cancellation."""
+        cleanup_task = asyncio.create_task(
+            self._cleanup_session(
+                client,
+                headers,
+                activate_graph_jobs=activate_graph_jobs,
+            )
+        )
+        cancelled: asyncio.CancelledError | None = None
+        while not cleanup_task.done():
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError as exc:
+                if cleanup_task.done():
+                    cleanup_task.result()
+                cancelled = exc
+        cleanup_task.result()
+        if cancelled is not None:
+            raise cancelled
+
+    async def _cleanup_session(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        *,
+        activate_graph_jobs: bool,
+    ) -> None:
+        """Retract visibility and terminate one legacy session within fixed bounds."""
+        try:
+            if activate_graph_jobs:
+                try:
+                    await asyncio.wait_for(
+                        self._post_request(
                             client,
                             headers,
                             "tools/call",
@@ -239,20 +283,24 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
                                 "name": "unload_tools",
                                 "arguments": {"tools": ["graph_jobs"]},
                             },
-                        )
-                    except (GatewayProtocolError, httpx.HTTPError):
-                        # Retraction is idempotent and best-effort; DELETE still
-                        # terminates the short-lived downstream session.
-                        _LOGGER.warning(
-                            "Downstream MCP session visibility cleanup failed"
-                        )
-                try:
-                    terminated = await client.delete(self._url, headers=headers)
-                    if not 200 <= terminated.status_code < 300:
-                        _LOGGER.warning("Downstream MCP session cleanup failed")
-                except httpx.HTTPError:
-                    # Cleanup is best-effort after a session has been established.
+                        ),
+                        timeout=self._timeout,
+                    )
+                except (GatewayProtocolError, httpx.HTTPError, TimeoutError):
+                    # Retraction is idempotent and best-effort; DELETE still
+                    # terminates the short-lived downstream session.
+                    _LOGGER.warning("Downstream MCP session visibility cleanup failed")
+        finally:
+            try:
+                terminated = await asyncio.wait_for(
+                    client.delete(self._url, headers=headers),
+                    timeout=self._timeout,
+                )
+                if not 200 <= terminated.status_code < 300:
                     _LOGGER.warning("Downstream MCP session cleanup failed")
+            except (httpx.HTTPError, TimeoutError):
+                # Cleanup is best-effort after a session has been established.
+                _LOGGER.warning("Downstream MCP session cleanup failed")
 
     async def _post_request(
         self,
