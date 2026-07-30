@@ -1255,6 +1255,13 @@ async def run_agent(
             agent_name,
             err_msg,
         )
+        # CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — a `required`-policy
+        # GroundingUnavailableError lands here (it is a PermissionError, caught by this
+        # broad handler like any other failure): the run is truthfully recorded as
+        # `status="failed"`, never silently answered ungrounded.
+        from agent_utilities.core.contextual_model import grounding_snapshot as _gs
+
+        _grounding_degraded, _grounding_reason = _gs()
         # Record failure provenance
         _record_execution_trace(
             engine,
@@ -1272,6 +1279,8 @@ async def run_agent(
             model_name=str(config.get("agent_model") or ""),
             execution_mode=actual_execution_mode,
             delegation=_spawn_delegation,
+            grounding_status="degraded" if _grounding_degraded else "grounded",
+            grounding_reason=_grounding_reason,
         )
         # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
@@ -1402,6 +1411,17 @@ async def run_agent(
     # non-answer, and the failure is fed back so routing self-corrects next time
     # (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome; F2/F5).
     degraded = _delegation_degraded(result)
+    # CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — a run that proceeded
+    # under an explicit best_effort/none grounding opt-in with at least one
+    # ungrounded model call is likewise NOT a plain success: fold it into the SAME
+    # `degraded` flag that already gates the RunTrace status, the consecutive-
+    # failure guard, the degraded-feedback write, ARPO step credit, and shape-policy
+    # reward below, so a degraded-grounding run is never learned from as a success.
+    from agent_utilities.core.contextual_model import grounding_snapshot as _gs
+
+    _grounding_degraded, _grounding_reason = _gs()
+    if _grounding_degraded:
+        degraded = True
     if isinstance(result, dict):
         _result_metadata = result.setdefault("metadata", {})
         if isinstance(_result_metadata, dict):
@@ -1504,6 +1524,8 @@ async def run_agent(
             else None
         ),
         delegation=_spawn_delegation,
+        grounding_status="degraded" if _grounding_degraded else "grounded",
+        grounding_reason=_grounding_reason,
     )
     # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the paper's
     # "checkpointing / traces" surfaced: the durable RunTrace this run just wrote IS its
@@ -3267,6 +3289,8 @@ def _record_execution_trace(
     execution_mode: str = "other",
     graph_execution_evidence: dict[str, Any] | None = None,
     delegation: Any = None,
+    grounding_status: str = "",
+    grounding_reason: str = "",
 ) -> None:
     """Record an execution trace in the KG for auditability.
 
@@ -3335,6 +3359,8 @@ def _record_execution_trace(
         bound_server=bound_server,
         execution_mode=execution_mode,
         graph_execution_evidence=graph_execution_evidence,
+        grounding_status=grounding_status,
+        grounding_reason=grounding_reason,
     )
     if model_ref:
         props["model_ref"] = model_ref
