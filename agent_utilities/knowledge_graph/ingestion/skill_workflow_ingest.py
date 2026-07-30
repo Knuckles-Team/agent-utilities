@@ -565,6 +565,7 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
             # with the backend's own `add_node(node_id, **properties)` parameter
             # name, raising "got multiple values for argument 'node_id'" for every
             # step of every workflow (KG-2.97 ingestion report §5b).
+            "step_id": step_id,
             "step_order": s["step"],
             "component": s["component"],
             "skill_name": s["skill_name"],
