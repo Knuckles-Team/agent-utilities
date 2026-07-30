@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import config
 from agent_utilities.core.contextual_model import create_context_agent
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
 from agent_utilities.orchestration.resilience import (
@@ -278,20 +279,11 @@ class ParallelEngine:
             logger.warning("Failed to generate workflow Mermaid diagram: %s", vis_err)
 
         # 3. Select and apply coordination protocol
-        protocol = self.coordination.select_protocol(
-            agent_count=resolved.agent_count,
-            execution_mode=resolved.execution_mode,
-        )
-
-        # Apply protocol to establish consensus/voting mechanics
-        agent_ids = [a.agent_id for a in resolved.agents]
-        coordination_result = self.coordination.apply_protocol(
-            protocol=protocol,
-            agent_ids=agent_ids,
-            task=resolved.query,
-            task_type=resolved.metadata.get("task_type", "general"),
-        )
-        self.coordination.log_coordination_trace(coordination_result)
+        # Historical protocol selection and trace persistence both perform
+        # synchronous graph I/O. Keep the whole ordered coordination phase on
+        # one worker so GraphOS's shared event loop remains available and the
+        # trace cannot race ahead of protocol application.
+        protocol = await run_blocking_ordered(self._prepare_coordination, resolved)
 
         # 4. Execute waves with backpressure
         concurrency = resolved.max_concurrency
@@ -349,7 +341,12 @@ class ParallelEngine:
         # training signal `executor.get_attention_score` reads back as each
         # specialist's runtime standing. Runs only with a shared engine and ≥2
         # successful outputs (consensus is meaningless for one); non-fatal.
-        self._broadcast_workspace_attention(all_results, resolved)
+        # Workspace broadcast includes native graph writes and winner-memory
+        # reinforcement. Treat it as one ordered worker phase so the memory
+        # record cannot precede its broadcast and neither blocks liveness.
+        await run_blocking_ordered(
+            self._broadcast_workspace_attention, all_results, resolved
+        )
 
         # 5b. CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — model the wave as a Multi-Agent Social System and
         # snapshot swarm health (archetype heterogeneity, topology variance,
@@ -412,7 +409,9 @@ class ParallelEngine:
         total_duration = (time.monotonic() - start_time) * 1000
 
         # 6. Persist to KG
-        execution_id = self._persist_execution(resolved, wave_results, synthesis_output)
+        execution_id = await run_blocking_ordered(
+            self._persist_execution, resolved, wave_results, synthesis_output
+        )
 
         # SWARM-3 + SWARM-7: critical-path + per-wave telemetry
         critical_path = int(
@@ -474,6 +473,21 @@ class ParallelEngine:
         )
 
         return result
+
+    def _prepare_coordination(self, manifest: ExecutionManifest) -> Any:
+        """Select, apply, then persist one coordination protocol in order."""
+        protocol = self.coordination.select_protocol(
+            agent_count=manifest.agent_count,
+            execution_mode=manifest.execution_mode,
+        )
+        coordination_result = self.coordination.apply_protocol(
+            protocol=protocol,
+            agent_ids=[a.agent_id for a in manifest.agents],
+            task=manifest.query,
+            task_type=manifest.metadata.get("task_type", "general"),
+        )
+        self.coordination.log_coordination_trace(coordination_result)
+        return protocol
 
     # ── Manifest Resolution ─────────────────────────────────────────
 

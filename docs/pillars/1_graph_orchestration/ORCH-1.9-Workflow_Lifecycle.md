@@ -23,12 +23,15 @@ graph TB
         subgraph "Definition Sources"
             SKILL["SKILL.md<br/>(Skill-as-Workflow)"]
             NL["Natural Language<br/>(User Input)"]
+            PROCESS["BusinessProcess<br/>(BPMN / OCEL / KG)"]
             JSON["workflow.json<br/>(External Import)"]
         end
 
         subgraph "Compilation Layer"
             SKILLCOMP["SkillCompiler<br/>(ORCH-1.8)"]
             COMPILER["WorkflowCompiler<br/>(ORCH-1.23)"]
+            PROCESSCOMP["ProcessPlanCompiler<br/>(ORCH-1.41)"]
+            WORKERS["Context-preserving worker phases<br/>(ordered cancellation)"]
         end
 
         subgraph "Persistence Layer"
@@ -38,29 +41,33 @@ graph TB
 
         subgraph "Execution Layer"
             RUNNER["WorkflowRunner<br/>(ORCH-1.24)"]
+            PARALLEL["ParallelEngine<br/>(ORCH-1.8)"]
             AGENT["run_agent()<br/>(ORCH-1.21)"]
             LLM["LM Studio / LLM"]
             LANGFUSE["Langfuse<br/>(OS-5.1)"]
         end
 
         subgraph "External API"
-            MCP["graph_orchestrate<br/>(MCP Tool)"]
+            MCP["graph_workflows<br/>(MCP + REST twin)"]
         end
     end
 
     SKILL -->|"compile()"| SKILLCOMP
     JSON -->|"import"| STORE
-    NL -->|"compile()"| COMPILER
+    NL -->|"compile()"| COMPILER --> WORKERS
+    PROCESS -->|"compile_process"| PROCESSCOMP --> WORKERS
 
     SKILLCOMP -->|"GraphPlan"| PLANS["GraphPlans"]
     SKILLCOMP -->|"register_in_kg()"| STORE
-    COMPILER -->|"compile_and_store()"| STORE
+    WORKERS -->|"compile_and_store()<br/>ordered reads/writes"| STORE
 
     STORE -->|"save_workflow()"| KG
     KG -->|"load_workflow()"| PLANS
 
     PLANS -->|"execute()"| RUNNER
-    RUNNER -->|"wave dispatch"| AGENT
+    RUNNER -->|"manifest bridge"| PARALLEL
+    PARALLEL -->|"wave dispatch"| AGENT
+    PARALLEL -->|"coordination, workspace/memory,<br/>execution hierarchy via workers"| WORKERS
     AGENT -->|"MCP toolsets"| LLM
     RUNNER -->|"session traces"| LANGFUSE
 
@@ -106,6 +113,15 @@ agent_runner pipeline:
 4. **Langfuse Session** — Groups all traces under a single session ID
 5. **KG Provenance** — Records `RunTrace` nodes for audit
 
+All synchronous graph phases stay outside the GraphOS server event loop. Named
+workflow loads, gate checks, suspend-state persistence, and lineage close-out run
+in context-preserving workers. The `ParallelEngine` bridge applies the same rule
+to coordination-history reads, coordination trace writes, Global Workspace
+broadcast plus winner-memory reinforcement, and final execution-hierarchy
+persistence. These phases remain sequential: a cancellation is surfaced only
+after an already-started synchronous phase finishes, so no graph mutation
+continues invisibly after the caller has observed cancellation.
+
 ```python
 from agent_utilities.workflows.runner import WorkflowRunner
 
@@ -116,16 +132,19 @@ print(result.mermaid)
 ```
 
 ### MCP Surface
-**Tool**: `graph_orchestrate`
+**Tool**: `graph_workflows` (REST twin: `POST /graph/workflows`)
 
 External agents consume workflows via four new actions:
 
 | Action | Description |
 |--------|-------------|
-| `compile_workflow` | NL → GraphPlan → KG persistence |
-| `list_workflows` | List stored workflow definitions |
-| `execute_workflow` | Load and run a stored workflow. Supports `completion_state` and `max_fan_out` for dynamic adversarial execution loops. |
-| `export_workflow` | Export a workflow as JSON |
+| `compile` | NL → GraphPlan → KG persistence |
+| `compile_process` | BusinessProcess graph → GraphPlan → KG persistence + `REALIZES` lineage |
+| `list` | List stored workflow definitions |
+| `execute` | Load and run a stored workflow through `WorkflowRunner` |
+| `execute_dynamic` | Run the governed upstream Harness `DynamicWorkflow` path |
+| `dispatch` / `status` | Start and inspect an asynchronous stored-workflow run |
+| `export` | Export a workflow as BPMN, JSON, or skill |
 
 ### Dynamic Workflow Execution
 

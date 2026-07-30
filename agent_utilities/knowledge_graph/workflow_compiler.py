@@ -69,6 +69,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.graph import ExecutionStep, GraphPlan
 
 if TYPE_CHECKING:
@@ -201,15 +202,23 @@ class WorkflowCompiler:
             is_parallel = raw.get("is_parallel", False)
 
             # Find the best matching agent/tool from KG
-            agent_id, tools = self._match_agent(step_text, domain)
+            # Agent matching includes synchronous native/backend reads and a
+            # bounded embedding call.  Keep that work off GraphOS's shared
+            # server loop while preserving the request's GraphSession and
+            # ActorContext in the worker.
+            agent_id, tools = await run_blocking_ordered(
+                self._match_agent, step_text, domain
+            )
 
             # Build dependencies
             depends_on = []
             if not is_parallel and i > 0:
                 # Sequential: depends on previous step
-                prev_step = raw_steps[i - 1]
-                prev_agent, _ = self._match_agent(prev_step["text"], domain)
-                depends_on = [prev_agent]
+                # The predecessor was resolved in the prior iteration. Reuse
+                # that exact result rather than issuing a second graph lookup;
+                # this also makes one compilation deterministic when the
+                # capability catalog changes concurrently.
+                depends_on = [matched_steps[-1].id]
 
             step = ExecutionStep(
                 id=agent_id,
@@ -257,7 +266,8 @@ class WorkflowCompiler:
             The stored workflow definition ID in the KG.
         """
         plan = await self.compile(description, domain)
-        workflow_id = self.store.save_workflow(
+        workflow_id = await run_blocking_ordered(
+            self.store.save_workflow,
             name=name,
             plan=plan,
             description=description,

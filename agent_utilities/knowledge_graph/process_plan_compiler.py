@@ -68,6 +68,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.graph import ExecutionStep, GraphPlan
 
 if TYPE_CHECKING:
@@ -315,8 +316,8 @@ class ProcessPlanCompiler:
             ProcessCompilationError: missing process/structure, cycles, or
                 (with ``require_resolved``) unmatched tasks.
         """
-        process_props = self._node_props(process_id)
-        tasks, flows = self._load_process_graph(process_id)
+        process_props = await run_blocking_ordered(self._node_props, process_id)
+        tasks, flows = await run_blocking_ordered(self._load_process_graph, process_id)
         if not tasks:
             raise ProcessCompilationError(
                 f"BusinessProcess {process_id!r} has no BusinessTask structure "
@@ -339,7 +340,9 @@ class ProcessPlanCompiler:
         for tid in order:
             props = tasks[tid]
             label = str(props.get("name") or props.get("element_id") or tid)
-            agent_id, tools = self._nl_compiler._match_agent(label, domain)
+            agent_id, tools = await run_blocking_ordered(
+                self._nl_compiler._match_agent, label, domain
+            )
             element = _slug(props.get("element_id") or label)
             if agent_id == _UNMATCHED_SENTINEL and not tools:
                 unresolved.append(label)
@@ -411,6 +414,31 @@ class ProcessPlanCompiler:
         )
         return plan
 
+    def _store_plan_realization(
+        self,
+        *,
+        workflow_name: str,
+        plan: GraphPlan,
+        description: str,
+        process_id: str,
+        domain: str,
+    ) -> str:
+        """Persist the workflow before its REALIZES edge, as one ordered phase."""
+        workflow_id = self.store.save_workflow(
+            name=workflow_name,
+            plan=plan,
+            description=description,
+            metadata={
+                "source": "process_plan_compiler",
+                "process_id": process_id,
+                "domain": domain,
+            },
+        )
+        # Fail closed in the original order: the descriptive-process edge is
+        # attempted only after the workflow definition has been acknowledged.
+        self.engine.link_nodes(workflow_id, process_id, "REALIZES")
+        return workflow_id
+
     async def compile_and_store(
         self,
         process_id: str,
@@ -435,21 +463,17 @@ class ProcessPlanCompiler:
         )
         process_name = plan.metadata.get("process_name")
         workflow_name = name or f"process_{_slug(process_name or process_id)}"
-        workflow_id = self.store.save_workflow(
-            name=workflow_name,
-            plan=plan,
-            description=(
-                f"Compiled from BusinessProcess {process_id}"
-                + (f" ({process_name})" if process_name else "")
-            ),
-            metadata={
-                "source": "process_plan_compiler",
-                "process_id": process_id,
-                "domain": domain,
-            },
+        description = f"Compiled from BusinessProcess {process_id}" + (
+            f" ({process_name})" if process_name else ""
         )
-        # The bridge edge — the workflow REALIZES the descriptive process.
-        self.engine.link_nodes(workflow_id, process_id, "REALIZES")
+        workflow_id = await run_blocking_ordered(
+            self._store_plan_realization,
+            workflow_name=workflow_name,
+            plan=plan,
+            description=description,
+            process_id=process_id,
+            domain=domain,
+        )
         logger.info(
             "[ORCH-1.41] Stored workflow %s REALIZES %s", workflow_id, process_id
         )
