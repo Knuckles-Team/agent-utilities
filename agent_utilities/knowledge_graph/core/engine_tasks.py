@@ -3705,6 +3705,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                     )
                 finally:
                     self._active_work_item_claim(job_id, pop=True)
+            else:
+                # Every OTHER failure of the metadata read (a transient engine /
+                # connection error surfacing as a bare RuntimeError, say) must
+                # drop the in-memory claim too, or it strands here forever: the
+                # claim is now remembered BEFORE the read (see above), so unlike
+                # the previous ordering this except path can leak one. The
+                # native WorkItem lease still self-heals via its TTL + the
+                # expired-lease reaper; this only keeps the local bookkeeping
+                # honest so a dead claim is never mistaken for a live local
+                # reservation. The exception itself is always re-raised.
+                self._active_work_item_claim(job_id, pop=True)
             raise
         tkind = str(meta.get("type") or "document")
         if worker_id is not None:

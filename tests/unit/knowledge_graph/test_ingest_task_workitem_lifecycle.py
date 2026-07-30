@@ -186,6 +186,30 @@ def test_claim_next_task_drops_local_claim_when_materialization_defer_fails() ->
     assert harness._active_work_item_claim("job-1") is None
 
 
+def test_claim_next_task_drops_local_claim_on_a_generic_metadata_failure() -> None:
+    """Regression (wave-0 gate): the claim is now remembered BEFORE the metadata
+    read, so EVERY failure of that read has to drop it again — not just the two
+    enumerated categories (retryable PARTIAL_MATERIALIZATION and
+    WorkItemBackendUnavailable). A transient engine/connection error surfacing
+    as a bare RuntimeError previously fell through to a bare ``raise`` with the
+    in-memory claim still recorded, stranding it as a phantom live local
+    reservation. The exception must still propagate untouched."""
+    harness = Harness()
+    with (
+        patch.object(wi, "claim_next", return_value=_claim()),
+        patch.object(wi, "mark_running", return_value=True),
+        patch.object(
+            harness,
+            "_ingest_task_metadata",
+            side_effect=RuntimeError("engine connection reset"),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="engine connection reset"):
+            harness._claim_next_task()
+
+    assert harness._active_work_item_claim("job-1") is None
+
+
 @pytest.mark.parametrize(
     ("error", "recognized"),
     [
