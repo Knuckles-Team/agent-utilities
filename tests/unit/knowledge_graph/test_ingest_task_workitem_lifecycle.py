@@ -157,6 +157,35 @@ def test_claimed_metadata_read_partial_is_deferred_before_returning() -> None:
     assert harness._active_work_item_claim("job-1") is None
 
 
+def test_claim_next_task_drops_local_claim_when_materialization_defer_fails() -> None:
+    """An unexpected failure releasing the native lease must not strand the
+    in-memory claim or escape as an application error.
+
+    Mirrors ``_task_worker_loop``'s in-body materialization handling
+    (``defer_error`` branch): the native WorkItem itself self-heals via its
+    own lease TTL + the pre-existing expired-lease reaper, so this must
+    behave like a clean defer from the caller's perspective — return
+    ``None``, never raise, never leave a stale local claim behind.
+    """
+    harness = Harness()
+    partial = RuntimeError(
+        '{"code":"PARTIAL_MATERIALIZATION","phase":"partial","retryable":true}'
+    )
+    with (
+        patch.object(wi, "claim_next", return_value=_claim()),
+        patch.object(wi, "mark_running", return_value=True),
+        patch.object(harness, "_ingest_task_metadata", side_effect=partial),
+        patch.object(
+            wi, "defer_work_item", side_effect=RuntimeError("engine unavailable")
+        ) as defer,
+    ):
+        result = harness._claim_next_task()
+
+    assert result is None
+    assert defer.call_count == 1
+    assert harness._active_work_item_claim("job-1") is None
+
+
 @pytest.mark.parametrize(
     ("error", "recognized"),
     [

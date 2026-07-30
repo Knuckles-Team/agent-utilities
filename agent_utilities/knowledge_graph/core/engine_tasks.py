@@ -3676,7 +3676,22 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as exc:
             materialization = _retryable_partial_materialization(exc)
             if materialization is not None:
-                self._defer_task_for_materialization(job_id, materialization)
+                # Mirror _task_worker_loop's in-body materialization handling:
+                # an unexpected failure releasing the native lease must still
+                # drop the in-memory claim so it cannot be mistaken for a live
+                # local reservation. The native WorkItem itself self-heals via
+                # its own lease TTL + the pre-existing expired-lease reaper —
+                # never converted into an application failed/dead-letter path.
+                try:
+                    self._defer_task_for_materialization(job_id, materialization)
+                except Exception as defer_error:  # noqa: BLE001 - infrastructure transition is logged below
+                    self._active_work_item_claim(job_id, pop=True)
+                    logger.error(
+                        "TaskManager could not defer %s while the graph was "
+                        "materializing: %s",
+                        job_id,
+                        defer_error,
+                    )
                 return None
             if isinstance(exc, _wi.WorkItemBackendUnavailable):
                 try:
