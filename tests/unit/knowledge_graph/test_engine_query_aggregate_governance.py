@@ -183,7 +183,7 @@ def test_aggregate_read_is_tenant_and_owner_scope_filtered_query_side(brain):
 def test_aggregate_read_privileged_actor_gets_no_owner_scope_predicate(brain):
     backend = _Backend(rows=[{"c": 3}])
     engine = _Harness(backend=backend)
-    actor = _actor("root", roles=("admin", "kg:read"), tenant="acme")
+    actor = _actor("root", roles=("kg:admin", "kg:read"), tenant="acme")
     session = _session(actor)
 
     with use_actor(actor), use_session(session):
@@ -192,6 +192,19 @@ def test_aggregate_read_privileged_actor_gets_no_owner_scope_predicate(brain):
     sent_query, _params = backend.calls[-1]
     assert "_owner_id" not in sent_query  # no owner/scope restriction injected
     assert "tenant_id = 'acme'" in sent_query  # tenant scoping still mandatory
+
+
+def test_aggregate_read_generic_admin_remains_owner_scoped(brain):
+    backend = _Backend(rows=[{"c": 1}])
+    engine = _Harness(backend=backend)
+    actor = _actor("app-admin", roles=("admin", "kg:read"), tenant="acme")
+    session = _session(actor)
+
+    with use_actor(actor), use_session(session):
+        engine.query_cypher("MATCH (n:Doc) RETURN count(n) AS c", session=session)
+
+    sent_query, _params = backend.calls[-1]
+    assert "_owner_id = 'app-admin'" in sent_query
 
 
 # --- regression guard: the general (non-aggregate) case is unchanged --------
@@ -215,9 +228,7 @@ def test_non_aggregate_read_without_governed_id_still_denies(brain, caplog):
     ):
         engine.query_cypher("MATCH (n:Doc) RETURN n.name AS name", session=session)
 
-    assert any(
-        "governed node id" in record.getMessage() for record in caplog.records
-    )
+    assert any("governed node id" in record.getMessage() for record in caplog.records)
 
 
 def test_non_aggregate_read_respects_public_vs_restricted_acl(brain):
