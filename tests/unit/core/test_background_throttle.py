@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import json
+import os
+import stat
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
 from agent_utilities.core.background_throttle import BackgroundThrottle
+
+
+def _lease_dir(data_dir: Path) -> Path:
+    return data_dir / "runtime" / "foreground-leases"
 
 
 def test_foreground_flag_reentrant():
@@ -25,6 +35,125 @@ def test_foreground_context_manager():
     with t.foreground():
         assert t.foreground_active
     assert not t.foreground_active
+
+
+def test_foreground_lease_coordinates_independent_throttles(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
+    foreground = BackgroundThrottle(lease_scan_interval=0.0)
+    host = BackgroundThrottle(lease_scan_interval=0.0)
+
+    foreground.set_foreground(True)
+    foreground.set_foreground(True)
+    assert host.foreground_active
+    foreground.set_foreground(False)
+    assert host.foreground_active
+    with host.background_slot(wait_foreground=False) as acquired:
+        assert acquired is False
+    foreground.set_foreground(False)
+    assert not host.foreground_active
+
+
+def test_foreground_lease_coordinates_a_separate_process(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
+    root = Path(__file__).parents[3]
+    environment = os.environ | {"PYTHONPATH": str(root)}
+    program = """
+from agent_utilities.core.background_throttle import BackgroundThrottle
+import time
+t = BackgroundThrottle(lease_ttl=0.15, lease_heartbeat=0.02, lease_scan_interval=0.0)
+t.set_foreground(True)
+print('ready', flush=True)
+time.sleep(30)
+"""
+    process = subprocess.Popen(
+        [sys.executable, "-c", program],
+        env=environment,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdout is not None
+        assert process.stdout.readline().strip() == "ready"
+        host = BackgroundThrottle(lease_ttl=0.15, lease_scan_interval=0.0)
+        assert host.foreground_active
+        process.terminate()
+        process.wait(timeout=3)
+        time.sleep(0.2)
+        assert not host.foreground_active
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=3)
+
+
+def test_foreground_lease_expires_after_a_crashed_process(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
+    writer = BackgroundThrottle(
+        lease_ttl=0.12, lease_heartbeat=0.02, lease_scan_interval=0.0
+    )
+    host = BackgroundThrottle(lease_ttl=0.12, lease_scan_interval=0.0)
+
+    writer.set_foreground(True)
+    assert host.foreground_active
+    # Deliberately do not release the writer: this models a killed foreground
+    # process, whose last heartbeat must not leave the host paused forever.
+    writer._lease_stop.set()
+    time.sleep(0.16)
+    assert not host.foreground_active
+
+
+def test_foreground_lease_scan_is_bounded(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
+    throttle = BackgroundThrottle(lease_scan_interval=0.0)
+    directory = _lease_dir(tmp_path)
+    directory.mkdir(parents=True, mode=0o700)
+    for number in range(129):
+        lease = directory / f"{number:03}.json"
+        lease.write_text("{}")
+        lease.chmod(0o600)
+
+    inspected: list[Path] = []
+
+    def invalid(path: Path, now: float) -> bool:
+        del now
+        inspected.append(path)
+        return False
+
+    throttle._lease_is_valid = invalid  # type: ignore[method-assign]
+    assert not throttle.foreground_active
+    assert len(inspected) == 128
+
+
+def test_foreground_lease_is_private_and_rejects_symlink_directories(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
+    throttle = BackgroundThrottle(lease_scan_interval=0.0)
+    with throttle.foreground():
+        directory = _lease_dir(tmp_path)
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+        leases = list(directory.glob("*.json"))
+        assert len(leases) == 1
+        assert stat.S_IMODE(leases[0].stat().st_mode) == 0o600
+        record = json.loads(leases[0].read_text())
+        assert set(record) == {"version", "expires_at"}
+        assert record["version"] == 1
+        assert isinstance(record["expires_at"], float)
+
+        unsafe_record = tmp_path / "unsafe-record.json"
+        unsafe_record.write_text(json.dumps(record))
+        (directory / "untrusted.json").symlink_to(unsafe_record)
+
+    host = BackgroundThrottle(lease_scan_interval=0.0)
+    assert not host.foreground_active
+    (directory / "untrusted.json").unlink()
+
+    unsafe_root = tmp_path / "unsafe"
+    unsafe_root.mkdir()
+    runtime = tmp_path / "runtime"
+    os.rmdir(runtime / "foreground-leases")
+    (runtime / "foreground-leases").symlink_to(unsafe_root, target_is_directory=True)
+    throttle = BackgroundThrottle(lease_scan_interval=0.0)
+    with throttle.foreground():
+        assert not list(unsafe_root.iterdir())
 
 
 def test_background_slot_skips_when_foreground_and_no_wait():
