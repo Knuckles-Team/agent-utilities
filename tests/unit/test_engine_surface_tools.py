@@ -19,6 +19,8 @@ import pytest
 from agent_utilities.kvcache.remote_backend import KvCacheStats
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import engine_surface_tools
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
 class _CollectingMCP:
@@ -665,6 +667,58 @@ def test_graph_mine_event_projection_writeback_fails_closed(tools):
     )
     assert out["code"] == "lineage_required"
     assert "writeback is disabled" in out["error"]
+
+
+def test_graph_mine_ocel_validate_live_path_uses_the_registered_process_tool(tools):
+    """The existing MCP/REST process surface reaches the governed OCEL seam."""
+    ocel = {
+        "eventTypes": [{"name": "create", "attributes": []}],
+        "objectTypes": [{"name": "Order", "attributes": []}],
+        "events": [
+            {
+                "id": "e1",
+                "type": "create",
+                "time": "2026-01-01T00:00:00Z",
+                "attributes": [],
+                "relationships": [{"objectId": "order-1", "qualifier": "order"}],
+            }
+        ],
+        "objects": [
+            {
+                "id": "order-1",
+                "type": "Order",
+                "attributes": [],
+                "relationships": [],
+            }
+        ],
+    }
+
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "ocel_json": ocel,
+                        "tenant": "tenant-a",
+                        "ocel_mode": "validate",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    assert set(out["ocel"]) == {"eventTypes", "objectTypes", "events", "objects"}
+    assert out["tekg"]["tenant"] == "tenant-a"
+    assert len(out["tekg"]["idempotency_key"]) == 64
+    assert kg_server.ACTION_TOOL_ROUTES.get("graph_mine") == "/mining/associate"
 
 
 def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):

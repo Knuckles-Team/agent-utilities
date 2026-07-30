@@ -152,18 +152,18 @@ def test_hydrate_twenty(mock_engine):
 @patch.dict(
     os.environ,
     {
-        "SERVICENOW_URL": "https://servicenow.example.com",
-        "SERVICENOW_USER": "admin",
+        "SERVICENOW_INSTANCE": "https://servicenow.example.com",
+        "SERVICENOW_USERNAME": "admin",
         "SERVICENOW_PASSWORD": "password",
     },
 )
 def test_hydrate_servicenow(mock_engine):
-    """ServiceNow hydration is converged onto the materialize path (one read impl)."""
-    import agent_utilities.knowledge_graph.enrichment.materialize as mat
+    """ServiceNow hydration delegates to the manifest-gated source-sync path."""
+    import agent_utilities.knowledge_graph.core.source_sync as source_sync
 
     with patch.object(
-        mat,
-        "run_materialize_source",
+        source_sync,
+        "sync_source",
         return_value={"status": "materialized", "source": "servicenow", "nodes": 3},
     ) as mock_run:
         res = HydrationManager().hydrate_source(mock_engine, "servicenow")
@@ -171,6 +171,21 @@ def test_hydrate_servicenow(mock_engine):
     assert res["status"] == "materialized"
     assert res["nodes"] == 3
     assert mock_run.call_args[0][1] == "servicenow"
+
+
+def test_servicenow_status_uses_provider_runtime_aliases(monkeypatch):
+    """Readiness must reflect the auth aliases accepted by servicenow-api."""
+    monkeypatch.delenv("SERVICENOW_URL", raising=False)
+    monkeypatch.setenv("SERVICENOW_INSTANCE", "https://servicenow.example.com")
+    monkeypatch.setenv("SERVICENOW_USERNAME", "service-account")
+    monkeypatch.setenv("SERVICENOW_PASSWORD", "test-password")
+
+    status = HydrationManager().get_status()["servicenow"]
+
+    assert status == {
+        "configured": True,
+        "url": "https://servicenow.example.com",
+    }
 
 
 # ``jira``/``plane`` are no longer generic ``HydrationManager`` sources: they

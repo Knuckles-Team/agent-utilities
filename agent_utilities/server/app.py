@@ -750,9 +750,6 @@ def build_agent_app(
                     write_workspace_file,
                 )
 
-                _provider_ui = provider or setting("PROVIDER") or "openai"
-                _model_id_ui = model_id or setting("MODEL_ID") or "google/gemma-4-31b"
-
                 def _graph_native_list_skills():
                     from ..knowledge_graph.core.engine import (
                         IntelligenceGraphEngine,
@@ -820,11 +817,14 @@ def build_agent_app(
                     ),
                 }
 
+                # Pydantic AI always includes the Agent's configured model.
+                # Passing the same model again as a provider string would create
+                # a second provider client and bypass this Agent's already-bound
+                # credentials/model wrapper during WebUI startup.
                 web_app = create_agent_web_app(
                     _agent_instance,
                     workspace_helpers=helpers,
                     html_source=html_source,
-                    models={_model_id_ui: f"{_provider_ui}:{_model_id_ui}"},
                 )
 
                 web_app.state.reload_app = None

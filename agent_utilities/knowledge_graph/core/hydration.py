@@ -144,9 +144,9 @@ class HydrationManager:
             },
             "servicenow": {
                 "configured": bool(
-                    setting("SERVICENOW_USER") and setting("SERVICENOW_PASSWORD")
+                    setting("SERVICENOW_USERNAME") and setting("SERVICENOW_PASSWORD")
                 ),
-                "url": setting("SERVICENOW_URL", ""),
+                "url": setting("SERVICENOW_URL") or setting("SERVICENOW_INSTANCE", ""),
             },
             "erpnext": {
                 "configured": bool(setting("ERPNEXT_TOKEN")),
