@@ -375,6 +375,37 @@ def test_materialization_gate_resolves_high_level_engine_authority() -> None:
     native.client.tenants.list.assert_not_called()
 
 
+def test_materialization_gate_probes_when_rls_hides_manifest() -> None:
+    from agent_utilities.mcp import kg_server
+
+    engine = SimpleNamespace(
+        graph_name="__secrets__",
+        client=SimpleNamespace(tenants=SimpleNamespace(list=MagicMock(return_value=[]))),
+        query_cypher=MagicMock(
+            side_effect=[
+                RuntimeError('{"code":"PARTIAL_MATERIALIZATION"}'),
+                RuntimeError('{"code":"PARTIAL_MATERIALIZATION"}'),
+                [],
+            ]
+        ),
+    )
+
+    report = kg_server._wait_for_engine_materialization(
+        engine,
+        timeout_seconds=1.0,
+        poll_seconds=0.0,
+    )
+
+    assert report == {
+        "graph": "__secrets__",
+        "materialization": "complete",
+        "valid": True,
+        "manifest_visible": False,
+    }
+    assert engine.client.tenants.list.call_count == 1
+    assert engine.query_cypher.call_count == 3
+
+
 def test_materialization_gate_preserves_nonpartial_engine_error() -> None:
     from agent_utilities.mcp import kg_server
 

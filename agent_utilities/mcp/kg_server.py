@@ -3268,17 +3268,21 @@ def _wait_for_engine_materialization(
     )
     deadline = time.monotonic() + max(0.0, timeout_seconds)
     last_progress: tuple[str, int | None, int | None] | None = None
+    manifest_visible: bool | None = None
     while True:
-        entries = list_graphs() or []
-        entry = next(
-            (
-                value
-                for value in entries
-                if (value.get("name") if isinstance(value, dict) else None)
-                == graph_name
-            ),
-            None,
-        )
+        entry = None
+        if manifest_visible is not False:
+            entries = list_graphs() or []
+            entry = next(
+                (
+                    value
+                    for value in entries
+                    if (value.get("name") if isinstance(value, dict) else None)
+                    == graph_name
+                ),
+                None,
+            )
+            manifest_visible = isinstance(entry, dict)
         if isinstance(entry, dict):
             phase = str(entry.get("materialization") or "unknown")
             valid = entry.get("valid") is True
@@ -3314,6 +3318,35 @@ def _wait_for_engine_materialization(
                     "epistemic graph materialization failed "
                     f"(graph={graph_name!r}, cursor={cursor!r})"
                 )
+        else:
+            # RLS may intentionally hide a protected graph (for example
+            # ``__secrets__``) from the catalog while still authorizing this
+            # process-scoped graph view.  In that case the same bounded read
+            # that triggered materialization is the authoritative completion
+            # probe.  Do not weaken catalog RLS merely to make boot observable.
+            try:
+                query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
+            except Exception as exc:
+                detail = str(exc)
+                if "PARTIAL_MATERIALIZATION" not in detail:
+                    if "not found" in detail.lower():
+                        return {
+                            "graph": graph_name,
+                            "materialization": "absent",
+                        }
+                    raise
+            else:
+                logger.info(
+                    "Epistemic graph materialization ready via authorized "
+                    "read probe (graph=%s; catalog manifest hidden)",
+                    graph_name,
+                )
+                return {
+                    "graph": graph_name,
+                    "materialization": "complete",
+                    "valid": True,
+                    "manifest_visible": False,
+                }
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 "epistemic graph did not become completely materialized before "
