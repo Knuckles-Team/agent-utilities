@@ -23,8 +23,9 @@ the existing tenant ``scope()`` predicate):
 * ``unowned``  — ``n._owner_id IS NULL``  (legacy/system data, never hidden)
 * ``commons``  — anything in the commons graph (separate graph, read-union)
 
-Verified actors carrying ``admin`` are unrestricted by owner/scope visibility;
-tenant and ACL boundaries still apply.
+Verified actors carrying the explicit ``kg:admin`` capability are unrestricted
+by owner/scope visibility; tenant and ACL boundaries still apply. A generic
+application role named ``admin`` is not graph authority.
 """
 
 from __future__ import annotations
@@ -71,8 +72,10 @@ SCOPE_ORG = "org"
 SCOPE_COMMONS = "commons"
 
 # Roles that bypass owner/scope visibility (mirror permissioning._PRIVILEGED_ROLES
-# so the two layers agree on "privileged").
-_PRIVILEGED_ROLES: frozenset[str] = frozenset({"admin"})
+# and request_identity._GRAPH_AUTH_SCOPES so every graph layer agrees on the one
+# explicit administrative capability). A generic application ``admin`` role is
+# deliberately not equivalent to graph administration.
+_PRIVILEGED_ROLES: frozenset[str] = frozenset({"kg:admin"})
 
 # Cypher-literal safety: ids come from JWT claims and must never break out of the
 # quoted predicate. Same character class the KG-2.6 tenant scoper accepts.
@@ -92,7 +95,7 @@ def _require_actor(actor: ActorContext | None) -> ActorContext:
 
 
 def is_privileged(actor: ActorContext | None = None) -> bool:
-    """True when a verified ``actor`` holds the admin role."""
+    """True when a verified ``actor`` holds explicit graph administration."""
     actor = _require_actor(actor)
     return actor.authenticated and bool(_PRIVILEGED_ROLES.intersection(actor.roles))
 
