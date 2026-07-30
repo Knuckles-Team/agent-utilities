@@ -788,6 +788,40 @@ class TelemetryEngine:
                 "TelemetryEngine: context-compiler span annotation failed: %s", e
             )
 
+    def annotate_grounding(self, *, status: str, reason: str = "") -> None:
+        """Stamp the mandatory evidence-compilation grounding outcome onto the
+        CURRENT OTel span.
+
+        CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — the answer-path
+        counterpart of :meth:`annotate_epistemic`/:meth:`annotate_context_compiler`:
+        same "widen the ambient current span, never open one of our own" shape,
+        same default-on-wherever-tracing-is-on / clean-no-op-otherwise posture.
+        Called from ``core.contextual_model``'s model-transport wrapper on every
+        model call so a compile timeout, a compile error, an open circuit breaker,
+        or a retrieval-quality-gate failure is queryable on the run's trace waterfall
+        after the fact — not just visible as a transient log line.
+
+        Args:
+            status: ``"compiled"`` (genuine governed evidence reached the model),
+                ``"bound_tool"`` (trusted bound-tool-result grounding, no retrieval),
+                or ``"degraded"``/``"none"`` (no usable evidence; the caller's
+                grounding policy allowed the request to proceed anyway).
+            reason: Present only for a degraded/none status — e.g. ``"timeout"``,
+                ``"error:<ExceptionType>"``, ``"circuit_breaker_open"``, or
+                ``"quality_gate:<failure_mode>"``.
+        """
+        try:
+            from opentelemetry import trace as otel_trace
+
+            span = otel_trace.get_current_span()
+            if span is None or not span.is_recording():
+                return
+            span.set_attribute("grounding.status", str(status))
+            if reason:
+                span.set_attribute("grounding.reason", str(reason))
+        except Exception as e:  # noqa: BLE001 — tracing must never break a model call
+            logger.debug("TelemetryEngine: grounding span annotation failed: %s", e)
+
     def is_otel_configured(self) -> bool:
         """Whether :meth:`_setup_otel` configured a REAL TracerProvider/MeterProvider.
 
