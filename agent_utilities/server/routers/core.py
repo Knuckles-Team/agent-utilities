@@ -34,30 +34,23 @@ async def list_configured_models(request: Request) -> dict[str, Any]:
 
 @router.get("/health", summary="Health Check")
 async def health_check(request: Request):
-    """LIVENESS: always 200 — this process is up and answering.
+    """LIVENESS: dependency-free, status-only, and always HTTP 200.
 
-    The JSON body carries the ONE truthful, shared health report (real engine
-    reachability + circuit-breaker state, plus every configured co-service/
-    dependency) from :func:`~agent_utilities.observability.runtime_health.collect_health`
-    — the SAME core the graph-os MCP server's ``/health`` and
-    ``graph_configure(action="health")`` dispatch into. A downstream
-    dependency being down never flips this endpoint's HTTP status: killing/
-    restarting this process over a dependency outage would only crash-loop a
-    fine process. Use ``GET /health/ready`` for the readiness signal that DOES
-    flip status code (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
+    Detailed component health remains behind authenticated dashboard and
+    ``graph_configure(action="health")`` surfaces. Use ``GET /health/ready``
+    for the bounded readiness signal
+    (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
     """
-    from agent_utilities.observability.runtime_health import collect_health_async
-
-    report = await collect_health_async()
-    return JSONResponse(report, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"status": "ok"}, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/health/ready", summary="Readiness Check")
 async def readiness_check(request: Request):
-    """READINESS: the same health report, with HTTP 200/503 reflecting it.
+    """READINESS: HTTP 200/503 with a non-fingerprinting status-only body.
 
     kubelet uses this to stop routing traffic to a genuinely unhealthy pod
-    without restarting the process (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
+    without restarting the process. Detailed checks remain authenticated
+    (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
     """
     from agent_utilities.observability.runtime_health import (
         collect_health_async,
@@ -65,9 +58,11 @@ async def readiness_check(request: Request):
     )
 
     report = await collect_health_async()
-    status_code = 200 if is_overall_healthy(report) else 503
+    ready = is_overall_healthy(report)
     return JSONResponse(
-        report, status_code=status_code, headers={"Cache-Control": "no-store"}
+        {"status": "ready" if ready else "not_ready"},
+        status_code=200 if ready else 503,
+        headers={"Cache-Control": "no-store"},
     )
 
 

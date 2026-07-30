@@ -27,19 +27,22 @@ How MCP services and deployed workloads expose bounded operational signals.
 
 ## Reserved health control lane
 
-GraphOS and REST liveness/readiness routes share one asynchronous adapter,
+GraphOS and REST `/health` routes are dependency-free status-only liveness
+signals. Their `/health/ready` twins and the authenticated dashboard use
 `observability.runtime_health.collect_health_async()`. It submits the synchronous,
 truthful `collect_health()` core to a dedicated two-thread collector executor,
 never asyncio's process-wide default executor. Native engine backups, connector
 calls, and agent orchestration can saturate general blocking workers without
-delaying kubelet's liveness request. The inner probe pool remains separately
-bounded, and readiness still reflects engine reachability rather than merely
-keeping the process alive.
+delaying kubelet. The inner probe pool remains separately bounded. Unauthenticated
+readiness exposes only `ready`/`not_ready`; component detail remains behind the
+authenticated health action and dashboard.
 
 ```mermaid
 flowchart LR
-    MCP["GraphOS /health<br/>/health/ready"] --> A["collect_health_async()"]
-    REST["REST /health<br/>/health/ready<br/>dashboard /health"] --> A
+    MCP_L["GraphOS /health"] --> L["status-only liveness"]
+    REST_L["REST /health"] --> L
+    MCP["GraphOS /health/ready"] --> A["collect_health_async()"]
+    REST["REST /health/ready<br/>authenticated dashboard /health"] --> A
     A --> C["reserved collector executor<br/>2 workers"]
     C --> H["collect_health()<br/>one truthful report"]
     H --> P["bounded health-probe pool"]
