@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1041
+total_concepts: 1045
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -281,6 +281,13 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/code_context.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: via
+- id: AU-AHE.evaluation.reasoning-topology-benchmark
+  name: AU-AHE.evaluation.reasoning-topology-benchmark
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/graph/reasoning/benchmark.py
+  doc: AU-AHE.evaluation.reasoning-topology-benchmark
 - id: AU-AHE.harness.agentic-engineering-patterns
   name: Agentic Engineering Patterns
   pillar: AU-AHE
@@ -7177,6 +7184,29 @@ concepts:
   code_paths:
   - agent_utilities/graph/hierarchical_planner.py
   doc: Planner Step
+- id: AU-ORCH.planning.rap-mcts-backpropagation
+  name: AU-ORCH.planning.rap-mcts-backpropagation
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/graph/reasoning/rap.py
+  doc: AU-ORCH.planning.rap-mcts-backpropagation
+- id: AU-ORCH.planning.reasoning-graph-topologies
+  name: reasoning algorithms as versioned graph topologies
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/graph/reasoning/__init__.py
+  - agent_utilities/graph/reasoning/budgets.py
+  - agent_utilities/graph/reasoning/cot.py
+  - agent_utilities/graph/reasoning/got.py
+  - agent_utilities/graph/reasoning/rap.py
+  - agent_utilities/graph/reasoning/react.py
+  - agent_utilities/graph/reasoning/state.py
+  - agent_utilities/graph/reasoning/topology.py
+  - agent_utilities/graph/reasoning/tot.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: reasoning algorithms as versioned graph topologies
 - id: AU-ORCH.planning.recursion-nesting-depth
   name: Current nesting depth for recursive graph orchestration
   pillar: AU-ORCH
@@ -7466,6 +7496,13 @@ concepts:
   code_paths:
   - agent_utilities/graph/adaptive_agent_router.py
   doc: Topological Routing
+- id: AU-ORCH.routing.topology-escalation-policy
+  name: AU-ORCH.routing.topology-escalation-policy
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/graph/reasoning/policy.py
+  doc: AU-ORCH.routing.topology-escalation-policy
 - id: AU-ORCH.routing.transition-state-checkpoint
   name: subtask-spec + wide-search instructions — owned by
   pillar: AU-ORCH

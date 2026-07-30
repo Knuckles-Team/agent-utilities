@@ -72,6 +72,11 @@ class RegistryNodeType(StrEnum):
     # (CONCEPT:AU-AHE.harness.unified-promotion-gate, Wave-6 D4) — so the evolution
     # matrix finally sees the spec/develop vector, not just skill/prompt.
     SPEC_VERSION = "spec_version"
+    # A versioned, content-addressed reasoning-graph topology resource (CoT/ToT/GoT/
+    # ReAct/RAP; CONCEPT:AU-ORCH.planning.reasoning-graph-topologies) — same
+    # content-addressed-artifact contract as SKILL_VERSION/SPEC_VERSION, applied to a
+    # reasoning topology instead of a skill/spec.
+    REASONING_TOPOLOGY_VERSION = "reasoning_topology_version"
     ENTITY = "entity"
     EVENT = "event"
     REFLECTION = "reflection"
@@ -1652,6 +1657,33 @@ class SpecVersionNode(ArtifactVersionNode):
     spec_id: str = ""  # the originating :SpecProposal id
     branch_ref: str = ""  # opaque, redacted reference to the published branch
     commit_ref: str = ""  # opaque, redacted reference to the published commit
+
+
+class ReasoningTopologyVersionNode(ArtifactVersionNode):
+    """A versioned, content-addressed reasoning-graph topology resource.
+
+    CONCEPT:AU-ORCH.planning.reasoning-graph-topologies — ports "Graph Engineering:
+    A Unified Framework for Language Agent System Design" (arXiv:2505.24354): CoT /
+    self-consistent CoT / ToT / GoT / ReAct / RAP are graph topologies (node
+    contracts + edge/routing functions) over one shared state, not separate
+    frameworks. Mirrors :class:`SkillVersionNode`/:class:`SpecVersionNode`'s exact
+    content-addressed-lineage contract (``version_hash`` = the topology digest,
+    inherited ``status``/``origin``/``reward``/``task_count``/``notes``) so a
+    topology is graph-addressable and versioned exactly like a skill or a spec —
+    the reward is a held-out :mod:`agent_utilities.graph.reasoning.benchmark` score,
+    not a hand-picked constant.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.REASONING_TOPOLOGY_VERSION
+    version_hash: str = ""  # the TopologySpec.digest
+    node_contracts: list[str] = Field(default_factory=list)  # NodeKind names emitted
+    loop_budget: int = 0
+    tool_budget: int = 0
+    token_budget: int | None = None
+    cost_budget_usd: float | None = None
+    time_budget_s: float | None = None
+    termination_conditions: list[str] = Field(default_factory=list)
+    checkpoint_semantics: str = ""
 
 
 class EntityNode(RegistryNode):
