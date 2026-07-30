@@ -7192,7 +7192,7 @@ concepts:
   - agent_utilities/graph/reasoning/rap.py
   doc: AU-ORCH.planning.rap-mcts-backpropagation
 - id: AU-ORCH.planning.reasoning-graph-topologies
-  name: design note — see
+  name: reasoning algorithms as versioned graph topologies
   pillar: AU-ORCH
   status: live
   code_paths:
@@ -7206,7 +7206,7 @@ concepts:
   - agent_utilities/graph/reasoning/topology.py
   - agent_utilities/graph/reasoning/tot.py
   - agent_utilities/models/knowledge_graph.py
-  doc: design note — see
+  doc: reasoning algorithms as versioned graph topologies
 - id: AU-ORCH.planning.recursion-nesting-depth
   name: Current nesting depth for recursive graph orchestration
   pillar: AU-ORCH

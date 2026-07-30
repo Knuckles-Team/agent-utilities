@@ -3,7 +3,8 @@ from __future__ import annotations
 
 """Reasoning algorithms as versioned graph topologies.
 
-CONCEPT:AU-ORCH.planning.reasoning-graph-topologies — ports "Graph Engineering: A
+CONCEPT:AU-ORCH.planning.reasoning-graph-topologies — reasoning algorithms as versioned graph topologies
+Ports "Graph Engineering: A
 Unified Framework for Language Agent System Design" (arXiv:2505.24354): CoT,
 self-consistent CoT, ToT (BFS/DFS), GoT, ReAct, and RAP are not different agent
 frameworks — they are different **graph topologies** (a fixed set of node
@@ -17,7 +18,7 @@ supplied by the caller), so every topology is unit-testable with no LLM and no
 network, matching this repo's existing convention
 (:mod:`agent_utilities.harness.graph_search_evolution`).
 
-Survey (CONCEPT:AU-ORCH.planning.reasoning-graph-topologies design note — see
+Survey (design note for the concept above — see
 ``reports/deferred/lane-4.3.md`` for the full account): before this package
 existed, none of the six topologies existed as a named, reusable graph-topology
 resource. The closest prior art:
