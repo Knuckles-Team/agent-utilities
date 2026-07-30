@@ -2520,6 +2520,17 @@ def register_analysis_tools(mcp):
                 "Pydantic-validated JSON object."
             ),
         ),
+        grounding: Literal["required", "best_effort", "none"] = Field(
+            default="required",
+            description=(
+                "CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — required (the "
+                "default) fails this run closed if the mandatory evidence compilation "
+                "times out, errors, or the retrieval-quality gate rejects every "
+                "candidate, rather than silently answering ungrounded. best_effort/none "
+                "explicitly opt into degraded operation, marked in the model messages, "
+                "the RunTrace, and the OTel span, and never counted as a plain success."
+            ),
+        ),
     ) -> str:
         """Resolve and execute one governed local-vLLM delegation."""
         response_format = validate_response_format(response_format)
@@ -2577,6 +2588,7 @@ def register_analysis_tools(mcp):
                 reasoning_effort=reasoning_effort or None,
                 model_class=model_class,
                 response_format=response_format,
+                grounding=grounding,
             )
             payload.setdefault("output", "")
             payload.setdefault("mermaid", None)

@@ -436,6 +436,7 @@ class Orchestrator:
         skill_name: str | None = None,
         tool_server: str | None = None,
         execution_mode: ExecutionMode = "auto",
+        grounding: str = "required",
     ) -> str:
         """Execute a single agent against a task.
 
@@ -459,6 +460,12 @@ class Orchestrator:
         stream so a long delegation is transparent step-by-step. Default ``None`` is a strict
         no-op (the run is byte-for-byte unchanged); every emission is fire-and-forget and
         exception-isolated, so a slow/failing sink can never stall or fail the run.
+        CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — ``grounding`` scopes the
+        mandatory evidence-compilation policy for every model call this run makes
+        (``"required"`` — the default — fails the run closed on a compile timeout/error
+        or a retrieval-quality-gate failure rather than silently answering ungrounded;
+        ``"best_effort"``/``"none"`` opt into degraded operation, marked explicitly in
+        the model messages, the RunTrace, and the OTel span).
         """
         response_format = validate_response_format(response_format)
         execution_mode = validate_execution_mode(execution_mode)
@@ -486,7 +493,9 @@ class Orchestrator:
             if current_priority() is PriorityClass.BACKGROUND_INGESTION
             else PriorityClass.ORCHESTRATION
         )
-        with priority_scope(_delegation_prio):
+        from agent_utilities.core.contextual_model import use_grounding_policy
+
+        with priority_scope(_delegation_prio), use_grounding_policy(grounding):
             result = await run_agent(
                 agent_name=agent_name,
                 task=task,
@@ -688,8 +697,16 @@ class Orchestrator:
         reasoning_effort: str | None = None,
         model_class: str = "standard",
         response_format: ResponseFormat = "text",
+        grounding: str = "required",
     ) -> dict[str, Any]:
-        """Resolve and execute one task through the bounded GraphOS skill gateway."""
+        """Resolve and execute one task through the bounded GraphOS skill gateway.
+
+        ``grounding`` forwards to :meth:`execute_agent` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract)
+        for the ``agent``/``skill`` resolution path; a resolved ``workflow`` runs
+        through :meth:`execute_workflow` instead, which is unaffected (each step's own
+        model call still defaults to ``"required"`` — the process-wide default — since
+        no scope is opened for it here).
+        """
         execution_mode = validate_execution_mode(execution_mode)
         allowed_tools, required_tools = validate_tool_contract(
             allowed_tools, required_tools
@@ -776,6 +793,7 @@ class Orchestrator:
             model_class=model_class,
             response_format=response_format,
             include_run_summary=True,
+            grounding=grounding,
         )
         try:
             payload = json.loads(raw)
