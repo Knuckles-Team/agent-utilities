@@ -835,6 +835,61 @@ async def test_per_session_disclosure_isolation(tmp_path):
     assert {"find_tools", "load_tools"} <= b_tools
 
 
+async def test_one_shot_tool_call_prunes_session_visibility_state(tmp_path):
+    """Auto-unload must leave no process-global key after the one-shot call."""
+    from fastmcp import Client, FastMCP
+
+    mux = MCPMultiplexer(tmp_path / "mcp_config.json")
+    mcp = FastMCP("test-mux")
+
+    @mcp.tool()
+    async def graph_jobs() -> str:
+        return "ok"
+
+    mux._local_gated = {"graph_jobs"}
+    _register_meta_tools(mcp, mux)
+    mux._global_visible = {
+        "find_tools",
+        "list_catalog",
+        "load_tools",
+        "unload_tools",
+        "multiplexer_status",
+    }
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "load_tools",
+            {"tools": ["graph_jobs"], "auto_unload": True},
+        )
+        assert len(mux._session_loaded) == 1
+        assert len(mux._auto_unload) == 1
+        await client.call_tool("graph_jobs", {})
+
+    assert mux._session_loaded == {}
+    assert mux._auto_unload == {}
+
+
+async def test_explicit_unload_prunes_session_visibility_state(tmp_path):
+    """List-only one-shot sessions retract visibility before termination."""
+    from fastmcp import Client, FastMCP
+
+    mux = MCPMultiplexer(tmp_path / "mcp_config.json")
+    mcp = FastMCP("test-mux")
+    mux._local_gated = {"graph_jobs"}
+    _register_meta_tools(mcp, mux)
+
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "load_tools",
+            {"tools": ["graph_jobs"], "auto_unload": True},
+        )
+        await client.call_tool("unload_tools", {"tools": ["graph_jobs"]})
+
+    assert mux._session_loaded == {}
+    assert mux._auto_unload == {}
+
+
 async def test_find_tools_meta_returns_structured(tmp_path):
     from fastmcp import FastMCP
 

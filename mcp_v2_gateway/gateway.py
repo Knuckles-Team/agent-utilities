@@ -181,12 +181,12 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
             )
             if initialized.status_code != 200:
                 raise GatewayProtocolError(-32001, "Downstream authorization failed")
-            _parse_downstream_payload(initialized, expected_id=initialize_id)
             session_id = initialized.headers.get("mcp-session-id")
             if not session_id:
                 raise GatewayProtocolError(-32603, "Downstream MCP session unavailable")
             headers["Mcp-Session-Id"] = session_id
             try:
+                _parse_downstream_payload(initialized, expected_id=initialize_id)
                 acknowledged = await client.post(
                     self._url,
                     headers=headers,
@@ -212,7 +212,10 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
                         "tools/call",
                         {
                             "name": "load_tools",
-                            "arguments": {"tools": ["graph_jobs"]},
+                            "arguments": {
+                                "tools": ["graph_jobs"],
+                                "auto_unload": True,
+                            },
                         },
                     )
                     activated_tools = await self._post_request(
@@ -226,8 +229,27 @@ class StreamableHTTPGraphOSClient(GraphOSClient):
                         return activated_tools
                 return await self._post_request(client, headers, method, params)
             finally:
+                if activate_graph_jobs:
+                    try:
+                        await self._post_request(
+                            client,
+                            headers,
+                            "tools/call",
+                            {
+                                "name": "unload_tools",
+                                "arguments": {"tools": ["graph_jobs"]},
+                            },
+                        )
+                    except (GatewayProtocolError, httpx.HTTPError):
+                        # Retraction is idempotent and best-effort; DELETE still
+                        # terminates the short-lived downstream session.
+                        _LOGGER.warning(
+                            "Downstream MCP session visibility cleanup failed"
+                        )
                 try:
-                    await client.delete(self._url, headers=headers)
+                    terminated = await client.delete(self._url, headers=headers)
+                    if not 200 <= terminated.status_code < 300:
+                        _LOGGER.warning("Downstream MCP session cleanup failed")
                 except httpx.HTTPError:
                     # Cleanup is best-effort after a session has been established.
                     _LOGGER.warning("Downstream MCP session cleanup failed")

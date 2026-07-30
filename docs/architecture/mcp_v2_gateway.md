@@ -43,11 +43,26 @@ client-to-server notification methods. `tools/list` always returns the required
 `cacheScope: private`; malformed `x-mcp-header` tool definitions are excluded.
 
 The downstream compatibility client performs the older initialize/initialized
-sequence, scopes the legacy session to one public request, matches the final
-JSON-RPC response by id even when progress notifications precede it over SSE,
-and then closes the session. Deploy it in the same pod/process network and use
-`http://127.0.0.1` for GraphOS, or use an authenticated HTTPS GraphOS endpoint.
-Plaintext non-loopback downstream URLs fail closed.
+sequence and matches the final JSON-RPC response by id even when progress
+notifications precede it over SSE. Each downstream catalog lookup, tool call, or
+status poll owns a fresh legacy session; a single public request can therefore use
+more than one. A normal tool call uses a catalog session and a call session. A
+Tasks dispatch uses a catalog session, a dispatch session, and a status-poll
+session.
+
+Any session that needs `graph_jobs` first lists the default surface, invokes
+`load_tools` with `auto_unload: true`, and confirms `graph_jobs` in a second
+`tools/list` on that same session. Missing activation or confirmation fails
+closed. A successful tool call auto-retracts its visibility; every list, call,
+failure, and poll path also attempts an idempotent `unload_tools` before DELETE.
+GraphOS prunes empty `_session_loaded` and `_auto_unload` entries, preventing
+concurrent gateway sessions from sharing or accumulating visibility state.
+Authorization, parameter/tenant headers, and trace context remain unchanged
+through initialize, activation, confirmation, call or poll, unload, and DELETE.
+
+Deploy the gateway in the same pod/process network and use `http://127.0.0.1`
+for GraphOS, or use an authenticated HTTPS GraphOS endpoint. Plaintext
+non-loopback downstream URLs fail closed.
 
 ## Tasks extension
 

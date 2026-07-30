@@ -106,25 +106,32 @@ available through `graph_jobs` and `/api/graph/jobs`; full Tasks support require
 the governed MCP SDK v2 migration or a tested dual-stack protocol adapter.
 
 The tested MCP v2 gateway is that dual-stack adapter. Its public requests remain
-stateless, but each request owns one short-lived legacy GraphOS MCP session. Before
-it advertises Tasks or calls `graph_jobs`, it activates exactly that gated tool with
-`load_tools(tools=["graph_jobs"])` and confirms it in a second `tools/list` on the
-same session. A failed activation or confirmation fails closed: Tasks are not
-advertised and the tool is not called. Authorization, tenant parameters, and trace
-headers are forwarded to every step; the legacy session is then closed.
+stateless, and each downstream operation uses a fresh short-lived legacy GraphOS
+MCP session. Discovery and listing use one downstream session. A normal tool call
+uses one session for its authorization-filtered catalog and another for the call.
+A durable dispatch uses three: catalog, dispatch, and the status poll that verifies
+the WorkItem before returning its task handle.
+
+Every session that advertises or calls `graph_jobs` activates exactly that gated
+tool with `load_tools(tools=["graph_jobs"], auto_unload=True)` and confirms it in a
+second `tools/list` on the same session. Calls auto-retract the tool after use;
+list-only and error paths perform an idempotent `unload_tools` before terminating
+the session. Empty multiplexer visibility records are pruned, so concurrent
+short-lived sessions neither share visibility nor accumulate process-global state.
+A failed activation or confirmation remains fail-closed: Tasks are not advertised
+and `graph_jobs` is not called. Authorization, tenant parameters, and trace headers
+are forwarded unchanged through every session step.
 
 ```mermaid
 sequenceDiagram
     participant C as MCP v2 client
     participant G as v2 gateway
     participant O as GraphOS legacy MCP
-    C->>G: server/discover or Tasks request
-    G->>O: initialize → initialized
-    G->>O: tools/list
-    G->>O: load_tools(graph_jobs)
-    G->>O: tools/list (must contain graph_jobs)
-    G->>O: graph_jobs call (Tasks only)
-    G->>O: close session
+    C->>G: graph_jobs dispatch with Tasks
+    G->>O: session 1: activate → list catalog → unload → DELETE
+    G->>O: session 2: activate → dispatch (auto-unload) → unload → DELETE
+    G->>O: session 3: activate → status poll (auto-unload) → unload → DELETE
+    G-->>C: durable task handle
 ```
 
 ## Operational checks

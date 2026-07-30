@@ -2452,6 +2452,14 @@ class MCPMultiplexer:
         """The set of prefixed tools loaded (visible) for one session."""
         return self._session_loaded.setdefault(session_key, set())
 
+    def prune_session_visibility(self, session_key: str) -> None:
+        """Drop empty per-session visibility state after explicit retraction."""
+        if not self._auto_unload.get(session_key):
+            self._auto_unload.pop(session_key, None)
+        if not self._session_loaded.get(session_key):
+            self._session_loaded.pop(session_key, None)
+            self._auto_unload.pop(session_key, None)
+
     def requested_prefixed(
         self, tools: list[str] | None, servers: list[str] | None
     ) -> list[str]:
@@ -2732,6 +2740,7 @@ class SessionVisibilityMiddleware(Middleware):
         if name and auto and name in auto:
             auto.discard(name)
             self.mux._session_loaded.get(session_key, set()).discard(name)
+            self.mux.prune_session_visibility(session_key)
             if self._mcp is not None:
                 await _notify_tools_changed(self._mcp)
         return result
@@ -2793,11 +2802,12 @@ async def load_session_tools(
     # Make the full resolved set visible to THIS session (incl. tools another
     # session already registered).
     session_names = mux.requested_prefixed(fleet_tools, servers) + local_names
-    loaded = mux.session_loaded(_session_key())
+    session_key = _session_key()
+    loaded = mux.session_loaded(session_key)
     newly = [n for n in session_names if n not in loaded]
     loaded.update(session_names)
     if auto_unload and newly:
-        mux._auto_unload.setdefault(_session_key(), set()).update(newly)
+        mux._auto_unload.setdefault(session_key, set()).update(newly)
     if newly:
         await _notify_tools_changed(mcp)
     return {
@@ -2829,7 +2839,8 @@ async def unload_session_tools(
     stays process-global so another session (or a future ``load_tools`` call
     in this one) is unaffected/instant.
     """
-    loaded = mux.session_loaded(_session_key())
+    session_key = _session_key()
+    loaded = mux.session_loaded(session_key)
     names: set[str] = set(tools or [])
     for server in servers or []:
         if server in (mux._skip_servers or ()):
@@ -2839,11 +2850,12 @@ async def unload_session_tools(
     names.update(_tools_with_tag(mcp, toolsets))
 
     removed = [n for n in sorted(names) if n in loaded]
-    auto = mux._auto_unload.get(_session_key())
+    auto = mux._auto_unload.get(session_key)
     for name in removed:
         loaded.discard(name)
         if auto:
             auto.discard(name)
+    mux.prune_session_visibility(session_key)
     if removed:
         await _notify_tools_changed(mcp)
     return {"unloaded": removed, "session_total": len(loaded)}

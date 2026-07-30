@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json as jsonlib
 from collections.abc import Mapping
 
@@ -120,6 +121,182 @@ def _http_headers(
     if extra:
         headers.extend(extra.items())
     return headers
+
+
+class StatefulLegacyHTTPClient:
+    """Synthetic legacy endpoint with session-scoped dynamic visibility."""
+
+    def __init__(
+        self,
+        *,
+        expose_graph_jobs: bool = True,
+        yield_between_requests: bool = False,
+        **_kwargs: object,
+    ) -> None:
+        self.expose_graph_jobs = expose_graph_jobs
+        self.yield_between_requests = yield_between_requests
+        self.posts: list[tuple[dict[str, str], dict[str, object]]] = []
+        self.deletes: list[dict[str, str]] = []
+        self.session_count = 0
+        self.graph_jobs_loaded: set[str] = set()
+        self.auto_unload: set[str] = set()
+        self.session_headers: dict[str, dict[str, str]] = {}
+
+    async def __aenter__(self) -> StatefulLegacyHTTPClient:
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+    async def post(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        json: dict[str, object],
+    ) -> httpx.Response:
+        if self.yield_between_requests:
+            await asyncio.sleep(0)
+        self.posts.append((dict(headers), json))
+        method = json["method"]
+        if method == "notifications/initialized":
+            return httpx.Response(202, request=httpx.Request("POST", url))
+
+        request_id = json["id"]
+        if method == "initialize":
+            self.session_count += 1
+            session_id = f"synthetic-session-{self.session_count}"
+            self.session_headers[session_id] = dict(headers)
+            result: dict[str, object] = {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+            }
+        else:
+            session_id = headers["Mcp-Session-Id"]
+            params = json.get("params")
+            assert isinstance(params, dict)
+            if method == "tools/list":
+                tools: list[dict[str, object]] = [{"name": "graph_query"}]
+                if session_id in self.graph_jobs_loaded:
+                    tools.append(
+                        {
+                            "name": "graph_jobs",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "action": {"type": "string"},
+                                    "task": {"type": "string"},
+                                    "job_id": {"type": "string"},
+                                },
+                            },
+                        }
+                    )
+                result = {"tools": tools}
+            else:
+                name = params.get("name")
+                arguments = params.get("arguments")
+                assert isinstance(arguments, dict)
+                if name == "load_tools":
+                    assert arguments == {
+                        "tools": ["graph_jobs"],
+                        "auto_unload": True,
+                    }
+                    if self.expose_graph_jobs:
+                        self.graph_jobs_loaded.add(session_id)
+                        self.auto_unload.add(session_id)
+                    result = {
+                        "content": [{"type": "text", "text": "{}"}],
+                        "isError": False,
+                    }
+                elif name == "unload_tools":
+                    assert arguments == {"tools": ["graph_jobs"]}
+                    self.graph_jobs_loaded.discard(session_id)
+                    self.auto_unload.discard(session_id)
+                    result = {
+                        "content": [{"type": "text", "text": "{}"}],
+                        "isError": False,
+                    }
+                elif name == "graph_jobs":
+                    assert session_id in self.graph_jobs_loaded
+                    action = arguments.get("action")
+                    if action == "dispatch":
+                        value: dict[str, object] = {"job_id": "job:opaque-work-item"}
+                    elif action == "status":
+                        value = {
+                            "status": "queued",
+                            "created_at": "2026-07-30T00:00:00Z",
+                        }
+                    elif action == "cancel":
+                        value = {"status": "cancelled"}
+                    else:
+                        raise AssertionError(arguments)
+                    result = {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": jsonlib.dumps(value, separators=(",", ":")),
+                            }
+                        ],
+                        "isError": False,
+                    }
+                    if session_id in self.auto_unload:
+                        self.graph_jobs_loaded.discard(session_id)
+                        self.auto_unload.discard(session_id)
+                else:
+                    result = {
+                        "content": [{"type": "text", "text": "ok"}],
+                        "isError": False,
+                    }
+        frames = "\n".join(
+            [
+                'data: {"jsonrpc":"2.0","method":"notifications/progress"}',
+                f'data: {{"jsonrpc":"2.0","id":"{request_id}",'
+                f'"result":{jsonlib.dumps(result)}}}',
+                "",
+            ]
+        )
+        response_headers = {"Content-Type": "text/event-stream"}
+        if method == "initialize":
+            response_headers["Mcp-Session-Id"] = session_id
+        return httpx.Response(
+            200,
+            headers=response_headers,
+            text=frames,
+            request=httpx.Request("POST", url),
+        )
+
+    async def delete(self, url: str, *, headers: dict[str, str]) -> httpx.Response:
+        if self.yield_between_requests:
+            await asyncio.sleep(0)
+        self.deletes.append(dict(headers))
+        return httpx.Response(200, request=httpx.Request("DELETE", url))
+
+
+def _assert_every_session_step_preserves_headers(
+    client: StatefulLegacyHTTPClient,
+) -> None:
+    expected_names = (
+        "Authorization",
+        "MCP-Protocol-Version",
+        "mcp-param-tenant",
+        "traceparent",
+        "tracestate",
+        "baggage",
+    )
+    for headers, request in client.posts:
+        if request["method"] == "initialize":
+            continue
+        session_id = headers["Mcp-Session-Id"]
+        initialized_headers = client.session_headers[session_id]
+        assert all(
+            headers[name] == initialized_headers[name] for name in expected_names
+        )
+    for headers in client.deletes:
+        session_id = headers["Mcp-Session-Id"]
+        initialized_headers = client.session_headers[session_id]
+        assert all(
+            headers[name] == initialized_headers[name] for name in expected_names
+        )
 
 
 @pytest.mark.asyncio
@@ -678,78 +855,7 @@ async def test_invalid_x_mcp_header_tool_is_filtered() -> None:
 async def test_downstream_legacy_handshake_matches_sse_response_and_closes_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class FakeAsyncClient:
-        def __init__(self, **_kwargs: object) -> None:
-            self.posts: list[tuple[dict[str, str], dict[str, object]]] = []
-            self.deletes: list[dict[str, str]] = []
-            self.session_count = 0
-            self.graph_jobs_loaded: set[str] = set()
-
-        async def __aenter__(self) -> FakeAsyncClient:
-            return self
-
-        async def __aexit__(self, *_args: object) -> None:
-            return None
-
-        async def post(
-            self,
-            url: str,
-            *,
-            headers: dict[str, str],
-            json: dict[str, object],
-        ) -> httpx.Response:
-            self.posts.append((dict(headers), json))
-            method = json["method"]
-            if method == "notifications/initialized":
-                return httpx.Response(
-                    202,
-                    request=httpx.Request("POST", url),
-                )
-            request_id = json["id"]
-            if method == "initialize":
-                self.session_count += 1
-                session_id = f"synthetic-session-{self.session_count}"
-                result = {"protocolVersion": "2025-11-25", "capabilities": {}}
-            else:
-                session_id = headers["Mcp-Session-Id"]
-                if method == "tools/list":
-                    tools = [{"name": "graph_query"}]
-                    if session_id in self.graph_jobs_loaded:
-                        tools.append({"name": "graph_jobs"})
-                    result = {"tools": tools}
-                elif json["params"] == {
-                    "name": "load_tools",
-                    "arguments": {"tools": ["graph_jobs"]},
-                }:
-                    self.graph_jobs_loaded.add(session_id)
-                    result = {"content": [{"type": "text", "text": "{}"}]}
-                else:
-                    result = {
-                        "content": [{"type": "text", "text": '{"status":"queued"}'}]
-                    }
-            frames = "\n".join(
-                [
-                    'data: {"jsonrpc":"2.0","method":"notifications/progress"}',
-                    f'data: {{"jsonrpc":"2.0","id":"{request_id}",'
-                    f'"result":{jsonlib.dumps(result)}}}',
-                    "",
-                ]
-            )
-            response_headers = {"Content-Type": "text/event-stream"}
-            if method == "initialize":
-                response_headers["Mcp-Session-Id"] = session_id
-            return httpx.Response(
-                200,
-                headers=response_headers,
-                text=frames,
-                request=httpx.Request("POST", url),
-            )
-
-        async def delete(self, url: str, *, headers: dict[str, str]) -> httpx.Response:
-            self.deletes.append(dict(headers))
-            return httpx.Response(200, request=httpx.Request("DELETE", url))
-
-    fake = FakeAsyncClient()
+    fake = StatefulLegacyHTTPClient()
     monkeypatch.setattr(
         "mcp_v2_gateway.gateway.httpx.AsyncClient",
         lambda **_kwargs: fake,
@@ -761,78 +867,184 @@ async def test_downstream_legacy_handshake_matches_sse_response_and_closes_sessi
         headers={"mcp-param-tenant": "tenant-a"},
         traceparent=traceparent,
         tracestate="vendor=value",
+        baggage="tenant=tenant-a",
     )
 
     result = await client.list_tools(context)
     called = await client.call_tool("graph_jobs", {"action": "status"}, context)
 
-    assert result == {"tools": [{"name": "graph_query"}, {"name": "graph_jobs"}]}
-    assert called == {"content": [{"type": "text", "text": '{"status":"queued"}'}]}
+    assert [tool["name"] for tool in result["tools"]] == [
+        "graph_query",
+        "graph_jobs",
+    ]
+    assert jsonlib.loads(called["content"][0]["text"]) == {
+        "status": "queued",
+        "created_at": "2026-07-30T00:00:00Z",
+    }
     assert [post[1]["method"] for post in fake.posts] == [
         "initialize",
         "notifications/initialized",
         "tools/list",
         "tools/call",
         "tools/list",
+        "tools/call",
         "initialize",
         "notifications/initialized",
         "tools/list",
         "tools/call",
         "tools/list",
         "tools/call",
+        "tools/call",
     ]
     assert fake.posts[3][1]["params"] == {
         "name": "load_tools",
+        "arguments": {"tools": ["graph_jobs"], "auto_unload": True},
+    }
+    assert fake.posts[9][1]["params"] == fake.posts[3][1]["params"]
+    assert fake.posts[5][1]["params"] == {
+        "name": "unload_tools",
         "arguments": {"tools": ["graph_jobs"]},
     }
-    assert fake.posts[8][1]["params"] == fake.posts[3][1]["params"]
-    request_headers = fake.posts[-1][0]
-    assert request_headers["MCP-Protocol-Version"] == "2025-11-25"
-    assert request_headers["Mcp-Session-Id"] == "synthetic-session-2"
-    assert request_headers["traceparent"] == traceparent
-    assert request_headers["tracestate"] == "vendor=value"
-    assert request_headers["mcp-param-tenant"] == "tenant-a"
+    assert fake.posts[-1][1]["params"] == fake.posts[5][1]["params"]
     assert len(fake.deletes) == 2
+    assert fake.graph_jobs_loaded == set()
+    assert fake.auto_unload == set()
+    _assert_every_session_step_preserves_headers(fake)
+
+
+@pytest.mark.asyncio
+async def test_task_dispatch_uses_clean_sessions_for_catalog_call_and_poll(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = StatefulLegacyHTTPClient()
+    monkeypatch.setattr(
+        "mcp_v2_gateway.gateway.httpx.AsyncClient",
+        lambda **_kwargs: fake,
+    )
+    context = GatewayRequestContext(
+        authorization="Bearer tenant-token",
+        headers={"mcp-param-tenant": "tenant-a"},
+        traceparent="00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+        tracestate="vendor=value",
+        baggage="tenant=tenant-a",
+    )
+
+    response = await GraphOSV2Gateway(
+        StreamableHTTPGraphOSClient("http://127.0.0.1:8000/mcp")
+    ).dispatch(
+        _request(
+            "tools/call",
+            {
+                "name": "graph_jobs",
+                "arguments": {"action": "dispatch", "task": "write report"},
+                "_meta": _meta(tasks=True),
+            },
+        ),
+        context=context,
+    )
+
+    assert response["result"]["resultType"] == "task"
+    assert response["result"]["taskId"] == "job:opaque-work-item"
+    assert fake.session_count == 3
+    assert len(fake.deletes) == 3
+    graph_job_actions = [
+        params["arguments"]["action"]
+        for _, request in fake.posts
+        if request["method"] == "tools/call"
+        and isinstance((params := request["params"]), dict)
+        and params.get("name") == "graph_jobs"
+        and isinstance(params.get("arguments"), dict)
+    ]
+    assert graph_job_actions == ["dispatch", "status"]
+    assert (
+        sum(
+            request.get("params")
+            == {
+                "name": "load_tools",
+                "arguments": {"tools": ["graph_jobs"], "auto_unload": True},
+            }
+            for _, request in fake.posts
+        )
+        == 3
+    )
+    assert (
+        sum(
+            request.get("params")
+            == {
+                "name": "unload_tools",
+                "arguments": {"tools": ["graph_jobs"]},
+            }
+            for _, request in fake.posts
+        )
+        == 3
+    )
+    assert fake.graph_jobs_loaded == set()
+    assert fake.auto_unload == set()
+    _assert_every_session_step_preserves_headers(fake)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_task_sessions_do_not_share_visibility_or_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = StatefulLegacyHTTPClient(yield_between_requests=True)
+    monkeypatch.setattr(
+        "mcp_v2_gateway.gateway.httpx.AsyncClient",
+        lambda **_kwargs: fake,
+    )
+    gateway = GraphOSV2Gateway(StreamableHTTPGraphOSClient("http://127.0.0.1:8000/mcp"))
+    contexts = [
+        GatewayRequestContext(
+            authorization=f"Bearer tenant-{label}-token",
+            headers={"mcp-param-tenant": f"tenant-{label}"},
+            traceparent=(f"00-{label * 32}-0123456789abcdef-01"),
+            tracestate=f"vendor={label}",
+            baggage=f"tenant=tenant-{label}",
+        )
+        for label in ("a", "b")
+    ]
+
+    responses = await asyncio.gather(
+        *(
+            gateway.dispatch(
+                _request(
+                    "tasks/get",
+                    {"taskId": f"job:{label}", "_meta": _meta(tasks=True)},
+                    request_id=index,
+                ),
+                context=context,
+            )
+            for index, (label, context) in enumerate(
+                zip(("a", "b"), contexts, strict=True),
+                start=1,
+            )
+        )
+    )
+
+    assert all(response["result"]["status"] == "working" for response in responses)
+    assert fake.session_count == 2
+    assert len(fake.session_headers) == 2
+    assert len(fake.deletes) == 2
+    assert {headers["Authorization"] for headers in fake.session_headers.values()} == {
+        "Bearer tenant-a-token",
+        "Bearer tenant-b-token",
+    }
+    assert {
+        headers["mcp-param-tenant"] for headers in fake.session_headers.values()
+    } == {"tenant-a", "tenant-b"}
+    assert fake.graph_jobs_loaded == set()
+    assert fake.auto_unload == set()
+    _assert_every_session_step_preserves_headers(fake)
 
 
 @pytest.mark.asyncio
 async def test_downstream_graph_jobs_activation_fails_closed_when_not_listed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class FakeAsyncClient:
-        async def __aenter__(self) -> FakeAsyncClient:
-            return self
-
-        async def __aexit__(self, *_args: object) -> None:
-            return None
-
-        async def post(
-            self, url: str, *, headers: dict[str, str], json: dict[str, object]
-        ) -> httpx.Response:
-            method = json["method"]
-            request_id = json.get("id")
-            if method == "notifications/initialized":
-                return httpx.Response(202, request=httpx.Request("POST", url))
-            result = (
-                {"protocolVersion": "2025-11-25", "capabilities": {}}
-                if method == "initialize"
-                else {"tools": [{"name": "graph_query"}]}
-            )
-            response_headers = {"Content-Type": "application/json"}
-            if method == "initialize":
-                response_headers["Mcp-Session-Id"] = "synthetic-session"
-            return httpx.Response(
-                200,
-                headers=response_headers,
-                json={"jsonrpc": "2.0", "id": request_id, "result": result},
-                request=httpx.Request("POST", url),
-            )
-
-        async def delete(self, url: str, *, headers: dict[str, str]) -> httpx.Response:
-            return httpx.Response(200, request=httpx.Request("DELETE", url))
-
+    fake = StatefulLegacyHTTPClient(expose_graph_jobs=False)
     monkeypatch.setattr(
-        "mcp_v2_gateway.gateway.httpx.AsyncClient", lambda **_kwargs: FakeAsyncClient()
+        "mcp_v2_gateway.gateway.httpx.AsyncClient",
+        lambda **_kwargs: fake,
     )
 
     response = await GraphOSV2Gateway(
@@ -841,6 +1053,14 @@ async def test_downstream_graph_jobs_activation_fails_closed_when_not_listed(
 
     assert response["error"]["code"] == -32603
     assert "result" not in response
+    assert len(fake.deletes) == 1
+    assert fake.graph_jobs_loaded == set()
+    assert fake.auto_unload == set()
+    assert not any(
+        isinstance(params := request.get("params"), dict)
+        and params.get("name") == "graph_jobs"
+        for _, request in fake.posts
+    )
 
 
 @pytest.mark.asyncio
