@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import Field
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.knowledge_graph.orchestration.engine_query import (
     is_aggregation_cypher,
 )
@@ -924,34 +925,39 @@ def register_query_tools(mcp):
                 return json.dumps({"error": "content required for put"})
             sid = session_id or _uuid.uuid4().hex
             cid = context_id or f"ctx:{sid}:{key or _uuid.uuid4().hex}"
-            engine.add_node(
-                cid,
-                "ContextBlob",
-                properties={
-                    "id": cid,
-                    "content": content,
-                    "session_id": sid,
-                    "key": key,
-                    "ttl_s": int(ttl_s),
-                    "created_at": time.time(),
-                    "producer": kg_server._SESSION_ID,
-                },
-            )
-            # CONCEPT:AU-ORCH.session.session-anchored-collections-native — session-anchored collection: upsert the id-addressable
-            # Session node and link it, so "list by session" is a reliable id-anchored
-            # traversal (the engine has no property index; property scans are unreliable).
             snode = f"session:{sid}"
-            with contextlib.suppress(Exception):
+
+            def _persist_context_blob() -> None:
                 engine.add_node(
-                    snode, "Session", properties={"id": snode, "session_id": sid}
+                    cid,
+                    "ContextBlob",
+                    properties={
+                        "id": cid,
+                        "content": content,
+                        "session_id": sid,
+                        "key": key,
+                        "ttl_s": int(ttl_s),
+                        "created_at": time.time(),
+                        "producer": kg_server._SESSION_ID,
+                    },
                 )
-                engine.add_edge(snode, cid, "HAS_CONTEXT")
+                # CONCEPT:AU-ORCH.session.session-anchored-collections-native — session-anchored collection: upsert the id-addressable
+                # Session node and link it, so "list by session" is a reliable id-anchored
+                # traversal (the engine has no property index; property scans are unreliable).
+                with contextlib.suppress(Exception):
+                    engine.add_node(
+                        snode, "Session", properties={"id": snode, "session_id": sid}
+                    )
+                    engine.add_edge(snode, cid, "HAS_CONTEXT")
+
+            await run_blocking_ordered(_persist_context_blob)
             return json.dumps({"context_id": cid, "session_id": sid})
         if action == "get":
             if not context_id:
                 return json.dumps({"error": "context_id required for get"})
             try:
-                rows = engine.query_cypher(
+                rows = await run_blocking_ordered(
+                    engine.query_cypher,
                     "MATCH (c:ContextBlob) WHERE c.id = $id "
                     "RETURN c.id AS id, c.content AS content, "
                     "c.session_id AS session_id, "
@@ -972,21 +978,26 @@ def register_query_tools(mcp):
         if action == "prune":
             # Delete expired ContextBlobs (CONCEPT:AU-ORCH.session.invoker-agent-handoff lifecycle).
             try:
-                rows = engine.query_cypher(
-                    "MATCH (c:ContextBlob) WHERE c.ttl_s > 0 AND "
-                    "(c.created_at + c.ttl_s) < $now RETURN c.id AS id",
-                    {"now": time.time()},
-                )
-                pruned = 0
-                _del = getattr(engine, "delete_node", None) or getattr(
-                    getattr(engine, "backend", None), "delete_node", None
-                )
-                for r in rows or []:
-                    if callable(_del):
-                        with contextlib.suppress(Exception):
-                            _del(r["id"])
-                            pruned += 1
-                return json.dumps({"pruned": pruned, "expired": len(rows or [])})
+
+                def _prune_expired() -> tuple[int, int]:
+                    rows = engine.query_cypher(
+                        "MATCH (c:ContextBlob) WHERE c.ttl_s > 0 AND "
+                        "(c.created_at + c.ttl_s) < $now RETURN c.id AS id",
+                        {"now": time.time()},
+                    )
+                    count = 0
+                    _del = getattr(engine, "delete_node", None) or getattr(
+                        getattr(engine, "backend", None), "delete_node", None
+                    )
+                    for r in rows or []:
+                        if callable(_del):
+                            with contextlib.suppress(Exception):
+                                _del(r["id"])
+                                count += 1
+                    return count, len(rows or [])
+
+                pruned, expired = await run_blocking_ordered(_prune_expired)
+                return json.dumps({"pruned": pruned, "expired": expired})
             except Exception as exc:  # noqa: BLE001
                 return public_error_json(exc)
         if action == "list":
@@ -995,7 +1006,8 @@ def register_query_tools(mcp):
                 # reliable, fast O(degree) path; the index-less backend can't serve property
                 # scans). The traversal reader returns whole nodes (`RETURN c`), so project +
                 # sort + limit client-side.
-                rows = engine.query_cypher(
+                rows = await run_blocking_ordered(
+                    engine.query_cypher,
                     "MATCH (s {id: $snode})-[:HAS_CONTEXT]->(c:ContextBlob) RETURN c",
                     {"snode": f"session:{session_id}"},
                 )

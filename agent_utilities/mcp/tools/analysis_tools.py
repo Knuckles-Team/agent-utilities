@@ -16,6 +16,7 @@ from typing import Any, Literal, cast
 
 from pydantic import Field
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.models.evidence_bundle import EvidenceBundle
 from agent_utilities.orchestration.response_format import (
@@ -697,7 +698,8 @@ def register_analysis_tools(mcp):
 
                 props: dict[str, Any] = {}
                 try:
-                    rows = engine.query_cypher(
+                    rows = await run_blocking_ordered(
+                        engine.query_cypher,
                         "MATCH (n {id: $ident}) RETURN n AS node, labels(n) AS labels LIMIT 1",
                         {"ident": ident},
                     )
@@ -1355,31 +1357,41 @@ def register_analysis_tools(mcp):
 
                 if not query:
                     return "Error: recommend needs a query/intent in `query`."
-                candidates = engine.search_hybrid(query, top_k=max(top_k * 4, 20)) or []
-                items = []
-                for c in candidates:
-                    if not isinstance(c, dict):
-                        continue
-                    inner = c.get("node", c)
-                    inner = inner if isinstance(inner, dict) else {}
-                    emb = inner.get("embedding")
-                    cid = str(inner.get("id") or c.get("id") or "")
-                    if emb and cid:
-                        items.append((cid, emb))
-                if not items:
+
+                def _recommend() -> list[Any] | None:
+                    candidates = (
+                        engine.search_hybrid(query, top_k=max(top_k * 4, 20)) or []
+                    )
+                    items = []
+                    for c in candidates:
+                        if not isinstance(c, dict):
+                            continue
+                        inner = c.get("node", c)
+                        inner = inner if isinstance(inner, dict) else {}
+                        emb = inner.get("embedding")
+                        cid = str(inner.get("id") or c.get("id") or "")
+                        if emb and cid:
+                            items.append((cid, emb))
+                    if not items:
+                        return None
+                    embed_model = getattr(
+                        getattr(engine, "hybrid_retriever", None), "embed_model", None
+                    )
+                    qemb = None
+                    if embed_model is not None:
+                        try:
+                            qemb = embed_model.get_text_embedding(query)
+                        except Exception:  # noqa: BLE001 — embedder down -> anchor on top item
+                            qemb = None
+                    recommender = ImplicitReasoningRecommender(
+                        TemporalSemanticIdEncoder()
+                    )
+                    recommender.fit_catalog(items)
+                    return recommender.recommend(qemb or items[0][1], top_k=top_k)
+
+                recs = await run_blocking_ordered(_recommend)
+                if recs is None:
                     return json.dumps([])
-                embed_model = getattr(
-                    getattr(engine, "hybrid_retriever", None), "embed_model", None
-                )
-                qemb = None
-                if embed_model is not None:
-                    try:
-                        qemb = embed_model.get_text_embedding(query)
-                    except Exception:  # noqa: BLE001 — embedder down -> anchor on top item
-                        qemb = None
-                recommender = ImplicitReasoningRecommender(TemporalSemanticIdEncoder())
-                recommender.fit_catalog(items)
-                recs = recommender.recommend(qemb or items[0][1], top_k=top_k)
                 return json.dumps(
                     [
                         {
@@ -1870,7 +1882,9 @@ def register_analysis_tools(mcp):
                         "r.strategy AS strategy, r.confidence AS confidence"
                     )
                 try:
-                    rows = engine.query_cypher(query, {"id": node_id})
+                    rows = await run_blocking_ordered(
+                        engine.query_cypher, query, {"id": node_id}
+                    )
                 except Exception as e:
                     return public_error_json(e)
                 return _json.dumps(
@@ -1908,7 +1922,9 @@ def register_analysis_tools(mcp):
                     "RETURN t.id AS id, t.id AS node, r.score AS score"
                 )
                 try:
-                    rows = engine.query_cypher(query, {"id": node_id})
+                    rows = await run_blocking_ordered(
+                        engine.query_cypher, query, {"id": node_id}
+                    )
                 except Exception as e:
                     return public_error_json(e)
                 neighbours = [
@@ -1943,7 +1959,7 @@ def register_analysis_tools(mcp):
                     "h.id AS handler, svc.id AS service"
                 )
                 try:
-                    rows = engine.query_cypher(query, {})
+                    rows = await run_blocking_ordered(engine.query_cypher, query, {})
                 except Exception as e:
                     return public_error_json(e)
                 return _json.dumps(
@@ -1975,18 +1991,23 @@ def register_analysis_tools(mcp):
                 repo = (target or query or "").strip()
                 if not repo:
                     return "Error: change_coupling needs a repo path in `target`."
-                edges = change_coupling_for_repo(
-                    repo, min_support=depth if depth > 1 else 3
-                )
-                written = 0
-                for edge in edges:
-                    engine.link_nodes(
-                        edge.source,
-                        edge.target,
-                        edge.rel_type,
-                        properties=edge.props,
+
+                def _mine_and_link_coupling() -> int:
+                    edges = change_coupling_for_repo(
+                        repo, min_support=depth if depth > 1 else 3
                     )
-                    written += 1
+                    count = 0
+                    for edge in edges:
+                        engine.link_nodes(
+                            edge.source,
+                            edge.target,
+                            edge.rel_type,
+                            properties=edge.props,
+                        )
+                        count += 1
+                    return count
+
+                written = await run_blocking_ordered(_mine_and_link_coupling)
                 return _json.dumps(
                     {"status": "ok", "repo": repo, "coupled_pairs": written}
                 )
@@ -2005,10 +2026,10 @@ def register_analysis_tools(mcp):
                 if getattr(engine, "backend", None) is None:
                     return "Error: no graph backend available."
                 mode = (target or "file").strip() or "file"
-                return _json.dumps(
-                    query_evolution(engine, mode, query.strip(), top_k or 20),
-                    default=str,
+                evolution = await run_blocking_ordered(
+                    query_evolution, engine, mode, query.strip(), top_k or 20
                 )
+                return _json.dumps(evolution, default=str)
             elif action == "adr":
                 # CONCEPT:AU-KG.compute.adr-crud — Architecture Decision Record CRUD. `query` = the
                 # decision title (create); empty = list. `target` = status; `node_id`
@@ -2021,7 +2042,8 @@ def register_analysis_tools(mcp):
                 if query:
                     slug = _re.sub(r"[^a-z0-9]+", "-", query.lower()).strip("-")
                     adr_id = f"adr:{slug}"
-                    engine.add_node(
+                    await run_blocking_ordered(
+                        engine.add_node,
                         adr_id,
                         "ArchitectureDecisionRecord",
                         {
@@ -2032,7 +2054,8 @@ def register_analysis_tools(mcp):
                     )
                     return _json.dumps({"status": "ok", "adr_id": adr_id})
                 try:
-                    rows = engine.query_cypher(
+                    rows = await run_blocking_ordered(
+                        engine.query_cypher,
                         "MATCH (a:ArchitectureDecisionRecord) "
                         "RETURN a.id AS id, a.title AS title, a.status AS status",
                         {},
@@ -2252,12 +2275,13 @@ def register_analysis_tools(mcp):
                     build_code_metrics,
                 )
 
-                return _json.dumps(
-                    build_code_metrics(
-                        engine, scope=(target or query).strip(), top_k=top_k
-                    ),
-                    default=str,
+                metrics = await run_blocking_ordered(
+                    build_code_metrics,
+                    engine,
+                    scope=(target or query).strip(),
+                    top_k=top_k,
                 )
+                return _json.dumps(metrics, default=str)
             elif action == "arch_report":
                 # CONCEPT:AU-KG.retrieval.architecture-report — a regenerable architecture report (the
                 # GRAPH_REPORT.md analog): summary, god nodes, community hubs,
@@ -2271,15 +2295,16 @@ def register_analysis_tools(mcp):
                 )
 
                 scope = (target or query).strip()
-                arch_report: dict[str, Any] = build_arch_report(
-                    engine, scope=scope, top_k=top_k
+                arch_report: dict[str, Any] = await run_blocking_ordered(
+                    build_arch_report, engine, scope=scope, top_k=top_k
                 )
                 # Persist the report as a durable node (best-effort) so it is
                 # queryable + refreshable, exceeding Graphify's static file.
                 if arch_report.get("status") == "ok":
                     try:
                         rid = f"arch_report:{scope or 'all'}"
-                        engine.add_node(
+                        await run_blocking_ordered(
+                            engine.add_node,
                             rid,
                             {
                                 "label": "ArchitectureReport",

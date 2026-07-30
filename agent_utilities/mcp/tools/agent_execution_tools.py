@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import Field
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import public_error_text
 
@@ -39,7 +40,8 @@ async def _run_swarm(
     swarm_context = context
     if not swarm_context and context_ref:
         try:
-            rows = engine.query_cypher(
+            rows = await run_blocking_ordered(
+                engine.query_cypher,
                 "MATCH (c:ContextBlob) WHERE c.id = $id "
                 "RETURN c.id AS id, c.content AS content",
                 {"id": context_ref},

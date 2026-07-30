@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import Field
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import (
     public_error_json,
@@ -654,12 +655,16 @@ def register_write_ingest_tools(mcp):
                     return json.dumps(
                         {"status": "ignored", "reason": "invalid payload JSON"}
                     )
-                return json.dumps(handle_gitlab_webhook(engine, payload))
+                webhook_result = await run_blocking_ordered(
+                    handle_gitlab_webhook, engine, payload
+                )
+                return json.dumps(webhook_result)
 
             elif action == "corpus":
                 if not corpus_name:
                     return "Error: corpus_name required"
-                engine.add_node(
+                await run_blocking_ordered(
+                    engine.add_node,
                     f"corpus_{corpus_name}",
                     "Corpus",
                     base_path=base_path,
@@ -1160,15 +1165,18 @@ def register_write_ingest_tools(mcp):
                 if not path.exists() or not path.is_file():
                     return f"Error: knowledge pack file not found at {target_path}"
 
-                with open(path, encoding="utf-8") as f:
-                    if path.suffix in [".yaml", ".yml"]:
-                        data = yaml.safe_load(f)
-                    else:
-                        data = json.load(f)
+                def _load_knowledge_pack_file() -> Any:
+                    with open(path, encoding="utf-8") as f:
+                        if path.suffix in [".yaml", ".yml"]:
+                            return yaml.safe_load(f)
+                        return json.load(f)
 
+                data = await run_blocking_ordered(_load_knowledge_pack_file)
                 bundle = KnowledgePackBundle.from_dict(data)
                 await KnowledgePackHydrator.hydrate(bundle)
-                KnowledgePackImporter.seed_into_kg(bundle, engine)
+                await run_blocking_ordered(
+                    KnowledgePackImporter.seed_into_kg, bundle, engine
+                )
                 return f"Knowledge pack from {target_path} hydrated and ingested."
 
             elif action == "import_pack":
@@ -1186,8 +1194,11 @@ def register_write_ingest_tools(mcp):
                         {"error": "import_pack requires target_path (skill-graph dir)"}
                     )
                 try:
-                    stats = import_skill_graph_pack(
-                        engine, target_path, dedup=(corpus_name == "dedup")
+                    stats = await run_blocking_ordered(
+                        import_skill_graph_pack,
+                        engine,
+                        target_path,
+                        dedup=(corpus_name == "dedup"),
                     )
                     return json.dumps(
                         {"status": "imported", "stats": stats}, default=str
@@ -1221,7 +1232,9 @@ def register_write_ingest_tools(mcp):
                 if not text and target_path:
                     p = Path(target_path)
                     if p.exists() and p.is_file():
-                        text = p.read_text(encoding="utf-8", errors="ignore")
+                        text = await run_blocking_ordered(
+                            p.read_text, encoding="utf-8", errors="ignore"
+                        )
                         source_ref = persistence_reference(
                             "fact_source", target_path, namespace="fact-extraction"
                         )
@@ -1320,7 +1333,9 @@ def register_write_ingest_tools(mcp):
                 if target_path:
                     p = Path(target_path)
                     if p.exists() and p.is_file():
-                        text = text or p.read_text(encoding="utf-8", errors="ignore")
+                        text = text or await run_blocking_ordered(
+                            p.read_text, encoding="utf-8", errors="ignore"
+                        )
                         doc_id = "doc:source:" + persistence_reference(
                             "document_source", target_path, namespace="topic-classifier"
                         )
@@ -1384,7 +1399,9 @@ def register_write_ingest_tools(mcp):
 
                         p = Path(target_path)
                         text = (
-                            p.read_text(encoding="utf-8", errors="ignore")
+                            await run_blocking_ordered(
+                                p.read_text, encoding="utf-8", errors="ignore"
+                            )
                             if p.exists() and p.is_file()
                             else target_path
                         )
