@@ -105,6 +105,28 @@ than falsely advertising the extension. Status and cancellation remain
 available through `graph_jobs` and `/api/graph/jobs`; full Tasks support requires
 the governed MCP SDK v2 migration or a tested dual-stack protocol adapter.
 
+The tested MCP v2 gateway is that dual-stack adapter. Its public requests remain
+stateless, but each request owns one short-lived legacy GraphOS MCP session. Before
+it advertises Tasks or calls `graph_jobs`, it activates exactly that gated tool with
+`load_tools(tools=["graph_jobs"])` and confirms it in a second `tools/list` on the
+same session. A failed activation or confirmation fails closed: Tasks are not
+advertised and the tool is not called. Authorization, tenant parameters, and trace
+headers are forwarded to every step; the legacy session is then closed.
+
+```mermaid
+sequenceDiagram
+    participant C as MCP v2 client
+    participant G as v2 gateway
+    participant O as GraphOS legacy MCP
+    C->>G: server/discover or Tasks request
+    G->>O: initialize → initialized
+    G->>O: tools/list
+    G->>O: load_tools(graph_jobs)
+    G->>O: tools/list (must contain graph_jobs)
+    G->>O: graph_jobs call (Tasks only)
+    G->>O: close session
+```
+
 ## Operational checks
 
 - Run `agent-utilities-doctor --only engine a2a_persistence` before dispatch.
