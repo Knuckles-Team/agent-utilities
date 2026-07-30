@@ -3224,9 +3224,13 @@ def _wait_for_engine_materialization(
     ``graph_name`` and therefore do not participate in this native lifecycle.
     A graph absent from a new empty engine is likewise left for normal creation.
     """
-    client = getattr(engine, "client", None)
-    graph_name = str(getattr(engine, "graph_name", "") or "")
-    query_cypher = getattr(engine, "query_cypher", None)
+    # GraphOS owns the high-level IntelligenceGraphEngine; the lifecycle
+    # manifest belongs to its native GraphComputeEngine authority.  Test tools
+    # and lower-level callers may pass that authority directly.
+    native_engine = getattr(engine, "graph_compute", None) or engine
+    client = getattr(native_engine, "client", None)
+    graph_name = str(getattr(native_engine, "graph_name", "") or "")
+    query_cypher = getattr(native_engine, "query_cypher", None)
     tenants = getattr(client, "tenants", None)
     list_graphs = getattr(tenants, "list", None)
     if not graph_name or not callable(query_cypher) or not callable(list_graphs):

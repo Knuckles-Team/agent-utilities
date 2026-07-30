@@ -353,6 +353,28 @@ def test_materialization_gate_waits_for_complete_valid_manifest() -> None:
     engine.query_cypher.assert_called_once()
 
 
+def test_materialization_gate_resolves_high_level_engine_authority() -> None:
+    from agent_utilities.mcp import kg_server
+
+    native = SimpleNamespace(
+        graph_name="__commons__",
+        client=SimpleNamespace(tenants=SimpleNamespace(list=MagicMock())),
+        query_cypher=MagicMock(return_value=[]),
+    )
+
+    report = kg_server._wait_for_engine_materialization(
+        SimpleNamespace(graph_compute=native)
+    )
+
+    assert report == {
+        "graph": "__commons__",
+        "materialization": "complete",
+        "valid": True,
+    }
+    native.query_cypher.assert_called_once()
+    native.client.tenants.list.assert_not_called()
+
+
 def test_materialization_gate_preserves_nonpartial_engine_error() -> None:
     from agent_utilities.mcp import kg_server
 
