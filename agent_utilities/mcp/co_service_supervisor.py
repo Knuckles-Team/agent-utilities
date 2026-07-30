@@ -69,8 +69,8 @@ class CompositionPlan:
     """What THIS composition run detected as configured, independent of backend.
 
     Reused by both the in-process supervisor below and the multi-backend
-    deployment planners (:mod:`agent_utilities.deployment.backends`) so "is
-    messaging/host-daemon/webui configured" is decided in exactly one place.
+    deployment planners (:mod:`agent_utilities.deployment.backends`) so
+    messaging/web-UI composition is decided in exactly one place.
     """
 
     messaging_platforms: tuple[str, ...] = ()
