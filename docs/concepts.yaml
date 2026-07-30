@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1037
+total_concepts: 1039
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2560,14 +2560,13 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: Home Assistant states →
 - id: AU-KG.compute.homelab-rss-reader-as
-  name: the homelab RSS reader as a gated world-model
+  name: ───────
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/chunked_drain.py
   - agent_utilities/knowledge_graph/core/source_sync.py
-  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
-  doc: the homelab RSS reader as a gated world-model
+  doc: ───────
 - id: AU-KG.compute.http-route-graph
   name: the HTTP route graph
   pillar: AU-KG
@@ -2624,12 +2623,12 @@ concepts:
   - agent_utilities/knowledge_graph/core/world_model.py
   doc: AU-KG.compute.kg-3
 - id: AU-KG.compute.lane-bound-task
-  name: bound EVERY claimed task by its lane
+  name: request cooperative cancellation
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
-  doc: bound EVERY claimed task by its lane
+  doc: request cooperative cancellation
 - id: AU-KG.compute.lane-soft-timeout
   name: per-lane SOFT execution timeout
   pillar: AU-KG
@@ -4004,6 +4003,13 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/mcp/kg_server.py
   doc: the exact shape
+- id: AU-KG.ingest.semantic-event-contract
+  name: OCEL-shaped source truth
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/semantic_event_model.py
+  doc: OCEL-shaped source truth
 - id: AU-KG.ingest.skill-workflow-corpus
   name: ingest the universal-skills workflow corpus as
   pillar: AU-KG
@@ -5319,8 +5325,6 @@ concepts:
   - agent_utilities/core/background_throttle.py
   - agent_utilities/core/config.py
   - agent_utilities/core/workspace_config.py
-  - agent_utilities/mcp/kg_server.py
-  - agent_utilities/orchestration/engine.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/knowledge_graph/assimilation/__init__.py
   - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py
@@ -6567,13 +6571,14 @@ concepts:
   - agent_utilities/graph/topology_engine.py
   doc: Dynamic Topology Materialization
 - id: AU-ORCH.execution.dynamic-workflows
-  name: Dynamic Workflows
+  name: approved per-delegation
   pillar: AU-ORCH
   status: live
   code_paths:
-  - agent_utilities/orchestration/engine.py
   - agent_utilities/capabilities/governed_dynamic_workflow.py
-  doc: Dynamic Workflows
+  - agent_utilities/models/sdd.py
+  - agent_utilities/orchestration/engine.py
+  doc: approved per-delegation
 - id: AU-ORCH.execution.engine-memory-management
   name: Memory Management
   pillar: AU-ORCH
@@ -6633,10 +6638,8 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
-  - agent_utilities/core/model_factory.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/execution_profile.py
-  - tests/unit/test_model_factory_base_url.py
   doc: the FOCUSED-TOOLS altitude is one agent loop that calls the
 - id: AU-ORCH.execution.focused-tools-fail-closed
   name: this branch is entered ONLY
@@ -8685,6 +8688,7 @@ concepts:
   - agent_utilities/observability/__init__.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
+  - agent_utilities/orchestration/graph_execution_evidence.py
   - agent_utilities/server/app.py
   doc: Telemetry Engine
 - id: AU-OS.observability.unified-health-kernels
@@ -9214,6 +9218,13 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: a composable train→eval→serve→predict
+- id: EG-KG.mining.process-mining
+  name: this module is the lossless-boundary
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/event_log_adapter.py
+  doc: this module is the lossless-boundary
 - id: EG-KG.ontology.resp2-resp3-codec-round
   name: Redis RESP2/RESP3 wire protocol + core structures over the KV surface
   pillar: EG-KG
@@ -9304,7 +9315,6 @@ concepts:
   - agent_utilities/knowledge_graph/research/code_synthesis.py
   - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
   - agent_utilities/knowledge_graph/retrieval/governance_rules.py
-  - agent_utilities/mcp/co_service_supervisor.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
