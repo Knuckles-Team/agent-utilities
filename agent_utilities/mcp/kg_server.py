@@ -2860,6 +2860,7 @@ def _hydrate_code_and_configured_connectors(engine: Any) -> None:
     ever scanned.
     """
     from agent_utilities.core.config import config
+    from agent_utilities.core.workspace_config import workspace_project_roots
     from agent_utilities.knowledge_graph.assimilation.breadth_ingest import (
         run_breadth_ingest,
     )
@@ -2867,12 +2868,34 @@ def _hydrate_code_and_configured_connectors(engine: Any) -> None:
 
     library_roots = [p for p in config.kg_breadth_library_roots.split(",") if p]
     repo_roots = [p for p in config.kg_breadth_repo_roots.split(",") if p]
+    if not library_roots and not repo_roots:
+        repo_roots = workspace_project_roots()
     if library_roots or repo_roots:
         run_breadth_ingest(engine, library_roots=library_roots, repo_roots=repo_roots)
     # This is intentionally enqueue-only.  ``sweep_all_sources`` rejects known
     # unavailable providers before creating work, so boot never spends an engine
     # lease on a connector that is guaranteed to fail.
-    sweep_all_sources(engine, mode="delta", enqueue=True)
+    sweep_all_sources(engine, mode="delta", enqueue=True, priority=3)
+
+
+def _enqueue_fleet_tool_schema_hydration(engine: Any) -> None:
+    """Queue the live 65+ server tool-schema probe as priority-one boot work.
+
+    MCP declarations are cheap and synchronous; the live schemas are network
+    work and belong on the durable connector lane.  A stable target lets the
+    WorkItem queue deduplicate an already-running hourly or prior boot probe.
+    """
+    submit = getattr(engine, "submit_task", None)
+    if not callable(submit):
+        return
+    job_id = submit(
+        target_path="fleet",
+        is_codebase=False,
+        provenance={"sync_mode": "delta", "boot_hydration": True},
+        task_type="connector_sync",
+        priority=1,
+    )
+    logger.info("Queued fleet MCP tool-schema boot hydration: %s", job_id)
 
 
 def _run_boot_hydration_plan(
@@ -2895,6 +2918,7 @@ def _run_boot_hydration_plan(
             lambda: _ingest_capabilities(engine, skip_skill_names=skip_skill_names),
         ),
         ("graphos_tool_surface", 1, lambda: _ingest_self_tool_surface_at_boot(engine)),
+        ("fleet_tool_schemas", 1, lambda: _enqueue_fleet_tool_schema_hydration(engine)),
         ("prompts", 2, _ingest_prompts_at_boot),
         ("ontologies", 3, lambda: _sync_ontologies_at_boot(engine)),
         (

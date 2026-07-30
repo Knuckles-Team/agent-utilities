@@ -4318,6 +4318,7 @@ def sweep_all_sources(
     mode: str = "delta",
     include_materialize: bool = True,
     enqueue: bool = True,
+    priority: int | None = None,
 ) -> dict[str, Any]:
     """Ingest every *configured* connector in one background sweep (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
@@ -4419,6 +4420,7 @@ def sweep_all_sources(
                         is_codebase=False,
                         provenance={"sync_mode": mode},
                         task_type="connector_sync",
+                        **({"priority": priority} if priority is not None else {}),
                     )
                 )
             except Exception:  # noqa: BLE001 — one bad enqueue never aborts the sweep

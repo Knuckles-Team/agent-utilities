@@ -491,6 +491,11 @@ def test_boot_hydration_plan_uses_fixed_priority_and_queues_only_configured_work
         ),
         patch.object(
             kg_server,
+            "_enqueue_fleet_tool_schema_hydration",
+            side_effect=lambda *_a: calls.append("fleet"),
+        ),
+        patch.object(
+            kg_server,
             "_sync_ontologies_at_boot",
             side_effect=lambda *_a: calls.append("ontologies"),
         ),
@@ -509,16 +514,72 @@ def test_boot_hydration_plan_uses_fixed_priority_and_queues_only_configured_work
             engine, skip_skill_names=frozenset({"bundled"})
         )
 
-    assert calls == ["capabilities", "self", "prompts", "ontologies", "sources"]
+    assert calls == [
+        "capabilities",
+        "self",
+        "fleet",
+        "prompts",
+        "ontologies",
+        "sources",
+    ]
     assert [
         (name, priority) for name, priority, status in records if status == "running"
     ] == [
         ("capabilities", 1),
         ("graphos_tool_surface", 1),
+        ("fleet_tool_schemas", 1),
         ("prompts", 2),
         ("ontologies", 3),
         ("code_and_connectors", 4),
     ]
+
+
+def test_fleet_tool_schema_boot_hydration_is_durable_priority_one() -> None:
+    from agent_utilities.mcp import kg_server
+
+    engine = MagicMock()
+    engine.submit_task.return_value = "job-fleet"
+    kg_server._enqueue_fleet_tool_schema_hydration(engine)
+    engine.submit_task.assert_called_once_with(
+        target_path="fleet",
+        is_codebase=False,
+        provenance={"sync_mode": "delta", "boot_hydration": True},
+        task_type="connector_sync",
+        priority=1,
+    )
+
+
+def test_boot_code_hydration_falls_back_to_workspace_manifest(monkeypatch) -> None:
+    from agent_utilities.mcp import kg_server
+
+    breadth = MagicMock()
+    sweep = MagicMock()
+    monkeypatch.setattr(
+        "agent_utilities.core.config.config.kg_breadth_library_roots", ""
+    )
+    monkeypatch.setattr("agent_utilities.core.config.config.kg_breadth_repo_roots", "")
+    with (
+        patch(
+            "agent_utilities.core.workspace_config.workspace_project_roots",
+            return_value=["/workspace/repo-a", "/workspace/repo-b"],
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.assimilation.breadth_ingest.run_breadth_ingest",
+            breadth,
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.source_sync.sweep_all_sources",
+            sweep,
+        ),
+    ):
+        kg_server._hydrate_code_and_configured_connectors(object())
+
+    breadth.assert_called_once_with(
+        ANY,
+        library_roots=[],
+        repo_roots=["/workspace/repo-a", "/workspace/repo-b"],
+    )
+    sweep.assert_called_once_with(ANY, mode="delta", enqueue=True, priority=3)
 
 
 def test_prompt_boot_hydration_leg_is_isolated_from_failure(caplog) -> None:

@@ -420,6 +420,7 @@ def _default_codebase_ingest(engine: Any, manifest: ProjectManifest) -> bool:
         target_path=manifest.path,
         is_codebase=True,
         task_type="codebase",
+        priority=3,
         provenance={"language": manifest.language, "pillars": manifest.pillars},
         **({"extra_meta": extra_meta} if extra_meta else {}),
     )
