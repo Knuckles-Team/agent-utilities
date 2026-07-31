@@ -178,6 +178,57 @@ async def test_ask_accepts_explicit_graph_code_action_pin(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_pin_of_a_tool_unknown_to_the_intent_surface_is_actionable():
+    """Pinning a name the intent surface has never heard of (the common case:
+    a FLEET tool mounted dynamically via load_tools, which carries no CPD and
+    was never a resolver candidate at all) must not be reported as a
+    verb-specific policy denial — that wording implied a restriction that
+    doesn't exist and left the caller unable to tell "wrong verb" from
+    "this was never routable here" (lane-mcp-desync)."""
+
+    result = await intent_tools.dispatch_intent(
+        "ask", "list open pull requests", hints={"tool": "gith__pulls"}
+    )
+
+    assert result["executed"] is False
+    assert result["error"] != "Pinned capability is not allowed for this intent verb."
+    assert "gith__pulls" in result["error"]
+    assert "load_tools" in result["error"]
+    assert result["routing"]["candidates"] == []
+
+
+@pytest.mark.asyncio
+async def test_pin_of_a_known_capability_under_the_wrong_verb_keeps_denial_message(
+    monkeypatch,
+):
+    """A REAL, CPD-backed GraphOS capability pinned under a verb it isn't
+    authorized for is a genuine policy denial — distinct from the
+    unknown-to-the-surface case above, and the message must say so."""
+
+    async def fake_write_only(**_kw) -> str:
+        return json.dumps({"status": "ok"})
+
+    _install_test_capability(
+        monkeypatch,
+        "fake_write_only_capability",
+        fake_write_only,
+        verbs=["write"],
+        one_line="Write-only synthetic capability for a pin-mismatch test.",
+        mutates=True,
+        idempotent=False,
+    )
+
+    result = await intent_tools.dispatch_intent(
+        "ask",
+        "do the synthetic write-only thing",
+        hints={"tool": "fake_write_only_capability"},
+    )
+
+    assert result["executed"] is False
+    assert result["error"] == "Pinned capability is not allowed for this intent verb."
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("action", ("adr", "arch_report"))
 async def test_graph_code_mutations_are_denied_by_ask_and_reachable_via_act(
     monkeypatch,

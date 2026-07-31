@@ -2316,7 +2316,12 @@ class MCPMultiplexer:
             result = {
                 "server": server,
                 "prefix": prefix,
-                "mounted": server in self.children,
+                # Process-level fact only: the child is spawned. It does NOT
+                # mean any of its tools are callable by the CALLING session —
+                # that per-tool truth is the "mounted" field inside "tools"
+                # below, and it is the ONLY field a caller should read to
+                # decide whether it can dispatch a specific tool right now.
+                "process_running": server in self.children,
                 "probed": True,
                 "available": info.get("error") is None,
                 "error": info.get("error"),
@@ -2324,12 +2329,19 @@ class MCPMultiplexer:
             if include_tools:
                 result["tools"] = [
                     {
-                        "prefixed_name": clean_tool_name(prefix, server, t["name"]),
+                        "prefixed_name": prefixed_name,
                         "tool": t["name"],
                         "description": t.get("description", ""),
                         "enabled": self._tool_enabled(server, t["name"]),
+                        # Session-scoped dispatch truth (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+                        # derived from the SAME predicate the dispatch gate
+                        # (SessionVisibilityMiddleware) enforces, so this can
+                        # never claim a tool is usable when a call would
+                        # actually be rejected.
+                        "mounted": self.tool_dispatchable(prefixed_name),
                     }
                     for t in info.get("tools", [])
+                    for prefixed_name in (clean_tool_name(prefix, server, t["name"]),)
                 ]
             return result
 
@@ -2356,7 +2368,10 @@ class MCPMultiplexer:
                 "prefix": prefix,
                 "tool_count": len(tool_entries),
                 "enabled_count": len(enabled_names),
-                "mounted": name in self.children,
+                # Process-level fact only (the child is spawned) — NOT a claim
+                # that any tool is callable by the caller's own session. See
+                # "dispatchable_tools" for the truthful, session-scoped answer.
+                "process_running": name in self.children,
                 "probed": probed,
                 "available": info.get("error") is None if probed else None,
             }
@@ -2366,11 +2381,18 @@ class MCPMultiplexer:
                 entry["tools"] = enabled_names
                 if disabled_names:
                     entry["disabled_tools"] = disabled_names
+                # Session-scoped dispatch truth (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+                # the subset of `tools` the CALLING session could actually
+                # invoke right now, derived from the same predicate the
+                # dispatch gate enforces (MCPMultiplexer.tool_dispatchable).
+                entry["dispatchable_tools"] = [
+                    pn for pn in enabled_names if self.tool_dispatchable(pn)
+                ]
             servers.append(entry)
         return {
             "total_servers": len(servers),
             "total_tools": sum(s["tool_count"] for s in servers),
-            "mounted": sorted(self.children.keys()),
+            "servers_running": sorted(self.children.keys()),
             "unavailable": [s["server"] for s in servers if s["available"] is False],
             "servers": servers,
         }
@@ -2384,20 +2406,33 @@ class MCPMultiplexer:
         request and compute the set of prefixed names to expose.
 
         Returns ``(mounted_servers, prefixed_names_to_expose, failed)`` where
-        ``failed`` maps each server that could not be mounted to a human-readable
-        reason (e.g. an unreachable remote server). Does NOT touch FastMCP —
-        registration of the live tools (and the list_changed notification) is the
-        caller's job so this stays unit-testable.
+        ``failed`` maps each server OR each explicitly requested tool name that
+        could not be resolved to a human-readable reason (e.g. an unreachable
+        remote server, or a tool the owning server never actually registered —
+        disabled by config, renamed, or dropped by its own admission policy).
+        A requested tool that does not end up resolvable is NEVER silently
+        left out of both ``to_expose`` and ``failed`` — the caller must be
+        told exactly which of its requested names didn't make it, so the
+        reported state can never claim a tool is loadable when the dispatcher
+        cannot actually reach it. Does NOT touch FastMCP — registration of
+        the live tools (and the list_changed notification) is the caller's
+        job so this stays unit-testable.
         """
         requested_tools = list(tools or [])
         target_servers: set[str] = set(servers or [])
+        unresolved_tools: list[str] = []
         for prefixed in requested_tools:
             owner = self._server_for_prefixed(prefixed)
             if owner:
                 target_servers.add(owner)
+            else:
+                unresolved_tools.append(prefixed)
 
         mounted: list[str] = []
-        failed: dict[str, str] = {}
+        failed: dict[str, str] = {
+            name: "tool is not present in the fleet catalog"
+            for name in unresolved_tools
+        }
         for server in sorted(target_servers):
             await self.mount_child(server)
             if server in self.children:
@@ -2426,6 +2461,20 @@ class MCPMultiplexer:
             for name in sorted(wanted)
             if name in self.tool_to_server and name not in self._exposed
         ]
+        # A requested tool whose owning server mounted but that never actually
+        # registered (disabled by config, or dropped by the child's runtime
+        # admission policy) must not vanish silently — it belongs in `failed`,
+        # not in a phantom `newly_exposed`/`mounted` claim.
+        for prefixed in requested_tools:
+            if prefixed in self.tool_to_server or prefixed in failed:
+                continue
+            owner = self._server_for_prefixed(prefixed)
+            if owner is not None and owner in failed:
+                continue  # already explained by the server-level failure
+            failed[prefixed] = (
+                "tool is not registered by its owning server "
+                "(disabled by config or rejected by its runtime policy)"
+            )
         return mounted, to_expose, failed
 
     def tool_object(self, prefixed_name: str) -> mcp.types.Tool | None:
@@ -2451,6 +2500,51 @@ class MCPMultiplexer:
     def session_loaded(self, session_key: str) -> set[str]:
         """The set of prefixed tools loaded (visible) for one session."""
         return self._session_loaded.setdefault(session_key, set())
+
+    def tool_dispatchable(
+        self, prefixed_name: str, *, session_key: str | None = None
+    ) -> bool:
+        """Whether ``prefixed_name`` is ACTUALLY callable right now for a session.
+
+        Single source of truth for "can this session dispatch this tool" —
+        the exact predicate :class:`SessionVisibilityMiddleware` enforces at
+        the ``tools/call`` gate. Every status-reporting surface (``list_catalog``,
+        ``find_tools``, ``load_tools``) MUST derive its "mounted"/"loaded" claims
+        from this one function instead of re-deriving the same logic against a
+        parallel bookkeeping structure (e.g. ``server in self.children``, which
+        only reflects the CHILD PROCESS being up, not whether THIS session may
+        call one of its tools) — that divergence is exactly the control-plane
+        truthfulness bug this exists to close: a caller must never be told a
+        tool is usable when the dispatch gate would reject it.
+        """
+        if prefixed_name in self._global_visible:
+            return True
+        if prefixed_name in self._local_gated:
+            key = session_key if session_key is not None else _session_key()
+            return prefixed_name in self._session_loaded.get(key, set())
+        # ``_server_for_prefixed`` resolves ownership from the catalog's
+        # collision-free prefix map, which works even BEFORE the owning child
+        # is mounted — so this branch also catches a probed-but-never-mounted
+        # fleet tool, not just an already-mounted one.
+        if self._server_for_prefixed(prefixed_name) is not None:
+            # A KNOWN fleet tool (its owning server is at least catalogued,
+            # whether or not it has been mounted yet) is only dispatchable
+            # once ``load_tools`` actually registered a live forwarder for it
+            # (``_exposed``) AND this session has it loaded. Being merely
+            # catalogued/mountable is not enough — that gap (catalog says it
+            # exists vs. a forwarder was ever built) is exactly what let
+            # ``list_catalog``/``find_tools`` claim a tool was usable before
+            # any session had loaded it.
+            if prefixed_name not in self._exposed:
+                return False
+            key = session_key if session_key is not None else _session_key()
+            return prefixed_name in self._session_loaded.get(key, set())
+        # Unknown to the multiplexer's own bookkeeping entirely — e.g. a
+        # native host tool registered directly on the FastMCP server outside
+        # the progressive-disclosure surface. Nothing here can gate it, so it
+        # is unconditionally callable, matching how the dispatch middleware
+        # (which only ever sees already-registered tool names) treats it.
+        return True
 
     def prune_session_visibility(self, session_key: str) -> None:
         """Drop empty per-session visibility state after explicit retraction."""
@@ -2618,16 +2712,38 @@ def _register_status_tool(mcp, mux: MCPMultiplexer) -> None:
     )
 
 
-async def _notify_tools_changed(mcp) -> None:
+async def _notify_tools_changed(mcp) -> bool:
     """Emit ``notifications/tools/list_changed`` so the client re-fetches the
-    tool list after a dynamic mount/unmount. Best-effort: a missing request
-    context (e.g. no client attached) must not fail the meta-tool."""
-    try:
-        from fastmcp.server.dependencies import get_context
+    tool list after a dynamic mount/unmount.
 
-        await get_context().send_notification(mcp_types.ToolListChangedNotification())
-    except Exception as e:  # pragma: no cover - context not always present
-        logger.warning("Could not send tools/list_changed notification: %s", e)
+    Returns whether the push actually reached the client. A missing request
+    context (e.g. eager startup with no client attached yet) is an expected,
+    silent no-op — but a LIVE client that rejected or dropped the notification
+    is a real failure and must not be swallowed into a log line only the
+    server operator sees: a caller (``load_tools``/``unload_tools``) that
+    reported success while the client's tool list silently went stale is
+    exactly the control-plane-truthfulness gap this exists to prevent
+    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Callers surface the
+    returned flag to the agent so it can tell its own tool list may be stale
+    instead of discovering it only via a later "no such tool" failure.
+    """
+    from fastmcp.server.dependencies import get_context
+
+    try:
+        context = get_context()
+    except RuntimeError:
+        # No active request context at all — not a client-facing failure.
+        return False
+    try:
+        await context.send_notification(mcp_types.ToolListChangedNotification())
+    except Exception as exc:
+        logger.warning(
+            "tools/list_changed notification failed to reach the client: %s",
+            exc,
+            exc_info=True,
+        )
+        return False
+    return True
 
 
 def _session_key() -> str:
@@ -2693,24 +2809,12 @@ class SessionVisibilityMiddleware(Middleware):
         self.mux = mux
         self._mcp = mcp
 
-    def _gated(self, name: str) -> bool:
-        """Whether ``name`` is subject to session-scoped visibility at all.
-
-        Two independent populations are gated the same way: fleet forwarders
-        (``_exposed`` — must be mounted via ``load_tools``) and the host
-        server's OWN granular tools held back under ``MCP_TOOL_MODE=intent``
-        (``_local_gated`` — already registered locally, just hidden by
-        default; CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse). Everything else (native
-        tools in neither set, meta-tools) is ungated — always visible.
-        """
-        return name in self.mux._exposed or name in self.mux._local_gated
-
     def _visible(self, name: str) -> bool:
-        if name in self.mux._global_visible:
-            return True
-        if not self._gated(name):
-            return True
-        return name in self.mux._session_loaded.get(_session_key(), set())
+        # Delegates to the SAME single-source-of-truth predicate every
+        # status-reporting tool now uses (:meth:`MCPMultiplexer.tool_dispatchable`)
+        # so what a session is TOLD it can call and what it can ACTUALLY call
+        # are structurally the same computation, never two that can drift.
+        return self.mux.tool_dispatchable(name)
 
     async def on_list_tools(self, context, call_next):
         tools = await call_next(context)
@@ -2718,15 +2822,8 @@ class SessionVisibilityMiddleware(Middleware):
 
     async def on_call_tool(self, context, call_next):
         name = getattr(context.message, "name", None)
-        # Only gate tools that are actually gated (registered but not globally
-        # visible); a tool this session hasn't loaded behaves as "unknown" until
-        # load_tools.
-        if (
-            name
-            and self._gated(name)
-            and name not in self.mux._global_visible
-            and name not in self.mux._session_loaded.get(_session_key(), set())
-        ):
+        # A tool this session hasn't loaded behaves as "unknown" until load_tools.
+        if name and not self.mux.tool_dispatchable(name):
             raise ToolError(
                 f"Tool '{name}' is not loaded in this session. "
                 f"Call load_tools(tools=['{name}']) first."
@@ -2808,8 +2905,12 @@ async def load_session_tools(
     loaded.update(session_names)
     if auto_unload and newly:
         mux._auto_unload.setdefault(session_key, set()).update(newly)
-    if newly:
-        await _notify_tools_changed(mcp)
+    # Truthfully report whether the client was actually told its tool list
+    # changed. A caller whose client doesn't (yet) know a newly_exposed name
+    # will see calls to it fail client-side ("no such tool") even though the
+    # server-side registration succeeded — ``notified: False`` here is the
+    # signal that distinguishes that from a genuine dispatch failure.
+    notified = await _notify_tools_changed(mcp) if newly else True
     return {
         "mounted_servers": mounted_servers,
         "newly_exposed": newly,
@@ -2817,6 +2918,7 @@ async def load_session_tools(
         "session_total": len(loaded),
         "total_registered": len(mux._exposed) + len(mux._local_gated),
         "auto_unload": bool(auto_unload) and newly,
+        "notified": notified,
     }
 
 
@@ -2856,9 +2958,8 @@ async def unload_session_tools(
         if auto:
             auto.discard(name)
     mux.prune_session_visibility(session_key)
-    if removed:
-        await _notify_tools_changed(mcp)
-    return {"unloaded": removed, "session_total": len(loaded)}
+    notified = await _notify_tools_changed(mcp) if removed else True
+    return {"unloaded": removed, "session_total": len(loaded), "notified": notified}
 
 
 def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
@@ -2981,12 +3082,17 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
             name="list_catalog",
             description=(
                 "Browse the ENTIRE MCP fleet: every configured server with its "
-                "tool count, tool names, reachability, and whether it's mounted. "
-                "This is the flat 'show me everything available' view (find_tools "
+                "tool count, tool names, and reachability. 'process_running' "
+                "means the server's child process is up — it does NOT mean a "
+                "tool is callable by YOU yet. Per-tool 'mounted' (drill-down) "
+                "and 'dispatchable_tools' (all-servers view) are the truthful, "
+                "session-scoped answer to 'can I call this right now' — call "
+                "load_tools first if a tool you want isn't in either. This is "
+                "the flat 'show me everything available' view (find_tools "
                 "is the semantic 'find the right tool for X' search). Pass a "
                 "'server' name to drill into just that one and get its full tool "
-                "list with descriptions. Then use load_tools to make tools "
-                "callable. First call probes the fleet (a few seconds); cached after."
+                "list with descriptions. First call probes the fleet (a few "
+                "seconds); cached after."
             ),
             parameters={
                 "type": "object",
@@ -3017,8 +3123,12 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
                 "tools held back under the condensed intent-surface profile — "
                 "pass their bare name, e.g. 'graph_query'). Spawns the owning "
                 "child servers on first use and notifies the client that the "
-                "tool list changed. Any server that can't be reached is "
-                "reported in the 'failed' map instead of erroring the whole "
+                "tool list changed — check the response's 'notified' field: "
+                "if false, your OWN client may not have refreshed its tool "
+                "list yet, so a newly_exposed name can still fail with "
+                "'no such tool' until you retry. Any server or specific tool "
+                "that can't be reached/registered is reported in the 'failed' "
+                "map (never silently dropped) instead of erroring the whole "
                 "call. Set auto_unload=true for a ONE-SHOT tool: it is "
                 "automatically retracted the next time it's called, so a task "
                 "you only need once doesn't linger in your tool list — call "
