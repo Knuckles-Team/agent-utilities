@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Plan and (optionally) apply the cross-project release version cascade.
 
-CONCEPT:AU-OS.config.version-cascade
+See docs/architecture/drift_proof_release.md for the drift-class rationale.
 
 The release train couples three tiers of version, in this order:
 
