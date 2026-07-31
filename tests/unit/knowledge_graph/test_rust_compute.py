@@ -60,8 +60,8 @@ def test_rust_graph_compute_nodes_and_edges(engine):
     assert engine.node_count() == 3
 
     # Add edges
-    engine.add_edge("A", "B", {"weight": 1.5})
-    engine.add_edge("B", "C", {"weight": 2.0})
+    engine.add_edge("A", "B", {"weight": 1.5, "relationship": "connects"})
+    engine.add_edge("B", "C", {"weight": 2.0, "relationship": "connects"})
 
     # Verify nodes and edges exist
     assert engine.has_node("A")
@@ -87,8 +87,8 @@ def test_rust_topological_sort_and_cycles(engine):
     engine.add_node("B", {})
     engine.add_node("C", {})
 
-    engine.add_edge("A", "B", {})
-    engine.add_edge("B", "C", {})
+    engine.add_edge("A", "B", {"relationship": "connects"})
+    engine.add_edge("B", "C", {"relationship": "connects"})
 
     # Verify topological order
     order = engine.topological_sort()
@@ -98,7 +98,7 @@ def test_rust_topological_sort_and_cycles(engine):
     assert engine.find_cycle() is None
 
     # Introduce cycle C -> A
-    engine.add_edge("C", "A", {})
+    engine.add_edge("C", "A", {"relationship": "connects"})
 
     # Cycle detection
     cycle = engine.find_cycle()
@@ -117,8 +117,8 @@ def test_rust_shortest_path(engine):
     engine.add_node("Y", {})
     engine.add_node("Z", {})
 
-    engine.add_edge("X", "Y", {})
-    engine.add_edge("Y", "Z", {})
+    engine.add_edge("X", "Y", {"relationship": "connects"})
+    engine.add_edge("Y", "Z", {"relationship": "connects"})
 
     # Get shortest path
     path = engine.get_shortest_path("X", "Z")
@@ -137,9 +137,9 @@ def test_rust_blast_radius(engine):
     engine.add_node("C", {})
     engine.add_node("D", {})
 
-    engine.add_edge("A", "B", {})
-    engine.add_edge("B", "C", {})
-    engine.add_edge("B", "D", {})
+    engine.add_edge("A", "B", {"relationship": "connects"})
+    engine.add_edge("B", "C", {"relationship": "connects"})
+    engine.add_edge("B", "D", {"relationship": "connects"})
 
     blast = engine.get_blast_radius("A", max_depth=2)
     # Expected outgoing neighbors from A: B (depth 1), then C and D (depth 2)
@@ -164,15 +164,17 @@ def test_rust_vf2_subgraph_matching(engine):
     """Verify subgraph isomorphism matching natively on the optimized Tokio-based epistemic_graph service."""
     import uuid
 
-    engine.add_node("A", {"type": "class"})
-    engine.add_node("B", {"type": "function"})
-    engine.add_node("C", {"type": "function"})
-    engine.add_edge("A", "B", {})
-    engine.add_edge("A", "C", {})
+    engine.add_node("A", {"node_type": "class"})
+    engine.add_node("B", {"node_type": "function"})
+    engine.add_node("C", {"node_type": "function"})
+    engine.add_edge("A", "B", {"relationship": "connects"})
+    engine.add_edge("A", "C", {"relationship": "connects"})
 
     pattern_name = f"test_pattern_{uuid.uuid4().hex[:8]}"
     with use_session(_session_for(pattern_name)):
-        pattern = GraphComputeEngine(backend_type="rust", graph_name=pattern_name)
+        pattern = GraphComputeEngine.get_or_create(
+            graph_name=pattern_name, backend_type="rust"
+        )
         if pattern._client:
             try:
                 pattern._client.create_graph(pattern_name)
@@ -180,9 +182,9 @@ def test_rust_vf2_subgraph_matching(engine):
                 pass
             pattern._client.clear()
 
-        pattern.add_node("P1", {"type": "class"})
-        pattern.add_node("P2", {"type": "function"})
-        pattern.add_edge("P1", "P2", {})
+        pattern.add_node("P1", {"node_type": "class"})
+        pattern.add_node("P2", {"node_type": "function"})
+        pattern.add_edge("P1", "P2", {"relationship": "connects"})
 
     matches = engine.vf2_subgraph_match(pattern)
     assert len(matches) == 2
@@ -199,7 +201,7 @@ def test_rust_reactive_state_ledger(engine):
 
     engine.add_node("A", {"label": "Alpha"})
     engine.add_node("B", {"label": "Beta"})
-    engine.add_edge("A", "B", {"weight": 1.0})
+    engine.add_edge("A", "B", {"weight": 1.0, "relationship": "connects"})
 
     # Capture ledger
     txs = engine.get_ledger()
@@ -208,7 +210,14 @@ def test_rust_reactive_state_ledger(engine):
     # Replay onto another engine
     engine2_name = f"test_{uuid.uuid4().hex[:8]}"
     with use_session(_session_for(engine2_name)):
-        engine2 = GraphComputeEngine(backend_type="rust", graph_name=engine2_name)
+        # The process allows exactly one root transport (graph_compute.py:
+        # "A process graph transport already exists; use
+        # GraphComputeEngine.get_or_create()/for_graph()") — the `engine`
+        # fixture already owns it, so a second named graph must be reached as
+        # a scoped view via get_or_create(), not a fresh direct construction.
+        engine2 = GraphComputeEngine.get_or_create(
+            graph_name=engine2_name, backend_type="rust"
+        )
         if engine2._client:
             try:
                 engine2._client.create_graph(engine2_name)
@@ -224,7 +233,9 @@ def test_rust_reactive_state_ledger(engine):
     js = engine.to_msgpack()
     engine3_name = f"test_{uuid.uuid4().hex[:8]}"
     with use_session(_session_for(engine3_name)):
-        engine3 = GraphComputeEngine(backend_type="rust", graph_name=engine3_name)
+        engine3 = GraphComputeEngine.get_or_create(
+            graph_name=engine3_name, backend_type="rust"
+        )
         if engine3._client:
             try:
                 engine3._client.create_graph(engine3_name)
