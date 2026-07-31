@@ -175,7 +175,7 @@ def test_lease_guard_heartbeats_during_long_execution(monkeypatch) -> None:
         return True
 
     monkeypatch.setattr(
-        "agent_utilities.orchestration.agent_dispatch_worker._fence_still_valid",
+        "agent_utilities.orchestration.agent_dispatch_worker._work_item_fence_still_valid",
         renew,
     )
     guard = WorkItemLeaseGuard(
@@ -193,7 +193,7 @@ def test_lease_guard_heartbeats_during_long_execution(monkeypatch) -> None:
 def test_lease_guard_rejects_side_effect_after_fence_loss(monkeypatch) -> None:
     outcomes = iter((True, False))
     monkeypatch.setattr(
-        "agent_utilities.orchestration.agent_dispatch_worker._fence_still_valid",
+        "agent_utilities.orchestration.agent_dispatch_worker._work_item_fence_still_valid",
         lambda *_args, **_kwargs: next(outcomes),
     )
     guard = WorkItemLeaseGuard(
@@ -208,10 +208,6 @@ def test_lease_guard_rejects_side_effect_after_fence_loss(monkeypatch) -> None:
             guard.side_effect(lambda: pytest.fail("stale effect executed"))
     finally:
         guard.close()
-        agent_dispatch.reset_dispatch_queue_for_tests(None)
-    assert resp.status_code == 503
-    nodes = list(_sessions._goal_engine().nodes.values())
-    assert nodes and nodes[0]["status"] == "failed"
 
 
 # ── graph_orchestrate dispatch seam ───────────────────────────────────────
@@ -587,189 +583,19 @@ def test_orchestrator_task_claim_execute_writeback(fake_queue, monkeypatch):
     assert worker.execute_agent_turn(env, engine) == "skipped"
 
 
-# ── claim_agent_task: generalized :AgentTask/:AgentLease claim (C3/Phase 3a) ──
-#
-# CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects
-#
-# Mirrors the claim_goal_run / claim_orchestrator_task tests above: same
-# stale-claim-aware idempotency contract, generalized from an inline
-# ownership stamp on the claimed node to a dedicated :AgentLease node.
-
-
-class _AgentTaskEngine(_FakeOrchEngine):
-    """Minimal engine double for :AgentTask + :AgentLease.
-
-    ``add_node`` MERGEs into any existing node (mirrors the real engine's
-    MERGE+SET upsert semantics) — ``claim_agent_task`` writes a partial
-    ``{"status": "running"}`` update that must not clobber the task's other
-    fields, exactly like ``claim_orchestrator_task``'s partial claim stamp.
-    """
-
-    def add_node(self, node_id, node_type, properties=None):
-        node = self.graph.nodes.setdefault(node_id, {})
-        node["type"] = node_type
-        node.update(properties or {})
-
-    def query_cypher(self, q, params=None):
-        params = params or {}
-        if "AgentTask {id: $id}" in q:
-            node = self.graph.nodes.get(params.get("id"))
-            if node is None:
-                return []
-            return [
-                {
-                    "status": node.get("status"),
-                    "depends_on_task_ids": node.get("depends_on_task_ids") or [],
-                    "dag_id": node.get("dag_id"),
-                    "checkpoint_id": node.get("checkpoint_id"),
-                }
-            ]
-        if "AgentLease {resource_id: $rid}" in q:
-            leases = [
-                n
-                for n in self.graph.nodes.values()
-                if n.get("type") == "AgentLease"
-                and n.get("resource_id") == params.get("rid")
-            ]
-            leases.sort(key=lambda n: n.get("acquired_at", 0.0), reverse=True)
-            if not leases:
-                return []
-            top = leases[0]
-            return [
-                {
-                    "owner_token": top.get("owner_token"),
-                    "lease_expires_at": top.get("lease_expires_at"),
-                    "lease_epoch": top.get("lease_epoch"),
-                }
-            ]
-        return []
-
-
-def test_claim_agent_task_unknown_task_is_skipped():
-    from agent_utilities.orchestration import agent_dispatch_worker as worker
-
-    engine = _AgentTaskEngine()
-    assert worker.claim_agent_task(engine, "does-not-exist") is None
-
-
-def test_claim_agent_task_terminal_status_is_duplicate_skip():
-    from agent_utilities.orchestration import agent_dispatch_worker as worker
-
-    engine = _AgentTaskEngine()
-    engine.add_node("task-1", "AgentTask", properties={"status": "completed"})
-    assert worker.claim_agent_task(engine, "task-1") is None
-
-
-def test_claim_agent_task_claims_and_writes_lease():
-    from agent_utilities.orchestration import agent_dispatch_worker as worker
-
-    engine = _AgentTaskEngine()
-    engine.add_node(
-        "task-1",
-        "AgentTask",
-        properties={
-            "status": "ready",
-            "dag_id": "dag-1",
-            "depends_on_task_ids": ["dag-1:task:a"],
-        },
-    )
-    claim = worker.claim_agent_task(
-        engine, "task-1", token="hostA:1:agent-dispatch", now=1000.0
-    )
-    assert claim == {
-        "task_id": "task-1",
-        "lease_id": claim["lease_id"],
-        "dag_id": "dag-1",
-        "checkpoint_id": None,
-        "depends_on_task_ids": ["dag-1:task:a"],
-        "fence_token": 1,
-        # L15: the KG claim path stamps its own backend marker so
-        # `_fence_still_valid` knows the fail-OPEN posture applies to it.
-        "_claim_backend": "kg",
-    }
-    assert claim["lease_id"].startswith("lease:task-1:")
-    assert engine.graph.nodes["task-1"]["status"] == "running"
-
-    lease = engine.graph.nodes[claim["lease_id"]]
-    assert lease["type"] == "AgentLease"
-    assert lease["owner_token"] == "hostA:1:agent-dispatch"
-    assert lease["resource_id"] == "task-1"
-    assert lease["acquired_at"] == 1000.0
-    assert lease["lease_expires_at"] == 1000.0 + worker.CLAIM_TTL_S
-    assert lease["lease_epoch"] == 1
-
-
-def test_claim_agent_task_skips_task_with_fresh_live_lease():
-    from agent_utilities.orchestration import agent_dispatch_worker as worker
-
-    engine = _AgentTaskEngine()
-    engine.add_node("task-1", "AgentTask", properties={"status": "running"})
-    engine.add_node(
-        "lease:task-1:aaa",
-        "AgentLease",
-        properties={
-            "owner_token": "hostB:9:agent-dispatch",
-            "resource_id": "task-1",
-            "acquired_at": 1000.0,
-            "lease_expires_at": 1000.0 + worker.CLAIM_TTL_S,
-        },
-    )
-    # A live worker holds a lease that has not yet expired -> skip.
-    assert worker.claim_agent_task(engine, "task-1", now=1500.0) is None
-    # Not reclaimed: no new lease written, task still 'running' under the
-    # original owner.
-    assert engine.graph.nodes["task-1"]["status"] == "running"
-
-
-def test_claim_agent_task_reclaims_stale_lease_crash_recovery():
-    """Worker A claimed the task then died before writeback; the lease went
-    stale — a redelivered/rescanned task is re-claimed by worker B."""
-    from agent_utilities.orchestration import agent_dispatch_worker as worker
-
-    engine = _AgentTaskEngine()
-    engine.add_node(
-        "task-1", "AgentTask", properties={"status": "running", "dag_id": "dag-1"}
-    )
-    stale_expiry = 1000.0
-    engine.add_node(
-        "lease:task-1:dead",
-        "AgentLease",
-        properties={
-            "owner_token": "dead:1:agent-dispatch",
-            "resource_id": "task-1",
-            "acquired_at": stale_expiry - worker.CLAIM_TTL_S,
-            "lease_expires_at": stale_expiry,
-        },
-    )
-    now = stale_expiry + 10.0  # past expiry -> stale, re-claimable
-    claim = worker.claim_agent_task(
-        engine, "task-1", token="hostB:2:agent-dispatch", now=now
-    )
-    assert claim is not None
-    assert claim["dag_id"] == "dag-1"
-    new_lease = engine.graph.nodes[claim["lease_id"]]
-    assert new_lease["owner_token"] == "hostB:2:agent-dispatch"
-    assert new_lease["lease_expires_at"] == now + worker.CLAIM_TTL_S
-    # The stale lease from the dead worker is left as-is (a fresh lease node
-    # is written instead of mutating the old one) but no longer wins the
-    # "most recent lease" ordering.
-    assert (
-        engine.graph.nodes["lease:task-1:dead"]["owner_token"]
-        == "dead:1:agent-dispatch"
-    )
-
-
-def test_claim_agent_task_default_token_and_now():
-    """Omitting token/now falls back to worker_token()/time.time(), matching
-    the other two claim helpers' defaulting behavior."""
-    from agent_utilities.orchestration import agent_dispatch_worker as worker
-
-    engine = _AgentTaskEngine()
-    engine.add_node("task-1", "AgentTask", properties={"status": "pending"})
-    claim = worker.claim_agent_task(engine, "task-1")
-    assert claim is not None
-    lease = engine.graph.nodes[claim["lease_id"]]
-    assert lease["owner_token"].endswith(":agent-dispatch")
+# ── claim_agent_task: RETIRED (No-Legacy, see engine_claim.py's module
+# docstring) — agent_dispatch_worker.claim_agent_task/CLAIM_TTL_S no longer
+# exist; the AU-P1-1 authority-convergence assimilation rewrote agent task
+# claiming around the engine-native WorkItem state machine
+# (engine_claim.claim_agent_task -> work_item.claim_agent_task_via_work_item).
+# D-DSTO-5 (reports/deferred/lane-dst-orch.md): these tests targeted the
+# deleted KG-:AgentLease-node claim path with a fake engine shaped for its
+# raw query_cypher contract; the same claim/lease/fencing/reclaim behavior
+# against the CURRENT WorkItem-native contract is fully covered by
+# tests/unit/test_engine_claim.py (backend delegation) and
+# tests/unit/test_agent_dispatch_work_item_backend.py (claim/lease/dependency
+# -release semantics) — removed here rather than re-authored against a
+# different engine contract to avoid duplicating that coverage.
 
 
 # ── fleet-visible placement: heartbeats, topology, metrics ────────────────

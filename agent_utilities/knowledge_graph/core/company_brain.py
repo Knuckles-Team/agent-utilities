@@ -292,19 +292,24 @@ class TenancyManager:
         predicate site to inject into.
 
         CONCEPT:AU-KG.backend.company-brain-write-guard — the injected predicate
-        scopes against the query's **actual** first bound node variable
-        (:func:`~.cypher_scoping.first_bound_node_variable`), not a hardcoded
-        ``n``. A prior version hardcoded ``n.tenant_id = '...'`` unconditionally,
-        which silently mis-scoped (and, on a lenient backend, silently returned
-        zero rows instead of raising) any query binding its node under a
-        different variable name (``MATCH (x:Entity) RETURN x``). When no bound
-        variable can be found at all, this now raises
+        scopes against the query's **actual** primary bound node variable
+        (:func:`~.cypher_scope_vars.primary_bound_variable`; D-SH-4,
+        ``reports/deferred/lane-skill-harvest.md``), not a hardcoded ``n``. A
+        prior version hardcoded ``n.tenant_id = '...'`` unconditionally, which
+        silently mis-scoped (and, on a lenient backend, silently returned zero
+        rows instead of raising) any query binding its node under a different
+        variable name (``MATCH (x:Entity) RETURN x``, ``MATCH (s:Skill) ...
+        RETURN s``). When no bound variable can be found at all (a fully
+        anonymous first pattern — ``MATCH () ...``, ``MATCH (:Label) ...`` —
+        or no ``MATCH`` clause), this raises
         :class:`~.cypher_scoping.UnscopableQueryError` — fail closed — rather
-        than inject a predicate against a variable the query never bound.
+        than inject a predicate against a variable the query never bound OR
+        silently run the query unscoped (which would return matching rows
+        from EVERY tenant, not zero: strictly worse than the original bug).
 
         Raises:
             UnscopableQueryError: the query has a ``WHERE``/``RETURN`` clause to
-                inject into but no derivable ``MATCH (<var>...`` node variable.
+                inject into but no derivable primary bound node variable.
         """
         import re
 

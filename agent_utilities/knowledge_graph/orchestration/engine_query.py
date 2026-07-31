@@ -201,11 +201,31 @@ class QueryMixin(_Base):
                 # rows the actor's owner/scope would have kept anyway. This is a
                 # no-op (returns the query unchanged) for a privileged actor, exactly
                 # mirroring `secured_reads.visible`'s own privileged bypass.
+                #
+                # D-SH-4 (reports/deferred/lane-skill-harvest.md): `apply_visibility`
+                # defaults to writing its predicate against a hardcoded `n` variable.
+                # Detect THIS query's own primary bound variable (the same detector
+                # `scope()`/`scope_cypher_query` now uses) and pass it explicitly —
+                # a query aliased as e.g. `MATCH (w:WorkItem) RETURN count(w) AS c`
+                # otherwise gets a visibility predicate referencing a variable that
+                # doesn't exist, which Cypher treats as never matching (a silent
+                # zero-row/zero-count aggregate instead of the real answer). A fully
+                # anonymous first pattern has no variable to scope by; skip the
+                # injection rather than reference a fabricated name (mirrors
+                # `scope_cypher_query`'s own fail-open-to-unscoped decision for the
+                # same case).
+                from agent_utilities.knowledge_graph.core.cypher_scope_vars import (
+                    primary_bound_variable,
+                )
                 from agent_utilities.knowledge_graph.core.tenant_sharing import (
                     apply_visibility,
                 )
 
-                scoped_query = apply_visibility(scoped_query, session.actor)
+                agg_var = primary_bound_variable(query)
+                if agg_var is not None:
+                    scoped_query = apply_visibility(
+                        scoped_query, session.actor, var=agg_var
+                    )
         except Exception as exc:
             raise PermissionError("Graph query scoping failed") from exc
 

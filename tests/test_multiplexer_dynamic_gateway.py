@@ -1166,6 +1166,38 @@ async def test_tool_dispatchable_false_for_catalogued_but_unmounted_tool(tmp_pat
     assert mux.tool_dispatchable(CNT_PREFIXED, session_key="any-session") is False
 
 
+def test_tool_dispatchable_true_for_unknown_name_on_a_genuinely_serving_instance(
+    tmp_path,
+):
+    """The 'unknown to our bookkeeping -> unconditionally callable' fallback
+    still applies for a REAL, serving instance (non-empty catalog) — a name
+    that matches no server at all is presumed a native host tool outside the
+    progressive-disclosure surface, same as before D-SH-6's fix. This is the
+    regression guard: D-SH-6 must not turn INTO a false denial for the
+    legitimate case it always covered."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "a")]})
+    assert mux.is_serving() is False  # load_catalog() hasn't run yet
+    mux.load_catalog()
+    assert mux.is_serving() is True  # at least one real server catalogued
+    assert mux.tool_dispatchable("some_native_host_tool") is True
+
+
+def test_tool_dispatchable_false_for_unknown_name_on_a_non_serving_instance(tmp_path):
+    """D-SH-6 (reports/deferred/lane-skill-harvest.md): a freshly-constructed
+    multiplexer whose catalog resolves to ZERO servers (what a fleet
+    harvest/source_sync builds standalone) must not assert callability for a
+    name unknown to its bookkeeping — verified live in-pod to return True for
+    BOTH a real probed tool name and an invented one, which is exactly the
+    mounted-vs-callable lie the reconciliation gate exists to close."""
+    mux = MCPMultiplexer(_write_config(tmp_path, {}))  # no servers at all
+    assert mux.is_serving() is False
+    assert mux.tool_dispatchable("servicenow_servicenow_account") is False
+    assert mux.tool_dispatchable("any_other_invented_name") is False
+    # Still False even after the load_catalog() side effect _server_for_prefixed
+    # triggers internally -- the catalog it produces is genuinely empty.
+    assert mux.is_serving() is False
+
+
 async def test_tool_dispatchable_is_session_scoped_after_expose(tmp_path):
     """Reproduces the reported parent-vs-subagent asymmetry at the state layer:
     once a tool is globally exposed (registered as a live forwarder), it is

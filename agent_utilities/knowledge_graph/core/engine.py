@@ -252,7 +252,7 @@ class IntelligenceGraphEngine(
             registry = ServiceRegistry.instance()
             registry.initialize()
             count = registry.register_with_kg(self)
-            self._services_registered = True
+            self._services_registered = count > 0
             logger.info(
                 "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] Registered %d services with KG engine",
                 count,

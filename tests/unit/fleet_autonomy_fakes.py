@@ -153,6 +153,27 @@ class FakeEngine:
         )
         return job_id
 
+    def get_task_status(self, job_id: str) -> dict[str, Any] | None:
+        """Render one queued task's metadata, mirroring the real engine's
+        ``get_task_status`` contract (``engine_tasks.py``:
+        ``{"metadata": dict(item.get("metadata") or {}), ...}``).
+
+        D-DSTO-6 (reports/deferred/lane-dst-orch.md): this method was
+        entirely absent, so ``deploy_watch._load_spec``'s
+        ``engine.get_task_status(job_id)`` call raised ``AttributeError`` on
+        EVERY call against this fake — silently caught by ``_load_spec``'s
+        own except clause, which fabricates a FRESH ``deadline_unix = now +
+        deploy_watch_window`` (default 300s) instead of reading back the
+        durable spec's real (test-supplied, often sub-second) ``window_s``.
+        With the test's ``sleep=lambda s: None`` no-op, ``run_deploy_watch``'s
+        poll loop then busy-spins on the real wall clock for the full
+        (fabricated) 300s window — the hang this item reports.
+        """
+        node = self.nodes.get(job_id)
+        if node is None:
+            return None
+        return {"metadata": dict(node.get("metadata") or {})}
+
 
 class FakeObserver:
     """Scriptable FleetObserver double."""
