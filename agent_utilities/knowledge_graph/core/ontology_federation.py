@@ -36,6 +36,7 @@ moves into the ``servicenow-api`` wheel) is kept non-dangling two ways:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from agent_utilities.core.provider_materialization import resolve_managed_generation
@@ -43,6 +44,8 @@ from agent_utilities.core.providers import (
     ONTOLOGY_PROVIDER_GROUP,
     current_provider_assets,
 )
+
+logger = logging.getLogger(__name__)
 
 # Federated-IRI registry: the ledger of ontology IRIs that live in fleet packages
 # rather than the agent-utilities wheel. The canonical ``ontology.ttl`` may keep an
@@ -176,6 +179,95 @@ def resolve_provider_ontologies() -> list[tuple[str, Path]]:
             ttls.extend(sorted(shapes.glob("*.ttl")))
         for ttl in ttls:
             out.append((provider, ttl))
+    return sorted(out, key=lambda item: (item[0].casefold(), item[1].as_posix()))
+
+
+def _read_ontology_provider_entry_points(pyproject: Path) -> dict[str, str]:
+    """Statically parse ``[project.entry-points."agent_utilities.ontology_providers"]``.
+
+    No code import — reads the TOML table directly, the same "auditable
+    manifest" posture :func:`resolve_provider_ontologies` documents for
+    installed providers, just applied to a checked-out ``pyproject.toml``
+    instead of installed distribution metadata.
+    """
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover — py<3.11 fallback
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    entry_points = (
+        data.get("project", {}).get("entry-points", {}).get(ONTOLOGY_PROVIDER_GROUP, {})
+    )
+    return {str(k): str(v) for k, v in entry_points.items() if k and v}
+
+
+def resolve_workspace_provider_ontologies() -> list[tuple[str, Path]]:
+    """Source-mounted (not-yet-installed) workspace ontology-provider discovery
+    (CONCEPT:AU-KG.ontology.workspace-provider-discovery).
+
+    :func:`resolve_provider_ontologies` only sees providers registered as
+    installed distributions — ``importlib.metadata.entry_points()`` walks
+    site-packages metadata, which a sibling ``agent-packages/*`` repo checked
+    out in the workspace but not ``pip install -e``'d never has, even though
+    its own ``pyproject.toml`` declares the SAME
+    ``agent_utilities.ontology_providers`` entry-point group. This walks the
+    workspace manifest's declared repos (:func:`workspace_project_roots`),
+    statically parses each repo's ``pyproject.toml`` for that entry-point
+    group (no import — the same auditable-manifest discipline as the
+    installed-provider leg above), and globs the declared module path's
+    ``*.ttl``/``shapes/*.ttl`` files directly off disk.
+
+    Deliberately additive and best-effort: no workspace manifest configured, a
+    repo with no ``pyproject.toml``, no declared ontology-provider entry
+    point, or an unresolvable module path are all silently skipped (most
+    workspace repos are not ontology providers) — this never turns an
+    unrelated sibling repo into a sync error. A provider already resolved via
+    the installed-distribution leg is skipped here to avoid a double-load.
+    """
+    try:
+        from agent_utilities.core.workspace_config import workspace_project_roots
+    except Exception as exc:  # noqa: BLE001 — no workspace manifest configured
+        logger.debug("workspace_project_roots unavailable: %s", exc)
+        return []
+
+    installed_providers = {
+        assets.registration.name
+        for assets in current_provider_assets(ONTOLOGY_PROVIDER_GROUP)
+    }
+
+    out: list[tuple[str, Path]] = []
+    try:
+        repo_roots = workspace_project_roots()
+    except Exception as exc:  # noqa: BLE001 — malformed workspace.yml, degrade to none
+        logger.debug("workspace_project_roots() failed: %s", exc)
+        return []
+
+    for repo_root_str in repo_roots:
+        repo_root = Path(repo_root_str)
+        pyproject = repo_root / "pyproject.toml"
+        if not pyproject.is_file():
+            continue
+        try:
+            declarations = _read_ontology_provider_entry_points(pyproject)
+        except Exception as exc:  # noqa: BLE001 — one bad pyproject must not abort the scan
+            logger.debug("Skipping unparseable %s: %s", pyproject, exc)
+            continue
+        for provider_name, module_path in declarations.items():
+            if (
+                provider_name in installed_providers
+                or provider_name == "agent-utilities"
+            ):
+                continue  # already covered by the installed-provider leg
+            module_dir = repo_root / Path(*module_path.split("."))
+            if not module_dir.is_dir():
+                continue
+            ttls = sorted(module_dir.glob("*.ttl"))
+            shapes = module_dir / "shapes"
+            if shapes.is_dir():
+                ttls.extend(sorted(shapes.glob("*.ttl")))
+            for ttl in ttls:
+                out.append((provider_name, ttl))
     return sorted(out, key=lambda item: (item[0].casefold(), item[1].as_posix()))
 
 

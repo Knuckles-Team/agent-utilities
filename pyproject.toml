@@ -301,6 +301,17 @@ owl = [
 rdf = [
     "rdflib>=7.6.0"
 ]
+# The lightweight fallback the hosted-ontology lifecycle
+# (knowledge_graph/ontology/lifecycle.py) needs at SERVE time (CONCEPT:AU-KG.ontology.activation-icv-fallback):
+# a candidate TBox must survive an OWL-RL closure check + SHACL gate before it is
+# activated for native reasoning. Deliberately narrower than ``owl`` (no
+# owlready2 — that's a full external OWL-DL reasoner, never needed here): just
+# the RDF-RL closure (owlrl) and shapes validator (pyshacl) the lifecycle module
+# already imports defensively (``try: import owlrl`` / ``try: import pyshacl``).
+ontology-guardrails = [
+    "owlrl>=7.6.2",
+    "pyshacl>=0.40.0"
+]
 stardog = [
     "agent-utilities[owl]",
     "pystardog>=0.20.0"
@@ -348,10 +359,16 @@ serving = [
     # serving dependency for RSS ingestion. Code parsing is delegated to the engine's native
     # tree-sitter — no Python tree-sitter is added to the serving plane.
     #
-    # OWL-DL reasoning and SHACL remain excluded: GraphOS delegates those to the engine's
-    # native RDF/SPARQL/OWL surface.  The light ``rdf`` extra is different: workflow and
-    # ontology ingestion need rdflib parsing at runtime, while owlready2/pyshacl remain a
-    # last-resort Python fallback in the explicit `[owl]` extra.
+    # Full external OWL-DL reasoning (owlready2, the `owl` extra) stays excluded: GraphOS
+    # delegates classification to the engine's native RDF/SPARQL/OWL surface. The narrower
+    # ``ontology-guardrails`` extra (owlrl + pyshacl, no owlready2) IS shipped here
+    # (CONCEPT:AU-KG.ontology.activation-icv-fallback): the hosted-ontology lifecycle's
+    # validate/activate gate needs an OWL-RL closure + SHACL check to run at serve time —
+    # without it, `graph_ontology action=activate` degraded to reporting
+    # ``ImportError: owlrl not installed`` as a soft warning instead of actually gating
+    # activation, so a candidate that would break reasoning could still be marked active.
+    # The light ``rdf`` extra is unrelated: workflow and ontology ingestion need rdflib
+    # parsing at runtime regardless of whether the guardrail reasoners are present.
     # CONCEPT:KG-2.3 — the serving/host plane RUNS ingestion + enrichment, so it needs the
     # CANONICAL embedder, not the bare `embeddings` core. `embeddings` pulls only
     # `llama-index-core` (no provider), so `create_embedding_model()` / `make_embed_fn()`
@@ -365,7 +382,7 @@ serving = [
     # messaging platforms: the serving plane runs the always-on messaging co-service; the
     # deployed platforms (Telegram + Mattermost) ship their drivers here so a served graph-os
     # can connect them without an ad-hoc install. Add a platform's extra here when it is wired.
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost]",
+    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,rdf,ontology-guardrails,logfire,langfuse,messaging-telegram,messaging-mattermost]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
