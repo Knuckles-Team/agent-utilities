@@ -444,7 +444,7 @@ def _link(engine: Any, source_id: str, target_id: str, rel_type: str) -> None:
         linker = getattr(_authority(engine), "link_nodes", None)
         if callable(linker):
             linker(source_id, target_id, rel_type)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — docstring: "never blocks a WorkItem transition on a graph-viz edge"; the real state transition goes through _cas/compare_and_set_node_fields, an unrelated, non-swallowed path
         logger.debug(
             "work_item: edge write %s -> %s (%s) failed: %s",
             source_id,

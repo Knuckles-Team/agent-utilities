@@ -178,17 +178,29 @@ class FleetAutoscaler:
 
     # ── cooldown (durable, shared across processes) ─────────────────
 
-    def _last_scale_unix(self, service: str) -> float:
+    def _last_scale_unix(self, service: str) -> float | None:
         """Latest allowed/executed ``scale_service`` timestamp for ``service``.
 
         Reads BOTH ledgers: ActionDecision (covers allow/allow_notify gates,
         including dry-run actuation) and ActionExecution (covers
         approval-granted actions drained later by the reconciler, whose
-        decision row predates the actual scale). 0.0 = never scaled.
+        decision row predates the actual scale). 0.0 = never scaled;
+        ``None`` = cooldown state UNKNOWN (a ledger scan failed — D-DST-6:
+        the caller must fail closed on ``None``, never treat it as "clear").
         """
         if self.engine is None:
             return 0.0
+        # D-DST-6: track whether EACH ledger scan actually completed, not just
+        # accumulate `latest`. This cooldown/flap-guard is a safety check — the
+        # same "guardrail crash reads as clean pass" shape as ActionPolicy's
+        # rate/blast-radius reads. Silently treating a failed scan as "no prior
+        # scale found" (the old behavior) reports "never scaled" during exactly
+        # the KG-outage window when the underlying actuator (docker/k8s) is
+        # still fully capable of firing repeated, unthrottled scale actions.
+        # `_evaluate_service` below now fails CLOSED (skips) when either scan
+        # didn't complete, instead of assuming the cooldown is clear.
         latest = 0.0
+        decision_ok = execution_ok = False
         try:
             rows = self.engine.query_cypher(
                 "MATCH (d:ActionDecision {kind: $kind, target: $target}) "
@@ -196,13 +208,14 @@ class FleetAutoscaler:
                 f"d.decided_unix AS ts LIMIT {_LEDGER_SCAN_LIMIT}",
                 {"kind": "scale_service", "target": service},
             )
+            decision_ok = True
             for row in rows or []:
                 if not isinstance(row, dict):
                     continue
                 if row.get("decision") in _ALLOWING:
                     latest = max(latest, float(row.get("ts") or 0))
-        except Exception as e:  # noqa: BLE001 — cooldown probe is best-effort
-            logger.debug("fleet_autoscaler: decision ledger scan failed: %s", e)
+        except Exception as e:  # noqa: BLE001 — decision-ledger read failed; caller fails closed below if the execution ledger doesn't cover it either
+            logger.warning("fleet_autoscaler: decision ledger scan failed: %s", e)
         try:
             rows = self.engine.query_cypher(
                 "MATCH (x:ActionExecution {kind: $kind, target: $target}) "
@@ -210,13 +223,16 @@ class FleetAutoscaler:
                 f"LIMIT {_LEDGER_SCAN_LIMIT}",
                 {"kind": "scale_service", "target": service},
             )
+            execution_ok = True
             for row in rows or []:
                 if not isinstance(row, dict):
                     continue
                 if row.get("ok"):
                     latest = max(latest, float(row.get("ts") or 0))
-        except Exception as e:  # noqa: BLE001
-            logger.debug("fleet_autoscaler: execution ledger scan failed: %s", e)
+        except Exception as e:  # noqa: BLE001 — cooldown state is UNKNOWN when this read fails; treating it as "never scaled" would defeat the flap guard exactly when the KG backend is degraded
+            logger.warning("fleet_autoscaler: execution ledger scan failed: %s", e)
+        if not (decision_ok and execution_ok):
+            return None
         return latest
 
     # ── one service ─────────────────────────────────────────────────
@@ -276,6 +292,15 @@ class FleetAutoscaler:
             )
 
         last_scale = self._last_scale_unix(name)
+        if last_scale is None:
+            return ServiceEvaluation(
+                name,
+                "skipped",
+                "cooldown state unknown (ledger unavailable) — failing closed",
+                current=current,
+                desired=desired,
+                value=value,
+            )
         if last_scale and (time.time() - last_scale) < spec.cooldown_s:
             return ServiceEvaluation(
                 name,
@@ -395,7 +420,7 @@ class FleetAutoscaler:
                     "created_unix": time.time(),
                 },
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — AutoscaleEvaluation is a per-tick summary node; confirmed via repo-wide grep that nothing ever reads it back, so no decision depends on this write succeeding
             logger.debug("fleet_autoscaler: evaluation write failed: %s", e)
 
 

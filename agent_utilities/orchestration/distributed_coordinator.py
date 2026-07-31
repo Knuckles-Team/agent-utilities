@@ -104,12 +104,27 @@ class DistributedCoordinator:
                     else:
                         if subject not in self._local_queues:
                             self._local_queues[subject] = asyncio.Queue()
-                        payload = await self._local_queues[subject].get()
-                        await handler(payload)
-                        self._local_queues[subject].task_done()
+                        queue = self._local_queues[subject]
+                        payload = await queue.get()
+                        try:
+                            await handler(payload)
+                        except Exception:
+                            # D-DST-6: unlike the NATS branch above (which only
+                            # acks -- discards -- a message AFTER handler()
+                            # succeeds), asyncio.Queue.get() already permanently
+                            # removed `payload` from the queue before handler()
+                            # ran. Letting a handler failure fall through to the
+                            # outer except (the prior behavior) silently lost
+                            # this task forever with no redelivery. Requeue it
+                            # so a transient handler failure gets retried,
+                            # matching the NATS branch's at-least-once contract.
+                            queue.task_done()
+                            await queue.put(payload)
+                            raise
+                        queue.task_done()
                 except asyncio.CancelledError:
                     break
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — outer tick guard; the NATS branch never acks on a handler failure (redelivered by JetStream) and the local-queue branch just above now requeues before re-raising, so no path here silently drops a task
                     logger.debug("Worker subscription loop tick: %s", e)
                     await asyncio.sleep(0.5)
 
