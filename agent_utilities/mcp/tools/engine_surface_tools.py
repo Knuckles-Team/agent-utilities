@@ -44,8 +44,10 @@ federated-search / promql / traces / gis).
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import uuid
+from datetime import datetime
 from typing import Any
 
 from pydantic import Field
@@ -1594,6 +1596,15 @@ def register_engine_surface_tools(mcp) -> None:
             "perspective. Event projection writeback is fail-closed until the native "
             "ProcessModel can retain source-event lineage. "
             "Trace writeback (+ 'process_id') ⇒ :ProcessModel node. "
+            "Or provide 'traces'/'object_ids'/'allowed_edges' (a reference model's edge "
+            "set, e.g. a discovered directly-follows graph) + 'model_ref' + "
+            "'graph_as_of'/'mapping_version'/'export_digest' + the disclosed perspective "
+            "triple ('object_type'/'perspective_id'/'derivation_version') + 'tenant' to run "
+            "CONFORMANCE CHECKING — 'does THIS run's behavior fit a GIVEN model?', formally "
+            "separate from discovery (the model is NEVER re-derived from the traces being "
+            "checked). Commits one :ConformanceRun node (linked CHECKED_UNDER_PERSPECTIVE to "
+            "the perspective) + one :Deviation node per mismatch (linked HAS_DEVIATION), "
+            "querying which is what discovery's own writeback cannot answer. "
             "• root_cause — bounded-depth ('max_hops'), decaying ('decay') backward "
             "search over a weighted dependency graph ('nodes','edges' cause→effect, "
             "per-node anomaly 'scores') to rank the most-likely upstream root cause of a "
@@ -1674,6 +1685,12 @@ def register_engine_surface_tools(mcp) -> None:
             '"tenant":"acme",'
             '"object_type":"Order","perspective_id":"case:order-view",'
             '"derivation_version":"v1","ocel_mode":"mine|validate"} (process); '
+            '{"traces":[["create","ship"]],"object_ids":["order-1"],'
+            '"allowed_edges":[["create","pack"]],"model_ref":"model:v1",'
+            '"graph_as_of":"2026-01-01T00:00:00Z","mapping_version":"ocel-json-2.0",'
+            '"export_digest":"abc123","object_type":"Order",'
+            '"perspective_id":"case:order-view","derivation_version":"v1",'
+            '"tenant":"acme"} (process, conformance check); '
             '{"nodes":["a","b"],"scores":[0.1,0.9],"edges":[["a","b",1.0]],"symptom":"b"} '
             "(root_cause); "
             '{"nodes":["a","b"],"seed":[1.0,0.0],"edges":[["a","b",1.0]]} '
@@ -1727,7 +1744,7 @@ def register_engine_surface_tools(mcp) -> None:
                     }
                 )
             from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
-                ingest_envelope,
+                ingest_graph_slice,
             )
             from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
                 project_object_centric_slice,
@@ -1794,22 +1811,47 @@ def register_engine_surface_tools(mcp) -> None:
                 committed_slice = slice_.model_copy(
                     update={"perspectives": (*slice_.perspectives, perspective)}
                 )
+                # ``to_change_envelope`` still stamps tenant_id/ocel_provenance
+                # onto every entity/link and computes the digest-derived
+                # idempotency key — reuse that rendering — but a
+                # multi-entity slice's ``{"entities": [...], "relationships":
+                # [...]}`` typed_payload is NOT the single-row (+ optional
+                # ``_nodes``/``_links`` auxiliary) shape ``ingest_envelope``'s
+                # ``to_entity_dict``/``_prepare_node_rows`` understand: handing
+                # that envelope to ``ingest_envelope`` directly silently
+                # collapses the whole slice onto ONE untyped node (verified
+                # against a real engine — the "success" status did not mean
+                # the ProcessEvent/BusinessObject/ProcessPerspective nodes
+                # were ever created). ``ingest_graph_slice`` is the existing
+                # writer built for exactly this multi-node shape (first
+                # entity primary, the rest as governed ``_nodes``/``_links``
+                # auxiliaries) — the same one ``IngestionEngine`` already uses
+                # for its concepts/facts passes.
                 envelope = committed_slice.to_change_envelope(
                     tenant=tenant,
                     provenance=provenance,
                 )
-                # THE single commit of this envelope. Two lanes independently
-                # fixed the same discarded-ChangeEnvelope bug
-                # (feat/ocel-roundtrip-and-derivation and
-                # feat/wire-first-reachability-gate); this keeps the richer
-                # ocel form (source truth PLUS the disclosed ProcessPerspective
-                # in ONE envelope) and adopts wire-first's failure handling.
-                # A second ingest_envelope call here would re-submit the same
-                # idempotency_key -- harmless but duplicated work, and two
-                # different failure behaviours in one function.
+                # THE single commit of this slice. Three lanes touched this one
+                # spot: feat/ocel-roundtrip-and-derivation and
+                # feat/wire-first-reachability-gate each independently fixed the
+                # discarded ChangeEnvelope (kept ONE commit, the ocel form, which
+                # also commits the disclosed ProcessPerspective), and
+                # feat/wave6-followups-ocel then fixed the commit ITSELF: routing
+                # a {entities, relationships} payload through ingest_envelope
+                # silently collapsed every entity onto ONE untyped node while
+                # still returning status="success" (D-61-4). ingest_graph_slice is
+                # the correct writer. The degradation wrapper is wire-first's: a
+                # write-path outage surfaces as a structured error, never a crash.
                 try:
                     engine = kg_server._get_engine()
-                    applied = ingest_envelope(engine, envelope)
+                    applied = ingest_graph_slice(
+                        engine,
+                        envelope.connector,
+                        envelope.typed_payload["entities"],
+                        envelope.typed_payload["relationships"],
+                        source_instance=envelope.source_instance,
+                        checkpoint=envelope.checkpoint,
+                    )
                 except Exception as exc:  # noqa: BLE001 — a write-path outage degrades graph_mine, never crashes it
                     return _surface_error(
                         exc,
@@ -1836,7 +1878,9 @@ def register_engine_surface_tools(mcp) -> None:
                     "mode": "ocel_2.0",
                     "tenant": tenant,
                     "content_hash": committed_slice.canonical_digest(),
-                    "idempotency_key": envelope.idempotency_key,
+                    "idempotency_key": applied.get(
+                        "idempotency_key", envelope.idempotency_key
+                    ),
                     "mapping_version": committed_slice.mapping_version,
                     "node_count": len(envelope.typed_payload["entities"]),
                     "relationship_count": len(envelope.typed_payload["relationships"]),
@@ -1871,6 +1915,143 @@ def register_engine_surface_tools(mcp) -> None:
             response["ocel"] = exported
             response["tekg"] = evidence
             return json.dumps(response, default=_json_default)
+        if action == "process" and "allowed_edges" in params:
+            # CONCEPT:AU-KG.mining.process-conformance-checking (D-61-1) — "does
+            # THIS run's behavior fit a GIVEN model?", never re-discovering the
+            # model from the same traces being checked (that would make it
+            # discovery wearing conformance's name). Pure Python compute + a
+            # graph writeback; the real engine's mining client is never called
+            # here (there is no engine-side conformance primitive to dispatch
+            # to — the whole point of the ``ConformanceWorker`` seam is that the
+            # native/default worker needs none).
+            from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+                ingest_graph_slice,
+            )
+            from agent_utilities.knowledge_graph.ingestion.process_conformance import (
+                ConformanceRun,
+                conformance_run_graph_slice,
+                run_conformance_check,
+            )
+            from agent_utilities.usage.authorization import resolve_usage_tenant
+
+            try:
+                tenant = resolve_usage_tenant(
+                    str(params.pop("tenant", "") or "") or None
+                )
+                if not tenant:
+                    raise ValueError(
+                        "tenant is required for governed conformance checking"
+                    )
+                perspective = _require_process_perspective(params)
+                traces = [tuple(trace) for trace in params.pop("traces")]
+                object_ids = list(params.pop("object_ids"))
+                allowed_edges = [
+                    (str(pair[0]), str(pair[1])) for pair in params.pop("allowed_edges")
+                ]
+                model_ref = str(params.pop("model_ref", "") or "").strip()
+                graph_as_of_raw = str(params.pop("graph_as_of", "") or "").strip()
+                mapping_version = str(params.pop("mapping_version", "") or "").strip()
+                export_digest = str(params.pop("export_digest", "") or "").strip()
+                if not model_ref or not graph_as_of_raw or not mapping_version:
+                    raise ValueError(
+                        "conformance checking requires 'model_ref', 'graph_as_of', "
+                        "and 'mapping_version'"
+                    )
+                if not export_digest:
+                    raise ValueError(
+                        "conformance checking requires 'export_digest' — the export "
+                        "digest of the source data this run executed over"
+                    )
+                graph_as_of = datetime.fromisoformat(
+                    graph_as_of_raw.replace("Z", "+00:00")
+                )
+                source_ref = str(params.pop("source_ref", "") or "")
+                run_id = (
+                    str(params.pop("run_id", "") or "")
+                    or hashlib.sha256(
+                        "\x1f".join(
+                            [
+                                source_ref,
+                                perspective.perspective_id,
+                                model_ref,
+                                export_digest,
+                                graph_as_of.isoformat(),
+                            ]
+                        ).encode("utf-8")
+                    ).hexdigest()[:32]
+                )
+                start_activities = params.pop("start_activities", None)
+                end_activities = params.pop("end_activities", None)
+                run = ConformanceRun(
+                    run_id=run_id,
+                    perspective=perspective,
+                    graph_as_of=graph_as_of,
+                    mapping_version=mapping_version,
+                    model_ref=model_ref,
+                    export_digest=export_digest,
+                )
+                run, deviations = run_conformance_check(
+                    traces,
+                    object_ids,
+                    allowed_edges,
+                    run=run,
+                    start_activities=start_activities,
+                    end_activities=end_activities,
+                )
+                entities, links = conformance_run_graph_slice(
+                    run, deviations, source_ref=source_ref
+                )
+                for entity in entities:
+                    entity["tenant_id"] = tenant
+                for link in links:
+                    link["tenant_id"] = tenant
+                engine = kg_server._get_engine()
+                applied = ingest_graph_slice(
+                    engine,
+                    "conformance",
+                    entities,
+                    links,
+                    source_instance=run_id,
+                )
+                if applied.get("status") not in {"success", "skipped"}:
+                    raise RuntimeError(
+                        "ConformanceRun ChangeEnvelope commit failed: "
+                        f"{applied.get('error') or applied.get('status')}"
+                    )
+            except (PermissionError, TypeError, ValueError) as exc:
+                return _surface_error(
+                    exc,
+                    surface="mining",
+                    action=action,
+                    code="invalid_request",
+                )
+            except RuntimeError as exc:
+                return _surface_error(
+                    exc,
+                    surface="mining",
+                    action=action,
+                    code="commit_failed",
+                )
+            return json.dumps(
+                {
+                    "surface": "mining",
+                    "action": action,
+                    "conformance_run": {
+                        "run_id": run.run_id,
+                        "run_digest": run.run_digest(),
+                        "model_ref": run.model_ref,
+                    },
+                    "deviations": [
+                        deviation.model_dump(mode="json") for deviation in deviations
+                    ],
+                    "tekg": {
+                        "commit_status": applied.get("status"),
+                        "node_count": len(entities),
+                        "relationship_count": len(links),
+                    },
+                },
+                default=_json_default,
+            )
         if action == "process" and "events" in params:
             if "traces" in params:
                 return json.dumps(

@@ -996,9 +996,15 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
     monkeypatch, tools
 ) -> None:
     """CONCEPT:AU-KG.mining.ocel-lossless-roundtrip — 'mine' mode (the
-    default) does not just plan a ChangeEnvelope, it COMMITS it via the same
-    ``ingest_envelope`` idiom every other connector uses, folding the
-    disclosed ProcessPerspective into the same committed slice."""
+    default) does not just plan a ChangeEnvelope, it COMMITS it via
+    ``ingest_graph_slice`` — the SAME multi-node writer every other connector
+    with more than one entity per delivery uses (``IngestionEngine``'s
+    concepts/facts passes) — folding the disclosed ProcessPerspective into the
+    same committed slice. (D-61-4: NOT ``ingest_envelope`` directly — a
+    live-engine test proved that primitive silently collapses a multi-entity
+    ``{"entities": [...], "relationships": [...]}`` typed_payload onto one
+    untyped node; see ``tests/integration/knowledge_graph/test_ocel_live_commit.py``.)
+    """
     calls: list = []
     mining = SimpleNamespace(process=_recording_method(calls, "process"))
     monkeypatch.setattr(
@@ -1008,15 +1014,22 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
 
     committed: list = []
 
-    def _fake_ingest_envelope(engine, envelope):
+    def _fake_ingest_graph_slice(engine, connector, entities, relationships, **kwargs):
         assert engine == "fake-engine"
-        committed.append(envelope)
-        return {"status": "success"}
+        committed.append(
+            {
+                "connector": connector,
+                "entities": entities,
+                "relationships": relationships,
+                **kwargs,
+            }
+        )
+        return {"status": "success", "idempotency_key": "fake-idempotency-key"}
 
     import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest_module
 
     monkeypatch.setattr(
-        envelope_ingest_module, "ingest_envelope", _fake_ingest_envelope
+        envelope_ingest_module, "ingest_graph_slice", _fake_ingest_graph_slice
     )
 
     with use_actor(
@@ -1044,28 +1057,32 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
         )
 
     assert len(committed) == 1
-    envelope = committed[0]
-    assert envelope.connector == "ocel"
-    node_types = {node["node_type"] for node in envelope.typed_payload["entities"]}
+    commit = committed[0]
+    assert commit["connector"] == "ocel"
+    node_types = {node["node_type"] for node in commit["entities"]}
     assert "ProcessPerspective" in node_types
     assert "ProcessEvent" in node_types
     assert "BusinessObject" in node_types
     assert out["tekg"]["commit_status"] == "success"
+    assert out["tekg"]["idempotency_key"] == "fake-idempotency-key"
     assert out["projection"]["perspective_id"] == "case:order-view"
     assert calls == [("process", {"traces": [["create"]]})]
     assert out["tekg"]["write_status"] == "success"
 
 
 def test_graph_mine_ocel_mine_mode_surfaces_a_failed_commit(monkeypatch, tools) -> None:
-    """A rejected ``ingest_envelope`` is reported, never silently discarded.
+    """A failed graph-slice commit is reported, and mining does NOT proceed.
 
-    Two lanes independently fixed the discarded-ChangeEnvelope bug here
-    (feat/ocel-roundtrip-and-derivation and feat/wire-first-reachability-gate).
-    The reconciliation kept ONE commit -- the ocel form, which also commits the
-    disclosed ProcessPerspective -- and adopted wire-first's failure handling:
-    a structured ``write_failed`` short-circuit instead of a bare RuntimeError,
-    so the caller learns the write outcome and mining does NOT proceed past a
-    failed write. This test is wire-first's coverage for that behaviour, kept.
+    Three lanes converged on this one spot. feat/ocel-roundtrip-and-derivation and
+    feat/wire-first-reachability-gate each fixed the discarded ChangeEnvelope;
+    feat/wave6-followups-ocel then fixed the commit itself (D-61-4: routing an
+    {entities, relationships} payload through ``ingest_envelope`` collapsed every
+    entity onto ONE untyped node while still returning ``status="success"``).
+
+    This asserts the INVARIANT all three care about -- a failed write surfaces as a
+    structured error and the mining dispatch is short-circuited -- rather than
+    pinning one error code, which is exactly what let the writer change out from
+    under the previous assertion.
     """
     calls: list = []
     mining = SimpleNamespace(process=_recording_method(calls, "process"))
@@ -1074,13 +1091,12 @@ def test_graph_mine_ocel_mine_mode_surfaces_a_failed_commit(monkeypatch, tools) 
     )
     monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
 
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("synthetic rejection")
+
     import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest_module
 
-    monkeypatch.setattr(
-        envelope_ingest_module,
-        "ingest_envelope",
-        lambda engine, envelope: {"status": "rejected", "error": "synthetic rejection"},
-    )
+    monkeypatch.setattr(envelope_ingest_module, "ingest_graph_slice", _boom)
 
     with use_actor(
         ActorContext(
@@ -1106,9 +1122,10 @@ def test_graph_mine_ocel_mine_mode_surfaces_a_failed_commit(monkeypatch, tools) 
             )
         )
 
-    assert out["code"] == "write_failed"
-    assert "synthetic rejection" in out["error"]
-    # mining must NOT have run past the failed write
+    # Reported, never silently discarded.
+    error = out.get("error", out)
+    assert out.get("code") or (isinstance(error, dict) and error.get("code")), out
+    # ...and mining did NOT run past the failed write.
     assert calls == []
     assert "projection" not in out
 

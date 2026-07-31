@@ -37,11 +37,15 @@ import hashlib
 import json
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import Field, model_validator
 
-from .semantic_event_model import ProcessPerspective, SemanticBoundaryModel
+from .semantic_event_model import (
+    ProcessPerspective,
+    SemanticBoundaryModel,
+    _stable_id,
+)
 
 DeviationKind = Literal["unexpected_transition", "unexpected_start", "unexpected_end"]
 
@@ -50,6 +54,7 @@ __all__ = [
     "ConformanceWorker",
     "Deviation",
     "check_directly_follows_conformance",
+    "conformance_run_graph_slice",
     "run_conformance_check",
 ]
 
@@ -254,3 +259,75 @@ def run_conformance_check(
         end_activities=None if end_activities is None else frozenset(end_activities),
     )
     return run, deviations
+
+
+def conformance_run_graph_slice(
+    run: ConformanceRun,
+    deviations: Sequence[Deviation],
+    *,
+    source_ref: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Render one ``(ConformanceRun, deviations)`` result as canonical
+    nodes/links for the existing ``ingest_graph_slice`` writer
+    (CONCEPT:AU-KG.mining.process-conformance-checking) — the graph-writeback
+    counterpart of :meth:`~.semantic_event_model.ObjectCentricGraphSlice
+    .to_graph_slice`, using the SAME ``_stable_id`` scheme so a
+    ``CHECKED_UNDER_PERSPECTIVE`` edge lands on the perspective node an OCEL
+    commit already materialized under that ``source_ref``, when one exists.
+
+    D-61-1: makes a conformance result queryable from the graph ("which
+    conformance runs happened, with what deviations") — it does not, by
+    itself, make ``run_conformance_check`` write anywhere; a caller commits
+    the returned ``(entities, links)`` through ``ingest_graph_slice``
+    (mirrors every other connector's commit idiom).
+    """
+    run_node_id = _stable_id("conformance-run", source_ref, run.run_id)
+    perspective_node_id = _stable_id(
+        "process-perspective", source_ref, run.perspective.perspective_id
+    )
+    entities: list[dict[str, Any]] = [
+        {
+            "id": run_node_id,
+            "node_type": "ConformanceRun",
+            "source_record_id": run.run_id,
+            "run_digest": run.run_digest(),
+            "perspective_id": run.perspective.perspective_id,
+            "graph_as_of": run.graph_as_of.isoformat(),
+            "mapping_version": run.mapping_version,
+            "model_ref": run.model_ref,
+            "export_digest": run.export_digest,
+            "worker": run.worker,
+            "created_at": run.created_at.isoformat(),
+            "source_ref": source_ref,
+        }
+    ]
+    links: list[dict[str, Any]] = [
+        {
+            "source": run_node_id,
+            "target": perspective_node_id,
+            "relationship": "CHECKED_UNDER_PERSPECTIVE",
+        }
+    ]
+    for deviation in sorted(deviations, key=lambda value: value.deviation_id):
+        deviation_node_id = _stable_id("deviation", source_ref, deviation.deviation_id)
+        entities.append(
+            {
+                "id": deviation_node_id,
+                "node_type": "Deviation",
+                "source_record_id": deviation.deviation_id,
+                "object_id": deviation.object_id,
+                "position": deviation.position,
+                "kind": deviation.kind,
+                "observed_activity": deviation.observed_activity,
+                "expected_activities": list(deviation.expected_activities),
+                "source_ref": source_ref,
+            }
+        )
+        links.append(
+            {
+                "source": run_node_id,
+                "target": deviation_node_id,
+                "relationship": "HAS_DEVIATION",
+            }
+        )
+    return entities, links

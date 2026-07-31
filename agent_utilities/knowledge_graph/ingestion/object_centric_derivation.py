@@ -133,13 +133,29 @@ class Watermark:
 
 
 class ObjectTimeline:
-    """One object's ordered event index, keyed by ``(occurred_at, tiebreaker, event_id)``."""
+    """One object's ordered event index, keyed by ``(occurred_at, tiebreaker, event_id)``.
 
-    __slots__ = ("_events", "_keys")
+    D-61-3 (partial): ``position_of`` now resolves via a maintained
+    ``event_id -> key`` dict + ``bisect`` (O(log n)) instead of the previous
+    O(n) linear scan over every event — the lookup ``remove``/``events_from``
+    both depend on. ``insert``/``remove`` still mutate a plain ``list``
+    (``list.insert``/``del`` remain an O(n) shift): a genuine O(log n) update
+    too needs an indexed structure (e.g. a skip-list/B-tree) this module
+    deliberately does NOT add as a new dependency here — see
+    ``reports/deferred/lane-wave6-followup.md`` D-W6F-2 for why (adding one
+    requires relocking the SHARED multi-worktree workspace lock, out of scope
+    for a same-session drive-by). The BOUNDED-UPDATE property (an arrival only
+    ever touches the one adjacent DFG edge pair) is unaffected either way —
+    that bound was always in the update algorithm's blast radius, not the
+    index's raw complexity.
+    """
+
+    __slots__ = ("_events", "_keys", "_key_by_id")
 
     def __init__(self) -> None:
         self._keys: list[tuple[datetime, str, str]] = []
         self._events: list[ProcessEvent] = []
+        self._key_by_id: dict[str, tuple[datetime, str, str]] = {}
 
     def __len__(self) -> int:
         return len(self._events)
@@ -148,10 +164,12 @@ class ObjectTimeline:
         return iter(self._events)
 
     def position_of(self, event_id: str) -> int | None:
-        for index, event in enumerate(self._events):
-            if event.event_id == event_id:
-                return index
-        return None
+        key = self._key_by_id.get(event_id)
+        if key is None:
+            return None
+        # ``key`` includes ``event_id`` as its final tiebreaker component, so
+        # it is unique — the bisected index is exact, not merely a candidate.
+        return bisect.bisect_left(self._keys, key)
 
     def neighbors_of_key(
         self, key: tuple[datetime, str, str]
@@ -172,6 +190,7 @@ class ObjectTimeline:
         successor = self._events[index] if index < len(self._events) else None
         self._keys.insert(index, key)
         self._events.insert(index, event)
+        self._key_by_id[event.event_id] = key
         return predecessor, successor
 
     def remove(
@@ -186,6 +205,7 @@ class ObjectTimeline:
         successor = self._events[index + 1] if index + 1 < len(self._events) else None
         del self._events[index]
         del self._keys[index]
+        del self._key_by_id[event_id]
         return removed, predecessor, successor
 
     def events_from(self, event_id: str) -> tuple[ProcessEvent, ...]:
@@ -248,6 +268,13 @@ class IncrementalObjectCentricDeriver:
         default_factory=dict
     )
     _known_events: dict[str, tuple[str, ProcessEvent]] = field(default_factory=dict)
+    #: D-61-3: ``object_id -> object_type`` side index, populated once per
+    #: newly-observed participation in ``ingest_event`` — replaces the O(total
+    #: known events) scan ``_object_type_of`` used to do over every
+    #: ``_known_events`` entry's participations on every lookup. First-known
+    #: type wins (matches the scan's own "first match in iteration order"
+    #: behavior it replaces).
+    _object_types: dict[str, str] = field(default_factory=dict)
 
     def observe_object_attributes(
         self, object_id: str, attributes: Iterable[TemporalAttributeValue]
@@ -279,11 +306,10 @@ class IncrementalObjectCentricDeriver:
         )
 
     def _object_type_of(self, object_id: str) -> str:
-        for _, event in self._known_events.values():
-            for participation in event.objects:
-                if participation.object_id == object_id:
-                    return participation.object_type
-        raise KeyError(f"no known event participation for object {object_id!r}")
+        object_type = self._object_types.get(object_id)
+        if object_type is None:
+            raise KeyError(f"no known event participation for object {object_id!r}")
+        return object_type
 
     @staticmethod
     def _pair(a: str | None, b: str | None) -> tuple[str, str] | None:
@@ -329,6 +355,10 @@ class IncrementalObjectCentricDeriver:
         )
         timeline.insert(event)
         self._known_events[event.event_id] = (object_id, event)
+        for participation in event.objects:
+            self._object_types.setdefault(
+                participation.object_id, participation.object_type
+            )
 
         added_edges = tuple(
             pair

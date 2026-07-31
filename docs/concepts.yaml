@@ -4677,12 +4677,13 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/semantic_event_model.py
   doc: the inverse of
 - id: AU-KG.mining.process-conformance-checking
-  name: AU-KG.mining.process-conformance-checking
+  name: the graph-writeback
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/process_conformance.py
-  doc: AU-KG.mining.process-conformance-checking
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: the graph-writeback
 - id: AU-KG.ontology.authoritative-tbox
   name: the authoritative TBox the platform ships
   pillar: AU-KG

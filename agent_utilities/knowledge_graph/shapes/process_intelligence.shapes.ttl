@@ -180,3 +180,53 @@
         sh:hasValue "proposed" ;
         sh:message "Entity resolution output is proposal-only."
     ] .
+
+# D-61-1 — the graph-writeback shapes for process_conformance.py's frozen
+# data/model boundary (CONCEPT:AU-KG.mining.process-conformance-checking).
+:ConformanceRunShape a sh:NodeShape ;
+    sh:targetClass :ConformanceRun ;
+    sh:property [
+        sh:path :CHECKED_UNDER_PERSPECTIVE ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class :ProcessPerspective ;
+        sh:message "Every ConformanceRun must declare the ProcessPerspective it checked."
+    ] ;
+    sh:property [
+        sh:path :HAS_DEVIATION ;
+        sh:class :Deviation
+    ] ;
+    sh:property [
+        sh:path :model_ref ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path :export_digest ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] .
+
+:DeviationShape a sh:NodeShape ;
+    sh:targetClass :Deviation ;
+    sh:property [
+        sh:path :kind ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ("unexpected_transition" "unexpected_start" "unexpected_end")
+    ] ;
+    sh:property [
+        sh:path :object_id ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path :position ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 0
+    ] .

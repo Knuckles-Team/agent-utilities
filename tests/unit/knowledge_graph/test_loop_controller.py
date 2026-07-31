@@ -226,6 +226,20 @@ def test_mine_discovery_association_rule_and_link_prediction(monkeypatch):
 
     monkeypatch.setattr(engine_surface_tools, "_invoke", fake_invoke)
 
+    # The predicted-edge pass now commits its ObjectCentricGraphSlice through
+    # ingest_graph_slice (D-61-4), which correctly refuses a bare stub engine.
+    # This test is about the mining SUMMARY, not the writeback, so stub the
+    # writer rather than let an unrelated EngineUnavailable land in errors --
+    # it previously only "passed" because ingest_envelope silently accepted the
+    # wrong payload shape, which is the defect itself.
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    monkeypatch.setattr(
+        envelope_ingest,
+        "ingest_graph_slice",
+        lambda *a, **k: {"status": "success", "envelope_id": "env:test"},
+    )
+
     eng = _StubEngine([], [])  # query_cypher falls through to [] → anomaly skipped
     rep = LoopController(eng)._run_mine_discovery()
 
@@ -293,13 +307,23 @@ def test_mine_predicted_edges_emits_real_neural_relation_prediction_live_path(
 
     monkeypatch.setattr(engine_surface_tools, "_invoke", fake_invoke)
 
-    captured_envelopes = []
+    captured_slices = []
 
-    def fake_ingest_envelope(engine, envelope):
-        captured_envelopes.append(envelope)
-        return {"status": "success", "envelope_id": envelope.envelope_id}
+    # Patch the writer this path ACTUALLY uses. An ObjectCentricGraphSlice
+    # envelope carries a {entities, relationships} typed_payload, so it must be
+    # committed with ingest_graph_slice: handing it to ingest_envelope collapses
+    # every entity onto ONE untyped node while still reporting success (the same
+    # defect D-61-4 fixed in graph_mine's OCEL commit). Patching the writer the
+    # code no longer calls would silently stop covering this path.
+    def fake_ingest_graph_slice(
+        engine, connector, entities, relationships, **kwargs
+    ):
+        captured_slices.append((connector, entities, relationships))
+        return {"status": "success", "envelope_id": "env:test"}
 
-    monkeypatch.setattr(envelope_ingest, "ingest_envelope", fake_ingest_envelope)
+    monkeypatch.setattr(
+        envelope_ingest, "ingest_graph_slice", fake_ingest_graph_slice
+    )
 
     eng = _StubEngine([], [])
     rep = LoopController(eng)._run_mine_discovery()
@@ -309,10 +333,9 @@ def test_mine_predicted_edges_emits_real_neural_relation_prediction_live_path(
     assert events["status"] == "success"
     assert rep["errors"] == []
 
-    assert len(captured_envelopes) == 1
-    envelope = captured_envelopes[0]
-    assert envelope.connector == "ocel"
-    entities = envelope.typed_payload["entities"]
+    assert len(captured_slices) == 1
+    connector, entities, _relationships = captured_slices[0]
+    assert connector == "ocel"
     neural_entities = [e for e in entities if e["node_type"] == "NeuralRelationPrediction"]
     assert len(neural_entities) == 1
     neural_entity = neural_entities[0]

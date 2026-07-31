@@ -1191,8 +1191,8 @@ class LoopController:
         :class:`~..ingestion.semantic_event_model.BusinessObject` entries in one
         validated :class:`~..ingestion.semantic_event_model.
         ObjectCentricGraphSlice`, committed via
-        :func:`~..ingestion.envelope_ingest.ingest_envelope` — the exact
-        construct → validate → ``to_change_envelope`` → ``ingest_envelope``
+        :func:`~..ingestion.envelope_ingest.ingest_graph_slice` — the exact
+        construct → validate → ``to_change_envelope`` → ``ingest_graph_slice``
         sequence every OCEL producer (:mod:`~..ingestion.ocel_adapter`) already
         uses, reused rather than reimplemented.
 
@@ -1208,7 +1208,7 @@ class LoopController:
         if not above_floor or self.engine is None:
             return {"emitted": 0}
 
-        from ..ingestion.envelope_ingest import ingest_envelope
+        from ..ingestion.envelope_ingest import ingest_graph_slice
         from ..ingestion.semantic_event_model import (
             BusinessObject,
             NeuralRelationPrediction,
@@ -1262,7 +1262,21 @@ class LoopController:
                     "predictor": "graphlearn:kan-link-predictor",
                 },
             )
-            applied = ingest_envelope(self.engine, envelope)
+            # An ObjectCentricGraphSlice envelope carries a
+            # ``{entities, relationships}`` typed_payload, NOT a connector
+            # record. Handing that to ``ingest_envelope`` silently collapses
+            # every entity onto ONE untyped node while still reporting
+            # ``status="success"`` — the same defect D-61-4 fixed in
+            # ``graph_mine``'s OCEL commit. ``ingest_graph_slice`` is the
+            # correct writer for this payload shape.
+            applied = ingest_graph_slice(
+                self.engine,
+                envelope.connector,
+                envelope.typed_payload["entities"],
+                envelope.typed_payload["relationships"],
+                source_instance=envelope.source_instance,
+                checkpoint=envelope.checkpoint,
+            )
         except Exception as e:  # noqa: BLE001 — semantic-event emission is best-effort
             errors.append(f"mine_predict:semantic_event: {e}")
             return {"emitted": 0}

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -11,9 +12,12 @@ from agent_utilities.knowledge_graph.ingestion.process_conformance import (
     ConformanceRun,
     Deviation,
     check_directly_follows_conformance,
+    conformance_run_graph_slice,
     run_conformance_check,
 )
-from agent_utilities.knowledge_graph.ingestion.semantic_event_model import ProcessPerspective
+from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
+    ProcessPerspective,
+)
 
 
 def _perspective(**overrides: object) -> ProcessPerspective:
@@ -30,7 +34,7 @@ def _run(**overrides: object) -> ConformanceRun:
     fields: dict[str, object] = {
         "run_id": "run-1",
         "perspective": _perspective(),
-        "graph_as_of": datetime(2026, 1, 1, tzinfo=timezone.utc),
+        "graph_as_of": datetime(2026, 1, 1, tzinfo=UTC),
         "mapping_version": "ocel-json-2.0",
         "model_ref": "process-model:checkout-flow",
         "export_digest": "a" * 64,
@@ -47,7 +51,7 @@ def test_run_digest_is_stable_across_run_id_worker_and_created_at() -> None:
     second = _run(
         run_id="run-b",
         worker="pm4py-alignment",
-        created_at=datetime(2030, 6, 1, tzinfo=timezone.utc),
+        created_at=datetime(2030, 6, 1, tzinfo=UTC),
     )
     assert first.run_digest() == second.run_digest()
 
@@ -58,7 +62,7 @@ def test_run_digest_is_stable_across_run_id_worker_and_created_at() -> None:
         {"mapping_version": "ocel-json-2.1"},
         {"model_ref": "process-model:other-flow"},
         {"export_digest": "b" * 64},
-        {"graph_as_of": datetime(2026, 6, 1, tzinfo=timezone.utc)},
+        {"graph_as_of": datetime(2026, 6, 1, tzinfo=UTC)},
     ],
 )
 def test_run_digest_changes_when_any_frozen_dimension_changes(
@@ -131,7 +135,9 @@ def test_unexpected_start_activity_is_reported_when_start_set_is_declared() -> N
     assert kinds == {"unexpected_start"}
 
 
-def test_start_end_conformance_is_not_checked_when_no_start_end_set_is_declared() -> None:
+def test_start_end_conformance_is_not_checked_when_no_start_end_set_is_declared() -> (
+    None
+):
     """A directly-follows edge set alone cannot distinguish "illegal start"
     from "legal mid-process activity that opens this trace" — omitting the
     declared sets means start/end conformance is simply not asserted."""
@@ -182,7 +188,13 @@ def test_an_alternative_worker_can_be_swapped_in_without_a_new_dependency() -> N
     the frozen run identity is untouched by which worker executed."""
 
     def _stub_alignment_worker(
-        traces, object_ids, allowed_edges, *, run, start_activities=None, end_activities=None
+        traces,
+        object_ids,
+        allowed_edges,
+        *,
+        run,
+        start_activities=None,
+        end_activities=None,
     ):
         return (
             Deviation(
@@ -200,3 +212,145 @@ def test_an_alternative_worker_can_be_swapped_in_without_a_new_dependency() -> N
     )
     assert returned_run is run
     assert deviations[0].deviation_id == "deviation:stub"
+
+
+# ── graph writeback (D-61-1: querying past conformance runs/deviations) ───────
+def test_conformance_run_graph_slice_shape_with_a_deviation() -> None:
+    run = _run()
+    allowed_edges = {("create", "approve")}
+    _, deviations = run_conformance_check(
+        [("create", "reject")], ["o1"], allowed_edges, run=run
+    )
+    entities, links = conformance_run_graph_slice(
+        run, deviations, source_ref="src:test"
+    )
+
+    run_entities = [e for e in entities if e["node_type"] == "ConformanceRun"]
+    deviation_entities = [e for e in entities if e["node_type"] == "Deviation"]
+    assert len(run_entities) == 1
+    assert len(deviation_entities) == 1
+    assert run_entities[0]["model_ref"] == "process-model:checkout-flow"
+    assert run_entities[0]["run_digest"] == run.run_digest()
+    assert deviation_entities[0]["object_id"] == "o1"
+
+    relationship_kinds = {link["relationship"] for link in links}
+    assert relationship_kinds == {"CHECKED_UNDER_PERSPECTIVE", "HAS_DEVIATION"}
+    run_id = run_entities[0]["id"]
+    perspective_links = [
+        link for link in links if link["relationship"] == "CHECKED_UNDER_PERSPECTIVE"
+    ]
+    assert perspective_links[0]["source"] == run_id
+    deviation_links = [
+        link for link in links if link["relationship"] == "HAS_DEVIATION"
+    ]
+    assert deviation_links[0] == {
+        "source": run_id,
+        "target": deviation_entities[0]["id"],
+        "relationship": "HAS_DEVIATION",
+    }
+
+
+def test_conformance_run_graph_slice_checked_under_perspective_matches_ocel_node_id() -> (
+    None
+):
+    """The CHECKED_UNDER_PERSPECTIVE target id must be computed the SAME way
+    ``ObjectCentricGraphSlice.to_graph_slice`` computes a ProcessPerspective
+    node id — otherwise a conformance run committed after an OCEL commit under
+    the same ``source_ref``/perspective would silently create a DUPLICATE,
+    disconnected perspective node instead of joining the existing one."""
+    from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
+        _stable_id,
+    )
+
+    run = _run()
+    entities, links = conformance_run_graph_slice(run, (), source_ref="src:test")
+    perspective_link = next(
+        link for link in links if link["relationship"] == "CHECKED_UNDER_PERSPECTIVE"
+    )
+    expected_id = _stable_id(
+        "process-perspective", "src:test", run.perspective.perspective_id
+    )
+    assert perspective_link["target"] == expected_id
+
+
+def test_conformance_run_graph_slice_with_no_deviations_has_no_run_node() -> None:
+    run = _run()
+    entities, links = conformance_run_graph_slice(run, (), source_ref="src:test")
+    assert {e["node_type"] for e in entities} == {"ConformanceRun"}
+    assert {link["relationship"] for link in links} == {"CHECKED_UNDER_PERSPECTIVE"}
+
+
+def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes() -> None:
+    """Prove the emitted LPG vocabulary matches the SHACL contract — mirrors
+    ``test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes`` in
+    ``test_semantic_event_model.py`` for the OCEL slice."""
+    rdflib = pytest.importorskip("rdflib")
+    pyshacl = pytest.importorskip("pyshacl")
+    from rdflib.namespace import RDF, XSD
+
+    run = _run()
+    allowed_edges = {("create", "approve")}
+    _, deviations = run_conformance_check(
+        [("create", "reject")], ["o1"], allowed_edges, run=run
+    )
+    entities, links = conformance_run_graph_slice(
+        run, deviations, source_ref="src:test"
+    )
+
+    graph = rdflib.Graph()
+    kg = rdflib.Namespace("http://knuckles.team/kg#")
+
+    def literal(value: object) -> object | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, str) and value:
+            return rdflib.Literal(value)
+        if isinstance(value, int):
+            return rdflib.Literal(value, datatype=XSD.integer)
+        if isinstance(value, float):
+            return rdflib.Literal(value, datatype=XSD.double)
+        return None
+
+    for entity in entities:
+        subject = kg[f"node/{entity['id']}"]
+        graph.add((subject, RDF.type, kg[entity["node_type"]]))
+        for key, value in entity.items():
+            if key in {"id", "node_type"}:
+                continue
+            object_value = literal(value)
+            if object_value is not None:
+                graph.add((subject, kg[key], object_value))
+    # The referenced ProcessPerspective node is out of this slice's scope (an
+    # OCEL commit would have created it) — declare its type directly so the
+    # shape's ``sh:class :ProcessPerspective`` constraint on
+    # CHECKED_UNDER_PERSPECTIVE has a real target to check against.
+    perspective_target = next(
+        link["target"]
+        for link in links
+        if link["relationship"] == "CHECKED_UNDER_PERSPECTIVE"
+    )
+    graph.add((kg[f"node/{perspective_target}"], RDF.type, kg["ProcessPerspective"]))
+    node_iris = {entity["id"]: kg[f"node/{entity['id']}"] for entity in entities}
+    node_iris[perspective_target] = kg[f"node/{perspective_target}"]
+    for link in links:
+        graph.add(
+            (
+                node_iris[link["source"]],
+                kg[link["relationship"]],
+                node_iris[link["target"]],
+            )
+        )
+
+    shapes_path = (
+        Path(__file__).parents[3]
+        / "agent_utilities"
+        / "knowledge_graph"
+        / "shapes"
+        / "process_intelligence.shapes.ttl"
+    )
+    conforms, _, report = pyshacl.validate(
+        graph,
+        shacl_graph=str(shapes_path),
+        inference="none",
+    )
+    assert conforms, report
