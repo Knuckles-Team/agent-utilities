@@ -60,15 +60,14 @@ _FAILING_LAYER_PREFIXES: tuple[tuple[str, str], ...] = (
 #: ``error.detail_ref`` — this is the "detail store" behind that reference.
 #: Bounded (never durable, never a leak vector: every entry is already
 #: sanitized before it is stored) so a busy process cannot grow it unbounded.
-#:
-#: D-24 (durability): this dict does NOT survive a process restart and is not
-#: shared across replicas — a ``detail_ref`` handed to a caller can outlive
-#: this store. It remains the source of truth for :func:`resolve_error_detail`
-#: regardless of :data:`_detail_persistence_sink` health; see
+#: This remains the primary, fastest-path source of truth for
+#: :func:`resolve_error_detail` (checked first); a registered
+#: :data:`_detail_persistence_sink` with a ``resolve`` method (D-24) is
+#: consulted only on a miss here — e.g. after a restart, or a resolve call
+#: served by a different replica than the one that recorded the failure. See
 #: :func:`register_detail_persistence_sink` for the durable-audit seam and
-#: ``reports/deferred/lane-0.2b.md`` for what is intentionally NOT done here
-#: (wiring a concrete graph-provenance writer, e.g. linking an ``:ErrorDetail``
-#: node to the failing operation's ``:RunTrace``/``:ToolCall``).
+#: ``agent_utilities.observability.error_detail_sink.GraphErrorDetailSink``
+#: for the concrete KG-provenance backend wired through it.
 _DETAIL_STORE_MAX_ENTRIES = 512
 _detail_store: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _detail_store_lock = threading.Lock()
@@ -78,7 +77,10 @@ _detail_store_lock = threading.Lock()
 #: writer, a database, or nothing at all (the default, ``None``). When set,
 #: every recorded detail is ALSO handed to the sink, best-effort: a failing or
 #: unset sink never affects the in-process store or the caller's exception
-#: path (see :func:`_record_error_detail`).
+#: path (see :func:`_record_error_detail`). A sink that additionally exposes a
+#: ``resolve(correlation_id) -> dict | None`` method (duck-typed, not part of
+#: the required write contract) is also used as a read-back fallback by
+#: :func:`resolve_error_detail` (CONCEPT:AU-KG.audit.durable-error-detail).
 DetailPersistenceSink = Any  # Callable[[str, dict[str, Any]], None]
 _detail_persistence_sink: Any | None = None
 
@@ -91,9 +93,18 @@ def register_detail_persistence_sink(sink: Any | None) -> None:
     exception raised by the sink is logged (with its real cause, never
     swallowed silently) and never propagated, so a broken durable backend can
     never break the error-reporting path it is meant to observe. There is no
-    default implementation — wiring a concrete backend (e.g. a KG-provenance
-    writer linking the detail to the failing operation's ``:RunTrace``) is
-    left to the caller that wants durability past this process's lifetime.
+    default implementation baked into this module — wiring a concrete backend
+    (``agent_utilities.observability.error_detail_sink.GraphErrorDetailSink``,
+    a KG-provenance writer linking the detail to the failing operation's
+    ``:RunTrace``) is left to the process that wants durability past this
+    process's lifetime; see ``agent_utilities.gateway.daemon.start_host_daemon``
+    for where the host daemon installs it.
+
+    If ``sink`` also defines ``resolve(correlation_id) -> dict | None``,
+    :func:`resolve_error_detail` uses it as a fallback when the in-process
+    store misses (D-24) — this is optional and duck-typed, so a plain write
+    callable (as every existing test/consumer already passes) remains valid
+    with no read-back capability.
     """
     global _detail_persistence_sink
     _detail_persistence_sink = sink
@@ -197,8 +208,15 @@ def resolve_error_detail(detail_ref: str) -> dict[str, Any] | None:
     never raises, so a stale/foreign ref degrades to "no detail available"
     rather than a second failure.
 
-    This is the unscoped, in-process lookup used internally (and by tests). A
-    served surface reachable by an external caller MUST use
+    Checks the bounded in-process store first (the common, fastest case);
+    on a miss, falls back to the registered durable sink's ``resolve`` method
+    when it defines one (D-24) — so a ``detail_ref`` recorded before a restart,
+    or by a different replica, stays resolvable. The fallback is best-effort:
+    a broken/unavailable durable backend degrades to the same "no detail
+    available" result as an unknown ref, never a second failure.
+
+    This is the unscoped, in-process/durable lookup used internally (and by
+    tests). A served surface reachable by an external caller MUST use
     :func:`resolve_error_detail_for_actor` instead, which enforces the tenant
     boundary below.
     """
@@ -207,7 +225,23 @@ def resolve_error_detail(detail_ref: str) -> dict[str, Any] | None:
         return None
     with _detail_store_lock:
         record = _detail_store.get(detail_ref)
-        return dict(record) if record is not None else None
+        if record is not None:
+            return dict(record)
+
+    sink = _detail_persistence_sink
+    resolver = getattr(sink, "resolve", None)
+    if not callable(resolver):
+        return None
+    try:
+        durable_record = resolver(detail_ref)
+    except Exception:  # noqa: BLE001 — a durable-backend failure must not break resolution
+        _DEFAULT_LOGGER.warning(
+            "durable detail persistence sink resolve failed for correlation_id=%s",
+            detail_ref,
+            exc_info=True,
+        )
+        return None
+    return dict(durable_record) if isinstance(durable_record, dict) else None
 
 
 def resolve_error_detail_for_actor(

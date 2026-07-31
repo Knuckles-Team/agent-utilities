@@ -131,6 +131,16 @@
     :realizesProcess.""" ;
     rdfs:range :BusinessProcess .
 
+:diagnoses a owl:ObjectProperty ;
+    rdfs:label "diagnoses" ;
+    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — ErrorDetail -[:DIAGNOSES]-> RunTrace:
+    a durable, sanitized failure record links to the RunTrace of the operation that raised it, when
+    the failure occurred inside a correlated run (the ambient run-wide correlation id was active).
+    Best-effort: most failures occur outside an orchestrated run, so an ErrorDetail node with no
+    outgoing :DIAGNOSES edge is normal, not an error.""" ;
+    rdfs:domain :ErrorDetail ;
+    rdfs:range :RunTrace .
+
 :forkedFrom a owl:ObjectProperty ;
     rdfs:label "forked from" ;
     rdfs:comment "CONCEPT:AU-ORCH.runvcs.fork-revert — a child RunTrace -[:FORKED_FROM]-> the RunCommit it branched off (lineage of a live-run fork)." ;
@@ -402,6 +412,18 @@
     content-addressed, typed run-event log (not just an observe-only action chain). Owns an
     ordered :RunEvent path plus the :RunCommit history a fork/revert branches from.""" ;
     rdfs:seeAlso prov:Activity .
+
+:ErrorDetail a owl:Class ;
+    rdfs:label "ErrorDetail" ;
+    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — the durable backend behind
+    a public failure envelope's opaque `error.detail_ref` (D-24): a sanitized, tenant-scoped
+    error_class/failing_layer/traceback bundle, keyed by the same correlation id already
+    logged and returned to the caller, so the ref stays resolvable past this process's
+    lifetime and across replicas (`GraphErrorDetailSink`,
+    `agent_utilities.observability.error_detail_sink`). Never carries the raw exception
+    message — only what `agent_utilities.security.error_surface._record_error_detail`
+    already sanitized through the persistence-privacy gate before handing it to the sink.""" ;
+    rdfs:seeAlso prov:Entity .
 
 :Session a owl:Class ;
     rdfs:label "Session" ;

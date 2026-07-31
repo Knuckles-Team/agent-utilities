@@ -41,11 +41,15 @@ subdirectories:
 
 
 class FakeBackend:
-    def __init__(self, counts):
+    def __init__(self, counts, failing=()):
         self._counts = counts
+        self._failing = set(failing)
 
     def execute(self, cypher, params):
         needle = params.get("needle", "")
+        for repo in self._failing:
+            if f"/{repo}/" in needle:
+                raise RuntimeError(f"backend unavailable for {repo}")
         for repo, n in self._counts.items():
             if f"/{repo}/" in needle:
                 return [{"n": n}]
@@ -55,10 +59,37 @@ class FakeBackend:
 @pytest.mark.concept("AU-OS.deployment.flagging-repos")
 def test_repo_symbol_counts_handles_zero_and_missing():
     backend = FakeBackend({"agent-utilities": 4200, "epistemic-graph": 0})
-    counts = repo_symbol_counts(
+    counts, errors = repo_symbol_counts(
         backend, ["agent-utilities", "epistemic-graph", "ghost"]
     )
     assert counts == {"agent-utilities": 4200, "epistemic-graph": 0, "ghost": 0}
+    assert errors == {}
+
+
+@pytest.mark.concept("AU-OS.deployment.flagging-repos")
+def test_repo_symbol_counts_distinguishes_query_failure_from_genuine_zero():
+    """D-28: a per-repo backend failure must never collapse into the same 0
+    a genuinely un-ingested repo gets — it is reported separately in ``errors``
+    and omitted from ``counts`` entirely."""
+    backend = FakeBackend({"agent-utilities": 4200}, failing=["epistemic-graph"])
+    counts, errors = repo_symbol_counts(backend, ["agent-utilities", "epistemic-graph"])
+    assert counts == {"agent-utilities": 4200}
+    assert "epistemic-graph" not in counts
+    assert "epistemic-graph" in errors
+    assert "RuntimeError" in errors["epistemic-graph"]
+
+
+@pytest.mark.concept("AU-OS.deployment.flagging-repos")
+def test_assess_coverage_reports_query_failures_separately_from_missing():
+    """D-28: a repo with a query failure is reported ONLY under ``errors``,
+    never folded into ``missing`` (which means "genuinely not ingested")."""
+    repos = ["alpha-api", "bravo-mcp"]
+    counts = {"alpha-api": 100}
+    errors = {"bravo-mcp": "RuntimeError: backend unavailable"}
+    rep = assess_coverage(repos, counts, errors=errors)
+    assert rep["missing"] == []
+    assert rep["errors"] == ["bravo-mcp"]
+    assert rep["covered"] == 1
 
 
 @pytest.mark.concept("AU-OS.deployment.flagging-repos")

@@ -85,20 +85,24 @@ def test_ingestion_coverage_doctor_reports_counts_only(monkeypatch) -> None:
     monkeypatch.setattr(
         coverage,
         "repo_symbol_counts",
-        lambda _backend, _repos: {
-            _REPOSITORY: 0,
-            _STALE_REPOSITORY: 9,
-            _PERSON: 0,
-        },
+        lambda _backend, _repos: (
+            {
+                _REPOSITORY: 0,
+                _STALE_REPOSITORY: 9,
+                _PERSON: 0,
+            },
+            {},
+        ),
     )
     monkeypatch.setattr(
         coverage,
         "assess_coverage",
-        lambda _repos, _counts, _freshness: {
+        lambda _repos, _counts, _freshness, *, errors=None: {
             "total": 3,
             "covered": 1,
             "missing": [_REPOSITORY, _PERSON],
             "stale": [{"repo": _STALE_REPOSITORY, "age_days": 30.0}],
+            "errors": [],
             "coverage_pct": 33.3,
             "total_symbols": 9,
             "sla_days": 7,
@@ -123,6 +127,7 @@ def test_ingestion_coverage_doctor_reports_counts_only(monkeypatch) -> None:
         "covered": 1,
         "missing_count": 2,
         "stale_count": 1,
+        "error_count": 0,
         "coverage_pct": 33.3,
         "total_symbols": 9,
         "sla_days": 7,
@@ -130,6 +135,7 @@ def test_ingestion_coverage_doctor_reports_counts_only(monkeypatch) -> None:
     }
     assert "missing" not in result["data"]
     assert "stale" not in result["data"]
+    assert "errors" not in result["data"]
     _assert_private_values_absent(result)
 
 

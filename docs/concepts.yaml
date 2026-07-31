@@ -2108,6 +2108,15 @@ concepts:
   - agent_utilities/http/rate_limit.py
   - agent_utilities/http/redaction.py
   doc: Fleet HTTP Client Library
+- id: AU-KG.audit.durable-error-detail
+  name: AU-KG.audit.durable-error-detail
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/gateway/daemon.py
+  - agent_utilities/observability/error_detail_sink.py
+  - agent_utilities/security/error_surface.py
+  doc: AU-KG.audit.durable-error-detail
 - id: AU-KG.audit.error-detail-resolution
   name: AU-KG.audit.error-detail-resolution
   pillar: AU-KG
