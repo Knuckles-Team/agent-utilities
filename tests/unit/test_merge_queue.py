@@ -412,3 +412,43 @@ def test_queue_report_publishes_the_latency_budget(canonical: Path) -> None:
     assert report["budget_seconds"] == mq.FAST_GATE_BUDGET_SECONDS
     assert report["lease"] == mq.MERGE_LEASE
     assert report["batch_size"] == mq.DEFAULT_BATCH_SIZE
+
+
+# ---------------------------------------------------------------------------
+# Wiring — the CLI entrypoint actually reaches the queue
+# ---------------------------------------------------------------------------
+def test_cli_entrypoint_drives_the_real_queue(
+    canonical: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wire-First: the capability is reached from a live entrypoint, driving the
+    real module — not a mock standing in for the seam."""
+    import json
+
+    from agent_utilities.cli import main
+
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    assert main(["merge-queue", "enqueue", "--path", str(lane)]) == 0
+    capsys.readouterr()
+
+    assert main(["merge-queue", "status", "--path", str(canonical)]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert [c["id"] for c in report["queued"]] == ["lane-a"]
+
+    assert main(["merge-queue", "run", "--path", str(canonical), "--no-prune"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["landed"] == 1
+    assert (canonical / "pkg" / "a.py").is_file()
+
+
+def test_cli_exits_75_so_a_shell_stops_instead_of_proceeding(
+    canonical: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A refusal is worthless if `&&` still proceeds after it — the same contract
+    `lane lease` publishes."""
+    from agent_utilities.cli import main
+
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    main(["merge-queue", "enqueue", "--path", str(lane)])
+    capsys.readouterr()
+    with lanes.hold_lease(mq.MERGE_LEASE, operation="other runner", path=canonical):
+        assert main(["merge-queue", "run", "--path", str(canonical)]) == 75
