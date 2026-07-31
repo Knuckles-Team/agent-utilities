@@ -133,15 +133,20 @@ bytes with LRU eviction, and it enforces the *same* fail-closed tenant check as 
 durable store at its load primitive — a checkpoint id can be handed around on either tier,
 so the boundary lives in both.
 
-**Disk requires a materially higher bar plus a grant.** `DiskPromotionRule` encodes the
+**Disk requires a materially higher bar plus authority.** `DiskPromotionRule` encodes the
 rule literally — high rebuild cost **AND** high predicted reuse **AND** stability, plus an
 aggregate floor — and an **abstention fails a requirement**: "we don't know" is not "it's
 high". Even a satisfied rule persists nothing until the eligibility gate permits it.
 
 **RAM never implies disk consent.** `promote()` runs the full eligibility check on every
-promotion, including for a checkpoint that has been resident since the session began.
+promotion, including for a checkpoint that has been resident since the session began —
+and re-derives the caller's authority *at that moment*, so a credential that has expired
+or a delegation that has been revoked since the RAM checkpoint was taken refuses.
 
-## The eligibility gate — a hard, pluggable, deny-by-default gate
+## The eligibility gate — authority-derived, automatic, deny-by-default
+
+`CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility` (closes `D-5.1-3` /
+`D-KCI-1`).
 
 A KV cache is derived from user content. Writing one to the durable blob store is
 **data-at-rest**; keeping it past the session is a **retention** decision. Both are
@@ -154,28 +159,79 @@ class PersistenceEligibilityGate(Protocol):
     def evaluate(self, request: PersistenceRequest) -> EligibilityDecision: ...
 ```
 
-* **Default — `OperatorGrantEligibility`:** denies every disk persistence except one
-  carrying an explicit per-request operator grant (`initiator="user"` **and**
-  `operator_grant=True`). An agent may *recommend* durable persistence; it cannot
-  authorize it. The autonomous path can never reach disk on its own.
-* **It makes no residency judgement, and says so.** Every decision reports
-  `unresolved = ("data_residency_region", "data_classification", "retention_period")` —
-  the policy questions this platform has no source for. A permit with a non-empty
-  `unresolved` is visibly a permit granted *despite* missing policy.
+### The derivation rule
+
+> A checkpoint may be written to disk **only into the tenancy of the session that produced
+> it**, and only where the caller's *effective* authority dominates the **most restrictive**
+> composition of **every** contributing source's labels.
+
+There is no operator table, no per-request grant flag and no env switch. Both halves are
+things the platform already carries:
+
+| Half | Read from | Composition |
+|---|---|---|
+| **Authority** | the verified `GraphSession` (`actor` / `tenant` / `scopes` / `policy_version`) ∩ the active `SpawnDelegation.ceiling` | intersection — a delegate never exceeds its delegator |
+| **Labels** | each contributing source's classification, residency regions, retention limit and mandatory markings | classification = **max**, residency = **set intersection**, retention = **min**, markings = **union** |
+
+```mermaid
+flowchart TD
+    S[Verified GraphSession<br/>actor · tenant · scopes] --> A[Effective authority]
+    D[SpawnDelegation.ceiling<br/>ultimate principal's capabilities] -->|intersect,<br/>always| A
+    C1[source A labels] --> L[Composed label<br/>most restrictive]
+    C2[source B labels] --> L
+    C3[source N labels] --> L
+    A --> G{authority dominates<br/>composed label?<br/>same tenancy?}
+    L --> G
+    G -->|yes| P[write to the durable blob store]
+    G -->|no| R[refuse, naming the source<br/>or the missing label]
+```
+
+* **Inheritance is restrictive; delegation is non-increasing.** Adding a source can only
+  make a checkpoint *less* persistable (the intersection, never the union). Adding a
+  delegation hop can only *reduce* authority.
+* **The delegation ceiling is intersected unconditionally** — deliberately *not* through
+  `security.delegation.enforce_ceiling`, which is a no-op in the shipped
+  `ENABLE_DELEGATED_IDENTITY=warn` posture. Letting a spawn keep tools it would lose under
+  enforcement is a reasonable soak trade for tool scope and an unacceptable one for
+  data-at-rest. An **unresolvable** ceiling denies (it is an absent label).
+* **The trigger is provenance, not authority.** All three checkpoint paths are gated
+  identically. An agent that decides a checkpoint is worth persisting persists it exactly
+  when the authority it is acting under already covers the material — so the
+  agent-authorized case is *enforced* rather than asserted, and claiming
+  `trigger="user"` buys nothing.
+* **Absence denies, on every axis.** No verified session, no declared sources, a source
+  missing any label, an empty residency intersection, an unknown durable-store region
+  where a source restricts residency, or an unresolvable delegation ceiling — each refuses
+  and *names itself*. A `SourceLabelResolver` that cannot read a source MUST return it
+  **unlabelled**, never omit it: a tolerant reader returning fewer rows is exactly how the
+  five previously-found gates failed open on a degraded KG.
+* **The one derivation from a present label:** a source explicitly classified `PUBLIC` is
+  read as residency-unrestricted with no retention limit, and the decision names the axes
+  it derived that way.
+* **Where labels live:** `NodeACL.classification` / `.data_residency_regions` /
+  `.retention_days` plus the node's mandatory markings — the platform's existing per-node
+  governance record, extended rather than duplicated. Both new fields default to
+  **undeclared**, so no pre-existing ACL silently became permissive.
 * **Extension point — `set_persistence_eligibility_gate(gate)`.** A code seam, not a
   configuration flag: widening what may be written to disk should require someone to
   write and review the rule that widens it. `AlwaysDenyEligibility` is shipped for
   deployments that prohibit durable KV checkpoints outright.
+  `set_source_label_resolver(resolver)` is the matching seam for a deployment whose labels
+  live in an external data-governance catalog rather than node ACLs.
 
 ## Inspectability — "why was this persisted?"
 
 `TieredCheckpointManager.explain(checkpoint_id)` (MCP: `graph_kv_checkpoint
 action=explain`) returns the tier, the trigger, the full recommendation, the eligibility
-decision, and the gate currently in force. The same material — aggregate, drivers,
-blockers, deciding gate, unresolved policy questions — is written into the durable
-`:KVCheckpoint` node's `provenance`, so the question stays answerable from the graph long
-after the session ended. A **refused** promotion is recorded too: the RAM record carries
-the refusal, so "why *wasn't* this persisted?" is equally answerable.
+decision, and the gate currently in force. The decision carries a `PersistenceDerivation`:
+the effective authority (including the delegation chain), the composed label, the
+per-source contributions, and **every check with its verdict, in the order it ran**
+(`verified_authority → tenancy → durable_write_scope → source_provenance →
+labels_present → classification → mandatory_markings → residency → retention`). The same
+material is flattened into the durable `:KVCheckpoint` node's `provenance`, so the
+question stays answerable from the graph long after the session ended. A **refused**
+promotion is recorded too: the RAM record carries the refusal, so "why *wasn't* this
+persisted?" is equally answerable, with the offending source named.
 
 ## Surfaces
 
@@ -186,7 +242,7 @@ gain five actions:
 |---|---|---|
 | `recommend` | agent | Score a moment; return the advisory. Takes no checkpoint. |
 | `checkpoint_now` | user / agent | Store to RAM now; `persist=true` also attempts a gated durable write. |
-| `promote` | user | RAM → disk, through the gate. |
+| `promote` | any | RAM → disk, through the gate (authority derived at the write). |
 | `explain` | any | Why this checkpoint exists and why it is where it is. |
 | `ram_stats` | any | RAM-tier occupancy, the gate in force, and **which scorers are registered** (a score is uninterpretable without knowing what produced it). |
 

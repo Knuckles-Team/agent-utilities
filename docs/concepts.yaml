@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1120
+total_concepts: 1121
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -8809,6 +8809,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/deployment/venv_sync.py
+  - agent_utilities/ecosystem/hook_installer.py
   doc: AU-OS.deployment.workspace-venv-reconciler
 - id: AU-OS.governance.action-policy-decision-point
   name: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
@@ -8859,6 +8860,16 @@ concepts:
   - agent_utilities/cli/__init__.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: atomic concept-ID reservation
+- id: AU-OS.governance.authority-derived-persistence-eligibility
+  name: '**how** that gate'
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/eligibility.py
+  - agent_utilities/kvcache/tiering.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  - agent_utilities/models/company_brain.py
+  doc: '**how** that gate'
 - id: AU-OS.governance.autonomy-change-proposer
   name: earned-autonomy ramp
   pillar: AU-OS

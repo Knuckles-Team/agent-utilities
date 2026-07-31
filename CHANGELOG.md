@@ -40,19 +40,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     trigger paths — `checkpoint_now` (user/agent), `recommend` (agent), `observe`
     (system-autonomous, taking the payload as a callable so a non-worthy moment never
     pays to serialize KV state).
-- **A required, deny-by-default persistence eligibility gate.**
-  `kvcache/eligibility.py` (`CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility`)
-  — a KV cache is derived from user content, so writing one to the blob store is
-  data-at-rest and keeping it past the session is a retention decision. Every durable
-  write consults a pluggable `PersistenceEligibilityGate`; the default
-  `OperatorGrantEligibility` **denies** unless the request carries an explicit operator
-  grant, makes no residency/classification judgement (this platform has no source for
-  either — `D-5.1-3`/`D-KCI-1`), and reports every unanswerable policy question on every
-  decision so the gap is visible at runtime rather than only in a report. **RAM never
-  implies disk consent:** `promote()` re-runs the gate even for a checkpoint that has been
-  resident all session. `set_persistence_eligibility_gate()` is the extension point — a
-  code seam, not a flag, because widening what may be written to disk should require
-  someone to write and review the rule.
+- **A required persistence eligibility gate, derived from the caller's own authority.**
+  `kvcache/eligibility.py` (`CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility`
+  + `CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility`) — a KV cache is
+  derived from user content, so writing one to the blob store is data-at-rest and keeping
+  it past the session is a retention decision. Every durable write consults a pluggable
+  `PersistenceEligibilityGate`, and the default `AuthorityDerivedEligibility` decides it
+  **systematically and automatically**, with no operator table and no grant flag:
+
+  > persist iff the caller's *effective* authority — the verified `GraphSession`
+  > intersected with any active `SpawnDelegation.ceiling` — dominates the **most
+  > restrictive** composition of **every** contributing source's labels, within the
+  > session's own tenancy.
+
+  Labels inherit **restrictively** (classification = max, residency = set intersection,
+  retention = min, markings = union), so adding a source can only make a checkpoint less
+  persistable. Authority delegates **non-increasingly**, so a spawned agent can never
+  exceed its delegator — the ceiling intersection is applied *unconditionally*, not under
+  `ENABLE_DELEGATED_IDENTITY`'s permissive `warn` posture, because an observe-before-
+  enforce soak is a reasonable trade for tool scope and an unacceptable one for
+  data-at-rest. Which trigger fired is **provenance, not authority**: an agent that
+  decides a checkpoint is worth persisting persists it exactly when the authority it is
+  acting under already covers the material. Absence denies everywhere and names itself —
+  no session, no declared sources, a source missing any label, an empty residency
+  intersection, or an unresolvable ceiling. **RAM never implies disk consent:**
+  `promote()` re-runs the gate *and re-derives the authority* even for a checkpoint that
+  has been resident all session. `set_persistence_eligibility_gate()` /
+  `set_source_label_resolver()` are the extension points — code seams, not flags.
+
+  This closes `D-5.1-3` / `D-KCI-1`: residency, classification and retention are no longer
+  reported as permanently unresolved, they are answered from each source's own
+  `NodeACL` (`classification` / `data_residency_regions` / `retention_days`, both new
+  fields defaulting to *undeclared* so no existing ACL silently became permissive).
+
+### Removed
+- **`OperatorGrantEligibility` and the `operator_grant` argument.** Over the
+  `graph_kv_checkpoint` MCP surface, `initiator="user"` and `operator_grant=true` were
+  values any caller could simply assert, which made a deny-by-default gate defeatable by
+  a caller that chose to lie. Both are gone; `initiator` is renamed `trigger` and is
+  provenance only, and the tenant a durable write is authorized under is now read from
+  the verified session (a payload tenant that disagrees is refused rather than
+  preferred).
 - **The recommendation reaches the LLM.**
   `CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface` — scoring a moment
   publishes the verdict to a `ContextVar` (per-run, so interleaved agent runs never read
