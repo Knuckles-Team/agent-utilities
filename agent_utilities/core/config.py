@@ -4504,15 +4504,23 @@ class AgentConfig(BaseSettings):
     placement_catalog_enabled: bool = Field(
         default=True, alias="PLACEMENT_CATALOG_ENABLED"
     )
-    """Consult the engine's authoritative PlacementCatalog when resolving a
-    sharded graph's owning endpoint (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, DIST-P2-2b —
-    ``knowledge_graph.core.placement_catalog.resolve_placement``), instead of
-    deciding placement purely from the static client-side HRW ring. Default
-    True: the catalog is authoritative WHEN a reachable engine advertises one;
-    an engine that doesn't (every endpoint unreachable, or an older engine
-    with no placement-route RPC) transparently falls back to the existing HRW
-    ring, so today's deployments are unaffected either way. Set False to force
-    pure HRW routing and skip the catalog round-trip entirely."""
+    """Reserved switch for the engine's authoritative PlacementCatalog
+    (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, DIST-P2-2b —
+    ``knowledge_graph.core.placement_catalog.resolve_placement``).
+
+    **Not yet wired (D-WD-2, reports/deferred/lane-webui-dataplane.md).** No
+    code path reads this field today — a repository grep finds only its own
+    definition — and there is no "static client-side HRW ring" fallback
+    implemented to fall back *to*; despite the name, placement resolution is
+    currently mandatory whenever an engine route is configured, regardless of
+    this flag's value. Setting it to ``False`` has **no effect** right now.
+
+    It is kept, rather than deleted, because it is the natural switch for
+    making placement resolution conditional in
+    ``security.request_identity._mint_graph_session`` (D-WD-1) — a session's
+    authority should not depend on a cluster-admin-gated RPC. Do not rely on
+    this flag changing behavior until that lane lands; this docstring will be
+    corrected in the same change that wires it."""
 
     epistemic_graph_max_resident_graphs: int = Field(
         default=256, ge=1, le=100_000, alias="EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS"

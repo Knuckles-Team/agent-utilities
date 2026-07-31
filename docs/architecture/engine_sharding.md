@@ -65,17 +65,28 @@ explicit schemes.
 
 `knowledge_graph/core/placement_catalog.resolve_placement` asks the engine's
 own authoritative `PlacementCatalog` (epistemic-graph `raft/placement.rs`)
-for a graph/tenant's owning endpoint before falling back to the static HRW
-ring above, caching the `(endpoint, epoch)` answer for a short TTL
-(`PLACEMENT_CATALOG_TTL_S`, default 5s) and re-resolving on a stale-epoch
-redirect. It is wired into the one engine resolver
-(`engine_resolver.resolve_engine`), so every entrypoint gets it for free when
-`PLACEMENT_CATALOG_ENABLED` (default on) is set. **Honest caveat:** the engine
-does not yet expose a wire RPC for `PlacementRoute` (it is presently consumed
-only inside the engine's own MultiRaft dispatch), so today every deployment
-still falls back to the HRW ring above byte-for-byte — this section documents
-the AU-side consumer half of a two-sided contract whose engine-side wire RPC
-is a follow-up.
+for a graph/tenant's owning endpoint, caching the `(endpoint, epoch)` answer
+for a short TTL (`PLACEMENT_CATALOG_TTL_S`, default 5s) and re-resolving on a
+stale-epoch redirect.
+
+**This section is stale and the "graceful HRW fallback" it describes no
+longer matches the deployed engine — corrected 2026-07-31, see
+`reports/deferred/lane-webui-dataplane.md` (D-WD-1, D-WD-2).** The engine
+**does** now expose a wire `PlacementRoute` RPC (proven live against the
+cluster), so the "no wire RPC yet, therefore always falls back" premise
+below is false. There is also no callable HRW-ring implementation to fall
+back *to* — `shard_topology.shard_endpoint_for` does not exist in this
+repository (repository grep, 2026-07-31); whatever module this once named
+has since been removed or renamed. The real, current failure mode for a
+non-cluster-admin principal is **not** a silent HRW fallback — it is
+`ACCESS_DENIED` from the engine's own `require_admin_capability` gate
+(`PlacementRoute` is `authz_action = "admin:cluster-read"`), surfaced to the
+caller as `PlacementAuthorityError`. `PLACEMENT_CATALOG_ENABLED`
+(`core/config.py`) remains unread by any code path (D-WD-2) — it is reserved
+as the natural switch for making placement resolution in
+`security.request_identity._mint_graph_session` conditional (D-WD-1), not
+yet wired. Treat the paragraphs below as the *original design intent*, not
+today's behavior.
 
 ## Rebalancing (out of scope — the honest caveat)
 
