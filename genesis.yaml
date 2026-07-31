@@ -224,7 +224,7 @@ ide_targets:
 servers:
   source: deploy/mcp-fleet.registry.yml
   transport: streamable-http
-  count: 59
+  count: 68
   core_count: 7
   core:
   - caddy-mcp

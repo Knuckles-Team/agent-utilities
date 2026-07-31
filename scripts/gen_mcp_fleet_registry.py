@@ -27,17 +27,23 @@ from pathlib import Path
 
 # Connectors that form the infra/control core — enabled from the single-node-prod
 # profile upward (everything else is enterprise-only by default).
+#
+# These are SERVICE names (the console script), because that is what `discover()`
+# compares against. Half of this set used to be spelled as *distribution* names
+# (`keycloak-agent`, `portainer-agent`, `repository-manager`, `systems-manager`,
+# `tunnel-manager`), which match no service and so silently never applied — the same
+# service-vs-distribution confusion that produced the D-OB-7 alias drift. The set below
+# is exactly the core membership the published registry carries, so regeneration is a
+# no-op for profiles; see reports/deferred/lane-drift-proof.md D-DP-4 for the five
+# services whose intended core membership was never in effect.
 CORE_CONNECTORS = {
-    "openbao-mcp",
-    "keycloak-agent",
-    "technitium-dns-mcp",
-    "portainer-agent",
-    "container-manager-mcp",
     "caddy-mcp",
-    "repository-manager",
+    "container-manager-mcp",
+    "freshrss-mcp",
+    "openbao-mcp",
+    "pulselink-mcp",
+    "technitium-dns-mcp",
     "vector-mcp",
-    "systems-manager",
-    "tunnel-manager",
 }
 
 CONTAINER_PORT = 8000
@@ -58,6 +64,53 @@ def _find_mcp_console_script(pyproject: Path) -> tuple[str, str] | None:
         if str(target).endswith("mcp_server:mcp_server"):
             return script_name, pkg
     return None
+
+
+def allocated_host_ports(registry: Path | None) -> dict[str, int]:
+    """Read the host ports an existing registry has ALREADY published.
+
+    Host-port assignment must be **stable**, not merely deterministic. Index-based
+    assignment silently renumbers the whole published fleet the moment one provider
+    is added, so every regeneration became a deployment-breaking change and the
+    committed registry was left to rot instead (9 providers missing on 2026-07-28 —
+    the D-OB-7 "absent from the registry" half). Re-using each service's already
+    allocated port makes regeneration a no-op for unchanged services, which is what
+    lets the freshness gate be enforced at all.
+    """
+    if registry is None or not registry.is_file():
+        return {}
+    import yaml
+
+    try:
+        data = yaml.safe_load(registry.read_text(encoding="utf-8")) or {}
+        services = data.get("services") or []
+    except (OSError, yaml.YAMLError) as exc:
+        raise RuntimeError("existing fleet registry is unreadable") from exc
+    allocated: dict[str, int] = {}
+    for entry in services:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "")
+        port = entry.get("host_port")
+        if name and isinstance(port, int):
+            allocated[name] = port
+    return allocated
+
+
+def assign_host_ports(services: list[dict], allocated: dict[str, int]) -> None:
+    """Keep published ports; give genuinely new services the next free port."""
+
+    taken = {allocated[svc["name"]] for svc in services if svc["name"] in allocated}
+    nxt = HOST_PORT_BASE
+    for svc in services:
+        existing = allocated.get(svc["name"])
+        if existing is not None:
+            svc["host_port"] = existing
+            continue
+        while nxt in taken:
+            nxt += 1
+        svc["host_port"] = nxt
+        taken.add(nxt)
 
 
 def discover(agents_dir: Path) -> list[dict]:
@@ -85,9 +138,7 @@ def discover(agents_dir: Path) -> list[dict]:
                 "dir": pkg_dir.name,
             }
         )
-    # Deterministic host-port assignment.
-    for idx, svc in enumerate(services):
-        svc["host_port"] = HOST_PORT_BASE + idx
+    for svc in services:
         svc["profiles"] = (
             ["single-node-prod", "enterprise"]
             if svc["name"] in CORE_CONNECTORS
@@ -144,6 +195,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--agents-dir", required=True, type=Path)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument(
+        "--allocated-ports",
+        type=Path,
+        default=None,
+        help="registry whose published host ports must be preserved (default: --out)",
+    )
     args = ap.parse_args()
 
     if not args.agents_dir.is_dir():
@@ -151,6 +208,7 @@ def main() -> int:
         return 2
 
     services = discover(args.agents_dir)
+    assign_host_ports(services, allocated_host_ports(args.allocated_ports or args.out))
     out_text = render(services)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

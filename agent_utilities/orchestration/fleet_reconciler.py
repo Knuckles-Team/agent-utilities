@@ -167,6 +167,60 @@ def resolve_registry_path(explicit: str | None = None) -> Path | None:
     return shipped if shipped.is_file() else None
 
 
+class FleetRegistryError(RuntimeError):
+    """The fleet registry cannot answer a question it is the authority for."""
+
+
+def registry_server_aliases(registry_path: str | Path | None = None) -> dict[str, str]:
+    """Map every provider distribution name to its ONE registered server alias.
+
+    CONCEPT:AU-KG.ontology.registry-derived-server-alias — ``mcp-fleet.registry.yml``
+    is the single authority for what a fleet server is *called*. Anything that needs
+    that alias derives it here instead of restating it: a restated alias is exactly
+    the D-OB-7 drift, where 27 providers' signed manifests named a server the
+    registry did not have (``github-agent`` where the fleet runs ``github-mcp``) and
+    9 more named servers the registry had never heard of at all.
+    """
+    import yaml
+
+    path = resolve_registry_path(str(registry_path) if registry_path else None)
+    if path is None:
+        raise FleetRegistryError("the MCP fleet registry is not available")
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        services = data["services"]
+    except (KeyError, OSError, TypeError, yaml.YAMLError) as exc:
+        raise FleetRegistryError("the MCP fleet registry is unreadable") from exc
+    if not isinstance(services, list) or not services:
+        raise FleetRegistryError("the MCP fleet registry declares no services")
+    aliases: dict[str, str] = {}
+    for entry in services:
+        if not isinstance(entry, dict):
+            raise FleetRegistryError("the MCP fleet registry has an invalid entry")
+        package = str(entry.get("package") or "")
+        name = str(entry.get("name") or "")
+        if not package or not name:
+            raise FleetRegistryError("a registry service is missing name or package")
+        if package in aliases and aliases[package] != name:
+            raise FleetRegistryError("a provider maps to two registry server aliases")
+        aliases[package] = name
+    return aliases
+
+
+def registry_server_alias(
+    package: str, registry_path: str | Path | None = None
+) -> str:
+    """The registered server alias for one provider distribution — or fail closed."""
+
+    aliases = registry_server_aliases(registry_path)
+    alias = aliases.get(str(package))
+    if not alias:
+        raise FleetRegistryError(
+            "provider is not registered in the MCP fleet registry"
+        )
+    return alias
+
+
 def load_desired_state(
     registry_path: str | Path | None = None,
     override_path: str | Path | None = None,

@@ -2,7 +2,7 @@
 # Do not edit by hand. One entry per agents/* connector exposing a
 # streamable-http MCP server. Consumed by portainer-sync-agent + day0.
 #
-# Optional per-service reactive-autoscaling block (CONCEPT:OS-5.29), read by
+# Optional per-service reactive-autoscaling block (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling), read by
 # the leader-only fleet_autoscaler tick (FLEET_AUTOSCALER=1). Because this
 # file is machine-generated, declare scaling in the FLEET_DESIRED_STATE_PATH
 # override YAML (same per-service shape, layered on top). Example:
@@ -73,6 +73,13 @@ services:
     container_port: 8000
     host_port: 8205
     profiles: [enterprise]
+  - name: audiobookshelf-mcp
+    package: audiobookshelf-mcp
+    console_script: audiobookshelf-mcp
+    image: example/audiobookshelf-mcp:latest
+    container_port: 8000
+    host_port: 8255
+    profiles: [enterprise]
   - name: caddy-mcp
     package: caddy-mcp
     console_script: caddy-mcp
@@ -86,6 +93,13 @@ services:
     image: example/camunda-mcp:latest
     container_port: 8000
     host_port: 8207
+    profiles: [enterprise]
+  - name: ciso-assistant-mcp
+    package: ciso-assistant-api
+    console_script: ciso-assistant-mcp
+    image: example/ciso-assistant-api:latest
+    container_port: 8000
+    host_port: 8259
     profiles: [enterprise]
   - name: clarity-mcp
     package: clarity-api
@@ -107,6 +121,13 @@ services:
     image: example/data-science-mcp:latest
     container_port: 8000
     host_port: 8210
+    profiles: [enterprise]
+  - name: dockerhub-mcp
+    package: dockerhub-api
+    console_script: dockerhub-mcp
+    image: example/dockerhub-api:latest
+    container_port: 8000
+    host_port: 8260
     profiles: [enterprise]
   - name: documentdb-mcp
     package: documentdb-mcp
@@ -143,6 +164,27 @@ services:
     container_port: 8000
     host_port: 8215
     profiles: [enterprise]
+  - name: firefly-iii-mcp
+    package: firefly-iii-mcp
+    console_script: firefly-iii-mcp
+    image: example/firefly-iii-mcp:latest
+    container_port: 8000
+    host_port: 8256
+    profiles: [enterprise]
+  - name: freshrss-mcp
+    package: freshrss-agent
+    console_script: freshrss-mcp
+    image: example/freshrss-agent:latest
+    container_port: 8000
+    host_port: 8254
+    profiles: [single-node-prod, enterprise]
+  - name: genius-mcp
+    package: genius-agent
+    console_script: genius-mcp
+    image: example/genius-agent:latest
+    container_port: 8000
+    host_port: 8261
+    profiles: [enterprise]
   - name: github-mcp
     package: github-agent
     console_script: github-mcp
@@ -156,6 +198,20 @@ services:
     image: example/gitlab-api:latest
     container_port: 8000
     host_port: 8217
+    profiles: [enterprise]
+  - name: gramps-mcp
+    package: gramps-mcp
+    console_script: gramps-mcp
+    image: example/gramps-mcp:latest
+    container_port: 8000
+    host_port: 8258
+    profiles: [enterprise]
+  - name: hdhomerun-mcp
+    package: hdhomerun-mcp
+    console_script: hdhomerun-mcp
+    image: example/hdhomerun-mcp:latest
+    container_port: 8000
+    host_port: 8262
     profiles: [enterprise]
   - name: home-assistant-mcp
     package: home-assistant-agent
@@ -262,6 +318,27 @@ services:
     container_port: 8000
     host_port: 8232
     profiles: [enterprise]
+  - name: objectstore-mcp
+    package: objectstore-mcp
+    console_script: objectstore-mcp
+    image: example/objectstore-mcp:latest
+    container_port: 8000
+    host_port: 8263
+    profiles: [enterprise]
+  - name: okta-mcp
+    package: okta-agent
+    console_script: okta-mcp
+    image: example/okta-agent:latest
+    container_port: 8000
+    host_port: 8264
+    profiles: [enterprise]
+  - name: onetrust-mcp
+    package: onetrust-api
+    console_script: onetrust-mcp
+    image: example/onetrust-api:latest
+    container_port: 8000
+    host_port: 8265
+    profiles: [enterprise]
   - name: openbao-mcp
     package: openbao-mcp
     console_script: openbao-mcp
@@ -275,6 +352,13 @@ services:
     image: example/owncast-agent:latest
     container_port: 8000
     host_port: 8234
+    profiles: [enterprise]
+  - name: paperless-ngx-mcp
+    package: paperless-ngx-mcp
+    console_script: paperless-ngx-mcp
+    image: example/paperless-ngx-mcp:latest
+    container_port: 8000
+    host_port: 8257
     profiles: [enterprise]
   - name: plane-mcp
     package: plane-agent
@@ -297,6 +381,13 @@ services:
     container_port: 8000
     host_port: 8237
     profiles: [enterprise]
+  - name: pulselink-mcp
+    package: pulselink-mcp
+    console_script: pulselink-mcp
+    image: example/pulselink-mcp:latest
+    container_port: 8000
+    host_port: 8252
+    profiles: [single-node-prod, enterprise]
   - name: qbittorrent-mcp
     package: qbittorrent-agent
     console_script: qbittorrent-mcp
@@ -318,6 +409,13 @@ services:
     container_port: 8000
     host_port: 8240
     profiles: [enterprise]
+  - name: salesforce-mcp
+    package: salesforce-agent
+    console_script: salesforce-mcp
+    image: example/salesforce-agent:latest
+    container_port: 8000
+    host_port: 8266
+    profiles: [enterprise]
   - name: scholarx-mcp
     package: scholarx
     console_script: scholarx-mcp
@@ -338,6 +436,13 @@ services:
     image: example/servicenow-api:latest
     container_port: 8000
     host_port: 8243
+    profiles: [enterprise]
+  - name: sql-mcp
+    package: sql-mcp
+    console_script: sql-mcp
+    image: example/sql-mcp:latest
+    container_port: 8000
+    host_port: 8267
     profiles: [enterprise]
   - name: stirlingpdf-mcp
     package: stirlingpdf-agent
@@ -394,46 +499,4 @@ services:
     image: example/wger-agent:latest
     container_port: 8000
     host_port: 8251
-    profiles: [enterprise]
-  - name: pulselink-mcp
-    package: pulselink-mcp
-    console_script: pulselink-mcp
-    image: example/pulselink-mcp:latest
-    container_port: 8000
-    host_port: 8252
-    profiles: [single-node-prod, enterprise]
-  - name: freshrss-mcp
-    package: freshrss-agent
-    console_script: freshrss-mcp
-    image: example/freshrss-agent:latest
-    container_port: 8000
-    host_port: 8254
-    profiles: [single-node-prod, enterprise]
-  - name: audiobookshelf-mcp
-    package: audiobookshelf-mcp
-    console_script: audiobookshelf-mcp
-    image: example/audiobookshelf-mcp:latest
-    container_port: 8000
-    host_port: 8255
-    profiles: [enterprise]
-  - name: firefly-iii-mcp
-    package: firefly-iii-mcp
-    console_script: firefly-iii-mcp
-    image: example/firefly-iii-mcp:latest
-    container_port: 8000
-    host_port: 8256
-    profiles: [enterprise]
-  - name: paperless-ngx-mcp
-    package: paperless-ngx-mcp
-    console_script: paperless-ngx-mcp
-    image: example/paperless-ngx-mcp:latest
-    container_port: 8000
-    host_port: 8257
-    profiles: [enterprise]
-  - name: gramps-mcp
-    package: gramps-mcp
-    console_script: gramps-mcp
-    image: example/gramps-mcp:latest
-    container_port: 8000
-    host_port: 8258
     profiles: [enterprise]

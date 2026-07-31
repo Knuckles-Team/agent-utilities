@@ -66,6 +66,9 @@ from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa
     compile_manifest,
     export_manifest_ttl,
 )
+from agent_utilities.orchestration.fleet_reconciler import (  # noqa: E402
+    registry_server_alias,
+)
 
 _XSD_NS = "http://www.w3.org/2001/XMLSchema#"
 _OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"
@@ -75,6 +78,7 @@ _RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 _RDFS_DOMAIN = "http://www.w3.org/2000/01/rdf-schema#domain"
 _RDFS_RANGE = "http://www.w3.org/2000/01/rdf-schema#range"
 _RDFS_SUBCLASSOF = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
+ONTOLOGY_LOCK = ROOT / "agent_utilities" / "knowledge_graph" / "ontology.lock"
 _CONNECTOR_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -307,7 +311,20 @@ def _read_ontology(
 
 def _read_sync(
     module_dir: Path,
+    *,
+    server_alias: str,
 ) -> tuple[list[SyncSpec], IdentitySpec, list[EventSpec], PermissionsSpec]:
+    """Project ``mcp_source_presets.json`` onto ``sync``, with a DERIVED server.
+
+    CONCEPT:AU-KG.ontology.registry-derived-server-alias — the MCP server a preset
+    routes to is taken from ``deploy/mcp-fleet.registry.yml``, never from the
+    preset's own ``server`` string. A preset that restates a *different* alias is a
+    hard failure, not a warning: on 2026-07-28 that restatement put a server name
+    the fleet does not run into 27 signed manifests. Deriving the value means a
+    wrong alias cannot be signed; failing closed on disagreement means a wrong
+    alias cannot even sit in the source tree unnoticed.
+    """
+
     presets_path = module_dir / "connectors" / "mcp_source_presets.json"
     sync: list[SyncSpec] = []
     identity = IdentitySpec()
@@ -336,10 +353,17 @@ def _read_sync(
         preset = data[key]
         if not isinstance(preset, dict):
             continue
+        declared_server = str(preset.get("server") or "")
+        if declared_server and declared_server != server_alias:
+            raise RuntimeError(
+                "connector source preset declares an MCP server alias that the "
+                "fleet registry does not register for this provider"
+            )
+        preset = {**preset, "server": server_alias}
         sync.append(
             SyncSpec(
                 preset=key,
-                server=str(preset.get("server", "")),
+                server=server_alias,
                 tool=str(preset.get("tool", "")),
                 action=preset.get("action"),
                 records_path=preset.get("records_path"),
@@ -414,9 +438,13 @@ def build_manifest(
     *,
     now: datetime | None = None,
     release_signer: ontology_integrity.ReleaseSigner | None = None,
+    registry_path: Path | None = None,
 ) -> ConnectorManifest:
     """Build a :class:`ConnectorManifest` for one connector — pure, deterministic, offline."""
     connector = connector_project_name(connector_root)
+    # Fail closed BEFORE any artifact is projected: an unregistered provider has no
+    # derivable server alias, so nothing about its sync contract can be signed.
+    server_alias = registry_server_alias(connector, registry_path)
     module_dir = _find_module_dir(connector_root)
     resources: list[ResourceSpec] = []
     schema_mappings: dict[str, SchemaMapping] = {}
@@ -434,7 +462,9 @@ def build_manifest(
             str(p.relative_to(connector_root))
             for p in sorted((module_dir / "ontology").glob("*.ttl"))
         )
-        sync, identity, events, permissions = _read_sync(module_dir)
+        sync, identity, events, permissions = _read_sync(
+            module_dir, server_alias=server_alias
+        )
         if (module_dir / "connectors" / "mcp_source_presets.json").exists():
             source_artifacts.append(
                 str(
@@ -498,7 +528,9 @@ def build_manifest(
     digest, triple_count = ontology_integrity.canonical_hash(g)
     stamp = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    signer = release_signer or ontology_integrity.ReleaseSigner.from_runtime()
+    signer = release_signer or ontology_integrity.release_signer_for_publication(
+        lock_path=ONTOLOGY_LOCK
+    )
     unsigned_provenance = ProvenanceSpec(
         generated_at=stamp,
         source_artifacts=sorted(source_artifacts),
@@ -529,8 +561,9 @@ def write_manifest(
     *,
     now: datetime | None = None,
     dry_run: bool = False,
+    registry_path: Path | None = None,
 ) -> ConnectorManifest:
-    manifest = build_manifest(connector_root, now=now)
+    manifest = build_manifest(connector_root, now=now, registry_path=registry_path)
     text = _to_yaml(manifest)
     output_label = f"{output.parent.name}/{output.name}"
     if dry_run:
@@ -567,6 +600,12 @@ def main() -> int:
         "--now", help="ISO-8601 UTC timestamp override, for reproducible runs"
     )
     ap.add_argument("--dry-run", action="store_true", help="print instead of write")
+    ap.add_argument(
+        "--registry",
+        type=Path,
+        default=None,
+        help="MCP fleet registry that owns the server aliases (default: the shipped one)",
+    )
     args = ap.parse_args()
 
     now = (
@@ -607,7 +646,9 @@ def main() -> int:
                 else (root / "connector_manifest.yml")
             )
         )
-        manifest = write_manifest(root, out, now=now, dry_run=args.dry_run)
+        manifest = write_manifest(
+            root, out, now=now, dry_run=args.dry_run, registry_path=args.registry
+        )
         print(
             f"generated {out.parent.name}/{out.name}: {len(manifest.resources)} "
             f"resources, {len(manifest.sync)} sync presets"

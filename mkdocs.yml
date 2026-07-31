@@ -89,6 +89,7 @@ nav:
       - Deploying agent-utilities: guides/deployment.md
       - Configuration: guides/configuration.md
       - Configuration Reference & Flag Audit: architecture/configuration.md
+      - Drift-Proof Release & Versioning: architecture/drift_proof_release.md
       - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
       - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
       - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md
