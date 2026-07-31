@@ -357,9 +357,19 @@ class IngestionMixin(_Base):
             self.graph.add_node(resource.id, **self._serialize_node(resource))
 
         if self.backend:
-            self.backend.execute(
-                "MATCH (r:CallableResource), (m:ToolMetadata) WHERE r.id = $rid AND m.id = $mid MERGE (r)-[:HAS_METADATA]->(m)",
-                {"rid": agent_id, "mid": meta_id},
+            # _upsert_edge is the portable, dispatch-correct edge writer: a
+            # native-typed authority (EpistemicGraphBackend) gets the typed
+            # add_edge call, everything else gets a raw Cypher MATCH+MERGE —
+            # NOT a hand-rolled comma-joined-MATCH/MERGE-with-relationship
+            # query, which the native backend's bounded Cypher write-subset
+            # cannot parse (single MATCH pattern, single-node-only MERGE).
+            self._upsert_edge(
+                agent_id,
+                meta_id,
+                "HAS_METADATA",
+                {},
+                source_label="CallableResource",
+                target_label="ToolMetadata",
             )
 
     def ingest_agent_skill(

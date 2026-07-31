@@ -84,10 +84,19 @@ class MontySandbox(Sandbox):
         full_code = self._with_tool_sources(code, env.tool_sources)
 
         # 1) Parse/compile — rejections here fire BEFORE any helper, so escalation is safe.
+        # A bare TypeError/AttributeError here (as opposed to a MontyError) means the
+        # installed pydantic_monty build's Monty() constructor signature/API no longer
+        # matches what this backend calls with (an infra/version incompatibility, not a
+        # snippet defect) — same "fires before any helper" safety applies, so it also
+        # escalates rather than crashing validation closed.
         try:
             m = Monty(full_code, inputs=list(inputs))
         except MontyError as e:
             raise SandboxRejected("monty", self._reject_reason(e)) from e
+        except (TypeError, AttributeError) as e:
+            raise SandboxRejected(
+                "monty", f"monty backend incompatible with installed API: {e}"
+            ) from e
 
         # 2) Run, tracking whether a (side-effecting) helper fired, so a late runtime error
         #    is reported rather than escalated.
