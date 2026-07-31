@@ -36,7 +36,7 @@ def unresolved_topics(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
         addressed = {
             r["id"] for r in (rows or []) if isinstance(r, dict) and r.get("id")
         }
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — a failed "already addressed" lookup just falls through with an empty skip-set, over-including topics as unresolved (re-surfacing at worst) rather than losing any; the caller's own retry cadence corrects it next pass
         logger.debug("unresolved_topics: addressed query failed: %s", e)
 
     # All concept topics (plain node query — supported), then subtract.
@@ -45,7 +45,7 @@ def unresolved_topics(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
             "MATCH (c:Concept) RETURN c.id AS id, c.name AS name LIMIT $limit",
             {"limit": int(limit) * 10 if addressed else int(limit)},
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — no concept rows this pass just returns an empty unresolved-list; nothing is marked/consumed here, so it costs one skipped scan, never a lost topic
         logger.debug("unresolved_topics: concept query failed: %s", e)
         return []
     out: list[dict[str, Any]] = []
@@ -86,6 +86,6 @@ def mark_addressed(
                 properties={"source": source},
             )
             written += 1
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — this source's edges just don't count toward `written`, which every caller now checks (loop_controller._advance_research, D-DST-2) before treating the topic as addressed, so a failed link here correctly stays retryable rather than being silently marked done
             logger.debug("mark_addressed %s->%s failed: %s", sid, topic_id, e)
     return written

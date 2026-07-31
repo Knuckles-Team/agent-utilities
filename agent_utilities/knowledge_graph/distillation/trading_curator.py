@@ -242,9 +242,9 @@ async def organize_trading_knowledge(
                         sig.id, f"tk:execution:{cid}", "DERIVED_FROM"
                     )
                     written_edges += 1
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 — the signal node itself already landed (written_nodes was already incremented above); only the DERIVED_FROM provenance edge is missing, and written_edges correctly stays un-incremented so the report reflects it
                     logger.debug("failed DERIVED_FROM edge for %s: %s", sig.id, exc)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — written_nodes/written_edges only increment on the lines that actually succeeded above, so the returned counts accurately reflect what landed; the loop continues to the next signal rather than aborting the whole distillation
                 logger.debug("failed to write signal node %s: %s", sig.id, exc)
 
     return {

@@ -488,7 +488,7 @@ class TelemetryEngine:
                     tool_use_tokens=usage.get("tool_use", 0),
                 )
                 self._token_tracker.record(record)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — cost/usage telemetry mirror; a failed record only degrades the token-usage dashboard for this one call, it does not affect the actual LLM call/response already completed above
                 logger.debug("Token recording failed: %s", exc)
         if self._token_counter is not None and usage:
             try:

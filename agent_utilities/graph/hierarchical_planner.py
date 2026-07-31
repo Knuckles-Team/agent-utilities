@@ -478,7 +478,7 @@ async def fetch_epistemic_context() -> str:
             return "\n".join(kg_entries)
 
         kg_context = await asyncio.to_thread(_read_kg_context)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — kg_context is a best-effort prompt-enrichment section; it stays "" and is rendered as "(empty)" in the assembled sections below, the planner still runs on the other context sources
         logger.debug("KG context unavailable: %s", e)
 
     sections = [

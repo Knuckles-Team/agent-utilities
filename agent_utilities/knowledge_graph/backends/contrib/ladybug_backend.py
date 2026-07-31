@@ -315,7 +315,7 @@ class LadybugBackend(GraphBackend):
                     self.conn.execute("INSTALL VECTOR;")
                     self.conn.execute("LOAD EXTENSION VECTOR;")
                     logger.debug("LadybugDB VECTOR extension loaded successfully")
-                except Exception as ve:
+                except Exception as ve:  # noqa: BLE001 — feature-detection: the VECTOR extension may not be present in this LadybugDB build; downstream vector-search paths already fall back when unavailable (not gated on any state advanced here)
                     logger.debug(f"Could not load VECTOR extension: {ve}")
 
                 # Auto-initialize schema if not read-only
@@ -822,7 +822,7 @@ class LadybugBackend(GraphBackend):
                         self.close()
                 except Exception:
                     pass
-            logger.debug(f"WAL checkpoint not supported or failed: {e}")
+            logger.debug(f"WAL checkpoint not supported or failed: {e}")  # noqa: BLE001 — this except correctly returns False on failure (see the return above only executes on success), so callers cannot mistake a failed checkpoint for a completed one
             return False
 
     def _seed_schema_cache(self) -> None:

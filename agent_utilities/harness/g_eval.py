@@ -91,7 +91,7 @@ def _rubric(task: str, criteria: str, model: str) -> str:
             temperature=0,
         )
         return r.choices[0].message.content or ""
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:  # pragma: no cover  # noqa: BLE001 — returns "" on failure, which GEval's caller treats as "no rubric" and falls back to criteria-only scoring rather than crashing or silently using a stale rubric
         logger.debug("g-eval rubric generation failed: %s", exc)
         return ""
 

@@ -171,14 +171,14 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
     for provider_name, pdir in resolve_prompt_provider_dirs():
         try:
             sources += [(provider_name, f) for f in sorted(pdir.glob("*.json"))]
-        except OSError as exc:  # pragma: no cover - defensive
+        except OSError as exc:  # pragma: no cover - defensive  # noqa: BLE001 — one provider dir failing to list just leaves it out of `sources` for this build; the base + other provider dirs already appended above are unaffected
             logger.debug("Could not list prompt provider: %s", exc)
 
     try:
         overlay = prompts_dir()
         if overlay.exists():
             sources += [(_OVERLAY_SOURCE, f) for f in sorted(overlay.glob("*.json"))]
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001 — the operator overlay is the last of three source tiers appended to `sources`; a failure here just means no overlay prompts this build, base + provider sources already collected above are returned regardless
         logger.debug("Could not list prompt overlay: %s", exc)
 
     return sources
@@ -196,7 +196,7 @@ def _prompt_content_hash(pfile: Path) -> str | None:
     """
     try:
         return hashlib.sha256(pfile.read_bytes()).hexdigest()
-    except OSError as e:
+    except OSError as e:  # noqa: BLE001 — the docstring is explicit: None means "untracked", and the caller (IngestionEngine._content_identity) treats None as "proceed without a skip decision" — the documented opposite of write-then-mark-seen, an unreadable file is never treated as unchanged/already-ingested
         logger.debug("Failed to hash prompt file: %s", e)
         return None
 

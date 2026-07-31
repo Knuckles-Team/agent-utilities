@@ -70,7 +70,7 @@ def get_cron_tasks() -> CronRegistryModel:
                 )
             )
         return CronRegistryModel(tasks=tasks)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — read-only UI model fetch; a failed query returns an empty registry for this one render, the underlying Job nodes are untouched
         logger.debug(f"Failed to fetch Job nodes: {e}")
         return CronRegistryModel()
 
@@ -105,7 +105,7 @@ def get_cron_logs() -> CronLogModel:
                 )
             )
         return CronLogModel(entries=entries)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — read-only UI model fetch, same as get_cron_tasks above; a failed query returns an empty log view, the underlying Log nodes are untouched
         logger.debug(f"Failed to fetch Log nodes: {e}")
         return CronLogModel()
 

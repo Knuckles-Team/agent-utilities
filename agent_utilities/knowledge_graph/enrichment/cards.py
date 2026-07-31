@@ -389,7 +389,7 @@ def generate_symbol_cards(
                 prompt = build_batch_prompt(group, calls_by_id)
                 try:
                     parsed = _parse_batch_cards(llm_fn(prompt), len(group))
-                except Exception as e:  # pragma: no cover - transport failure
+                except Exception as e:  # pragma: no cover - transport failure  # noqa: BLE001 — mirrors the single-symbol branch above: explicitly returns status="failed" cards (see that branch's comment) so the backfill retries them rather than treating a transport failure as a completed card
                     logger.debug("batch card gen failed (%d syms): %s", len(group), e)
                     return [_card_for(c, "", [], status="failed") for c in group]
                 return [

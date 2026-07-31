@@ -2198,7 +2198,7 @@ class GraphComputeEngine:
                 if hasattr(val, "model_dump"):
                     try:
                         return val.model_dump(mode="json")
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 — falls through to the isinstance checks below to try an alternate serialization instead of a raw model_dump; this property just keeps its pre-serialize form worst case, it is not a write/mark-seen state
                         logger.debug("Node property JSON serialization failed: %s", exc)
                 if isinstance(val, BaseModel):
                     return val.model_dump(mode="json")
@@ -2252,7 +2252,7 @@ class GraphComputeEngine:
                 if hasattr(val, "model_dump"):
                     try:
                         return val.model_dump(mode="json")
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 — same fallback as add_node.clean_props.serialize above: falls through to the isinstance checks, this property just keeps its pre-serialize form worst case
                         logger.debug("Edge property JSON serialization failed: %s", exc)
                 if isinstance(val, BaseModel):
                     return val.model_dump(mode="json")

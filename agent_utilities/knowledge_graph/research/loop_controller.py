@@ -2383,11 +2383,23 @@ class LoopController:
         except Exception as e:  # noqa: BLE001 — best-effort
             return {"status": "pending", "output": f"acquire failed: {e}"}
         if srcs:
-            mark_addressed(self.engine, loop["id"], srcs, source="loop_engine")
+            # D-DST-2 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): mark_addressed
+            # swallows its own per-edge write failures at DEBUG and returns the count that
+            # actually landed — a write-then-mark-seen bug if ignored here, since this status
+            # feeds straight into mark_loop_status() and "completed" converges the Loop
+            # (never resurfaced again). Only declare the topic addressed when at least one
+            # ADDRESSES/ADDRESSED_BY edge was actually written; otherwise stay "pending" so
+            # the next cycle retries the link instead of silently losing it.
+            written = mark_addressed(self.engine, loop["id"], srcs, source="loop_engine")
+            if written:
+                return {
+                    "status": "completed",
+                    "output": f"addressed by {written} sources",
+                    "done": True,
+                }
             return {
-                "status": "completed",
-                "output": f"addressed by {len(srcs)} sources",
-                "done": True,
+                "status": "pending",
+                "output": f"found {len(srcs)} sources but failed to link any",
             }
         return {"status": "pending", "output": "no sources found"}
 

@@ -752,7 +752,7 @@ class HybridRetriever:
                                 if self._boost_strategy == "context_only":
                                     d["_context_boost"] = self._backlink_boost(nid)
                                 assembled_subgraph.append(d)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — read-path retrieval enrichment; falls back to the bare vector-scored node (already fully valid, just unenriched) rather than losing it from the result set
                     logger.debug(f"Graph traversal fallback failed: {e}")
                     if node_id not in visited:
                         visited.add(node_id)

@@ -1455,7 +1455,7 @@ class ParallelEngine:
                 )
                 self._record_winners_to_memory(winners)
             return [w.specialist_id for w in winners]
-        except Exception as e:  # pragma: no cover - non-fatal telemetry path
+        except Exception as e:  # pragma: no cover - non-fatal telemetry path  # noqa: BLE001 — explicit empty-list fallback returned right below; callers treat an empty winners list as "no GWT broadcast this round", the underlying `outputs` results are computed and available elsewhere regardless
             logger.debug("WorkspaceAttention broadcast skipped: %s", e)
             return []
 

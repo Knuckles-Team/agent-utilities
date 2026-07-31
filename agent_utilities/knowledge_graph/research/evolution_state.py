@@ -140,7 +140,7 @@ def read_beacon(engine: Any) -> dict[str, Any]:
             "MATCH (n:EvolutionBeacon) RETURN n.id AS id, n.status AS status, "
             "n.stage AS stage, n.timestamp AS timestamp, n.metadata AS metadata LIMIT 1"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only status query; a failed read just returns an empty beacon dict for this one poll, the underlying EvolutionBeacon node is untouched
         logger.debug("read_beacon query failed: %s", e)
         return {}
     for r in rows or []:

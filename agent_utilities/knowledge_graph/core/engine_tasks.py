@@ -1412,7 +1412,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.info(
                     "Reaped %d idle dev-workspace container(s).", len(workspaces)
                 )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — reap is best-effort (mirrors the warm-parent reap above); a skipped tick just leaves idle containers for the NEXT scheduled tick to reap, no state is falsely advanced
             logger.debug("dev-workspace reap skipped: %s", e)
 
     def _tick_package_install_ingest(self) -> None:
@@ -2598,7 +2598,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     if get_throttle().should_yield_background:
                         time.sleep(busy)
                         continue
-                except ImportError as exc:
+                except ImportError as exc:  # noqa: BLE001 — background_throttle is an optional yield-to-foreground hint; when absent the loop just skips the yield and proceeds straight to _tick_embedding_backfill() below, it does not skip or mark any embedding work
                     logger.debug(
                         "background-throttle check skipped (optional dependency): %s",
                         exc,
@@ -3074,10 +3074,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                 self._dropped_tables: set[str] = set()
             new_tables = [t for t in affected_tables if t not in self._dropped_tables]
             if new_tables:
-                self._dropped_tables.update(new_tables)
                 try:
                     self.backend.drop_vector_indices(tables=new_tables)
-                except Exception as e:
+                    # D-DST-3 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): only
+                    # mark these tables dropped AFTER drop_vector_indices actually succeeds.
+                    # Marking them first (the prior order) meant a failed drop was never
+                    # retried on the next submit_task call for this task_type — the write-
+                    # then-mark-seen shape this triage was scoped to find — while the still-
+                    # indexed columns kept failing the ingestion SET the comment above warns
+                    # about ("Kuzu can't SET on indexed columns").
+                    self._dropped_tables.update(new_tables)
+                except Exception as e:  # noqa: BLE001 — the drop stays un-marked on failure (see above), so the next task submission for this task_type retries it instead of permanently believing the indexes are gone
                     logger.debug(f"Pre-ingestion index drop skipped: {e}")
 
         # Lazily start workers if they aren't already running
