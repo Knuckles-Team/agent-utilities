@@ -38,13 +38,20 @@ this code can produce:
 * every plan is computed with `--dry-run` first and passed through the
   guardrails before anything is applied.
 
-### Recommended follow-up (not applied here)
+### The intended endgame
 
-The structural cure is to make the bare form *correct* rather than merely
-guarded: give the root project real dependencies on the workspace members (the
-`[tool.uv.sources]` entries already exist, unused, at the workspace root), so
-`uv sync`'s target set is the whole workspace. That requires a relock and was
-deliberately out of scope — see `reports/deferred/lane-venv-autosync.md`.
+Guarding the sanctioned path is the floor, not the ceiling. **The agreed endgame
+is to make the bare form *correct* rather than merely guarded:** give the root
+project real dependencies on the workspace members — the `[tool.uv.sources]`
+entries already exist at the workspace root, all 40 of them unused because
+nothing depends on them — so `uv sync`'s target set becomes the whole workspace
+and the footgun is removed instead of caught.
+
+That requires a relock, so it is sequenced deliberately behind the current merge
+campaign rather than abandoned. `--inexact` stays in the sanctioned form
+regardless: other lanes legitimately add packages to the shared venv, and
+pruning them is still the destructive direction. Tracked as **D-VS-1** in
+`reports/deferred/lane-venv-autosync.md`.
 
 ---
 
@@ -149,7 +156,7 @@ This is the distinction the whole feature turns on.
 | Change | Live already? | Action |
 |---|---|---|
 | `.py`/docs inside an editable member | **Yes** — the member *and every downstream dependent* import through the source tree | none; recorded as `already-live` |
-| `pyproject.toml` / `setup.cfg` deps, version, scripts | No — baked into `.dist-info` at install time, and a dependency change invalidates the resolution every dependent shares | `on_metadata_change` policy |
+| `pyproject.toml` / `setup.cfg` deps, version, scripts | No — baked into `.dist-info` at install time, and a dependency change invalidates the resolution every dependent shares | `on_metadata_change` policy (default: relock) |
 | `.rs`/`.c`/`Cargo.toml` | No — the extension must be rebuilt | sync |
 | `uv.lock` | No | sync |
 
@@ -167,12 +174,35 @@ which is exactly `uv lock` followed by the sanctioned sync.
 
 ### `on_metadata_change`
 
-* **`propose`** (default) — record it loudly and leave the relock to an
-  operator. A relock re-resolves a lock shared by ~26 worktrees; that is not a
-  side effect to take silently.
-* **`relock`** — run the full backed-up, verified, auto-rolled-back
+* **`relock`** (default) — run the full backed-up, verified, auto-rolled-back
   `upgrade --all` automatically.
+* **`propose`** — record it loudly and leave the relock to an operator.
 * **`sync-only`** — sync against the existing lock and report the staleness.
+
+**Why `relock` is the default.** The requirement is *"merging to main flips that
+live, even for things with many downstream relationships"* — and a dependency
+change with many dependents is precisely that case. `propose` stops exactly
+there, so it would honour the letter of "keep the venv current" while declining
+the one case that was actually asked for.
+
+**What makes that safe rather than reckless** is the guardrail stack the policy
+runs inside; the default is only defensible *because* of it:
+
+* `ActivityGuardrail` defers while any lane is mid-test, so a relock never lands
+  underneath running work (proven live against four real in-flight records);
+* `LockBackupStore` archives `uv.lock` before the mutation starts;
+* the verify probes run after it, and any failure **auto-rolls-back** the lock
+  and re-syncs;
+* a refusal outranks a deferral, so a plan that would net-remove a workspace
+  member is rejected regardless of timing.
+
+Remove any one of those and `propose` would be the right default.
+
+**When to prefer `propose`.** It is a supported mode, not a deprecated one.
+Choose it when the environment has many concurrent editors whose resolution must
+not move under them, or while a large merge campaign is in flight — there the
+relock would be *correct* but its timing would not be. Set it in
+`~/.local/state/agent-utilities/venv-autosync/<root>-<hash>/autosync.json`.
 
 ---
 

@@ -222,7 +222,7 @@ def _queue(workspace: Workspace, change_class: str = METADATA) -> Intent:
 def test_drain_keeps_the_intent_when_a_guardrail_refuses(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _enable(workspace)
+    _enable(workspace, on_metadata_change="propose")
     _queue(workspace)
     monkeypatch.setattr(
         venv_autosync,
@@ -283,6 +283,45 @@ def test_drain_clears_the_queue_once_applied(
     result = drain(workspace)
     assert result["action"] == "applied"
     assert pending(workspace) == []
+
+
+def test_the_default_metadata_policy_is_relock(workspace: Workspace) -> None:
+    """A dependency change with many dependents is the case the requirement named.
+
+    'propose' would honour "keep the venv current" while declining exactly the
+    case that was asked for, so the default is 'relock' -- safe only because of
+    the guardrail stack the other tests in this file pin down.
+    """
+
+    assert AutosyncConfig().on_metadata_change == "relock"
+    assert load_config(workspace).on_metadata_change == "relock"
+    save_config(workspace, AutosyncConfig(enabled=True))
+    assert load_config(workspace).on_metadata_change == "relock"
+
+
+def test_propose_mode_stays_supported_and_does_not_relock(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The conservative mode is a supported choice, not a removed one."""
+
+    _enable(workspace, on_metadata_change="propose")
+    _queue(workspace)
+    monkeypatch.setattr(
+        venv_autosync,
+        "upgrade",
+        lambda ws, **kw: pytest.fail("propose must never relock"),
+    )
+    monkeypatch.setattr(
+        venv_autosync,
+        "sync",
+        lambda ws, **kw: venv_sync.SyncOutcome(
+            verdict=venv_sync.Verdict(decision=venv_sync.ALLOW),
+            plan=venv_sync.SyncPlan(),
+            applied=True,
+            detail="synced against the existing lock",
+        ),
+    )
+    assert drain(workspace)["policy"] == "propose"
 
 
 def test_drain_relocks_only_when_the_policy_says_so(

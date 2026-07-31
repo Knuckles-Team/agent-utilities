@@ -40,9 +40,12 @@ Editable installs make most merges free:
   records it and does nothing.
 * **metadata change** (``pyproject.toml`` dependencies/scripts/version) — the
   installed ``.dist-info`` and, for a dependency change, the whole workspace
-  resolution are now stale.  This is the case with the wide blast radius, so its
-  handling is a policy (``on_metadata_change``) that defaults to *propose*
-  rather than silently relocking a lock shared by every worktree.
+  resolution are now stale.  This is the case with the wide blast radius — and
+  therefore the case the requirement actually named — so ``on_metadata_change``
+  defaults to *relock*: back up, re-resolve, sync, verify, auto-roll-back.  That
+  default is only defensible because of the guardrail stack it runs inside; see
+  :class:`AutosyncConfig` for the full reasoning and for when to prefer the
+  conservative *propose* mode instead.
 * **native change** (Rust/C) — the compiled extension must be rebuilt; a sync
   does that.
 * **``uv.lock`` moved** — sync.
@@ -114,13 +117,39 @@ class AutosyncConfig:
     flip_branches: tuple[str, ...] = ("main", "master")
     #: What to do when a merge changes packaging metadata.
     #:
-    #: ``propose``  — record it loudly and let an operator run the relock
-    #:                (default: a relock re-resolves a lock shared by ~26
-    #:                worktrees, which is not a side effect to take silently);
-    #: ``relock``   — run the full backed-up, verified, auto-rolled-back
-    #:                ``upgrade --all`` automatically;
+    #: ``relock``   — **default.** Run the full backed-up, verified,
+    #:                auto-rolled-back ``upgrade --all``;
+    #: ``propose``  — record it loudly and leave the relock to an operator;
     #: ``sync-only``— sync against the existing lock and report the staleness.
-    on_metadata_change: str = "propose"
+    #:
+    #: Why ``relock`` is the default, given that it re-resolves a lock shared by
+    #: every worktree: the requirement this feature exists to satisfy is
+    #: "merging to main flips that live **even for things with many downstream
+    #: relationships**", and a dependency change with many dependents is
+    #: precisely that case.  ``propose`` stops exactly there, so it would honour
+    #: the letter of "keep the venv current" while declining the one case that
+    #: was actually asked for.
+    #:
+    #: What makes that safe rather than reckless is the guardrail stack this
+    #: policy runs inside, and the default is only defensible *because* of it:
+    #:
+    #:   * :class:`~agent_utilities.deployment.venv_sync.ActivityGuardrail`
+    #:     defers while any lane is mid-test, so a relock never lands underneath
+    #:     running work;
+    #:   * :class:`~agent_utilities.deployment.venv_sync.LockBackupStore`
+    #:     archives ``uv.lock`` before the mutation starts;
+    #:   * the verify probes run after it, and any failure **auto-rolls-back**
+    #:     the lock and re-syncs the environment;
+    #:   * a refusal outranks a deferral, so a plan that would net-remove a
+    #:     workspace member is rejected regardless of timing.
+    #:
+    #: Remove any one of those and ``propose`` would be the right default.
+    #:
+    #: Prefer ``propose`` when the environment has many concurrent editors who
+    #: must not have their resolution move under them, or while a large merge
+    #: campaign is in flight — the relock would be correct but its timing would
+    #: not be. It is a supported mode, not a deprecated one.
+    on_metadata_change: str = "relock"
     #: Repositories whose hooks this tool manages.
     installed_repos: tuple[str, ...] = ()
 
@@ -149,8 +178,12 @@ def load_config(workspace: Workspace) -> AutosyncConfig:
         logger.warning("ignoring unknown autosync config key(s): %s", ", ".join(unknown))
     return AutosyncConfig(
         enabled=bool(payload.get("enabled", False)),
-        flip_branches=tuple(payload.get("flip_branches", ("main", "master"))),
-        on_metadata_change=str(payload.get("on_metadata_change", "propose")),
+        flip_branches=tuple(
+            payload.get("flip_branches", AutosyncConfig.flip_branches)
+        ),
+        on_metadata_change=str(
+            payload.get("on_metadata_change", AutosyncConfig.on_metadata_change)
+        ),
         installed_repos=tuple(payload.get("installed_repos", ())),
     )
 
