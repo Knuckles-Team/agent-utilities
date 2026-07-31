@@ -191,7 +191,7 @@ def _gap_dict(node: dict[str, Any], node_id: str = "") -> dict[str, Any]:
             parsed = json.loads(meta)
             if isinstance(parsed, dict):
                 out.update(parsed)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:  # noqa: BLE001 — malformed metadata just skips the JSON-derived fields; the scalar status/severity/source/name columns are re-applied from the node itself right below, so the gap dict stays usable
             logger.debug("gap metadata is not valid JSON, ignoring: %s", exc)
     elif isinstance(meta, dict):
         out.update(meta)
@@ -260,7 +260,7 @@ def set_gap_status(engine: Any, gap_id: str, status: str, **extra: Any) -> bool:
             },
         )
         return True
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — callers (mark_gap_resolved, link_gap_to_spec) check this bool return and gate their own loud behavior on it; open_gaps() treats every non-"resolved" status the same (only STATUS_RESOLVED is terminal), so a failed "specified" stamp does not hide a gap or duplicate remediation
         logger.debug("set_gap_status(%s,%s) failed: %s", gap_id, status, e)
         return False
 
@@ -304,7 +304,7 @@ def resolve_gaps_for_loop(engine: Any, loop_id: str) -> list[str]:
             "MATCH (l)-[:RESOLVES]->(g:Gap) WHERE l.id = $id RETURN g.id AS id",
             {"id": loop_id},
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — a failed RESOLVES scan just returns no gaps resolved this call; the loop's RESOLVES edges are untouched, so a later call (e.g. the next publish) can walk them again
         logger.debug("resolve_gaps_for_loop query failed: %s", e)
         return []
     for r in rows or []:
