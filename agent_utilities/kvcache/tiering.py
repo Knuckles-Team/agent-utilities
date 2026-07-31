@@ -368,9 +368,7 @@ class TieredCheckpointManager:
         return self._eligibility_gate or get_persistence_eligibility_gate()
 
     # -- path 2 (agent): recommend, don't decide -----------------------------
-    def recommend(
-        self, observation: CheckpointObservation
-    ) -> CheckpointRecommendation:
+    def recommend(self, observation: CheckpointObservation) -> CheckpointRecommendation:
         """Score the current moment and return the advisory.
 
         This is the surface the **agent** path reads: the system computes the signals

@@ -869,6 +869,28 @@ def test_mcp_recommend_rejects_a_malformed_observation(monkeypatch):
     assert payload["error"]["code"] == "invalid_request"
 
 
+def test_mcp_rejects_an_unrecognized_initiator(monkeypatch):
+    """The initiator is what the whole eligibility decision turns on — an unrecognized
+    value must be refused at the boundary, never coerced or guessed."""
+    from agent_utilities.mcp.tools import engine_surface_tools as est
+
+    monkeypatch.setattr(
+        est, "_checkpoint_manager", lambda graph: TieredCheckpointManager()
+    )
+    payload = json.loads(
+        est._kv_checkpoint_intelligence(
+            "checkpoint_now",
+            graph="", data_b64=base64.b64encode(b"kv").decode(),
+            model_identity="m", quantization="fp16", serving_engine="vllm",
+            engine_version="1", prefix_digest="abc", tenant="t1", policy_version="v1",
+            run_id="", point="", checkpoint_id="", requesting_tenant="t1",
+            observation_json="{}", initiator="root", persist=True,
+            operator_grant=True,
+        )
+    )
+    assert payload["error"]["code"] == "invalid_request"
+
+
 # ---------------------------------------------------------------------------
 # 10. Observation adapters over the existing evidence/context machinery
 # ---------------------------------------------------------------------------

@@ -50,7 +50,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import threading
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -91,7 +91,7 @@ __all__ = [
 ]
 
 
-class CheckpointTier(str, Enum):
+class CheckpointTier(StrEnum):
     """Where a checkpoint should live. Ordered by increasing commitment."""
 
     #: Not worth checkpointing at all.
@@ -150,9 +150,7 @@ class CheckpointObservation(BaseModel):
     # -- identity / provenance ------------------------------------------------
     run_id: str = Field(default="", description="Run this observation belongs to.")
     tenant: str = Field(default="", description="Owning tenant.")
-    point: str = Field(
-        default="", description="Label for the moment being considered."
-    )
+    point: str = Field(default="", description="Label for the moment being considered.")
 
     # -- rebuild cost (the economic signal) -----------------------------------
     rebuild: RebuildCostInputs = Field(
@@ -259,7 +257,11 @@ class CheckpointObservation(BaseModel):
             1
             for c in contradictions
             if str(
-                (c.get("severity") if isinstance(c, dict) else getattr(c, "severity", ""))
+                (
+                    c.get("severity")
+                    if isinstance(c, dict)
+                    else getattr(c, "severity", "")
+                )
                 or ""
             ).lower()
             == "high"
@@ -368,7 +370,10 @@ class _BaseScorer:
 
     def _abstain(self, reason: str) -> CheckpointSignal:
         return CheckpointSignal(
-            name=self.name, value=None, weight=self.weight, kind=self.kind,
+            name=self.name,
+            value=None,
+            weight=self.weight,
+            kind=self.kind,
             rationale=f"abstained: {reason}",
         )
 
@@ -492,8 +497,11 @@ class RetrievalSaturationScorer(_BaseScorer):
             saturation,
             f"retrieval saturation {saturation:.2f} "
             f"({novel}/{retrieved} items were new)",
-            {"retrieved_items": retrieved, "novel_items": novel,
-             "novelty_ratio": round(novelty_ratio, 4)},
+            {
+                "retrieved_items": retrieved,
+                "novel_items": novel,
+                "novelty_ratio": round(novelty_ratio, 4),
+            },
         )
 
 
@@ -835,9 +843,7 @@ class DiskPromotionRule(BaseModel):
                     "needs positive evidence, not absent evidence"
                 )
             elif (signal.value or 0.0) < minimum:
-                failures.append(
-                    f"{name}: {signal.value:.2f} < required {minimum:.2f}"
-                )
+                failures.append(f"{name}: {signal.value:.2f} < required {minimum:.2f}")
         return DiskPromotionVerdict(
             satisfied=not failures, failures=tuple(failures), rule=self
         )
@@ -942,13 +948,10 @@ class CheckpointAdvisor:
         self.disk_rule = disk_rule or DiskPromotionRule()
         self.top_n = self.DEFAULT_TOP_N if top_n is None else top_n
 
-    def evaluate(
-        self, observation: CheckpointObservation
-    ) -> CheckpointRecommendation:
+    def evaluate(self, observation: CheckpointObservation) -> CheckpointRecommendation:
         """Score ``observation`` against every registered scorer."""
         signals = [
-            self._score_one(scorer, observation)
-            for scorer in self.registry.scorers()
+            self._score_one(scorer, observation) for scorer in self.registry.scorers()
         ]
         by_name = {s.name: s for s in signals}
         scored = [s for s in signals if not s.abstained and s.weight > 0.0]
@@ -1001,7 +1004,9 @@ class CheckpointAdvisor:
             tier = CheckpointTier.DISK
         elif aggregate >= self.ram_threshold:
             tier = CheckpointTier.RAM
-            blockers.extend(f"disk not recommended — {f}" for f in disk_verdict.failures)
+            blockers.extend(
+                f"disk not recommended — {f}" for f in disk_verdict.failures
+            )
         else:
             tier = CheckpointTier.NONE
             blockers.append(

@@ -312,6 +312,21 @@ def _kv_checkpoint_intelligence(
         KVCheckpointKey,
     )
 
+    # Validate the initiator AT THE BOUNDARY. It is a Literal on PersistenceRequest /
+    # RAMCheckpointRecord, so an unrecognized value would surface deep inside as a raw
+    # pydantic ValidationError that the KVCheckpointError handlers below never catch —
+    # and, worse, "which initiator is this?" is the input the whole eligibility decision
+    # turns on, so it must never be guessed at or coerced.
+    if initiator not in {"user", "agent", "system"}:
+        return _surface_error(
+            ValueError(
+                f"initiator must be one of user|agent|system, got {initiator!r}"
+            ),
+            surface="kv_checkpoint",
+            action=action,
+            code="invalid_request",
+        )
+
     manager = _checkpoint_manager(graph)
 
     def _observation() -> Any:
@@ -408,7 +423,9 @@ def _kv_checkpoint_intelligence(
             tenant=tenant,
             policy_version=policy_version,
         )
-        observation = _observation() if observation_json.strip() not in {"", "{}"} else None
+        observation = (
+            _observation() if observation_json.strip() not in {"", "{}"} else None
+        )
     except Exception as exc:  # noqa: BLE001 — bad payload/key/observation
         return _surface_error(
             exc, surface="kv_checkpoint", action=action, code="invalid_request"
