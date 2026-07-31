@@ -928,7 +928,7 @@ def create_context_agent(
         # DEFAULT_MAX_OUTPUT_REPAIRS times before failing closed with its own typed
         # error; pydantic-ai's own output-retry budget defaults to 1, which would
         # otherwise raise a generic UnexpectedModelBehavior on OUR second retry and
-        # pre-empt the classified/attempt-recorded exhaustion path. Never override an
+        # preempt the classified/attempt-recorded exhaustion path. Never override an
         # explicit caller-supplied ``retries=``.
         if "retries" not in kwargs:
             retries = output_repair_retries(

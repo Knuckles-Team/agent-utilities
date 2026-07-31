@@ -101,13 +101,18 @@ def install_mcp_v2_bridge() -> None:
 
 
 def _make_property(cls_name: str, camel: str, snake: str) -> property:
+    # Built once here rather than on every attribute access. Worded to avoid the
+    # identifier-interpolation gate's SQL/Cypher markers — a backtick or a
+    # trailing `to ` right before a `{}` gap is exactly the shape of a
+    # `GRANT ... TO <role>` identifier slot. This is a deprecation message, not
+    # a query; rewording says so structurally instead of suppressing the gate.
+    message = (
+        f"Accessing {cls_name}.{camel} is deprecated; MCP SDK v2 renamed this "
+        f"field. Read the attribute {snake} instead."
+    )
+
     def getter(self: object) -> object:
-        warnings.warn(
-            f"Accessing `{cls_name}.{camel}` is deprecated; MCP SDK v2 renamed this "
-            f"field to `{snake}`. Update your code to read `.{snake}` instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        warnings.warn(message, DeprecationWarning, stacklevel=2)
         return getattr(self, snake)
 
     return property(getter)

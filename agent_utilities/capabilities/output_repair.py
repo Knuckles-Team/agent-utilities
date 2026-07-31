@@ -249,7 +249,7 @@ def output_repair_retries(
     its own typed :class:`StructuredOutputRepairExhausted`; if the underlying
     Agent's own budget were smaller, pydantic-ai would raise its generic
     ``UnexpectedModelBehavior: Exceeded maximum output retries`` first, on a
-    retry this module itself issued, pre-empting the classified/attempt-recorded
+    retry this module itself issued, preempting the classified/attempt-recorded
     exhaustion path entirely. Returns ``None`` (no override) when the capability
     is disabled, so an explicit caller-supplied ``retries=`` is never overwritten
     with an unrelated budget.

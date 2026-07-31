@@ -509,10 +509,12 @@ class ChildRuntime:
                     self._set_state("failed")
                     first.set_exception(e)
                     return
-                logger.warning(
-                    "Reconnect to child server failed (exception_type=%s)",
-                    type(e).__name__,
-                )
+                # Log the real cause, not just its class. The line-keyed
+                # swallowed-error ratchet re-flagged this unchanged handler
+                # after the imports above shifted it, so it is closed on the
+                # merits rather than re-baselined: a reconnect that keeps
+                # failing is undiagnosable from `exception_type=OSError` alone.
+                logger.warning("Reconnect to child server failed: %r", e)
             finally:
                 self._ready.clear()
                 self._sessions = []

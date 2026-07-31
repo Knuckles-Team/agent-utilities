@@ -85,7 +85,7 @@ a run needed a retry:
 
 Wired default-ON (`capabilities/composition.py`), it also bumps the
 underlying Agent's `retries={"output": max_repairs}` so pydantic-ai's own
-retry budget never pre-empts this module's classified exhaustion path
+retry budget never preempts this module's classified exhaustion path
 (`output_repair_retries`). It is a pure no-op for the many agents whose
 `output_type` is plain text — the underlying hooks never fire for
 unstructured output.
