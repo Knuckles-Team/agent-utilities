@@ -377,3 +377,29 @@ def test_release_resource_catalog_write_rejects_alias(
     output = json.loads(capsys.readouterr().out)
     assert output == {"error": "CatalogWriteFailed", "ok": False}
     assert target.read_text(encoding="utf-8") == "outside\n"
+
+
+def test_release_resource_catalog_write_reaches_even_when_connector_catalog_is_invalid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """D-35-8: `--write` must refresh the resource catalog independent of connector-fleet
+    health. The resource catalog (`_RESOURCE_PATHS`) has no connector-fleet dependency, so
+    a drifted/invalid connector or skill catalog must not make `--write` unreachable."""
+
+    resource_path, payload = _stub_resource_catalog_gate(tmp_path, monkeypatch)
+
+    def _boom(**_kwargs: object) -> bytes:
+        raise ReleaseCatalogError("connector_catalog_bundle_validation_failed")
+
+    monkeypatch.setattr(release_gate, "render_connector_catalog", _boom)
+
+    assert release_gate.main(["--write"]) == 1
+    write_output = json.loads(capsys.readouterr().out)
+    assert write_output == {"error": "CatalogInputInvalid", "ok": False}
+    assert resource_path.read_bytes() == payload
+
+    assert release_gate.main([]) == 1
+    check_output = json.loads(capsys.readouterr().out)
+    assert check_output == {"error": "CatalogInputInvalid", "ok": False}

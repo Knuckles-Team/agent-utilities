@@ -176,7 +176,13 @@ def _validate_acquisition_surface() -> None:
         ROOT / "scripts" / "release" / "generate_oci_acquisition_attestation.py"
     ).read_text(encoding="utf-8")
     ast.parse(source)
-    for forbidden in ("shell=True", "verify=False", "os.system(", "requests.", "httpx."):
+    for forbidden in (
+        "shell=True",
+        "verify=False",
+        "os.system(",
+        "requests.",
+        "httpx.",
+    ):
         if forbidden in source:
             raise ValueError("OCI acquisition producer violates the offline boundary")
 
@@ -184,13 +190,18 @@ def _validate_acquisition_surface() -> None:
 def _validate_certification_surface() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     scripts = project["project"]["scripts"]
-    if any(scripts.get(name) != target for name, target in _CERTIFICATION_ENTRY_POINTS.items()):
+    if any(
+        scripts.get(name) != target
+        for name, target in _CERTIFICATION_ENTRY_POINTS.items()
+    ):
         raise ValueError("production certification entry points are unavailable")
     for relative in _CERTIFICATION_MODULES:
         source = (ROOT / relative).read_text(encoding="utf-8")
         ast.parse(source)
         if "spec_from_file_location" in source or "importlib.util" in source:
-            raise ValueError("production certification uses a source-tree module loader")
+            raise ValueError(
+                "production certification uses a source-tree module loader"
+            )
     campaign = yaml.safe_load(
         (_RELEASE_ROOT / "certification-campaign.yml").read_text(encoding="utf-8")
     )
@@ -212,8 +223,7 @@ def _resource_catalog_bytes() -> bytes:
             Draft202012Validator.check_schema(schema)
     value = {"schema": "release-contract-resources/1", "resources": resources}
     return (
-        json.dumps(value, sort_keys=True, indent=2, ensure_ascii=True)
-        + "\n"
+        json.dumps(value, sort_keys=True, indent=2, ensure_ascii=True) + "\n"
     ).encode("ascii")
 
 
@@ -312,6 +322,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Regenerate only the canonical release resource digest catalog.",
     )
     arguments = parser.parse_args(argv)
+    if arguments.write:
+        # The resource catalog (`_RESOURCE_PATHS`) is a fixed set of static schema/doc
+        # files with no dependency on connector-fleet health, so refreshing it must not
+        # require the connector/skill catalogs to be valid first. Previously this branch
+        # sat behind the same try/except as `render_connector_catalog`, so any connector
+        # drift made `--write` unreachable (D-35-8) even though the two are unrelated.
+        try:
+            _write_resource_catalog(_resource_catalog_bytes())
+        except Exception:  # noqa: BLE001 - content-free source gate result
+            print(
+                json.dumps({"error": "CatalogWriteFailed", "ok": False}, sort_keys=True)
+            )
+            return 1
     try:
         matrix_digest = _validate_matrix()
         connector = render_connector_catalog(
@@ -332,21 +355,12 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:  # noqa: BLE001 - content-free source gate result
         print(json.dumps({"error": "CatalogInputInvalid", "ok": False}, sort_keys=True))
         return 1
-    if _retained_bytes(CONNECTOR_OUTPUT) != connector or _retained_bytes(
-        SKILL_OUTPUT
-    ) != skill:
+    if (
+        _retained_bytes(CONNECTOR_OUTPUT) != connector
+        or _retained_bytes(SKILL_OUTPUT) != skill
+    ):
         print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
         return 1
-    if arguments.write:
-        try:
-            _write_resource_catalog(resources)
-        except Exception:  # noqa: BLE001 - content-free source gate result
-            print(
-                json.dumps(
-                    {"error": "CatalogWriteFailed", "ok": False}, sort_keys=True
-                )
-            )
-            return 1
     if _retained_bytes(_RESOURCE_CATALOG) != resources:
         print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
         return 1
@@ -363,8 +377,7 @@ def main(argv: list[str] | None = None) -> int:
                     ]
                 ),
                 "entries": sum(
-                    json.loads(payload)["entryCount"]
-                    for payload in (connector, skill)
+                    json.loads(payload)["entryCount"] for payload in (connector, skill)
                 ),
                 "ok": True,
                 "written": arguments.write,
