@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1102
+total_concepts: 1107
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1587,6 +1587,16 @@ concepts:
   - agent_utilities/mcp/server_factory.py
   - agent_utilities/mcp_utilities.py
   doc: MCP Standardized Interfaces
+- id: AU-ECO.mcp.tasks-workitem-bridge
+  name: mount the native WorkItem-backed
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/server_factory.py
+  - agent_utilities/mcp/tasks_extension.py
+  - agent_utilities/mcp/tools/mcp_apps.py
+  - agent_utilities/orchestration/work_item.py
+  doc: mount the native WorkItem-backed
 - id: AU-ECO.mcp.tool-mode-standardization
   name: MCP tool-mode standardization
   pillar: AU-ECO
@@ -2138,6 +2148,14 @@ concepts:
   - agent_utilities/http/rate_limit.py
   - agent_utilities/http/redaction.py
   doc: Fleet HTTP Client Library
+- id: AU-ECO.ui.mcp-apps-host
+  name: the MCP Apps entry-point tool + its
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/mcp_apps.py
+  doc: the MCP Apps entry-point tool + its
 - id: AU-KG.audit.durable-error-detail
   name: AU-KG.audit.durable-error-detail
   pillar: AU-KG
@@ -4434,6 +4452,17 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/memory/learning_engine.py
   doc: Background Learning Engine
+- id: AU-KG.memory.checkpoint-worthiness-scoring
+  name: Construct-then-evaluate is cheap
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/rebuild_cost.py
+  - agent_utilities/kvcache/tiering.py
+  - agent_utilities/kvcache/worthiness.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: Construct-then-evaluate is cheap
 - id: AU-KG.memory.decay-scanner-merge
   name: decay scanner + semantic merge
   pillar: AU-KG
@@ -7499,6 +7528,15 @@ concepts:
   - agent_utilities/knowledge_graph/workflow_store.py
   - agent_utilities/models/schema_definition.py
   doc: Workflow Persistence & Replay Relationships
+- id: AU-ORCH.optimization.checkpoint-recommendation-surface
+  name: so every agent
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/agent/factory.py
+  - agent_utilities/kvcache/tiering.py
+  - agent_utilities/kvcache/worthiness.py
+  doc: so every agent
 - id: AU-ORCH.optimization.graph-native-optimization-state
   name: Graph-Native Optimization State ──────────────────────────
   pillar: AU-ORCH
@@ -8481,6 +8519,7 @@ concepts:
   - agent_utilities/harness/trace_backend.py
   - agent_utilities/harness/tracing.py
   - agent_utilities/knowledge_graph/research/candidate_insight.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
   - agent_utilities/models/knowledge_graph.py
   doc: Returns the model UNCHANGED when no sink is installed
 - id: AU-OS.config.secrets-authentication
@@ -8797,6 +8836,15 @@ concepts:
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/autonomy_ramp.py
   doc: earned-autonomy ramp
+- id: AU-OS.governance.checkpoint-persistence-eligibility
+  name: a KV cache is **derived
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/eligibility.py
+  - agent_utilities/kvcache/tiering.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: a KV cache is **derived
 - id: AU-OS.governance.concept-2
   name: materialize the XDG tree + the skill toolkit
   pillar: AU-OS

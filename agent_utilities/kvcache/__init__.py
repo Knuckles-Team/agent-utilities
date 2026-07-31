@@ -28,21 +28,67 @@ from agent_utilities.kvcache.checkpoint import (
     StaleCheckpointError,
 )
 from agent_utilities.kvcache.config import KvCacheConfig
+from agent_utilities.kvcache.eligibility import (
+    AlwaysDenyEligibility,
+    EligibilityDecision,
+    OperatorGrantEligibility,
+    PersistenceEligibilityGate,
+    PersistenceRequest,
+    get_persistence_eligibility_gate,
+    set_persistence_eligibility_gate,
+)
 from agent_utilities.kvcache.l2_native_connector import EpistemicGraphL2Connector
 from agent_utilities.kvcache.policy import (
     KVCacheDecision,
     KVCacheLayeringPolicy,
     fold_kv_hint,
 )
+from agent_utilities.kvcache.rebuild_cost import (
+    RebuildCostEstimate,
+    RebuildCostInputs,
+    RebuildCostScale,
+    estimate_rebuild_cost,
+)
 from agent_utilities.kvcache.remote_backend import (
     EpistemicGraphKVBackend,
     KvCacheStats,
     ReleaseOutcome,
 )
+from agent_utilities.kvcache.tiering import (
+    CheckpointOutcome,
+    RAMCheckpointRecord,
+    RAMCheckpointStore,
+    TieredCheckpointManager,
+    prefix_digest,
+)
+from agent_utilities.kvcache.worthiness import (
+    CheckpointAdvisor,
+    CheckpointObservation,
+    CheckpointRecommendation,
+    CheckpointScorer,
+    CheckpointScorerRegistry,
+    CheckpointSignal,
+    CheckpointTier,
+    DiskPromotionRule,
+    ModelSelfReport,
+    build_default_scorers,
+    default_scorer_registry,
+)
 
 __all__ = [
+    "AlwaysDenyEligibility",
+    "CheckpointAdvisor",
     "CheckpointNotFoundError",
+    "CheckpointObservation",
+    "CheckpointOutcome",
+    "CheckpointRecommendation",
+    "CheckpointScorer",
+    "CheckpointScorerRegistry",
+    "CheckpointSignal",
+    "CheckpointTier",
     "CrossTenantCheckpointError",
+    "DiskPromotionRule",
+    "EligibilityDecision",
     "EpistemicGraphKVBackend",
     "EpistemicGraphL2Connector",
     "KVCacheDecision",
@@ -53,8 +99,24 @@ __all__ = [
     "KVCheckpointStore",
     "KvCacheConfig",
     "KvCacheStats",
+    "ModelSelfReport",
+    "OperatorGrantEligibility",
+    "PersistenceEligibilityGate",
+    "PersistenceRequest",
+    "RAMCheckpointRecord",
+    "RAMCheckpointStore",
+    "RebuildCostEstimate",
+    "RebuildCostInputs",
+    "RebuildCostScale",
     "ReleaseOutcome",
     "RestoreResult",
     "StaleCheckpointError",
+    "TieredCheckpointManager",
+    "build_default_scorers",
+    "default_scorer_registry",
+    "estimate_rebuild_cost",
     "fold_kv_hint",
+    "get_persistence_eligibility_gate",
+    "prefix_digest",
+    "set_persistence_eligibility_gate",
 ]

@@ -58,6 +58,8 @@ __all__ = [
     "KG_INGEST_CONSUMER_LAG",
     "KG_INGEST_QUEUE_DEPTH",
     "KVCACHE_CHECKPOINT_OPS",
+    "KVCACHE_CHECKPOINT_RECOMMENDATIONS",
+    "KVCACHE_CHECKPOINT_TIER_OPS",
     "KVCACHE_CLIENT_REQUESTS",
     "KVCACHE_FORK_EVENTS",
     "KVCACHE_FORK_SHARED_BYTES",
@@ -443,6 +445,21 @@ KVCACHE_CHECKPOINT_OPS = _counter(
     "cross_tenant_denied|stale|cold_start_fallback) — the fail-closed/traced-fallback "
     "proof for checkpoint load.",
     ("op", "outcome"),
+)
+KVCACHE_CHECKPOINT_RECOMMENDATIONS = _counter(
+    "agent_utilities_kvcache_checkpoint_recommendations_total",
+    "Checkpoint-worthiness verdicts (CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring) "
+    "by recommended tier (none|ram|disk) — how often the scorer set thinks the current "
+    "context is worth freezing, independent of whether anything acted on it.",
+    ("tier",),
+)
+KVCACHE_CHECKPOINT_TIER_OPS = _counter(
+    "agent_utilities_kvcache_checkpoint_tier_ops_total",
+    "Tiered-checkpoint actions (CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring) by "
+    "trigger (user|agent|system), tier (ram|disk) and outcome (taken|declined|"
+    "eligibility_denied|error) — the proof of which of the three trigger paths actually "
+    "took a checkpoint, and why a disk promotion was refused.",
+    ("trigger", "tier", "outcome"),
 )
 PROMPT_CACHE_OPS = _counter(
     "agent_utilities_prompt_cache_ops_total",

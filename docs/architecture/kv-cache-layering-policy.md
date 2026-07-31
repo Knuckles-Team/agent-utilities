@@ -7,7 +7,11 @@
 > **Related:** `CONCEPT:AU-ORCH.routing.sampling-profile-selection` (the per-call sampling seam this rides on) ·
 > `CONCEPT:AU-KG.backend.kvcache-vllm-connector` (`EpistemicGraphKVBackend`, the L2 store) ·
 > `CONCEPT:EG-KG.memory.byte-bounded-tiers/186/187` (tiered, content-addressed engine KV-cache) ·
-> [KV-Cache Layering guide](../guides/kvcache-vllm-lmcache.md).
+> [KV-Cache Layering guide](../guides/kvcache-vllm-lmcache.md) ·
+> [KV-Checkpoint Intelligence](kv-checkpoint-intelligence.md) — the sibling decision:
+> this page decides whether ONE EXECUTION's KV blocks are worth storing; that one decides
+> whether the CURRENT CONTEXT is at a good moment to be frozen as a named, restorable
+> checkpoint, and whether that checkpoint may live past the session.
 
 ## Why
 

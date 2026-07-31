@@ -1811,13 +1811,38 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {
         "tool": "graph_kv_checkpoint",
+        "action": "checkpoint_now",
+        "name": "graph_kv_checkpoint_checkpoint_now",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
         "action": "create",
         "name": "graph_kv_checkpoint_create",
     },
     {
         "tool": "graph_kv_checkpoint",
+        "action": "explain",
+        "name": "graph_kv_checkpoint_explain",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
         "action": "instantiate_agent",
         "name": "graph_kv_checkpoint_instantiate_agent",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "promote",
+        "name": "graph_kv_checkpoint_promote",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "ram_stats",
+        "name": "graph_kv_checkpoint_ram_stats",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "recommend",
+        "name": "graph_kv_checkpoint_recommend",
     },
     {
         "tool": "graph_kv_checkpoint",
