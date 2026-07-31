@@ -75,6 +75,7 @@ from agent_utilities.kvcache.worthiness import (
     CheckpointObservation,
     CheckpointRecommendation,
     CheckpointTier,
+    publish_checkpoint_advisory,
 )
 
 logger = logging.getLogger(__name__)
@@ -375,10 +376,17 @@ class TieredCheckpointManager:
         This is the surface the **agent** path reads: the system computes the signals
         and hands the model a structured verdict
         (:meth:`~agent_utilities.kvcache.worthiness.CheckpointRecommendation.as_advisory`)
-        so the model can decide. It takes no checkpoint and has no side effects beyond
-        telemetry.
+        so the model can decide. It takes no checkpoint.
+
+        The verdict is also **published** to the context-local advisory slot
+        (CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface), so every agent
+        built by the standard factory renders it into its instructions on the next call
+        without the caller having to plumb it through — that publish is what makes this
+        a recommendation *to the model* rather than just a return value.
         """
-        return self.advisor.evaluate(observation)
+        recommendation = self.advisor.evaluate(observation)
+        publish_checkpoint_advisory(recommendation)
+        return recommendation
 
     # -- path 1 (user) and the agent's follow-through ------------------------
     def checkpoint_now(
@@ -470,7 +478,7 @@ class TieredCheckpointManager:
         RAM checkpoint plus a recorded, refused eligibility verdict — visible evidence
         that the system *wanted* to persist and was not permitted to.
         """
-        recommendation = self.advisor.evaluate(observation)
+        recommendation = self.recommend(observation)
         if recommendation.recommended_tier is CheckpointTier.NONE:
             _record_tier_op("system", "none", "declined")
             return CheckpointOutcome(

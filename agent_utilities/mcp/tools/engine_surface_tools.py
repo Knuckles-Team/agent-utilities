@@ -46,6 +46,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import uuid
 from datetime import datetime
 from typing import Any
@@ -68,6 +69,8 @@ from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
 )
 from agent_utilities.security.error_surface import public_error_payload
 from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+
+logger = logging.getLogger(__name__)
 
 # Candidate ``(sub_client_attr, method_attr)`` probe lists per logical action. The
 # engine build / client may expose the surface under any of several plausible
@@ -238,6 +241,207 @@ def _checkpoint_store(graph: str) -> Any:
     from agent_utilities.kvcache import KVCheckpointStore
 
     return KVCheckpointStore(_EngineComputeAdapter(_client(graph), graph))
+
+
+#: Process-lifetime RAM tier shared by every ``graph_kv_checkpoint`` call
+#: (CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring). It MUST outlive a single tool
+#: invocation — "checkpoint to RAM, then decide later whether to persist" is the whole
+#: point of the tier — so it is built once and reused, not per call.
+_RAM_CHECKPOINT_STORE: Any | None = None
+
+
+def _checkpoint_manager(graph: str) -> Any:
+    """Build a :class:`~agent_utilities.kvcache.TieredCheckpointManager` over the shared
+    RAM tier, binding the durable tier when the engine is reachable.
+
+    A durable store that cannot be built is NOT an error here: the manager works
+    RAM-only and every promotion is refused with that reason, which is the correct
+    degrade for a checkpoint layer whose default tier is RAM anyway.
+    """
+    global _RAM_CHECKPOINT_STORE
+    from agent_utilities.kvcache import RAMCheckpointStore, TieredCheckpointManager
+
+    if _RAM_CHECKPOINT_STORE is None:
+        _RAM_CHECKPOINT_STORE = RAMCheckpointStore()
+    try:
+        disk_store = _checkpoint_store(graph)
+    except Exception as exc:  # noqa: BLE001 — engine down degrades to RAM-only
+        logger.warning(
+            "[CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring] durable checkpoint "
+            "tier unavailable (%s: %s) — the manager will serve RAM only and refuse "
+            "every promotion",
+            type(exc).__name__,
+            exc,
+        )
+        disk_store = None
+    return TieredCheckpointManager(
+        ram_store=_RAM_CHECKPOINT_STORE, disk_store=disk_store
+    )
+
+
+def _kv_checkpoint_intelligence(
+    action: str,
+    *,
+    graph: str,
+    data_b64: str,
+    model_identity: str,
+    quantization: str,
+    serving_engine: str,
+    engine_version: str,
+    prefix_digest: str,
+    tenant: str,
+    policy_version: str,
+    run_id: str,
+    point: str,
+    checkpoint_id: str,
+    requesting_tenant: str,
+    observation_json: str,
+    initiator: str,
+    persist: bool,
+    operator_grant: bool,
+) -> str:
+    """The worthiness/tiering/eligibility half of ``graph_kv_checkpoint``.
+
+    CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring. Split out of the tool body so
+    the three trigger paths can be exercised directly, and so the tool function stays
+    argument-marshalling only.
+    """
+    from agent_utilities.kvcache import (
+        CheckpointObservation,
+        KVCheckpointError,
+        KVCheckpointKey,
+    )
+
+    manager = _checkpoint_manager(graph)
+
+    def _observation() -> Any:
+        payload = json.loads(observation_json) if observation_json else {}
+        if not isinstance(payload, dict):
+            raise ValueError("observation_json must be a JSON object")
+        return CheckpointObservation(**payload)
+
+    if action == "ram_stats":
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "result": {
+                    **manager.ram_store.stats(),
+                    "eligibility_gate": manager.eligibility_gate.name,
+                },
+            }
+        )
+
+    if action == "recommend":
+        try:
+            observation = _observation()
+        except Exception as exc:  # noqa: BLE001 — caller-supplied JSON/shape
+            return _surface_error(
+                exc, surface="kv_checkpoint", action=action, code="invalid_request"
+            )
+        recommendation = manager.recommend(observation)
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "result": {
+                    **recommendation.model_dump(mode="json", exclude={"observation"}),
+                    "advisory": recommendation.as_advisory(),
+                },
+            },
+            default=_json_default,
+        )
+
+    if action == "explain":
+        try:
+            return json.dumps(
+                {
+                    "surface": "kv_checkpoint",
+                    "action": action,
+                    "result": manager.explain(
+                        checkpoint_id, requesting_tenant=requesting_tenant
+                    ),
+                },
+                default=_json_default,
+            )
+        except KVCheckpointError as exc:
+            return _surface_error(
+                exc,
+                surface="kv_checkpoint",
+                action=action,
+                code=_checkpoint_error_code(exc),
+            )
+
+    if action == "promote":
+        try:
+            outcome = manager.promote(
+                checkpoint_id,
+                requesting_tenant=requesting_tenant,
+                trigger=initiator,  # type: ignore[arg-type]
+                operator_grant=operator_grant,
+            )
+        except KVCheckpointError as exc:
+            return _surface_error(
+                exc,
+                surface="kv_checkpoint",
+                action=action,
+                code=_checkpoint_error_code(exc),
+            )
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
+            },
+            default=_json_default,
+        )
+
+    # action == "checkpoint_now"
+    try:
+        data = base64.b64decode(data_b64) if data_b64 else b""
+        key = KVCheckpointKey(
+            model_identity=model_identity,
+            quantization=quantization,
+            serving_engine=serving_engine,
+            engine_version=engine_version,
+            prefix_digest=prefix_digest,
+            tenant=tenant,
+            policy_version=policy_version,
+        )
+        observation = _observation() if observation_json.strip() not in {"", "{}"} else None
+    except Exception as exc:  # noqa: BLE001 — bad payload/key/observation
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    try:
+        outcome = manager.checkpoint_now(
+            data,
+            key=key,
+            run_id=run_id,
+            point=point,
+            trigger=initiator,  # type: ignore[arg-type]
+            persist=persist,
+            operator_grant=operator_grant,
+            observation=observation,
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
+            "advisory": (
+                outcome.recommendation.as_advisory() if outcome.recommendation else ""
+            ),
+        },
+        default=_json_default,
+    )
 
 
 def _json_default(obj: Any) -> Any:
@@ -992,7 +1196,19 @@ def register_engine_surface_tools(mcp) -> None:
             "lineage edge, or set allow_cold_start=true for an EXPLICIT, traced "
             "cold-start fallback instead of raising. A tenant mismatch or a stale "
             "policy_version is ALWAYS refused (cross-tenant checkpoint reuse is a "
-            "security boundary, never bypassable)."
+            "security boundary, never bypassable). "
+            "CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring adds the intelligence "
+            "actions: 'recommend' (observation_json → a scored checkpoint-worthiness "
+            "verdict with drivers, blockers and the scorers that had no evidence — "
+            "advisory only, it takes no checkpoint); 'checkpoint_now' (data_b64 + the "
+            "key + initiator; stores to the RAM tier immediately, and with "
+            "persist=true ALSO attempts a durable write); 'promote' (checkpoint_id → "
+            "RAM→disk promotion); 'explain' (checkpoint_id → why this checkpoint "
+            "exists and why it is where it is); 'ram_stats'. Durable persistence "
+            "ALWAYS passes the CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility "
+            "gate, whose default DENIES unless initiator='user' AND operator_grant=true "
+            "— an agent may recommend durable persistence but cannot authorize it, and "
+            "a checkpoint already living in RAM is NOT consent to write it to disk."
         ),
         tags=["graph-os", "engine", "kvcache", "checkpoint", "memory"],
     )
@@ -1047,12 +1263,73 @@ def register_engine_surface_tools(mcp) -> None:
             "checkpoint, return an explicit traced cold-start result instead of "
             "raising.",
         ),
+        observation_json: str = Field(
+            default="{}",
+            description="recommend/checkpoint_now: a CheckpointObservation as JSON "
+            "(rebuild cost, sibling/queued tasks, retrieved/novel items, claim/"
+            "evidence counts, contradictions, churn, phase, model_self_report). Every "
+            "field is optional; an omitted field means NOT MEASURED and its scorer "
+            "abstains rather than guessing.",
+        ),
+        initiator: str = Field(
+            default="agent",
+            description="checkpoint_now/promote: who is asking — 'user' (a human "
+            "operator), 'agent' (the model decided), or 'system'. Only 'user' with "
+            "operator_grant=true can authorize durable persistence under the default "
+            "eligibility gate.",
+        ),
+        persist: bool = Field(
+            default=False,
+            description="checkpoint_now: also attempt durable (cross-session) "
+            "persistence. Always subject to the eligibility gate; a refusal still "
+            "leaves the RAM checkpoint in place.",
+        ),
+        operator_grant: bool = Field(
+            default=False,
+            description="checkpoint_now/promote: a human operator explicitly "
+            "authorized THIS durable persistence. Never inferred, and never satisfied "
+            "by the checkpoint already existing in RAM.",
+        ),
         graph: str = Field(
             default="", description="Target graph (default engine graph)."
         ),
     ) -> str:
-        """Thin verb over :class:`~agent_utilities.kvcache.KVCheckpointStore` (CONCEPT:AU-KG.memory.kv-checkpoint-resource)."""
+        """Thin verb over :class:`~agent_utilities.kvcache.KVCheckpointStore` (CONCEPT:AU-KG.memory.kv-checkpoint-resource)
+        and :class:`~agent_utilities.kvcache.TieredCheckpointManager`
+        (CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring)."""
         from agent_utilities.kvcache import KVCheckpointError, KVCheckpointKey
+
+        # ── the intelligence actions: worthiness, tiering, eligibility ──────
+        # These route through TieredCheckpointManager (shared RAM tier) rather than
+        # the durable store directly, because the RAM tier is the DEFAULT and disk is
+        # a gated promotion off it.
+        if action in {
+            "recommend",
+            "checkpoint_now",
+            "promote",
+            "explain",
+            "ram_stats",
+        }:
+            return _kv_checkpoint_intelligence(
+                action,
+                graph=graph,
+                data_b64=data_b64,
+                model_identity=model_identity,
+                quantization=quantization,
+                serving_engine=serving_engine,
+                engine_version=engine_version,
+                prefix_digest=prefix_digest,
+                tenant=tenant,
+                policy_version=policy_version,
+                run_id=run_id,
+                point=point,
+                checkpoint_id=checkpoint_id,
+                requesting_tenant=requesting_tenant,
+                observation_json=observation_json,
+                initiator=initiator,
+                persist=persist,
+                operator_grant=operator_grant,
+            )
 
         try:
             store = _checkpoint_store(graph)

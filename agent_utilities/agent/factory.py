@@ -769,6 +769,37 @@ def create_agent(
         """Instruction handler to inject the dynamically built system prompt."""
         return system_prompt_str
 
+    @agent.instructions
+    def inject_checkpoint_advisory() -> str:
+        """Surface the KV-checkpoint-worthiness advisory to the model.
+
+        CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface — the system
+        *recommends*, the model decides. Whenever anything scored the current moment
+        (``TieredCheckpointManager.recommend``/``observe``), the verdict is published
+        into a context-local slot and rendered here on the next call, so the model sees
+        "checkpoint-worthy: score 0.82, drivers: …" as part of its instructions and can
+        act on it via ``graph_kv_checkpoint``.
+
+        Returns ``""`` — a byte-identical prompt to before — when nothing was scored or
+        the verdict was "not worth it", so this is free for every run that never
+        engages the checkpoint layer.
+        """
+        try:
+            from agent_utilities.kvcache.worthiness import (
+                render_checkpoint_advisory_instructions,
+            )
+
+            return render_checkpoint_advisory_instructions()
+        except Exception as exc:  # noqa: BLE001 — an advisory must never break a run
+            logger.warning(
+                "[CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface] "
+                "checkpoint advisory injection skipped: %s: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=exc,
+            )
+            return ""
+
     if enable_universal_tools:
         from agent_utilities.tools.tool_registry import register_agent_tools
 

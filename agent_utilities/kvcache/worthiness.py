@@ -47,6 +47,7 @@ confidence is evidence; it is not proof.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import threading
 from enum import Enum
@@ -82,7 +83,11 @@ __all__ = [
     "RebuildCostScorer",
     "RetrievalSaturationScorer",
     "build_default_scorers",
+    "clear_checkpoint_advisory",
+    "current_checkpoint_advisory",
     "default_scorer_registry",
+    "publish_checkpoint_advisory",
+    "render_checkpoint_advisory_instructions",
 ]
 
 
@@ -1056,6 +1061,74 @@ class CheckpointAdvisor:
         if blockers:
             parts.append("held back by " + "; ".join(blockers))
         return " | ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# The recommendation surface — how the advisory reaches the model
+# ---------------------------------------------------------------------------
+# CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface. The operator's
+# request is that the system *recommend*, and the model decide. So whenever anything
+# scores a moment, the resulting verdict is published into a context-local slot, and
+# every agent built by the standard factory reads that slot through pydantic-ai's
+# dynamic-instructions mechanism on its next call. Nothing published means nothing
+# injected — an untouched run is byte-identical to before.
+#
+# A context variable (not a global) because the advisory is per-run state and agent
+# runs interleave: two concurrent runs must never read each other's verdict.
+
+_CURRENT_ADVISORY: contextvars.ContextVar[CheckpointRecommendation | None] = (
+    contextvars.ContextVar("_kv_checkpoint_advisory", default=None)
+)
+
+#: Instruction text wrapped around the rendered advisory. Deliberately tells the model
+#: what the number *is* and what it may do with it — a bare score with no framing is an
+#: invitation to over-read it.
+_ADVISORY_PREAMBLE = (
+    "\n\nKV-CHECKPOINT ADVISORY (from the system's checkpoint-worthiness scorers — "
+    "advisory only, you decide):\n"
+)
+_ADVISORY_EPILOGUE = (
+    "\nIf you judge this context worth preserving, call graph_kv_checkpoint with "
+    "action='checkpoint_now'. Durable (cross-session) persistence additionally "
+    "requires an explicit operator grant and is refused without one."
+)
+
+
+def publish_checkpoint_advisory(
+    recommendation: CheckpointRecommendation | None,
+) -> contextvars.Token[CheckpointRecommendation | None]:
+    """Make ``recommendation`` the advisory the next model call sees.
+
+    Returns the context token so a caller that wants strict scoping can reset it;
+    callers that simply want the latest verdict to be visible can ignore it.
+    """
+    return _CURRENT_ADVISORY.set(recommendation)
+
+
+def current_checkpoint_advisory() -> CheckpointRecommendation | None:
+    """The advisory in force for this context, if any."""
+    return _CURRENT_ADVISORY.get()
+
+
+def clear_checkpoint_advisory() -> None:
+    """Drop the current advisory (e.g. once the model has acted on it)."""
+    _CURRENT_ADVISORY.set(None)
+
+
+def render_checkpoint_advisory_instructions() -> str:
+    """The dynamic-instruction fragment for the current advisory, or ``""``.
+
+    Returns the empty string when no advisory is published, or when the verdict is
+    :attr:`CheckpointTier.NONE` — telling a model "this is not a good moment to
+    checkpoint" every single turn is prompt noise that teaches it to ignore the whole
+    channel. The advisory appears only when there is something to act on.
+    """
+    recommendation = _CURRENT_ADVISORY.get()
+    if recommendation is None:
+        return ""
+    if recommendation.recommended_tier is CheckpointTier.NONE:
+        return ""
+    return _ADVISORY_PREAMBLE + recommendation.as_advisory() + _ADVISORY_EPILOGUE
 
 
 def _record_recommendation(tier: str) -> None:
