@@ -71,9 +71,17 @@ class MontySandbox(Sandbox):
         return self._available
 
     async def execute(self, code: str, env: SandboxEnv) -> SandboxResult:
+        # pydantic-monty >=0.0.18 replaced the old fresh-per-call `Monty(code, inputs=...)` +
+        # `run_async(...)` object with a subprocess-worker-pool model: `AsyncMonty` is the pool
+        # (spawned by `async with`), `pool.checkout(limits=...)` hands out a dedicated
+        # `AsyncMontySession`, and `session.feed_run(code, inputs=..., external_lookup=...)`
+        # parses AND runs the snippet in one call. There is no longer a separate
+        # construct-then-run split, but a syntax error still surfaces (as `MontySyntaxError`)
+        # before any `external_lookup` entry is invoked, so the "parse rejections happen
+        # before any helper fires" invariant this backend depends on still holds.
         from pydantic_monty import (
+            AsyncMonty,
             CollectString,
-            Monty,
             MontyError,
             MontySyntaxError,
             ResourceLimits,
@@ -83,25 +91,23 @@ class MontySandbox(Sandbox):
         inputs = {k: v for k, v in env.vars.items() if isinstance(v, _MONTYABLE)}
         full_code = self._with_tool_sources(code, env.tool_sources)
 
-        # 1) Parse/compile — rejections here fire BEFORE any helper, so escalation is safe.
-        try:
-            m = Monty(full_code, inputs=list(inputs))
-        except MontyError as e:
-            raise SandboxRejected("monty", self._reject_reason(e)) from e
-
-        # 2) Run, tracking whether a (side-effecting) helper fired, so a late runtime error
-        #    is reported rather than escalated.
+        # Track whether a (side-effecting) helper fired, so a late runtime error is reported
+        # rather than escalated (escalating after a helper already ran could double-invoke it).
         fired = _FireCounter()
         wrapped_helpers = {n: fired.wrap(fn) for n, fn in env.helpers.items()}
         collected = CollectString()
         try:
-            await m.run_async(
-                inputs=inputs,
-                external_functions=wrapped_helpers,
-                limits=ResourceLimits(max_duration_secs=self._max_duration_secs),
-                print_callback=collected,
-            )
-        except MontySyntaxError as e:  # pragma: no cover - construction already parsed
+            async with AsyncMonty(min_processes=1) as pool:
+                async with pool.checkout(
+                    limits=ResourceLimits(max_duration_secs=self._max_duration_secs)
+                ) as session:
+                    await session.feed_run(
+                        full_code,
+                        inputs=inputs,
+                        external_lookup=wrapped_helpers,
+                        print_callback=collected,
+                    )
+        except MontySyntaxError as e:
             raise SandboxRejected("monty", self._reject_reason(e)) from e
         except MontyError as e:
             return self._handle_runtime_error(e, fired, collected.output)
