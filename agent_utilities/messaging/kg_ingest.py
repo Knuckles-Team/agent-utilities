@@ -210,7 +210,7 @@ def _get_default_engine() -> Any | None:
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         return IntelligenceGraphEngine.get_active()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns None on failure; both callers already null-check and propagate accordingly
         logger.debug(
             "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Default engine load failed: %s",
             e,

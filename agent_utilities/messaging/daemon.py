@@ -277,7 +277,7 @@ def main() -> None:
         for sig in (signal.SIGTERM, signal.SIGINT):
             try:
                 signal.signal(sig, _shutdown)
-            except (
+            except (  # noqa: BLE001 — signal handler install can fail off the main thread/on unsupported platforms; run_forever() still works, just without graceful shutdown on that signal
                 ValueError,
                 OSError,
             ) as exc:  # pragma: no cover — not main thread / unsupported

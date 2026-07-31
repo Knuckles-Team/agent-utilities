@@ -751,7 +751,7 @@ async def _persist_and_enrich(
     last = items[-1]["event"]
     try:
         await asyncio.to_thread(svc.record_inbound, last)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — best-effort last-active-channel update, off the reply path; failure degrades to stale/default routing next reach_user call
         logger.debug(
             "[CONCEPT:AU-ECO.messaging.last-active-channel-routing] record_inbound failed: %s",
             e,
@@ -771,7 +771,7 @@ async def _persist_and_enrich(
         # this just makes the media first-class instead of discarding it after use.
         try:
             await _persist_media(engine, it["event"], message_memory_id=memory_id)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — best-effort durable-media persist, off the reply path; a mid-batch store_media failure here silently skips remaining attachments in this message, documented as acceptable since the reply already went out
             logger.debug(
                 "[CONCEPT:AU-KG.ingest.list-durable-media] media persist skipped: %s", e
             )
@@ -813,7 +813,7 @@ async def _persist_and_enrich(
             platform=str(last.platform),
             channel_id=last.channel_id,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — best-effort post-conversation enrichment, off the reply path (docstring: "failures here never affect the reply that already went out"); enrich_conversation's own internal contract already treats every sub-step as best-effort
         logger.debug(
             "[CONCEPT:AU-ECO.messaging.post-conversation-enrichment] enrichment skipped: %s",
             e,
@@ -885,7 +885,7 @@ async def _persist_media(
                     resp = await client.get(att.url)
                     resp.raise_for_status()
                     data = resp.content
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001 — per-attachment download is best-effort; continues to the next attachment in the batch
                     logger.debug(
                         "[CONCEPT:AU-KG.ingest.list-durable-media] media download failed: %s",
                         e,
@@ -962,7 +962,7 @@ async def _persist_audio_segment_evidence(
                 mime_type=mime_type or "audio/ogg",
                 source=source,
             )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — best-effort audio-segment evidence write, documented in the docstring as logged-and-skipped by design
         logger.debug(
             "[CONCEPT:AU-KG.identity.evidence-spine-convergence] audio segment evidence skipped: %s",
             e,
@@ -1014,7 +1014,7 @@ async def _fetch_image_parts(urls: list[str]) -> list[Any]:
             if media is None:
                 raise ValueError("attachment is not a supported image")
             parts.append(BinaryContent(data=content, media_type=media))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — best-effort image fetch for vision; unreachable/invalid images are skipped, remaining URLs still processed
             logger.debug("[ECO-4.67] image fetch failed: %s", e)
     return parts
 
@@ -1342,7 +1342,7 @@ class _ProgressChecklist:
                     self._channel_id, self._message_id, final_text
                 )
                 return bool(getattr(res, "success", False))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — exception path correctly returns False per this method's own contract ("caller sends the reply as a normal message, so the answer is NEVER lost")
                 logger.debug("progress checklist: finalize failed: %s", exc)
                 return False
 
@@ -1619,7 +1619,7 @@ def _messaging_system_prompt() -> str:
     try:
         blueprint = json.loads(pfile.read_text(encoding="utf-8"))
         return str(blueprint.get("instructions", {}).get("core_directive", "")).strip()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — best-effort prompt-file load; falls back to a hardcoded generic system prompt
         logger.debug("[ECO-4.56] messaging prompt load failed: %s", e)
         return (
             "You are the Agent-Utilities Messaging Assistant. Be concise and helpful."
