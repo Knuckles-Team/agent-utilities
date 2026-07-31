@@ -54,8 +54,21 @@ def _create_engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    compute = GraphComputeEngine(backend_type="rust")
+    # Bind both the NX-style ``.graph`` facade AND ``.backend``'s Cypher path to
+    # this same session-scoped engine — a bare ``EpistemicGraphBackend()``/
+    # ``IntelligenceGraphEngine(db_path=...)`` independently resolves its OWN
+    # tenant-routed graph (``resolve_routing_graph``), which does not match the
+    # per-test isolated graph the verified ``GraphSession`` carries, and every
+    # engine RPC fail-closed rejects a graph-scoped view retargeting a verified
+    # session (CONCEPT:AU-KG.compute.graph-compute-engine "Session currency").
+    backend = EpistemicGraphBackend()
+    backend._graph = compute
+    engine = IntelligenceGraphEngine(backend=backend)
     return engine
 
 

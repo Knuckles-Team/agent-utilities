@@ -31,25 +31,47 @@ def _create_engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    compute = GraphComputeEngine(backend_type="rust")
+    # Bind both the NX-style ``.graph`` facade AND ``.backend``'s Cypher path to
+    # this same session-scoped engine — a bare ``EpistemicGraphBackend()``/
+    # ``IntelligenceGraphEngine(db_path=...)`` independently resolves its OWN
+    # tenant-routed graph (``resolve_routing_graph``), which does not match the
+    # per-test isolated graph the verified ``GraphSession`` carries, and every
+    # engine RPC fail-closed rejects a graph-scoped view retargeting a verified
+    # session (CONCEPT:AU-KG.compute.graph-compute-engine "Session currency").
+    backend = EpistemicGraphBackend()
+    backend._graph = compute
+    engine = IntelligenceGraphEngine(backend=backend)
     return engine
 
 
 def _session() -> GraphSession:
+    # The audience and tenant must match the REAL ephemeral test engine's
+    # configured deployment audience and the tenant the isolate fixture's
+    # engine graph was actually provisioned under (``_test_engine`` constants)
+    # — the engine's v2 signed request-context verification fail-closed
+    # rejects any other value ("request context audience/tenant does not
+    # match deployment/graph tenant"), regardless of the caller's scopes
+    # being otherwise valid.
+    from _test_engine import TEST_AGENT_ID, TEST_AUDIENCE, TEST_POLICY_VERSION, TEST_TENANT
+
     actor = ActorContext(
-        actor_id="principal:test",
+        actor_id=TEST_AGENT_ID,
         actor_type=ActorType.AUTOMATED_SERVICE,
         roles=("kg:read", "kg:write"),
-        tenant_id="tenant-test",
+        tenant_id=TEST_TENANT,
         authenticated=True,
     )
     return GraphSession(
         actor=actor,
-        tenant="tenant-test",
+        tenant=TEST_TENANT,
         scopes=frozenset({"kg:read", "kg:write"}),
-        policy_version="policy-test",
-        audience="agent-services",
+        policy_version=TEST_POLICY_VERSION,
+        audience=TEST_AUDIENCE,
     )
 
 
