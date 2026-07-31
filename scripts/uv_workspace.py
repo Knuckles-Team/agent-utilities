@@ -38,6 +38,7 @@ Two properties close that structurally, with no caller change:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import glob
 import hashlib
 import json
@@ -45,7 +46,9 @@ import os
 import shutil
 import subprocess
 import tomllib
-from collections.abc import Sequence
+import uuid
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -190,10 +193,18 @@ def _safe_symlink(link: Path, target: Path) -> None:
     if link.is_symlink():
         if link.resolve() == target.resolve():
             return
-        link.unlink()
     elif link.exists():
         raise RuntimeError(f"refusing to replace non-symlink shadow path: {link}")
-    link.symlink_to(target, target_is_directory=target.is_dir())
+    # Concurrent invocations sharing this worktree's shadow race between the
+    # unlink and the create, so stage a privately-named link and rename it into
+    # place: os.replace over an existing symlink is atomic and never leaves the
+    # path absent.
+    staged = link.with_name(f".{link.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        staged.symlink_to(target, target_is_directory=target.is_dir())
+        os.replace(staged, link)
+    finally:
+        staged.unlink(missing_ok=True)
 
 
 def _refresh_managed_copy(
@@ -205,12 +216,21 @@ def _refresh_managed_copy(
 ) -> None:
     copy.parent.mkdir(parents=True, exist_ok=True)
     if copy.is_symlink():
-        copy.unlink()
+        copy.unlink(missing_ok=True)
     elif copy.exists() and not previously_managed:
         raise RuntimeError(f"refusing to replace unmanaged shadow {label}: {copy}")
-    temporary = copy.with_name(f".{copy.name}.tmp")
-    shutil.copyfile(canonical, temporary)
-    temporary.replace(copy)
+    # The shadow directory is keyed by worktree, not by invocation, so the
+    # concurrent invocations this launcher exists to support all refresh these
+    # copies at once. A fixed temporary name made them collide: one invocation's
+    # rename consumed the file another had just written, and the second died with
+    # FileNotFoundError before uv ever started. The rename stays atomic; only the
+    # staging name has to be private.
+    temporary = copy.with_name(f".{copy.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        shutil.copyfile(canonical, temporary)
+        temporary.replace(copy)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _user_state_root() -> Path:
@@ -224,6 +244,34 @@ def _user_state_root() -> Path:
 def _native_artifact_cache_root() -> Path:
     """Return the stable per-user cache shared by every hermetic worktree."""
     return Path.home() / ".cache" / "epistemic-graph" / "native-artifacts" / "v1"
+
+
+@contextmanager
+def _shadow_materialization_lock(shadow: Path) -> Iterator[None]:
+    """Serialize materialization of *shadow* across concurrent invocations.
+
+    The shadow is keyed by worktree, not by invocation, so every concurrent
+    invocation from one worktree materializes the SAME directory. Each guard here
+    is a check-then-act — "is this a symlink", "did we write this copy" — and
+    siblings interleaving between the check and the act made the guards refuse
+    paths that a sibling had just made correct.
+
+    Serializing is what keeps those guards exact. Weakening them to tolerate a
+    sibling would also have made them tolerate the foreign content they exist to
+    refuse. Materialization is symlinks plus two small copies, so the held window
+    is milliseconds and no test execution happens inside it.
+    """
+    shadow.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = shadow.with_name(f"{shadow.name}.materialize.lock")
+    handle = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o644)
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        finally:
+            os.close(handle)
 
 
 def shadow_workspace(
@@ -244,6 +292,18 @@ def shadow_workspace(
     state = state_root or _user_state_root()
     identity = hashlib.sha256(str(worktree).encode()).hexdigest()[:16]
     shadow = state / "uv-workspaces" / identity
+    with _shadow_materialization_lock(shadow):
+        return _materialize_shadow(shadow, worktree, canonical, workspace, members)
+
+
+def _materialize_shadow(
+    shadow: Path,
+    worktree: Path,
+    canonical: Path,
+    workspace: Path,
+    members: set[Path],
+) -> Path:
+    """Bring *shadow* up to date. Callers must hold the materialization lock."""
     shadow.mkdir(parents=True, exist_ok=True)
 
     desired_links: dict[str, Path] = {}
@@ -268,7 +328,7 @@ def shadow_workspace(
     for relative in previous.keys() - desired_links.keys():
         stale = shadow / relative
         if stale.is_symlink():
-            stale.unlink()
+            stale.unlink(missing_ok=True)
 
     for relative, target in desired_links.items():
         _safe_symlink(shadow / relative, target)
@@ -289,15 +349,24 @@ def shadow_workspace(
     desired_links["pyproject.toml"] = canonical_manifest
     desired_links["uv.lock"] = canonical_lock
 
-    marker_path.write_text(
-        json.dumps(
-            {relative: str(target) for relative, target in desired_links.items()},
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    # Written atomically: a concurrent invocation reads this marker with
+    # json.loads, and a torn read would abort it before uv ever started.
+    staged_marker = marker_path.with_name(
+        f".{marker_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
     )
+    try:
+        staged_marker.write_text(
+            json.dumps(
+                {relative: str(target) for relative, target in desired_links.items()},
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        staged_marker.replace(marker_path)
+    finally:
+        staged_marker.unlink(missing_ok=True)
     return shadow
 
 
@@ -375,22 +444,36 @@ def environment_path(worktree: Path, selection: Sequence[str]) -> Path:
 
 
 def _describe_environment(path: Path, selection: Sequence[str]) -> None:
-    """Record which selection owns *path*, so a keyed directory is self-describing."""
+    """Record which selection owns *path*, so a keyed directory is self-describing.
+
+    Called only *after* uv has built the environment, and it never creates the
+    directory: uv refuses to adopt a path that already exists without a Python
+    executable in it, so writing this note early would break the very first
+    invocation for a new selection.
+    """
+    if not path.is_dir():
+        return
     marker = path / _ENVIRONMENT_MARKER
     payload = {
         "selection": list(normalized_selection(selection)),
         "label": environment_label(selection),
     }
     body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    staged = marker.with_name(f".{marker.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
         if marker.is_file() and marker.read_text(encoding="utf-8") == body:
             return
-        path.mkdir(parents=True, exist_ok=True)
-        marker.write_text(body, encoding="utf-8")
+        staged.write_text(body, encoding="utf-8")
+        staged.replace(marker)
     except OSError:
         # Evidence only; never fail an invocation because the note could not be
         # written.
         return
+    finally:
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class UvPlan(NamedTuple):
@@ -638,8 +721,7 @@ def main(argv: list[str] | None = None) -> int:
         worktree=worktree,
         shadow=shadow,
     )
-    _describe_environment(plan.environment_path, plan.selection)
-    return run_uv(
+    returncode = run_uv(
         list(plan.execute),
         worktree=worktree,
         environment=plan.environment,
@@ -647,6 +729,8 @@ def main(argv: list[str] | None = None) -> int:
         shadow=shadow,
         prepare=plan.prepare,
     )
+    _describe_environment(plan.environment_path, plan.selection)
+    return returncode
 
 
 if __name__ == "__main__":

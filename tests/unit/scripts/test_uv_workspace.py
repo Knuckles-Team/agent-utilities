@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -422,3 +423,47 @@ def test_partitioned_environment_is_a_classified_resource() -> None:
     assert (
         lanes.resource_class("uv-project-environment") is lanes.ArbitrationClass.PARTITION
     )
+
+
+def test_concurrent_shadow_refresh_never_collides(
+    tmp_path: Path,
+    workspace_layout: tuple[Path, Path, Path],
+) -> None:
+    """The shadow is keyed by worktree, so concurrent invocations refresh it at once.
+
+    A fixed staging filename made them race: one invocation's rename consumed the
+    file another had just written and the second died with FileNotFoundError
+    before uv ever started — which is how the acceptance run for the environment
+    partition first failed.
+    """
+    workspace, canonical, worktree = workspace_layout
+    state_root = tmp_path / "state"
+    errors: list[BaseException] = []
+    start = threading.Barrier(8)
+
+    def refresh() -> None:
+        start.wait()
+        for _ in range(25):
+            try:
+                uv_workspace.shadow_workspace(
+                    worktree,
+                    canonical,
+                    workspace,
+                    state_root=state_root,
+                )
+            except BaseException as exc:  # noqa: BLE001 - recorded, then asserted
+                errors.append(exc)
+                return
+
+    threads = [threading.Thread(target=refresh) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors, f"concurrent shadow refresh collided: {errors[:3]}"
+    shadow = uv_workspace.shadow_workspace(
+        worktree, canonical, workspace, state_root=state_root
+    )
+    assert (shadow / "uv.lock").read_bytes() == (workspace / "uv.lock").read_bytes()
+    assert not list(shadow.glob(".*.tmp")), "staging files must never be left behind"
