@@ -176,7 +176,7 @@ def _price_tokens(inputs: RebuildCostInputs) -> float | None:
 
     try:
         cost_model = CostModel.for_model(inputs.model)
-    except LookupError as exc:
+    except LookupError as exc:  # noqa: BLE001 — deliberate DEBUG: an unpriced model is a documented CLEAN ABSTAIN (return None), not a failure — the docstring above states "An unpriced model is a clean abstain, not a zero." Callers treat None as "no cost signal" and proceed; warning would fire for every model absent from the shared CostModel price table, which is the normal case for local/self-hosted models. The cause is preserved (interpolated).
         logger.debug(
             "[CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring] rebuild cost left "
             "unpriced for model %r: %s",
