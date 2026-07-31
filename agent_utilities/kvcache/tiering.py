@@ -82,9 +82,11 @@ from agent_utilities.kvcache.worthiness import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "CheckpointExplanation",
     "CheckpointOutcome",
     "RAMCheckpointRecord",
     "RAMCheckpointStore",
+    "RAMTierStats",
     "TieredCheckpointManager",
     "prefix_digest",
 ]
@@ -133,6 +135,45 @@ class RAMCheckpointRecord(BaseModel):
     #: ``permitted=False`` when a promotion was refused, which is exactly the record an
     #: operator asking "why wasn't this persisted?" needs.
     eligibility: EligibilityDecision | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RAMTierStats(BaseModel):
+    """RAM-tier occupancy. A model rather than a bare dict because these keys cross a
+    surface boundary (the ``ram_stats`` MCP action) — a producer writing ``resident``
+    while a consumer reads ``resident_bytes`` is the exact silent-drift failure typed
+    seams exist to prevent."""
+
+    entries: int = Field(ge=0)
+    resident_bytes: int = Field(ge=0)
+    max_entries: int = Field(gt=0)
+    max_bytes: int = Field(gt=0)
+    evictions: int = Field(ge=0)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class CheckpointExplanation(BaseModel):
+    """The answer to "why does this checkpoint exist, and why is it where it is?".
+
+    Typed for the same reason as :class:`RAMTierStats`: this is the inspectability
+    contract an operator (and the ``explain`` MCP action) reads key-by-key, so the keys
+    are part of the API and must not be able to drift silently.
+    """
+
+    checkpoint_id: str
+    tier: CheckpointTier
+    trigger: Initiator = "system"
+    created_at: str = ""
+    size_bytes: int = 0
+    eligibility_gate_in_force: str = ""
+    #: Present for a checkpoint still tracked in the RAM tier (where the full verdict
+    #: lives). A checkpoint known only from the durable tier carries ``provenance``
+    #: instead — the same material, as persisted onto the ``:KVCheckpoint`` node.
+    recommendation: CheckpointRecommendation | None = None
+    eligibility: EligibilityDecision | None = None
+    provenance: dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -304,15 +345,15 @@ class RAMCheckpointStore:
             return [r for r in items if r.key.tenant == tenant]
         return items
 
-    def stats(self) -> dict[str, int]:
+    def stats(self) -> RAMTierStats:
         with self._lock:
-            return {
-                "entries": len(self._entries),
-                "resident_bytes": self._bytes,
-                "max_entries": self.max_entries,
-                "max_bytes": self.max_bytes,
-                "evictions": self.evictions,
-            }
+            return RAMTierStats(
+                entries=len(self._entries),
+                resident_bytes=self._bytes,
+                max_entries=self.max_entries,
+                max_bytes=self.max_bytes,
+                evictions=self.evictions,
+            )
 
     def _evict_locked(self) -> None:
         """LRU-evict until both bounds hold. Caller must hold the lock."""
@@ -692,7 +733,9 @@ class TieredCheckpointManager:
         return provenance
 
     # -- inspectability -------------------------------------------------------
-    def explain(self, checkpoint_id: str, *, requesting_tenant: str) -> dict[str, Any]:
+    def explain(
+        self, checkpoint_id: str, *, requesting_tenant: str
+    ) -> CheckpointExplanation:
         """Answer "why does this checkpoint exist, and why is it where it is?".
 
         Looks in the RAM tier first (where the full recommendation lives), then falls
@@ -708,28 +751,18 @@ class TieredCheckpointManager:
         except KVCheckpointError:
             record = None
         if record is not None:
-            return {
-                "checkpoint_id": checkpoint_id,
-                "tier": (
-                    CheckpointTier.DISK.value
-                    if record.promoted
-                    else CheckpointTier.RAM.value
+            return CheckpointExplanation(
+                checkpoint_id=checkpoint_id,
+                tier=(
+                    CheckpointTier.DISK if record.promoted else CheckpointTier.RAM
                 ),
-                "trigger": record.trigger,
-                "created_at": record.created_at,
-                "size_bytes": record.size_bytes,
-                "recommendation": (
-                    record.recommendation.model_dump(mode="json")
-                    if record.recommendation
-                    else None
-                ),
-                "eligibility": (
-                    record.eligibility.model_dump(mode="json")
-                    if record.eligibility
-                    else None
-                ),
-                "eligibility_gate_in_force": self.eligibility_gate.name,
-            }
+                trigger=record.trigger,
+                created_at=record.created_at,
+                size_bytes=record.size_bytes,
+                recommendation=record.recommendation,
+                eligibility=record.eligibility,
+                eligibility_gate_in_force=self.eligibility_gate.name,
+            )
         if self.disk_store is None:
             raise KVCheckpointError(
                 f"no checkpoint {checkpoint_id} in the RAM tier and no durable store "
@@ -738,15 +771,15 @@ class TieredCheckpointManager:
         disk_record = self.disk_store.get_checkpoint(
             checkpoint_id, requesting_tenant=requesting_tenant
         )
-        return {
-            "checkpoint_id": checkpoint_id,
-            "tier": CheckpointTier.DISK.value,
-            "trigger": disk_record.provenance.get("trigger", ""),
-            "created_at": disk_record.created_at,
-            "size_bytes": disk_record.size_bytes,
-            "provenance": disk_record.provenance,
-            "eligibility_gate_in_force": self.eligibility_gate.name,
-        }
+        return CheckpointExplanation(
+            checkpoint_id=checkpoint_id,
+            tier=CheckpointTier.DISK,
+            trigger=disk_record.provenance.get("trigger", "") or "system",
+            created_at=disk_record.created_at,
+            size_bytes=disk_record.size_bytes,
+            provenance=disk_record.provenance,
+            eligibility_gate_in_force=self.eligibility_gate.name,
+        )
 
 
 def prefix_digest(text: str) -> str:

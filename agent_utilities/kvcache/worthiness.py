@@ -8,7 +8,7 @@ and :mod:`agent_utilities.kvcache.tiering` acts on the answer.
 A framework, not a heuristic
 ----------------------------
 The deliverable is the **scoring framework plus a default signal set**, never one
-hardcoded rule. Every signal is a :class:`CheckpointScorer` — an independent object with
+fixed built-in rule. Every signal is a :class:`CheckpointScorer` — an independent object with
 a name, a weight, and one method — registered in a :class:`CheckpointScorerRegistry` an
 operator can add to, remove from, or replace wholesale without touching the advisor, the
 tiering layer, or the MCP surface. Adding a deployment-specific signal is a `register()`
@@ -897,10 +897,6 @@ class CheckpointRecommendation(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
-
-    @property
-    def signals_by_name(self) -> dict[str, CheckpointSignal]:
-        return {s.name: s for s in self.signals}
 
     def as_advisory(self) -> str:
         """Render the recommendation as the structured line surfaced to an LLM.

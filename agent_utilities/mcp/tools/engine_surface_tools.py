@@ -238,7 +238,7 @@ def _checkpoint_store(graph: str) -> Any:
     Isolated behind this indirection so unit tests can inject a fake compute
     object, matching every other resolver in this module.
     """
-    from agent_utilities.kvcache import KVCheckpointStore
+    from agent_utilities.kvcache.checkpoint import KVCheckpointStore
 
     return KVCheckpointStore(_EngineComputeAdapter(_client(graph), graph))
 
@@ -259,7 +259,10 @@ def _checkpoint_manager(graph: str) -> Any:
     degrade for a checkpoint layer whose default tier is RAM anyway.
     """
     global _RAM_CHECKPOINT_STORE
-    from agent_utilities.kvcache import RAMCheckpointStore, TieredCheckpointManager
+    from agent_utilities.kvcache.tiering import (
+        RAMCheckpointStore,
+        TieredCheckpointManager,
+    )
 
     if _RAM_CHECKPOINT_STORE is None:
         _RAM_CHECKPOINT_STORE = RAMCheckpointStore()
@@ -326,11 +329,8 @@ def _kv_checkpoint_intelligence(
     the three trigger paths can be exercised directly, and so the tool function stays
     argument-marshalling only.
     """
-    from agent_utilities.kvcache import (
-        CheckpointObservation,
-        KVCheckpointError,
-        KVCheckpointKey,
-    )
+    from agent_utilities.kvcache.checkpoint import KVCheckpointError, KVCheckpointKey
+    from agent_utilities.kvcache.worthiness import CheckpointObservation
 
     # Validate the initiator AT THE BOUNDARY. It is a Literal on PersistenceRequest /
     # RAMCheckpointRecord, so an unrecognized value would surface deep inside as a raw
@@ -386,7 +386,7 @@ def _kv_checkpoint_intelligence(
                 "surface": "kv_checkpoint",
                 "action": action,
                 "result": {
-                    **manager.ram_store.stats(),
+                    **manager.ram_store.stats().model_dump(mode="json"),
                     "eligibility_gate": manager.eligibility_gate.name,
                     # Which signals are active in THIS deployment. Without it a score
                     # is uninterpretable — an operator who removed a default scorer or
@@ -428,7 +428,7 @@ def _kv_checkpoint_intelligence(
                     "action": action,
                     "result": manager.explain(
                         checkpoint_id, requesting_tenant=requesting_tenant
-                    ),
+                    ).model_dump(mode="json"),
                 },
                 default=_json_default,
             )

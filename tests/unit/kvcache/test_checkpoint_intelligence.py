@@ -456,7 +456,7 @@ def test_autonomous_path_declines_and_never_materializes_the_payload(manager):
     outcome = manager.observe(_weak_observation(), key=_key(), payload=_payload)
     assert outcome.taken is False
     assert calls == []
-    assert manager.ram_store.stats()["entries"] == 0
+    assert manager.ram_store.stats().entries == 0
     assert "not checkpoint-worthy" in outcome.reason
 
 
@@ -613,7 +613,7 @@ def test_ram_tier_evicts_lru_on_the_entry_bound():
     first = store.put(b"a", key=_key(prefix="a"))
     store.put(b"b", key=_key(prefix="b"))
     store.put(b"c", key=_key(prefix="c"))
-    assert store.stats()["entries"] == 2
+    assert store.stats().entries == 2
     assert store.evictions == 1
     with pytest.raises(KVCheckpointError):
         store.fetch(first.checkpoint_id, requesting_tenant="t1")
@@ -623,7 +623,7 @@ def test_ram_tier_evicts_on_the_byte_bound():
     store = RAMCheckpointStore(max_entries=100, max_bytes=10)
     store.put(b"x" * 8, key=_key(prefix="a"))
     store.put(b"y" * 8, key=_key(prefix="b"))
-    assert store.stats()["resident_bytes"] <= 10
+    assert store.stats().resident_bytes <= 10
     assert store.evictions == 1
 
 
@@ -643,11 +643,12 @@ def test_explain_returns_the_full_reasoning_for_a_persisted_checkpoint(manager):
         persist=True, operator_grant=True, observation=_strong_observation(),
     )
     explanation = manager.explain(outcome.checkpoint_id, requesting_tenant="t1")
-    assert explanation["tier"] == "disk"
-    assert explanation["trigger"] == "user"
-    assert explanation["recommendation"]["score"] > 0
-    assert explanation["eligibility"]["permitted"] is True
-    assert explanation["eligibility_gate_in_force"] == "operator-grant-default"
+    assert explanation.tier is CheckpointTier.DISK
+    assert explanation.trigger == "user"
+    assert explanation.recommendation is not None
+    assert explanation.recommendation.score > 0
+    assert explanation.eligibility is not None and explanation.eligibility.permitted
+    assert explanation.eligibility_gate_in_force == "operator-grant-default"
 
 
 def test_explain_refuses_a_cross_tenant_question(manager):
