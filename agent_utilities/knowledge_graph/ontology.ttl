@@ -979,4 +979,3 @@ bfo:0000001 a owl:Class ;
 
 [] a owl:AllDisjointClasses ;
     owl:members ( :Person :Organization :Server :Incident :Event ) .
-

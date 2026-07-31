@@ -207,13 +207,17 @@ def registry_server_aliases(registry_path: str | Path | None = None) -> dict[str
     return aliases
 
 
-def registry_server_alias(package: str, registry_path: str | Path | None = None) -> str:
+def registry_server_alias(
+    package: str, registry_path: str | Path | None = None
+) -> str:
     """The registered server alias for one provider distribution — or fail closed."""
 
     aliases = registry_server_aliases(registry_path)
     alias = aliases.get(str(package))
     if not alias:
-        raise FleetRegistryError("provider is not registered in the MCP fleet registry")
+        raise FleetRegistryError(
+            "provider is not registered in the MCP fleet registry"
+        )
     return alias
 
 

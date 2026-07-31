@@ -695,9 +695,7 @@ class LeaseActivityProbe:
 ACTIVITY_PROBES: list[ActivityProbe] = [ProcessActivityProbe(), LeaseActivityProbe()]
 
 
-def register_activity_probe(
-    probe: ActivityProbe, *, replace_existing: bool = True
-) -> None:
+def register_activity_probe(probe: ActivityProbe, *, replace_existing: bool = True) -> None:
     """Add (or replace) an activity probe."""
 
     if replace_existing:
@@ -1027,9 +1025,7 @@ def _locked_distribution_names(workspace: Workspace) -> frozenset[str]:
     try:
         document = tomllib.loads(workspace.lock.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        logger.warning(
-            "could not read %s for guardrail evaluation: %s", workspace.lock, exc
-        )
+        logger.warning("could not read %s for guardrail evaluation: %s", workspace.lock, exc)
         return frozenset()
     packages = document.get("package", [])
     if not isinstance(packages, list):
@@ -1154,9 +1150,7 @@ class LockBackupStore:
             try:
                 payload = json.loads(meta_path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
-                logger.warning(
-                    "ignoring unreadable backup record %s: %s", meta_path, exc
-                )
+                logger.warning("ignoring unreadable backup record %s: %s", meta_path, exc)
                 continue
             backups.append(
                 Backup(
@@ -1204,9 +1198,7 @@ class LockBackupStore:
         return verified
 
     @contextmanager
-    def checkpoint(
-        self, reason: str, *, meta: dict[str, Any] | None = None
-    ) -> Iterator[Backup]:
+    def checkpoint(self, reason: str, *, meta: dict[str, Any] | None = None) -> Iterator[Backup]:
         """Back the lock up, then restore it if the block raises."""
 
         backup = self.create(reason, meta=meta)
@@ -1285,9 +1277,7 @@ def run_uv(
             check=False,
         )
     except FileNotFoundError as exc:
-        raise VenvSyncError(
-            f"uv executable not found at {workspace.uv!r}: {exc}"
-        ) from exc
+        raise VenvSyncError(f"uv executable not found at {workspace.uv!r}: {exc}") from exc
     except subprocess.TimeoutExpired as exc:
         raise VenvSyncError(f"uv timed out after {timeout}s: {' '.join(argv)}") from exc
     return CommandResult(
@@ -1986,7 +1976,9 @@ def member_install_states(workspace: Workspace) -> tuple[MemberInstallState, ...
             )
             continue
         if not record.editable:
-            differences.append("installed non-editable: source edits will NOT be live")
+            differences.append(
+                "installed non-editable: source edits will NOT be live"
+            )
         if (
             not dynamic_version
             and source_version is not None
@@ -2033,9 +2025,7 @@ def _installed_distributions(site: Path) -> dict[str, _InstalledRecord]:
     for dist_info in sorted(site.glob("*.dist-info")):
         metadata = dist_info / "METADATA"
         try:
-            headers = _parse_rfc822(
-                metadata.read_text(encoding="utf-8", errors="replace")
-            )
+            headers = _parse_rfc822(metadata.read_text(encoding="utf-8", errors="replace"))
         except OSError as exc:
             logger.warning("unreadable dist metadata %s: %s", metadata, exc)
             continue
@@ -2218,11 +2208,7 @@ def detect_drift(workspace: Workspace, *, include_floor: bool = True) -> DriftRe
                             "the environment is not running what the lock resolves"
                         )
                     ),
-                    data={
-                        "installs": [
-                            f"{d.name}=={d.version}" for d in plan.installs[:40]
-                        ]
-                    },
+                    data={"installs": [f"{d.name}=={d.version}" for d in plan.installs[:40]]},
                 )
             )
             if plan.removals:
@@ -2252,7 +2238,11 @@ def detect_drift(workspace: Workspace, *, include_floor: bool = True) -> DriftRe
                     "source (version / console scripts / editability)"
                 )
             ),
-            data={"stale": {s.member.name: list(s.differences) for s in stale[:20]}},
+            data={
+                "stale": {
+                    s.member.name: list(s.differences) for s in stale[:20]
+                }
+            },
         )
     )
 
@@ -2622,11 +2612,7 @@ def acquire_lease(workspace: Workspace, owner: str, *, ttl: float, reason: str) 
 def release_lease(workspace: Workspace, owner: str) -> bool:
     """Drop a lease early."""
 
-    path = (
-        workspace.state_dir
-        / "leases"
-        / f"{re.sub(r'[^A-Za-z0-9_.-]', '-', owner)}.json"
-    )
+    path = workspace.state_dir / "leases" / f"{re.sub(r'[^A-Za-z0-9_.-]', '-', owner)}.json"
     if not path.exists():
         return False
     _unlink_quietly(path)
@@ -2732,9 +2718,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="proceed even though other lanes are using the environment",
     )
 
-    up = sub.add_parser(
-        "upgrade", help="move dependencies forward, verify, auto-roll-back"
-    )
+    up = sub.add_parser("upgrade", help="move dependencies forward, verify, auto-roll-back")
     up.add_argument("--package", action="append", default=[], dest="packages")
     up.add_argument("--all", action="store_true", dest="all_packages")
     up.add_argument("--ignore-activity", action="store_true")
@@ -2853,8 +2837,7 @@ def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
         outcome = upgrade(
             workspace,
             packages=getattr(args, "packages", []),
-            all_packages=getattr(args, "all_packages", False)
-            or args.command == "relock",
+            all_packages=getattr(args, "all_packages", False) or args.command == "relock",
             reason=getattr(args, "reason", args.command),
             ignore_activity=args.ignore_activity,
         )
@@ -2935,7 +2918,9 @@ def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
             emit({"lease": str(path), "owner": args.owner}, as_json=as_json)
             return 0
         if args.action == "release":
-            emit({"released": release_lease(workspace, args.owner)}, as_json=as_json)
+            emit(
+                {"released": release_lease(workspace, args.owner)}, as_json=as_json
+            )
             return 0
         records = LeaseActivityProbe().busy(workspace)
         emit(

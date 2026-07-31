@@ -855,9 +855,7 @@ async def run_agent(
             reason = await _call_without_blocking(
                 _skill_unrunnable_reason, engine, skill_name
             )
-            raise LookupError(
-                f"ingested skill '{skill_name}' is not runnable: {reason}"
-            )
+            raise LookupError(f"ingested skill '{skill_name}' is not runnable: {reason}")
         if tool_server:
             agent_meta = await _call_without_blocking(
                 _bind_explicit_tool_server,
@@ -1606,9 +1604,7 @@ async def run_agent(
             run_id=run_id,
             stage="checkpoint",
             status="degraded" if (degraded or not _trace_recorded) else "ok",
-            detail="run trace recorded"
-            if _trace_recorded
-            else "run trace write failed",
+            detail="run trace recorded" if _trace_recorded else "run trace write failed",
             evidence={"trace_ref": _trace_id_ck(run_id)} if _trace_recorded else {},
         )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
@@ -1787,7 +1783,9 @@ def _unresolved_agent_meta() -> dict[str, Any]:
     }
 
 
-def _skill_unrunnable_reason(engine: IntelligenceGraphEngine, skill_name: str) -> str:
+def _skill_unrunnable_reason(
+    engine: IntelligenceGraphEngine, skill_name: str
+) -> str:
     """Explain WHY ``skill_name`` cannot run, naming the unmet precondition.
 
     CONCEPT:AU-ORCH.dispatch.named-runnable-precondition — "not found or
@@ -1817,9 +1815,7 @@ def _skill_unrunnable_reason(engine: IntelligenceGraphEngine, skill_name: str) -
             type(exc).__name__,
             exc_info=True,
         )
-        return (
-            f"its blocking precondition could not be read ({type(exc).__name__}: {exc})"
-        )
+        return f"its blocking precondition could not be read ({type(exc).__name__}: {exc})"
     if not rows:
         return (
             "no Skill node with that name is ingested (unmet precondition "

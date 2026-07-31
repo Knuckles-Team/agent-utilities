@@ -161,9 +161,7 @@ def ingest_runnable_skill(
     if str(mcp_server).strip():
         safe_server, server_privacy = guard.sanitize_text(str(mcp_server).strip())
         if server_privacy.changed:
-            raise ValueError(
-                "skill server identity failed the persistence privacy policy"
-            )
+            raise ValueError("skill server identity failed the persistence privacy policy")
         common["mcp_server"] = safe_server
     with use_actor(session.actor):
         engine._upsert_node(

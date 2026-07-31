@@ -150,3 +150,4 @@ class TestDispatchRegistryContract:
         finally:
             kg_server.REGISTERED_TOOLS.clear()
             kg_server.REGISTERED_TOOLS.update(saved)
+

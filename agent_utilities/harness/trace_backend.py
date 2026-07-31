@@ -1219,7 +1219,6 @@ class KGTraceBackend(TraceBackend):
                 # backend must not break the lookup/store call this describes.
                 # The cause IS logged so a persistent failure is diagnosable.
                 logger.debug("KGTraceBackend cache decision persist failed: %s", exc)
-
     def _write_node(self, node_id: str, props: dict[str, Any]) -> None:
         """Call ``self.backend.add_node`` with the REAL engine contract.
 

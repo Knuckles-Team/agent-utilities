@@ -184,9 +184,7 @@ class PersistentAgentManager:
                 # operator-visible sign, indistinguishable from a healthy write. Raised
                 # to warning (matching register_agent's precedent for the same resource
                 # just above) so a broken heartbeat mirror is diagnosable.
-                logger.warning(
-                    "Heartbeat update failed (KG liveness signal now stale): %s", e
-                )
+                logger.warning("Heartbeat update failed (KG liveness signal now stale): %s", e)
 
     def update_status(self, agent_id: str, status: str) -> None:
         """Update an agent's lifecycle status.
@@ -240,9 +238,7 @@ class PersistentAgentManager:
                 # snapshot with no sign this save was lost. Raised to warning (matching
                 # register_agent's precedent for the same resource) so lost saves are
                 # diagnosable.
-                logger.warning(
-                    "State save failed (session continuity NOT persisted): %s", e
-                )
+                logger.warning("State save failed (session continuity NOT persisted): %s", e)
 
     def load_state(self, agent_id: str) -> dict[str, Any]:
         """Load an agent's saved state snapshot.

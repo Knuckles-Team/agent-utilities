@@ -831,7 +831,9 @@ class HybridRetriever:
         # prefetch is pure round-trip amortization: it fetches exactly what the
         # loop would have fetched, so `visited` semantics and the assembled node
         # set are unchanged.
-        _base_ids = [str(n.get("id") or "") for n in base_nodes if isinstance(n, dict)]
+        _base_ids = [
+            str(n.get("id") or "") for n in base_nodes if isinstance(n, dict)
+        ]
         _base_ids = [nid for nid in _base_ids if nid]
         _exists = self._exists_batch(_base_ids) if _base_ids else {}
         _neighbors: dict[str, list[str]] = (
