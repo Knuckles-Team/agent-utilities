@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -35,8 +35,6 @@ Key features:
   an ``ExperienceNode`` (CONCEPT:AU-AHE.harness.experience-node-architecture) is created with the
   condition/action pair so the agent avoids the same loop pattern
   in future sessions.
-* **PolicyEngine adapter** — ``RepetitionPolicy`` plugs into the
-  existing guardrails system.
 """
 
 
@@ -279,85 +277,6 @@ class RepetitionGuard:
             "session_id": session_id,
             "timestamp": datetime.now(UTC).isoformat(),
         }
-
-
-# ---------------------------------------------------------------------------
-# PolicyEngine adapter
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class RepetitionPolicy:
-    """PolicyEngine-compatible adapter for the RepetitionGuard.
-
-    CONCEPT:AU-OS.safety.tool-repetition-guard — Tool Repetition Guard
-
-    Plugs into the existing :class:`PolicyEngine` from ``guardrails.py``.
-    Uses the ``context`` dict to extract ``tool_name`` and ``tool_arguments``
-    for repetition checking.
-
-    Example::
-
-        from agent_utilities.security.guardrails import PolicyEngine
-        from agent_utilities.security.execution_stability_engine import RepetitionPolicy
-
-        engine = PolicyEngine()
-        engine.register(RepetitionPolicy())
-        results = engine.evaluate(
-            context={"tool_name": "shell", "tool_arguments": {"command": "ls"}}
-        )
-    """
-
-    name: str = "execution_stability_engine"
-    guard: RepetitionGuard = field(default_factory=RepetitionGuard)
-
-    def evaluate(
-        self,
-        input_text: str,
-        output_text: str,
-        context: dict[str, Any] | None = None,
-    ) -> Any:
-        """Evaluate for tool repetition."""
-        from agent_utilities.security.guardrails import PolicyResult
-
-        if not context:
-            return PolicyResult(allowed=True, policy_name=self.name)
-
-        tool_name = context.get("tool_name", "")
-        tool_args = context.get("tool_arguments")
-
-        if not tool_name:
-            return PolicyResult(allowed=True, policy_name=self.name)
-
-        result = self.guard.check_tool_call(tool_name, tool_args)
-
-        if result.verdict == RepetitionVerdict.DENY:
-            return PolicyResult(
-                allowed=False,
-                policy_name=self.name,
-                reason=result.explanation,
-                severity="block",
-                metadata={
-                    "consecutive_count": result.consecutive_count,
-                    "total_count": result.total_count,
-                    "tool_name": result.tool_name,
-                },
-            )
-
-        if result.verdict == RepetitionVerdict.WARN:
-            return PolicyResult(
-                allowed=True,
-                policy_name=self.name,
-                reason=result.explanation,
-                severity="warn",
-                metadata={
-                    "consecutive_count": result.consecutive_count,
-                    "total_count": result.total_count,
-                    "tool_name": result.tool_name,
-                },
-            )
-
-        return PolicyResult(allowed=True, policy_name=self.name)
 
 
 logger = logging.getLogger(__name__)

@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Live content guardrails, replacing the dead `PolicyEngine`.** D-48: grep
+  confirmed `security/guardrails.py`'s `PolicyEngine` (PII, forbidden-content,
+  cost-budget, output-schema rules) had zero live callers across the whole
+  `agent-packages` ecosystem — only test and docstring instantiations, a
+  sync fail-open engine that read as implemented safety but never ran.
+  Deleted per `AGENTS.md` "No Legacy" and replaced with `pydantic-ai-harness`'s
+  `InputGuardrail`/`OutputGuardrail` (already an installed dependency),
+  wired default-on through `capabilities/content_guardrails.py` +
+  `capabilities/composition.py::default_runtime_capabilities` into both
+  `create_agent` and `create_context_agent`: a PII guard that redacts
+  SSN/tax-id/credit-card/email via the retained `PiiSanitizer`, a
+  secret-leak guard that blocks output matching the fleet's canonical
+  credential-shape detectors (`http/redaction.py`), and an output-schema
+  guard that blocks structured output missing caller-declared required
+  keys. `CostBudgetPolicy` had no port — `ExecutionBudget`
+  (`models/usage.py`) already fully covers (and, unlike `PolicyEngine`,
+  actually enforces via `graph/_router_impl.py::dispatcher_step`) its
+  token/cost tracking, so it was deleted outright.
+
+### Removed
+- **`agent_utilities.security.guardrails.PolicyEngine` and its four rule
+  classes** (`PIISanitizerPolicy`, `MaxTokensPolicy`, `ContentFilterPolicy`,
+  `OutputSchemaPolicy`, `CostBudgetPolicy`), the `PolicyResult`/
+  `PolicyViolation`/`PolicyRule`/`guardrail()` decorator, and the two
+  PolicyEngine-only adapter classes (`threat_defense_engine.PromptInjectionPolicy`,
+  `execution_stability_engine.RepetitionPolicy`) — dead code with zero live
+  callers (D-48). See "Added" above for the replacement.
+
 - **Truthful Pydantic Graph execution evidence.** Real blocking and iterative
   graph runs now carry deterministic topology/runtime digests, ordered scheduler
   task batches, and only backend-confirmed checkpoint identifiers through

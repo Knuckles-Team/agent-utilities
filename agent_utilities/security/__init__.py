@@ -1,11 +1,13 @@
 """Security module for agent-utilities.
 
 Provides tool-level authorization, prompt injection scanning, tool
-repetition detection, and policy-based guardrails.
+repetition detection, and content guardrails.
 
 Modules:
     - ``tool_guard``: Tool-level sensitivity detection and approval gating
-    - ``guardrails``: Policy engine with content filtering and cost budgets
+    - ``guardrails``: PII sanitization primitives (see
+      ``capabilities/content_guardrails.py`` for the live PII/forbidden-content/
+      output-schema guardrails wired through ``pydantic-ai-harness``)
     - ``threat_defense_engine``: Pattern-based prompt injection detection (CONCEPT:AU-OS.config.secrets-authentication)
     - ``execution_stability_engine``: Tool call loop detection (CONCEPT:AU-OS.config.secrets-authentication)
     - ``permissions_kernel``: Role-based tool authorization (CONCEPT:AU-OS.config.secrets-authentication)
@@ -24,19 +26,10 @@ from agent_utilities.security.credential_provider import (
 )
 from agent_utilities.security.execution_stability_engine import (
     RepetitionGuard,
-    RepetitionPolicy,
     RepetitionResult,
     RepetitionVerdict,
 )
-from agent_utilities.security.guardrails import (
-    ContentFilterPolicy,
-    CostBudgetPolicy,
-    MaxTokensPolicy,
-    OutputSchemaPolicy,
-    PolicyEngine,
-    PolicyResult,
-    PolicyViolation,
-)
+from agent_utilities.security.guardrails import PiiSanitizer
 from agent_utilities.security.sandboxed_executor import (
     SandboxedExecutor,
     SandboxLimits,
@@ -53,7 +46,6 @@ from agent_utilities.security.source_credentials import (
     build_credential,
 )
 from agent_utilities.security.threat_defense_engine import (
-    PromptInjectionPolicy,
     PromptInjectionScanner,
     RiskLevel,
     ScanResult,
@@ -85,22 +77,14 @@ __all__ = [
     "AuthMaterial",
     "build_credential",
     # guardrails
-    "ContentFilterPolicy",
-    "CostBudgetPolicy",
-    "MaxTokensPolicy",
-    "OutputSchemaPolicy",
-    "PolicyEngine",
-    "PolicyResult",
-    "PolicyViolation",
+    "PiiSanitizer",
     # threat_defense_engine (CONCEPT:AU-OS.config.secrets-authentication)
-    "PromptInjectionPolicy",
     "PromptInjectionScanner",
     "RiskLevel",
     "ScanResult",
     "SecurityFindingNode",
     # execution_stability_engine (CONCEPT:AU-OS.config.secrets-authentication)
     "RepetitionGuard",
-    "RepetitionPolicy",
     "RepetitionResult",
     "RepetitionVerdict",
     # tool_guard
