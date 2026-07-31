@@ -1486,6 +1486,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         server: str = "",
         timeout: float = 60.0,
         tool: str = "",
+        resource: str = "",
         action: str = "",
         action_param: str = "action",
         params: dict[str, Any] | None = None,
@@ -1559,9 +1560,10 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             self.configure(**merged)
             return
 
-        if not tool and not sql_table:
+        if not tool and not sql_table and not resource:
             raise ValueError(
-                "McpToolSourceConnector requires a 'tool' (or a 'sql_table' block)"
+                "McpToolSourceConnector requires a 'tool' (or a 'sql_table' "
+                "block, or a 'resource' uri)"
             )
         if params_style not in ("json", "args"):
             raise ValueError("params_style must be 'json' or 'args'")
@@ -1582,7 +1584,11 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         self.command_env = dict(env or {})
         self.server = server
         self.timeout = float(timeout)
-        self.tool = tool or "sql_query"
+        self.tool = tool or ("" if resource else "sql_query")
+        # A resource-only configuration uses this connector purely for its
+        # transport resolution (mcp_config lookup + authenticated client); see
+        # :func:`read_resource_once`.
+        self.resource = resource
         self.action = action or ("execute" if sql_table else "")
         self.action_param = action_param
         self.params = dict(params or {})
@@ -2228,6 +2234,62 @@ async def call_tool_once(
     arguments = conn._build_arguments(dict(params or {}))
     async with conn._open_client() as open_client:
         return await conn._call(open_client, tool, arguments)
+
+
+async def read_resource_once(
+    *,
+    uri: str,
+    server: str = "",
+    client: Any = None,
+    url: str = "",
+    command: str = "",
+    args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """One-shot fleet MCP ``resources/read`` — the read-side twin of
+    :func:`call_tool_once`.
+
+    Resolves the target exactly as :func:`call_tool_once` does (``server``
+    through ``mcp_config``, or an injected ``client`` / explicit
+    ``url``/``command``) and reuses the same authenticated transport, so a
+    caller needing one resource — an MCP App's ``ui://`` HTML, for instance —
+    does not have to stand up a second client with its own credential path.
+
+    Returns the first content block as ``{"uri", "text", "mimeType"}``. Raises
+    :class:`McpToolSourceError` when the resource carries no textual content,
+    rather than returning an empty string that a caller would render as a blank
+    page.
+    """
+    conn = McpToolSourceConnector(
+        server=server,
+        resource=uri,
+        client=client,
+        url=url,
+        command=command,
+        args=args,
+        env=env,
+        timeout=timeout,
+    )
+    async with conn._open_client() as open_client:
+        try:
+            contents = await open_client.read_resource(uri)
+        except Exception as exc:
+            raise McpToolSourceError(
+                f"MCP resource read failed ({type(exc).__name__})"
+            ) from exc
+    first = next(iter(contents), None) if contents is not None else None
+    text = getattr(first, "text", None)
+    if not isinstance(text, str):
+        raise McpToolSourceError(f"MCP resource {uri!r} carried no textual content")
+    # MCP SDK v2 renamed ``mimeType`` to ``mime_type``; read the current name
+    # first and keep the legacy one as a fallback for v1 content objects.
+    mime_type = getattr(first, "mime_type", None) or getattr(first, "mimeType", None)
+    return {
+        "uri": uri,
+        "text": text,
+        "mimeType": str(mime_type or "text/plain"),
+    }
 
 
 async def call_preset_once(
