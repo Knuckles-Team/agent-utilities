@@ -1798,12 +1798,39 @@ def register_engine_surface_tools(mcp) -> None:
                     tenant=tenant,
                     provenance=provenance,
                 )
-                engine = kg_server._get_engine()
-                applied = ingest_envelope(engine, envelope)
+                # THE single commit of this envelope. Two lanes independently
+                # fixed the same discarded-ChangeEnvelope bug
+                # (feat/ocel-roundtrip-and-derivation and
+                # feat/wire-first-reachability-gate); this keeps the richer
+                # ocel form (source truth PLUS the disclosed ProcessPerspective
+                # in ONE envelope) and adopts wire-first's failure handling.
+                # A second ingest_envelope call here would re-submit the same
+                # idempotency_key -- harmless but duplicated work, and two
+                # different failure behaviours in one function.
+                try:
+                    engine = kg_server._get_engine()
+                    applied = ingest_envelope(engine, envelope)
+                except Exception as exc:  # noqa: BLE001 — a write-path outage degrades graph_mine, never crashes it
+                    return _surface_error(
+                        exc,
+                        surface="mining",
+                        action=action,
+                        code="dependency_unavailable",
+                    )
                 if applied.get("status") not in {"success", "skipped"}:
-                    raise RuntimeError(
-                        "OCEL ChangeEnvelope commit failed: "
-                        f"{applied.get('error') or applied.get('status')}"
+                    return json.dumps(
+                        {
+                            "surface": "mining",
+                            "action": action,
+                            "code": "write_failed",
+                            "error": (
+                                "governed OCEL ChangeEnvelope commit failed: "
+                                f"{applied.get('error') or applied.get('status')}"
+                            ),
+                            "ocel": exported,
+                            "tekg": {"idempotency_key": envelope.idempotency_key},
+                        },
+                        default=_json_default,
                     )
                 evidence = {
                     "mode": "ocel_2.0",
@@ -1814,6 +1841,7 @@ def register_engine_surface_tools(mcp) -> None:
                     "node_count": len(envelope.typed_payload["entities"]),
                     "relationship_count": len(envelope.typed_payload["relationships"]),
                     "commit_status": applied.get("status"),
+                    "write_status": applied.get("status"),
                 }
             except (PermissionError, TypeError, ValueError) as exc:
                 return _surface_error(

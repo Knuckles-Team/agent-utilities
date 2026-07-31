@@ -1053,6 +1053,64 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
     assert out["tekg"]["commit_status"] == "success"
     assert out["projection"]["perspective_id"] == "case:order-view"
     assert calls == [("process", {"traces": [["create"]]})]
+    assert out["tekg"]["write_status"] == "success"
+
+
+def test_graph_mine_ocel_mine_mode_surfaces_a_failed_commit(monkeypatch, tools) -> None:
+    """A rejected ``ingest_envelope`` is reported, never silently discarded.
+
+    Two lanes independently fixed the discarded-ChangeEnvelope bug here
+    (feat/ocel-roundtrip-and-derivation and feat/wire-first-reachability-gate).
+    The reconciliation kept ONE commit -- the ocel form, which also commits the
+    disclosed ProcessPerspective -- and adopted wire-first's failure handling:
+    a structured ``write_failed`` short-circuit instead of a bare RuntimeError,
+    so the caller learns the write outcome and mining does NOT proceed past a
+    failed write. This test is wire-first's coverage for that behaviour, kept.
+    """
+    calls: list = []
+    mining = SimpleNamespace(process=_recording_method(calls, "process"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
+
+    import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest_module
+
+    monkeypatch.setattr(
+        envelope_ingest_module,
+        "ingest_envelope",
+        lambda engine, envelope: {"status": "rejected", "error": "synthetic rejection"},
+    )
+
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-reject-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "ocel_json": _OCEL_MINE_FIXTURE,
+                        "tenant": "tenant-a",
+                        "object_type": "Order",
+                        "perspective_id": "case:order-view",
+                        "derivation_version": "v1",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    assert out["code"] == "write_failed"
+    assert "synthetic rejection" in out["error"]
+    # mining must NOT have run past the failed write
+    assert calls == []
+    assert "projection" not in out
 
 
 def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):

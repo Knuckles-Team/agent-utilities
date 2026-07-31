@@ -58,6 +58,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `execution_stability_engine.RepetitionPolicy`) — dead code with zero live
   callers (D-48). See "Added" above for the replacement.
 
+- **Wire-First reachability gate (closes D-OB-9, D-OB-13, D-OB-16).**
+  `scripts/check_wiring.py` gains four new sweeps beyond its existing
+  module-import BFS: `--check-test-collection` (test files under `tests/`
+  that `testpaths`/pre-commit/CI never collect), `--check-mock-hygiene`
+  (`MagicMock(spec=[])`/`patch(create=True)` sites, AST-based), `--check-
+  extras-gating` (`except ImportError` handlers that silently no-op instead
+  of visibly skipping), and `--check-symbol-reachability` (the core new
+  AST/tokenize sweep: public `agent_utilities/` classes/functions/methods
+  referenced only from `tests/` — reachable by import, never invoked). All
+  four are combined by `--wire-first-report`, wired into pre-commit as
+  `check-wire-first` in **report-only ratchet** mode (mirrors
+  `check-swallowed-errors`): a frozen `scripts/wire_first_baseline.json`
+  backlog never fails the build, only a *new* orphaned test file or
+  test-only symbol does. `tests/gates/test_wire_first_gate.py` proves every
+  sweep can both trip and stay clean. The six confirmed dead-but-tested
+  instances that motivated this lane are now wired to live entry points with
+  a `*_live_path` reachability test each: `PolicyEngine` (now evaluated on
+  every `Orchestrator.dispatch_task`/`execute_agent` call),
+  `AdmissionPolicy.decide` (now gates real worker claims in
+  `_claim_next_task`), the KV-cache fork/branch backend (already wired via
+  `CrossModalForkFanout.fan_out`, verified), `graph_mine(action="process",
+  ocel_mode="mine")`'s `ChangeEnvelope` (now actually committed via
+  `ingest_envelope`), the reasoning-topology package (now reachable via a
+  new `graph_agents(action="reason")` MCP action), and `NeuralRelationPrediction`
+  (now emitted by `LoopController._mine_predicted_edges` from the real KAN
+  link-predictor). Also closes two concrete D-OB-13a instances:
+  `tests/test_multiplexer_transports.py` and
+  `tests/test_multiplexer_resilience.py` moved into `tests/unit/mcp/` where
+  `testpaths` actually collects them.
 - **Truthful Pydantic Graph execution evidence.** Real blocking and iterative
   graph runs now carry deterministic topology/runtime digests, ordered scheduler
   task batches, and only backend-confirmed checkpoint identifiers through

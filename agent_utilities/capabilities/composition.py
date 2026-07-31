@@ -66,6 +66,7 @@ def default_runtime_capabilities(
     from .content_guardrails import (
         output_schema_guardrail,
         pii_redaction_guardrails,
+        prompt_injection_guardrail,
         secret_leak_guardrail,
     )
     from .context_warnings import ContextLimitWarner
@@ -140,6 +141,9 @@ def default_runtime_capabilities(
     # attaching all three unconditionally costs nothing on a normal run, exactly
     # like every other capability here.
     if content_guardrails:
+        # G8 prompt-injection defence, migrated from the deleted
+        # PolicyEngine-shaped PromptInjectionPolicy onto the same scanner.
+        capabilities.append(prompt_injection_guardrail())
         capabilities.extend(pii_redaction_guardrails())
         capabilities.append(secret_leak_guardrail())
         capabilities.append(output_schema_guardrail(output_schema_required_keys))

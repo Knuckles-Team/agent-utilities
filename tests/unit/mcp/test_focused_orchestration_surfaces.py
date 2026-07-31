@@ -58,7 +58,13 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
     mcp = _register_all()
 
     expected_actions = {
-        "graph_agents": {"swarm", "computer_use", "synthesize_org", "run_org"},
+        "graph_agents": {
+            "swarm",
+            "computer_use",
+            "synthesize_org",
+            "run_org",
+            "reason",
+        },
         "graph_domain_ops": {
             "allocate_budget",
             "fit_markov_regime",
@@ -94,7 +100,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    assert sum(map(len, expected_actions.values())) == 34
+    assert sum(map(len, expected_actions.values())) == 35
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 
@@ -420,3 +426,117 @@ def test_budget_domain_action_uses_composed_engine_capability(monkeypatch) -> No
     assert result["business_unit_id"] == "business-unit:test"
     assert result["amount"] == 2500.0
     assert result["budget_id"] in engine.graph.nodes
+
+
+@pytest.mark.asyncio
+async def test_graph_agents_reason_live_path_drives_real_cot_topology(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``graph_agents action="reason"`` must actually drive the real
+    ``agent_utilities.graph.reasoning`` package (CONCEPT:AU-ORCH.planning.
+    reasoning-graph-topologies) -- not merely import it. Before this test's
+    wiring, NOTHING outside ``tests/`` and the ``graph/reasoning`` package
+    itself referenced ``run_cot``/``register_topology``/
+    ``record_topology_outcome`` -- a fully built, unit-tested capability with
+    zero live callers. This drives the tool end to end with a scripted LLM
+    step function and asserts the OUTPUT is derived from the real
+    ``run_cot``/``TopologySpec``/``register_topology``/
+    ``record_topology_outcome`` machinery, not a standalone unit test of the
+    topology module.
+    """
+    from agent_utilities.mcp.tools import agent_execution_tools
+
+    class _StubBackend:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+
+        def execute(self, query, params):
+            self.calls.append((query, params))
+
+    class _StubEngine:
+        def __init__(self) -> None:
+            self.nodes: dict[str, tuple[str, dict]] = {}
+            self.backend = _StubBackend()
+
+        def add_node(self, node_id, node_type, props):
+            self.nodes[node_id] = (node_type, props)
+
+    engine = _StubEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+
+    scripted = [
+        agent_execution_tools.ReasoningStepOutput(
+            summary="restated the question",
+            content="6 times 7 is a multiplication of two small integers",
+            is_final=False,
+        ),
+        agent_execution_tools.ReasoningStepOutput(
+            summary="computed the product", content="42", is_final=True
+        ),
+    ]
+
+    class _FakeRunResult:
+        def __init__(self, output) -> None:
+            self.output = output
+
+    class _FakeAgent:
+        def __init__(self, steps) -> None:
+            self._steps = list(steps)
+
+        def run_sync(self, _prompt: str):
+            step = self._steps.pop(0) if self._steps else scripted[-1]
+            return _FakeRunResult(step)
+
+    fake_agent = _FakeAgent(scripted)
+    monkeypatch.setattr(
+        "agent_utilities.core.model_factory.create_model", lambda **_kw: object()
+    )
+    monkeypatch.setattr(
+        "agent_utilities.core.contextual_model.create_context_agent",
+        lambda **_kw: fake_agent,
+    )
+
+    tool = _register_all().tools["graph_agents"]
+    payload = json.loads(
+        await tool(
+            action="reason",
+            task="What is 6*7?",
+            context="",
+            context_ref="",
+            max_fan_out=5,
+            max_steps=10,
+            host="",
+            container_id="",
+            options_json="{}",
+            topology="cot",
+            num_samples=3,
+        )
+    )
+
+    # The answer/node-count are only producible by actually running run_cot
+    # over the scripted steps -- not a fabricated/static response.
+    assert payload["topology"] == "cot"
+    assert payload["answer"] == "42"
+    assert payload["node_count"] == 3  # root + the two scripted steps
+    assert payload["rationale_summary"] == [
+        "restated the question",
+        "computed the product",
+    ]
+    assert payload["termination"]["success"] is True
+    assert payload["termination"]["degraded"] is False
+
+    # register_topology/record_topology_outcome (topology.py's own API) must
+    # have actually written through to the engine, keyed by the REAL
+    # content-addressed COT_SPEC.topology_id.
+    from agent_utilities.graph.reasoning import COT_SPEC
+
+    assert payload["topology_id"] == COT_SPEC.topology_id
+    node_type, props = engine.nodes[COT_SPEC.topology_id]
+    assert node_type == "reasoning_topology_version"
+    assert props["artifact_id"] == "cot"
+    assert props["version_hash"] == COT_SPEC.digest
+
+    assert engine.backend.calls, "record_topology_outcome never reached the backend"
+    _query, params = engine.backend.calls[-1]
+    assert params["tid"] == COT_SPEC.topology_id
+    assert params["score"] == 0.8

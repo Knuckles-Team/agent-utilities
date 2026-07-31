@@ -16,7 +16,16 @@ never actually running. ``InputGuardrail``/``OutputGuardrail`` use the same
 these guards run through the SAME live agent path every other reliability capability
 does.
 
-The fourth rule type, ``CostBudgetPolicy``, has no port here: ``models/usage.py``'s
+``PromptInjectionPolicy`` is migrated too, as :func:`prompt_injection_guardrail`
+(G8): it was only a ``PolicyEngine``-shaped adapter around
+``PromptInjectionScanner``, which survives untouched and is still enforced
+directly on ``Orchestrator._scan_task`` -- the chokepoint every
+``dispatch_task``/``execute_agent``/``execute_workflow`` call passes through.
+The adapter's deletion therefore removed a redundant wrapper, not the defence;
+attaching the scanner here additionally closes the real gap, which was that the
+AGENT path had no injection gate of its own.
+
+The fifth rule type, ``CostBudgetPolicy``, has no port here: ``models/usage.py``'s
 ``ExecutionBudget`` (``max_total_tokens``/``max_cost_usd``/``max_duration_seconds``/
 ``max_tool_calls``) already covers the same ground and — unlike ``CostBudgetPolicy`` —
 is actually enforced on the live dispatch path
@@ -37,11 +46,50 @@ from pydantic_ai_harness import GuardrailResult, InputGuardrail, OutputGuardrail
 
 from agent_utilities.http.redaction import contains_secret
 from agent_utilities.security.guardrails import PiiSanitizer
+from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
 #: Refusal text for the secret-leak (forbidden-content) guardrail.
 SECRET_LEAK_BLOCK_MESSAGE = (
     "Output blocked: content matches a forbidden secret/credential pattern."
 )
+
+#: Refusal prefix for the prompt-injection input guardrail (G8).
+PROMPT_INJECTION_BLOCK_PREFIX = "Input blocked: prompt-injection attempt detected."
+
+#: One scanner instance: ``PromptInjectionScanner.__init__`` compiles its whole
+#: pattern set, so rebuilding it per prompt would recompile on every agent turn.
+_INJECTION_SCANNER = PromptInjectionScanner()
+
+
+def _prompt_injection_guard(value: object) -> GuardrailResult:
+    """Block a prompt carrying a detected injection/jailbreak attempt (G8).
+
+    This is the genuine MIGRATION of the deleted
+    ``threat_defense_engine.PromptInjectionPolicy`` onto the harness Guardrails
+    mechanism — NOT a dropped capability. That class was only a
+    ``PolicyEngine``-shaped adapter around :class:`PromptInjectionScanner`, and
+    the scanner itself is untouched and still enforced directly on the
+    orchestrator's own chokepoint (``Orchestrator._scan_task``, called from
+    ``dispatch_task``/``execute_agent``/``execute_workflow``/
+    ``execute_dynamic_workflow``). Deleting the adapter removed a second wrapper,
+    never the defence. What was genuinely missing is this: the AGENT path had no
+    injection gate of its own, so a prompt reaching an agent by any route other
+    than the orchestrator was unscanned. Attaching it here closes that gap with
+    the same scanner and the same verdict.
+    """
+    if not isinstance(value, str):
+        return GuardrailResult.allow()
+    result = _INJECTION_SCANNER.scan_text(value)
+    if result.is_malicious:
+        return GuardrailResult.block(
+            f"{PROMPT_INJECTION_BLOCK_PREFIX} {result.explanation}"
+        )
+    return GuardrailResult.allow()
+
+
+def prompt_injection_guardrail() -> InputGuardrail[Any]:
+    """Build the default-ON prompt-injection input guardrail (G8)."""
+    return InputGuardrail(guard=_prompt_injection_guard)
 
 
 def _pii_guard(value: object) -> GuardrailResult:

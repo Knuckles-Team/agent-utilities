@@ -17,9 +17,11 @@ from .checkpointing import (
 )
 from .composition import default_runtime_capabilities, merge_capabilities
 from .content_guardrails import (
+    PROMPT_INJECTION_BLOCK_PREFIX,
     SECRET_LEAK_BLOCK_MESSAGE,
     output_schema_guardrail,
     pii_redaction_guardrails,
+    prompt_injection_guardrail,
     secret_leak_guardrail,
 )
 from .context_warnings import ContextLimitWarner
@@ -87,8 +89,10 @@ __all__ = [
     "ToolCallRecord",
     "default_runtime_capabilities",
     "merge_capabilities",
+    "PROMPT_INJECTION_BLOCK_PREFIX",
     "SECRET_LEAK_BLOCK_MESSAGE",
     "output_schema_guardrail",
     "pii_redaction_guardrails",
+    "prompt_injection_guardrail",
     "secret_leak_guardrail",
 ]

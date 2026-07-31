@@ -3544,6 +3544,25 @@ class TaskManagerMixin(GraphEngineProtocol):
                 pass
         return reg
 
+    def _admission_policy(self):
+        """Lazy, cached :class:`AdmissionPolicy` bound to the live registry/config.
+
+        Reuses the SAME :class:`SchedulerConfig`/:class:`WorkerRegistry` pair
+        :meth:`_worker_registry` lazily builds (calling it here ensures
+        ``_sched_config`` exists too) — the reservation/heavy-type/cap knobs and
+        in-process running-worker picture an admission decision reads must be
+        the ones the rest of the scheduler is using, not a second, unbound
+        instance that would drift from the registry workers actually claim into.
+        """
+        policy = getattr(self, "_admission_pol", None)
+        if policy is None:
+            from .worker_scheduler import AdmissionPolicy
+
+            registry = self._worker_registry()
+            policy = AdmissionPolicy(self._sched_config, registry)
+            self._admission_pol = policy
+        return policy
+
     def _pending_by_lane(self) -> dict[str, int]:
         """Ready WorkItem count per functional resource-class lane."""
         from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES
@@ -3820,7 +3839,32 @@ class TaskManagerMixin(GraphEngineProtocol):
                 lane_for_task_type,
             )
 
-            self._worker_registry().start(worker_id, lane_for_task_type(tkind), tkind)
+            lane = lane_for_task_type(tkind)
+            # CONCEPT:AU-ORCH.dispatch.worker-scheduling — gate the claim through the
+            # reserved-worker fair AdmissionPolicy before this worker commits to the
+            # task. Only applied to the general/unrestricted claim: the
+            # ``hydration_reserved`` priority-floor path above must never be
+            # second-guessed here — that floor exists specifically so hydration
+            # work can't be starved, which is the opposite of what admission's
+            # hot-spare/heavy-type/coverage rules are for. A denied admission
+            # releases the native lease without consuming a retry attempt, so a
+            # later (better-suited) poll — by this worker or another — picks the
+            # task back up once the pool's live picture allows it.
+            if not hydration_reserved:
+                decision = self._admission_policy().decide(
+                    lane, tkind, self._pending_by_lane()
+                )
+                if not decision.admit:
+                    logger.debug(
+                        "worker %s admission denied for %s/%s: %s — deferring claim",
+                        worker_id,
+                        lane,
+                        tkind,
+                        decision.reason,
+                    )
+                    self._defer_task_for_admission(job_id)
+                    return None
+            self._worker_registry().start(worker_id, lane, tkind)
         return job_id, meta
 
     def _task_worker_loop(self, hydration_reserved: bool = False):
@@ -5673,6 +5717,37 @@ class TaskManagerMixin(GraphEngineProtocol):
                 claim,
                 next_retry_at=time.time() + 1.0,
                 reason_ref="partial_materialization",
+            )
+        finally:
+            self._active_work_item_claim(job_id, pop=True)
+        return bool(deferred)
+
+    def _defer_task_for_admission(self, job_id: str) -> bool:
+        """Release a claim the :class:`AdmissionPolicy` denied, without consuming an attempt.
+
+        The native ``claim_next`` CAS commits the lease before the task's lane/
+        type is known, so a candidate the pool's own admission rules refuse
+        (heavy-type cap, hot-spare reservation, interactive floor, best-effort
+        lane cap, memory-gen pool cap, …) is un-claimed the same way a
+        materialization-blocked task is: a fenced, near-immediate-retry defer
+        rather than running work this host's own scheduler just decided it
+        should hold back on. Mirrors :meth:`_defer_task_for_materialization`.
+        """
+        from agent_utilities.orchestration import work_item as _wi
+
+        claim = self._active_work_item_claim(job_id)
+        if claim is None:
+            return False
+        work_item_id = str(
+            claim.get("work_item_id") or _wi.ingest_task_work_item_id(job_id)
+        )
+        try:
+            deferred = _wi.defer_work_item(
+                self._work_item_engine,
+                work_item_id,
+                claim,
+                next_retry_at=time.time() + 1.0,
+                reason_ref="admission_denied",
             )
         finally:
             self._active_work_item_claim(job_id, pop=True)
