@@ -101,7 +101,7 @@ def query_token_series(
         )
 
         backend = get_timeseries_backend("engine")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only usage_query path; failure returns [] which is the function's own documented contract for "no engine / no data", identical to a genuine empty series
         logger.debug(
             "[CONCEPT:AU-KG.temporal.token-event-tsdb] telemetry tsdb unavailable: %s",
             e,
@@ -131,7 +131,7 @@ def query_token_series(
         return [
             (ts / 1e9, vals[field_idx]) for ts, vals in pts if field_idx < len(vals)
         ]
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — same read-only contract as the backend-lookup failure above: [] on error is documented and indistinguishable from a genuinely empty window
         logger.debug(
             "[CONCEPT:AU-KG.temporal.token-event-tsdb] query_token_series failed: %s", e
         )

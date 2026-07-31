@@ -206,7 +206,7 @@ def _out(engine: Any, node_id: str) -> list[tuple[str, str, dict[str, Any]]]:
 def _in(engine: Any, node_id: str) -> list[tuple[str, str, dict[str, Any]]]:
     try:
         return engine.in_edges(node_id, data=True) or []
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only neighbor scan feeding advisory scoring (_swappable_peers/resolve_peer_group); a failure only shrinks the candidate peer set, biasing the consolidation recommendation toward fewer suggestions, never toward a false action
         logger.debug("portfolio: in_edges(%s) failed: %s", node_id, e)
         return []
 
@@ -219,7 +219,7 @@ def _by_label(
         return []
     try:
         return fn(label, limit) or []
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only label scan feeding advisory goal-type/weight resolution; a failure degrades to the unmodified DEFAULT_WEIGHTS, not corrupted state
         logger.debug("portfolio: get_nodes_by_label(%s) failed: %s", label, e)
         return []
 

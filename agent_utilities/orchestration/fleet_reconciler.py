@@ -349,7 +349,7 @@ class FleetReconciler:
                 "MATCH (a:ActionApproval {status: 'approved'}) "
                 f"RETURN a LIMIT {_APPROVAL_DRAIN_LIMIT}"
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — read-only candidate scan; on failure nothing is mutated (no approvals drained, budget untouched) and every approved row is re-selected on the next tick
             logger.debug("fleet_reconciler: approval drain scan failed: %s", e)
             return []
         drained: list[dict[str, Any]] = []
@@ -380,14 +380,36 @@ class FleetReconciler:
             execution = execute_action(self.engine, request, self.actuator)
             budget -= 1
             new_status = "executed" if execution.get("ok") else "failed"
-            try:
-                self.engine.backend.execute(
-                    "MATCH (a:ActionApproval {id: $id}) "
-                    "SET a.status = $status, a.executed_at = $ts",
-                    {"id": props["id"], "status": new_status, "ts": _now_iso()},
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("fleet_reconciler: approval stamp failed: %s", e)
+            # D-DST-6: execute_action has ALREADY run by this point (and this
+            # actuation may not be idempotent). If the status stamp below
+            # fails, the ActionApproval row stays 'approved' and gets
+            # re-selected by the next tick's scan, causing execute_action to
+            # fire a SECOND time for the same grant. Retry the stamp once
+            # before giving up, and log loud (not DEBUG) when it's still
+            # unstamped so a stuck 'approved' row is discoverable before the
+            # next tick re-fires it.
+            for _attempt in (1, 2):
+                try:
+                    self.engine.backend.execute(
+                        "MATCH (a:ActionApproval {id: $id}) "
+                        "SET a.status = $status, a.executed_at = $ts",
+                        {"id": props["id"], "status": new_status, "ts": _now_iso()},
+                    )
+                    break
+                except Exception as e:  # noqa: BLE001 — retried once above; still logged loud below since a failed stamp risks a duplicate actuation on the next tick
+                    if _attempt == 2:
+                        logger.warning(
+                            "fleet_reconciler: approval %s stamp failed twice, "
+                            "status may still read 'approved' (risk: duplicate "
+                            "actuation next tick): %s",
+                            props.get("id"),
+                            e,
+                        )
+                    else:
+                        logger.debug(
+                            "fleet_reconciler: approval stamp failed, retrying once: %s",
+                            e,
+                        )
             if request.kind in _WATCHED_KINDS and execution.get("ok"):
                 from agent_utilities.orchestration.deploy_watch import watch_deploy
 
@@ -446,7 +468,7 @@ class FleetReconciler:
                     "created_unix": time.time(),
                 },
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — reconcile() already built and returns the full report dict independent of this write; this is only the durable KG audit copy
             logger.debug("fleet_reconciler: report write failed: %s", e)
 
 
@@ -526,7 +548,7 @@ def fire_ready_agent_tasks(
             )
             or []
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only scan for 'blocked' AgentTask nodes; on failure no task is mutated and the same nodes are re-selected on the next tick
         logger.debug("fleet_reconciler: agent-task dependency sweep failed: %s", e)
         return []
 
@@ -542,16 +564,29 @@ def fire_ready_agent_tasks(
             continue
         try:
             ensure_agent_task_work_item(engine, task_id)
-        except Exception as e:  # noqa: BLE001 — the legacy mirror below still fires
-            logger.debug(
-                "fleet_reconciler: work_item shadow-create failed for %s: %s",
+        except Exception as e:
+            # D-DST-6: this docstring calls WorkItem "the write authority" and the
+            # legacy status flip a "best-effort MIRROR" -- but falling through here
+            # (the prior behavior) let the mirror flip to 'ready' even when the
+            # authority write failed. Because this sweep's OWN selection query is
+            # `WHERE status = 'blocked'`, once the legacy status flips to 'ready'
+            # the task permanently drops out of the retry pool even though its
+            # WorkItem was never created -- a transient KG hiccup here could
+            # orphan a task forever (looks 'ready' to legacy readers, invisible to
+            # the WorkItem-based claim path). `continue` so the task stays
+            # 'blocked' (and thus retried next tick) whenever the authority write
+            # fails, instead of letting the mirror advance anyway.
+            logger.warning(
+                "fleet_reconciler: work_item shadow-create failed for %s, "
+                "leaving task 'blocked' for retry: %s",
                 task_id,
                 e,
             )
+            continue
         try:
             engine.add_node(task_id, "AgentTask", properties={"status": "ready"})
             fired.append(task_id)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — on failure the task is not appended to 'fired' and its legacy status stays 'blocked' (the WorkItem authority write above already succeeded), so it is naturally re-swept on the next tick
             logger.debug(
                 "fleet_reconciler: failed to fire agent task %s: %s", task_id, e
             )
@@ -600,7 +635,7 @@ class AgentTaskDepWatcher:
             return None
         try:
             return subscribe(engine, "AgentTask", self._on_change)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — documented fallback: a construction failure returns None, and fire() degrades to the always-sweep Phase-3a-equivalent behavior below
             logger.debug("fleet_reconciler: AgentTask subscription failed: %s", e)
             return None
 

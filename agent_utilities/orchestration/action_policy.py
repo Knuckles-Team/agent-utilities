@@ -463,7 +463,17 @@ class ActionPolicy:
 
     # ── durable accounting (reads the ActionDecision ledger) ────────
 
-    def _recent_decisions(self, kind: str) -> list[dict[str, Any]]:
+    def _recent_decisions(self, kind: str) -> list[dict[str, Any]] | None:
+        """Recent ``ActionDecision`` rows for ``kind``, or ``None`` on a ledger read failure.
+
+        D-DST-6: ``None`` is distinct from a genuinely empty ledger (``[]``) --
+        callers (``_rate_exceeded``/``_blast_exceeded``) MUST fail CLOSED (treat
+        an unreadable ledger as "exceeded"/rate-limited), matching this class's
+        own established convention (``decide()``/``evaluate()`` are explicitly
+        commented as failing CLOSED). Silently treating a read failure as "no
+        prior decisions" would let rate-limit AND blast-radius checks report
+        "not exceeded" during exactly the KG-outage window when they matter most.
+        """
         if self.engine is None:
             return []
         try:
@@ -473,9 +483,9 @@ class ActionPolicy:
                 f"d.decided_unix AS ts LIMIT {_LEDGER_SCAN_LIMIT}",
                 {"kind": kind},
             )
-        except Exception as e:  # noqa: BLE001
-            logger.debug("action_policy: ledger scan failed: %s", e)
-            return []
+        except Exception as e:  # noqa: BLE001 — ledger read failed; callers must fail CLOSED on None, never treat it as an empty (=clear) ledger
+            logger.warning("action_policy: ledger scan failed, failing closed: %s", e)
+            return None
         return [r for r in rows or [] if isinstance(r, dict)]
 
     def _rate_exceeded(self, request: ActionRequest, limit: dict[str, Any]) -> bool:
@@ -487,10 +497,13 @@ class ActionPolicy:
             return False
         if max_n <= 0:
             return False
+        recent = self._recent_decisions(request.kind)
+        if recent is None:
+            return True  # ledger unreadable -- fail closed
         since = _now() - window_s
         n = sum(
             1
-            for d in self._recent_decisions(request.kind)
+            for d in recent
             if d.get("target") == request.target
             and d.get("decision") in _ALLOWING
             and float(d.get("ts") or 0) >= since
@@ -506,10 +519,13 @@ class ActionPolicy:
             return False
         if max_targets <= 0:
             return False
+        recent = self._recent_decisions(request.kind)
+        if recent is None:
+            return True  # ledger unreadable -- fail closed
         since = _now() - window_s
         targets = {
             d.get("target")
-            for d in self._recent_decisions(request.kind)
+            for d in recent
             if d.get("decision") in _ALLOWING and float(d.get("ts") or 0) >= since
         }
         targets.add(request.target)

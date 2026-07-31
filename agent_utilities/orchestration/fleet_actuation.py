@@ -358,6 +358,6 @@ def execute_action(
                     "executed_unix": time.time(),
                 },
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — result["ok"] is already finalized (from act.apply or the actuator-error dict above) before this write; a failure here only drops the ActionExecution audit node, the caller's returned dict is unaffected
             logger.debug("execute_action: record write failed: %s", e)
     return {**result, "execution_id": record_id, "actuator": getattr(act, "name", "?")}

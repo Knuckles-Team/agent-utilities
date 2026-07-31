@@ -579,5 +579,5 @@ class GatewayMetricsMiddleware:
                 # AU-OS.observability.unified-health-kernels /
                 # AU-KG.identity.evidence-spine-convergence). Best-effort.
                 record_request_duration(duration)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — feeds an in-memory trend sample only (record_request_duration is itself documented as must-never-affect-the-response-path); a dropped sample just thins one window's anomaly-detection density, the response and the histogram above are already recorded
                 logger.debug("gateway health sample failed: %s", e)

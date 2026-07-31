@@ -443,7 +443,7 @@ async def fetch_epistemic_context() -> str:
             mcp_agents = (
                 "\n".join(mcp_agents.splitlines()[:500]) + "\n\n... (truncated)"
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — mcp_agents falls back to the literal "(empty or graph unavailable)" string; this only assembles descriptive markdown context, nothing parses or gates on it succeeding
         logger.debug(f"Failed to fetch agents for context: {e}")
         mcp_agents = "(empty or graph unavailable)"
 

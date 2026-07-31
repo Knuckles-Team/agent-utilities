@@ -637,7 +637,7 @@ class AgentOrchestrationEngine:
                     "run_graph: Service registry initialized with %d services",
                     svc_count,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — svc_registry/svc_count are never referenced again in this function; ServiceRegistry.instance() is a lazy singleton re-initialized elsewhere (agent_runner.py's dispatch path), this is pure redundant warm-up
                 logger.debug("run_graph: Service registry init skipped: %s", e)
 
             # --- Security Guard Pre-Flight (OS-5.4, OS-5.5) ---
@@ -672,7 +672,16 @@ class AgentOrchestrationEngine:
             except ImportError:  # noqa: BLE001 — optional prompt scanner is not installed
                 pass  # Scanner not available
             except Exception as e:
-                logger.debug("run_graph: Prompt scanning skipped: %s", e)
+                # D-DST-6: Security Guard Pre-Flight (OS-5.4/5.5) — a scanner crash here
+                # was previously indistinguishable from "the scan ran clean and found
+                # nothing" (the exact guardrail-crash-reads-as-clean-pass cousin), and
+                # the query proceeds UNSCANNED either way. Raised to warning (matching
+                # this lane's DoomLoopDetector/adversarial-verification precedent) so a
+                # persistently-failing scanner is diagnosable rather than invisible.
+                logger.warning(
+                    "run_graph: prompt scanner failed (query proceeding UNSCANNED): %s",
+                    e,
+                )
             result = None
             _graph_run_start = time.perf_counter()
             try:

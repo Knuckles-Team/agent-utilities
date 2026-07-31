@@ -300,7 +300,7 @@ class TelegramBackend(MessagingBackend):
                     platform=PlatformId.TELEGRAM,
                     channel_id=channel_id,
                 )
-            except Exception as e2:  # noqa: BLE001
+            except Exception as e2:  # noqa: BLE001 — plain-text retry failure correctly surfaced via SendResult(success=False)
                 logger.debug(
                     "[CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency] Telegram edit failed: %s",
                     e2,

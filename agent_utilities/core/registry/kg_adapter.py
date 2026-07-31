@@ -815,7 +815,7 @@ class RegistryMixin(_Base):
                     overlap = len(set(query_lower.split()) & set(pattern_lower.split()))
                     if overlap > 0:
                         results.append(node)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — per-row defensive skip: a malformed TeamConfig row is excluded from results (not counted as a match), so downstream ranking/return only ever sees successfully-parsed nodes
                     logger.debug(f"Failed to parse TeamConfig: {e}")
 
         # Also check in-memory
@@ -1171,7 +1171,7 @@ class RegistryMixin(_Base):
                         ),
                         "config": node,
                     }
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — read-only: on backend query failure the function falls through to the explicit NX-graph fallback scan immediately below, which returns an equivalent bundle if the node is present there
                 logger.debug("Backend team export failed: %s", e)
 
         # Fallback: NX graph
@@ -1222,7 +1222,7 @@ class RegistryMixin(_Base):
                         new_id,
                     )
                     return new_id
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — the node is already committed to self.graph (line ~1218) before this call; a failure here only means the typed-backend mirror write (self._upsert_node) didn't also succeed, and the fallback below re-adds to NX and returns new_id regardless
                 logger.debug("Backend team import failed: %s", e)
 
         # Fallback: store in NX
@@ -1335,7 +1335,7 @@ class RegistryMixin(_Base):
                             templates.append(r.model_dump())
                     if templates:
                         return templates[:top_k]
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — layered fallback: on hybrid-search failure the function proceeds to the cypher-scan fallback below, and then to the NX-graph scan; no state is mutated on this read path
                 logger.debug("Hybrid search for AgentTemplate failed: %s", e)
 
         # Fallback: cypher scan
@@ -1358,7 +1358,7 @@ class RegistryMixin(_Base):
                 )
                 for row in results:
                     templates.append(dict(row))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — layered fallback: on cypher-scan failure the function still executes the NX-graph scan below and returns whatever agent_template nodes are found there; read-only
                 logger.debug("AgentTemplate scan failed: %s", e)
 
         # Also include NX graph entries
@@ -1428,7 +1428,7 @@ class RegistryMixin(_Base):
         if hasattr(self, "_upsert_node"):
             try:
                 self._upsert_node("AgentTemplate", node_id, node_data)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — self.graph.add_node (line ~1425) and the edge-wiring below already run unconditionally; a failure here only skips the typed-backend mirror, and get_agent_templates' NX-graph fallback scan still discovers the template
                 logger.debug("Backend upsert for AgentTemplate failed: %s", e)
 
         # Wire USES_PROMPT edge

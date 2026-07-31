@@ -411,7 +411,7 @@ def _load_goal_entry(engine: Any, goal_id: str) -> dict[str, Any] | None:
             f"MATCH (c:Concept) WHERE c.id = $id RETURN {_GOAL_RETURN}",
             {"id": goal_id},
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only: on failure get_goal_iterations returns 404 "Goal run not found" instead of 500 for that one poll; no goal state is mutated here, and the UI's repeated polling recovers once the KG query succeeds again
         logger.debug(f"goal KG lookup failed: {e}")
         return None
     for r in rows or []:
@@ -430,7 +430,7 @@ def _list_goal_entries(engine: Any, *, limit: int = 200) -> list[dict[str, Any]]
             "LIMIT $limit",
             {"limit": int(limit)},
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only: list_goals() merges this with the in-memory active_goals dict, so a failure here silently omits durable/other-host goals from the response rather than erroring; no goal state is mutated, and repeated polling recovers once the KG query succeeds
         logger.debug(f"goal KG list failed: {e}")
         return []
     entries: list[dict[str, Any]] = []

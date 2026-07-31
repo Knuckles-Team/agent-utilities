@@ -315,7 +315,7 @@ def record_shape_outcome(
 
             reward = outcome_reward(success=success, latency_s=latency_s)
             _shape_router().record(classify_task(task), _archetype_of(shape), reward)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — docstring: "Cheap, in-process, best-effort — never raises into the caller's result path"; only updates the in-process OutcomeRouter reward-EMA consumed by pick_shape's NEXT selection, doesn't affect this run's already-decided outcome
             logger.debug("[ORCH-1.71] shape policy learn skipped: %s", e)
 
 

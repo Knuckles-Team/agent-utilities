@@ -233,7 +233,7 @@ def pick_specialist_model(
         if agent_info is not None:
             tier = getattr(agent_info, "default_tier", tier) or tier
             required_tags = list(getattr(agent_info, "required_tags", []) or [])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — tier/required_tags already hold safe pre-lookup defaults; a registry read failure just leaves those defaults in place, identical to a specialist with no registry entry
         logger.debug(f"Registry tier lookup failed for '{node_id}': {e}")
 
     # CONCEPT:AU-OS.state.homeostatic-model-downgrade — Homeostatic Model Downgrade
@@ -265,7 +265,7 @@ def pick_specialist_model(
                         * 100,
                     )
                     tier = effective_tier
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — resource_optimizer.select_model_for_step() is an optional budget-pressure override; tier already holds the heuristic/registry value on entry, so a failure here just skips the optional downgrade
             logger.debug(
                 f"CONCEPT:AU-OS.state.homeostatic-model-downgrade homeostatic check skipped: {e}"
             )
@@ -984,7 +984,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                             specialist=agent_name,
                             capability=cap_type,
                         )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — activated_capabilities is write-only telemetry (no downstream read of the list in this function); a lookup failure means zero capabilities auto-activate/log for this step, degrading to pre-feature behavior
             logger.debug(f"Capability auto-activation lookup failed: {e}")
 
     # CONCEPT:AU-KG.compute.workspace-attention-scoring — WorkspaceAttention scoring for specialist priority
@@ -1601,7 +1601,7 @@ async def _execute_agent_package_logic(
                     policy_labels=epistemic.get("policy_labels"),
                     model=node_id,
                 )
-            except (
+            except (  # noqa: BLE001 — result_str is already computed and written to ctx.state.results_registry above before this block; the try only forwards optional epistemic metadata to telemetry (comment: "tracing must never break the graph")
                 Exception
             ) as exc:  # pragma: no cover - tracing must never break the graph
                 logger.debug(

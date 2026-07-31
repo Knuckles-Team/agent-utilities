@@ -522,7 +522,7 @@ class EngineBrokerBusLog(BusLogBackend):
                     lease_ms=self.delivery_lease_ms,
                     prefetch=max_messages,
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — operator DLQ inspection; breaks and returns partial results already collected, no DLQ item is acked/consumed here (the ack call below is unguarded and raises hard on its own failure)
                 logger.debug("[AU-P1-2] engine broker DLQ read failed: %s", exc)
                 break
             if claimed is None:

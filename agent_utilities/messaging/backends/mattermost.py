@@ -129,7 +129,7 @@ class MattermostBackend(MessagingBackend):
         try:
             me = await asyncio.to_thread(self._driver.users.get_user, "me")
             self._bot_user_id = str(me.get("id", ""))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — best-effort bot-id resolution; falls back to MATTERMOST_BOT_USER, connect() still succeeds
             logger.debug(
                 "[CONCEPT:AU-ECO.messaging.mattermost-backend] could not resolve bot user id: %s",
                 exc,
@@ -147,7 +147,7 @@ class MattermostBackend(MessagingBackend):
             if self._listening:
                 try:
                     self._driver.disconnect()  # closes the websocket loop
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 — best-effort websocket teardown; logout() still runs after this
                     logger.debug(
                         "[CONCEPT:AU-ECO.messaging.mattermost-backend] websocket disconnect: %s",
                         exc,
@@ -220,7 +220,7 @@ class MattermostBackend(MessagingBackend):
                 platform=PlatformId.MATTERMOST,
                 channel_id=channel_id,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — failure correctly surfaced via SendResult(success=False); caller falls back to a new post
             logger.debug(
                 "[CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency] Mattermost edit failed: %s",
                 e,
@@ -343,7 +343,7 @@ class MattermostBackend(MessagingBackend):
                 raw = (
                     json.loads(message) if isinstance(message, str | bytes) else message
                 )
-            except (ValueError, TypeError) as exc:
+            except (ValueError, TypeError) as exc:  # noqa: BLE001 — malformed single WS frame is dropped; listener continues, no state advanced
                 logger.debug("mattermost: dropping unparseable WS frame: %s", exc)
                 return
             event = self._normalize_post_event(raw or {})
