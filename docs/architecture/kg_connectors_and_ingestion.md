@@ -353,11 +353,15 @@ flowchart TD
   `ACTION_TOOL_ROUTES` generic action-routed POST.
 
 Module: `knowledge_graph/ingestion/{promotion,supersession,dead_letter}.py`.
-Assumed contract note: no `Artifact`/`Fragment`/domain-pack framework existed
-yet when this was built — `promotion.CandidateClaim` is this lane's own
-minimal shape (one proposed `ChangeEnvelope` + domain + confidence + optional
-`EvidenceBundle`); adapt it once the sibling evidence-spine/domain-pack/
-candidate-claim-extraction contracts publish (see
+Naming note (D-ST3-1): this type was originally named `CandidateClaim` as a
+placeholder guess; the extraction-side `feat/candidate-claims-entity-resolution`
+branch has since published the real, disjoint `CandidateClaim` (a
+write-authority-free extraction proposal), so this one was renamed to
+`promotion.PromotionRequest` — it carries an already-assembled `ChangeEnvelope`
+(a concrete pending write) through governance gates, which the extraction-side
+type never does. `PromotionRequest` is this lane's own minimal shape (one
+proposed `ChangeEnvelope` + domain + confidence + optional `EvidenceBundle`);
+adapt it once the sibling domain-pack contract publishes (see
 `reports/deferred/promotion.md`, D-GP2-2).
 
 ---

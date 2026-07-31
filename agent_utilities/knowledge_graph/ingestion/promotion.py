@@ -34,7 +34,7 @@ exist elsewhere in the codebase:
   atomic, idempotent, fail-closed native write path).
 * **Supersession/retraction** — :mod:`~.supersession` (this program's Track B).
 
-**The steward-review hold is structural, not a flag.** A :class:`CandidateClaim`
+**The steward-review hold is structural, not a flag.** A :class:`PromotionRequest`
 is ALWAYS persisted as a generic ``:Claim`` node (``is_verified=False``,
 mirroring the existing mining-flywheel pattern in
 ``research.candidate_insight``) — never as the real domain-typed entity/edge it
@@ -46,16 +46,33 @@ the ActionPolicy approval gate — writes the real fact via ``ingest_envelope``.
 Until then, the claim is unqueryable as a fact by construction, not by a
 best-effort filter that a query path could forget to apply.
 
+**Naming (post-hoc, D-ST3-1).** This module's own "assumed contract" note
+below originally named this dataclass ``CandidateClaim``, guessing at a name
+for a type no sibling lane had published yet. Now that
+``feat/candidate-claims-entity-resolution`` HAS published a real
+``CandidateClaim`` (schema-constrained, evidence-span-cited, model-confidence-
+scored, structurally NO write authority — see
+``agent_utilities.knowledge_graph.extraction.candidate_claims``), it is clear
+the two are different concepts entirely: that one is a proposal an extractor
+emits with no path to a write; this one carries an already-assembled
+:class:`~.change_envelope.ChangeEnvelope` (a concrete pending write) through
+governance gates and — once a steward accepts it — materializes that write.
+It is a promotion **request**, not a claim proposal, so it is named
+:class:`PromotionRequest` instead. The paragraph below is kept as the
+historical record of the original (now superseded) assumption.
+
 **Assumed contract (say what we assumed).** No sibling lane has yet published
 an ``Artifact``/``Fragment``/``CandidateClaim`` type (the evidence-spine and
 candidate-claim-extraction tracks were unstarted at the time this module was
-written — verified via a repo-wide, all-branches search). :class:`CandidateClaim`
+written — verified via a repo-wide, all-branches search). :class:`PromotionRequest`
 here is this module's OWN minimal, explicit assumption: one proposed
 :class:`~.change_envelope.ChangeEnvelope` (the write this claim asks for, if
 accepted) plus a domain/pack name (for per-pack confidence thresholds), a
 confidence score, and an optional :class:`~agent_utilities.models.evidence_bundle.EvidenceBundle`.
-When the real ``CandidateClaim``/domain-pack contracts land, adapt their shape
-into this one (or extend it) rather than duplicating a second promotion path.
+Now that the real ``CandidateClaim`` (extraction-side) and domain-pack
+contracts have landed, a future change should have the extraction side
+construct one of these (or an equivalent request) rather than duplicating a
+second promotion path.
 """
 
 import logging
@@ -78,7 +95,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DEFAULT_CONFIDENCE_THRESHOLD",
-    "CandidateClaim",
+    "PromotionRequest",
     "PromotionDecision",
     "PromotionVerdict",
     "GovernedPromotionValidator",
@@ -123,9 +140,11 @@ class PromotionDecision(StrEnum):
 
 
 @dataclass(frozen=True)
-class CandidateClaim:
-    """One candidate claim awaiting governed promotion (see module docstring
-    for the "assumed contract" note).
+class PromotionRequest:
+    """A request to promote one proposed write (a :class:`ChangeEnvelope`)
+    through the governed promotion gates (see the module docstring's
+    "Naming" and "assumed contract" notes — this is NOT the extraction-side
+    ``CandidateClaim``, which never carries a write).
 
     ``claim_id`` defaults to a stable, content-addressed id derived from the
     proposed envelope's own ``idempotency_key`` — the SAME identity
@@ -144,7 +163,7 @@ class CandidateClaim:
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(
-                f"CandidateClaim.confidence must be in [0.0, 1.0], got {self.confidence!r}"
+                f"PromotionRequest.confidence must be in [0.0, 1.0], got {self.confidence!r}"
             )
         if not self.claim_id:
             object.__setattr__(
@@ -229,7 +248,7 @@ def _existing_claims(engine: Any, domain: str) -> list[dict[str, Any]]:
 
 
 class GovernedPromotionValidator:
-    """Assembles the governed promotion gates for one :class:`CandidateClaim`.
+    """Assembles the governed promotion gates for one :class:`PromotionRequest`.
 
     Every check is fail-closed: an exception, an unavailable dependency, or an
     unreadable policy is recorded as a FAILED check (never silently skipped as
@@ -243,7 +262,7 @@ class GovernedPromotionValidator:
     def __init__(self, engine: Any) -> None:
         self.engine = engine
 
-    def validate(self, claim: CandidateClaim) -> PromotionVerdict:
+    def validate(self, claim: PromotionRequest) -> PromotionVerdict:
         verdict = PromotionVerdict(claim_id=claim.claim_id)
         verdict.checks.append(self._check_classification_policy(claim))
         verdict.checks.append(self._check_pii(claim))
@@ -253,7 +272,7 @@ class GovernedPromotionValidator:
         verdict.checks.append(self._check_confidence(claim))
         return verdict
 
-    def _check_classification_policy(self, claim: CandidateClaim) -> GovernanceCheck:
+    def _check_classification_policy(self, claim: PromotionRequest) -> GovernanceCheck:
         """Fail-closed classification/ACL policy — reuses ``ingest_envelope``'s
         OWN write-boundary policy (CONCEPT:AU-P0-4), never a second copy."""
         from .envelope_ingest import validate_envelope
@@ -276,7 +295,7 @@ class GovernedPromotionValidator:
             )
         return GovernanceCheck("classification_policy", True, "policy conforms")
 
-    def _check_pii(self, claim: CandidateClaim) -> GovernanceCheck:
+    def _check_pii(self, claim: PromotionRequest) -> GovernanceCheck:
         try:
             _clean, report = PersistencePrivacyGuard().sanitize_text(claim.statement)
         except Exception as exc:  # noqa: BLE001 — an unscannable claim is never assumed clean
@@ -289,7 +308,7 @@ class GovernedPromotionValidator:
             )
         return GovernanceCheck("pii", True, "no sensitive content detected")
 
-    def _check_shacl(self, claim: CandidateClaim) -> GovernanceCheck:
+    def _check_shacl(self, claim: PromotionRequest) -> GovernanceCheck:
         """Unconditional fail-closed SHACL gate over the claim's proposed
         entity/edge payload — only applicable to an ``upsert`` envelope
         carrying a ``typed_payload`` (a ``delete``/``snapshot_complete``
@@ -312,7 +331,7 @@ class GovernedPromotionValidator:
             return GovernanceCheck("shacl", False, str(exc))
         return GovernanceCheck("shacl", True, "conforms")
 
-    def _check_dedup(self, claim: CandidateClaim) -> GovernanceCheck:
+    def _check_dedup(self, claim: PromotionRequest) -> GovernanceCheck:
         """Flags a DIFFERENT claim id asserting identical statement text in
         the same domain (a redelivery of the SAME claim id is handled
         separately and benignly by ``ClaimFlywheel.propose``'s own idempotent
@@ -328,7 +347,7 @@ class GovernedPromotionValidator:
                     )
         return GovernanceCheck("dedup", True, "no duplicate statement found")
 
-    def _check_contradiction(self, claim: CandidateClaim) -> GovernanceCheck:
+    def _check_contradiction(self, claim: PromotionRequest) -> GovernanceCheck:
         existing = [
             _ContradictionClaim(
                 id=str(row.get("id") or ""), text=str(row.get("claim_text") or "")
@@ -356,7 +375,7 @@ class GovernedPromotionValidator:
             )
         return GovernanceCheck("contradiction", True, "no high-severity contradiction")
 
-    def _check_confidence(self, claim: CandidateClaim) -> GovernanceCheck:
+    def _check_confidence(self, claim: PromotionRequest) -> GovernanceCheck:
         threshold = resolve_confidence_threshold(claim.domain)
         if claim.confidence < threshold:
             return GovernanceCheck(
@@ -370,7 +389,7 @@ class GovernedPromotionValidator:
         )
 
 
-def _claim_node(claim: CandidateClaim) -> ClaimNode:
+def _claim_node(claim: PromotionRequest) -> ClaimNode:
     return ClaimNode(
         id=claim.claim_id,
         type=RegistryNodeType.CLAIM,
@@ -392,7 +411,7 @@ def _claim_node(claim: CandidateClaim) -> ClaimNode:
 
 
 def propose_candidate_claim(
-    engine: Any, claim: CandidateClaim, *, reason: str = ""
+    engine: Any, claim: PromotionRequest, *, reason: str = ""
 ) -> dict[str, Any]:
     """Persist ``claim`` as an unverified ``:Claim`` node and record its INITIAL
     lifecycle proposal (idempotent — a redelivery of the same ``claim_id`` is a
@@ -428,7 +447,7 @@ def propose_candidate_claim(
     }
 
 
-def evaluate_and_advance(engine: Any, claim: CandidateClaim) -> dict[str, Any]:
+def evaluate_and_advance(engine: Any, claim: PromotionRequest) -> dict[str, Any]:
     """Run the governed promotion gates and advance (or hold) the claim's
     lifecycle accordingly.
 

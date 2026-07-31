@@ -202,7 +202,7 @@ def register_claim_tools(mcp):
                     ChangeEnvelope,
                 )
                 from agent_utilities.knowledge_graph.ingestion.promotion import (
-                    CandidateClaim,
+                    PromotionRequest,
                     envelope_from_dict,
                     evaluate_and_advance,
                 )
@@ -214,7 +214,7 @@ def register_claim_tools(mcp):
                     envelope: ChangeEnvelope = envelope_from_dict(envelope_data)
                 except Exception as exc:  # noqa: BLE001 — a malformed envelope is a client error
                     return json.dumps({"error": f"invalid envelope_json: {exc}"})
-                claim = CandidateClaim(
+                claim = PromotionRequest(
                     domain=domain,
                     statement=statement,
                     confidence=confidence,

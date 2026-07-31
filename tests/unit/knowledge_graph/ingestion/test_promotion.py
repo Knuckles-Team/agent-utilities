@@ -192,9 +192,9 @@ def _proposed_envelope(
     )
 
 
-def _claim(engine_domain: str = "cmdb", **overrides: Any) -> promotion.CandidateClaim:
+def _claim(engine_domain: str = "cmdb", **overrides: Any) -> promotion.PromotionRequest:
     envelope = overrides.pop("envelope", None) or _proposed_envelope()
-    return promotion.CandidateClaim(
+    return promotion.PromotionRequest(
         domain=engine_domain,
         statement=overrides.pop("statement", "svc-1 is a payments service"),
         confidence=overrides.pop("confidence", 0.9),
