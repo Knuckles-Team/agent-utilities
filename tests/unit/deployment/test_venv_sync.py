@@ -29,6 +29,7 @@ from agent_utilities.deployment.venv_sync import (
     REFUSE,
     SOURCE_ONLY,
     ActivityRecord,
+    CommandResult,
     LockBackupStore,
     PlanParseError,
     ProcessActivityProbe,
@@ -36,12 +37,15 @@ from agent_utilities.deployment.venv_sync import (
     SyncInvocation,
     SyncPlan,
     UnsafeInvocationError,
+    VenvSyncError,
     Workspace,
     WorkspaceNotFoundError,
     classify_change,
     evaluate_plan,
     exclusive_lock,
     member_install_states,
+    plan_prune,
+    prune,
     session_start_hint,
 )
 
@@ -437,6 +441,98 @@ def test_dynamic_versions_are_not_reported_as_skew(workspace: Workspace) -> None
     )
     states = {s.member.name: s for s in member_install_states(workspace)}
     assert not states["alpha"].stale
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# prune (D-VS-8): the removal class `sync()`'s own --inexact plan can never see
+# ─────────────────────────────────────────────────────────────────────────────
+def _add_extraneous_dist(workspace: Workspace, name: str, version: str = "0.1.0") -> None:
+    site = workspace.site_packages()
+    assert site is not None
+    dist = site / f"{name}-{version}.dist-info"
+    _write(dist / "METADATA", f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n")
+    _write(
+        dist / "direct_url.json",
+        json.dumps({"url": "file:///x", "dir_info": {"editable": False}}),
+    )
+
+
+def test_plan_prune_finds_only_the_genuinely_extraneous_package(
+    workspace: Workspace,
+) -> None:
+    """Locked distributions (anyio) and workspace members (alpha, beta) must
+    never appear as candidates — only something in neither set."""
+    _add_extraneous_dist(workspace, "extraneous-pkg")
+    plan = plan_prune(workspace)
+    names = {c.name for c in plan.candidates}
+    assert names == {"extraneous-pkg"}
+
+
+def test_plan_prune_is_empty_for_a_clean_workspace(workspace: Workspace) -> None:
+    assert plan_prune(workspace).is_empty
+
+
+def test_prune_refuses_a_zero_budget_even_with_a_candidate(
+    workspace: Workspace,
+) -> None:
+    """Same "any uninstall refuses by default" contract as sync()'s budget."""
+    _add_extraneous_dist(workspace, "extraneous-pkg")
+    with pytest.raises(VenvSyncError, match="allow_uninstalls > 0"):
+        prune(workspace, allow_uninstalls=0, ignore_activity=True)
+
+
+def test_prune_refuses_when_candidates_exceed_the_budget(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _add_extraneous_dist(workspace, "extraneous-pkg")
+    _add_extraneous_dist(workspace, "extraneous-pkg2")
+
+    def _explode(*args: object, **kwargs: object) -> object:
+        raise AssertionError("uv must not be invoked when the budget refuses")
+
+    monkeypatch.setattr(venv_sync, "run_uv", _explode)
+    outcome = prune(workspace, allow_uninstalls=1, ignore_activity=True)
+    assert outcome.refused is True
+    assert outcome.applied is False
+    assert len(outcome.plan.candidates) == 2
+
+
+def test_prune_removes_exactly_the_candidates_within_budget(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Proves the apply path invokes `uv pip uninstall`, never `uv sync` —
+    this can never trip `_assert_sanctioned`'s bare-sync refusal."""
+    _add_extraneous_dist(workspace, "extraneous-pkg")
+    calls: list[list[str]] = []
+
+    def _fake_run_uv(ws: Workspace, args: list[str]) -> CommandResult:
+        calls.append(list(args))
+        return CommandResult(argv=tuple(args), returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(venv_sync, "run_uv", _fake_run_uv)
+    outcome = prune(workspace, allow_uninstalls=1, ignore_activity=True)
+    assert outcome.applied is True
+    assert len(calls) == 1
+    assert calls[0][:2] == ["pip", "uninstall"]
+    assert "extraneous-pkg" in calls[0]
+    assert "sync" not in calls[0]
+
+
+def test_prune_dry_run_reports_without_calling_uv(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _add_extraneous_dist(workspace, "extraneous-pkg")
+
+    def _explode(*args: object, **kwargs: object) -> object:
+        raise AssertionError("uv must not be invoked on a dry-run prune")
+
+    monkeypatch.setattr(venv_sync, "run_uv", _explode)
+    outcome = prune(
+        workspace, allow_uninstalls=1, apply=False, ignore_activity=True
+    )
+    assert outcome.applied is False
+    assert not outcome.refused
+    assert len(outcome.plan.candidates) == 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
