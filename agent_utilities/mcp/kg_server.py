@@ -4199,7 +4199,16 @@ def mcp_server() -> None:
     # reaches the rest of the MCP fleet on demand. Attached AFTER the factory middlewares
     # so per-session tool visibility runs with identity/auth already applied. Only for a
     # directly-served process — the embedded API-gateway build owns no serving loop.
-    fleet_mux = None
+    # The five meta-tools this attaches (find_tools/list_catalog/load_tools/
+    # unload_tools/multiplexer_status) plus the session-visibility middleware are
+    # MODE-INDEPENDENT infrastructure — they are the only way to reach anything
+    # the active MCP_TOOL_MODE holds back, so they must be present under intent,
+    # condensed, verbose AND both. A failure here is therefore NOT survivable:
+    # the previous `except Exception: logger.error(...)` downgraded it to a log
+    # line and served a silently wrong surface (an SDK-rename ImportError in
+    # child_resilience left graph-os exposing 118 ungated tools with no
+    # load_tools at all). Fail loud, preserving __cause__.
+    # CONCEPT:AU-ECO.mcp.fleet-meta-tools-always-on
     try:
         from agent_utilities.mcp.multiplexer import attach_fleet_loader
 
@@ -4211,9 +4220,12 @@ def mcp_server() -> None:
             authority_scope=verified_tool_session_scope,
         )
     except Exception as exc:
-        logger.error(
-            "graph-os fleet loader attach failed; fleet tools disabled: %s", exc
-        )
+        raise RuntimeError(
+            "graph-os fleet loader attach failed: the fleet meta-tools "
+            "(find_tools/list_catalog/load_tools/unload_tools/multiplexer_status) "
+            "and the session-visibility middleware could not be registered, so the "
+            "served tool surface would be wrong under every MCP_TOOL_MODE."
+        ) from exc
 
     transport = getattr(args, "transport", "stdio")
     host = getattr(args, "host", "127.0.0.1")
