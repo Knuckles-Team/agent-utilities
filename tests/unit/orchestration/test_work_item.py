@@ -591,6 +591,109 @@ def test_checkpoint_rejects_nonopaque_content(engine: NativeEngine) -> None:
         )
 
 
+def test_request_and_submit_work_item_input_round_trip(engine: NativeEngine) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+
+    assert wi.request_work_item_input(
+        engine,
+        item_id,
+        claim,
+        request={"prompt": "confirm deletion?"},
+        now=11.0,
+    )
+    item = wi.get_work_item(engine, item_id)
+    # Unchanged: input_required is projected from metadata, not a new status.
+    assert item["status"] in {"leased", "running"}
+    assert item["metadata"]["pending_input_request"] == {"prompt": "confirm deletion?"}
+    assert "pending_input_response" not in item["metadata"]
+
+    assert wi.submit_work_item_input(
+        engine,
+        item_id,
+        tenant="tenant-a",
+        response={"confirmed": True},
+        now=12.0,
+    )
+    item = wi.get_work_item(engine, item_id)
+    assert item["metadata"]["pending_input_response"] == {"confirmed": True}
+    assert "pending_input_request" not in item["metadata"]
+
+    # Worker can keep checkpointing/heartbeating normally afterward -- the
+    # lease was never touched by either call.
+    assert wi.heartbeat(engine, item_id, claim, now=13.0)
+
+
+def test_request_work_item_input_is_fenced_on_the_native_lease(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    stale = {**claim, "fencing_token": int(claim["fencing_token"]) + 1}
+    assert not wi.request_work_item_input(
+        engine, item_id, stale, request={"prompt": "x"}, now=11.0
+    )
+    assert wi.get_work_item(engine, item_id)["metadata"] == {}
+
+
+def test_submit_work_item_input_requires_a_live_pending_request(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert not wi.submit_work_item_input(
+        engine, item_id, tenant="tenant-a", response={"confirmed": True}, now=11.0
+    )
+
+
+def test_submit_work_item_input_rejects_wrong_tenant(engine: NativeEngine) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    assert wi.request_work_item_input(
+        engine, item_id, claim, request={"prompt": "x"}, now=11.0
+    )
+    assert not wi.submit_work_item_input(
+        engine, item_id, tenant="tenant-b", response={"confirmed": True}, now=12.0
+    )
+    assert wi.get_work_item(engine, item_id)["metadata"]["pending_input_request"] == {
+        "prompt": "x"
+    }
+
+
+def test_submit_work_item_input_double_submit_only_wins_once(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    assert wi.request_work_item_input(
+        engine, item_id, claim, request={"prompt": "x"}, now=11.0
+    )
+    assert wi.submit_work_item_input(
+        engine, item_id, tenant="tenant-a", response={"confirmed": True}, now=12.0
+    )
+    # A second submission finds no live pending request anymore.
+    assert not wi.submit_work_item_input(
+        engine, item_id, tenant="tenant-a", response={"confirmed": False}, now=13.0
+    )
+    assert wi.get_work_item(engine, item_id)["metadata"]["pending_input_response"] == {
+        "confirmed": True
+    }
+
+
 def test_native_retry_then_dead_letter(engine: NativeEngine) -> None:
     item_id = wi.submit_work_item(
         engine,

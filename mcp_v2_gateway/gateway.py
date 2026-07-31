@@ -585,12 +585,30 @@ class GraphOSV2Gateway:
             return self._task_from_status(
                 task_id, await self._job_status(task_id, context)
             )
-        # WorkItems have no server-to-client input requests.  Update is therefore
-        # an idempotent ack after the same tenant-scoped access check as polling.
+        # A WorkItem awaiting input carries a `pending_input_request` in its
+        # metadata (`request_work_item_input`); update submits the client's
+        # response through the same tenant-scoped WorkItem authority
+        # (`submit_work_item_input`, via `graph_jobs(action="input")`) rather
+        # than tracking any state of its own in this stateless sidecar.
         if method == "tasks/update":
-            if not isinstance(params.get("inputResponses"), dict):
+            input_responses = params.get("inputResponses")
+            if not isinstance(input_responses, dict):
                 raise GatewayProtocolError(-32602, "Invalid params")
-            await self._job_status(task_id, context)
+            submitted = self._tool_object(
+                await self._downstream.call_tool(
+                    "graph_jobs",
+                    {
+                        "action": "input",
+                        "job_id": task_id,
+                        "input_responses": json.dumps(
+                            input_responses, separators=(",", ":"), default=str
+                        ),
+                    },
+                    context,
+                )
+            )
+            if str(submitted.get("status", "")) != "submitted":
+                raise GatewayProtocolError(-32602, "Failed to submit task input")
             return self._complete({})
         cancelled = self._tool_object(
             await self._downstream.call_tool(
@@ -721,24 +739,36 @@ class GraphOSV2Gateway:
             if decoded != expected:
                 raise GatewayProtocolError(-32020, "Header mismatch")
 
+    _WORKING_RAW_STATUSES = frozenset(
+        {"queued", "pending", "ready", "leased", "running", "executing"}
+    )
+
     def _task_from_status(
         self, task_id: str, status: Mapping[str, Any], *, result_type: str = "complete"
     ) -> dict[str, Any]:
         raw_status = str(status.get("status", "")).lower()
-        projected = {
-            "queued": "working",
-            "pending": "working",
-            "ready": "working",
-            "leased": "working",
-            "running": "working",
-            "executing": "working",
-            "succeeded": "completed",
-            "success": "completed",
-            "completed": "completed",
-            "failed": "failed",
-            "dead_letter": "failed",
-            "cancelled": "cancelled",
-        }.get(raw_status)
+        pending_input = (
+            self._pending_input_request(status)
+            if raw_status in self._WORKING_RAW_STATUSES
+            else None
+        )
+        if pending_input is not None:
+            projected: str | None = "input_required"
+        else:
+            projected = {
+                "queued": "working",
+                "pending": "working",
+                "ready": "working",
+                "leased": "working",
+                "running": "working",
+                "executing": "working",
+                "succeeded": "completed",
+                "success": "completed",
+                "completed": "completed",
+                "failed": "failed",
+                "dead_letter": "failed",
+                "cancelled": "cancelled",
+            }.get(raw_status)
         if projected is None:
             raise GatewayProtocolError(-32603, "Downstream task status was invalid")
         now = self._timestamp()
@@ -764,23 +794,51 @@ class GraphOSV2Gateway:
             "ttlMs": None,
             "pollIntervalMs": 1_000,
         }
-        if projected == "completed" and result_type == "complete":
+        if projected == "input_required":
+            # The pinned Tasks schema has no dedicated structured field for the
+            # request content on a GetTaskResult (`additionalProperties: False`
+            # -- see test_pinned_tasks_extension.py); `statusMessage` is the one
+            # place it can surface without violating the wire contract.
+            result["statusMessage"] = self._input_required_status_message(pending_input)
+        elif projected == "completed" and result_type == "complete":
             result["result"] = self._completed_task_result(task_id, status)
         elif projected == "failed" and result_type == "complete":
             result["error"] = {"code": -32603, "message": "GraphOS WorkItem failed"}
         return result
 
     @staticmethod
+    def _pending_input_request(status: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        metadata = status.get("metadata")
+        if not isinstance(metadata, Mapping):
+            return None
+        pending = metadata.get("pending_input_request")
+        return pending if isinstance(pending, Mapping) else None
+
+    @staticmethod
+    def _input_required_status_message(pending: Mapping[str, Any]) -> str:
+        prompt = pending.get("prompt")
+        if isinstance(prompt, str) and prompt:
+            return prompt[:500]
+        return "Task requires client input to continue."
+
+    @staticmethod
     def _completed_task_result(
         task_id: str, status: Mapping[str, Any]
     ) -> dict[str, Any]:
-        value = status.get("result", status.get("output"))
+        # `result_ref` is the WorkItem's real completion field (an opaque
+        # marker/reference, e.g. "orchestrator:<job>:completed" --
+        # `commit_result`'s docstring; never the literal agent output inline).
+        # The prior `status.get("result", status.get("output"))` read two keys
+        # that no real WorkItem row ever has, so this branch was dead: every
+        # completed task fell through to the generic "Task completed."
+        # fallback below regardless of its actual outcome.
+        value = status.get("result_ref")
         if isinstance(value, (dict, list)):
             text = json.dumps(value, separators=(",", ":"), default=str)
             structured: Any = value
         elif value is not None:
             text = str(value)
-            structured = {"taskId": task_id, "output": value}
+            structured = {"taskId": task_id, "resultRef": value}
         else:
             text = "Task completed."
             structured = {"taskId": task_id, "status": "completed"}

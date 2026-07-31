@@ -81,7 +81,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "submit_risk_veto",
             "verify_action",
         },
-        "graph_jobs": {"dispatch", "status", "cancel"},
+        "graph_jobs": {"dispatch", "status", "cancel", "input"},
         "graph_rlm": {"run", "benchmark", "evolve_prompt"},
         "graph_workflows": {
             "compile",
@@ -94,7 +94,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    assert sum(map(len, expected_actions.values())) == 34
+    assert sum(map(len, expected_actions.values())) == 35
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 

@@ -1,20 +1,26 @@
 """Wire-level compatibility guard for the 2026 MCP Tasks extension.
 
-GraphOS must not advertise the MCP Tasks extension (`io.modelcontextprotocol/tasks`,
-served over `tasks/get` / `tasks/update` / `tasks/cancel` by the separate
-`fastmcp-tasks` package, SEP-2663) until it is actually wired up. This exercises
-real FastMCP initialization metadata and handler registration rather than a local
-capability model.
+GraphOS mounts a native, WorkItem-backed `io.modelcontextprotocol/tasks`
+extension (`agent_utilities/mcp/tasks_extension.py`,
+CONCEPT:AU-ECO.mcp.tasks-workitem-bridge) -- NOT the separate `fastmcp-tasks`
+package (SEP-2663), whose execution engine is hard-wired to Docket/Redis, a
+second job system this codebase's one `WorkItem` state machine (AU-P1-1)
+forbids duplicating. This exercises real FastMCP initialization metadata and
+handler registration rather than a local capability model.
+
+Until 2026-07-31 this test asserted the OPPOSITE (GraphOS must NOT advertise
+the extension until wired up) -- see `docs/architecture/mcp_v2_gateway.md`
+and the isolated `mcp_v2_gateway` sidecar's own Tasks↔WorkItem mapping, which
+landed first. Left passing unchanged, that negative assertion would have hidden
+the feature actually shipping (a Wire-First violation), so it is updated here
+to the real, current contract instead.
 
 CONCEPT:AU-ECO.mcp.protocol-compat-bridge — MCP SDK v2's `LowLevelServer` (the
 `mcp._mcp_server` this test drives) renamed the request-handler store from a
 public `request_handlers` dict keyed by request-model CLASS to a private
 `_request_handlers` dict keyed by wire-protocol METHOD STRING (e.g. `"tools/list"`),
 reached through the public `get_request_handler(method: str) -> HandlerEntry | None`
-accessor. The behavior under test — GraphOS doesn't register the tasks-extension
-handlers — still holds; only the introspection mechanism needed to update, so this
-asserts the public accessor by the extension's real method names instead of poking
-the private class-keyed dict.
+accessor.
 """
 
 from __future__ import annotations
@@ -22,8 +28,12 @@ from __future__ import annotations
 import pytest
 
 
-def test_graphos_does_not_advertise_unimplemented_2026_tasks_extension() -> None:
+def test_graphos_advertises_and_serves_the_workitem_backed_tasks_extension() -> None:
     from agent_utilities.mcp.server_factory import create_mcp_server
+    from agent_utilities.mcp.tasks_extension import (
+        TASKS_EXTENSION_ID,
+        WorkItemTasksExtension,
+    )
 
     _args, mcp, _middlewares = create_mcp_server(
         name="graph-os-test",
@@ -31,14 +41,18 @@ def test_graphos_does_not_advertise_unimplemented_2026_tasks_extension() -> None
     )
 
     capabilities = mcp._mcp_server.create_initialization_options().capabilities
-    extensions = (capabilities.model_extra or {}).get("extensions", {})
-    assert "io.modelcontextprotocol/tasks" not in extensions
+    assert TASKS_EXTENSION_ID in (capabilities.extensions or {})
 
-    # The tasks extension (fastmcp-tasks, SEP-2663) registers exactly these three
-    # methods when mounted; none should be reachable on a GraphOS server that never
-    # mounted it.
+    # The tasks extension registers exactly these three methods when mounted,
+    # each bound to WorkItemTasksExtension's own handler -- reachable, and
+    # backed by the native WorkItem authority, not fastmcp-tasks' Docket engine.
     for method in ("tasks/get", "tasks/update", "tasks/cancel"):
-        assert mcp._mcp_server.get_request_handler(method) is None
+        entry = mcp._mcp_server.get_request_handler(method)
+        assert entry is not None
+        # The bound params type is this module's own wire model, not
+        # fastmcp_tasks' -- proof it's WorkItemTasksExtension that answered,
+        # not some other tasks-extension implementation.
+        assert entry.params_type.__module__ == WorkItemTasksExtension.__module__
 
 
 @pytest.mark.asyncio

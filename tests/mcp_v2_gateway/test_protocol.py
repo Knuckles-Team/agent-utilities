@@ -27,6 +27,7 @@ class RecordingGraphOS(GraphOSClient):
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object], GatewayRequestContext]] = []
         self.status = "queued"
+        self.metadata: dict[str, object] = {}
         self.tools: list[dict[str, object]] = [
             {
                 "name": "graph_jobs",
@@ -61,10 +62,24 @@ class RecordingGraphOS(GraphOSClient):
         if arguments["action"] == "dispatch":
             return {"job_id": "job:opaque-work-item"}
         if arguments["action"] == "status":
-            return {"status": self.status, "created_at": "2026-07-30T00:00:00Z"}
+            return {
+                "status": self.status,
+                "created_at": "2026-07-30T00:00:00Z",
+                "metadata": dict(self.metadata),
+            }
         if arguments["action"] == "cancel":
             self.status = "cancelled"
             return {"status": "cancelled"}
+        if arguments["action"] == "input":
+            if not self.metadata.get("pending_input_request"):
+                return {"status": "not_submitted"}
+            import json as _json
+
+            self.metadata["pending_input_response"] = _json.loads(
+                str(arguments["input_responses"])
+            )
+            del self.metadata["pending_input_request"]
+            return {"status": "submitted"}
         raise AssertionError(arguments)
 
 
@@ -410,11 +425,6 @@ async def test_task_lifecycle_uses_graph_jobs_without_a_gateway_store() -> None:
     assert working["result"]["resultType"] == "complete"
     assert working["result"]["status"] == "working"
 
-    updated = await gateway.dispatch(
-        _request("tasks/update", common | {"inputResponses": {}}),
-        context=_context(),
-    )
-    assert updated["result"] == {"resultType": "complete"}
     invalid_update = await gateway.dispatch(
         _request("tasks/update", common),
         context=_context(),
@@ -428,6 +438,49 @@ async def test_task_lifecycle_uses_graph_jobs_without_a_gateway_store() -> None:
     observed = await gateway.dispatch(_request("tasks/get", common), context=_context())
     assert observed["result"]["status"] == "cancelled"
     assert all(call[0] == "graph_jobs" for call in downstream.calls)
+
+
+@pytest.mark.asyncio
+async def test_input_required_round_trips_through_workitem_metadata() -> None:
+    downstream = RecordingGraphOS()
+    downstream.status = "running"
+    downstream.metadata = {"pending_input_request": {"prompt": "confirm deletion?"}}
+    gateway = GraphOSV2Gateway(downstream, clock=lambda: 0)
+    common = {"taskId": "job:opaque-work-item", "_meta": _meta(tasks=True)}
+
+    polled = await gateway.dispatch(_request("tasks/get", common), context=_context())
+    assert polled["result"]["status"] == "input_required"
+    assert polled["result"]["statusMessage"] == "confirm deletion?"
+    assert "result" not in polled["result"]
+    assert "error" not in polled["result"]
+
+    updated = await gateway.dispatch(
+        _request(
+            "tasks/update", common | {"inputResponses": {"approval": {"ok": True}}}
+        ),
+        context=_context(),
+    )
+    assert updated["result"] == {"resultType": "complete"}
+    assert downstream.metadata["pending_input_response"] == {"approval": {"ok": True}}
+    assert "pending_input_request" not in downstream.metadata
+
+    # Still "running" at the WorkItem layer, but no longer awaiting input --
+    # projects back to plain "working" now that metadata has no live request.
+    resumed = await gateway.dispatch(_request("tasks/get", common), context=_context())
+    assert resumed["result"]["status"] == "working"
+
+
+@pytest.mark.asyncio
+async def test_task_update_fails_when_no_input_is_actually_pending() -> None:
+    downstream = RecordingGraphOS()
+    gateway = GraphOSV2Gateway(downstream, clock=lambda: 0)
+    common = {"taskId": "job:opaque-work-item", "_meta": _meta(tasks=True)}
+
+    updated = await gateway.dispatch(
+        _request("tasks/update", common | {"inputResponses": {}}),
+        context=_context(),
+    )
+    assert updated["error"]["code"] == -32602
 
 
 @pytest.mark.asyncio
