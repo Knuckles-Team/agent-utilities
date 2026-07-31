@@ -82,7 +82,7 @@ def _read_reward(engine: Any, entity_id: str) -> float:
     if watcher is not None:
         try:
             return watcher.index.reward_of(entity_id)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — falls through to "return 0.5" below, the documented neutral statistical prior; this function's docstring enumerates this exact three-tier fallback (durable property, in-process cache, neutral prior)
             logger.debug(
                 "route_capability_request: in-process reward read failed: %s", e
             )

@@ -332,7 +332,7 @@ class TopologyEngine:
                     "materialized_at": result.get("materialized_at", ""),
                 },
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — docstring: "Record the materialization event in the KG for provenance"; no caller reads the return value, and a write failure doesn't affect the materialization it's merely describing
             logger.debug("Failed to record materialization: %s", e)
 
     def record_outcome(
@@ -372,7 +372,7 @@ class TopologyEngine:
                     success,
                     quality_score,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — the EMA success_rate/usage_count update is skipped on failure with no other consumer reading a return value (method returns None unconditionally); this stalls the evolutionary feedback loop this method drives, but nothing downstream is falsely marked successful
                 logger.debug("Failed to record topology outcome: %s", e)
 
     def get_topology_stats(self) -> list[dict[str, Any]]:

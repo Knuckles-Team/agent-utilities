@@ -713,7 +713,7 @@ async def synthesizer_step(
                 name=f"Execution {ctx.state.session_id or 'unknown'}",
                 category="historical_execution",
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — fire-and-forget historical context for future runs; doesn't affect the current GraphResponse already returned by this step
         logger.debug(f"Failed to write execution memory: {e}")
 
     # CONCEPT:AU-KG.maintenance.post-execution-feedback — Post-execution feedback loop
@@ -739,7 +739,7 @@ async def synthesizer_step(
                 ctx.state.routed_domain,
                 execution_success,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — learning-signal update only; execution_success was already correctly computed above before this block
             logger.debug(f"Self-Model feedback failed: {e}")
 
         # TeamConfig outcome recording
@@ -761,7 +761,7 @@ async def synthesizer_step(
                         team_config_id,
                         reward,
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — lost reward data point for future team-reuse scoring, not a false-success mark; the reward value itself was already computed correctly
             logger.debug(f"TeamConfig feedback failed: {e}")
 
         # CONCEPT:AU-ORCH.optimization.workflow-distillation — Workflow Distillation Hook (async background)
@@ -789,13 +789,13 @@ async def synthesizer_step(
                             team_config_id=plan_meta.get("team_config_id"),
                             quality_score=1.0,
                         )
-                    except Exception as ex:
+                    except Exception as ex:  # noqa: BLE001 — explicitly "fire and forget" background task; nothing awaits it or checks its outcome
                         logger.debug(f"Distillation hook async task failed: {ex}")
 
                 # Fire and forget — do not block the response
                 asyncio.ensure_future(_fire_distillation())
                 logger.debug("[ORCH-1.8] Distillation hook dispatched (background)")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — outer dispatch-failure wrapper for the same fire-and-forget hook above; nothing depends on the dispatch itself succeeding
                 logger.debug(f"Distillation hook dispatch failed: {e}")
 
     return End(

@@ -279,7 +279,7 @@ async def router_step(
                             deps.event_queue, "router", "node_complete"
                         )
                         return "dispatcher"
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — 1st of 3 sequential planning strategies; ctx.state.plan is unconditionally reassigned by the LLM planner below if this path doesn't return "dispatcher"
                 logger.debug(
                     f"TeamConfig lookup failed, continuing with LLM planning: {e}"
                 )
@@ -341,7 +341,7 @@ async def router_step(
                     )
                     _emit_node_lifecycle(deps.event_queue, "router", "node_complete")
                     return "dispatcher"
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — same fallback chain as the TeamConfig lookup above; falls through to the LLM planner, which reassigns ctx.state.plan unconditionally
                 logger.debug(
                     f"KG AgentTemplate routing failed, continuing with LLM planning: {e}"
                 )
@@ -356,7 +356,7 @@ async def router_step(
                 memory_retriever = MemoryRetriever(deps.knowledge_engine)
                 current = await asyncio.to_thread(memory_retriever.get_current)
                 discovery_context += self_model_context(current)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — pure prompt-context string enrichment (discovery_context +=); failure just omits the extra text, router prompt still built normally
                 logger.debug(f"Self-Model proficiency injection failed: {e}")
     # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — DIRECT-DISPATCH FAST PATH.
     # When the task resolves to a single connected MCP server (the common single-server
@@ -522,7 +522,7 @@ async def router_step(
                 current = await asyncio.to_thread(memory_retriever.get_current)
                 if current and current.pheromone_trails and relevant:
                     relevant = filter_by_pheromone(relevant, current.pheromone_trails)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — `relevant` keeps its pre-filter value on failure, identical shape to the sibling telemetry-pruning block just below (already annotated in this codebase)
             logger.debug(f"Reward-driven routing optimization failed: {e}")
 
         try:

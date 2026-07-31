@@ -238,7 +238,7 @@ class CapabilityIndexWatcher:
             return None
         try:
             return subscribe(engine, "", self._on_change)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — subscribe() returning None here is the exact trigger for refresh()'s full-rebuild fallback, documented as bit-identical to pre-AU-P1-3 behavior
             logger.debug("CapabilityIndexWatcher: subscribe failed: %s", e)
             return None
 
@@ -436,7 +436,7 @@ def designate_specialists(
             required_policy_tags=policy_tags,
         )
         return [d.id for d in designations]
-    except Exception as e:  # never break routing
+    except Exception as e:  # never break routing  # noqa: BLE001 — returning None is the documented unavailable-signal per this function's own docstring, handled identically to the already-covered no-embedding/no-index cases
         logger.debug("KG-driven designation unavailable, falling back: %s", e)
         return None
 
