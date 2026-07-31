@@ -1558,7 +1558,7 @@ async def run_agent(
         _record_delegation_over_budget(
             agent_name, duration_ms / 1000.0, "degraded" if degraded else "ok"
         )
-    await _call_without_blocking(
+    _trace_recorded = await _call_without_blocking(
         _record_execution_trace,
         engine,
         run_id,
@@ -1590,6 +1590,9 @@ async def run_agent(
     # "checkpointing / traces" surfaced: the durable RunTrace this run just wrote IS its
     # checkpoint. Stream it with the trace_ref so the caller can deep-link into the run's
     # provenance while it is still fresh.
+    # D-DST-6: gate the "run trace recorded" report on _trace_recorded — _record_execution_trace
+    # now returns False when the KG write actually failed, so this checkpoint no longer
+    # tells the caller a trace exists when it may not (write-then-mark-seen).
     if progress_sink is not None:
         from agent_utilities.observability.trace_ontology import (
             trace_id as _trace_id_ck,
@@ -1599,9 +1602,9 @@ async def run_agent(
             progress_sink,
             run_id=run_id,
             stage="checkpoint",
-            status="degraded" if degraded else "ok",
-            detail="run trace recorded",
-            evidence={"trace_ref": _trace_id_ck(run_id)},
+            status="degraded" if (degraded or not _trace_recorded) else "ok",
+            detail="run trace recorded" if _trace_recorded else "run trace write failed",
+            evidence={"trace_ref": _trace_id_ck(run_id)} if _trace_recorded else {},
         )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
     # node on this run's RunTrace, so the delegated action is fully visible over
@@ -1819,8 +1822,15 @@ def _hydrate_skill_runnable(
             for r in (rows or [])
             if (r.get("name") or r.get("id"))
         ]
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("[ORCH-1.96] skill tool lookup failed for %s: %s", name, exc)
+    except Exception as exc:
+        # D-DST-6: a KG failure here silently produces meta["tools"]=[] --
+        # indistinguishable from "this skill genuinely declares zero tools".
+        # Mark the distinction explicitly instead of conflating a lookup
+        # failure with a confirmed-empty toolset (both this function's own
+        # docstring and the "skills prompt-only" behavior this feeds into
+        # depend on knowing which one actually happened).
+        meta["tools_lookup_failed"] = True
+        logger.warning("[ORCH-1.96] skill tool lookup failed for %s: %s", name, exc)
 
     meta["system_prompt"] = (
         f"You are the '{name}' skill. Follow these instructions to fulfil the "
@@ -1866,30 +1876,44 @@ def _bind_skill_to_owning_server(
                 "RETURN s.id AS sid, s.name AS name, s.url AS url, s.env AS env",
                 {"name": name, "sid": f"srv:{name}"},
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — no meta mutation has happened yet in this loop iteration; on failure it just tries the next candidate name, matching this function's documented "a miss leaves the skill prompt-only" fallback
             logger.debug("[ORCH-skill-bind] server lookup failed for '%s': %s", name, e)
             continue
         if not rows or not rows[0].get("url"):
             continue
         srv = rows[0]
+        # D-DST-6: fetch the server's verified tool catalog BEFORE committing
+        # meta["type"]="server"/server_id/url/env. Committing those first (the
+        # prior order) meant a tool-fetch failure left meta believing it was
+        # bound to a real server while meta["tools"] still held the SKILL's
+        # own USES_TOOL names from _hydrate_skill_runnable -- a load-bearing
+        # state mismatch, not the benign prompt-only fallback this function's
+        # docstring promises. On failure, try the next candidate exactly like
+        # the server-lookup failure above already does.
+        try:
+            trows = engine.backend.execute(
+                "MATCH (s:Server {id: $sid})-[:PROVIDES]->(r:CallableResource) "
+                "RETURN r.name AS name, r.description AS description",
+                {"sid": srv.get("sid", "")},
+            )
+        except Exception as e:  # noqa: BLE001 — meta is not yet mutated at this point; failure just tries the next candidate name (or falls through to prompt-only), matching the documented fallback contract
+            logger.warning(
+                "[ORCH-skill-bind] tool fetch failed for server '%s', trying next candidate: %s",
+                name,
+                e,
+            )
+            continue
+        tools = [
+            {"name": r.get("name", ""), "description": r.get("description", "")}
+            for r in (trows or [])
+        ]
         skill_prompt = meta.get("system_prompt", "")
         meta["type"] = "server"
         meta["server_id"] = srv.get("sid", "")
         meta["url"] = srv.get("url", "")
         meta["env"] = srv.get("env", "")
         meta["skill_of_server"] = srv.get("name", "")
-        try:
-            trows = engine.backend.execute(
-                "MATCH (s:Server {id: $sid})-[:PROVIDES]->(r:CallableResource) "
-                "RETURN r.name AS name, r.description AS description",
-                {"sid": meta["server_id"]},
-            )
-            meta["tools"] = [
-                {"name": r.get("name", ""), "description": r.get("description", "")}
-                for r in (trows or [])
-            ]
-        except Exception as e:  # noqa: BLE001
-            logger.debug("[ORCH-skill-bind] tool fetch failed: %s", e)
+        meta["tools"] = tools
         # The skill's SOP drives the run; the server's tools execute it.
         if skill_prompt:
             meta["system_prompt"] = skill_prompt
@@ -1963,7 +1987,7 @@ def _resolve_agent_from_kg(
                 len(meta["tools"]),
             )
             return meta
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — Search 1 of 4 cascading resolution stages (Server → CallableResource → AgentTemplate → semantic search); a failure here falls through to the next stage, meta is still unmutated defaults at this point
         logger.debug("Server lookup failed for '%s': %s", agent_name, e)
 
     # --- Search 2: CallableResource nodes (skills, A2A agents) ---
@@ -2012,7 +2036,7 @@ def _resolve_agent_from_kg(
                 meta["type"],
             )
             return meta
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — Search 2 of 4 cascading resolution stages; a failure (including one re-raised out of _hydrate_skill_runnable/_bind_skill_to_owning_server) falls through to the AgentTemplate search stage
         logger.debug("Resource lookup failed for '%s': %s", agent_name, e)
 
     # --- Search 2b: AgentTemplate nodes (KG-bound dispatchable personas) ---
@@ -2055,7 +2079,7 @@ def _resolve_agent_from_kg(
                 len(meta["capabilities"]),
             )
             return meta
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — Search 2b of 4 cascading resolution stages; a failure falls through to the explicit-fleet-pin check and semantic search
         logger.debug("AgentTemplate lookup failed for '%s': %s", agent_name, e)
 
     # An explicit server pin must remain authoritative even while the durable
@@ -2084,7 +2108,7 @@ def _resolve_agent_from_kg(
                 agent_name,
                 best.get("name", ""),
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — final cascade stage; on failure meta keeps its type="unknown" default, which is the correct signal that no resolution strategy succeeded
         logger.debug("Semantic search failed for '%s': %s", agent_name, e)
 
     return meta
@@ -3316,7 +3340,7 @@ def _stamp_run_identity(props: dict[str, Any], delegation: Any = None) -> None:
                 "tenant_ref",
                 persistence_reference("tenant", actor.tenant_id, namespace="run-trace"),
             )
-    except Exception as exc:  # pragma: no cover - identity best-effort
+    except Exception as exc:  # pragma: no cover - identity best-effort  # noqa: BLE001 — actor/tenant identity is ambient enrichment on the RunTrace; per this function's documented contract, an unstamped record (not a failed write) is the correct degraded outcome
         logger.debug("run identity stamp skipped: %s", exc)
 
     try:
@@ -3337,7 +3361,7 @@ def _stamp_run_identity(props: dict[str, Any], delegation: Any = None) -> None:
             )
             props.setdefault("delegation_agent_instance", deleg.agent_instance_id)
             props.setdefault("delegation_mode", deleg.mode.value)
-    except Exception as exc:  # pragma: no cover - delegation stamp best-effort
+    except Exception as exc:  # pragma: no cover - delegation stamp best-effort  # noqa: BLE001 — delegation-chain stamping is ambient enrichment on the RunTrace; an unstamped record is the documented best-effort fallback, not a failed write
         logger.debug("delegation chain stamp skipped: %s", exc)
     try:
         from agent_utilities.observability.correlation import get_correlation_id
@@ -3348,7 +3372,7 @@ def _stamp_run_identity(props: dict[str, Any], delegation: Any = None) -> None:
                 "correlation_ref",
                 persistence_reference("correlation", cid, namespace="run-trace"),
             )
-    except Exception as exc:  # pragma: no cover - correlation best-effort
+    except Exception as exc:  # pragma: no cover - correlation best-effort  # noqa: BLE001 — correlation-id stamping is ambient enrichment on the RunTrace; an unstamped record is the documented best-effort fallback, not a failed write
         logger.debug("correlation stamp skipped: %s", exc)
 
 
@@ -3374,7 +3398,7 @@ def _record_execution_trace(
     delegation: Any = None,
     grounding_status: str = "",
     grounding_reason: str = "",
-) -> None:
+) -> bool:
     """Record an execution trace in the KG for auditability.
 
     CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — Execution provenance tracking.
@@ -3389,6 +3413,11 @@ def _record_execution_trace(
     (an opaque reference persisted onto the KG ``RunTrace`` node below),
     ``model_name`` is the plain model identifier stamped onto the run's OTel
     span as ``gen_ai.request.model`` — never written to the graph.
+
+    Returns:
+        True iff the RunTrace/Outcome graph state was actually written (D-DST-6:
+        the caller must not report "run trace recorded" to progress_sink when
+        this returns False — see the caller in run_agent).
     """
     # This is every exit path of run_agent's dispatch (success/degraded/failed/
     # enterprise) — closing the run's OTel span HERE (before the ``engine``
@@ -3413,7 +3442,7 @@ def _record_execution_trace(
         )
 
     if not engine:
-        return
+        return False
 
     from agent_utilities.observability.trace_ontology import (
         OUTCOME_NODE_LABEL,
@@ -3496,7 +3525,16 @@ def _record_execution_trace(
                     {"rid": rid, "tid": trace_id},
                 )
     except Exception as e:
-        logger.debug("Failed to record execution trace: %s", e)
+        # D-DST-6: this failure must be surfaced to the caller via the bool
+        # return, not swallowed -- run_agent's progress_sink checkpoint
+        # unconditionally reported "run trace recorded" regardless of whether
+        # this write actually succeeded (write-then-mark-seen on the harness's
+        # own provenance layer). Raised to warning: a persistently-failing
+        # trace write should be diagnosable, not invisible.
+        logger.warning("Failed to record execution trace: %s", e)
+        return False
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -3763,14 +3801,14 @@ def _persist_tool_calls(
                 try:
                     if engine.graph.has_node(target_id):
                         engine.link_nodes(tc_id, target_id, "ACTED_ON")
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 — ACTED_ON reverse-index edge is a documented best-effort enrichment (see comment above); the ToolCall node itself already persisted successfully before this sub-step runs
                     logger.debug(
                         "[KG-2.296] ACTED_ON link skipped (%s -> %s): %s",
                         tc_id,
                         target_id,
                         exc,
                     )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — 'written' is only incremented on the prior success path (line ~3793); a failure here correctly excludes this ToolCall from the persisted count and moves on to the next one
             logger.debug("[KG-2.296] ToolCall persist failed (%s): %s", tc_id, exc)
             continue
         if feedback is not None and tc.get("tool_name"):
@@ -3781,7 +3819,7 @@ def _persist_tool_calls(
                     observed=tc.get("result", "")[:200],
                     reason="tool_call_outcome",
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — reward-EMA feedback write is a side effect of persisting the ToolCall (already durable); its failure doesn't affect the ToolCall count or any caller-visible status
                 logger.debug("[KG-2.296] tool action_outcome failed: %s", exc)
     if written:
         logger.info(
