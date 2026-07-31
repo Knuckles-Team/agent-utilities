@@ -142,11 +142,8 @@ def start_host_daemon(*, defer_background_start: bool = False) -> Any:
                 # Ensure the on-demand task-worker pool is up in the host.
                 if hasattr(_engine, "start_task_workers"):
                     _engine.start_task_workers()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "host daemon: start_task_workers failed (exception_type=%s)",
-                    type(exc).__name__,
-                )
+            except Exception as exc:  # noqa: BLE001 — best-effort pool start; the daemon must still come up, but the real cause is logged (not just its type) so a persistently-failing worker pool is diagnosable
+                logger.warning("host daemon: start_task_workers failed: %s", exc)
         # Always-on KG-native observability (CONCEPT:AU-OS.config.model-factory-passthrough): install the trace sink
         # backed by this host's engine, so every traced agent call persists a
         # Trace/Span/Generation subgraph that is graph-queryable. One-time injection;
@@ -156,11 +153,8 @@ def start_host_daemon(*, defer_background_start: bool = False) -> Any:
             from agent_utilities.harness.tracing import set_kg_trace_sink
 
             set_kg_trace_sink(KGTraceBackend(backend=_engine))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "host daemon: KG trace sink install failed (exception_type=%s)",
-                type(exc).__name__,
-            )
+        except Exception as exc:  # noqa: BLE001 — best-effort install; the daemon must still start without the trace sink, but the real cause is logged (not just its type) so a persistently-failing sink is diagnosable
+            logger.warning("host daemon: KG trace sink install failed: %s", exc)
         # Durable error-detail persistence (D-24, CONCEPT:AU-KG.audit.durable-error-detail):
         # install the KG-backed sink so a caller's `error.detail_ref` stays resolvable past
         # this process's lifetime and across replicas. One-time injection; best-effort
@@ -175,10 +169,9 @@ def start_host_daemon(*, defer_background_start: bool = False) -> Any:
             )
 
             register_detail_persistence_sink(GraphErrorDetailSink(engine=_engine))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — best-effort install; the in-process detail store keeps working, but the real cause is logged (not just its type) so a persistently-failing sink is diagnosable
             logger.warning(
-                "host daemon: durable error-detail sink install failed (exception_type=%s)",
-                type(exc).__name__,
+                "host daemon: durable error-detail sink install failed: %s", exc
             )
         logger.info("Gateway host daemon started")
     # CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs — the inbound messaging router runs in its OWN process
