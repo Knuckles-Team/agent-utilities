@@ -279,8 +279,15 @@ def _checkpoint_manager(graph: str) -> Any:
             exc,
         )
         disk_store = None
+    from agent_utilities.core._env import setting
+
     return TieredCheckpointManager(
-        ram_store=_RAM_CHECKPOINT_STORE, disk_store=disk_store
+        ram_store=_RAM_CHECKPOINT_STORE,
+        disk_store=disk_store,
+        # Where this deployment's durable store physically writes. A fact about
+        # topology, not a policy judgement, and consulted only when a contributing
+        # source actually restricts residency — unknown then denies.
+        durable_region=str(setting("DATA_RESIDENCY_REGION", "") or "").strip(),
     )
 
 
@@ -302,6 +309,92 @@ def _measured_fields(observation: Any) -> dict[str, Any]:
     return observation.model_dump(exclude_defaults=True, exclude_none=True)
 
 
+def _session_bound_tenant(declared: str) -> str:
+    """Return the tenant a KV-checkpoint operation runs under, bound to the session.
+
+    CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility. When a verified
+    ``GraphSession`` is bound (every served boundary), ITS tenant is authoritative and a
+    payload tenant that disagrees is REFUSED rather than quietly preferred — a caller
+    may not name someone else's tenancy. With no session bound (an isolated in-process
+    harness) the declared value is used for RAM-tier isolation only; durable persistence
+    is refused regardless, because the eligibility gate has no authority to read.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        verified = current_session().tenant
+    except Exception:  # noqa: BLE001 — no bound session is a legitimate RAM-only case
+        return declared
+    if declared and declared != verified:
+        raise ValueError(
+            f"tenant {declared!r} does not match the verified session tenant "
+            f"{verified!r}; a checkpoint operation may not name another tenancy"
+        )
+    return verified
+
+
+def _contributing_sources(
+    sources_json: str, context_bundle_json: str, *, tenant: str
+) -> tuple[Any, ...]:
+    """Resolve the sources that contributed to the checkpointed context.
+
+    CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility — the material
+    half of the derivation. Two inputs, in precedence order:
+
+    1. ``sources_json`` — an explicit list of source refs (strings) or fully-labelled
+       source objects. A bare ref is resolved through the registered
+       :class:`SourceLabelResolver`; a labelled object is taken as given.
+    2. ``context_bundle_json`` — the SAME bundle the worthiness scorers already read.
+       Its citations' ``source_refs`` are the sources that actually contributed, so the
+       common path needs no extra argument at all: a caller that hands over its context
+       bundle automatically hands over its provenance.
+
+    Every ref is resolved; a ref whose labels cannot be read comes back **unlabelled**
+    (and therefore denies, naming itself). This function never returns fewer entries
+    than it was given refs.
+    """
+    from agent_utilities.kvcache.eligibility import (
+        ContributingSource,
+        get_source_label_resolver,
+    )
+
+    labelled: list[Any] = []
+    refs: list[str] = []
+
+    raw = (sources_json or "").strip()
+    if raw and raw not in {"[]", "{}"}:
+        declared = json.loads(raw)
+        if not isinstance(declared, list):
+            raise ValueError("sources JSON must be a list")
+        for entry in declared:
+            if isinstance(entry, str):
+                refs.append(entry)
+            elif isinstance(entry, dict):
+                labelled.append(ContributingSource(**entry))
+            else:
+                raise ValueError(
+                    "each source must be a ref string or a labelled source object"
+                )
+
+    bundle_raw = (context_bundle_json or "").strip()
+    if bundle_raw and bundle_raw not in {"{}", "[]"}:
+        bundle = json.loads(bundle_raw)
+        if isinstance(bundle, dict):
+            for citation in bundle.get("citations") or []:
+                if isinstance(citation, dict):
+                    refs.extend(str(r) for r in (citation.get("source_refs") or []))
+
+    # De-duplicate refs while preserving order; a source contributing twice is still
+    # one source, and duplicating it would only duplicate its labels.
+    unique_refs = tuple(dict.fromkeys(r for r in refs if r.strip()))
+    resolved = (
+        get_source_label_resolver().resolve(unique_refs, tenant=tenant)
+        if unique_refs
+        else ()
+    )
+    return tuple(labelled) + tuple(resolved)
+
+
 def _kv_checkpoint_intelligence(
     action: str,
     *,
@@ -321,29 +414,33 @@ def _kv_checkpoint_intelligence(
     observation_json: str,
     evidence_bundle_json: str,
     context_bundle_json: str,
-    initiator: str,
+    sources_json: str,
+    trigger: str,
     persist: bool,
-    operator_grant: bool,
 ) -> str:
     """The worthiness/tiering/eligibility half of ``graph_kv_checkpoint``.
 
     CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring. Split out of the tool body so
     the three trigger paths can be exercised directly, and so the tool function stays
     argument-marshalling only.
+
+    CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility — **the tenant a
+    durable write is authorized under is read from the verified session, never from the
+    payload.** Before this, ``initiator="user", operator_grant=true`` were arguments an
+    agent could simply assert, which made the deny-by-default gate defeatable by any
+    caller that chose to lie. They are gone: ``trigger`` is now provenance only, and the
+    authority comes from :func:`derive_caller_authority` over the ambient
+    ``GraphSession``.
     """
     from agent_utilities.kvcache.checkpoint import KVCheckpointError, KVCheckpointKey
     from agent_utilities.kvcache.worthiness import CheckpointObservation
 
-    # Validate the initiator AT THE BOUNDARY. It is a Literal on PersistenceRequest /
+    # Validate the trigger AT THE BOUNDARY. It is a Literal on PersistenceRequest /
     # RAMCheckpointRecord, so an unrecognized value would surface deep inside as a raw
-    # pydantic ValidationError that the KVCheckpointError handlers below never catch —
-    # and, worse, "which initiator is this?" is the input the whole eligibility decision
-    # turns on, so it must never be guessed at or coerced.
-    if initiator not in {"user", "agent", "system"}:
+    # pydantic ValidationError that the KVCheckpointError handlers below never catch.
+    if trigger not in {"user", "agent", "system"}:
         return _surface_error(
-            ValueError(
-                f"initiator must be one of user|agent|system, got {initiator!r}"
-            ),
+            ValueError(f"trigger must be one of user|agent|system, got {trigger!r}"),
             surface="kv_checkpoint",
             action=action,
             code="invalid_request",
@@ -429,10 +526,15 @@ def _kv_checkpoint_intelligence(
                     "surface": "kv_checkpoint",
                     "action": action,
                     "result": manager.explain(
-                        checkpoint_id, requesting_tenant=requesting_tenant
+                        checkpoint_id,
+                        requesting_tenant=_session_bound_tenant(requesting_tenant),
                     ).model_dump(mode="json"),
                 },
                 default=_json_default,
+            )
+        except ValueError as exc:
+            return _surface_error(
+                exc, surface="kv_checkpoint", action=action, code="invalid_request"
             )
         except KVCheckpointError as exc:
             return _surface_error(
@@ -446,9 +548,12 @@ def _kv_checkpoint_intelligence(
         try:
             outcome = manager.promote(
                 checkpoint_id,
-                requesting_tenant=requesting_tenant,
-                trigger=initiator,  # type: ignore[arg-type]
-                operator_grant=operator_grant,
+                requesting_tenant=_session_bound_tenant(requesting_tenant),
+                trigger=trigger,  # type: ignore[arg-type]
+            )
+        except ValueError as exc:
+            return _surface_error(
+                exc, surface="kv_checkpoint", action=action, code="invalid_request"
             )
         except KVCheckpointError as exc:
             return _surface_error(
@@ -469,14 +574,18 @@ def _kv_checkpoint_intelligence(
     # action == "checkpoint_now"
     try:
         data = base64.b64decode(data_b64) if data_b64 else b""
+        bound_tenant = _session_bound_tenant(tenant)
         key = KVCheckpointKey(
             model_identity=model_identity,
             quantization=quantization,
             serving_engine=serving_engine,
             engine_version=engine_version,
             prefix_digest=prefix_digest,
-            tenant=tenant,
+            tenant=bound_tenant,
             policy_version=policy_version,
+        )
+        sources = _contributing_sources(
+            sources_json, context_bundle_json, tenant=bound_tenant
         )
         supplied = (
             observation_json.strip() not in {"", "{}"}
@@ -494,10 +603,10 @@ def _kv_checkpoint_intelligence(
             key=key,
             run_id=run_id,
             point=point,
-            trigger=initiator,  # type: ignore[arg-type]
+            trigger=trigger,  # type: ignore[arg-type]
             persist=persist,
-            operator_grant=operator_grant,
             observation=observation,
+            sources=sources,
         )
     except KVCheckpointError as exc:
         return _surface_error(
@@ -1360,14 +1469,21 @@ def register_engine_surface_tools(mcp) -> None:
             "actions: 'recommend' (observation_json → a scored checkpoint-worthiness "
             "verdict with drivers, blockers and the scorers that had no evidence — "
             "advisory only, it takes no checkpoint); 'checkpoint_now' (data_b64 + the "
-            "key + initiator; stores to the RAM tier immediately, and with "
-            "persist=true ALSO attempts a durable write); 'promote' (checkpoint_id → "
-            "RAM→disk promotion); 'explain' (checkpoint_id → why this checkpoint "
-            "exists and why it is where it is); 'ram_stats'. Durable persistence "
-            "ALWAYS passes the CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility "
-            "gate, whose default DENIES unless initiator='user' AND operator_grant=true "
-            "— an agent may recommend durable persistence but cannot authorize it, and "
-            "a checkpoint already living in RAM is NOT consent to write it to disk."
+            "key; stores to the RAM tier immediately, and with persist=true ALSO "
+            "attempts a durable write); 'promote' (checkpoint_id → RAM→disk "
+            "promotion); 'explain' (checkpoint_id → why this checkpoint exists, why it "
+            "is where it is, and the full authority derivation behind that); "
+            "'ram_stats'. Durable persistence ALWAYS passes the "
+            "CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility gate, which "
+            "(CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility) "
+            "DERIVES the verdict from YOUR verified session and delegation chain "
+            "against the labels of every contributing source — most-restrictive "
+            "composition, into your own tenancy only. There is no grant flag to set: an "
+            "agent whose delegated authority already covers the material persists "
+            "automatically, one whose does not is refused with the offending source or "
+            "missing label named. An undeclared source set, or a source missing a "
+            "classification/residency/retention label, DENIES. A checkpoint already "
+            "living in RAM is NOT consent to write it to disk."
         ),
         tags=["graph-os", "engine", "kvcache", "checkpoint", "memory"],
     )
@@ -1444,24 +1560,28 @@ def register_engine_surface_tools(mcp) -> None:
             "dropped_redundant/citations populate the retrieval-saturation (novelty) "
             "axis. Same precedence rule as evidence_bundle_json.",
         ),
-        initiator: str = Field(
+        sources_json: str = Field(
+            default="[]",
+            description="checkpoint_now: the sources that contributed to this context, "
+            "as a JSON list of either ref strings (resolved to their governance labels) "
+            "or fully-labelled objects (source_id/classification/residency_regions/"
+            "retention_days/markings). Usually unnecessary: citations carried on "
+            "context_bundle_json already name them. An EMPTY source set refuses durable "
+            "persistence — an unprovenanced checkpoint cannot be shown to permit "
+            "data-at-rest.",
+        ),
+        trigger: str = Field(
             default="agent",
-            description="checkpoint_now/promote: who is asking — 'user' (a human "
-            "operator), 'agent' (the model decided), or 'system'. Only 'user' with "
-            "operator_grant=true can authorize durable persistence under the default "
-            "eligibility gate.",
+            description="checkpoint_now/promote: which path took this checkpoint — "
+            "'user', 'agent' or 'system'. PROVENANCE ONLY. It is recorded on the audit "
+            "record and never read by the eligibility decision, which derives authority "
+            "from your verified session instead.",
         ),
         persist: bool = Field(
             default=False,
             description="checkpoint_now: also attempt durable (cross-session) "
             "persistence. Always subject to the eligibility gate; a refusal still "
             "leaves the RAM checkpoint in place.",
-        ),
-        operator_grant: bool = Field(
-            default=False,
-            description="checkpoint_now/promote: a human operator explicitly "
-            "authorized THIS durable persistence. Never inferred, and never satisfied "
-            "by the checkpoint already existing in RAM.",
         ),
         graph: str = Field(
             default="", description="Target graph (default engine graph)."
@@ -1501,9 +1621,9 @@ def register_engine_surface_tools(mcp) -> None:
                 observation_json=observation_json,
                 evidence_bundle_json=evidence_bundle_json,
                 context_bundle_json=context_bundle_json,
-                initiator=initiator,
+                sources_json=sources_json,
+                trigger=trigger,
                 persist=persist,
-                operator_grant=operator_grant,
             )
 
         try:
