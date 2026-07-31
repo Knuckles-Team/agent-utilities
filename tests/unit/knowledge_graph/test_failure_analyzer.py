@@ -80,13 +80,18 @@ def _in_memory_writer(engine):
         for entity in entities:
             row = dict(entity)
             node_id = row.pop("id")
-            node_type = row.pop("type")
+            # failure_analyzer.py emits the canonical 'node_type' key (e.g.
+            # "PerformanceAnomaly"/"ExecutionSummary"/"Concept"), never the
+            # retired 'type' -- this adapter previously KeyError'd on every
+            # single entity, silently swallowed by _materialize's best-effort
+            # except Exception, so nothing was ever actually written.
+            node_type = row.pop("node_type")
             engine.add_node(node_id, node_type, properties=row)
         for relationship in relationships:
             row = dict(relationship)
             source = row.pop("source")
             target = row.pop("target")
-            rel_type = row.pop("type")
+            rel_type = row.pop("relationship")
             engine.link_nodes(source, target, rel_type, properties=row)
         return {"status": "success"}
 
@@ -236,7 +241,7 @@ class TestMaterialization:
 class TestDaemonRegistration:
     """failure_ingest is a maintenance job gated on KG_FAILURE_EVOLUTION."""
 
-    def test_registered_only_when_enabled(self, monkeypatch):
+    def test_registered_only_when_enabled(self, monkeypatch, engine_graph):
         from agent_utilities.core import config as cfg_mod
         from agent_utilities.core import schedule_engine as se
         from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
@@ -246,7 +251,17 @@ class TestDaemonRegistration:
 
         def _specs():
             inst = TaskManagerMixin.__new__(TaskManagerMixin)
-            inst.backend = EpistemicGraphBackend()
+            # A bare EpistemicGraphBackend() resolves its own routing graph,
+            # bypassing the autouse isolate_graph_compute_engine per-test
+            # redirect and colliding with other bare-constructed backends on
+            # the same shared graph identity (STALE_FENCE) -- bind explicitly
+            # to the per-test engine_graph tenant instead.
+            inst.backend = EpistemicGraphBackend(graph_name=engine_graph.graph_name)
+            # schedule_engine._load_all's _control_backend requires
+            # engine.control_backend explicitly (IntelligenceGraphEngine.
+            # _build_control_backend just returns self.backend today) --
+            # __new__ bypasses __init__ entirely, so nothing else sets it.
+            inst.control_backend = inst.backend
             inst._register_maintenance_schedules()
             return {s.name: s for s in se._load_all(inst)}
 
