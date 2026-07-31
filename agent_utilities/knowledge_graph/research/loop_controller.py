@@ -1082,7 +1082,118 @@ class LoopController:
             return {"count": 0, "examples": []}
         result = predict_payload.get("result") or {}
         predicted = result.get("predicted") or []
-        return {"count": len(predicted), "examples": predicted[:5]}
+        semantic_events = self._emit_predicted_edges_as_semantic_events(
+            predicted, node_label="Concept", errors=errors
+        )
+        return {
+            "count": len(predicted),
+            "examples": predicted[:5],
+            "semantic_events": semantic_events,
+        }
+
+    def _emit_predicted_edges_as_semantic_events(
+        self, predicted: list[dict[str, Any]], *, node_label: str, errors: list[str]
+    ) -> dict[str, Any]:
+        """Turn each ``graph_learn`` prediction into a real, typed
+        :class:`~agent_utilities.knowledge_graph.ingestion.semantic_event_model.
+        NeuralRelationPrediction` semantic event and commit it through the SAME
+        governed ``ChangeEnvelope`` ingestion path every OCEL/tEKG producer uses
+        (CONCEPT:AU-KG.ingest.semantic-event-contract) — closing the gap where
+        that model class shipped with an ontology concept and a SHACL shape but
+        ZERO producers: nothing constructed one and fed it into the ingestion
+        pipeline.
+
+        Distinct from (and additional to) the two OTHER things this same
+        prediction pass already does: the raw ``:PredictedEdge`` node
+        ``graph_learn action="predict"`` writes back itself, and the
+        CandidateInsight → Claim mining-flywheel path
+        :meth:`_run_insight_validation` runs over that finding. This is the
+        semantic-event-typed path the model class was actually built for: both
+        endpoints modeled as ``object``-kind
+        :class:`~..ingestion.semantic_event_model.BusinessObject` entries in one
+        validated :class:`~..ingestion.semantic_event_model.
+        ObjectCentricGraphSlice`, committed via
+        :func:`~..ingestion.envelope_ingest.ingest_envelope` — the exact
+        construct → validate → ``to_change_envelope`` → ``ingest_envelope``
+        sequence every OCEL producer (:mod:`~..ingestion.ocel_adapter`) already
+        uses, reused rather than reimplemented.
+
+        Best-effort, mirroring every other sub-step in this mining pass: never
+        raises, and emits nothing (``{"emitted": 0}``) when there are no
+        above-floor predictions or no reachable engine.
+        """
+        above_floor = [
+            row
+            for row in predicted
+            if isinstance(row, dict) and row.get("src") and row.get("dst")
+        ]
+        if not above_floor or self.engine is None:
+            return {"emitted": 0}
+
+        from ..ingestion.envelope_ingest import ingest_envelope
+        from ..ingestion.semantic_event_model import (
+            BusinessObject,
+            NeuralRelationPrediction,
+            ObjectCentricGraphSlice,
+            OcelObjectType,
+            SemanticEntityRef,
+        )
+
+        try:
+            from agent_utilities.security.brain_context import current_actor
+
+            tenant = current_actor().tenant_id or "kg-mining"
+        except Exception:  # noqa: BLE001 — no ambient actor outside a request context
+            tenant = "kg-mining"
+
+        object_ids = sorted(
+            {str(row["src"]) for row in above_floor}
+            | {str(row["dst"]) for row in above_floor}
+        )
+        predictions = [
+            NeuralRelationPrediction(
+                prediction_id=f"{row['src']}->{row['dst']}",
+                subject=SemanticEntityRef(kind="object", source_id=str(row["src"])),
+                predicate="predicted_related_to",
+                object=SemanticEntityRef(kind="object", source_id=str(row["dst"])),
+                score=(score := max(0.0, min(1.0, float(row.get("score") or 0.0)))),
+                uncertainty=round(1.0 - score, 6),
+                model_ref="graphlearn:kan-link-predictor",
+                candidate_set_ref=f"graphlearn:{node_label}",
+                evidence_refs=(str(row["src"]), str(row["dst"])),
+            )
+            for row in above_floor
+        ]
+
+        try:
+            slice_ = ObjectCentricGraphSlice(
+                log_id=f"neural-relation-predictions:{node_label}",
+                source_ref="loop_controller:mine_predicted_edges",
+                mapping_version="neural-relation-prediction-1.0",
+                object_types=(OcelObjectType(name=node_label),),
+                objects=tuple(
+                    BusinessObject(object_id=object_id, object_type=node_label)
+                    for object_id in object_ids
+                ),
+                neural_predictions=tuple(predictions),
+            )
+            envelope = slice_.to_change_envelope(
+                tenant=tenant,
+                provenance={
+                    "source": "loop_controller._mine_predicted_edges",
+                    "predictor": "graphlearn:kan-link-predictor",
+                },
+            )
+            applied = ingest_envelope(self.engine, envelope)
+        except Exception as e:  # noqa: BLE001 — semantic-event emission is best-effort
+            errors.append(f"mine_predict:semantic_event: {e}")
+            return {"emitted": 0}
+
+        return {
+            "emitted": len(predictions),
+            "status": applied.get("status"),
+            "envelope_id": applied.get("envelope_id"),
+        }
 
     # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance) -- #
     def _register_derived_claim(

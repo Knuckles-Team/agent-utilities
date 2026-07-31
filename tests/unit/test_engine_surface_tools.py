@@ -920,6 +920,155 @@ def test_graph_mine_ocel_validate_live_path_uses_the_registered_process_tool(too
     assert kg_server.ACTION_TOOL_ROUTES.get("graph_mine") == "/mining/associate"
 
 
+def _ocel_document() -> dict:
+    return {
+        "eventTypes": [{"name": "create", "attributes": []}],
+        "objectTypes": [{"name": "Order", "attributes": []}],
+        "events": [
+            {
+                "id": "e1",
+                "type": "create",
+                "time": "2026-01-01T00:00:00Z",
+                "attributes": [],
+                "relationships": [{"objectId": "order-1", "qualifier": "order"}],
+            }
+        ],
+        "objects": [
+            {
+                "id": "order-1",
+                "type": "Order",
+                "attributes": [],
+                "relationships": [],
+            }
+        ],
+    }
+
+
+def test_graph_mine_ocel_mine_live_path_commits_the_change_envelope(
+    monkeypatch, tools
+):
+    """ocel_mode='mine' (the default) must not just BUILD a ChangeEnvelope and
+    discard it — it must actually commit it through the real, registered
+    ``envelope_ingest.ingest_envelope`` seam (the same one every connector
+    uses), with the real OCEL-derived entities as the payload.
+
+    Drives the real ``graph_mine`` tool end to end: only ``ingest_envelope``
+    (the write boundary) and the low-level engine client (the mining-compute
+    boundary) are doubled — everything in between (tenant resolution, OCEL
+    import, ChangeEnvelope construction, event projection, response
+    assembly) is the genuine live code path.
+    """
+    committed: list = []
+
+    def _capture_ingest_envelope(engine, envelope):
+        committed.append((engine, envelope))
+        return {"status": "success", "watermark_advanced": True}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope",
+        _capture_ingest_envelope,
+    )
+    sentinel_engine = object()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: sentinel_engine)
+
+    calls: list = []
+    mining = SimpleNamespace(process=_recording_method(calls, "process"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-mine-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "ocel_json": _ocel_document(),
+                        "tenant": "tenant-a",
+                        "object_type": "Order",
+                        "ocel_mode": "mine",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    # The write actually happened, exactly once, against the real resolved engine,
+    # carrying the real OCEL-derived entity (not a placeholder / empty payload).
+    assert len(committed) == 1
+    engine_arg, envelope_arg = committed[0]
+    assert engine_arg is sentinel_engine
+    assert envelope_arg.connector == "ocel"
+    assert envelope_arg.tenant == "tenant-a"
+    entities = envelope_arg.typed_payload["entities"]
+    assert any(
+        e.get("source_record_id") == "order-1" or e.get("id") == "order-1"
+        for e in entities
+    )
+
+    # The write outcome is surfaced, not swallowed, and the rest of the mine
+    # flow (projection + mining dispatch) still ran afterward.
+    assert out["tekg"]["write_status"] == "success"
+    assert "code" not in out
+    assert calls and calls[0][0] == "process"
+    assert out["projection"]["object_type"] == "Order"
+
+
+def test_graph_mine_ocel_mine_live_path_surfaces_a_failed_commit(monkeypatch, tools):
+    """A rejected/failed ``ingest_envelope`` commit must be reported back, not
+    silently discarded the way the pre-fix code discarded every commit."""
+
+    def _reject_ingest_envelope(engine, envelope):
+        return {"status": "rejected", "violations": ["synthetic test rejection"]}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope",
+        _reject_ingest_envelope,
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
+
+    # No mining client is wired — if the code wrongly proceeded past the
+    # failed write to the mining dispatch, this fake client (with no
+    # `mining` attribute) would surface as a degraded mining call, not the
+    # expected write_failed short-circuit.
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client()
+    )
+
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-mine-reject-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "ocel_json": _ocel_document(),
+                        "tenant": "tenant-a",
+                        "ocel_mode": "mine",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    assert out["code"] == "write_failed"
+    assert out["tekg"]["write_status"] == "rejected"
+    assert "projection" not in out
+
+
 def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):
     """'entity-resolution' normalizes to 'entity_resolution' (the existing
     hyphen->underscore fold) THEN resolves via the alias map to

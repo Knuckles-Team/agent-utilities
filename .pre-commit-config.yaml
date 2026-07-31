@@ -154,6 +154,24 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: check-wire-first
+    name: Wire-First — reachable != invoked (ratchet; D-OB-9/13/16)
+    # Four sweeps in one report: (1) test files under tests/ that testpaths/CI
+    # never collect (D-OB-13a), (2) MagicMock(spec=[])/patch(create=True) sites
+    # in tests/ (D-OB-13b, informational), (3) except-ImportError handlers that
+    # silently no-op instead of visibly skipping (D-OB-16, informational), and
+    # (4) public agent_utilities/ classes/functions/methods referenced ONLY
+    # from tests/ — no non-test caller (D-OB-9). (1) and (4) are ratcheted
+    # against scripts/wire_first_baseline.json: this is a large pre-existing
+    # backlog (see the audit in the lane's final report), so — matching
+    # check-swallowed-errors above — only a NEW entry beyond the frozen
+    # baseline fails the commit; the existing backlog burns down over time via
+    # `--update-wire-first-baseline` after a genuine fix, never to silence a
+    # regression.
+    entry: python3 scripts/check_wiring.py --wire-first-report
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-skill-name-collision
     name: Skill names globally unique across the fleet (install-all, no overlap)
     entry: python3 scripts/check_skill_name_collision.py

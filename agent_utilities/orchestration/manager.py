@@ -28,7 +28,16 @@ from agent_utilities.orchestration.response_format import (
     ResponseFormat,
     validate_response_format,
 )
-from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
+from agent_utilities.security.guardrails import (
+    ContentFilterPolicy,
+    CostBudgetPolicy,
+    PolicyEngine,
+    PolicyViolation,
+)
+from agent_utilities.security.threat_defense_engine import (
+    PromptInjectionPolicy,
+    PromptInjectionScanner,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -163,21 +172,36 @@ class Orchestrator:
         self.engine = engine
         self.compiler = WorkflowCompiler(self.engine)
         self.scanner = PromptInjectionScanner()
+        # CONCEPT:AU-OS.safety.policy-guardrails — every dispatched task now runs
+        # through the unified guardrails.PolicyEngine, not just the raw scanner.
+        # Previously PolicyEngine (and its PromptInjectionPolicy/ContentFilterPolicy/
+        # CostBudgetPolicy rules) was importable and unit-tested but never invoked
+        # on any live path — only referenced in docstring examples and re-exported
+        # from ``security/__init__.py`` (Wire-First: reachable != invoked). Reuses
+        # ``self.scanner`` so the prompt-injection adapter doesn't duplicate the
+        # regex compile the raw scanner already did.
+        self._policy_engine = PolicyEngine()
+        self._policy_engine.register(PromptInjectionPolicy(scanner=self.scanner))
+        self._policy_engine.register(ContentFilterPolicy())
+        self._policy_engine.register(CostBudgetPolicy())
 
     def _scan_task(self, task: str) -> None:
-        """Scan a task for prompt injection or malicious intent.
+        """Scan a task for prompt injection, PII/content-filter hits, and cost-budget overrun.
 
-        Uses the scanner's real ``scan_text`` API (pure regex, microseconds). The
-        previous ``hasattr(self.scanner, "analyze")`` guard always evaluated False —
-        ``PromptInjectionScanner`` exposes ``scan_text``/``scan_conversation``, never
-        ``analyze`` — so this gate silently never fired (dead code).
+        Runs the dispatched task text through the unified :class:`PolicyEngine`
+        (guardrails.py) so every ``dispatch_task``/``execute_agent``/
+        ``execute_workflow`` call is gated by the SAME policy rules the engine
+        exists to enforce, not just prompt-injection detection. A blocking
+        violation from any registered rule raises, just like the previous
+        scanner-only check did.
         """
-        result = self.scanner.scan_text(task)
-        if result.is_malicious:
+        try:
+            self._policy_engine.evaluate(input_text=task, raise_on_block=True)
+        except PolicyViolation as exc:
+            reasons = "; ".join(f"{v.policy_name}: {v.reason}" for v in exc.violations)
             raise ValueError(
-                "Security Alert: Task rejected due to detected prompt "
-                f"injection/threat. Details: {result.explanation}"
-            )
+                f"Security Alert: Task rejected by policy engine. Details: {reasons}"
+            ) from exc
 
     async def dispatch_task(
         self, task: str, dependencies: list[str] | None = None

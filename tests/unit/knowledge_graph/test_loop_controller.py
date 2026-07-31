@@ -242,6 +242,89 @@ def test_mine_discovery_association_rule_and_link_prediction(monkeypatch):
     assert rep["errors"] == []
 
 
+def test_mine_predicted_edges_emits_real_neural_relation_prediction_live_path(
+    monkeypatch,
+):
+    """CONCEPT:AU-KG.ingest.semantic-event-contract — before this wiring,
+    ``NeuralRelationPrediction`` had a model class, an ontology concept, and a
+    SHACL shape but ZERO producers: nothing outside ``tests/`` constructed one
+    and fed it into the ingestion pipeline. This drives the REAL
+    ``_mine_predicted_edges`` link-prediction pass end to end (mocking only the
+    ``_invoke``/``ingest_envelope`` boundaries, same as the sibling test above)
+    and asserts a real ``NeuralRelationPrediction`` was constructed, wrapped in
+    a real ``ObjectCentricGraphSlice``, and committed as a real
+    ``ChangeEnvelope`` — not a standalone unit test of the semantic-event
+    model."""
+    import json as _json
+
+    import agent_utilities.mcp.tools.engine_surface_tools as engine_surface_tools
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    def fake_invoke(*, surface, action, graph, candidates, params):
+        if surface == "mining" and action == "associate":
+            return _json.dumps(
+                {"surface": "mining", "action": "associate", "result": {"rules": []}}
+            )
+        if surface == "mining" and action == "anomaly":
+            return _json.dumps(
+                {"surface": "mining", "action": "anomaly", "result": {"rows": []}}
+            )
+        if surface == "graphlearn" and action == "fit":
+            return _json.dumps(
+                {
+                    "surface": "graphlearn",
+                    "action": "fit",
+                    "result": {"model": {"basis": "chebyshev"}, "n_nodes": 3},
+                }
+            )
+        if surface == "graphlearn" and action == "predict":
+            return _json.dumps(
+                {
+                    "surface": "graphlearn",
+                    "action": "predict",
+                    "result": {
+                        "predicted": [
+                            {"src": "concept:cA", "dst": "concept:cC", "score": 0.9}
+                        ]
+                    },
+                }
+            )
+        raise AssertionError(f"unexpected invoke {surface}/{action}")
+
+    monkeypatch.setattr(engine_surface_tools, "_invoke", fake_invoke)
+
+    captured_envelopes = []
+
+    def fake_ingest_envelope(engine, envelope):
+        captured_envelopes.append(envelope)
+        return {"status": "success", "envelope_id": envelope.envelope_id}
+
+    monkeypatch.setattr(envelope_ingest, "ingest_envelope", fake_ingest_envelope)
+
+    eng = _StubEngine([], [])
+    rep = LoopController(eng)._run_mine_discovery()
+
+    events = rep["predicted_edges"]["semantic_events"]
+    assert events["emitted"] == 1
+    assert events["status"] == "success"
+    assert rep["errors"] == []
+
+    assert len(captured_envelopes) == 1
+    envelope = captured_envelopes[0]
+    assert envelope.connector == "ocel"
+    entities = envelope.typed_payload["entities"]
+    neural_entities = [e for e in entities if e["node_type"] == "NeuralRelationPrediction"]
+    assert len(neural_entities) == 1
+    neural_entity = neural_entities[0]
+    assert neural_entity["prediction_score"] == 0.9
+    assert neural_entity["decision_status"] == "proposed"
+    assert neural_entity["evidence_refs"] == ["concept:cA", "concept:cC"]
+    business_objects = {
+        e["source_record_id"] for e in entities if e["node_type"] == "BusinessObject"
+    }
+    assert business_objects == {"concept:cA", "concept:cC"}
+
+
 def test_mine_discovery_degrades_cleanly_on_mining_error(monkeypatch):
     """When the engine build has no mining surface (or the call otherwise fails),
     ``_invoke`` returns an error payload as data (never raises) — the mining stage

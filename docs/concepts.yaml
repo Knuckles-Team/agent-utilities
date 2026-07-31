@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1059
+total_concepts: 1060
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4065,6 +4065,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/ocel_adapter.py
   - agent_utilities/knowledge_graph/ingestion/semantic_event_model.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: OCEL is an interchange format
 - id: AU-KG.ingest.skill-workflow-corpus
   name: ingest the universal-skills workflow corpus as
@@ -6511,13 +6512,13 @@ concepts:
   - agent_utilities/agent/factory.py
   doc: warm-share the SkillsToolset across the fan-out cohort
 - id: AU-ORCH.dispatch.worker-scheduling
-  name: AU-ORCH.dispatch.worker-scheduling
+  name: gate the claim through the
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
-  doc: AU-ORCH.dispatch.worker-scheduling
+  doc: gate the claim through the
 - id: AU-ORCH.execution.active-subagent-lifecycle
   name: Subagent Lifecycle Patterns
   pillar: AU-ORCH
@@ -7299,6 +7300,7 @@ concepts:
   - agent_utilities/graph/reasoning/state.py
   - agent_utilities/graph/reasoning/topology.py
   - agent_utilities/graph/reasoning/tot.py
+  - agent_utilities/mcp/tools/agent_execution_tools.py
   - agent_utilities/models/knowledge_graph.py
   doc: reasoning algorithms as versioned graph topologies
 - id: AU-ORCH.planning.recursion-nesting-depth
@@ -8960,6 +8962,13 @@ concepts:
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/security/tool_guard.py
   doc: real-time argument analysis, unchanged
+- id: AU-OS.safety.policy-guardrails
+  name: every dispatched task now runs
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/manager.py
+  doc: every dispatched task now runs
 - id: AU-OS.safety.prompt-injection-scanner
   name: Prompt Injection Scanner
   pillar: AU-OS

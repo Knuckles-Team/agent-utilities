@@ -1550,9 +1550,11 @@ def register_engine_surface_tools(mcp) -> None:
             "object-centric perspective without an LLM. Or provide a governed "
             "'ocel_json' JSON-OCEL 2.0 document with an authorized 'tenant', "
             "optional source_ref/mapping_version/provenance transport metadata, and "
-            "ocel_mode='mine' (default) or 'validate'. OCEL import validates source truth, exports a "
-            "canonical deterministic OCEL document, and returns a tenant-scoped tEKG "
-            "ChangeEnvelope plan; it never silently writes source truth. Event projection "
+            "ocel_mode='mine' (default) or 'validate'. Both modes validate source truth and export "
+            "a canonical deterministic OCEL document plus a tenant-scoped tEKG ChangeEnvelope plan. "
+            "'mine' additionally COMMITS that ChangeEnvelope via the same native ingest_envelope path "
+            "every connector uses (governed, atomic, idempotent replay) before mining the projected "
+            "traces; 'validate' returns the plan without writing it. Event projection "
             "writeback is fail-closed until the native ProcessModel can retain source-event lineage. "
             "Trace writeback (+ 'process_id') ⇒ :ProcessModel node. "
             "• root_cause — bounded-depth ('max_hops'), decaying ('decay') backward "
@@ -1685,6 +1687,9 @@ def register_engine_surface_tools(mcp) -> None:
                         "error": "provide OCEL input instead of events or traces",
                     }
                 )
+            from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+                ingest_envelope,
+            )
             from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
                 project_object_centric_slice,
             )
@@ -1729,6 +1734,37 @@ def register_engine_surface_tools(mcp) -> None:
                         {
                             "surface": "mining",
                             "action": action,
+                            "ocel": exported,
+                            "tekg": evidence,
+                        },
+                        default=_json_default,
+                    )
+                # 'mine' actually COMMITS the governed ChangeEnvelope this branch built —
+                # the same native ``ingest_envelope`` path every connector (leanix,
+                # document_processing, feed_sources, ...) uses to apply a ChangeEnvelope.
+                # Previously the envelope was built, mined into `evidence`, and discarded:
+                # OCEL source truth never reached the graph on the default mode.
+                try:
+                    write_engine = kg_server._get_engine()
+                    write_result = ingest_envelope(write_engine, envelope)
+                except Exception as exc:  # noqa: BLE001 — write-path failure degrades, never crashes graph_mine
+                    return _surface_error(
+                        exc,
+                        surface="mining",
+                        action=action,
+                        code="dependency_unavailable",
+                    )
+                evidence["write_status"] = write_result.get("status")
+                if write_result.get("status") not in {"success", "skipped"}:
+                    return json.dumps(
+                        {
+                            "surface": "mining",
+                            "action": action,
+                            "code": "write_failed",
+                            "error": (
+                                "governed OCEL ChangeEnvelope commit failed: "
+                                f"{write_result.get('status')}"
+                            ),
                             "ocel": exported,
                             "tekg": evidence,
                         },

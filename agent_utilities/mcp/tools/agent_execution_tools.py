@@ -6,11 +6,156 @@ import hashlib
 import json
 from typing import Any
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import public_error_text
+
+
+class ReasoningStepOutput(BaseModel):
+    """One LLM-produced step of a :mod:`agent_utilities.graph.reasoning` run.
+
+    ``summary`` is a short one-line SUMMARY of this step's reasoning (never
+    the raw private chain-of-thought — matches the truthfulness contract
+    :meth:`~agent_utilities.graph.reasoning.state.ReasoningState.
+    append_rationale` documents). ``content`` is the next intermediate
+    thought, or — when ``is_final`` — the final answer text.
+    """
+
+    summary: str
+    content: str
+    is_final: bool
+
+
+def _reasoning_step_fn(agent: Any, task: str):
+    """Build a CoT/self-consistent-CoT ``StepFn`` driven by a real LLM agent.
+
+    Shared by both topologies :func:`_run_reasoning_topology` supports: each
+    call renders the running :class:`~agent_utilities.graph.reasoning.state.
+    ReasoningState` (its accumulated rationale summaries + the deepest node's
+    content so far) into a prompt, runs the agent for exactly one step, and
+    returns the ``(summary, content, is_final)`` tuple
+    :func:`agent_utilities.graph.reasoning.cot.run_cot`/``run_self_consistent_cot``
+    require. ``agent is None`` (no reachable model) degrades to an immediate,
+    honest single-step termination rather than looping forever with no model.
+    """
+    from agent_utilities.core.event_loop import run_sync_isolated
+
+    def step_fn(state: Any) -> tuple[str, str, bool]:
+        if agent is None:
+            return "no reachable model", task, True
+        history = "\n".join(f"- {s}" for s in state.rationale_summary[-8:])
+        prior_content = ""
+        if state.nodes:
+            prior_content = max(state.nodes.values(), key=lambda n: n.depth).content
+        prompt = (
+            f"QUESTION:\n{task}\n\n"
+            f"REASONING SO FAR ({len(state.nodes)} node(s)):\n"
+            f"{history or '(none yet)'}\n\n"
+            f"MOST RECENT CONTENT:\n{prior_content or '(none — this is the first step)'}\n\n"
+            "Produce the NEXT reasoning step. Set is_final=true only once "
+            "'content' IS the final answer."
+        )
+        try:
+            result = run_sync_isolated(lambda: agent.run_sync(prompt))
+            step: ReasoningStepOutput = result.output
+            return step.summary, step.content, bool(step.is_final)
+        except Exception as exc:  # noqa: BLE001 — a failed step ends the chain honestly
+            return f"reasoning step failed: {exc}", prior_content or task, True
+
+    return step_fn
+
+
+async def _run_reasoning_topology(
+    engine: Any,
+    *,
+    topology: str,
+    task: str,
+    num_samples: int,
+    loop_budget: int,
+) -> dict[str, Any]:
+    """Run a real :mod:`agent_utilities.graph.reasoning` topology over ``task``.
+
+    CONCEPT:AU-ORCH.planning.reasoning-graph-topologies — the live entry point
+    the reasoning-topology package lacked (built + unit-tested, zero live
+    callers). Drives the real ``run_cot``/``run_self_consistent_cot`` entry
+    points with an LLM-backed step function (:func:`_reasoning_step_fn`), then
+    registers/updates the run as a versioned, graph-addressable topology
+    resource through :mod:`agent_utilities.graph.reasoning.topology`'s own
+    API (:func:`~.topology.register_topology`, :func:`~.topology.
+    record_topology_outcome`) — the SAME best-effort, engine-optional pattern
+    :class:`agent_utilities.graph.topology_engine.TopologyEngine` already uses
+    for team-composition topologies, reused here rather than reimplemented.
+    """
+    from agent_utilities.core.config import DEFAULT_KG_MODEL_ID, DEFAULT_LLM_PROVIDER
+    from agent_utilities.core.contextual_model import create_context_agent
+    from agent_utilities.core.model_factory import create_model
+    from agent_utilities.graph.reasoning import (
+        COT_SPEC,
+        SELF_CONSISTENT_COT_SPEC,
+        Budgets,
+        record_topology_outcome,
+        register_topology,
+        run_cot,
+        run_self_consistent_cot,
+    )
+
+    try:
+        model = create_model(
+            provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
+        )
+    except Exception:
+        model = None
+
+    agent = None
+    if model is not None:
+        try:
+            agent = create_context_agent(
+                model=model,
+                output_type=ReasoningStepOutput,
+                system_prompt=(
+                    "You are one step in a graph-of-thought reasoning process "
+                    "toward answering a question. Given the question and the "
+                    "reasoning accumulated so far, produce ONLY the next "
+                    "reasoning step."
+                ),
+            )
+        except Exception:
+            agent = None
+
+    step_fn = _reasoning_step_fn(agent, task)
+    budgets = Budgets(loop_budget=max(1, loop_budget))
+
+    if topology == "self_consistent_cot":
+        spec = SELF_CONSISTENT_COT_SPEC
+        state, proof, answer = run_self_consistent_cot(
+            step_fn, question=task, num_samples=max(1, num_samples), budgets=budgets
+        )
+    else:
+        spec = COT_SPEC
+        state, proof = run_cot(step_fn, question=task, budgets=budgets)
+        terminal = next((n for n in state.nodes.values() if n.is_terminal), None)
+        answer = terminal.content if terminal is not None else ""
+
+    clean_success = bool(proof.success) and not proof.degraded
+    register_topology(engine, spec)
+    record_topology_outcome(
+        engine,
+        spec.topology_id,
+        success=proof.success,
+        quality_score=0.8 if clean_success else 0.0,
+        proof=proof,
+    )
+
+    return {
+        "topology": spec.name,
+        "topology_id": spec.topology_id,
+        "answer": answer,
+        "node_count": len(state.nodes),
+        "rationale_summary": list(state.rationale_summary),
+        "termination": proof.as_report(),
+    }
 
 
 async def _run_swarm(
@@ -94,14 +239,18 @@ def register_agent_execution_tools(mcp: Any) -> None:
             "Execute graph-grounded agent collectives. Actions: 'swarm' performs governed "
             "goal decomposition and parallel-wave synthesis; 'computer_use' drives a GUI "
             "sandbox; 'synthesize_org' builds a staffed runtime org; 'run_org' executes its "
-            "WorkItem DAG. Single-agent delegation remains graph_orchestrate."
+            "WorkItem DAG; 'reason' runs a versioned graph/reasoning topology (CoT or "
+            "self-consistent CoT — CONCEPT:AU-ORCH.planning.reasoning-graph-topologies) "
+            "over 'task' via a real LLM step function, then registers/updates the run as "
+            "a graph-addressable topology resource. Single-agent delegation remains "
+            "graph_orchestrate."
         ),
-        tags=["graph-os", "agents", "swarm", "computer-use", "org"],
+        tags=["graph-os", "agents", "swarm", "computer-use", "org", "reasoning"],
     )
     async def graph_agents(
         action: str = Field(
             default="swarm",
-            description="swarm | computer_use | synthesize_org | run_org",
+            description="swarm | computer_use | synthesize_org | run_org | reason",
         ),
         task: str = Field(default="", description="Goal or GUI task."),
         context: str = Field(default="", description="Curated swarm context."),
@@ -118,6 +267,15 @@ def register_agent_execution_tools(mcp: Any) -> None:
             default="{}",
             description="JSON options; org actions accept {domains:[...]}.",
         ),
+        topology: str = Field(
+            default="cot",
+            description="reason only: 'cot' | 'self_consistent_cot'.",
+        ),
+        num_samples: int = Field(
+            default=3,
+            ge=1,
+            description="reason only: self_consistent_cot sample count.",
+        ),
     ) -> str:
         engine = kg_server._get_engine()
         if engine is None:
@@ -133,6 +291,26 @@ def register_agent_execution_tools(mcp: Any) -> None:
                         context=context,
                         context_ref=context_ref,
                         max_fan_out=max_fan_out,
+                    ),
+                    default=str,
+                )
+
+            if action == "reason":
+                if not task:
+                    raise ValueError("task is required for reason")
+                topology_norm = (topology or "cot").strip().lower()
+                if topology_norm not in {"cot", "self_consistent_cot"}:
+                    raise ValueError(
+                        f"unknown topology {topology_norm!r} for reason; "
+                        "choose 'cot' or 'self_consistent_cot'"
+                    )
+                return json.dumps(
+                    await _run_reasoning_topology(
+                        engine,
+                        topology=topology_norm,
+                        task=task,
+                        num_samples=num_samples,
+                        loop_budget=max_steps,
                     ),
                     default=str,
                 )
