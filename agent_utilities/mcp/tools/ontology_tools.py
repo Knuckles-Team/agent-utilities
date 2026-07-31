@@ -606,7 +606,7 @@ def register_ontology_tools(mcp):
             default="list",
             description=(
                 "load | list | get | update | delete | validate | activate | deactivate | "
-                "sync_packages | publish_stardog | import_stardog."
+                "deprecate | undeprecate | sync_packages | publish_stardog | import_stardog."
             ),
         ),
         source: str = Field(
@@ -632,6 +632,10 @@ def register_ontology_tools(mcp):
         active_only: bool = Field(
             default=False,
             description="For action='list': only ontologies currently active for reasoning.",
+        ),
+        deprecated_only: bool = Field(
+            default=False,
+            description="For action='list': only ontologies marked deprecated (advisory; independent of active_only).",
         ),
         drop_inferences: bool = Field(
             default=False,
@@ -755,6 +759,7 @@ def register_ontology_tools(mcp):
                 return json.dumps(
                     lc.list_ontologies(
                         active_only=bool(active_only),
+                        deprecated_only=bool(deprecated_only),
                         search=search,
                         category=category,
                         source_type=filter_source_type,
@@ -837,6 +842,17 @@ def register_ontology_tools(mcp):
                 return json.dumps(
                     lc.set_active(
                         iri, version=version or None, active=(action == "activate")
+                    ),
+                    default=str,
+                )
+            if action in ("deprecate", "undeprecate"):
+                if not iri:
+                    return json.dumps({"error": f"{action} requires `iri`"})
+                return json.dumps(
+                    lc.set_deprecated(
+                        iri,
+                        version=version or None,
+                        deprecated=(action == "deprecate"),
                     ),
                     default=str,
                 )
