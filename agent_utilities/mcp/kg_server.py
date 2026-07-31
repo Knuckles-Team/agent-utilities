@@ -4171,6 +4171,48 @@ def _configure_telemetry_engine_otel() -> None:
         )
 
 
+def _preflight_mcp_sdk_floor() -> None:
+    """Fail startup loudly when the installed MCP SDK is below the declared floor.
+
+    CONCEPT:AU-ECO.mcp.protocol-compat-bridge — closes D-OB-18.
+
+    The category defect this exists for is that source-vs-installed divergence was
+    INVISIBLE: graph-os source targeting fastmcp 4 / mcp 2 ran for weeks on an image
+    that shipped fastmcp 3.4.5 / mcp 1.29.0, and the only symptom was a single ERROR
+    log line as `attach_fleet_loader` lost every fleet meta-tool to
+    ``ImportError: cannot import name 'MCPError'``. A rebuilt image with no assertion
+    just resets that clock, so the assertion runs here, at startup, as well as at
+    image-build time.
+
+    Enforcement is a hook, not a hardcoded policy: ``MCP_SDK_FLOOR_ENFORCE`` selects
+    ``error`` (default — refuse to start, because a graph-os that silently loses its
+    fleet surface is worse than one that will not come up) or ``warn`` (log and
+    continue, for an operator who is knowingly running a mismatched pair during a
+    migration).
+    """
+    from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor
+
+    result = check_mcp_sdk_floor()
+    if result["ok"] is True:
+        logger.info("MCP SDK floor OK: %s", result["detail"])
+        return
+    if result["ok"] is None:
+        logger.warning("MCP SDK floor check skipped: %s", result["detail"])
+        return
+
+    mode = os.environ.get("MCP_SDK_FLOOR_ENFORCE", "error").strip().lower()
+    message = (
+        f"installed MCP SDK does not satisfy the declared [mcp] floor: {result['detail']}. "
+        "The runtime image and this source tree have diverged — rebuild the image "
+        "(docker/graphos-unified.Dockerfile) so its dependency closure matches the "
+        "source it serves. Set MCP_SDK_FLOOR_ENFORCE=warn to start anyway."
+    )
+    if mode == "warn":
+        logger.error("graph-os starting with a mismatched MCP SDK: %s", message)
+        return
+    raise RuntimeError(message)
+
+
 def mcp_server() -> None:
     """``graph-os`` MCP server entry point (registered as console_scripts).
 
@@ -4185,6 +4227,7 @@ def mcp_server() -> None:
     from agent_utilities.core.config import load_config
 
     load_config()  # resolve settings through the one shared XDG config.json
+    _preflight_mcp_sdk_floor()
     _configure_graphos_otel()
     _configure_telemetry_engine_otel()
     os.environ["IS_KG_SERVER"] = "true"
