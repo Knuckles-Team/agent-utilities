@@ -11,8 +11,18 @@ import re
 from typing import Any
 
 from ..base import GraphBackend, coerce_cypher_property
+from ..mirror_target import (
+    MirrorTarget,
+    cypher_target_has_data,
+    resolve_mirror_target,
+)
 
 logger = logging.getLogger(__name__)
+
+# FalkorDB's isolation unit is a **graph key** in the Redis keyspace — there is no
+# server-side "default graph", so this name plays that role when a connection
+# names none (CONCEPT:AU-KG.backend.mirror-target-graph).
+DEFAULT_GRAPH_KEY = "agent_graph"
 
 # FalkorDB's query-parameter parser rejects strings containing C0/C1 control
 # characters (e.g. \x01 from PDF/binary text extraction) with "Failed to parse
@@ -43,16 +53,42 @@ class FalkorDBBackend(GraphBackend):
     """FalkorDB backend for the unified graph."""
 
     def __init__(
-        self, host: str = "localhost", port: int = 6379, db_name: str = "agent_graph"
+        self,
+        host: str = "localhost",
+        port: int = 6379,
+        db_name: str | None = None,
+        *,
+        mirror_target: MirrorTarget | None = None,
     ):
         if FalkorDB is None:
             raise ImportError(
                 "FalkorDB driver is not installed. Please install with `pip install agent-utilities[falkordb]`"
             )
-        self.db_name = db_name
+        # CONCEPT:AU-KG.backend.mirror-target-graph — FalkorDB is graph-per-key, so
+        # the resolved target IS the key handed to ``select_graph``. A key springs
+        # into existence on its first write, so a dedicated target needs no
+        # creation step (``ensure_mirror_target`` is a no-op by omission).
+        self.mirror_target = mirror_target or resolve_mirror_target(
+            None,
+            backend_type="falkordb",
+            named_selector=db_name,
+            default_name=DEFAULT_GRAPH_KEY,
+        )
+        self.db_name = self.mirror_target.name or DEFAULT_GRAPH_KEY
         self.client = FalkorDB(host=host, port=port)
-        self.graph = self.client.select_graph(db_name)
+        self.graph = self.client.select_graph(self.db_name)
         logger.info("Initialized FalkorDB backend")
+
+    # ------------------------------------------------------------------
+    # Mirror target (CONCEPT:AU-KG.backend.mirror-target-graph)
+    # ------------------------------------------------------------------
+    def mirror_target_locator(self) -> str:
+        """Name the resolved target the way a FalkorDB operator would."""
+        return f"{self.mirror_target.describe()} — FalkorDB graph key {self.db_name!r}"
+
+    def mirror_target_has_data(self) -> bool:
+        """Whether the selected FalkorDB graph key already holds nodes."""
+        return cypher_target_has_data(self)
 
     def execute(
         self,

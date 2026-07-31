@@ -40,6 +40,8 @@ from typing import Any
 
 from agent_utilities.core.config import setting
 
+from .mirror_target import MirrorTargetRefused, preflight_mirror_target
+
 logger = logging.getLogger(__name__)
 
 # Most-recent per-mirror construction outcome (CONCEPT:AU-KG.backend.mirror-health-repair),
@@ -61,11 +63,21 @@ def get_mirror_build_status() -> dict[str, dict[str, Any]]:
 
 
 def _record_mirror_status(
-    name: str, backend_type: str, *, ok: bool, reason: str | None = None
+    name: str,
+    backend_type: str,
+    *,
+    ok: bool,
+    reason: str | None = None,
+    refused: bool = False,
 ) -> None:
     entry: dict[str, Any] = {"backend_type": backend_type, "ok": ok}
     if reason:
         entry["reason"] = reason
+    if refused:
+        # CONCEPT:AU-KG.backend.mirror-nonempty-default-guard — an operator
+        # misconfiguration the guard stopped, not a transient outage; surfaced
+        # separately so a health check can say "fix the config", not "retry".
+        entry["refused"] = True
     with _MIRROR_STATUS_LOCK:
         _MIRROR_BUILD_STATUS[name] = entry
 
@@ -268,6 +280,33 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def _resolve_mirror_target(
+    kwargs: dict[str, Any],
+    *,
+    backend_type: str,
+    named_selector: str | None,
+    default_name: str | None = None,
+    supported_levels: tuple[str, ...] = (),
+):
+    """Resolve one backend's mirror target from the connection spec.
+
+    CONCEPT:AU-KG.backend.mirror-target-graph — the SINGLE resolution point. Every
+    external mirror target is decided here, in the construction seam the fan-out
+    mirror set already goes through, and handed to the backend as a resolved
+    ``MirrorTarget``; no backend re-derives it. ``mirror_target`` is consumed from
+    ``kwargs`` so it never leaks on as an unknown constructor argument.
+    """
+    from .mirror_target import MIRROR_TARGET_FIELD, resolve_mirror_target
+
+    return resolve_mirror_target(
+        kwargs.pop(MIRROR_TARGET_FIELD, None),
+        backend_type=backend_type,
+        named_selector=named_selector,
+        default_name=default_name,
+        supported_levels=supported_levels,
+    )
+
+
 def _build_member(spec: dict[str, Any]):
     """Build a composite member backend WITHOUT claiming the active slot.
 
@@ -383,6 +422,31 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
 
             spec = _resolve_connection_runtime_fields(spec)
             member = _build_member(spec)
+            if member is not None:
+                # Pre-flight BEFORE the mirror can be written to: create a
+                # dedicated target if absent, and refuse a non-empty instance
+                # default (CONCEPT:AU-KG.backend.mirror-nonempty-default-guard).
+                preflight_mirror_target(name, member)
+        except MirrorTargetRefused as exc:
+            # CONCEPT:AU-KG.backend.mirror-nonempty-default-guard — the pre-flight
+            # guard refused this mirror rather than write the KG into data the
+            # instance already holds. NOT a transient outage: log the full
+            # actionable message at ERROR (it names the dedicated-graph fix and
+            # the explicit override), mark the mirror refused so the ``kg_mirrors``
+            # health check reports it distinctly, and attach nothing. The
+            # authority stays up — a misconfigured optional mirror must not take
+            # the KG down — but it is impossible to miss, and NOTHING was written.
+            logger.error(
+                "kg_connections mirror '%s' (backend_type=%s) REFUSED by the "
+                "mirror-target guard: %s",
+                name,
+                backend_type,
+                exc,
+            )
+            _record_mirror_status(
+                name, backend_type, ok=False, reason=str(exc), refused=True
+            )
+            continue
         except Exception as exc:  # noqa: BLE001 — cause-preserving, see comment below
             # An optional mirror is NOT allowed to take the operational
             # authority (or any other mirror) down with it — isolate the
@@ -569,7 +633,7 @@ def create_backend(
         backend = LadybugBackend(resolved_path)
 
     elif backend_type == "falkordb":
-        from .contrib.falkordb_backend import FalkorDBBackend
+        from .contrib.falkordb_backend import DEFAULT_GRAPH_KEY, FalkorDBBackend
 
         if host is None or port is None or db_name is None:
             raise ValueError("FalkorDB requires a complete connection profile")
@@ -577,7 +641,15 @@ def create_backend(
         resolved_port = port
         resolved_name = db_name
         backend = FalkorDBBackend(
-            host=resolved_host, port=resolved_port, db_name=resolved_name
+            host=resolved_host,
+            port=resolved_port,
+            db_name=resolved_name,
+            mirror_target=_resolve_mirror_target(
+                kwargs,
+                backend_type="falkordb",
+                named_selector=resolved_name,
+                default_name=DEFAULT_GRAPH_KEY,
+            ),
         )
 
     elif backend_type == "neo4j":
@@ -588,11 +660,19 @@ def create_backend(
         resolved_uri = uri
         resolved_user = user
         resolved_password = password
+        neo4j_database = kwargs.get("database") or db_name or None
         backend = Neo4jBackend(
             uri=resolved_uri,
             user=resolved_user,
             password=resolved_password,
-            database=(kwargs.get("database") or db_name or None),
+            database=neo4j_database,
+            # Neo4j's isolation unit is a database; ``None`` above is the
+            # driver's home database, i.e. the instance default.
+            mirror_target=_resolve_mirror_target(
+                kwargs,
+                backend_type="neo4j",
+                named_selector=neo4j_database,
+            ),
             tls_profile=kwargs.get("tls_profile"),
             tls_profile_ref=kwargs.get("tls_profile_ref"),
             tls_profile_config=kwargs.get("tls_profile_config"),
@@ -625,12 +705,21 @@ def create_backend(
         pool_min = _PG_POOL_MIN
         pool_max = _PG_POOL_MAX
         pggraph_schema = setting("GRAPH_PGGRAPH_SCHEMA", "public")
+        from .postgresql_backend import DEFAULT_GRAPH_NAME
+
         backend = _PGBackend(
             dsn=resolved_uri,
             graph_name=resolved_name,
             pool_min=pool_min,
             pool_max=pool_max,
             pggraph_schema=pggraph_schema,
+            # AGE's isolation unit is the AGE graph named here.
+            mirror_target=_resolve_mirror_target(
+                kwargs,
+                backend_type=backend_type,
+                named_selector=resolved_name,
+                default_name=DEFAULT_GRAPH_NAME,
+            ),
             tls_profile=kwargs.get("tls_profile"),
             tls_profile_ref=kwargs.get("tls_profile_ref"),
             tls_profile_config=kwargs.get("tls_profile_config"),
@@ -688,13 +777,30 @@ def create_backend(
         # standalone, as a fan-out mirror, or an ad-hoc connection. The OWL
         # *reasoning* backend (TBox + inference) is separate:
         # ``create_owl_backend('stardog')``.
-        from .sparql.stardog_backend import StardogSparqlBackend
+        from .sparql.stardog_backend import (
+            DEFAULT_DATABASE,
+            STARDOG_LEVELS,
+            StardogSparqlBackend,
+        )
 
+        stardog_database = (
+            db_name or kwargs.get("database") or setting("STARDOG_DATABASE")
+        )
         backend = StardogSparqlBackend(
             endpoint=kwargs.get("endpoint") or uri or setting("STARDOG_ENDPOINT"),
-            database=db_name or kwargs.get("database") or setting("STARDOG_DATABASE"),
+            database=stardog_database,
             username=user or kwargs.get("username") or setting("STARDOG_USER"),
             password=password or kwargs.get("password") or setting("STARDOG_PASSWORD"),
+            # Stardog is the two-level store: a dedicated target defaults to a
+            # named graph inside the configured database, and can name the
+            # database instead with ``{"mode": "dedicated", "level": "database"}``.
+            mirror_target=_resolve_mirror_target(
+                kwargs,
+                backend_type="stardog",
+                named_selector=stardog_database,
+                default_name=DEFAULT_DATABASE,
+                supported_levels=STARDOG_LEVELS,
+            ),
         )
 
     else:
