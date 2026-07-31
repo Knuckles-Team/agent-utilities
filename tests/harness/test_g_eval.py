@@ -10,7 +10,35 @@ from __future__ import annotations
 import math
 from types import SimpleNamespace
 
+from agent_utilities.core.contextual_model import (
+    _EmptyEvidenceSource,
+    use_context_compiler_engine,
+)
 from agent_utilities.harness import g_eval as ge
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext
+
+
+def _verified_session() -> GraphSession:
+    """A minimal verified ambient GraphSession -- compiled_chat_completion (which
+    _complete routes every call through) requires one; see
+    tests/unit/test_graph_session.py for the established construction pattern."""
+    actor = ActorContext(
+        actor_id="principal:g-eval-test",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("kg:read",),
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant="tenant-a",
+        scopes=frozenset({"kg:read"}),
+        graph="tenant-a-graph",
+        policy_version="policy-1",
+        audience="agent-services",
+    )
 
 
 def _logprob_choice(top: dict[str, float], content: str = ""):
@@ -50,7 +78,16 @@ def test_logprob_weighted_score(monkeypatch):
     client = _FakeClient(_logprob_choice({"5": lp5, "1": lp1}, content="5"))
     monkeypatch.setattr(ge, "_live_endpoint", lambda: (client, "fake-model"))
     ge._rubric.cache_clear()
-    score, reason = ge.GEval("t", "c").score("q", "a")
+    # _complete routes every call through compiled_chat_completion, which requires
+    # a verified ambient GraphSession (agent_utilities/knowledge_graph/core/session.py)
+    # AND a configured ContextCompiler engine (graph_session_required() is an
+    # always-True invariant, not a feature switch -- compile_model_context fails
+    # closed with no engine at all rather than silently degrading).
+    with (
+        use_session(_verified_session()),
+        use_context_compiler_engine(_EmptyEvidenceSource()),
+    ):
+        score, reason = ge.GEval("t", "c").score("q", "a")
     assert abs(score - 0.92) < 0.02
     assert "logprob-weighted" in reason
 
@@ -60,9 +97,13 @@ def test_rubric_is_cached(monkeypatch):
     monkeypatch.setattr(ge, "_live_endpoint", lambda: (client, "fake-model"))
     ge._rubric.cache_clear()
     g = ge.GEval("task-x", "criteria-y")
-    g.score("q1", "a1")
-    n_after_first = client.calls
-    g.score("q2", "a2")
+    with (
+        use_session(_verified_session()),
+        use_context_compiler_engine(_EmptyEvidenceSource()),
+    ):
+        g.score("q1", "a1")
+        n_after_first = client.calls
+        g.score("q2", "a2")
     # second score reuses the cached rubric → only ONE extra call (the score call), not two.
     assert client.calls == n_after_first + 1
 
