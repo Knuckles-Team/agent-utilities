@@ -816,6 +816,12 @@ def build_agent_app(
                         reloadable.reload() if reloadable else None
                     ),
                 }
+                # The WebUI dispatches every fleet MCP tool through a
+                # host-injected delegation seam and refuses (501) without one.
+                # CONCEPT:AU-ECO.mcp.webui-governed-mcp-delegation
+                from .webui_mcp_delegation import webui_mcp_delegation_helpers
+
+                helpers.update(webui_mcp_delegation_helpers())
 
                 # Pydantic AI always includes the Agent's configured model.
                 # Passing the same model again as a provider string would create
