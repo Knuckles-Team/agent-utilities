@@ -334,6 +334,25 @@ def _derive_tool_mode(input_schema: dict | None) -> str:
     return "verbose"
 
 
+def _privacy_safe(text: str) -> str:
+    """Redact fleet-supplied prose before it becomes graph state.
+
+    A child's tool/skill descriptions are EXTERNAL material: they routinely
+    embed absolute paths and other host detail. The native
+    ``ApplyChangeEnvelope`` commit rejects (does not redact) such inline text,
+    so a single offending description used to fail the ENTIRE fleet slice —
+    every tool and skill from every reachable server — with the unactionable
+    message "persistence privacy policy rejected inline text". Redacting here
+    mirrors what :func:`~..ingestion.skill_workflow_ingest.ingest_runnable_skill`
+    already does for skill bodies, so one noisy description degrades to a
+    redacted description instead of dropping the whole sync.
+    """
+    from ...security.persistence_privacy import PersistencePrivacyGuard
+
+    safe, _privacy = PersistencePrivacyGuard().sanitize_text(str(text or ""))
+    return safe
+
+
 def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     """Write a probed multiplexer catalog into the KG as capability nodes.
 
@@ -401,9 +420,17 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                     "id": tool_node_id,
                     "type": "Tool",
                     "name": tool_name,
-                    "description": entry.get("description", "") or "",
+                    "description": _privacy_safe(entry.get("description", "")),
                     "mcp_server": server_name,
                     "tags": [product] if product else [],
+                    # ``ToolShape`` (governance.shapes.ttl) requires minCount 1
+                    # ``capabilityCategory``, and it was never written — so the
+                    # SHACL gate rejected the WHOLE fleet slice, silently: the
+                    # rejection surfaced only as the class name "ValueError".
+                    # The category is the de-suffixed product this server
+                    # provides (``servicenow-mcp`` → ``servicenow``), falling
+                    # back to the server name so it is never empty.
+                    "capabilityCategory": product or server_name,
                     "relevance_score": 0.5,
                     "requires_approval": False,
                     "synonyms": synonyms,
@@ -423,36 +450,146 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
             if not skill_name:
                 continue
             skill_node_id = f"skill_{server_name}_{skill_name}"
-            entities.append(
-                {
-                    "id": skill_node_id,
-                    "type": "Skill",
-                    "name": skill_name,
-                    "description": entry.get("description", "") or "",
-                    "mcp_server": server_name,
-                    "tags": [product] if product else [],
-                    "relevance_score": 0.5,
-                    "requires_approval": False,
-                    "synonyms": synonyms,
-                    "kind": "mcp_skill",
-                    "source_ref": skill_reference(skill_name),
-                    "disabled": _existing_disabled(engine, skill_node_id),
-                }
-            )
+            skill_props: dict[str, Any] = {
+                "id": skill_node_id,
+                "type": "Skill",
+                "name": skill_name,
+                "description": _privacy_safe(entry.get("description", "")),
+                "mcp_server": server_name,
+                "tags": [product] if product else [],
+                "relevance_score": 0.5,
+                "requires_approval": False,
+                "synonyms": synonyms,
+                "kind": "mcp_skill",
+                "disabled": _existing_disabled(engine, skill_node_id),
+                    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
+                    # fleet skill is (or is not) runnable, recorded on the node
+                    # so the execution path can name the unmet precondition
+                    # instead of failing with a generic "not found or runnable".
+                "runnable_blocked_by": _privacy_safe(entry.get("harvest_error", "")),
+            }
+            # ``skill://<name>`` collides with the persistence-privacy policy's
+            # posix-path heuristics whenever a skill name starts with a
+            # filesystem-root token (``opt``ions-…, ``workspace``-manager,
+            # ``tmp``…, ``var``…). The native ApplyChangeEnvelope commit REJECTS
+            # such text, and a rejection fails the WHOLE slice — so six oddly
+            # named skills silently cost every tool and skill from every
+            # reachable server. Writing a redacted ref instead would be worse:
+            # it is no longer a ``skill://`` reference at all, which is the
+            # contract every ranking consumer checks. So the ref is omitted and
+            # the reason logged; the skill's canonical runnable identity comes
+            # from the promotion path, which does not use this envelope.
+            source_ref = skill_reference(skill_name)
+            if _privacy_safe(source_ref) == source_ref:
+                skill_props["source_ref"] = source_ref
+            else:
+                logger.warning(
+                    "Fleet skill %s omits its source_ref: %r trips the "
+                    "persistence privacy policy's local-path heuristic",
+                    skill_name,
+                    source_ref,
+                )
+            entities.append(skill_props)
             relationships.append(
                 {"source": server_node_id, "target": skill_node_id, "type": "SERVES"}
             )
 
+    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — promotion runs BEFORE the
+    # catalog slice write, and deliberately so. The catalog write is ONE native
+    # ChangeEnvelope over every server's every tool and skill: it is atomic, so
+    # a single rejected row (observed live: one tool description whose prose
+    # about credential handling tripped the engine's persistence-privacy policy)
+    # discards the whole slice. Making a fleet skill RUNNABLE must not be
+    # hostage to that all-or-nothing write — promotion writes per skill through
+    # ``ingest_runnable_skill`` and fails closed per skill, so one noisy
+    # description can no longer cost the entire fleet its runnable capability.
+    harvest = _promote_fleet_skills(engine, catalog)
+
+    rejected: list[str] = []
     if entities:
-        _ingest_graph_slice_via_envelope(
-            engine, "fleet", entities, relationships, source_instance="catalog"
-        )
+        rejected = _write_fleet_slice(engine, entities, relationships)
 
     return {
+        "catalog_rows_rejected": len(rejected),
+        "catalog_rejected_ids": rejected,
         "servers_written": sum(1 for item in entities if item["type"] == "MCPServer"),
         "tools_written": sum(1 for item in entities if item["type"] == "Tool"),
         "skills_written": sum(1 for item in entities if item["type"] == "Skill"),
         "unreachable": unreachable,
+        **harvest,
+    }
+
+
+def _write_fleet_slice(
+    engine: Any, entities: list[dict[str, Any]], relationships: list[dict[str, Any]]
+) -> list[str]:
+    """Write the fleet catalog slice, isolating rows the engine rejects.
+
+    The native ``ApplyChangeEnvelope`` commit is ATOMIC, so one unacceptable row
+    discards the entire slice — observed live: a single ServiceNow tool whose
+    description explains its credential handling tripped the engine's
+    persistence-privacy policy and cost every tool and skill of every reachable
+    fleet server. The engine reports rejection for the slice, not the row, and
+    that policy lives engine-side (it is NOT reproducible from the Python
+    ``PersistencePrivacyGuard``, which leaves that description unchanged), so
+    the offender can only be identified by bisection.
+
+    On rejection this halves the slice and retries, isolating each offending
+    row, dropping ONLY those, and returning their ids. Cost is O(k log n)
+    commits for k offenders — negligible when k is small, which is the case
+    this exists for. A rejected row is returned (and logged at error) so it is
+    never a silent omission.
+    """
+    def _attempt(rows: list[dict[str, Any]]) -> bool:
+        by_id = {row["id"] for row in rows}
+        edges = [
+            edge
+            for edge in relationships
+            if edge["source"] in by_id and edge["target"] in by_id
+        ]
+        try:
+            _ingest_graph_slice_via_envelope(
+                engine, "fleet", rows, edges, source_instance="catalog"
+            )
+        except Exception as exc:  # noqa: BLE001 — retried by bisection below;
+            # the final per-row failure is logged with its reason by the caller.
+            logger.debug(
+                "fleet catalog slice of %d row(s) rejected (%s: %s)",
+                len(rows),
+                type(exc).__name__,
+                exc,
+            )
+            return False
+        return True
+
+    def _bisect(rows: list[dict[str, Any]]) -> list[str]:
+        if not rows or _attempt(rows):
+            return []
+        if len(rows) == 1:
+            logger.error(
+                "fleet catalog row %s was REJECTED by the engine and is omitted "
+                "from the catalog; every other row was still written",
+                rows[0].get("id"),
+            )
+            return [str(rows[0].get("id"))]
+        middle = len(rows) // 2
+        return _bisect(rows[:middle]) + _bisect(rows[middle:])
+
+    return _bisect(entities)
+
+
+def _promote_fleet_skills(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
+    """Promote harvested fleet skills, reporting the outcome under its own keys."""
+    from ..ingestion.fleet_skill_harvest import promote_harvested_skills
+
+    report = promote_harvested_skills(engine, catalog)
+    return {
+        "skills_promoted": report["promoted"],
+        "skills_promoted_names": report["promoted_skills"],
+        "skills_blocked": report["blocked"],
+        "skills_blocked_detail": report["blocked_detail"],
+        "skills_promote_errors": report["errors"],
+        "skills_promote_error_detail": report["error_detail"],
     }
 
 

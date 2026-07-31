@@ -29,7 +29,16 @@ def _fake_skill_resource(uri: str, description: str = ""):
     return resource
 
 
-def _fake_session_with_resources(tools, resources):
+def _fake_resource_body(text: str):
+    """A ``resources/read`` result carrying one text content part."""
+    content = MagicMock()
+    content.text = text
+    result = MagicMock()
+    result.contents = [content]
+    return result
+
+
+def _fake_session_with_resources(tools, resources, bodies=None):
     sess = AsyncMock()
     tools_result = MagicMock()
     tools_result.tools = [_fake_tool(n, d) for n, d in tools]
@@ -37,6 +46,14 @@ def _fake_session_with_resources(tools, resources):
     resources_result = MagicMock()
     resources_result.resources = resources
     sess.list_resources = AsyncMock(return_value=resources_result)
+    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a probe now also READS
+    # each ``skill://`` body, so a fake child must serve one.
+    bodies = bodies or {}
+
+    async def _read(uri):
+        return _fake_resource_body(bodies.get(str(uri), f"# {uri}\n\nbody"))
+
+    sess.read_resource = AsyncMock(side_effect=_read)
     return sess
 
 
@@ -97,6 +114,9 @@ async def test_probe_server_captures_skill_resources_alongside_tools(tmp_path):
             "name": "onboarding",
             "uri": "skill://onboarding/SKILL.md",
             "description": "onboard a user",
+            # The body is what makes the skill promotable to a runnable
+            # resource; a name-only catalog entry never could be.
+            "instructions": "# skill://onboarding/SKILL.md\n\nbody",
         }
     ]
 

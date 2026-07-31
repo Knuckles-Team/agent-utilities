@@ -852,9 +852,10 @@ async def run_agent(
 
     if skill_name:
         if not agent_meta.get("skill_id"):
-            raise LookupError(
-                f"ingested skill '{skill_name}' was not found or runnable"
+            reason = await _call_without_blocking(
+                _skill_unrunnable_reason, engine, skill_name
             )
+            raise LookupError(f"ingested skill '{skill_name}' is not runnable: {reason}")
         if tool_server:
             agent_meta = await _call_without_blocking(
                 _bind_explicit_tool_server,
@@ -1777,6 +1778,56 @@ def _unresolved_agent_meta() -> dict[str, Any]:
         "url": "",
         "system_prompt": "",
     }
+
+
+def _skill_unrunnable_reason(
+    engine: IntelligenceGraphEngine, skill_name: str
+) -> str:
+    """Explain WHY ``skill_name`` cannot run, naming the unmet precondition.
+
+    CONCEPT:AU-ORCH.dispatch.named-runnable-precondition — "not found or
+    runnable" collapsed four very different states into one unactionable
+    message: never ingested, ingested-but-body-less, harvested-but-the-child-
+    was-unreachable, and present-but-not-dispatchable. The cross-process
+    harvest records the first unmet precondition on the ``Skill`` node
+    (``runnable_blocked_by``), so the failure can name it. Diagnostic only —
+    it never makes a skill runnable, and any failure to *read* the reason is
+    reported as such rather than masquerading as "not found".
+    """
+    try:
+        # ``backend.execute`` is the parameterized read path the rest of this
+        # module resolves agents with; ``engine.query_cypher`` does not bind a
+        # ``WHERE`` predicate the same way on every backend build.
+        rows = engine.backend.execute(
+            "MATCH (s:Skill) WHERE s.name = $name "
+            "RETURN s.runnable_blocked_by AS blocked, s.mcp_server AS server",
+            {"name": skill_name},
+        )
+    except Exception as exc:  # noqa: BLE001 — the reason lookup is diagnostic;
+        # a failure here must be REPORTED (with its cause), never silently
+        # downgraded to "not found", which would be a different claim entirely.
+        logger.warning(
+            "[ORCH-1.96] could not read the unrunnable reason for %s (%s)",
+            skill_name,
+            type(exc).__name__,
+            exc_info=True,
+        )
+        return f"its blocking precondition could not be read ({type(exc).__name__}: {exc})"
+    if not rows:
+        return (
+            "no Skill node with that name is ingested (unmet precondition "
+            "'skill_ingested')"
+        )
+    row = rows[0] or {}
+    blocked = str(row.get("blocked") or "").strip()
+    server = str(row.get("server") or "").strip()
+    where = f" served by '{server}'" if server else ""
+    if blocked:
+        return f"unmet precondition '{blocked}'{where}"
+    return (
+        f"it is ingested{where} but has no runnable CallableResource "
+        "(unmet precondition 'skill_body_served')"
+    )
 
 
 def _hydrate_skill_runnable(

@@ -249,7 +249,35 @@ def _shacl_validate_rows(
             "connector SHACL validator returned an invalid report"
         )
     if not report["conforms"]:
-        raise ValueError("connector material violates the governed ontology")
+        # Name the failing shapes. "violates the governed ontology" without the
+        # violations is unactionable: it cannot distinguish a missing required
+        # property from a bad datatype on a single row out of hundreds.
+        raise ValueError(
+            "connector material violates the governed ontology: "
+            f"{_shacl_violation_summary(report)}"
+        )
+
+
+def _shacl_violation_summary(report: dict[str, Any], *, limit: int = 5) -> str:
+    """Summarize a non-conforming SHACL report as a short, bounded string."""
+    results = report.get("results")
+    if not isinstance(results, list) or not results:
+        return str(report.get("message") or "no violation detail reported")
+    seen: list[str] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        detail = " ".join(
+            str(item[key])
+            for key in ("focusNode", "resultPath", "sourceShape", "resultMessage")
+            if item.get(key)
+        )
+        if detail and detail not in seen:
+            seen.append(detail)
+        if len(seen) >= limit:
+            break
+    extra = len(results) - len(seen)
+    return "; ".join(seen) + (f" (+{extra} more)" if extra > 0 else "")
 
 
 # ── validate ─────────────────────────────────────────────────────────────
@@ -1907,6 +1935,9 @@ def ingest_graph_slice(
         raise RuntimeError(
             "native ChangeEnvelope graph slice failed: "
             f"{result.get('error') or result.get('status')}"
+            # The rejection reason is the only actionable part of this failure;
+            # dropping it forces every caller to re-derive it from logs.
+            + (f" ({result['reason']})" if result.get("reason") else "")
         )
     return result
 
@@ -1953,8 +1984,23 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
             "reason": "authoritative native ChangeEnvelope commit is unavailable",
         }
     except (PermissionError, ValueError) as exc:
-        logger.warning("native ChangeEnvelope rejected (%s)", type(exc).__name__)
-        return {**base, "status": "rejected", "error": type(exc).__name__}
+        # The exception CLASS alone is not diagnosable: "rejected (ValueError)"
+        # is true of a bad property type, an over-long id, and a policy denial
+        # alike. Keep the message and the chained traceback, and surface the
+        # reason to the caller — a rejected envelope must say WHY it was
+        # rejected, or every caller above it reports an unactionable failure.
+        logger.warning(
+            "native ChangeEnvelope rejected (%s: %s)",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
+        return {
+            **base,
+            "status": "rejected",
+            "error": type(exc).__name__,
+            "reason": str(exc),
+        }
     except _NativeOccRetryBudgetExhausted as exc:
         logger.warning(
             "native ChangeEnvelope OCC retry budget exhausted (conflict_sequence=%s)",
@@ -1966,5 +2012,18 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
             "error": "NativeChangeEnvelopeConflictExhausted",
         }
     except Exception as exc:  # noqa: BLE001 - never fall back after native failure
-        logger.warning("native ChangeEnvelope commit failed (%s)", type(exc).__name__)
-        return {**base, "status": "failed", "error": type(exc).__name__}
+        # Same reasoning as the rejection path above: the class name alone
+        # cannot tell an operator WHICH commit failed or why. Keep the message
+        # and the chained traceback.
+        logger.warning(
+            "native ChangeEnvelope commit failed (%s: %s)",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
+        return {
+            **base,
+            "status": "failed",
+            "error": type(exc).__name__,
+            "reason": str(exc),
+        }
