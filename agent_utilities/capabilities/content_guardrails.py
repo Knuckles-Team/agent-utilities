@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Default-ON content guardrails: PII redaction, secret-leak blocking, output-schema.
+"""Default-ON content guardrails: PII redaction, secret-leak redaction, output-schema.
 
 CONCEPT:AU-OS.safety.harness-guardrails-adoption — adopts ``pydantic-ai-harness``'s
 ``InputGuardrail``/``OutputGuardrail`` capabilities (shipped in harness 0.7.0, already
@@ -34,7 +34,9 @@ second, redundant cost-budget notion.
 
 Wired as default-ON capabilities (``capabilities/composition.py``), like every other
 reliability capability here: the PII guard only redacts when a PII pattern actually
-matches, the secret-leak guard only blocks when a credential-shaped token is present,
+matches, the secret-leak guard only redacts when a credential-shaped token is present
+(D-OP-2: it used to ``block`` the whole output, which discarded legitimate answers
+containing e.g. a k8s manifest's ``stringData`` block — see :func:`_secret_leak_guard`),
 and the output-schema guard is a pure no-op when the caller passes no required keys —
 so a normal run carrying none of that content is unaffected.
 """
@@ -44,14 +46,9 @@ from typing import Any
 
 from pydantic_ai_harness import GuardrailResult, InputGuardrail, OutputGuardrail
 
-from agent_utilities.http.redaction import contains_secret
+from agent_utilities.http.redaction import contains_secret, redact_text
 from agent_utilities.security.guardrails import PiiSanitizer
 from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
-
-#: Refusal text for the secret-leak (forbidden-content) guardrail.
-SECRET_LEAK_BLOCK_MESSAGE = (
-    "Output blocked: content matches a forbidden secret/credential pattern."
-)
 
 #: Refusal prefix for the prompt-injection input guardrail (G8).
 PROMPT_INJECTION_BLOCK_PREFIX = "Input blocked: prompt-injection attempt detected."
@@ -111,11 +108,24 @@ def _pii_guard(value: object) -> GuardrailResult:
 
 
 def _secret_leak_guard(value: object) -> GuardrailResult:
-    """Block output containing a secret-shaped token (API key, DSN, PAT, ...)."""
-    text = value if isinstance(value, str) else str(value)
-    if contains_secret(text):
-        return GuardrailResult.block(SECRET_LEAK_BLOCK_MESSAGE)
-    return GuardrailResult.allow()
+    """Redact secret-shaped tokens (API key, DSN, PAT, ...) rather than block.
+
+    D-OP-2: this guard used to ``block`` the entire output outright on a
+    ``contains_secret`` hit. That made it a **true positive on legitimate
+    content** this workspace routinely asks agents to handle — a k8s
+    ``ExternalSecret``/manifest snippet such as ``"stringData:\n  secret:
+    hunter2"`` trips ``contains_secret`` and discarded the whole response, not
+    just the credential. Mirroring ``_pii_guard``, this now reuses
+    :func:`redact_text` (the same detector set as ``contains_secret``) so the
+    credential never reaches the caller while the surrounding answer survives.
+    A no-op (``allow``) for non-string values and for text with no secret
+    match.
+    """
+    if not isinstance(value, str):
+        return GuardrailResult.allow()
+    if not contains_secret(value):
+        return GuardrailResult.allow()
+    return GuardrailResult.replace(redact_text(value))
 
 
 def pii_redaction_guardrails() -> list[InputGuardrail[Any] | OutputGuardrail[Any]]:
