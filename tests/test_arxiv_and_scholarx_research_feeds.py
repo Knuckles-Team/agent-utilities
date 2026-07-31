@@ -81,9 +81,7 @@ def test_sync_arxiv_gates_and_watermarks(monkeypatch):
     assert res["details"]["items_seen"] == 3
     assert res["details"]["research"] == 3
     assert committed == [{"checkpoint": "2026-01-03T00:00:00Z"}]
-    assert connector_configs == [
-        {"categories": ["cs.AI", "cs.LG"], "max_results": 50}
-    ]
+    assert connector_configs == [{"categories": ["cs.AI", "cs.LG"], "max_results": 50}]
 
 
 def test_unknown_mcp_tool_preset_downgrades_to_skip_not_crash(monkeypatch):
