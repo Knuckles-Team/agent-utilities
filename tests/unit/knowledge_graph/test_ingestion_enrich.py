@@ -229,9 +229,19 @@ async def test_ingest_drains_enrichable_payloads_centrally(tmp_path, monkeypatch
 
     assert result.status == "success"
     assert calls and calls[0][1] == "prompt"  # the prompt payload was enriched
-    # The fake's return value doesn't include "topics" — _run_inline_enrich
-    # defaults it to 0 via counts.get("topics", 0) (CONCEPT:AU-KG.enrichment.topic-classification-topology).
-    assert result.details["enrichment"] == {"concepts": 2, "facts": 3, "topics": 0}
+    # The fake's return value doesn't include "topics"/"entities"/"claims"/
+    # "relationships"/"extraction_outcomes" — _run_inline_enrich defaults them
+    # via counts.get(..., 0/{}) (CONCEPT:AU-KG.enrichment.topic-classification-topology,
+    # CONCEPT:AU-KG.ingest.deterministic-extraction-default).
+    assert result.details["enrichment"] == {
+        "concepts": 2,
+        "facts": 3,
+        "topics": 0,
+        "entities": 0,
+        "claims": 0,
+        "relationships": 0,
+        "extraction_outcomes": {},
+    }
 
 
 @pytest.mark.asyncio

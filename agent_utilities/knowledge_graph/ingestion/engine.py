@@ -47,6 +47,18 @@ from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
+# CONCEPT:AU-ORCH.scheduling.resource-priority-edict reused (not a second priority
+# notion) to bound deterministic entity/claim extraction cost: a whole-workspace
+# ingest run is tagged BACKGROUND_INGESTION end-to-end (`engine_tasks.py`'s
+# `priority_scope(priority_for_task_type(...))`), so under that ambient priority
+# only this many enrichment windows per document get the entity/claim pass — the
+# rest are recorded BUDGET_DEFERRED (CONCEPT:AU-KG.enrichment.extraction-outcome-taxonomy),
+# never silently dropped. An INTERACTIVE/ORCHESTRATION/HYDRATION-tagged call (e.g.
+# the `graph_analyze extract_claims` MCP action) is untagged/high-priority here and
+# gets the full window budget, unbounded by this cap. One correct default
+# (Configuration discipline) — not a new env flag.
+_EXTRACTION_BACKGROUND_WINDOW_CAP = 8
+
 
 class _NativeGraphSliceCapture:
     """Thread-safe write buffer for one native enrichment graph slice.
@@ -896,7 +908,15 @@ class IngestionEngine:
         never raises into ingestion. Mutates ``result`` with the enrichment counts
         (matching the original inline behaviour) and returns them.
         """
-        enriched = {"concepts": 0, "facts": 0, "topics": 0}
+        enriched: dict[str, Any] = {
+            "concepts": 0,
+            "facts": 0,
+            "topics": 0,
+            "entities": 0,
+            "claims": 0,
+            "relationships": 0,
+            "extraction_outcomes": {},
+        }
         if not (
             result.status == "success"
             and result.enrichable
@@ -908,8 +928,17 @@ class IngestionEngine:
             enriched["concepts"] += counts["concepts"]
             enriched["facts"] += counts["facts"]
             enriched["topics"] += counts.get("topics", 0)
-        result.nodes_created += enriched["concepts"]
-        result.edges_created += enriched["facts"]
+            enriched["entities"] += counts.get("entities", 0)
+            enriched["claims"] += counts.get("claims", 0)
+            enriched["relationships"] += counts.get("relationships", 0)
+            for outcome, n in counts.get("extraction_outcomes", {}).items():
+                enriched["extraction_outcomes"][outcome] = (
+                    enriched["extraction_outcomes"].get(outcome, 0) + n
+                )
+        result.nodes_created += (
+            enriched["concepts"] + enriched["entities"] + enriched["claims"]
+        )
+        result.edges_created += enriched["facts"] + enriched["relationships"]
         result.details.setdefault("enrichment", enriched)
         return enriched
 
@@ -1025,11 +1054,31 @@ class IngestionEngine:
             # Additive, best-effort accounting back onto the owning result. Plain
             # ``+=`` is safe: each ENRICH worker is a coroutine on the one event loop,
             # so there is no concurrent-thread race — and no cross-stage lock.
-            res.nodes_created += counts["concepts"]
-            res.edges_created += counts["facts"]
-            agg = res.details.setdefault("enrichment", {"concepts": 0, "facts": 0})
+            entities = counts.get("entities", 0)
+            claims = counts.get("claims", 0)
+            relationships = counts.get("relationships", 0)
+            res.nodes_created += counts["concepts"] + entities + claims
+            res.edges_created += counts["facts"] + relationships
+            agg = res.details.setdefault(
+                "enrichment",
+                {
+                    "concepts": 0,
+                    "facts": 0,
+                    "entities": 0,
+                    "claims": 0,
+                    "relationships": 0,
+                    "extraction_outcomes": {},
+                },
+            )
             agg["concepts"] += counts["concepts"]
             agg["facts"] += counts["facts"]
+            agg["entities"] += entities
+            agg["claims"] += claims
+            agg["relationships"] += relationships
+            for outcome, n in counts.get("extraction_outcomes", {}).items():
+                agg["extraction_outcomes"][outcome] = (
+                    agg["extraction_outcomes"].get(outcome, 0) + n
+                )
 
         write_stage = Stage(
             "write",
@@ -1284,6 +1333,72 @@ class IngestionEngine:
             pass
         return written
 
+    async def _extract_entities_claims(
+        self,
+        source_id: str,
+        text: str,
+        source_type: str,
+    ) -> dict[str, Any]:
+        """Deterministic entity/claim extraction — the unified pipeline's third
+        enrichment pass (CONCEPT:AU-KG.ingest.deterministic-extraction-default).
+
+        Makes ``EntityClaimExtractor`` (previously reachable only from the
+        explicit ``graph_analyze extract_claims`` action and second-brain sync)
+        the DEFAULT generic-ingestion stage: every text-bearing ingestion funnels
+        through this seam, so codebase/document/connector content all get
+        deterministic entity/claim extraction with no per-content-type opt-in.
+
+        Cascade rule: deterministic first, LLM only for what a schema pack's
+        regex link-inference can't resolve — no generative call on this path
+        (constraint 4). Best-effort: an extractor import/construction failure is
+        recorded as a typed ``extractor_unavailable`` run rather than raised, so
+        a broken environment can never masquerade as "no facts found"
+        (CONCEPT:AU-KG.enrichment.extraction-outcome-taxonomy).
+        """
+        try:
+            from ..kb.entity_claim_extractor import EntityClaimExtractor
+        except Exception as e:  # noqa: BLE001 — import failure is a typed outcome
+            from ..kb.extraction_run import record_unavailable_run
+
+            run = record_unavailable_run(self.kg, source_id=source_id, error=str(e))
+            return {
+                "entities": 0,
+                "claims": 0,
+                "relationships": 0,
+                "outcome": run.outcome,
+            }
+
+        extractor = getattr(self, "_entity_claim_extractor", None)
+        if extractor is None:
+            extractor = EntityClaimExtractor(self.kg)
+            self._entity_claim_extractor = extractor
+        try:
+            result = extractor.extract_and_persist(
+                content=text,
+                source_id=source_id,
+                article_id=source_id,
+                domain=source_type,
+            )
+        except Exception:  # noqa: BLE001 — extraction is best-effort, never breaks ingest
+            logger.debug("entity/claim extraction failed", exc_info=True)
+            from ..kb.extraction_run import record_unavailable_run
+
+            run = record_unavailable_run(
+                self.kg, source_id=source_id, error="extract_and_persist raised"
+            )
+            return {
+                "entities": 0,
+                "claims": 0,
+                "relationships": 0,
+                "outcome": run.outcome,
+            }
+        return {
+            "entities": result.entities_persisted,
+            "claims": result.claims_persisted,
+            "relationships": result.outcome_counts.get("relationships", 0),
+            "outcome": result.outcome,
+        }
+
     async def _enrich_text(
         self,
         source_id: str,
@@ -1293,20 +1408,26 @@ class IngestionEngine:
         *,
         enrich_concepts: bool = True,
         enrich_facts: bool = True,
+        enrich_entities: bool = True,
     ) -> dict[str, int]:
         """Unified always-on intelligence layer for any text-bearing ingestion.
 
         The single seam every content type funnels text through so enrichment is
-        global, not per-adaptor bespoke (*Native by default*). Runs BOTH layers:
+        global, not per-adaptor bespoke (*Native by default*). Runs THREE layers:
 
         * **Concepts** — ``Concept`` nodes + ``MENTIONS`` + concept↔code links so
           docs/chats/prompts/skills converge on shared concepts (KG-2.8).
         * **Facts** — canonical-entity ``subject -[predicate]-> object`` triples
           persisted as typed edges that interlink the graph (KG-2.64).
+        * **Entities/claims** — deterministic regex + pack-driven extraction
+          (CONCEPT:AU-KG.ingest.deterministic-extraction-default), bound to an
+          ``ExtractionRun`` with typed outcome telemetry
+          (CONCEPT:AU-KG.enrichment.extraction-outcome-taxonomy). No generative
+          call on this path — deterministic first, per the minimal-LLM cascade.
 
-        Default-ON and woven into the flow; both layers share one lite LLM client
-        + embedder. Pure best-effort — never raises into ingestion. Returns
-        ``{'concepts': n, 'facts': m}``.
+        Default-ON and woven into the flow; the LLM-bound layers share one lite
+        LLM client + embedder. Pure best-effort — never raises into ingestion.
+        Returns ``{'concepts': n, 'facts': m, 'entities': e, 'claims': c, ...}``.
 
         Large text (a whole book is millions of tokens) is split into bounded
         windows so the LLM always sees a tractable prompt, and the number of
@@ -1390,6 +1511,66 @@ class IngestionEngine:
             )
             facts = sum(r for r in results if isinstance(r, int))
 
+        # Entities/claims (CONCEPT:AU-KG.ingest.deterministic-extraction-default) —
+        # deterministic, so no LLM slot is needed; the shared `sem` here only
+        # bounds concurrent graph-write fan-out, matching the concepts/facts
+        # passes above. Cost is instead bounded by resource priority
+        # (CONCEPT:AU-ORCH.scheduling.resource-priority-edict, reused — see
+        # `_EXTRACTION_BACKGROUND_WINDOW_CAP`): a whole-workspace background
+        # ingest run only extracts the first N windows per document; the rest
+        # are recorded BUDGET_DEFERRED, never silently skipped.
+        entities_total = 0
+        claims_total = 0
+        relationships_total = 0
+        extraction_outcomes: dict[str, int] = {}
+        if enrich_entities and windows:
+            from agent_utilities.core.resource_priority import current_priority
+
+            prio = current_priority()
+            is_background = prio is not None and prio.is_background
+            cap = (
+                min(len(windows), _EXTRACTION_BACKGROUND_WINDOW_CAP)
+                if is_background
+                else len(windows)
+            )
+            processed_windows = windows[:cap]
+            deferred_windows = windows[cap:]
+
+            async def _entities_for(window: str) -> dict[str, Any]:
+                async with sem:
+                    return await self._extract_entities_claims(
+                        source_id, window, source_type
+                    )
+
+            e_results = await asyncio.gather(
+                *(_entities_for(w) for w in processed_windows),
+                return_exceptions=True,
+            )
+            for r in e_results:
+                if not isinstance(r, dict):
+                    continue
+                entities_total += int(r.get("entities", 0))
+                claims_total += int(r.get("claims", 0))
+                relationships_total += int(r.get("relationships", 0))
+                outcome = r.get("outcome")
+                if outcome:
+                    extraction_outcomes[outcome] = (
+                        extraction_outcomes.get(outcome, 0) + 1
+                    )
+
+            if deferred_windows:
+                from ..kb.extraction_run import content_hash, record_deferred_run
+
+                for window in deferred_windows:
+                    record_deferred_run(
+                        self.kg,
+                        source_id=source_id,
+                        input_hash=content_hash(window),
+                    )
+                extraction_outcomes["budget_deferred"] = extraction_outcomes.get(
+                    "budget_deferred", 0
+                ) + len(deferred_windows)
+
         # Topic classification (CONCEPT:AU-KG.enrichment.topic-classification-topology) — default-on
         # WorldView subject/topic classification, once per document (a topic
         # assignment is a whole-document judgment, not per-window like concepts/
@@ -1437,6 +1618,10 @@ class IngestionEngine:
             "concepts": concepts,
             "facts": facts,
             "topics": topics,
+            "entities": entities_total,
+            "claims": claims_total,
+            "relationships": relationships_total,
+            "extraction_outcomes": extraction_outcomes,
             "structure": structure,
             "persisted": persisted,
         }

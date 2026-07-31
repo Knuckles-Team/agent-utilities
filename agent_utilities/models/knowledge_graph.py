@@ -197,6 +197,9 @@ class RegistryNodeType(StrEnum):
     SCHEMA_PACK = "schema_pack"
     # Entity-Claim Extraction / MAGMA Epistemic (CONCEPT:AU-KG.ingest.engineering-rules)
     CLAIM = "claim"
+    # Extraction-run provenance (CONCEPT:AU-KG.enrichment.extraction-run-provenance) — the
+    # PROV-O Activity every entity/claim `EntityClaimExtractor` persists is bound to.
+    EXTRACTION_RUN = "extraction_run"
     # Tiered Virtual Context/Memory blocks (CONCEPT:AU-KG.memory.tiered-memory-caching)
     VIRTUAL_CONTEXT_BLOCK = "virtual_context_block"
     # Quiet-STaR rationale persistence (CONCEPT:AU-KG.memory.tiered-memory-caching)
@@ -1920,6 +1923,46 @@ class ClaimNode(RegistryNode):
     extracted_from: str | None = None  # source document/article ID
     domain: str | None = None  # business or knowledge domain
     is_verified: bool = False
+
+
+class ExtractionRunNode(RegistryNode):
+    """One deterministic (or learned) extraction execution — a PROV-O ``Activity``.
+
+    CONCEPT:AU-KG.enrichment.extraction-run-provenance — Extraction Run Provenance
+
+    Mirrors ``ontology_process_intelligence.ttl``'s ``:ExtractionRun`` (``rdfs:subClassOf
+    prov:Activity``: "a deterministic or learned extraction execution bound to input
+    hash, schema version, thresholds, and metrics"). Every entity/claim
+    :class:`~agent_utilities.knowledge_graph.kb.entity_claim_extractor.EntityClaimExtractor`
+    persists is linked back to the run that produced it via ``WAS_GENERATED_BY`` (PROV-O
+    ``wasGeneratedBy``), so no extracted fact exists without a resolvable run: its
+    parser/extractor version, the schema pack in force, the calibration policy, the
+    graph epoch it was written against, and the exact outcome bucket
+    (CONCEPT:AU-KG.enrichment.extraction-outcome-taxonomy) it landed in.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.EXTRACTION_RUN
+    source_id: str
+    input_hash: str = ""
+    parser_version: str = ""
+    extractor_version: str = ""
+    schema_pack_ref: str = ""
+    #: ``None`` when the run was purely deterministic (no generative call) — the
+    #: cascade default for entity/claim extraction (CONCEPT:AU-KG.ingest.deterministic-extraction-default).
+    model_ref: str | None = None
+    graph_epoch: int = 0
+    calibration_policy: str = "none"
+    thresholds: dict[str, float] = Field(default_factory=dict)
+    outcome: str = "no_facts_found"
+    outcome_counts: dict[str, int] = Field(default_factory=dict)
+    entities_count: int = 0
+    claims_count: int = 0
+    relationships_count: int = 0
+    evidence_refs: list[str] = Field(default_factory=list)
+    started_at: str = ""
+    completed_at: str = ""
+    duration_ms: float = 0.0
+    error: str | None = None
 
 
 class VirtualContextBlockNode(RegistryNode):
