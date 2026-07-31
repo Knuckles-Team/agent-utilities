@@ -1808,6 +1808,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {"tool": "graph_jobs", "action": "dispatch", "name": "graph_jobs_dispatch"},
     {"tool": "graph_jobs", "action": "status", "name": "graph_jobs_status"},
+    {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {
         "tool": "graph_kv_checkpoint",
         "action": "create",

@@ -535,6 +535,10 @@ the same backend as they did before this wire.
 
 ## Zero-copy branch forking (default-on) + KV checkpoints
 
+> Architecture-level cross-reference: [KV-Cache-Layering Policy § Related: zero-copy
+> branch forking + KV checkpoints](../architecture/kv-cache-layering-policy.md#related-zero-copy-branch-forking-kv-checkpoints)
+> relates this to the per-request STORE decision that page covers.
+
 Two capabilities build on the `/kv/snapshot` → `/kv/snapshot/<id>/fork` →
 `/kv/branch/<bid>/<key>` primitive documented above
 (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork):

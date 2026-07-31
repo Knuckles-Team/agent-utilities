@@ -7537,11 +7537,15 @@ concepts:
   code_paths:
   - agent_utilities/agent/sampling_profile.py
   - agent_utilities/caching/prompt_cache.py
+  - agent_utilities/graph/verification.py
   - agent_utilities/harness/trace_backend.py
   - agent_utilities/harness/tracing.py
   - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/rlm/repl.py
+  - agent_utilities/skills/runtime_validation.py
   doc: an exhaustive audit of this repo found no
 - id: AU-ORCH.optimization.remote-concurrency-clamp
   name: so the adaptive ramp can NEVER push a fan-out
@@ -9268,6 +9272,8 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/models/usage.py
+  - agent_utilities/orchestration/engine.py
   - agent_utilities/usage/__init__.py
   - agent_utilities/usage/backend.py
   - agent_utilities/usage/backends/__init__.py

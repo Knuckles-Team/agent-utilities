@@ -386,6 +386,37 @@ class CrossModalForkFanout:
             _record_fork_outcome("fallback", reason="no_derivable_pages")
         return keys
 
+    def _auto_kv_page_keys(self, candidates: list[dict[str, Any]]) -> list[str]:
+        """DEFAULT-ON derivation of ``kv_page_keys`` when a caller doesn't supply real ones.
+
+        Only reached when :meth:`fan_out` was called with no explicit ``kv_page_keys``
+        AND the cohort has more than one branch (a single branch has no sharing to
+        gain). Resolves the KV backend, cheaply probes its fork-surface capability
+        (:meth:`~agent_utilities.kvcache.EpistemicGraphKVBackend.supports_fork` when the
+        backend exposes it — absent on a bare test double, which then just tries and
+        degrades naturally), and derives pages from the candidate set
+        (:func:`_derive_kv_page_keys`). Every dead end records a ``"fallback"``
+        telemetry event with the specific reason and returns ``[]`` — never raises.
+        """
+        backend = self._resolve_kv_backend()
+        if backend is None:
+            _record_fork_outcome("fallback", reason="backend_unavailable")
+            return []
+        supports = getattr(backend, "supports_fork", None)
+        if callable(supports):
+            try:
+                supported = supports()
+            except Exception as exc:  # noqa: BLE001 — probe failure ⇒ unsupported
+                logger.debug("KV-fork capability probe failed: %s", exc)
+                supported = False
+            if not supported:
+                _record_fork_outcome("fallback", reason="fork_unsupported")
+                return []
+        keys = _derive_kv_page_keys(backend, candidates)
+        if not keys:
+            _record_fork_outcome("fallback", reason="no_derivable_pages")
+        return keys
+
     def _snapshot_and_fork(
         self, kv_page_keys: Sequence[str], branch_count: int
     ) -> tuple[int | None, list[int | None], dict[str, Any]]:

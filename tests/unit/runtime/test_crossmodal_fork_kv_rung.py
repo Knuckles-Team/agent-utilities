@@ -115,6 +115,13 @@ class _FakeKvBackend:
         self.put_calls.append(key)
         return True
 
+    def supports_fork(self) -> bool:
+        return self._fork_supported
+
+    def put(self, key: str, value: bytes) -> bool:
+        self.put_calls.append(key)
+        return True
+
     def snapshot(self, keys):
         self.snapshot_calls.append(list(keys))
         return self._snapshot_id
