@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Pre-commit gate that makes two documented-but-violated rules unreachable.
+"""Pre-commit gate that makes lane-concurrency rules unreachable, not just documented.
 
 Every rule this repo has about concurrent development was already written down
 when it was broken. Documentation does not stop a commit; a gate does. This hook
-enforces exactly the two rules whose violation destroyed real work:
+enforces:
 
 1. **The canonical checkout is not a workspace.** A non-merge commit authored in
    the main worktree is refused, because uncommitted work there sits in the blast
@@ -12,14 +12,29 @@ enforces exactly the two rules whose violation destroyed real work:
    cannot yet commit it. A merge/rebase/cherry-pick in progress is the sanctioned
    canonical mutation and is detected from git's own state, and a pure version
    bump is allowed because every file it touches is declared in
-   ``.bumpversion.cfg``. Neither carve-out is a flag an agent can set.
+   ``.bumpversion.cfg``. Neither carve-out is a flag an agent can set. **Generic
+   over any repo** — see ``current_tree()`` below.
 
 2. **A generated view stays generated.** ``docs/concept_reservations.yaml`` is the
-   fold of the per-lane append-only fragments. Staging a hand-edited view is how
-   the shared ledger got clobbered in the first place, so a staged view that does
-   not match the fold is refused with the command that regenerates it.
+   fold of the per-lane append-only fragments (agent-utilities only — a no-op
+   check everywhere else, since no other repo stages that path). Staging a
+   hand-edited view is how the shared ledger got clobbered in the first place, so
+   a staged view that does not match the fold is refused with the command that
+   regenerates it.
 
-Exit code 1 = refused. Run it directly to check a tree:
+3. **A ``CARGO_TARGET_DIR`` env override defeats PARTITION.** cargo's own
+   precedence lets an exported env var beat a repo's ``.cargo/config.toml``, so a
+   stray global export (the exact hazard PARTITION exists to prevent — see
+   CONCEPT:AU-OS.governance.lane-partitioned-resources) would silently re-share
+   the target dir. This cannot be *prevented* from here (a lease only binds
+   actors that take it — same residual gap ``lanes.hold_lease`` documents), so it
+   is *detected* loudly instead: refuse the commit rather than let it pass quietly.
+
+Exit code 1 = refused. Run it directly to check the repo containing the cwd
+(the same contract pre-commit itself uses — it always runs hooks with cwd at the
+repo root of the commit being made, so THIS SAME SCRIPT is reused, unmodified,
+by every other repo's ``.pre-commit-config.yaml`` — see D-CP-3,
+``reports/deferred/lane-concurrency-protocol.md``):
 
     python3 scripts/check_lane_guard.py
 """
@@ -27,6 +42,7 @@ Exit code 1 = refused. Run it directly to check a tree:
 from __future__ import annotations
 
 import configparser
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,7 +50,6 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from agent_utilities.governance import concept_allocator as ca  # noqa: E402
 from agent_utilities.governance import lanes  # noqa: E402
 
 LEDGER_VIEW = "docs/concept_reservations.yaml"
@@ -85,8 +100,11 @@ def _check_canonical(scope: lanes.LaneScope, staged: list[str]) -> str | None:
 
 
 def _check_generated_view(tree: Path, staged: list[str]) -> str | None:
+    """agent-utilities-only: a no-op everywhere else (no other repo stages this path)."""
     if LEDGER_VIEW not in staged:
         return None
+    from agent_utilities.governance import concept_allocator as ca
+
     view = (tree / LEDGER_VIEW).read_text(encoding="utf-8")
     expected = ca.render_view_for(tree)
     if view == expected:
@@ -101,8 +119,36 @@ def _check_generated_view(tree: Path, staged: list[str]) -> str | None:
     )
 
 
+def _check_cargo_target_override(scope: lanes.LaneScope) -> str | None:
+    """Refuse a commit made with a stray ``CARGO_TARGET_DIR`` env override.
+
+    Only fires when this repo actually builds with cargo (a ``Cargo.toml`` at the
+    tree root) — every other repo skips this check entirely. See module docstring
+    point 3: this is DETECTION, not prevention (a lease only binds actors that
+    take it; an exported env var is never "taken").
+    """
+    override = os.environ.get("CARGO_TARGET_DIR", "")
+    if not override or not (scope.tree / "Cargo.toml").is_file():
+        return None
+    expected = str(lanes.partitioned_paths(scope.tree).cargo_target_dir)
+    if Path(override).expanduser().resolve() == Path(expected).resolve():
+        return None
+    return (
+        "REFUSED: CARGO_TARGET_DIR is exported to a path that is NOT this lane's\n"
+        f"  own partitioned target dir:\n"
+        f"      exported: {override}\n"
+        f"      expected: {expected}\n"
+        "  A shared/global CARGO_TARGET_DIR both serializes and CORRUPTS concurrent\n"
+        "  cargo builds across worktrees (CONCEPT:AU-OS.governance.lane-partitioned-resources).\n"
+        "  cargo's env var always wins over this repo's .cargo/config.toml, so this\n"
+        "  export would silently defeat the per-worktree binding. Unset it —\n"
+        "  `.cargo/config.toml` (target-dir = \"target-isolated\") already gives this\n"
+        "  worktree its own target dir with no export needed."
+    )
+
+
 def main() -> int:
-    tree = lanes.current_tree(REPO)
+    tree = lanes.current_tree()
     if tree is None:
         print("lane-guard: not a git working tree; nothing to check")
         return 0
@@ -113,6 +159,7 @@ def main() -> int:
         for problem in (
             _check_canonical(scope, staged),
             _check_generated_view(tree, staged),
+            _check_cargo_target_override(scope),
         )
         if problem
     ]
