@@ -516,6 +516,16 @@ def derive_caller_authority(
                 "no verified GraphSession is bound to this call "
                 f"({type(exc).__name__}: {exc})"
             )
+        if resolved_session is None:
+            # ``current_session`` returns None rather than raising when authority has
+            # been explicitly suspended. Checked here so the refusal says WHY instead of
+            # surfacing an AttributeError from the next line — the difference between an
+            # operator reading "no verified GraphSession" and reading "'NoneType' object
+            # has no attribute ...".
+            return CallerAuthority.unverified(
+                "no verified GraphSession is bound to this call (graph authority is "
+                "suspended or was never established)"
+            )
 
     resolved_delegation = delegation
     if resolved_delegation is None:
