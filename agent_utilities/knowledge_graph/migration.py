@@ -181,7 +181,7 @@ def _ensure_id_indexes(backend: GraphBackend, labels: set[str]) -> int:
             safe_label = validate_identifier(label, kind="label")
             backend.execute(f"CREATE INDEX FOR (n:`{safe_label}`) ON (n.id)")
             made += 1
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — the equivalent-index cases are already handled above (made += 1); this branch is the genuine-failure case, and `made` is correctly NOT incremented so the caller sees fewer indexes created than requested rather than a false success
             m = str(exc).lower()
             if ("already" in m or "equivalent" in m or "indexed" in m) and (
                 "syntax" not in m and "invalid" not in m

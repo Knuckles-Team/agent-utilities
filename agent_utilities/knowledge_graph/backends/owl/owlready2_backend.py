@@ -355,7 +355,7 @@ class Owlready2Backend(OWLBackend):
                 continue
             try:
                 self._preload_ttl_via_rdflib(ttl_file)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — documented non-fatal in the log message itself; this is one federated ontology file among the preload list — one bad file is skipped so the rest still load, matching how ontology federation is designed to degrade
                 logger.debug(
                     "Pre-load of %s failed (non-fatal): %s",
                     ttl_file.name,
@@ -674,7 +674,7 @@ class Owlready2Backend(OWLBackend):
         if self._world:
             try:
                 self._world.close()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — close() is best-effort cleanup on an already-successful teardown path; self._onto/self._world are nulled unconditionally on the next two lines regardless of whether close() itself raised
                 logger.debug("Failed to close owlready2 world: %s", e)
         self._onto = None
         self._world = None

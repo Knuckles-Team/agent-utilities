@@ -343,7 +343,7 @@ def gather_drift_scores(
             )
             or []
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns ([], []) (the documented empty-scores case) — the same shape returned when the query legitimately finds no drift-scored entities
         logger.debug("placement_mining: drift-score query failed: %s", e)
         return [], []
 
@@ -900,7 +900,7 @@ def _shard_load_skew_measurement() -> dict[str, float]:
             "",
         )
         payload = json.loads(raw)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns {} (the documented 'no measurement' case) — every caller below already checks payload.get(...)/isinstance(..., dict) before use, so an empty dict here is handled identically to a real empty measurement
         logger.debug("placement_mining: shard load-skew measurement failed: %s", e)
         return {}
     if isinstance(payload, dict) and payload.get("error"):

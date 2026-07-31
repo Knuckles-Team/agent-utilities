@@ -48,7 +48,7 @@ def bounded_embed(embed_fn: Any, text: str, timeout: float) -> list[float] | Non
             timeout,
         )
         return None
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns None (the documented 'embedding unavailable' case), the same sentinel the TimeoutError branch immediately above already returns
         logger.debug("bounded_embed failed: %s", e)
         return None
     finally:

@@ -89,6 +89,6 @@ def load_active_rules(store: Any) -> list[dict[str, Any]]:
         for row in rows or []:
             if isinstance(row, dict) and row.get("kind") and row.get("target"):
                 rules.append(row)
-    except Exception as exc:  # pragma: no cover - dialect/availability tolerant
+    except Exception as exc:  # pragma: no cover - dialect/availability tolerant  # noqa: BLE001 — returns whatever `rules` was accumulated before the failure (possibly []) — non-fatal per the comment; callers of load_active_rules already treat an empty/partial rule set as 'no governance re-ranking applied'
         logger.debug("load_active_rules failed (non-fatal): %s", exc)
     return rules

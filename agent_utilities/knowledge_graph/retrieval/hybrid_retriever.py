@@ -488,7 +488,7 @@ class HybridRetriever:
                 corpus_doc_ids = mgr.get_document_ids(corpus_id)
                 if not corpus_doc_ids:
                     logger.warning("Corpus %s is empty or not found", corpus_id)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — corpus resolution is an optional pre-filter; corpus_doc_ids stays at its initialized default so retrieve_hybrid proceeds unfiltered by corpus rather than failing the whole retrieval
                 logger.debug("Corpus resolution failed: %s", e)
 
         # 0. Relational-intent arm (CONCEPT:AU-KG.retrieval.relational-intent-retrieval): deterministic, zero-LLM.
@@ -503,7 +503,7 @@ class HybridRetriever:
                 rq = parse_relational_intent(query, self._schema_pack.relational_verbs)
                 if rq is not None:
                     relational_nodes = traverse(self.engine, rq, context_window)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — the relational-intent arm is explicitly a zero-LLM optional arm (comment above); relational_nodes stays at its initialized [] so the semantic/keyword arms below still run
                 logger.debug("Relational-intent arm failed: %s", e)
 
         # 1. Semantic Search (Vector) — ONE engine unified plan (CONCEPT:AU-KG.compute.kg-2).
@@ -610,7 +610,7 @@ class HybridRetriever:
                                 if overlap > 0:
                                     node["_score"] *= 1.0 + 0.1 * overlap
                                     node["_active_task_boost_overlap"] = overlap
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — active-task attention boost is a scoring refinement over scored_nodes, which is already fully populated before this optional boost step runs
                         logger.debug("Active task boost computation failed: %s", e)
 
                 # Apply hard negative penalties (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
@@ -800,8 +800,14 @@ class HybridRetriever:
             # correct value in both branches.
             return _qa(filtered)
         except Exception as e:
-            logger.debug("Quality gate assessment skipped: %s", e)
-            return _qa(assembled_subgraph)
+            # D-DSTK: the outer except (gate construction/import itself failing, before
+            # ``filtered`` is even assigned) was STILL falling back to the raw
+            # ``assembled_subgraph`` — the exact fail-OPEN shape the comment above
+            # documents as fixed, just one level out. Match ``gate_results``' own
+            # documented contract (fail closed -> empty list) instead of silently
+            # reintroducing it here.
+            logger.warning("Quality gate assessment failed, failing closed: %s", e)
+            return _qa([])
 
     def _rerank_candidates(
         self,
@@ -869,7 +875,7 @@ class HybridRetriever:
                         )
                         or []
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — one label's query inside direct_search's per-label loop; `continue`s to the next label so a single bad label doesn't stop the scan of the rest
                     logger.debug("direct_search label %s failed: %s", raw_label, e)
                     continue
                 for r in rows:
@@ -993,7 +999,7 @@ class HybridRetriever:
             agent = create_context_agent(model=model, system_prompt=system_prompt)
             result: Any = agent.run_sync(query)
             raw = str(getattr(result, "output", None) or getattr(result, "data", ""))
-        except Exception as e:  # pragma: no cover - planner is best-effort
+        except Exception as e:  # pragma: no cover - planner is best-effort  # noqa: BLE001 — returns raw='' on planner failure, and parse_executable_plan (called unconditionally below) already has a documented linear-plan fallback for an empty/unparseable raw string — 'using linear plan' per the log message
             logger.debug("Executable-RAG planner failed, using linear plan: %s", e)
             raw = ""
         return parse_executable_plan(
@@ -1105,7 +1111,7 @@ class HybridRetriever:
             agent = create_context_agent(model=model, system_prompt=system_prompt)
             result: Any = agent.run_sync(query)
             raw = str(getattr(result, "output", None) or getattr(result, "data", ""))
-        except Exception as e:  # pragma: no cover - planner is best-effort
+        except Exception as e:  # pragma: no cover - planner is best-effort  # noqa: BLE001 — returns raw='' on planner failure, and parse_hyde_plan (called unconditionally below) already has a documented fallback plan for an empty/unparseable raw string — 'using fallback plan' per the log message
             logger.debug("HyDE planner failed, using fallback plan: %s", e)
             raw = ""
         return parse_hyde_plan(raw, original_query=query, mode_hint=mode_hint)
@@ -1308,7 +1314,7 @@ class HybridRetriever:
                 f"RETURN n.id as id, n as data LIMIT {max(1, context_window)}",
                 params,
             )
-        except Exception as e:  # pragma: no cover - backend dialect variance
+        except Exception as e:  # pragma: no cover - backend dialect variance  # noqa: BLE001 — returns [] (the documented empty-results case) on a backend dialect failure — the lexical fallback is itself already the last-resort path, so an empty list here degrades to 'no lexical matches', not a lost primary result
             logger.debug("Lexical fallback query failed: %s", e)
             return []
         out = []

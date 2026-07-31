@@ -270,7 +270,7 @@ class EntityClaimExtractor:
                 result.relationships.extend(
                     infer_links(content, source_id, self.schema_pack.link_inference)
                 )
-            except Exception as e:  # pragma: no cover - never block ingestion
+            except Exception as e:  # pragma: no cover - never block ingestion  # noqa: BLE001 — pack-supplied link inference is an enrichment over `result`, which already has its entities/base relationships populated before this optional step runs
                 logger.debug("pack link inference failed: %s", e)
 
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

@@ -154,7 +154,7 @@ def _persist_document_span_evidence(
         from ..memory.native_ingest import media_store
 
         store = media_store()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — media_store is an optional evidence-provenance sink for document-span evidence, same guard pattern as the readers_office/readers_media evidence stores
         logger.debug("document span evidence store unavailable: %s", e)
         return
     for fact in spans:
@@ -170,7 +170,7 @@ def _persist_document_span_evidence(
                 end=start + len(span),
                 source=source,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — the span-evidence write itself is additive provenance over facts that are already extracted and used by the caller independently
             logger.debug("document span evidence write failed: %s", e)
 
 

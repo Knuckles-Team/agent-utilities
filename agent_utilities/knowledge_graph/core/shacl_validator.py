@@ -229,7 +229,7 @@ class SHACLValidator:
             vt_graph = rdflib.Graph()
             vt_graph.parse(data=value_types_shapes_ttl(), format="turtle")
             layers.append(vt_graph)
-        except Exception as exc:  # pragma: no cover - enhancement only
+        except Exception as exc:  # pragma: no cover - enhancement only  # noqa: BLE001 — value-type SHACL shapes are an additional validation layer; on failure len(layers)==1 so validate_kg falls back to the single-layer validate() path below rather than skipping validation entirely
             logger.debug("value-type shapes unavailable: %s", exc)
 
         if len(layers) == 1:

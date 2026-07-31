@@ -244,7 +244,7 @@ class GraphMaintainer:
                         {"id": row["id"], "score": new_score},
                     )
                     updated += 1
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — one node's decay-score write inside the per-row loop; `continue`s to the next row so a single bad write doesn't stop decay from applying to the rest, and `updated` is only incremented on the success path above
                 logger.debug(f"Skipping decay for {row.get('id')}: {e}")
                 continue
         logger.info(f"Applied temporal decay to {updated} nodes.")
@@ -807,7 +807,7 @@ class GraphMaintainer:
                 "✅ Topic linking complete (Policies & ProcessFlows now grounded in KBs)"
             )
             return 1
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — returns 0 (the documented 'nothing linked' case) on failure, exactly like when the query legitimately links nothing; callers already treat 0 as a no-op this run
             logger.debug(f"Topic linking skipped or failed: {e}")
             return 0
 

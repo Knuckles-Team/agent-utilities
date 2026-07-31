@@ -69,7 +69,7 @@ class KafkaStreamAdapter(BaseStreamAdapter):
         if self._consumer is not None and self._owns_consumer:
             try:
                 await self._consumer.stop()
-            except Exception as exc:  # pragma: no cover - shutdown best-effort
+            except Exception as exc:  # pragma: no cover - shutdown best-effort  # noqa: BLE001 — shutdown-path best-effort consumer stop; self._connected is set False unconditionally on the next line regardless of whether the stop() call itself succeeded
                 logger.debug("Kafka stop failed: %s", exc)
         self._connected = False
 

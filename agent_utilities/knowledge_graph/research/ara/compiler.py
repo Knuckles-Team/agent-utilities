@@ -130,7 +130,7 @@ class ARACompiler:
         for claim in artifact.claims:
             try:
                 hits = list(ground(claim.statement))[: self._max_groundings]
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — hits defaults to [] on a grounding failure for one claim — the same empty-groundings shape as when ground() legitimately finds nothing for that claim
                 logger.debug("grounding failed for claim %s: %s", claim.id, e)
                 hits = []
             if hits:
@@ -150,7 +150,7 @@ class ARACompiler:
                 try:
                     self._engine.add_edge(claim_id, nid, "grounded_in")
                     report.n_edges += 1
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001 — one grounding edge inside the per-claim/per-node loop; report.n_edges is only incremented on the success path above it, so the report already reflects exactly how many grounding edges landed
                     logger.debug("grounding edge persist failed: %s", e)
 
     # -- defaults (best-effort, never required for the unit path) --------- #
@@ -159,7 +159,7 @@ class ARACompiler:
             from ...adaptation.research_artifacts import ResearchArtifactGenerator
 
             return ResearchArtifactGenerator(self._engine)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — returns None (the documented 'no default ARA generator' case); callers of this default factory already handle None by using their own injected generator instead
             logger.debug("no default ARA generator: %s", e)
             return None
 

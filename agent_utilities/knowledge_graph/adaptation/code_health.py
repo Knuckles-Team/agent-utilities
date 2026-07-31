@@ -125,7 +125,7 @@ def _baseline_delta(
                 "new_debt_score": d["new_debt_score"],
             }
         _save_baseline_snapshot(backend, repo, baseline_mod.snapshot(report))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — best-effort debt-baseline delta computation for the code-health report; the report itself is already fully computed and saved above (_save_baseline_snapshot), this only enriches it with a diff against the prior baseline
         logger.debug("code_health: baseline delta failed for %s: %s", repo, e)
     return delta
 

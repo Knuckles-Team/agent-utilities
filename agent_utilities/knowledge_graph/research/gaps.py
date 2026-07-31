@@ -167,7 +167,7 @@ def submit_gap(
     for cid in cids:
         try:
             engine.add_edge(gap_id, cid, "DERIVED_FROM")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — provenance-only edge (gap DERIVED_FROM concept, per the comment above: 'transparency, best-effort'); the gap itself (gap_id) was already created and returned by this function regardless
             logger.debug("gap DERIVED_FROM edge %s->%s failed: %s", gap_id, cid, e)
     return {
         "id": gap_id,
@@ -211,7 +211,7 @@ def get_gap(engine: Any, gap_id: str) -> dict[str, Any] | None:
         rows = engine.query_cypher(
             "MATCH (n:Gap) WHERE n.id = $id RETURN n LIMIT 1", {"id": gap_id}
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns None (the documented 'no such gap' case) on a query failure — indistinguishable from, and handled identically to, a genuinely nonexistent gap_id by every caller
         logger.debug("get_gap query failed: %s", e)
         return None
     for r in rows or []:
@@ -227,7 +227,7 @@ def open_gaps(engine: Any, *, limit: int = 200) -> list[dict[str, Any]]:
         return []
     try:
         rows = engine.query_cypher("MATCH (n:Gap) RETURN n LIMIT 1000")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns [] (the documented 'no open gaps' case) on a query failure — the same shape a legitimately-empty backlog returns
         logger.debug("open_gaps query failed: %s", e)
         return []
     out: list[dict[str, Any]] = []
@@ -281,7 +281,7 @@ def link_gap_to_spec(engine: Any, gap_id: str, spec_id: str) -> bool:
         return False
     try:
         engine.add_edge(gap_id, spec_id, REL_SPECIFIED_BY)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns False and the caller-visible early return already skips the downstream set_gap_status call below, so the gap's status is correctly left unchanged rather than marked 'specified' without the edge actually landing
         logger.debug("link_gap_to_spec %s->%s failed: %s", gap_id, spec_id, e)
         return False
     # Mark the gap specified so the backlog reflects it has a spec in flight.

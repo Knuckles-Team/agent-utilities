@@ -324,7 +324,7 @@ def load_extraction_schema(source_type: str) -> ExtractionSchema | None:
         if schema is None or schema.is_empty:
             return None
         return schema
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns None (the documented 'no schema' case, the same shape as the empty/is_empty branches just above) so callers already handle a missing schema uniformly
         logger.debug("load_extraction_schema(%s) failed: %s", source_type, e)
         return None
 
