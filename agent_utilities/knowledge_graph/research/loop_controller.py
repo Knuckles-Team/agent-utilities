@@ -745,6 +745,11 @@ class LoopController:
             synergy_bundles,
         )
         from ..assimilation.gap_analysis import _CONCEPT_TYPES, _FEATURE_TYPES
+        from agent_utilities.core.resource_priority import (
+            PriorityClass,
+            priority_scope,
+        )
+
         from ..core.ingest_profile import stage as _pstage  # OS-5.70 per-stage timing
 
         # Feature dedup is a WHOLE-GRAPH ecosystem op (SUPERSEDES clustering); skip it
@@ -761,16 +766,23 @@ class LoopController:
         # for a SCOPED (cohort) pass (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) — the registry is embedded
         # ecosystem-wide once, and the matcher recalls from the engine HNSW; a cohort
         # finalize must not re-scan the whole graph (which resets the socket at scale).
-        if restrict_to is None:
-            with _pstage("enrich_concepts"):
-                enrich_concepts(self.engine)
-        with _pstage("satisfy"):
-            gap = ConceptMatcher().satisfy(
-                self.engine,
-                feature_types=_FEATURE_TYPES,
-                concept_types=_CONCEPT_TYPES,
-                restrict_to=restrict_to,
-            )
+        #
+        # Downcycle scheduling (7.4/D-71-7, CONCEPT:AU-ORCH.scheduling.resource-priority-edict) —
+        # `enrich_concepts` (embedding) and `ConceptMatcher.satisfy` (embedding-recall +
+        # LLM-judge) are this stage's own comparative-analysis LLM-capacity calls, wrapped
+        # in the SAME `PriorityClass.BACKGROUND_INGESTION` currency `_run_breadth`/
+        # `_run_intake_papers` already use — no second scheduler.
+        with priority_scope(PriorityClass.BACKGROUND_INGESTION):
+            if restrict_to is None:
+                with _pstage("enrich_concepts"):
+                    enrich_concepts(self.engine)
+            with _pstage("satisfy"):
+                gap = ConceptMatcher().satisfy(
+                    self.engine,
+                    feature_types=_FEATURE_TYPES,
+                    concept_types=_CONCEPT_TYPES,
+                    restrict_to=restrict_to,
+                )
         with _pstage("synergy_rank"):
             syn = synergy_bundles(self.engine, restrict_to=restrict_to)
             ranked = rank_features(
