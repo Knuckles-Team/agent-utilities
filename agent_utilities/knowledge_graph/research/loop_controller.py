@@ -1250,7 +1250,11 @@ class LoopController:
         from .auto_merge import GovernedAutoMerger, MergePolicy
         from .candidate_insight import candidates_from_mine_discovery
         from .claim_flywheel import ClaimFlywheel
-        from .evidence import candidates_from_evidence, from_candidate_insight, record_evidence
+        from .evidence import (
+            candidates_from_evidence,
+            from_candidate_insight,
+            record_evidence,
+        )
         from .promotion_governance import PromotionGovernanceValidator
 
         errors: list[str] = []

@@ -91,6 +91,16 @@ def register_workflow_tools(mcp: Any) -> None:
                 "when the optional upstream runtime is unavailable."
             ),
         ),
+        workflow_run_id: str = Field(
+            default="",
+            description=(
+                "execute_dynamic only: RESUME a halted run. Pass the "
+                "workflow_run_id a previous execute_dynamic reported to replay "
+                "its already-completed steps instead of re-dispatching them "
+                "(the response reports 'resumed' and 'replayed_step_ids'). "
+                "Leave empty to start a brand-new run."
+            ),
+        ),
     ) -> str:
         engine = kg_server._get_engine()
         if engine is None:
@@ -179,6 +189,7 @@ def register_workflow_tools(mcp: Any) -> None:
                         budget_tokens=budget_tokens,
                         model_class=model_class,
                         unavailable_fallback=dynamic_fallback,
+                        workflow_run_id=workflow_run_id or None,
                     )
                     return json.dumps(
                         {

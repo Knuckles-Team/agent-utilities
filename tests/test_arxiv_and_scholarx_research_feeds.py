@@ -186,3 +186,36 @@ def test_scholarx_mcp_documents_swallows_unreachable_server(monkeypatch):
         "agent_utilities.protocols.source_connectors.registry.build_connector", _boom
     )
     assert feed_sources._scholarx_mcp_documents(["cs.AI"], 1) == []
+
+
+def test_arxiv_category_fetch_failure_is_logged_not_silently_empty(caplog):
+    """Regression: a failed category fetch did `return []` with NO log at all,
+    making a total arXiv outage indistinguishable from "no new papers".
+
+    Degrading the sweep is correct; discarding the cause is the swallowed-error
+    anti-pattern this repo bans.
+    """
+    import logging
+
+    from agent_utilities.protocols.source_connectors.connectors.arxiv import (
+        ArxivConnector,
+    )
+
+    connector = ArxivConnector(categories=["cs.AI"])
+
+    def _boom(url, params):
+        raise RuntimeError("export.arxiv.org unreachable")
+
+    connector._fetch = _boom  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.WARNING):
+        assert connector._category_entries("cs.AI") == []
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("cs.AI" in m for m in messages), messages
+    assert any("export.arxiv.org unreachable" in m for m in messages), messages
+    # The cause must survive into the record -- either as attached exc_info or
+    # folded into the message by the fleet's own log-normalising filter.
+    assert any(
+        r.exc_info or "RuntimeError" in r.getMessage() for r in caplog.records
+    ), "the cause must be retained"

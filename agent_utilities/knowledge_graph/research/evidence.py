@@ -42,7 +42,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from agent_utilities.models.knowledge_graph import EvolutionEvidenceNode
@@ -77,7 +77,7 @@ _EVIDENCE_FINDING_TYPE = "EvidenceSignal"
 _OBSERVED_CONFIDENCE = 1.0
 
 
-class EvidenceChannel(str, Enum):
+class EvidenceChannel(StrEnum):
     """The five sources this contract normalises (CONCEPT:AU-KG.evolution.unified-evidence-resource)."""
 
     EXECUTION_TRACE = "execution_trace"
@@ -87,7 +87,7 @@ class EvidenceChannel(str, Enum):
     PROCESS_SIGNAL = "process_signal"
 
 
-class EvidenceOutcome(str, Enum):
+class EvidenceOutcome(StrEnum):
     """What the evidence says happened — never fabricated, always read off the source."""
 
     SUCCESS = "success"
@@ -194,7 +194,15 @@ class Evidence:
             f"{self.channel.value} evidence for {self.subject_id}: "
             f"outcome={self.outcome.value} signal={self.signal:.3f}"
         )
-        source_ids = [self.subject_id]
+        # The evidence node itself MUST be a source id. ``register_claim_materialization``
+        # writes one ``(Claim)-[:DERIVED_FROM]->(source_id)`` edge per entry here,
+        # and that is the exact edge :func:`evidence_lineage` walks to find the
+        # claims a piece of evidence produced. Omitting it left the lineage query
+        # structurally unable to match anything, so the chain reported
+        # "evidence, no claims" for evidence that HAD been promoted.
+        source_ids = [self.evidence_id]
+        if self.subject_id and self.subject_id not in source_ids:
+            source_ids.append(self.subject_id)
         if self.source_node_id and self.source_node_id not in source_ids:
             source_ids.append(self.source_node_id)
         return CandidateInsight(
@@ -388,7 +396,14 @@ def from_process_signal(evidence_dict: dict[str, Any]) -> Evidence:
         payload={
             k: v
             for k, v in evidence_dict.items()
-            if k in {"mode", "content_hash", "mapping_version", "node_count", "relationship_count"}
+            if k
+            in {
+                "mode",
+                "content_hash",
+                "mapping_version",
+                "node_count",
+                "relationship_count",
+            }
         },
         lineage={"tenant": tenant} if tenant else {},
     )
@@ -521,7 +536,9 @@ def gather_evidence(
     return out
 
 
-def candidates_from_evidence(evidence_list: list[Evidence] | None) -> list[CandidateInsight]:
+def candidates_from_evidence(
+    evidence_list: list[Evidence] | None,
+) -> list[CandidateInsight]:
     """The evidence-channel fan-in mirror of ``candidate_insight.
     candidates_from_mine_discovery`` — every claim-worthy :class:`Evidence`
     (failure/degraded/anomalous) becomes a :class:`CandidateInsight`, fed

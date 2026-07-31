@@ -143,7 +143,8 @@ def test_channel_and_outcome_accept_plain_strings():
 
 
 @pytest.mark.parametrize(
-    "outcome", [EvidenceOutcome.FAILURE, EvidenceOutcome.DEGRADED, EvidenceOutcome.ANOMALOUS]
+    "outcome",
+    [EvidenceOutcome.FAILURE, EvidenceOutcome.DEGRADED, EvidenceOutcome.ANOMALOUS],
 )
 def test_claim_worthy_outcomes_produce_a_candidate_insight(outcome):
     ev = Evidence(
@@ -517,3 +518,32 @@ def test_evidence_lineage_preserves_rejected_claims_not_deleted():
     claim_rows = [r for r in result["chain"] if r["stage"] == "claim_proposal"]
     assert len(claim_rows) == 1
     assert claim_rows[0]["status"] == "rejected"
+
+
+def test_candidate_insight_carries_the_evidence_id_so_lineage_can_resolve():
+    """Regression: ``to_candidate_insight`` omitted ``evidence_id`` from
+    ``source_ids``.
+
+    ``register_claim_materialization`` writes one
+    ``(Claim)-[:DERIVED_FROM]->(source_id)`` edge per entry in ``source_ids``,
+    and that is the EXACT edge :func:`evidence_lineage` walks
+    (``MATCH (c:Claim)-[:DERIVED_FROM]->(e:EvolutionEvidence {id: $id})``).
+    Without the evidence id in there, no such edge is ever written, so the
+    lineage chain structurally could not find a single claim -- it reported
+    "evidence, no claims" even for evidence that HAD been promoted.
+    """
+    ev = Evidence(
+        channel=EvidenceChannel.GRAPH_HEALTH,
+        subject_id="entity-1",
+        outcome=EvidenceOutcome.FAILURE,
+        signal=0.8,
+        confidence=0.8,
+        source_node_id="trace-9",
+    )
+    cand = ev.to_candidate_insight()
+    assert cand is not None
+    assert ev.evidence_id in cand.source_ids
+    # the other provenance anchors are still carried, and none is duplicated
+    assert "entity-1" in cand.source_ids
+    assert "trace-9" in cand.source_ids
+    assert len(cand.source_ids) == len(set(cand.source_ids))

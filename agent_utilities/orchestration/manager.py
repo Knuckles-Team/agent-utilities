@@ -949,6 +949,7 @@ class Orchestrator:
         model_class: str = "standard",
         unavailable_fallback: str = "error",
         orchestrator_model: Any | None = None,
+        workflow_run_id: str | None = None,
     ) -> DynamicWorkflowExecutionPayload:
         """Execute a stored catalog with upstream Harness DynamicWorkflow.
 
@@ -962,6 +963,14 @@ class Orchestrator:
         Harness extra or a required upstream seam is unavailable;
         ``"stored_dag"`` runs the ordinary :class:`WorkflowRunner` instead. A
         runtime/model/tool failure never silently changes engines.
+
+        ``workflow_run_id`` is what makes the governed RESUME path reachable at
+        all: :class:`GovernedDynamicWorkflow`'s resume cache is keyed strictly on
+        it, so a caller that re-invokes a halted run (budget exhaustion, timeout,
+        cancellation, process restart) under the SAME id replays the already
+        completed ``(step, task)`` outputs instead of re-dispatching them. Omit
+        it and every invocation mints a fresh id and therefore always restarts
+        from scratch — the resume machinery would be present but unreachable.
         """
 
         if task:
@@ -1007,6 +1016,7 @@ class Orchestrator:
             result = await workflow.execute(
                 self,
                 orchestrator_model=orchestrator_model,
+                workflow_run_id=workflow_run_id,
             )
         except DynamicWorkflowUnavailableError as exc:
             if unavailable_fallback != "stored_dag":

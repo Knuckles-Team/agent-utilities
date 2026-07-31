@@ -1007,6 +1007,13 @@ class MCPMultiplexer:
         # call join the SAME in-flight probe instead of starting a duplicate,
         # and lets :meth:`aclose` await outstanding probes on shutdown.
         self._probe_inflight: dict[str, asyncio.Task] = {}
+        # EVERY live probe task, joinable or not. ``_probe_inflight`` answers
+        # "can a later call join this?" and therefore holds at most one task per
+        # server; a forced re-probe deliberately is not joinable and so never
+        # appears there. :meth:`aclose` needs the other question — "what is
+        # still running?" — and must see forced probes too, or one can outlive
+        # the multiplexer that spawned it.
+        self._probe_tasks: set[asyncio.Task] = set()
         # ONE semaphore for the whole instance's lifetime (not re-created per
         # ``probe_catalog`` call) so a probe still running from an earlier
         # (possibly already-returned) call continues to count against the same
@@ -2184,7 +2191,14 @@ class MCPMultiplexer:
         genuinely unexpected bug, not a child's fault — it is logged with its
         cause, never swallowed, rather than left to asyncio's "exception was
         never retrieved" warning."""
-        self._probe_inflight.pop(server, None)
+        # Only retract the join slot if it is still OURS. A forced probe for the
+        # same server runs as its OWN untracked task; popping unconditionally
+        # would evict a DIFFERENT, still-running non-forced probe from the join
+        # map, so a later call would spawn a duplicate of a probe already in
+        # flight and ``aclose`` would no longer know to cancel it.
+        if self._probe_inflight.get(server) is task:
+            self._probe_inflight.pop(server, None)
+        self._probe_tasks.discard(task)
         if task.cancelled():
             return
         exc = task.exception()
@@ -2203,8 +2217,11 @@ class MCPMultiplexer:
         overlapping call already started instead of spawning a duplicate.
 
         A forced probe (explicit re-probe, e.g. boot ingestion) always starts
-        fresh and is not shared or tracked — ``force`` means "I specifically
-        want a new answer now," which a stale in-flight task cannot give."""
+        fresh and is never JOINED by a later caller — ``force`` means "I
+        specifically want a new answer now," which a stale in-flight task
+        cannot give. It is still registered in ``_probe_tasks`` so
+        :meth:`aclose` can cancel it: "not shareable" must not mean "able to
+        outlive the multiplexer"."""
         if not force:
             existing = self._probe_inflight.get(server)
             if existing is not None and not existing.done():
@@ -2215,6 +2232,7 @@ class MCPMultiplexer:
                 await self.probe_server(server, force=force, timeout=timeout)
 
         task = asyncio.create_task(_run())
+        self._probe_tasks.add(task)
         if not force:
             self._probe_inflight[server] = task
         task.add_done_callback(lambda t, _s=server: self._settle_probe_task(_s, t))
@@ -2916,12 +2934,16 @@ class MCPMultiplexer:
         # the multiplexer itself. Cancel them here; each already carries its
         # own try/except around the connect, so cancellation is a clean abort,
         # not a leaked subprocess/session.
-        inflight = tuple(self._probe_inflight.values())
+        # ``_probe_tasks``, not ``_probe_inflight`` — the latter only holds the
+        # JOINABLE probe per server, so cancelling from it would leave a forced
+        # re-probe running after the multiplexer it belongs to is gone.
+        inflight = tuple(self._probe_tasks)
         for task in inflight:
             task.cancel()
         if inflight:
             await asyncio.gather(*inflight, return_exceptions=True)
         self._probe_inflight.clear()
+        self._probe_tasks.clear()
         policies = tuple(self._child_runtime_policies.values())
         try:
             for runtime in self.children.values():

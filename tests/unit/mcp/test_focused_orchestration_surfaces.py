@@ -159,6 +159,7 @@ async def test_execute_dynamic_live_route_reaches_governed_orchestrator(
             budget_tokens=4000,
             model_class="economy",
             dynamic_fallback="error",
+            workflow_run_id="",
         )
     )
 
@@ -173,8 +174,49 @@ async def test_execute_dynamic_live_route_reaches_governed_orchestrator(
             "budget_tokens": 4000,
             "model_class": "economy",
             "unavailable_fallback": "error",
+            # No resume requested -> a brand-new run, explicitly.
+            "workflow_run_id": None,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_execute_dynamic_forwards_workflow_run_id_so_resume_is_reachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the governed resume cache is keyed strictly on
+    ``workflow_run_id``, but neither ``graph_workflows`` nor
+    ``Orchestrator.execute_dynamic_workflow`` accepted or forwarded one -- so
+    every live invocation minted a fresh id and the resume path, though fully
+    implemented and unit-tested, was unreachable from the only entry point that
+    exists.
+    """
+    from agent_utilities.mcp.tools import workflow_tools
+    from agent_utilities.orchestration.manager import Orchestrator
+
+    engine = object()
+    calls: list[dict[str, object]] = []
+
+    async def execute_dynamic(_self, workflow_id: str, task: str, **kwargs):
+        calls.append({"workflow_id": workflow_id, "task": task, **kwargs})
+        return {"backend": "x", "workflow_run_id": kwargs.get("workflow_run_id")}
+
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(
+        workflow_tools,
+        "_workflow_gate",
+        lambda _engine, _name: {"allowed": True},
+    )
+    monkeypatch.setattr(Orchestrator, "execute_dynamic_workflow", execute_dynamic)
+    tool = _register_all().tools["graph_workflows"]
+
+    await tool(
+        action="execute_dynamic",
+        workflow="review",
+        task="review the change",
+        workflow_run_id="run:deadbeef",
+    )
+    assert calls[0]["workflow_run_id"] == "run:deadbeef"
 
 
 @pytest.mark.asyncio

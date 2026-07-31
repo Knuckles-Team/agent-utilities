@@ -665,7 +665,9 @@ def run_optimization_sweep(
 
             record_evidence(engine, from_optimization_result(name, result))
         except Exception as e:  # noqa: BLE001 — the lineage overlay is best-effort
-            logger.debug("optimization sweep: evidence record failed for %s: %s", name, e)
+            logger.debug(
+                "optimization sweep: evidence record failed for %s: %s", name, e
+            )
     duration = time.monotonic() - t0
 
     if failed:

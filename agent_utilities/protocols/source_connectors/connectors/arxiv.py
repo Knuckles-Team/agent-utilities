@@ -25,6 +25,7 @@ yields still passes through the SAME downstream gate as every other research fee
 so this connector only ever WIDENS the funnel's mouth, never bypasses its throat.
 """
 
+import logging
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -45,6 +46,8 @@ FetchFn = Callable[[str, dict[str, Any]], str]
 #: The public arXiv Atom query API (no auth, no key — export.arxiv.org's documented
 #: rate-limit courtesy window is ~1 request/3s per the arXiv API terms of use; the
 #: per-category cap plus the sweep cadence keeps this connector well under that).
+logger = logging.getLogger(__name__)
+
 _ARXIV_API_URL = "https://export.arxiv.org/api/query"
 #: Cap the persisted seen-id belt so the checkpoint can't grow unbounded.
 _SEEN_CAP = 5000
@@ -192,7 +195,18 @@ class ArxivConnector(LoadConnector, PollConnector):
         }
         try:
             content = self._fetch(_ARXIV_API_URL, params)
-        except Exception:  # noqa: BLE001 — one dead category must not abort the sweep
+        except Exception as exc:  # noqa: BLE001 — one dead category must not abort the sweep
+            # Never a bare `return []`: an outage for this category would then be
+            # indistinguishable from "arXiv published nothing new", which is the
+            # swallowed-error anti-pattern this repo bans. Degrade the SWEEP, not
+            # the diagnosis — the cause is kept.
+            logger.warning(
+                "arXiv category %s could not be fetched — treating it as empty "
+                "for this sweep: %s",
+                category,
+                exc,
+                exc_info=exc,
+            )
             return []
         parsed = self._parse(content)
         out: list[SourceDocument] = []

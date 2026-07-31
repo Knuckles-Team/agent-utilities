@@ -1297,3 +1297,60 @@ async def test_load_tools_reports_not_notified_outside_a_request_context(tmp_pat
 
     assert payload["newly_exposed"]
     assert payload["notified"] is False
+
+
+async def test_forced_reprobe_does_not_evict_a_live_joinable_probe(tmp_path):
+    """A forced re-probe runs as its OWN task; when it settles it must not
+    retract a DIFFERENT, still-running non-forced probe from the join map.
+
+    Regression: ``_settle_probe_task`` popped ``_probe_inflight[server]``
+    unconditionally, so a fast forced probe finishing while a slow shared probe
+    was still running left that shared probe untracked -- a later call spawned a
+    duplicate of an already-in-flight probe, and ``aclose`` no longer knew to
+    cancel it.
+    """
+    mux = _mux_with_children(tmp_path, {"slow-mcp": []})
+    release = asyncio.Event()
+
+    async def probe(server, force=False, timeout=None):
+        if not force:
+            await release.wait()
+        return {"tools": [], "error": None}
+
+    mux.probe_server = AsyncMock(side_effect=probe)  # type: ignore[method-assign]
+
+    shared = mux._ensure_probing("slow-mcp", force=False, timeout=None)
+    forced = mux._ensure_probing("slow-mcp", force=True, timeout=None)
+    assert forced is not shared
+    await forced
+
+    # The slow shared probe is still running and still joinable.
+    assert mux._probe_inflight.get("slow-mcp") is shared
+    assert mux._ensure_probing("slow-mcp", force=False, timeout=None) is shared
+
+    release.set()
+    await shared
+    assert "slow-mcp" not in mux._probe_inflight
+    await mux.aclose()
+
+
+async def test_aclose_cancels_a_forced_probe_too(tmp_path):
+    """``aclose`` must cancel EVERY live probe, not just the joinable ones --
+    a forced re-probe is never in ``_probe_inflight`` and used to outlive the
+    multiplexer that spawned it."""
+    mux = _mux_with_children(tmp_path, {"slow-mcp": []})
+
+    async def never_finishes(server, force=False, timeout=None):
+        await asyncio.Event().wait()
+        return {"tools": [], "error": None}
+
+    mux.probe_server = AsyncMock(side_effect=never_finishes)  # type: ignore[method-assign]
+
+    forced = mux._ensure_probing("slow-mcp", force=True, timeout=None)
+    await asyncio.sleep(0)
+    assert "slow-mcp" not in mux._probe_inflight  # forced probes are not joinable
+    assert forced in mux._probe_tasks
+
+    await mux.aclose()
+    assert forced.cancelled()
+    assert not mux._probe_tasks

@@ -23,6 +23,8 @@ import hashlib
 import logging
 from typing import Any
 
+from pydantic import ValidationError
+
 from agent_utilities.core.resource_priority import PriorityClass, priority_scope
 
 from .models import GraphNodeRef, TenantScopedEmbedding
@@ -56,10 +58,16 @@ def _representation_id(tenant: str, node_id: str, encoder_id: str, digest: str) 
     return f"nrep:{hashlib.sha256(key.encode('utf-8')).hexdigest()[:32]}"
 
 
-def _existing_content_hash(
+def _existing_record(
     engine: Any, node_id: str, encoder_id: str, encoder_version: str
-) -> str | None:
-    """Best-effort read of a prior embedding record's content_hash (cache-skip)."""
+) -> dict[str, Any] | None:
+    """Best-effort read of a prior embedding record (the cache-skip source).
+
+    Returns the WHOLE stored record, not just its ``content_hash``: a cache hit
+    has to be able to hand back the representation it already has, otherwise the
+    "skip" would still pay for a fresh embedding call and a re-commit — which is
+    exactly the cost the content-hash key exists to avoid.
+    """
     graph = getattr(engine, "graph", None)
     reader = getattr(graph, "nodes", None)
     if reader is None:
@@ -68,7 +76,30 @@ def _existing_content_hash(
         node = reader[f"nrep:{node_id}:{encoder_id}:{encoder_version}"]
     except (KeyError, TypeError):
         return None
-    return node.get("content_hash") if isinstance(node, dict) else None
+    return node if isinstance(node, dict) else None
+
+
+def _representation_from_record(record: dict[str, Any]) -> TenantScopedEmbedding | None:
+    """Rebuild the stored representation, or ``None`` if the record is unusable.
+
+    A record written by an older//newer schema must degrade to a cache MISS (a
+    correct, merely slower answer) rather than raise out of a cache lookup.
+    """
+    fields = {
+        key: value
+        for key, value in record.items()
+        if key in TenantScopedEmbedding.model_fields
+    }
+    try:
+        return TenantScopedEmbedding.model_validate(fields)
+    except ValidationError as exc:
+        logger.debug(
+            "stored NeuralRepresentation %s is not loadable — re-embedding: %s",
+            record.get("id"),
+            exc,
+            exc_info=exc,
+        )
+        return None
 
 
 def build_tenant_embedding(
@@ -107,13 +138,17 @@ def build_tenant_embedding(
             LlamaIndex factory import/call — never at module import time).
     """
     digest = content_hash(text)
-    if _existing_content_hash(engine, node_id, encoder_id, encoder_version) == digest:
-        logger.debug(
-            "content_hash unchanged for %s/%s@%s — skipping re-embed",
-            node_id,
-            encoder_id,
-            encoder_version,
-        )
+    existing = _existing_record(engine, node_id, encoder_id, encoder_version)
+    if existing is not None and existing.get("content_hash") == digest:
+        cached = _representation_from_record(existing)
+        if cached is not None:
+            logger.debug(
+                "content_hash unchanged for %s/%s@%s — skipping re-embed",
+                node_id,
+                encoder_id,
+                encoder_version,
+            )
+            return cached
 
     vector = _embed_text(text)
     add_embedding = getattr(engine, "add_embedding", None)

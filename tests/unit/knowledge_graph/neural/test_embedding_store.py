@@ -82,3 +82,80 @@ def test_build_tenant_embedding_works_without_add_embedding_support(_envelope_co
     )
     assert rep.artifact_ref == "p1"
     assert len(_envelope_commit) == 1
+
+
+def test_unchanged_content_hash_actually_skips_the_re_embed(_envelope_commit):
+    """Regression: the cache-skip branch only LOGGED -- there was no early
+    return, so an unchanged node still paid for a fresh embedding call and a
+    re-commit on every pass. The content hash is the whole point of the key."""
+    engine = MagicMock()
+    engine.add_embedding = MagicMock()
+    engine.graph = MagicMock(nodes={})
+
+    first = embedding_store.build_tenant_embedding(
+        engine,
+        tenant="acme",
+        node_id="paper:1",
+        node_type="ResearchPaper",
+        text="self-improving agent harnesses",
+    )
+
+    # Publish the committed record where the cache lookup reads it.
+    engine.graph.nodes = {
+        "nrep:paper:1:bge-m3:1": {
+            **first.model_dump(mode="json"),
+            "id": "nrep:paper:1:bge-m3:1",
+            "type": "NeuralRepresentation",
+        }
+    }
+    embed_calls: list[str] = []
+    original = embedding_store._embed_text
+    embedding_store._embed_text = lambda text: (
+        embed_calls.append(text) or original(text)
+    )
+    commits_before = len(_envelope_commit)
+    try:
+        second = embedding_store.build_tenant_embedding(
+            engine,
+            tenant="acme",
+            node_id="paper:1",
+            node_type="ResearchPaper",
+            text="self-improving agent harnesses",
+        )
+    finally:
+        embedding_store._embed_text = original
+
+    assert embed_calls == []  # no re-embed
+    assert len(_envelope_commit) == commits_before  # no re-commit
+    assert second.content_hash == first.content_hash
+    assert second.representation_id == first.representation_id
+
+
+def test_changed_text_still_re_embeds(_envelope_commit):
+    """The skip must be content-addressed, not unconditional."""
+    engine = MagicMock()
+    engine.add_embedding = MagicMock()
+    engine.graph = MagicMock(nodes={})
+
+    first = embedding_store.build_tenant_embedding(
+        engine,
+        tenant="acme",
+        node_id="paper:1",
+        node_type="ResearchPaper",
+        text="original text",
+    )
+    engine.graph.nodes = {
+        "nrep:paper:1:bge-m3:1": {
+            **first.model_dump(mode="json"),
+            "id": "nrep:paper:1:bge-m3:1",
+            "type": "NeuralRepresentation",
+        }
+    }
+    second = embedding_store.build_tenant_embedding(
+        engine,
+        tenant="acme",
+        node_id="paper:1",
+        node_type="ResearchPaper",
+        text="materially different text",
+    )
+    assert second.content_hash != first.content_hash
