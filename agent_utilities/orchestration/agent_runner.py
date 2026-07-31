@@ -2408,6 +2408,12 @@ def _resolve_toolset_ids(
     """
     bound: list[Any] = []
     for tid in toolset_ids or []:
+        # A blank/None entry isn't a DECLARED toolset (nothing was ever
+        # granted to fail to bind) -- skip it rather than fail-closed. The
+        # fail-closed contract below is for a real id that fails to resolve
+        # (missing endpoint/credential), not for the absence of an id.
+        if not tid:
+            continue
         ts = _toolset_for_id(engine, tid, allowed_tools=allowed_tools)
         if ts is None:
             raise RuntimeError("declared toolset could not be bound")
