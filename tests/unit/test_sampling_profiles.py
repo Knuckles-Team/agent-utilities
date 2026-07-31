@@ -106,6 +106,44 @@ def test_attach_is_idempotent():
     assert agent.run is first  # not double-wrapped
 
 
+def test_attach_profile_resolver_folds_provider_prompt_cache_hint_by_default():
+    """CONCEPT:AU-ORCH.optimization.provider-prompt-cache live-path proof — the SAME per-call
+    wrapper that already folds the KV-cache-layering hint also folds the provider-native
+    prompt-cache directive, default-on, on every call."""
+    captured = {}
+
+    class FakeAgent:
+        def run(self, user_prompt=None, **kwargs):
+            captured["ms"] = kwargs.get("model_settings")
+            return "ok"
+
+    agent = FakeAgent()
+    attach_profile_resolver(agent, {"temperature": 0.7})
+    agent.run("what is the capital of france")
+
+    ms = captured["ms"]
+    assert ms["anthropic_cache"] is True
+    assert ms["anthropic_cache_instructions"] is True
+    assert ms["openai_prompt_cache_key"]
+
+
+def test_attach_profile_resolver_prompt_cache_hint_never_clobbers_explicit_settings():
+    captured = {}
+
+    class FakeAgent:
+        def run(self, user_prompt=None, **kwargs):
+            captured["ms"] = kwargs.get("model_settings")
+
+    agent = FakeAgent()
+    attach_profile_resolver(agent, {"temperature": 0.7})
+    agent.run(
+        "implement code",
+        model_settings={"temperature": 0.42, "anthropic_cache": False},
+    )
+    assert captured["ms"]["temperature"] == 0.42
+    assert captured["ms"]["anthropic_cache"] is False  # caller wins, no override
+
+
 # ── Layer B — task-aware selection ───────────────────────────────────────────
 
 

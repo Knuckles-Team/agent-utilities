@@ -118,6 +118,16 @@ def _tracing_model_cls() -> Any:
             if sink is not None and hasattr(sink, "record_event"):
                 try:
                     u = getattr(resp, "usage", None)
+                    # CONCEPT:AU-ORCH.optimization.provider-prompt-cache — surface provider prompt-cache
+                    # usage on the SAME always-on per-call trace event so cache savings are measurable
+                    # without a second capture path.
+                    from agent_utilities.caching.prompt_cache import (
+                        record_prompt_cache_usage,
+                    )
+
+                    cache_read, cache_write = record_prompt_cache_usage(
+                        provider=getattr(self, "system", None), usage=u
+                    )
                     sink.record_event(
                         trace_id=_current_trace_id.get() or f"trace:{uuid.uuid4()}",
                         span_id=f"gen:{uuid.uuid4()}",
@@ -128,6 +138,8 @@ def _tracing_model_cls() -> Any:
                         model=getattr(self, "model_name", None),
                         input_tokens=int(getattr(u, "input_tokens", 0) or 0),
                         output_tokens=int(getattr(u, "output_tokens", 0) or 0),
+                        cache_read_tokens=cache_read,
+                        cache_write_tokens=cache_write,
                         latency_ms=(time.time() - t0) * 1000,
                     )
                 except Exception as exc:  # pragma: no cover - capture is best-effort

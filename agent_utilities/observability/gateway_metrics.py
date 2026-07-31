@@ -61,6 +61,11 @@ __all__ = [
     "KVCACHE_CLIENT_REQUESTS",
     "KVCACHE_FORK_EVENTS",
     "KVCACHE_FORK_SHARED_BYTES",
+    "PROMPT_CACHE_OPS",
+    "PROMPT_CACHE_TOKENS_SAVED",
+    "SEMANTIC_CACHE_OPS",
+    "SEMANTIC_CACHE_BYTES_SAVED",
+    "SEMANTIC_CACHE_STALENESS_SECONDS",
     "LANE_IN_FLIGHT",
     "LANE_QUEUE_DEPTH",
     "MCP_CHILD_BREAKER_STATE",
@@ -438,6 +443,40 @@ KVCACHE_CHECKPOINT_OPS = _counter(
     "cross_tenant_denied|stale|cold_start_fallback) — the fail-closed/traced-fallback "
     "proof for checkpoint load.",
     ("op", "outcome"),
+)
+PROMPT_CACHE_OPS = _counter(
+    "agent_utilities_prompt_cache_ops_total",
+    "Provider-native prompt-cache requests (CONCEPT:AU-ORCH.optimization.provider-prompt-cache — "
+    "Anthropic cache_control / OpenAI prompt_cache_key) by op (fold|response) and outcome "
+    "(anthropic|openai|other|hit|miss) — hit-rate = hit / (hit + miss) over 'response' events.",
+    ("op", "outcome"),
+)
+PROMPT_CACHE_TOKENS_SAVED = _counter(
+    "agent_utilities_prompt_cache_tokens_saved_total",
+    "Cumulative input tokens served from a provider prompt cache (RequestUsage.cache_read_tokens) "
+    "— the measurable savings signal for CONCEPT:AU-ORCH.optimization.provider-prompt-cache, labeled "
+    "by provider.",
+    ("provider",),
+)
+SEMANTIC_CACHE_OPS = _counter(
+    "agent_utilities_semantic_cache_ops_total",
+    "Semantic-cache operations (CONCEPT:AU-KG.memory.semantic-response-cache) by op "
+    "(lookup|store|invalidate|evict) and outcome (hit|miss|disabled|refused_side_effect|"
+    "refused_freshness|stale|below_threshold|embed_unavailable|error|stored|skipped) — "
+    "default-OFF, opt-in per request/policy; hit-rate = hit / (hit + miss) over 'lookup' events.",
+    ("op", "outcome"),
+)
+SEMANTIC_CACHE_BYTES_SAVED = _counter(
+    "agent_utilities_semantic_cache_bytes_saved_total",
+    "Cumulative response bytes served from the semantic cache instead of a live model call "
+    "(CONCEPT:AU-KG.memory.semantic-response-cache) — the measurable savings signal.",
+)
+SEMANTIC_CACHE_STALENESS_SECONDS = _histogram(
+    "agent_utilities_semantic_cache_staleness_seconds",
+    "Age of the served entry at the moment of a semantic-cache HIT (CONCEPT:AU-KG.memory."
+    "semantic-response-cache) — the staleness distribution required to keep a stale-serving "
+    "policy honest; entries older than the caller's freshness_tolerance_seconds never hit.",
+    buckets=(1, 5, 15, 30, 60, 300, 900, 1800, 3600, 21600, 86400),
 )
 
 
