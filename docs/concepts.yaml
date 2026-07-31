@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1058
+total_concepts: 1063
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1526,6 +1526,13 @@ concepts:
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/observability/gateway_metrics.py
   doc: Profile differences from the engine-client breaker
+- id: AU-ECO.mcp.protocol-compat-bridge
+  name: AU-ECO.mcp.protocol-compat-bridge
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/protocol_compat.py
+  doc: AU-ECO.mcp.protocol-compat-bridge
 - id: AU-ECO.mcp.skills-over-mcp-provider
   name: absent/empty for
   pillar: AU-ECO
@@ -4552,6 +4559,35 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: Best-effort — never raises, since a foldback
+- id: AU-KG.mining.governed-perspective-flattening
+  name: classical single-case
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/event_log_adapter.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: classical single-case
+- id: AU-KG.mining.incremental-object-centric-derivation
+  name: object-centric
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/object_centric_derivation.py
+  doc: object-centric
+- id: AU-KG.mining.ocel-lossless-roundtrip
+  name: the inverse of
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/semantic_event_model.py
+  doc: the inverse of
+- id: AU-KG.mining.process-conformance-checking
+  name: AU-KG.mining.process-conformance-checking
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/process_conformance.py
+  doc: AU-KG.mining.process-conformance-checking
 - id: AU-KG.ontology.authoritative-tbox
   name: the authoritative TBox the platform ships
   pillar: AU-KG

@@ -290,6 +290,39 @@ def _surface_error(
     return json.dumps(payload)
 
 
+def _require_process_perspective(params: dict[str, Any]) -> Any:
+    """Mint the explicit, versioned ``ProcessPerspective`` a flattening needs.
+
+    CONCEPT:AU-KG.mining.governed-perspective-flattening — classical
+    single-case flattening (one trace per object) is a real information loss
+    over the object-centric source truth, so ``graph_mine(action="process")``
+    refuses to derive traces from a bare ``object_type`` string: a caller must
+    also disclose WHICH versioned analytical selection produced them via
+    ``perspective_id``/``derivation_version``. Pops the three params it
+    consumes; raises ``ValueError`` (caught by the caller's existing
+    invalid-request handling) when any is missing.
+    """
+    from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
+        ProcessPerspective,
+    )
+
+    object_type = str(params.pop("object_type", "") or "").strip()
+    perspective_id = str(params.pop("perspective_id", "") or "").strip()
+    derivation_version = str(params.pop("derivation_version", "") or "").strip()
+    if not object_type or not perspective_id or not derivation_version:
+        raise ValueError(
+            "classical single-case flattening requires 'object_type', "
+            "'perspective_id', and 'derivation_version' — undisclosed "
+            "flattening is refused; declare the versioned ProcessPerspective "
+            "these traces are derived under"
+        )
+    return ProcessPerspective(
+        perspective_id=perspective_id,
+        object_types=(object_type,),
+        derivation_version=derivation_version,
+    )
+
+
 def _resolve(client: Any, candidates: tuple[tuple[str, str], ...]) -> Any:
     """Return the first callable ``client.<sub>.<method>`` among ``candidates``.
 
@@ -1546,14 +1579,20 @@ def register_engine_surface_tools(mcp) -> None:
             "sequences, repeats allowed): mines the directly-follows graph + the "
             "alpha-algorithm footprint (causal 'a>b' / parallel 'a||b' / choice 'a#b') "
             "plus start/end activity sets. Alternatively provide provenance-rich "
-            "'events' plus an explicit 'object_type' to deterministically project one "
-            "object-centric perspective without an LLM. Or provide a governed "
-            "'ocel_json' JSON-OCEL 2.0 document with an authorized 'tenant', "
+            "'events' plus an explicit 'object_type' + 'perspective_id' + "
+            "'derivation_version' to deterministically project one NAMED, VERSIONED "
+            "object-centric case perspective without an LLM — classical single-case "
+            "flattening always requires and discloses this triple; there is no bare "
+            "'object_type'-only path (undisclosed flattening is refused). Or provide a "
+            "governed 'ocel_json' JSON-OCEL 2.0 document with an authorized 'tenant', "
             "optional source_ref/mapping_version/provenance transport metadata, and "
-            "ocel_mode='mine' (default) or 'validate'. OCEL import validates source truth, exports a "
-            "canonical deterministic OCEL document, and returns a tenant-scoped tEKG "
-            "ChangeEnvelope plan; it never silently writes source truth. Event projection "
-            "writeback is fail-closed until the native ProcessModel can retain source-event lineage. "
+            "ocel_mode='mine' (default) or 'validate'. 'validate' only validates + exports a "
+            "canonical deterministic OCEL document and never writes. 'mine' additionally "
+            "requires 'object_type'/'perspective_id'/'derivation_version', commits the OCEL "
+            "source truth PLUS the disclosed ProcessPerspective as one tenant-scoped tEKG "
+            "ChangeEnvelope (real graph write — not just a plan), and mines traces under that "
+            "perspective. Event projection writeback is fail-closed until the native "
+            "ProcessModel can retain source-event lineage. "
             "Trace writeback (+ 'process_id') ⇒ :ProcessModel node. "
             "• root_cause — bounded-depth ('max_hops'), decaying ('decay') backward "
             "search over a weighted dependency graph ('nodes','edges' cause→effect, "
@@ -1629,10 +1668,12 @@ def register_engine_surface_tools(mcp) -> None:
             '{"events":[{"event_id":"e1","activity":"login",'
             '"occurred_at":"2026-01-01T00:00:00Z","source_ref":"src:1",'
             '"objects":[{"id":"u1","type":"User","qualifier":"actor"}]}],'
-            '"object_type":"User"} (process); '
+            '"object_type":"User","perspective_id":"case:user-view",'
+            '"derivation_version":"v1"} (process); '
             '{"ocel_json":{"eventTypes":[],"objectTypes":[],"events":[],"objects":[]},'
             '"tenant":"acme",'
-            '"object_type":"Order","ocel_mode":"mine|validate"} (process); '
+            '"object_type":"Order","perspective_id":"case:order-view",'
+            '"derivation_version":"v1","ocel_mode":"mine|validate"} (process); '
             '{"nodes":["a","b"],"scores":[0.1,0.9],"edges":[["a","b",1.0]],"symptom":"b"} '
             "(root_cause); "
             '{"nodes":["a","b"],"seed":[1.0,0.0],"edges":[["a","b",1.0]]} '
@@ -1685,6 +1726,9 @@ def register_engine_surface_tools(mcp) -> None:
                         "error": "provide OCEL input instead of events or traces",
                     }
                 )
+            from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+                ingest_envelope,
+            )
             from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
                 project_object_centric_slice,
             )
@@ -1710,21 +1754,23 @@ def register_engine_surface_tools(mcp) -> None:
                 ocel_mode = str(params.pop("ocel_mode", "mine") or "mine").strip()
                 if ocel_mode not in {"mine", "validate"}:
                     raise ValueError("ocel_mode must be 'mine' or 'validate'")
-                envelope = slice_.to_change_envelope(
-                    tenant=tenant,
-                    provenance=provenance,
-                )
                 exported = export_ocel_json(slice_)
-                evidence = {
-                    "mode": "ocel_2.0",
-                    "tenant": tenant,
-                    "content_hash": slice_.canonical_digest(),
-                    "idempotency_key": envelope.idempotency_key,
-                    "mapping_version": slice_.mapping_version,
-                    "node_count": len(envelope.typed_payload["entities"]),
-                    "relationship_count": len(envelope.typed_payload["relationships"]),
-                }
                 if ocel_mode == "validate":
+                    envelope = slice_.to_change_envelope(
+                        tenant=tenant,
+                        provenance=provenance,
+                    )
+                    evidence = {
+                        "mode": "ocel_2.0",
+                        "tenant": tenant,
+                        "content_hash": slice_.canonical_digest(),
+                        "idempotency_key": envelope.idempotency_key,
+                        "mapping_version": slice_.mapping_version,
+                        "node_count": len(envelope.typed_payload["entities"]),
+                        "relationship_count": len(
+                            envelope.typed_payload["relationships"]
+                        ),
+                    }
                     return json.dumps(
                         {
                             "surface": "mining",
@@ -1734,16 +1780,54 @@ def register_engine_surface_tools(mcp) -> None:
                         },
                         default=_json_default,
                     )
+                # ``mine`` mode always materializes source truth AND discloses
+                # any case-notion flattening it derives from that same truth
+                # (CONCEPT:AU-KG.mining.governed-perspective-flattening) — the
+                # perspective used for the trace projection below is folded
+                # into the SAME committed slice as a real, versioned
+                # ``ProcessPerspective`` node, never a silent side channel.
+                perspective = _require_process_perspective(params)
                 projection = project_object_centric_slice(
                     slice_,
-                    object_type=str(params.pop("object_type", "") or ""),
+                    perspective=perspective,
                 )
+                committed_slice = slice_.model_copy(
+                    update={"perspectives": (*slice_.perspectives, perspective)}
+                )
+                envelope = committed_slice.to_change_envelope(
+                    tenant=tenant,
+                    provenance=provenance,
+                )
+                engine = kg_server._get_engine()
+                applied = ingest_envelope(engine, envelope)
+                if applied.get("status") not in {"success", "skipped"}:
+                    raise RuntimeError(
+                        "OCEL ChangeEnvelope commit failed: "
+                        f"{applied.get('error') or applied.get('status')}"
+                    )
+                evidence = {
+                    "mode": "ocel_2.0",
+                    "tenant": tenant,
+                    "content_hash": committed_slice.canonical_digest(),
+                    "idempotency_key": envelope.idempotency_key,
+                    "mapping_version": committed_slice.mapping_version,
+                    "node_count": len(envelope.typed_payload["entities"]),
+                    "relationship_count": len(envelope.typed_payload["relationships"]),
+                    "commit_status": applied.get("status"),
+                }
             except (PermissionError, TypeError, ValueError) as exc:
                 return _surface_error(
                     exc,
                     surface="mining",
                     action=action,
                     code="invalid_request",
+                )
+            except RuntimeError as exc:
+                return _surface_error(
+                    exc,
+                    surface="mining",
+                    action=action,
+                    code="commit_failed",
                 )
             params["traces"] = projection.engine_traces()
             response = json.loads(
@@ -1786,9 +1870,10 @@ def register_engine_surface_tools(mcp) -> None:
             )
 
             try:
+                perspective = _require_process_perspective(params)
                 projection = project_object_centric_events(
                     params.pop("events"),
-                    object_type=str(params.pop("object_type", "") or ""),
+                    perspective=perspective,
                 )
             except (TypeError, ValueError) as exc:
                 return _surface_error(

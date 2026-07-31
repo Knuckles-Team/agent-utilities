@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal, Self
 
@@ -891,6 +892,188 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
             )
 
         return entities, links
+
+    @classmethod
+    def from_graph_slice(
+        cls,
+        entities: Sequence[Mapping[str, Any]],
+        links: Sequence[Mapping[str, Any]],
+    ) -> Self:
+        """Reconstruct validated source truth from ITS OWN committed graph shape.
+
+        CONCEPT:AU-KG.mining.ocel-lossless-roundtrip — the inverse of
+        :meth:`to_graph_slice`. A ``ChangeEnvelope`` never commits the
+        ``ObjectCentricGraphSlice`` object itself; it commits exactly the
+        ``(entities, links)`` pair this method takes as input. Reconstructing
+        from that pair — the literal shape a reader queries out of the graph —
+        is what actually proves "OCEL → graph → OCEL" is lossless; reimporting
+        a re-exported document only proves the JSON<->Python boundary is
+        lossless, which never touches the graph representation at all.
+
+        Scope: reconstructs everything a governed OCEL round trip needs
+        (event/object type declarations, events with qualified E2O
+        participations, objects with qualified O2O relationships and temporal
+        attributes, derived ``ObjectState``s, and declared
+        ``ProcessPerspective``s). Neural representations/predictions/entity-
+        resolution proposals are a separate governed lane's boundary and are
+        deliberately NOT reconstructed here — a slice that carries them round
+        trips its symbolic fields correctly but drops those collections.
+        """
+        by_id: dict[str, dict[str, Any]] = {
+            str(entity["id"]): dict(entity) for entity in entities
+        }
+        by_type: dict[str, list[dict[str, Any]]] = {}
+        for entity in by_id.values():
+            by_type.setdefault(str(entity["node_type"]), []).append(entity)
+        targets_by_source_rel: dict[tuple[str, str], list[str]] = {}
+        for link in links:
+            key = (str(link["source"]), str(link["relationship"]))
+            targets_by_source_rel.setdefault(key, []).append(str(link["target"]))
+
+        def _one_target(node_id: str, relationship: str) -> str:
+            targets = targets_by_source_rel.get((node_id, relationship), ())
+            if len(targets) != 1:
+                raise ValueError(
+                    f"expected exactly one {relationship!r} edge from {node_id!r}, "
+                    f"found {len(targets)}"
+                )
+            return targets[0]
+
+        log_nodes = by_type.get("ObjectCentricEventLog", [])
+        if len(log_nodes) != 1:
+            raise ValueError(
+                "graph slice must carry exactly one ObjectCentricEventLog node"
+            )
+        log_node = log_nodes[0]
+
+        def _declarations(
+            node_type: str,
+            declaration_type: type[OcelEventType] | type[OcelObjectType],
+        ) -> tuple[Any, ...]:
+            return tuple(
+                declaration_type(
+                    name=node["source_record_id"],
+                    attributes=tuple(
+                        OcelAttributeDefinition(**attribute)
+                        for attribute in node.get("attributes", ())
+                    ),
+                )
+                for node in by_type.get(node_type, ())
+            )
+
+        event_types = _declarations("ProcessEventType", OcelEventType)
+        object_types = _declarations("BusinessObjectType", OcelObjectType)
+
+        object_id_by_node: dict[str, str] = {}
+        objects: list[BusinessObject] = []
+        for node in by_type.get("BusinessObject", ()):
+            object_id_by_node[node["id"]] = node["source_record_id"]
+            objects.append(
+                BusinessObject(
+                    object_id=node["source_record_id"],
+                    object_type=node["object_type"],
+                    attributes=tuple(
+                        TemporalAttributeValue(**attribute)
+                        for attribute in node.get("attributes", ())
+                    ),
+                )
+            )
+
+        events: list[ProcessEvent] = []
+        for node in by_type.get("ProcessEvent", ()):
+            participations: list[EventObjectParticipation] = []
+            for participation_id in targets_by_source_rel.get(
+                (node["id"], "HAS_PARTICIPATION"), ()
+            ):
+                participation_node = by_id[participation_id]
+                object_node_id = _one_target(participation_id, "PARTICIPATES_AS")
+                object_node = by_id[object_node_id]
+                participations.append(
+                    EventObjectParticipation(
+                        object_id=object_node["source_record_id"],
+                        object_type=object_node["object_type"],
+                        qualifier=participation_node.get("qualifier", ""),
+                    )
+                )
+            events.append(
+                ProcessEvent(
+                    event_id=node["source_record_id"],
+                    activity=node["activity"],
+                    occurred_at=node["occurred_at"],
+                    objects=tuple(participations),
+                    attributes=tuple(
+                        EventAttributeValue(**attribute)
+                        for attribute in node.get("attributes", ())
+                    ),
+                    source_ref=node["source_ref"],
+                    sequence_tiebreaker=node.get("sequence_tiebreaker", ""),
+                )
+            )
+
+        object_states: list[ObjectState] = []
+        for node in by_type.get("ObjectState", ()):
+            object_node_id = _one_target(node["id"], "STATE_OF")
+            object_states.append(
+                ObjectState(
+                    state_id=node["source_record_id"],
+                    object_id=object_id_by_node[object_node_id],
+                    object_type=node["object_type"],
+                    valid_from=node["valid_from"],
+                    valid_to=node.get("valid_to"),
+                    observed_at=node["observed_at"],
+                    attributes=tuple(
+                        EventAttributeValue(**attribute)
+                        for attribute in node.get("attributes", ())
+                    ),
+                )
+            )
+
+        object_relationships: list[QualifiedObjectRelationship] = []
+        for node in by_type.get("ObjectRelationship", ()):
+            source_node_id = _one_target(node["id"], "RELATION_SOURCE")
+            target_node_id = _one_target(node["id"], "RELATION_TARGET")
+            object_relationships.append(
+                QualifiedObjectRelationship(
+                    relationship_id=node["source_record_id"],
+                    source_object_id=object_id_by_node[source_node_id],
+                    target_object_id=object_id_by_node[target_node_id],
+                    qualifier=node["qualifier"],
+                    valid_from=node.get("valid_from"),
+                    valid_to=node.get("valid_to"),
+                )
+            )
+
+        _perspective_fields = {
+            "perspective_id",
+            "object_types",
+            "qualifiers",
+            "effective_from",
+            "effective_to",
+            "derivation_version",
+        }
+        perspectives = tuple(
+            ProcessPerspective(
+                **{
+                    key: value
+                    for key, value in node.items()
+                    if key in _perspective_fields
+                }
+            )
+            for node in by_type.get("ProcessPerspective", ())
+        )
+
+        return cls(
+            log_id=log_node["source_record_id"],
+            source_ref=log_node["source_ref"],
+            mapping_version=log_node["mapping_version"],
+            event_types=event_types,
+            object_types=object_types,
+            events=tuple(events),
+            objects=tuple(objects),
+            object_states=tuple(object_states),
+            object_relationships=tuple(object_relationships),
+            perspectives=perspectives,
+        )
 
     def to_change_envelope(
         self,
