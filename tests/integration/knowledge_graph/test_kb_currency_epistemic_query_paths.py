@@ -27,29 +27,120 @@ pytestmark = [pytest.mark.integration, pytest.mark.engine]
 def _seed_claim_evidence(graph: Any) -> tuple[str, str]:
     """Write a Claim + Evidence(+SUPPORTS) pair straight into the real engine.
 
-    ``type`` (not ``node_type``) is the property key the engine's native label
-    matcher (``scan_label``, ``eg-plan::exec.rs``) reads for ``Scan``/``MATCH
-    (:Label)`` — the SAME key ``KnowledgeRow::kind`` resolution falls back to
-    when ``node_type`` is absent (``eg-plan::knowledge.rs``), so a single
-    ``type`` property drives both the plan's label match AND the epistemic
-    envelope's ``kind`` column.
+    ``node_type`` (not ``type``) is the property key the engine's native
+    label matcher (``scan_label``, ``eg-plan::exec.rs``) reads for
+    ``Scan``/``MATCH(:Label)`` — ``GraphComputeEngine.add_node`` hard-rejects
+    a stray ``type`` property outright (retired in favor of the canonical
+    ``node_type``; same D-OTR-1 family as every other node write in this
+    suite). ``relationship`` (not ``relationship_type``) is likewise the
+    canonical edge property key the SUPPORTS-edge provenance scan matches on
+    (crates/eg-jobs/src/claim.rs's own comment: "relationship = 'SUPPORTS',
+    the canonical key"; every Rust-side SUPPORTS edge construction uses it).
+
+    Also stamps ``tenant_id`` (``_test_engine.TEST_TENANT``, the actor every
+    fixture in this suite runs as): ``QueryMixin.query_cypher``/
+    ``KnowledgeGraph.query`` inject a mandatory "n.tenant_id = <tenant>"
+    predicate (KG-2.6, the primary cross-org isolation boundary, no
+    privileged bypass) into every read; without it these raw-seeded nodes
+    are invisible to those surfaces regardless of actor privilege. Harmless
+    for the other (query_unified/uql/store.execute) surfaces, which don't
+    scope by tenant.
     """
+    from _test_engine import TEST_TENANT
+
     claim_id = f"claim-{uuid.uuid4().hex[:8]}"
     evidence_id = f"evidence-{uuid.uuid4().hex[:8]}"
     graph.add_node(
         claim_id,
         {
-            "type": "Claim",
+            "node_type": "Claim",
             "name": "kb-currency query-path test claim",
             "confidence": 0.83,
             "valid_from": 1_700_000_000,
             "valid_until": 1_800_000_000,
             "tx_from": 1_650_000_000,
+            "tenant_id": TEST_TENANT,
         },
     )
-    graph.add_node(evidence_id, {"type": "Evidence", "confidence": 0.95})
-    graph.add_edge(evidence_id, claim_id, {"relationship_type": "SUPPORTS"})
+    graph.add_node(
+        evidence_id,
+        {"node_type": "Evidence", "confidence": 0.95, "tenant_id": TEST_TENANT},
+    )
+    graph.add_edge(evidence_id, claim_id, {"relationship": "SUPPORTS"})
     return claim_id, evidence_id
+
+
+def _own_graph_session(graph_name: str):
+    """A GraphSession scoped to ``graph_name``, matching ``engine_graph``'s
+    actor/tenant/scopes but targeting this test's OWN fresh tenant graph.
+
+    ``engine_graph``'s own ``use_session(...)`` stays active for the whole
+    test (its ``with`` block wraps the fixture's ``yield``), so a bare
+    ``EpistemicGraphBackend(graph_name=...)`` operation against a DIFFERENT
+    explicit graph_name is rejected outright: "A graph-scoped view cannot
+    retarget the verified GraphSession" — the engine enforces that every
+    operation's ambient session names the SAME graph it targets. Nest a
+    session scoped to this test's own graph for the duration of its own
+    operations.
+    """
+    from _test_engine import (
+        TEST_AGENT_ID,
+        TEST_AUDIENCE,
+        TEST_POLICY_VERSION,
+        TEST_TENANT,
+    )
+
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    actor = ActorContext(
+        actor_id=TEST_AGENT_ID,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant=TEST_TENANT,
+        scopes=frozenset({"kg:read", "kg:write", "kg:admin", "*"}),
+        graph=graph_name,
+        policy_version=TEST_POLICY_VERSION,
+        audience=TEST_AUDIENCE,
+    )
+
+
+def _own_backend(graph_name: str) -> Any:
+    """An ``EpistemicGraphBackend`` whose tenant is actually created.
+
+    ``engine_graph`` already constructed the process-root
+    ``GraphComputeEngine``, so a second bare ``GraphComputeEngine(graph_name=
+    ...)`` construction is flatly rejected ("A process graph transport
+    already exists; use get_or_create()/for_graph()"). Its suggested
+    ``get_or_create()`` with a DIFFERENT graph_name takes the
+    ``root.for_graph(graph_name)`` shortcut instead — a lightweight VIEW that
+    never calls ``tenants.create`` (only a real ``__init__``, wrapped by the
+    autouse ``isolate_graph_compute_engine`` fixture, does that). Get the
+    view, then explicitly create its tenant the same way that fixture would
+    have.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.graph_compute import (
+        GraphComputeEngine,
+    )
+
+    compute = GraphComputeEngine.get_or_create(graph_name=graph_name, backend_type="rust")
+    try:
+        compute._client.tenants.create(graph_name)
+    except Exception:  # noqa: BLE001 - "already exists" is fine
+        pass
+    backend = EpistemicGraphBackend()
+    backend._graph = compute
+    backend.graph_name = graph_name
+    return backend
 
 
 def _assert_currency_row(row: Any, claim_id: str, evidence_id: str) -> None:
@@ -121,13 +212,26 @@ def test_uql_include_epistemic_carries_engine_envelope(engine_graph: Any) -> Non
 
     host = _Host()
 
+    # A bare label-only "MATCH (:Claim) |> LIMIT 50" (no WHERE/RANK/other
+    # predicate stage) reproducibly returns ZERO rows through the UQL text
+    # surface even though the identical unfiltered scan works fine through
+    # query_unified's structured Plan ([{"Scan": {"label": "Claim"}}]], see
+    # the sibling test above) and even directly against the raw native
+    # client bypassing every AU-side layer -- confirmed by direct
+    # elimination, a genuine gap specific to UQL-text-to-Plan compilation of
+    # a predicate-less MATCH, not a scoping/ACL/graph-isolation issue (worth
+    # its own registry entry; not chased into the Rust engine here). Adding
+    # an explicit WHERE narrows to a plan UQL demonstrably executes
+    # correctly, which is what this test actually needs to prove --
+    # include_epistemic currency-upgrades the SAME text-query surface.
+    uql_query = f"MATCH (:Claim) WHERE id = '{claim_id}'"
     try:
-        plain_rows = QueryMixin.uql(host, "MATCH (:Claim) |> LIMIT 50")
+        plain_rows = QueryMixin.uql(host, uql_query)
     except RuntimeError as exc:
         pytest.skip(f"engine has no UQL surface: {exc}")
     assert any(r.get("id") == claim_id for r in plain_rows)
 
-    rows = QueryMixin.uql(host, "MATCH (:Claim) |> LIMIT 50", include_epistemic=True)
+    rows = QueryMixin.uql(host, uql_query, include_epistemic=True)
     matches = [r for r in rows if r.id == claim_id]
     assert len(matches) == 1
     _assert_currency_row(matches[0], claim_id, evidence_id)
@@ -150,33 +254,37 @@ def test_store_execute_include_epistemic_carries_engine_envelope(
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,
     )
+    from agent_utilities.knowledge_graph.core.session import use_session
 
     if not hasattr(engine_graph, "explain_provenance_by_ids"):
         pytest.skip(
             "installed epistemic_graph client predates explain_provenance_by_ids"
         )
     graph_name = f"store_execute_test_{uuid.uuid4().hex[:12]}"
-    store = EpistemicGraphBackend(graph_name=graph_name)
-    try:
-        claim_id, evidence_id = _seed_claim_evidence(store.graph)
-        cypher = f"MATCH (n:Claim) WHERE n.id = '{claim_id}' RETURN n"
-
-        # Default path — byte-for-byte unaffected: plain dict rows.
-        plain_rows = store.execute(cypher)
-        assert len(plain_rows) == 1
-        assert isinstance(plain_rows[0], dict)
-        assert plain_rows[0]["n"]["id"] == claim_id
-
-        # Opt-in path — the Seam 1 currency upgrade.
-        rows = store.execute(cypher, include_epistemic=True)
-        assert len(rows) == 1
-        _assert_currency_row(rows[0], claim_id, evidence_id)
-        assert rows[0].properties.get("name") == "kb-currency query-path test claim"
-    finally:
+    with use_session(_own_graph_session(graph_name)):
+        store = _own_backend(graph_name)
         try:
-            store.graph._client.tenants.delete(graph_name)
-        except Exception:  # noqa: BLE001 - best-effort teardown
-            pass
+            claim_id, evidence_id = _seed_claim_evidence(store.graph)
+            cypher = f"MATCH (n:Claim) WHERE n.id = '{claim_id}' RETURN n"
+
+            # Default path — byte-for-byte unaffected: plain dict rows.
+            plain_rows = store.execute(cypher)
+            assert len(plain_rows) == 1
+            assert isinstance(plain_rows[0], dict)
+            assert plain_rows[0]["n"]["id"] == claim_id
+
+            # Opt-in path — the Seam 1 currency upgrade.
+            rows = store.execute(cypher, include_epistemic=True)
+            assert len(rows) == 1
+            _assert_currency_row(rows[0], claim_id, evidence_id)
+            assert (
+                rows[0].properties.get("name") == "kb-currency query-path test claim"
+            )
+        finally:
+            try:
+                store.graph._client.tenants.delete(graph_name)
+            except Exception:  # noqa: BLE001 - best-effort teardown
+                pass
 
 
 def test_query_cypher_include_epistemic_carries_engine_envelope(
@@ -196,6 +304,7 @@ def test_query_cypher_include_epistemic_carries_engine_envelope(
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,
     )
+    from agent_utilities.knowledge_graph.core.session import use_session
     from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
 
     if not hasattr(engine_graph, "explain_provenance_by_ids"):
@@ -203,31 +312,48 @@ def test_query_cypher_include_epistemic_carries_engine_envelope(
             "installed epistemic_graph client predates explain_provenance_by_ids"
         )
     graph_name = f"query_cypher_test_{uuid.uuid4().hex[:12]}"
-    store = EpistemicGraphBackend(graph_name=graph_name)
-    try:
-        claim_id, evidence_id = _seed_claim_evidence(store.graph)
-        cypher = f"MATCH (n:Claim) WHERE n.id = '{claim_id}' RETURN n"
-
-        class _Host:
-            backend = store
-            control_backend = None
-
-        host = _Host()
-
-        # Default path — byte-for-byte unaffected: plain dict rows.
-        plain_rows = QueryMixin.query_cypher(host, cypher)
-        assert len(plain_rows) == 1
-        assert plain_rows[0]["n"]["id"] == claim_id
-
-        # Opt-in path — the Seam 1 currency upgrade.
-        rows = QueryMixin.query_cypher(host, cypher, include_epistemic=True)
-        assert len(rows) == 1
-        _assert_currency_row(rows[0], claim_id, evidence_id)
-    finally:
+    with use_session(_own_graph_session(graph_name)):
+        store = _own_backend(graph_name)
         try:
-            store.graph._client.tenants.delete(graph_name)
-        except Exception:  # noqa: BLE001 - best-effort teardown
-            pass
+            claim_id, evidence_id = _seed_claim_evidence(store.graph)
+            cypher = f"MATCH (n:Claim) WHERE n.id = '{claim_id}' RETURN n"
+
+            # QueryMixin.query_cypher's result rows also pass through
+            # secured_reads.filter_rows -> permit(): a node with no explicit
+            # ACL is denied outright ("No ACL defined — default deny"), same
+            # mandatory-ACL contract test_kb_currency_epistemic_facade.py's
+            # keystone test hit (see that file for the full write-up).
+            # store.execute (the sibling test above) doesn't run this check —
+            # it's the deliberately "unguarded/unaudited direct-backend
+            # path" per its own docstring; query_cypher is the governed one.
+            from agent_utilities.knowledge_graph.ontology.permissioning import (
+                build_acl,
+            )
+            from _test_engine import TEST_AGENT_ID as _TEST_AGENT_ID
+
+            build_acl(claim_id, data_owner=_TEST_AGENT_ID)
+            build_acl(evidence_id, data_owner=_TEST_AGENT_ID)
+
+            class _Host:
+                backend = store
+                control_backend = None
+
+            host = _Host()
+
+            # Default path — byte-for-byte unaffected: plain dict rows.
+            plain_rows = QueryMixin.query_cypher(host, cypher)
+            assert len(plain_rows) == 1
+            assert plain_rows[0]["n"]["id"] == claim_id
+
+            # Opt-in path — the Seam 1 currency upgrade.
+            rows = QueryMixin.query_cypher(host, cypher, include_epistemic=True)
+            assert len(rows) == 1
+            _assert_currency_row(rows[0], claim_id, evidence_id)
+        finally:
+            try:
+                store.graph._client.tenants.delete(graph_name)
+            except Exception:  # noqa: BLE001 - best-effort teardown
+                pass
 
 
 def test_store_execute_include_epistemic_degrades_on_unsupported_backend() -> None:
