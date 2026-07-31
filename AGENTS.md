@@ -963,48 +963,77 @@ After pushing, **verify the workflows actually went green** (GitHub MCP `gith__a
 is confirmed green. If a gate cannot pass, stop and explain; never disable or
 `continue-on-error` a blocking gate to get a merge through.
 
-## Working with Git Worktrees (multi-session)
+## Concurrent development — lanes, arbitration classes, what refuses you (READ FIRST when many sessions share a repo)
 
-Multiple agents/sessions work the `agent-packages/*` repos concurrently. **Do not
-edit the canonical checkout** (`agent-packages/<repo>`) — a
-background `repository-manager` sync can reset its working tree and discard
-uncommitted edits. Take your own git worktree on your own branch instead:
+Many agent sessions and humans work `agent-packages/*` **at once**. Every collision we
+have suffered has one shape: **a background or global actor mutates state a lane
+assumed it owned.** A *lane* = one worker, one worktree, one branch. Writing these
+rules down did not work — ten were violated in one day, the last by a careful actor
+with the rule in front of it — so they are now **mechanical**. Full design +
+evidence: [`docs/architecture/lane-concurrency.md`](docs/architecture/lane-concurrency.md).
 
+Every shared resource is in exactly one class (`agent-utilities lane classify`;
+data lives in `agent_utilities/governance/lane_resources.yaml`, an unclassified
+resource is a hard error):
+
+- **PARTITION** — take your own: cargo target dir, pytest basetemp, scratch, stash ref.
+- **APPEND-ONLY** — append to *your* fragment; a reconciler folds one generated view.
+- **LEASE** — announce, and **defer** rather than proceed.
+- **READ-ONLY** — do not mutate at all.
+
+**Start every lane:**
 ```bash
-# preferred — repository-manager MCP:
-rm_worktree add <repo> <your-branch>      # -> ${XDG_STATE_HOME}/repository-worktrees/<repo>/<your-branch>
-
-# raw-git fallback:
-git -C agent-packages/<repo> checkout main
-git -C agent-packages/<repo> worktree add ${XDG_STATE_HOME}/repository-worktrees/<repo>/<branch> -b <branch>
+git -C agent-packages/<repo> worktree add ${XDG_STATE_HOME}/repository-worktrees/<repo>/<branch> -b <branch> main
+agent-utilities lane status   # confirm is_canonical == false
+agent-utilities lane env      # your private cargo target / pytest basetemp / scratch / stash ref
 ```
+In an agent-utilities worktree use `python3 scripts/uv_workspace.py run <cmd>` instead
+of bare `uv run`, and `... lock --locked` instead of bare `uv lock`.
 
-Work in the worktree and **commit often** (commits survive a working-tree reset).
-Each session must use a **distinct branch** — git allows a branch in only one
-worktree, which is what keeps concurrent sessions from colliding. Worktrees live
-under `${XDG_STATE_HOME}/repository-worktrees/` (outside the workspace scan, so the sync leaves them
-alone). In an agent-utilities worktree, use
-`python3 scripts/uv_workspace.py run <command>` instead of bare `uv run`, and
-`python3 scripts/uv_workspace.py lock --locked` instead of bare `uv lock`; the
-pre-commit hooks already use this launcher.
+**The rules, and what enforces them:**
+1. **Never edit the canonical checkout** (`agent-packages/<repo>`). The `lane-guard`
+   pre-commit hook **refuses** a non-merge commit authored there. Carve-outs are
+   structural, never flags: a merge in progress (git's `MERGE_HEAD`) and a pure
+   version bump (staged set ⊆ `.bumpversion.cfg`).
+2. **Never `git stash`** — `refs/stash` is one ref shared by every worktree. Use
+   `agent-utilities lane park` / `lane unpark`: it builds the same stash commit via
+   `git stash create` (which writes no ref), points *your* ref at it, then cleans
+   the tree. Commit often — commits are what a reset cannot take.
+3. **Never relock, swap the venv, run `pre-commit --all-files`, or merge into a
+   shared base bare.** Run it *through* the lease so a contender defers:
+   `agent-utilities lane lease --resource dependency-lock --operation relock -- uv lock`.
+   **Exit 75 = another lane holds it: defer, do not proceed.** ⚠ A lease binds only
+   actors that take it; an unwrapped process still races. Not solved — always wrap.
+4. **Never hand-edit a generated view** (`docs/concept_reservations.yaml`,
+   `reports/PROGRAM.md`). `lane-guard` refuses a ledger view that is not the fold of
+   its fragments. Write your fragment, regenerate.
+5. **Reserve a concept id before writing its `CONCEPT:` marker** —
+   `agent-utilities concept reserve --id <ID>` appends to *your* fragment, arbitrated
+   in the repo's shared git dir so siblings see the claim immediately.
+6. **If you are a global actor** (background sync, fleet cleanup, venv swapper) route
+   every tree-mutating verb — `checkout`, `restore`, `clean`, `reset`, branch switch —
+   through `lanes.guarded_tree_mutation(path, operation=…, owner=…)`, or
+   `agent-utilities lane guard --reset <path> --owner <you>`. It refuses any tree
+   holding uncommitted work you do not own. **Skip that tree. Never force.**
+7. **One document for readers, one fragment per writer.** Read `reports/PROGRAM.md`
+   (generated charter + register). Write only your own
+   `reports/deferred/<lane>.md` (`scripts/deferred_registry.py open`) or your own
+   charter fragment.
 
-**Finishing work in a worktree** — run this sequence before calling it done:
-1. **Pre-commit green** — `pre-commit run --all-files`; resolve every issue per the
-   *Quality Bar* above (including pre-existing), no `--no-verify`.
+**Finishing a lane** (see also *Quality Bar* above — resolve everything, no `--no-verify`):
+1. `agent-utilities lane lease --resource precommit-all-files --operation gate -- pre-commit run --all-files`
 2. **Commit** in the worktree.
-3. **Sync `main` INTO your feature branch FIRST, and resolve every conflict there.**
-   `main` drifts a lot while a worktree is checked out, so merge `main` *down* into the
-   branch — `git -C <worktree> fetch origin && git -C <worktree> merge origin/main` (or
-   `rm_worktree sync <repo> <branch>` where available) — and resolve all conflicts **in the
-   feature branch**, re-running the gates after. This is the safety valve: conflict
-   resolution happens on your isolated branch, never on the shared `main` tree, so the
-   merge back is guaranteed clean.
-4. **Merge to main locally** — now a clean **fast-forward** (no conflicts, since the branch
-   already contains `main`): `rm_worktree merge <repo> <branch> --into main` (or
-   `git merge --ff-only`). Push only when the user asks.
-5. **Clean up** — remove the worktree and delete the merged branch:
-   `rm_worktree remove <repo> <branch> --delete-branch`; `rm_worktree prune` clears
-   stale entries. (Raw-git: `git worktree remove <path> && git branch -d <branch>`.)
+3. **Sync `main` INTO your branch first and resolve every conflict there** —
+   `git fetch origin && git merge origin/main` — never against the shared `main` tree.
+4. **Merge back** under the lease, now a clean fast-forward:
+   `agent-utilities lane lease --resource reconciliation-merge --operation merge -- git -C <canonical> merge --ff-only <branch>`.
+   Push only when the user asks.
+5. **Clean up** — `git worktree remove <path> && git branch -d <branch>`.
+
+**Worked example — deferring is the correct outcome.** A lane finished a fix for this
+exact hazard and then *declined to merge it*, because the canonical checkout held
+unrelated uncommitted changes and merging into a dirty canonical tree is the hazard it
+had just fixed. It recorded the deferral instead. Do that.
 
 ## Project Structure (generated)
 
@@ -1067,7 +1096,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Only version-controlled paths are
 │   │   ├── rlm-comparative-analysis-2026-06-14.md
 │   │   └── rlm-gepa-comparative-analysis.md
 │   └── specs/ (46 entries)
-├── agent_utilities/ (62 entries)
+├── agent_utilities/ (63 entries)
 ├── deploy/
 │   ├── k8s/
 │   │   ├── production-cell/
@@ -1147,112 +1176,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Only version-controlled paths are
 │   ├── pg-age-full.compose.yml
 │   ├── pg-age.compose.yml
 │   └── README.md
-├── docs/
-│   ├── architecture/ (110 entries)
-│   ├── examples/
-│   │   ├── workflows/
-│   │   ├── action-policy-postures.md
-│   │   ├── autoscaling-signals.md
-│   │   ├── config.json
-│   │   ├── evolution-publication.md
-│   │   ├── example_mcp_config.json
-│   │   ├── example_tunnel_inventory.yaml
-│   │   ├── fleet-events-wiring.md
-│   │   ├── graph-os-mcp-examples.md
-│   │   ├── identity-jwt.md
-│   │   ├── mcp-consumption.md
-│   │   ├── mcp-orchestration-examples.md
-│   │   ├── observability.md
-│   │   ├── ontology-to-workflow.md
-│   │   ├── queue-dispatch-walkthrough.md
-│   │   ├── sharding-walkthrough.md
-│   │   └── workspace.yml
-│   ├── guides/ (78 entries)
-│   ├── learn/
-│   │   ├── lessons/
-│   │   ├── index.md
-│   │   └── manifest.yaml
-│   ├── operations/
-│   │   ├── disaster-recovery.md
-│   │   ├── phase10-cutover-runbook.md
-│   │   └── production-cell-runbook.md
-│   ├── pillars/
-│   │   ├── 1_graph_orchestration/
-│   │   ├── 2_epistemic_knowledge_graph/
-│   │   ├── 3_agentic_harness_engineering/
-│   │   ├── 4_ecosystem_peripherals/
-│   │   ├── 5_agent_os_infrastructure/
-│   │   ├── 1_graph_orchestration.md
-│   │   ├── 2_epistemic_knowledge_graph.md
-│   │   ├── 3_agentic_harness_engineering.md
-│   │   ├── 4_ecosystem_peripherals.md
-│   │   ├── 5_agent_os_infrastructure.md
-│   │   ├── 6_geniusbot_cockpit.md
-│   │   ├── architecture_c4.md
-│   │   ├── master_integration.md
-│   │   └── memory_architecture.md
-│   ├── recipes/
-│   │   ├── databases.md
-│   │   ├── delta-ingestion.md
-│   │   ├── enterprise.md
-│   │   ├── kv-caching.md
-│   │   ├── single-node-prod.md
-│   │   ├── split-storage-engine.md
-│   │   ├── tiny.md
-│   │   ├── unified-feeds.md
-│   │   ├── unified-scheduling.md
-│   │   └── unified-self-contained.md
-│   ├── reference/
-│   │   ├── palantir-foundry/
-│   │   ├── documentation-catalog.md
-│   │   ├── metrics.md
-│   │   └── runtime-configuration.md
-│   ├── release/
-│   │   ├── compatibility-and-certification.md
-│   │   ├── connector-live-certification.md
-│   │   ├── exact-artifact-closure.md
-│   │   ├── exact-local-gates.md
-│   │   ├── exact-local-release.md
-│   │   ├── oci-layout-export.md
-│   │   ├── oci-vulnerability-scanning.md
-│   │   ├── skill-validation-certification.md
-│   │   ├── source-freeze-gates.md
-│   │   └── supply-chain-hardening.md
-│   ├── scaling/
-│   │   ├── capacity_model.md
-│   │   ├── capacity_model.py
-│   │   ├── workload_contract.py
-│   │   └── workload_contract.yml
-│   ├── _vendor_eg_capability_ledger.json
-│   ├── capabilities-power.json
-│   ├── capabilities-power.md
-│   ├── capabilities.md
-│   ├── centralized_kg_coordination.md
-│   ├── comparative_analysis_palantir_aip.md
-│   ├── comparative_analysis_quant_frameworks.md
-│   ├── concept_coordination.md
-│   ├── concept_map.md
-│   ├── concept_reservations.yaml
-│   ├── concepts.yaml
-│   ├── CONTEXT.md
-│   ├── deploy.md
-│   ├── ecosystem-capability-fleet.md
-│   ├── ecosystem.md
-│   ├── external_concepts.yaml
-│   ├── genesis.yaml
-│   ├── index.md
-│   ├── install.ps1
-│   ├── install.sh
-│   ├── journey.md
-│   ├── legal_automation_roadmap.md
-│   ├── NAMING.md
-│   ├── okf-cis.md
-│   ├── overview.md
-│   ├── owl_kg_synergies.md
-│   ├── README.md
-│   ├── reliability_matrix.md
-│   ├── start-here.md
-│   └── workflow-kg-synergy.md
+├── docs/ (41 entries)
 ├── examples/
 │   ├── action-policies/
 │   │   ├── locked-down.yml
@@ -1276,8 +1200,8 @@ _Auto-generated by `scripts/gen_agents_md.py`. Only version-controlled paths are
 │   ├── __main__.py
 │   ├── gateway.py
 │   └── pyproject.toml
-├── scripts/ (143 entries)
-├── tests/ (248 entries)
+├── scripts/ (145 entries)
+├── tests/ (247 entries)
 ├── .bumpversion.cfg
 ├── .codespellignore
 ├── .dockerignore
@@ -1324,15 +1248,15 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 1060 concepts across 9 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1080 concepts across 9 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
 | **AU-AHE** | 116 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
 | **AU-ECO** | 121 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
-| **AU-KG** | 452 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
-| **AU-ORCH** | 206 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
-| **AU-OS** | 133 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
+| **AU-KG** | 464 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
+| **AU-ORCH** | 208 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
+| **AU-OS** | 139 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
 | **EG-KG** | 29 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
 | **EG-ORCH** | 1 | routing |
