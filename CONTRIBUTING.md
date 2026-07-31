@@ -35,12 +35,22 @@ locally when done. Push only when asked.
 ## Before you push
 
 ```bash
-python -m pytest          # unit suite (keep it green)
-pre-commit run --all-files
+python -m pytest                              # unit suite (keep it green)
+python3 scripts/safe_precommit_all_files.py   # NOT bare `pre-commit run --all-files` — see below
 ```
 
 Note: the `pre-commit` pytest hook can fail repo-wide due to an unrelated
 egeria/py3.12 dependency pin — validate with the system `python -m pytest` if so.
+
+⚠ **Use the safe wrapper, not bare `pre-commit run --all-files` (D-OB-12).**
+`--all-files` stashes every unstaged change before running hooks and restores it
+after; a file-rewriting hook (`ruff-format`, `turtle-format`, …) touching the same
+path can make that restore silently drop the unstaged edit — and
+`docs/concept_reservations.yaml` is a shared, cross-session ledger deliberately
+left unstaged, so a careless run can destroy another session's reservations.
+`scripts/safe_precommit_all_files.py` backs up your unstaged diff first and
+verifies it's still there afterward. See `AGENTS.md`'s *Quality Bar* section for
+the full explanation and recovery steps.
 
 ### Guardrail ENV parity (passes-local / fails-CI)
 

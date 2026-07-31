@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-364 publishable pages · 179 direct nav targets · 119 public capabilities · 770 action rows · 545 typed configuration fields · 350 runtime-only call-site inputs.
+366 publishable pages · 180 direct nav targets · 119 public capabilities · 770 action rows · 547 typed configuration fields · 350 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -27,6 +27,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [OKF-CIS concept IDs](../okf-cis.md) — catalog
 - [Agent Utilities — Concept Overview](../overview.md) — direct nav
 - [Complete OWL Ontology Sweep & Cross-Domain Synergy Blueprint](../owl_kg_synergies.md) — catalog
+- [Project Structure](../project_structure.md) — catalog
 - [Reliability / Chaos Matrix](../reliability_matrix.md) — catalog
 - [Start Here — What agent-utilities Is & How to Use It](../start-here.md) — direct nav
 - [Workflow × Knowledge Graph Synergy Map](../workflow-kg-synergy.md) — catalog
@@ -234,6 +235,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Phased Dependency Release Architecture](../architecture/phased_release_architecture.md) — catalog
 - [Privacy-safe external graph ingestion](../architecture/privacy-safe-external-ingestion.md) — direct nav
 - [Pydantic AI v2 migration](../architecture/pydantic-ai-v2-migration.md) — direct nav
+- [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — direct nav
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — direct nav
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — direct nav
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — direct nav

@@ -154,6 +154,7 @@ nav:
       - Delegation-First Operating Model (orchestrate + resolve): architecture/delegation-first-operating-model.md
       - agent-utilities-expert (KG-bound delegate): architecture/agent-utilities-expert.md
       - Troubleshooting (cross-layer diagnose): architecture/troubleshooting.md
+      - "RCA: graph-os fleet-mount state desync (D-OB-3)": architecture/rca-mcp-tool-state-desync.md
       - Self-Evolution Flywheel (transparent + steerable): architecture/self-evolution-flywheel.md
       - Reasoning Algorithms as Versioned Graph Topologies (CoT/ToT/GoT/ReAct/RAP): architecture/reasoning-graph-topologies.md
       - Runtime-Reliability Loop (detect→signal→gap→heal): architecture/runtime-reliability-loop.md

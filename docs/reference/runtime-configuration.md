@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-545 typed fields · 350 runtime-only call-site inputs.
+547 typed fields · 350 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -667,6 +667,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `AGENT_EXECUTION_TIMEOUT` | `float` | `120.0` |
 | `CIRCUIT_BREAKER_THRESHOLD` | `int` | `3` |
 | `ENABLE_PROGRESSIVE_SYNTHESIS` | `bool` | `True` |
+| `DISTILLATION_PROMOTION_THRESHOLD` | `int` | `3` |
+| `DISTILLATION_QUALITY_SCORE_MINIMUM` | `float` | `0.6` |
 
 ## Innovation Framework (CONCEPT:AU-OS.state.cognitive-scheduler-preemption through CONCEPT:AU-OS.state.cognitive-scheduler-preemption)
 

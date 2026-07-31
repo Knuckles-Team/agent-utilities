@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1079
+total_concepts: 1081
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3485,6 +3485,13 @@ concepts:
   - agent_utilities/mcp/tools/ops_causal_tools.py
   - agent_utilities/mcp/tools/state_tools.py
   doc: writes back typed, descriptive KG facts
+- id: AU-KG.evolution.neural-relation-proposal-producer
+  name: D-OB-11
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/ocel_adapter.py
+  doc: D-OB-11
 - id: AU-KG.evolution.placement-mining-canary-loop
   name: AU-KG.evolution.placement-mining-canary-loop
   pillar: AU-KG
@@ -8056,6 +8063,13 @@ concepts:
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: a low-value/high-volume
+- id: AU-ORCH.scheduling.quiet-period-preference
+  name: D-OB-10
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/core/resource_priority.py
+  doc: D-OB-10
 - id: AU-ORCH.scheduling.resource-priority-edict
   name: the autonomous goal loop is
   pillar: AU-ORCH
