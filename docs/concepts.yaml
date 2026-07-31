@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1107
+total_concepts: 1112
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -8810,6 +8810,13 @@ concepts:
   code_paths:
   - agent_utilities/ecosystem/agents_md_reflector.py
   doc: Self-Improving AGENTS.md Reflector
+- id: AU-OS.governance.append-only-fragment-fold
+  name: AU-OS.governance.append-only-fragment-fold
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/lanes.py
+  doc: AU-OS.governance.append-only-fragment-fold
 - id: AU-OS.governance.assurance-state-machine-verifier
   name: the REST twin of the
   pillar: AU-OS
@@ -8836,6 +8843,13 @@ concepts:
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/autonomy_ramp.py
   doc: earned-autonomy ramp
+- id: AU-OS.governance.canonical-checkout-immutable
+  name: AU-OS.governance.canonical-checkout-immutable
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/lanes.py
+  doc: AU-OS.governance.canonical-checkout-immutable
 - id: AU-OS.governance.checkpoint-persistence-eligibility
   name: a KV cache is **derived
   pillar: AU-OS
@@ -8896,6 +8910,21 @@ concepts:
   code_paths:
   - agent_utilities/ecosystem/governance_workflow.py
   doc: Governance Workflow Pipeline
+- id: AU-OS.governance.lane-arbitration-classes
+  name: concurrent-lane arbitration entry point
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/cli/__init__.py
+  - agent_utilities/governance/lanes.py
+  doc: concurrent-lane arbitration entry point
+- id: AU-OS.governance.lane-partitioned-resources
+  name: AU-OS.governance.lane-partitioned-resources
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/lanes.py
+  doc: AU-OS.governance.lane-partitioned-resources
 - id: AU-OS.governance.lint-enforcement-hook
   name: Deterministic Lint Enforcement Hook
   pillar: AU-OS
@@ -8938,6 +8967,13 @@ concepts:
   code_paths:
   - agent_utilities/graph/reactive/budget.py
   doc: Reactive Multi-Axis Budget Guardrails
+- id: AU-OS.governance.shared-scope-lease
+  name: AU-OS.governance.shared-scope-lease
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/lanes.py
+  doc: AU-OS.governance.shared-scope-lease
 - id: AU-OS.governance.wasm-micro-agent-sandbox
   name: WASM Micro-Agent Sandbox & Runner
   pillar: AU-OS

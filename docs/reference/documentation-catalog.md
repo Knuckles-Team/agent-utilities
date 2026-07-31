@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-369 publishable pages · 182 direct nav targets · 119 public capabilities · 775 action rows · 547 typed configuration fields · 350 runtime-only call-site inputs.
+370 publishable pages · 183 direct nav targets · 119 public capabilities · 775 action rows · 547 typed configuration fields · 350 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -204,6 +204,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Knowledge Graph Ingestion Stability & Locking Architecture](../architecture/knowledge_graph_ingestion_stability.md) — catalog
 - [Dynamic KV-Cache-Layering Policy (per-execution cache-worthiness)](../architecture/kv-cache-layering-policy.md) — direct nav
 - [KV-Checkpoint Intelligence — checkpointing at good moments](../architecture/kv-checkpoint-intelligence.md) — direct nav
+- [Lane concurrency — four arbitration classes](../architecture/lane-concurrency.md) — direct nav
 - [Latent-Native Memory](../architecture/latent_native_memory.md) — direct nav
 - [Layered Hybrid Architecture — KG Comparative Analysis Pipeline](../architecture/layered_analysis_architecture.md) — catalog
 - [LLM / Embedding Server-Capacity Guard](../architecture/llm-server-capacity-guard.md) — direct nav
