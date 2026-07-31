@@ -382,7 +382,13 @@ serving = [
     # break the moment Logfire drops the OTLP/HTTP exporter or `serving` ships without
     # `logfire`. This is a metadata-only change (the resolved versions are unchanged —
     # both packages already satisfy `otel`'s `>=1.30.0,<2` range via `logfire`).
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost]",
+    # vault: CONCEPT:AU-KG.ontology.release-key-rotation (D-DP-2/D-OC-*) — release signing now
+    # REQUIRES versioned secret custody (`vault://`/`secret://`; see
+    # `release_signer_for_publication` and `SecretsClient.resolve_ref`'s `@<version>` KV v2 pin).
+    # `hvac` is the only client that satisfies that on the serving plane, and it is a small
+    # pure-Python HTTP client (no ML/native weight), so it belongs in `serving`, not a bespoke
+    # second OpenBao client.
+    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
