@@ -8,7 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-<<<<<<< HEAD
 - **Live content guardrails, replacing the dead `PolicyEngine`.** D-48: grep
   confirmed `security/guardrails.py`'s `PolicyEngine` (PII, forbidden-content,
   cost-budget, output-schema rules) had zero live callers across the whole
@@ -28,16 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actually enforces via `graph/_router_impl.py::dispatcher_step`) its
   token/cost tracking, so it was deleted outright.
 
-### Removed
-- **`agent_utilities.security.guardrails.PolicyEngine` and its four rule
-  classes** (`PIISanitizerPolicy`, `MaxTokensPolicy`, `ContentFilterPolicy`,
-  `OutputSchemaPolicy`, `CostBudgetPolicy`), the `PolicyResult`/
-  `PolicyViolation`/`PolicyRule`/`guardrail()` decorator, and the two
-  PolicyEngine-only adapter classes (`threat_defense_engine.PromptInjectionPolicy`,
-  `execution_stability_engine.RepetitionPolicy`) — dead code with zero live
-  callers (D-48). See "Added" above for the replacement.
-
-=======
 - **Proven upstream `DynamicWorkflow` execution + a real governed resume path.**
   `GovernedDynamicWorkflow.execute_upstream` now provably runs a model-authored
   script through the real `pydantic-ai-harness`/Monty sandbox end-to-end (a
@@ -59,7 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-producer `bool` (was hard-coded `Literal[False]`) — `true` only for this
   genuinely-resumable path; the `pydantic_graph`/`ParallelEngine` plane is
   unchanged and still reports `false`.
->>>>>>> feat/dynamic-workflow-execution-and-resume
+
+### Removed
+- **`agent_utilities.security.guardrails.PolicyEngine` and its four rule
+  classes** (`PIISanitizerPolicy`, `MaxTokensPolicy`, `ContentFilterPolicy`,
+  `OutputSchemaPolicy`, `CostBudgetPolicy`), the `PolicyResult`/
+  `PolicyViolation`/`PolicyRule`/`guardrail()` decorator, and the two
+  PolicyEngine-only adapter classes (`threat_defense_engine.PromptInjectionPolicy`,
+  `execution_stability_engine.RepetitionPolicy`) — dead code with zero live
+  callers (D-48). See "Added" above for the replacement.
+
 - **Truthful Pydantic Graph execution evidence.** Real blocking and iterative
   graph runs now carry deterministic topology/runtime digests, ordered scheduler
   task batches, and only backend-confirmed checkpoint identifiers through

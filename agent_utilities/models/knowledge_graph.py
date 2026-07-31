@@ -1935,7 +1935,6 @@ class ClaimNode(RegistryNode):
     is_verified: bool = False
 
 
-<<<<<<< HEAD
 class ExtractionRunNode(RegistryNode):
     """One deterministic (or learned) extraction execution — a PROV-O ``Activity``.
 
@@ -1974,7 +1973,8 @@ class ExtractionRunNode(RegistryNode):
     completed_at: str = ""
     duration_ms: float = 0.0
     error: str | None = None
-=======
+
+
 class EvolutionEvidenceNode(RegistryNode):
     """One normalized unit of evidence feeding the evolution/optimisation loop.
 
@@ -1998,7 +1998,6 @@ class EvolutionEvidenceNode(RegistryNode):
     source_node_type: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     lineage: dict[str, Any] = Field(default_factory=dict)
->>>>>>> feat/unified-evolution-engine
 
 
 class VirtualContextBlockNode(RegistryNode):
