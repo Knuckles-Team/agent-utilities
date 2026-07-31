@@ -12,12 +12,17 @@ from agent_utilities.harness.trace_backend import KGTraceBackend
 
 
 class _FakeKG:
+    """Mirrors the real ``IntelligenceGraphEngine.add_node(node_id, node_type,
+    properties)`` contract (D-5.1-5) — no ``**kwargs`` catch-all."""
+
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}
         self.edges: list[tuple[str, str, str]] = []
 
-    def add_node(self, node_id: str, **props) -> None:
-        self.nodes[node_id] = props
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict | None = None
+    ) -> None:
+        self.nodes[node_id] = {"node_type": node_type, **(properties or {})}
 
     def link_nodes(self, src: str, dst: str, rel, **_kw) -> None:
         self.edges.append((src, dst, str(rel)))
@@ -88,7 +93,7 @@ def test_automation_rules_write_online_scores_linked_to_trace():
     assert len(written) == 1 and written[0].dimension == "correctness"
     assert written[0].score == 1.0
     # persisted + SCORED_BY edge from the trace.
-    assert any(p.get("type") == "online_score" for p in kg.nodes.values())
+    assert any(p.get("node_type") == "online_score" for p in kg.nodes.values())
     assert any(s == "t1" and str(rel).endswith("scored_by") for s, _d, rel in kg.edges)
 
 
@@ -123,7 +128,7 @@ def test_install_defers_scoring_via_completion_hook():
     _trace(
         be, "t3", "the answer is 4"
     )  # root completion fires the hook → scores inline
-    assert any(p.get("type") == "online_score" for p in kg.nodes.values())
+    assert any(p.get("node_type") == "online_score" for p in kg.nodes.values())
 
 
 # ── B5: sandboxed user-defined Python metrics (CONCEPT:AU-AHE.harness.onlinescorenode) ──
