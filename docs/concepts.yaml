@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1075
+total_concepts: 1076
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1598,6 +1598,14 @@ concepts:
   code_paths:
   - agent_utilities/mcp/verbose_tools.py
   doc: verbose auto-wire enumerates dynamic
+- id: AU-ECO.mcp.webui-governed-mcp-delegation
+  name: AU-ECO.mcp.webui-governed-mcp-delegation
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/server/app.py
+  - agent_utilities/server/webui_mcp_delegation.py
+  doc: AU-ECO.mcp.webui-governed-mcp-delegation
 - id: AU-ECO.messaging.alert-intake
   name: messaging alert-intake enabled on port
   pillar: AU-ECO
