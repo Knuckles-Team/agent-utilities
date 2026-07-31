@@ -1839,6 +1839,8 @@ def ingest_graph_slice(
     source_instance: str = "",
     checkpoint: str | None = None,
     version_field: str = "updatedAt",
+    ontology_mapping_version: str = "",
+    classification: str = "",
 ) -> dict[str, Any]:
     """Commit a connector-produced multi-node graph slice atomically.
 
@@ -1847,6 +1849,21 @@ def ingest_graph_slice(
     source has no explicit version, a deterministic content digest supplies the
     idempotent version without advancing a source cursor. The Epistemic Graph
     authority is resolved from ``engine`` and missing native support fails closed.
+
+    ``ontology_mapping_version`` (CONCEPT:AU-KG.ingest.domain-pack-framework)
+    stamps the resulting envelope's ``ChangeEnvelope.ontology_mapping_version``
+    — the domain-pack framework's caller (``domain_packs.envelope_bridge``)
+    passes its pack's ``"<pack>@<version>"`` so every fact this slice produces
+    traces back to the exact mapping revision that produced it. Defaults to
+    ``""`` (unchanged behavior for every existing caller).
+
+    ``classification`` (CONCEPT:AU-KG.ingest.domain-pack-framework), one of
+    ``DataClassification``'s lowercase values (``"public"``/``"internal"``/
+    ``"confidential"``/``"restricted"``), overrides the envelope's
+    ``ChangeEnvelope.classification``. Defaults to ``""``, which leaves
+    ``from_connector_record``'s own fail-closed default (``PUBLIC`` only when
+    the record's ``external_access`` says so, else ``INTERNAL``) unchanged for
+    every existing caller.
     """
     relationships = relationships or []
     if not entities and not relationships:
@@ -1908,6 +1925,11 @@ def ingest_graph_slice(
             default=str,
         ).encode("utf-8")
     ).hexdigest()
+    overrides: dict[str, Any] = {}
+    if classification:
+        from ...models.company_brain import DataClassification
+
+        overrides["classification"] = DataClassification(classification)
     envelope = ChangeEnvelope.from_connector_record(
         primary,
         connector=connector,
@@ -1915,6 +1937,8 @@ def ingest_graph_slice(
         id_field="id",
         version_field=version_field,
         checkpoint=checkpoint,
+        ontology_mapping_version=ontology_mapping_version,
+        **overrides,
     )
     # Batch identity must cover every auxiliary node and relationship. Keeping
     # only the primary row's upstream timestamp would replay-skip a changed
