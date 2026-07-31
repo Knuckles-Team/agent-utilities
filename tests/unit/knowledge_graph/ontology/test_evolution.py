@@ -103,6 +103,70 @@ def test_next_semver(prior, kind, expected):
     assert evolution.next_semver(prior, kind) == expected
 
 
+# ── compare_against_standards (program item 2, D-75-8) — deterministic name
+# collision against the bundled authoritative-standards corpus, never an LLM
+# judgment ────────────────────────────────────────────────────────────────
+
+
+def test_bundled_standard_vocabulary_is_nonempty_and_carries_known_standard_terms():
+    """The bundled ontology.ttl genuinely absorbs BFO/PROV-O/Schema.org/SKOS
+    alignment targets (verified directly against the file), not a stand-in
+    corpus -- 'creativework' (schema:CreativeWork) and 'activity'
+    (prov:Activity) must both be present."""
+    vocab = evolution._bundled_standard_vocabulary()
+    assert "creativework" in vocab
+    assert "activity" in vocab
+
+
+def test_compare_against_standards_flags_a_colliding_class_name():
+    candidate = {
+        "classes": ["http://example.org/pets#CreativeWork", "http://example.org/pets#Dog"],
+        "properties": [],
+    }
+    flags = evolution.compare_against_standards(candidate)
+    assert len(flags) == 1
+    assert flags[0]["term"] == "http://example.org/pets#CreativeWork"
+    assert flags[0]["kind"] == "class"
+    assert flags[0]["local_name"] == "creativework"
+
+
+def test_compare_against_standards_flags_nothing_for_a_novel_name():
+    candidate = {"classes": ["http://example.org/pets#Dog"], "properties": []}
+    assert evolution.compare_against_standards(candidate) == []
+
+
+def test_propose_flags_a_standards_collision_without_forcing_review():
+    """A standards collision is advisory (flagged for a reviewer), never a
+    forced review on its own -- classify_change/validate_graph/replay
+    regressions remain the ONLY things that force requires_review=True."""
+    result = evolution.propose_ontology_change(
+        None,
+        None,
+        PETS_TTL,  # defines :Animal, :Dog (rdfs:subClassOf), :hasOwner -- no collision
+        iri="http://example.org/pets",
+        source_type="text",
+    )
+    proposal = result["proposal"]
+    assert proposal["standards_alignment"]["checked"] is True
+    assert proposal["standards_alignment"]["flags"] == []
+
+
+def test_propose_standards_alignment_flags_present_for_a_colliding_candidate():
+    collide_ttl = """@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix ex: <http://example.org/docs#> .
+<http://example.org/docs> a owl:Ontology .
+ex:CreativeWork a owl:Class .
+"""
+    result = evolution.propose_ontology_change(
+        None, None, collide_ttl, iri="http://example.org/docs", source_type="text"
+    )
+    proposal = result["proposal"]
+    flags = proposal["standards_alignment"]["flags"]
+    assert any(f["local_name"] == "creativework" for f in flags)
+    # advisory only — a pure additive+colliding change still isn't forced to review
+    assert proposal["requires_review"] is False
+
+
 # ── propose — detect/align/decide/shadow, never touches the active ontology ─
 
 

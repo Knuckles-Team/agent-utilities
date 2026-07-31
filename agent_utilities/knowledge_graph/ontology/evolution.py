@@ -64,6 +64,8 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from .lifecycle import (
@@ -154,6 +156,87 @@ def next_semver(prior_version: str, kind: str) -> str:
     if kind == "additive":
         return f"{major}.{minor + 1}.0"
     return f"{major}.{minor}.{patch + 1}"
+
+
+def _local_name(iri: str) -> str:
+    """The fragment/last-segment of an IRI, lowercased, for name comparison."""
+    frag = str(iri).rsplit("#", 1)[-1]
+    return frag.rsplit("/", 1)[-1].strip().lower()
+
+
+@lru_cache(maxsize=1)
+def _bundled_standard_vocabulary() -> frozenset[str]:
+    """Local names of every term the platform's bundled base ontology
+    (``knowledge_graph/ontology.ttl``) already carries as an authoritative
+    standard — its own native classes/properties PLUS the ``owl:equivalentClass``
+    / ``rdfs:seeAlso`` alignment targets it declares against BFO, PROV-O,
+    Schema.org, Dublin Core, SKOS, OWL-Time, BIBO, and FIBO (verified directly
+    against this file, e.g. ``:CreativeWork owl:equivalentClass
+    schema:CreativeWork``, ``:Process rdfs:seeAlso prov:Activity`` — see
+    ``tests/unit/knowledge_graph/test_standard_ontology.py`` for the full
+    standards list this file already absorbs). This is genuinely the
+    authoritative-standards comparison corpus, not a stand-in: the file
+    directly ENCODES the alignment rather than merely importing the external
+    ontologies, so a plain rdflib parse of this ONE bundled file is sufficient
+    — no network fetch, no new dependency, no separate corpus to maintain.
+    Cached: the bundled file does not change at runtime.
+    """
+    import rdflib
+
+    path = Path(__file__).resolve().parent.parent / "ontology.ttl"
+    if not path.exists():
+        return frozenset()
+    graph = rdflib.Graph()
+    try:
+        graph.parse(str(path), format="turtle")
+    except Exception as exc:  # noqa: BLE001 — a corrupt bundle degrades to "no corpus"
+        logger.warning("standards vocabulary: failed to parse %s: %s", path, exc)
+        return frozenset()
+    names: set[str] = set()
+    for s in graph.subjects(predicate=rdflib.RDF.type, object=rdflib.OWL.Class):
+        names.add(_local_name(s))
+    for s in graph.subjects(
+        predicate=rdflib.RDF.type, object=rdflib.OWL.ObjectProperty
+    ):
+        names.add(_local_name(s))
+    for s in graph.subjects(
+        predicate=rdflib.RDF.type, object=rdflib.OWL.DatatypeProperty
+    ):
+        names.add(_local_name(s))
+    for pred in (
+        rdflib.OWL.equivalentClass,
+        rdflib.OWL.equivalentProperty,
+        rdflib.RDFS.seeAlso,
+    ):
+        for o in graph.objects(predicate=pred):
+            names.add(_local_name(o))
+    return frozenset(n for n in names if n)
+
+
+def compare_against_standards(candidate: dict[str, Any]) -> list[dict[str, Any]]:
+    """(program item 2, D-75-8) flag candidate classes/properties whose LOCAL
+    NAME collides with a term already in the bundled authoritative-standards
+    corpus (:func:`_bundled_standard_vocabulary`) — a deterministic name
+    check, never an LLM judgment, matching :func:`classify_change`'s own
+    reasoning discipline. A collision does not mean the candidate is wrong
+    (the same real-world concept legitimately recurs across domains) — it
+    means a REVIEWER should look, because the candidate may be duplicating an
+    existing standard term under a different name/namespace instead of
+    reusing (``owl:equivalentClass``-aligning to) it.
+    """
+    standards = _bundled_standard_vocabulary()
+    if not standards:
+        return []
+    flags: list[dict[str, Any]] = []
+    for kind, terms in (
+        ("class", candidate.get("classes", [])),
+        ("property", candidate.get("properties", [])),
+    ):
+        for term in terms:
+            local = _local_name(term)
+            if local and local in standards:
+                flags.append({"term": term, "kind": kind, "local_name": local})
+    return flags
 
 
 def _run_queries(gc: Any, queries: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -353,6 +436,10 @@ def propose_ontology_change(
         "properties": (baseline_record or {}).get("properties", []),
     }
     classification = classify_change(baseline_summary, candidate_summary)
+    # program item 2 / D-75-8 — flag (never block; a reviewer decides) any
+    # candidate class/property whose local name collides with a term the
+    # bundled authoritative-standards corpus already carries.
+    standards_flags = compare_against_standards(candidate_summary)
     prior_version = baseline_record.get("version") if baseline_record else None
     proposed_version = next_semver(prior_version or "0.0.0", classification["kind"])
 
@@ -403,6 +490,10 @@ def propose_ontology_change(
         "status": STATUS_PENDING_REVIEW,
         "validation": validation,
         "classification": classification,
+        "standards_alignment": {
+            "checked": bool(_bundled_standard_vocabulary()),
+            "flags": standards_flags,
+        },
         "requires_review": requires_review,
         "shadow_graph": shadow_graph,
         "shadow_report": shadow_report,
