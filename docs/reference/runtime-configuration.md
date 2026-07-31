@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-547 typed fields · 350 runtime-only call-site inputs.
+547 typed fields · 352 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -948,6 +948,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `OPENMAINT_TOKEN` | 1 |
 | `OPENMAINT_URL` | 1 |
 | `OTEL_EXPORTER_OTLP_HEADERS` | 2 |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | 1 |
 | `OTEL_SERVICE_NAME` | 2 |
 | `OTEL_TRACES_EXPORTER` | 1 |
 | `OWL_ALLOW_REMOTE_IMPORTS` | 1 |
@@ -963,6 +964,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `POSTGRES_DSN` | 1 |
 | `POSTIZ_TOKEN` | 1 |
 | `POSTIZ_URL` | 1 |
+| `PROMETHEUS_MULTIPROC_DIR` | 1 |
 | `PROVIDER` | 2 |
 | `PYTEST_CURRENT_TEST` | 1 |
 | `QUERY_ROUTER_L1_THRESHOLD` | 1 |

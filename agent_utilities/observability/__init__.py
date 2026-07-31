@@ -115,6 +115,85 @@ def _traces_exporter_disabled() -> bool:
     return not (requested & _OTEL_TRACES_EXPORTERS_ENABLED)
 
 
+class _LoudFailureSpanExporter:
+    """Wrap a span exporter so a broken trace pipeline is never silent.
+
+    CONCEPT:AU-OS.observability.otlp-trace-fanout. Export MUST fail soft — an
+    unreachable collector can never take down graph-os — but "soft" has been
+    read as "silent" before, and a trace backend that quietly stopped receiving
+    spans is indistinguishable from a system that is simply not busy. So the
+    first failure (and every ~60 s thereafter) logs at ERROR with the endpoint,
+    and the recovering export logs at INFO. The exporter itself never raises:
+    an exception from the inner exporter is turned into a FAILURE result, which
+    is exactly what ``BatchSpanProcessor`` expects.
+    """
+
+    _REPEAT_LOG_INTERVAL_S = 60.0
+
+    def __init__(self, inner: Any, *, endpoint: str) -> None:
+        self._inner = inner
+        self._endpoint = endpoint
+        self._failing = False
+        self._last_log = 0.0
+
+    def _note_failure(self, detail: str) -> None:
+        import time
+
+        now = time.monotonic()
+        if not self._failing or (now - self._last_log) >= self._REPEAT_LOG_INTERVAL_S:
+            logger.error(
+                "OTLP span export to %s FAILED (%s). Traces are being dropped; "
+                "graph-os itself is unaffected. Check the collector's "
+                "reachability and TLS trust. "
+                "(CONCEPT:AU-OS.observability.otlp-trace-fanout)",
+                self._endpoint,
+                detail,
+            )
+            self._last_log = now
+        self._failing = True
+
+    def _note_success(self) -> None:
+        if self._failing:
+            logger.info("OTLP span export to %s recovered.", self._endpoint)
+            self._failing = False
+
+    def export(self, spans: Any) -> Any:
+        from opentelemetry.sdk.trace.export import SpanExportResult
+
+        try:
+            result = self._inner.export(spans)
+        except Exception as exc:
+            self._note_failure(f"exception_type={type(exc).__name__}: {exc}")
+            return SpanExportResult.FAILURE
+        if result is SpanExportResult.SUCCESS:
+            self._note_success()
+        else:
+            self._note_failure(f"exporter returned {result!r}")
+        return result
+
+    def shutdown(self) -> None:
+        self._inner.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30_000) -> bool:
+        method = getattr(self._inner, "force_flush", None)
+        return bool(method(timeout_millis)) if callable(method) else True
+
+
+def _resolve_traces_endpoint(base: str) -> str:
+    """Resolve the trace-signal endpoint, honouring the OTel-standard override.
+
+    CONCEPT:AU-OS.observability.otlp-trace-fanout — the OpenTelemetry spec
+    defines ``OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`` as the signal-specific
+    override of ``OTEL_EXPORTER_OTLP_ENDPOINT``, and (unlike the base var) it is
+    a COMPLETE URL — the ``/v1/traces`` suffix is not appended. This engine used
+    to ignore it and always derive ``{base}/v1/traces``, which made it
+    impossible to send spans to a trace store (Tempo) while metrics/LLM
+    telemetry went elsewhere. Honouring the standard var adds no invented knob.
+    """
+    override = str(setting("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "") or "").strip()
+    return override or f"{base}/v1/traces"
+
+
 def _resolve_otel_endpoint() -> str:
     """Resolve the canonical OTLP endpoint, preferring the engine collector.
 
@@ -298,8 +377,37 @@ class TelemetryEngine:
             if base.endswith(signal_path):
                 base = base.removesuffix(signal_path)
                 break
-        traces_endpoint = f"{base}/v1/traces"
+        traces_endpoint = _resolve_traces_endpoint(base)
         metrics_endpoint = f"{base}/v1/metrics"
+
+        # A signal-specific traces endpoint pointing somewhere OTHER than the
+        # base collector must not carry the base collector's credentials — that
+        # would hand (for example) Langfuse basic-auth to a trace store that
+        # never asked for it. Re-resolve auth against the actual trace
+        # destination; ``_resolve_otel_headers`` only auto-reuses Langfuse
+        # credentials for a same-origin endpoint, so a different host correctly
+        # gets none.
+        trace_headers = headers
+        if traces_endpoint != f"{base}/v1/traces":
+            try:
+                resolved_trace_headers, _ = _resolve_otel_headers(
+                    endpoint=traces_endpoint,
+                    headers=str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "")
+                    or None,
+                    public_key=None,
+                    secret_key=None,
+                )
+                trace_headers = parse_otlp_headers(resolved_trace_headers)
+            except Exception as exc:
+                logger.warning(
+                    "TelemetryEngine: could not resolve auth for the "
+                    "trace-signal endpoint %s (exception_type=%s: %s); "
+                    "exporting spans without credentials.",
+                    traces_endpoint,
+                    type(exc).__name__,
+                    exc,
+                )
+                trace_headers = {}
 
         trust = None
         try:
@@ -313,13 +421,16 @@ class TelemetryEngine:
             tracer_provider = TracerProvider(resource=resource)
             tracer_provider.add_span_processor(
                 BatchSpanProcessor(
-                    _MetadataOnlySpanExporter(
-                        OTLPSpanExporter(
-                            endpoint=traces_endpoint,
-                            headers=headers,
-                            session=trace_session,
+                    _LoudFailureSpanExporter(
+                        _MetadataOnlySpanExporter(
+                            OTLPSpanExporter(
+                                endpoint=traces_endpoint,
+                                headers=trace_headers,
+                                session=trace_session,
+                            ),
+                            service_ref=service_ref,
                         ),
-                        service_ref=service_ref,
+                        endpoint=traces_endpoint,
                     )
                 )
             )
