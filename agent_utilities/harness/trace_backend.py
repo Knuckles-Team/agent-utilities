@@ -952,6 +952,8 @@ class KGTraceBackend(TraceBackend):
         provider: str | None = None,
         input_tokens: int = 0,
         output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
         tags: list[str] | None = None,
         input_text: str = "",
         output_text: str = "",
@@ -1051,6 +1053,8 @@ class KGTraceBackend(TraceBackend):
                 provider=provider,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
                 latency_ms=latency_ms,
                 error=error,
             )
@@ -1059,6 +1063,10 @@ class KGTraceBackend(TraceBackend):
             trace.total_cost_usd += node.total_cost_usd
             trace.input_tokens += input_tokens
             trace.output_tokens += output_tokens
+            # CONCEPT:AU-ORCH.optimization.provider-prompt-cache — rollup mirrors
+            # total_cost_usd/input_tokens/output_tokens above.
+            trace.cache_read_tokens += cache_read_tokens
+            trace.cache_write_tokens += cache_write_tokens
             edge = RegistryEdgeType.HAS_GENERATION
         else:
             node = SpanNode(
@@ -1142,6 +1150,67 @@ class KGTraceBackend(TraceBackend):
                 # backend must not break the routing call this describes. The
                 # cause IS logged so a persistent failure is diagnosable.
                 logger.debug("KGTraceBackend routing decision persist failed: %s", exc)
+
+    def record_cache_decision(
+        self,
+        *,
+        trace_id: str,
+        decision: Any,
+    ) -> None:
+        """Persist one bounded ``CacheDecisionNode`` and attach it to ``trace_id``
+        (CONCEPT:AU-KG.memory.semantic-response-cache) — makes a semantic-cache hit/miss decision
+        graph-queryable provenance instead of a discarded return value. ``decision`` is a
+        :class:`~agent_utilities.caching.semantic_cache.SemanticCacheLookup`. Best-effort and
+        privacy-sanitized exactly like :meth:`record_routing_decision`; never raises.
+        """
+        _, identifier_report = self._privacy.sanitize_text(trace_id)
+        if identifier_report.changed:
+            logger.debug("KGTraceBackend cache decision skipped: unsafe trace id")
+            return
+        try:
+            from agent_utilities.models.knowledge_graph import (
+                CacheDecisionNode,
+                RegistryEdgeType,
+            )
+
+            key = decision.key
+            node = CacheDecisionNode(
+                id=f"cache_decision:{trace_id}:{uuid.uuid4()}",
+                name=f"cache:{decision.outcome}",
+                trace_id=trace_id,
+                outcome=decision.outcome,
+                fingerprint=key.fingerprint,
+                tenant=key.tenant,
+                principal=key.principal,
+                policy_version=key.policy_version,
+                model_identity=key.model_identity,
+                prompt_version=key.prompt_version,
+                tool_schema_version=key.tool_schema_version,
+                retrieval_snapshot=key.retrieval_snapshot,
+                ontology_version=key.ontology_version,
+                safety_posture=key.safety_posture,
+                similarity=decision.similarity,
+                age_seconds=decision.age_seconds,
+            )
+        except Exception as exc:  # noqa: BLE001 - cache provenance is
+            # observability, never load-bearing: a malformed decision must not
+            # break the lookup/store call it describes. The cause IS logged.
+            logger.debug("KGTraceBackend cache decision build failed: %s", exc)
+            return
+        clean = self._sanitize_node(node)
+        if clean is None:
+            logger.debug("KGTraceBackend cache decision skipped: unsafe content")
+            return
+        if self.backend is not None and hasattr(self.backend, "add_node"):
+            try:
+                self.backend.add_node(clean.id, **self._node_props(clean))
+                link = getattr(self.backend, "link_nodes", None)
+                if callable(link):
+                    link(trace_id, clean.id, RegistryEdgeType.HAS_CACHE_DECISION)
+            except Exception as exc:  # noqa: BLE001 - an unreachable graph
+                # backend must not break the lookup/store call this describes.
+                # The cause IS logged so a persistent failure is diagnosable.
+                logger.debug("KGTraceBackend cache decision persist failed: %s", exc)
 
     @staticmethod
     def _node_props(node: Any) -> dict[str, Any]:

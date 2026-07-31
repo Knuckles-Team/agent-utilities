@@ -193,6 +193,10 @@ class RegistryNodeType(StrEnum):
     # its rejected alternatives for one routing decision (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance),
     # see RoutingDecisionNode.
     ROUTING_DECISION = "routing_decision"
+    # A semantic-cache hit/miss decision (CONCEPT:AU-KG.memory.semantic-response-cache) — the key components
+    # (tenant/principal/policy/model/prompt/tool-schema/retrieval-snapshot/ontology/safety-posture) + age a
+    # cache-served answer was decided on, see CacheDecisionNode.
+    CACHE_DECISION = "cache_decision"
     # Schema Packs (CONCEPT:AU-KG.ingest.engineering-rules)
     SCHEMA_PACK = "schema_pack"
     # Entity-Claim Extraction / MAGMA Epistemic (CONCEPT:AU-KG.ingest.engineering-rules)
@@ -535,6 +539,9 @@ class RegistryEdgeType(StrEnum):
     # CONCEPT:AU-ORCH.routing.rejected-candidate-provenance — a trace's model-routing decision (chosen + rejected
     # candidates), so "why was model X picked over Y" is a graph query, not a discarded log line.
     HAS_ROUTING_DECISION = "has_routing_decision"
+    # CONCEPT:AU-KG.memory.semantic-response-cache — a trace's semantic-cache decision (hit/miss + the full key
+    # discipline + age), so a cache-served answer is graph-queryable provenance, never a silent substitution.
+    HAS_CACHE_DECISION = "has_cache_decision"
     AFFECTS = "affects"
     CAUSED_BY = "caused_by"
     INFLUENCED = "influenced"
@@ -1481,6 +1488,11 @@ class TraceNode(RegistryNode):
     # Root input/output text (truncated) — what online-scoring/regression judges against.
     input: str = ""
     output: str = ""
+    # Provider prompt-cache rollup (CONCEPT:AU-ORCH.optimization.provider-prompt-cache) — sums each child
+    # GenerationNode's cache_read_tokens/cache_write_tokens exactly like total_cost_usd/input_tokens/
+    # output_tokens above, so a trace's aggregate cache savings is one field read, not a child-node scan.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     # Gap-6 — an "AgentTrace" (agent run trace: task_id/spans/tool_calls/
     # outcome) IS this TraceNode; these three fields are the extension that
     # closes the reuse-audit gap rather than introducing a second node type.
@@ -1526,6 +1538,13 @@ class GenerationNode(RegistryNode):
     error: str | None = None
     prompt_version_id: str | None = None
     tool_calls: int = 0
+    # Provider prompt-cache usage (CONCEPT:AU-ORCH.optimization.provider-prompt-cache) — sourced from
+    # pydantic_ai.usage.RequestUsage.cache_read_tokens/cache_write_tokens (already included in
+    # input_tokens per pydantic-ai's convention; carried separately here so a cache hit is never
+    # indistinguishable from a fresh call on this trace node). Zero on every provider/path that doesn't
+    # report cache usage — additive, no behavior change for the common case.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class RoutingDecisionNode(RegistryNode):
@@ -1553,6 +1572,37 @@ class RoutingDecisionNode(RegistryNode):
     # Bounded list of {"model_id", "tier", "tag_match", "tier_rank", "score",
     # "rejected", "rejection_reason"} dicts — see ``CandidateScore``.
     candidates: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class CacheDecisionNode(RegistryNode):
+    """One semantic-cache lookup decision (CONCEPT:AU-KG.memory.semantic-response-cache) — hit or miss, the
+    FULL key discipline it was scoped by, and (on a hit) the served entry's age.
+
+    The requirement this closes: "a cached response must never be indistinguishable from a fresh
+    one." A semantic-cache hit skips the model call entirely, so there is no ``GenerationNode`` to
+    read cache usage off (unlike :class:`GenerationNode`'s ``cache_read_tokens``/``cache_write_tokens``,
+    which cover PROVIDER prompt-cache hits on an actual call). This node is the explicit substitute:
+    every lookup (hit or miss) records the key components it was scoped by, so cross-tenant/
+    cross-policy/cross-model reuse is independently auditable from the trace, not just prevented in
+    code. Attached to the owning trace via ``RegistryEdgeType.HAS_CACHE_DECISION`` (mirrors
+    ``RoutingDecisionNode``'s trace attachment).
+    """
+
+    type: RegistryNodeType = RegistryNodeType.CACHE_DECISION
+    trace_id: str | None = None
+    outcome: str = "miss"  # hit | miss | disabled | refused_side_effect | refused_freshness | stale
+    fingerprint: str = ""
+    tenant: str = ""
+    principal: str = ""
+    policy_version: str = ""
+    model_identity: str = ""
+    prompt_version: str = ""
+    tool_schema_version: str = ""
+    retrieval_snapshot: str = ""
+    ontology_version: str = ""
+    safety_posture: str = ""
+    similarity: float | None = None
+    age_seconds: float | None = None
 
 
 class OnlineScoreNode(RegistryNode):

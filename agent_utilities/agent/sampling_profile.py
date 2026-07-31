@@ -320,6 +320,21 @@ def attach_profile_resolver(
                 )
             except Exception:  # noqa: BLE001 - KV hint is best-effort
                 pass
+            # CONCEPT:AU-ORCH.optimization.provider-prompt-cache — fold the provider-native prompt-cache
+            # directive (Anthropic cache_control / OpenAI prompt_cache_key) on every call, default-on,
+            # best-effort. Mirrors the KV-cache-layering hint above exactly.
+            try:
+                from agent_utilities.caching.prompt_cache import fold_prompt_cache_hint
+
+                settings = fold_prompt_cache_hint(
+                    settings if settings is not None else base,
+                    system_prompt=system_prompt,
+                    model_identity=getattr(
+                        getattr(agent, "model", None), "model_name", None
+                    ),
+                )
+            except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
+                pass
             if settings is not None:
                 kwargs["model_settings"] = settings
             return orig(user_prompt, *args, **kwargs)

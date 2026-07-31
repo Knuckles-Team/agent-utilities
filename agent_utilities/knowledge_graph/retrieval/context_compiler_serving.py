@@ -29,8 +29,10 @@ for callers that want the end-to-end wire in one call. Nothing in
 already-assembled :class:`ContextBundle`.
 """
 
+import hashlib
 import logging
 import time
+from types import SimpleNamespace
 from typing import Any
 
 from .context_compiler import ContextBundle
@@ -186,6 +188,56 @@ def resolve_bundle_async_chat_client(
     )
 
 
+def _semantic_cache_key_for_bundle(
+    bundle: ContextBundle, *, model: str | None, system_preamble: str | None
+) -> Any:
+    """Build the :class:`~agent_utilities.caching.semantic_cache.SemanticCacheKey` for a
+    Seam-6 bundle call (CONCEPT:AU-KG.memory.semantic-response-cache).
+
+    Reuses the bundle's OWN identity fields rather than re-deriving them:
+    ``bundle.session_tenant``/``bundle.policy_version`` (already resolved by
+    ``ContextCompiler.compile`` from the governing ``GraphSession``) and
+    ``bundle.cache_key`` (the Seam-6 KV-layer retrieval/evidence-set fingerprint — see
+    ``compute_bundle_cache_key``) AS the ``retrieval_snapshot`` component, so the two caches
+    share one evidence-identity notion instead of computing it twice. ``prompt_version`` is a
+    content hash of ``system_preamble`` (the stable rendering directive), since this seam never
+    binds tools (plain ``chat.completions.create``), ``tool_schema_version`` stays constant.
+    """
+    from agent_utilities.caching.semantic_cache import resolve_semantic_cache_key
+
+    return resolve_semantic_cache_key(
+        tenant=bundle.session_tenant or None,
+        policy_version=bundle.policy_version if bundle.policy_version else None,
+        model_identity=model or "",
+        prompt_version=hashlib.sha256(
+            (system_preamble or "").encode("utf-8")
+        ).hexdigest()[:16],
+        retrieval_snapshot=bundle.cache_key,
+    )
+
+
+def _synthetic_cache_response(lookup: Any, *, model: str | None) -> Any:
+    """A duck-typed ``chat.completions.create``-shaped stand-in for a semantic-cache HIT.
+
+    Never indistinguishable from a fresh call (CONCEPT:AU-KG.memory.semantic-response-cache):
+    ``.au_cache_hit``/``.au_cache_similarity``/``.au_cache_age_seconds``/``.au_cache_fingerprint``
+    are always present on the returned object IN ADDITION to the normal ``.choices[0].message.
+    content``/``.usage`` shape callers already read off a live response.
+    """
+    message = SimpleNamespace(content=lookup.response_text, role="assistant")
+    choice = SimpleNamespace(message=message, finish_reason="stop", index=0)
+    usage = SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+    return SimpleNamespace(
+        choices=[choice],
+        usage=usage,
+        model=model or "",
+        au_cache_hit=True,
+        au_cache_similarity=lookup.similarity,
+        au_cache_age_seconds=lookup.age_seconds,
+        au_cache_fingerprint=lookup.key.fingerprint,
+    )
+
+
 def bundle_chat_completion(
     bundle: ContextBundle,
     turn_text: str,
@@ -196,6 +248,7 @@ def bundle_chat_completion(
     system_preamble: str | None = None,
     timeout_s: float = _DEFAULT_TIMEOUT_S,
     max_retries: int = _DEFAULT_MAX_RETRIES,
+    semantic_cache_policy: Any | None = None,
     **create_kwargs: Any,
 ) -> Any:
     """Send ``bundle`` + ``turn_text`` to the live chat endpoint as one prefix-stable call.
@@ -233,15 +286,43 @@ def bundle_chat_completion(
             calls — see that method's docstring).
         timeout_s: Governed provider-client timeout used when ``client`` is omitted.
         max_retries: Provider retry bound used when ``client`` is omitted.
+        semantic_cache_policy: Optional ``SemanticCachePolicy`` (CONCEPT:AU-KG.memory.
+            semantic-response-cache). ``None`` (the default) means "do not consult the
+            semantic cache" — this seam's LLM-response caching is opt-in per call, never
+            silently on. When supplied AND the policy is enabled, a similarity hit
+            SKIPS the live client call entirely and returns a synthetic, clearly-marked
+            response (see :func:`_synthetic_cache_response` — ``.au_cache_hit`` is
+            always present so a cached answer can never be mistaken for a fresh one); a
+            miss falls through to the live call and, on success, stores the response for
+            next time. Best-effort end to end — any failure in the cache path (including
+            an unresolvable tenant) silently falls back to a live call.
         **create_kwargs: Forwarded verbatim to ``chat.completions.create``
             (e.g. ``max_tokens``, ``temperature``, ``logprobs``).
 
     Returns:
         The raw ``chat.completions.create`` response (usage/timing/content all
         available on it — this wrapper does not unwrap it, so callers can read
-        provider-specific fields like cached-token usage when exposed).
+        provider-specific fields like cached-token usage when exposed), or the
+        synthetic cache-hit stand-in described above.
     """
     resolved_model = model
+    cache_lookup = None
+    if semantic_cache_policy is not None:
+        try:
+            from agent_utilities.caching.semantic_cache import get_semantic_cache
+
+            cache_key = _semantic_cache_key_for_bundle(
+                bundle, model=model, system_preamble=system_preamble
+            )
+            cache_lookup = get_semantic_cache().lookup(
+                cache_key, turn_text, policy=semantic_cache_policy
+            )
+            if cache_lookup.hit:
+                return _synthetic_cache_response(cache_lookup, model=model)
+        except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
+            logger.debug("bundle_chat_completion semantic-cache lookup failed: %s", exc)
+            cache_lookup = None
+
     if client is None:
         client, resolved_model = resolve_bundle_chat_client(
             base_url=base_url,
@@ -260,11 +341,40 @@ def bundle_chat_completion(
         bundle.cache_key,
         len(bundle.items),
     )
+    # CONCEPT:AU-ORCH.optimization.provider-prompt-cache — default-on OpenAI prompt_cache_key
+    # routing hint for this raw-client seam (Anthropic isn't reachable here — this endpoint is
+    # OpenAI-compatible only, see module docstring). Never overrides an explicit caller value.
+    try:
+        from agent_utilities.caching.prompt_cache import prompt_cache_create_kwargs
+
+        create_kwargs = prompt_cache_create_kwargs(
+            create_kwargs,
+            system_prompt=system_preamble,
+            model_identity=resolved_model or "",
+            tenant=bundle.session_tenant or None,
+            policy_version=bundle.policy_version if bundle.policy_version else None,
+        )
+    except Exception as exc:  # noqa: BLE001 — prompt-cache hint is best-effort
+        logger.debug("bundle_chat_completion prompt-cache hint failed: %s", exc)
     start = time.perf_counter()
     response = client.chat.completions.create(
         model=resolved_model or "default", messages=messages, **create_kwargs
     )
     _record_ttft(time.perf_counter() - start, bundle)
+    if (
+        semantic_cache_policy is not None
+        and cache_lookup is not None
+        and not cache_lookup.hit
+    ):
+        try:
+            from agent_utilities.caching.semantic_cache import get_semantic_cache
+
+            text = response.choices[0].message.content
+            get_semantic_cache().store(
+                cache_lookup.key, turn_text, text or "", policy=semantic_cache_policy
+            )
+        except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
+            logger.debug("bundle_chat_completion semantic-cache store failed: %s", exc)
     return response
 
 
@@ -278,11 +388,35 @@ async def bundle_async_chat_completion(
     system_preamble: str | None = None,
     timeout_s: float = _DEFAULT_TIMEOUT_S,
     max_retries: int = _DEFAULT_MAX_RETRIES,
+    semantic_cache_policy: Any | None = None,
     **create_kwargs: Any,
 ) -> Any:
-    """Async/stream-capable governed completion over an existing bundle."""
+    """Async/stream-capable governed completion over an existing bundle.
+
+    Same opt-in semantic-cache (``semantic_cache_policy``) and default-on prompt-cache-key
+    behavior as :func:`bundle_chat_completion` — see its docstring for the full contract.
+    """
 
     resolved_model = model
+    cache_lookup = None
+    if semantic_cache_policy is not None:
+        try:
+            from agent_utilities.caching.semantic_cache import get_semantic_cache
+
+            cache_key = _semantic_cache_key_for_bundle(
+                bundle, model=model, system_preamble=system_preamble
+            )
+            cache_lookup = get_semantic_cache().lookup(
+                cache_key, turn_text, policy=semantic_cache_policy
+            )
+            if cache_lookup.hit:
+                return _synthetic_cache_response(cache_lookup, model=model)
+        except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
+            logger.debug(
+                "bundle_async_chat_completion semantic-cache lookup failed: %s", exc
+            )
+            cache_lookup = None
+
     if client is None:
         client, resolved_model = resolve_bundle_async_chat_client(
             base_url=base_url,
@@ -293,11 +427,40 @@ async def bundle_async_chat_completion(
     kwargs = {}
     if system_preamble is not None:
         kwargs["system_preamble"] = system_preamble
-    return await client.chat.completions.create(
+    try:
+        from agent_utilities.caching.prompt_cache import prompt_cache_create_kwargs
+
+        create_kwargs = prompt_cache_create_kwargs(
+            create_kwargs,
+            system_prompt=system_preamble,
+            model_identity=resolved_model or "",
+            tenant=bundle.session_tenant or None,
+            policy_version=bundle.policy_version if bundle.policy_version else None,
+        )
+    except Exception as exc:  # noqa: BLE001 — prompt-cache hint is best-effort
+        logger.debug("bundle_async_chat_completion prompt-cache hint failed: %s", exc)
+    response = await client.chat.completions.create(
         model=resolved_model or "default",
         messages=bundle.as_prompt_messages(turn_text, **kwargs),
         **create_kwargs,
     )
+    if (
+        semantic_cache_policy is not None
+        and cache_lookup is not None
+        and not cache_lookup.hit
+    ):
+        try:
+            from agent_utilities.caching.semantic_cache import get_semantic_cache
+
+            text = response.choices[0].message.content
+            get_semantic_cache().store(
+                cache_lookup.key, turn_text, text or "", policy=semantic_cache_policy
+            )
+        except Exception as exc:  # noqa: BLE001 — semantic cache is best-effort
+            logger.debug(
+                "bundle_async_chat_completion semantic-cache store failed: %s", exc
+            )
+    return response
 
 
 def compiled_chat_completion(
