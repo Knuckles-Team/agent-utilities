@@ -377,7 +377,7 @@ def _concept(args: argparse.Namespace) -> dict[str, Any]:
 
     from agent_utilities.governance import concept_allocator as ca
 
-    repo_root = Path(args.repo).expanduser().resolve() if args.repo else ca.REPO_ROOT
+    repo_root = Path(args.repo).expanduser().resolve() if args.repo else None
     action = args.concept_action
     if action == "list":
         return {

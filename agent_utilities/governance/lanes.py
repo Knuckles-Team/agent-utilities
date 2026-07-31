@@ -159,6 +159,38 @@ class LaneScope:
         return any(Path(git_dir, head).exists() for head in _IN_PROGRESS_HEADS)
 
 
+def current_tree(path: Path | str | None = None) -> Path | None:
+    """The git working tree containing *path* (default cwd), or ``None`` outside one.
+
+    The non-raising probe callers use before deciding whether git-scoped
+    arbitration is available at all (tests and installed-wheel runs are not).
+    """
+    start = Path(path).expanduser().resolve() if path else Path.cwd()
+    if start.is_file():
+        start = start.parent
+    if not start.is_dir():
+        return None
+    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    return Path(proc.stdout.strip()).resolve()
+
+
+def lane_name(path: Path | str | None = None) -> str:
+    """This lane's identity, or ``"local"`` when *path* is not in a working tree."""
+    return "local" if current_tree(path) is None else lane_scope(path).lane
+
+
+def shared_arbitration_dir(path: Path | str | None = None) -> Path | None:
+    """The arbitration directory every worktree of this repo shares, if any."""
+    return None if current_tree(path) is None else lane_scope(path).arbitration_dir
+
+
 def lane_scope(path: Path | str | None = None) -> LaneScope:
     """Resolve the :class:`LaneScope` containing *path* (default: the process cwd)."""
     start = Path(path).expanduser().resolve() if path else Path.cwd()

@@ -1029,7 +1029,7 @@ def register_ontology_tools(mcp):
         from agent_utilities.governance import concept_allocator as ca
 
         try:
-            repo_root = Path(repo).expanduser().resolve() if repo else ca.REPO_ROOT
+            repo_root = Path(repo).expanduser().resolve() if repo else None
             if str(action) == "list":
                 return json.dumps(
                     {
