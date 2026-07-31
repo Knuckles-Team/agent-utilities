@@ -94,6 +94,21 @@ def evaluate_skill_dispatchable(
     # A skill's instructions direct an LLM to CALL this child's tools. A child
     # that exposes none cannot execute the skill, so advertising it as runnable
     # would be exactly the mounted-vs-callable lie this gate exists to prevent.
+    #
+    # This deliberately does NOT call ``MCPMultiplexer.tool_dispatchable()``,
+    # even though that is the correct single source of truth for "can this
+    # session dispatch this tool". ``tool_dispatchable`` is only meaningful on
+    # the SERVING multiplexer instance: on a freshly-constructed one (which is
+    # what a harvest / ``source_sync`` builds) ``_exposed`` and
+    # ``_session_loaded`` are empty and ``_server_for_prefixed`` resolves
+    # nothing, so every name falls through to its final "unknown to our
+    # bookkeeping → unconditionally callable" branch. Verified live in-pod: it
+    # returned True for real probed tools AND for the invented name
+    # ``servicenow_servicenow_account``. Gating on it here would therefore
+    # assert callability for tools that do not exist — re-creating the exact lie
+    # it was written to remove, one layer up. The probe's own tool list is the
+    # honest signal at ingestion time; per-session dispatchability is enforced
+    # later, at the tools/call gate, where the serving state actually exists.
     if not (server_info.get("tools") or []):
         return "server_exposes_tools"
     if _local_provider_owns(engine, resource_id, server_name):
