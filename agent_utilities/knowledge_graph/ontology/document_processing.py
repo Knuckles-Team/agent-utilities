@@ -363,6 +363,14 @@ class ProcessedDocument(BaseModel):
     section_roots: list[SectionNode] = Field(default_factory=list)
     section_nodes: list[dict[str, Any]] = Field(default_factory=list)
     section_edges: list[dict[str, Any]] = Field(default_factory=list)
+    # Evidence spine (CONCEPT:AU-KG.ingest.evidence-spine-artifact) — the
+    # citation units, always computed (never behind a flag) so every processed
+    # document is citable.  ``artifact`` is populated once the slice has been
+    # bound to its ChangeEnvelope in ``_persist_native``; ``fragments`` is
+    # available even when persistence is off.
+    artifact_id: str = ""
+    fragments: list[Any] = Field(default_factory=list)
+    artifact: Any = None
 
     def as_dict(self) -> dict[str, Any]:
         """Return the ``{document_node, chunk_nodes, edges}`` mapping."""
@@ -577,6 +585,16 @@ class DocumentProcessor:
         if extra_edges:
             edges.extend(dict(edge) for edge in extra_edges)
 
+        # CONCEPT:AU-KG.ingest.evidence-spine-artifact — the addressable evidence
+        # spine rides the SAME extraction, always on.  Chunks are the retrieval
+        # unit (fixed-size, overlapping, embedded); fragments are the *citation*
+        # unit (structural, stably addressed, hashed).  They answer different
+        # questions, so both are materialized from the one extracted text.
+        from ..ingestion.evidence_spine import artifact_id_for, fragment_markdown
+
+        artifact_id = artifact_id_for(connector, source_instance, doc_id)
+        fragments = fragment_markdown(raw_text, artifact_id=artifact_id)
+
         result = ProcessedDocument(
             document_node=document_node,
             chunk_nodes=chunk_nodes,
@@ -584,6 +602,8 @@ class DocumentProcessor:
             link_nodes=link_nodes,
             document_id=doc_id,
             chunk_count=len(chunks),
+            artifact_id=artifact_id,
+            fragments=list(fragments),
         )
 
         # CONCEPT:AU-KG.retrieval.section-tree — optionally build the per-document
@@ -620,6 +640,7 @@ class DocumentProcessor:
                     source_instance=source_instance,
                     checkpoint=checkpoint,
                     access=access,
+                    text=raw_text,
                 )
                 result.access_synced = result.persisted
             else:
@@ -980,10 +1001,14 @@ class DocumentProcessor:
         source_instance: str,
         checkpoint: str | None,
         access: Any,
+        text: str = "",
     ) -> bool:
-        """Commit the complete document/chunk/section slice atomically."""
+        """Commit the complete document/chunk/section/evidence-spine slice atomically."""
+        from dataclasses import replace as _replace
+
         from ..ingestion.change_envelope import ChangeEnvelope
         from ..ingestion.envelope_ingest import ingest_envelope
+        from ..ingestion.evidence_spine import Artifact
 
         record = dict(result.document_node)
         auxiliary = [
@@ -1005,6 +1030,33 @@ class DocumentProcessor:
             checkpoint=checkpoint,
             source_acl=access,
         )
+        # CONCEPT:AU-KG.ingest.evidence-spine-artifact — the artifact reads its
+        # governance and revision OFF the envelope that gated them (never
+        # re-derived from the payload, which is how a source record gets to spoof
+        # its own ACL), then joins the SAME envelope so the document, its chunks,
+        # its sections, and its citation units all commit or all fail together.
+        artifact = Artifact.from_envelope(
+            env,
+            content=text,
+            media_type="text/markdown",
+            fragments=tuple(result.fragments),
+            title=str(result.document_node.get("title") or ""),
+            fragmenter="fragment_markdown",
+        )
+        result.artifact = artifact
+        spine_nodes, spine_links = artifact.to_graph_slice(
+            document_id=result.document_id
+        )
+        spine_governance = {
+            "external_access": access.model_dump(),
+            "classification": env.classification.value,
+        }
+        for spine_node in spine_nodes:
+            spine_node.update(spine_governance)
+        payload = dict(env.typed_payload or record)
+        payload["_nodes"] = [*payload.get("_nodes", []), *spine_nodes]
+        payload["_links"] = [*payload.get("_links", []), *spine_links]
+        env = _replace(env, typed_payload=payload)
         applied = ingest_envelope(self.engine, env)
         if applied.get("status") not in {"success", "skipped"}:
             raise RuntimeError(
