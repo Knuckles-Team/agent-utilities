@@ -59,12 +59,22 @@ the queue**:
 ===========  ===================================================  ==================
 Tier         Checks                                               Where
 ===========  ===================================================  ==================
-**fast**     merge-cleanliness (~5 ms), duplicate-symbol scan,     inside the lease,
-             import smoke over changed modules, targeted tests     per batch
-             over changed paths
+**fast**     merge-cleanliness (~25 ms), duplicate-symbol scan,    inside the lease,
+             repo-invariant contract checks (~1.7 s), import       per batch
+             smoke over changed modules, targeted tests over
+             changed paths
 **slow**     the full unit suite, guardrail gates, live matrix     after landing, on
                                                                   ``main``, batched
 ===========  ===================================================  ==================
+
+**Zero conflicts is not a safety property.** It is the *expected* signal for a whole
+defect class, not evidence of one. :func:`run_contract_checks` exists because a
+branch that forked after a fix and then reverted it merges **perfectly cleanly** and
+lands the revert (reproduced in a controlled repository; see
+``docs/architecture/merge-queue.md``). Git is answering "did two people edit the same
+lines" — a question about *text*, asked of the branch — and no answer to it is an
+answer about whether the merged tree still upholds an invariant. Only running the
+invariant against the merged tree is.
 
 Throughput comes from **optimistic batching** (:func:`integrate_batch`): N candidates
 are merged into one rolling trial commit, gated **once**, and landed together; a
@@ -121,6 +131,16 @@ TARGETED_TEST_BUDGET_SECONDS = 120
 
 #: Ceiling on the import-smoke step (it imports only changed modules).
 IMPORT_SMOKE_BUDGET_SECONDS = 60
+
+#: Repo-invariant contract checks, **discovered in the merged tree** rather than
+#: enumerated here. Adding a new invariant is a new script, not a change to this
+#: module — and because discovery reads the *merged* tree, a candidate that adds a
+#: contract has that contract enforced against itself in the same gate run.
+CONTRACT_CHECK_GLOB = "scripts/security/check_*.py"
+
+#: Ceiling for the whole contract-check step. Measured cost of the two live
+#: scripts is ~0.15 s and ~1.5 s, so this is ~30x headroom, not a tuning knob.
+CONTRACT_CHECK_BUDGET_SECONDS = 60
 
 #: Above this many selected test files the targeted selection has stopped being
 #: "targeted" and is just a slow full run wearing a costume. Defer to Tier-slow.
@@ -642,12 +662,122 @@ def _timed_run(argv: list[str], cwd: Path, *, timeout: int, env: dict) -> tuple:
     return proc, time.monotonic() - start
 
 
+def contract_scripts(tree: Path) -> list[Path]:
+    """Repo-invariant contract checks present **in the merged tree**.
+
+    Discovered, never enumerated. The set is read from the candidate's merged
+    result, so a candidate that *adds* an invariant has it enforced against itself
+    in the same gate run, and a candidate that deletes one is visibly running one
+    fewer check rather than silently passing.
+    """
+    return sorted(tree.glob(CONTRACT_CHECK_GLOB))
+
+
+def contract_baseline(repo: Path, base_ref: str) -> set[str]:
+    """Contract-check filenames present on *base_ref* right now.
+
+    The merged tree is compared against this, so **removing** a contract is a
+    refusal while a repository that genuinely has none is a genuine pass. Without
+    the comparison the check has only one value for "nothing found" and cannot tell
+    those apart — the fail-open shape this codebase keeps producing.
+    """
+    listing = _run_git(
+        [
+            "ls-tree",
+            "-r",
+            "--name-only",
+            base_ref,
+            str(Path(CONTRACT_CHECK_GLOB).parent) + "/",
+        ],
+        repo,
+    )
+    if not listing.ok:
+        return set()
+    pattern = Path(CONTRACT_CHECK_GLOB).name
+    return {
+        Path(line).name
+        for line in listing.out.splitlines()
+        if line and Path(line).match(pattern)
+    }
+
+
+def run_contract_checks(
+    tree: Path,
+    *,
+    interpreter: str,
+    env: dict[str, str],
+    baseline: set[str] | None = None,
+) -> Check:
+    """Run every discovered contract check against the merged tree.
+
+    **Why this belongs in the gate, and why against the merged tree specifically.**
+    ``scripts/security/check_tenant_identity_contract.py`` already mutation-tests
+    the exact reverted line that re-binds engine placement resolution inside the
+    identity minter (D-WD-1/D-SP-1) — and it was wired into **no** pre-commit hook,
+    so nothing ran it at merge time. A semantic invariant asserted about the tree
+    that will actually exist is the only check that survives the general case: a
+    line-level diff heuristic cannot distinguish a lane's ordinary deletion from a
+    reverted fix (measured: 17 of 23 live candidates delete lines ``main`` still
+    has, median 8, max 667 — see ``docs/architecture/merge-queue.md``), whereas a
+    contract states the invariant once and is silent until it is violated.
+
+    Runs with ``cwd`` set to the merged tree, and passes ``--repository-root`` only
+    to scripts that declare it — detected by reading the script, not by probing it
+    with a throwaway subprocess.
+    """
+    started = time.monotonic()
+    scripts = contract_scripts(tree)
+    failures: list[str] = []
+    dropped = sorted((baseline or set()) - {s.name for s in scripts})
+    if dropped:
+        # A candidate that deletes an invariant would otherwise land by having
+        # nothing left to fail. "Fewer contracts than the base" is the degraded
+        # read; "this repo has none" is a genuine empty and passes below.
+        failures.append(
+            "the merged tree DROPS contract check(s) the base still has: "
+            + ", ".join(dropped)
+            + " — deleting the check that guards an invariant is not a way to "
+            "satisfy it"
+        )
+    if not scripts and not baseline:
+        return Check(
+            "contract-checks",
+            ok=True,
+            seconds=time.monotonic() - started,
+            detail=(
+                f"no contract check matches {CONTRACT_CHECK_GLOB} on the base or in "
+                "the merged tree — a genuine empty, not a degraded read"
+            ),
+        )
+    for script in scripts:
+        rel = script.relative_to(tree)
+        argv = [interpreter, str(rel)]
+        if "--repository-root" in script.read_text(encoding="utf-8", errors="replace"):
+            argv += ["--repository-root", str(tree)]
+        proc, _ = _timed_run(argv, tree, timeout=CONTRACT_CHECK_BUDGET_SECONDS, env=env)
+        if proc is None:
+            failures.append(
+                f"{rel}: exceeded {CONTRACT_CHECK_BUDGET_SECONDS}s — a contract "
+                "check that cannot answer is not a passing contract check"
+            )
+        elif proc.returncode != 0:
+            failures.append(f"{rel}: {(proc.stderr or proc.stdout).strip()[:1500]}")
+    return Check(
+        "contract-checks",
+        ok=not failures,
+        seconds=time.monotonic() - started,
+        detail="\n".join(failures)
+        or f"{len(scripts)} contract(s) held: {', '.join(str(s.name) for s in scripts)}",
+    )
+
+
 def run_fast_gate(
     tree: Path,
     *,
     changed: list[str],
     duplicates: list[dict[str, Any]],
     scope: LaneScope,
+    base_ref: str = "main",
 ) -> GateResult:
     """Everything the queue checks *inside* the lease, against the merged tree.
 
@@ -680,7 +810,19 @@ def run_fast_gate(
         )
     )
 
-    # 2. import smoke over changed modules — this is the D-OB-17 catcher: a tree git
+    # 2. repo-invariant contract checks, against the MERGED tree. Second because it
+    #    is the cheapest thing that can catch a *semantic* regression, and because a
+    #    silently-reverted security fix must not wait on a test selection to notice.
+    checks.append(
+        run_contract_checks(
+            tree,
+            interpreter=interpreter,
+            env=env,
+            baseline=contract_baseline(scope.main_tree, base_ref),
+        )
+    )
+
+    # 3. import smoke over changed modules — this is the D-OB-17 catcher: a tree git
     #    merged without a single conflict marker that nonetheless does not import.
     modules = _module_names(tree, changed)
     if modules:
@@ -723,7 +865,7 @@ def run_fast_gate(
             Check("import-smoke", ok=True, seconds=0.0, detail="no changed modules")
         )
 
-    # 3. targeted tests over changed paths.
+    # 4. targeted tests over changed paths.
     tests = select_tests(tree, changed)
     if not tests:
         checks.append(
@@ -951,7 +1093,13 @@ def integrate_batch(
     duplicates = duplicate_definitions(repo, base, [c.branch for c in accepted])
     changed = sorted({p for c in accepted for p in changed_paths(repo, base, c.branch)})
     with materialized(repo, head, scope=scope) as tree:
-        gate = run_fast_gate(tree, changed=changed, duplicates=duplicates, scope=scope)
+        gate = run_fast_gate(
+            tree,
+            changed=changed,
+            duplicates=duplicates,
+            scope=scope,
+            base_ref=base,
+        )
 
     if gate.ok:
         landing = land(repo, head, base=base, scope=scope)

@@ -15,6 +15,7 @@ not that a function exists.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -452,3 +453,134 @@ def test_cli_exits_75_so_a_shell_stops_instead_of_proceeding(
     capsys.readouterr()
     with lanes.hold_lease(mq.MERGE_LEASE, operation="other runner", path=canonical):
         assert main(["merge-queue", "run", "--path", str(canonical)]) == 75
+
+
+# ---------------------------------------------------------------------------
+# Zero conflicts is not a safety property
+# ---------------------------------------------------------------------------
+CONTRACT = '''\
+import pathlib, sys
+root = pathlib.Path(sys.argv[sys.argv.index("--repository-root") + 1])
+src = (root / "pkg" / "identity.py").read_text()
+sys.exit(1 if "resolve_placement" in src else 0)
+'''
+
+
+def _with_contract(canonical: Path) -> None:
+    """Give the fixture repo a fix on `main` plus the invariant that guards it."""
+    _write(canonical, "pkg/identity.py", "def mint():\n    return Session()\n")
+    _write(canonical, "scripts/security/check_identity_contract.py", CONTRACT)
+    _commit(canonical, "main: the fix, and the contract that guards it")
+
+
+def test_a_branch_that_reverts_a_fix_merges_cleanly_and_is_caught(
+    canonical: Path,
+) -> None:
+    """The headline case. A lane forks AFTER a fix, reverts it, and touches nothing
+    else main touched. Git reports **no conflict** — it is answering "did two people
+    edit the same lines", a question about text on the branch, which is simply not a
+    question about whether the merged tree still upholds an invariant. Only running
+    the invariant against the merged tree answers that."""
+    _with_contract(canonical)
+    lane = _branch(
+        canonical,
+        "lane-revert",
+        {"pkg/identity.py": "def mint():\n    placement = resolve_placement()\n    return Session()\n"},
+    )
+    _write(canonical, "pkg/elsewhere.py", "UNRELATED = 1\n")
+    _commit(canonical, "main: unrelated work elsewhere")
+
+    trial = mq.trial_merge(canonical, "main", "lane-revert")
+    assert trial.ok, "the revert must merge CLEANLY — that is the whole point"
+
+    mq.enqueue(path=lane)
+    before = _run(["git", "rev-parse", "main"], canonical)
+    result = mq.run_queue(path=canonical, prune=False)
+
+    assert result["landed"] == 0 and result["rejected"] == 1
+    assert _run(["git", "rev-parse", "main"], canonical) == before
+    gate = result["outcomes"][0]["gate"]
+    failed = [c["name"] for c in gate["checks"] if not c["ok"]]
+    assert failed == ["contract-checks"]
+
+
+def test_the_same_branch_passes_before_the_fix_exists(canonical: Path) -> None:
+    """Control: the mechanism is the contract, not the string. With no fix on main
+    to revert, the identical branch lands."""
+    _write(canonical, "scripts/security/check_identity_contract.py", CONTRACT)
+    _write(canonical, "pkg/identity.py", "def mint():\n    return Session()\n")
+    _commit(canonical, "main: contract only")
+    lane = _branch(canonical, "lane-ok", {"pkg/other.py": "X = 1\n"})
+    mq.enqueue(path=lane)
+    assert mq.run_queue(path=canonical, prune=False)["landed"] == 1
+
+
+def test_contracts_are_discovered_from_the_merged_tree_not_this_module(
+    canonical: Path,
+) -> None:
+    """A candidate that ADDS an invariant has it enforced against itself in the same
+    gate run — which is what makes this generalize without editing merge_queue.py."""
+    lane = _branch(
+        canonical,
+        "lane-adds-contract",
+        {
+            "scripts/security/check_identity_contract.py": CONTRACT,
+            "pkg/identity.py": "def mint():\n    placement = resolve_placement()\n",
+        },
+    )
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 0
+    assert "check_identity_contract.py" in result["outcomes"][0]["reason"]
+
+
+def test_a_repo_with_no_contracts_is_a_genuine_empty_not_a_refusal(
+    canonical: Path,
+) -> None:
+    """Fail-closed applies to a DEGRADED read, not to an honest absence. A repo that
+    has never had a contract must not have every merge refused — that is a gate
+    nobody can use, which is the same outcome as no gate at all."""
+    check = mq.run_contract_checks(
+        canonical,
+        interpreter=mq._interpreter(canonical),
+        env=dict(os.environ),
+        baseline=set(),
+    )
+    assert check.ok is True
+    assert "genuine empty, not a degraded read" in check.detail
+
+
+def test_deleting_the_contract_is_not_a_way_to_satisfy_it(canonical: Path) -> None:
+    """The degraded read that DOES matter: the base has an invariant and the merged
+    tree does not. Without comparing against the base, a candidate could land by
+    leaving nothing behind to fail."""
+    _with_contract(canonical)
+    lane = _lane(canonical, "lane-deletes")
+    (lane / "scripts" / "security" / "check_identity_contract.py").unlink()
+    _commit(lane, "lane-deletes: remove the contract")
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 0
+    assert "DROPS contract check(s)" in result["outcomes"][0]["reason"]
+    assert "check_identity_contract.py" in result["outcomes"][0]["reason"]
+
+
+def test_contract_baseline_reads_the_base_ref(canonical: Path) -> None:
+    _with_contract(canonical)
+    assert mq.contract_baseline(canonical, "main") == {
+        "check_identity_contract.py"
+    }
+
+
+def test_contract_step_stays_inside_its_share_of_the_budget(canonical: Path) -> None:
+    """A security check that blows the budget gets the whole gate bypassed."""
+    _with_contract(canonical)
+    check = mq.run_contract_checks(
+        canonical,
+        interpreter=mq._interpreter(canonical),
+        env=dict(os.environ),
+        baseline=mq.contract_baseline(canonical, "main"),
+    )
+    assert check.ok is True
+    assert check.seconds < mq.CONTRACT_CHECK_BUDGET_SECONDS
+    assert check.seconds < mq.FAST_GATE_BUDGET_SECONDS / 10
