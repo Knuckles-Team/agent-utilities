@@ -111,10 +111,10 @@ def start_daemon_metrics_listener() -> bool:
         except ImportError as exc:
             logger.error(
                 "Daemon metrics listener NOT started: the optional 'metrics' "
-                "extra (prometheus-client) is not installed (exception_type=%s). "
+                "extra (prometheus-client) is not installed (%s). "
                 "SCHEDULED_JOB_*/LANE_*/KG_INGEST_*/DISPATCH_* series recorded "
                 "by this process will not be scrapeable until it is.",
-                type(exc).__name__,
+                exc,
             )
             return False
         host = str(setting("KG_DAEMON_METRICS_HOST", "0.0.0.0") or "0.0.0.0")
@@ -124,13 +124,12 @@ def start_daemon_metrics_listener() -> bool:
         except OSError as exc:
             logger.error(
                 "Daemon metrics listener NOT started: could not bind %s:%d "
-                "(exception_type=%s: %s). The daemon continues running WITHOUT "
+                "(%s). The daemon continues running WITHOUT "
                 "a scrapeable metrics endpoint — SCHEDULED_JOB_*/LANE_*/"
                 "KG_INGEST_*/DISPATCH_* series stay uncollectable until this "
                 "is resolved.",
                 host,
                 port,
-                type(exc).__name__,
                 exc,
             )
             return False

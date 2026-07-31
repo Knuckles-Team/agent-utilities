@@ -450,10 +450,9 @@ class TelemetryEngine:
             except Exception as exc:
                 logger.warning(
                     "TelemetryEngine: could not resolve auth for the "
-                    "metrics-signal endpoint %s (exception_type=%s: %s); "
+                    "metrics-signal endpoint %s (%s); "
                     "exporting metrics without credentials.",
                     metrics_endpoint,
-                    type(exc).__name__,
                     exc,
                 )
                 metric_headers = {}
