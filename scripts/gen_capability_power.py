@@ -616,6 +616,17 @@ def generate(
             canonical_surface=True,
         )
         tools = asyncio.run(_list_tools(mcp))
+        # MCP Apps entry-point tools (``mcp/tools/mcp_apps.py``, tagged
+        # ``mcp-apps``) are UI launchers over an EXISTING host-mediated tool —
+        # the task-progress app drives ``graph_jobs``, the trace-waterfall app
+        # drives ``graph_traces action=waterfall``. They are not capabilities in
+        # their own right (the capability they expose already has a CPD), and
+        # they are deliberately absent from ``canonical_tool_names``, so
+        # emitting a CPD for them makes the generated catalog disagree with the
+        # canonical tool universe — which surfaced as a CPD-gate KeyError on
+        # ``TOOL_VERBS[cpd.id]`` when the MCP Apps lane merged. Excluded here so
+        # the catalog stays a function of the canonical surface.
+        tools = [t for t in tools if "mcp-apps" not in (getattr(t, "tags", None) or set())]
         action_tool_routes = dict(kg_server.ACTION_TOOL_ROUTES)
     finally:
         kg_server.REGISTERED_TOOLS.clear()
