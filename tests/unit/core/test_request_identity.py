@@ -518,6 +518,41 @@ class TestActorIdentityMiddleware:
         assert b"sensitive validation context" not in body
         assert b"Token validation failed" in body
 
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    @pytest.mark.asyncio
+    async def test_jwt_dependency_fault_is_distinct_from_invalid_credential(self):
+        """A verification-path dependency/config fault (the ``_decode_jwt``
+        500 raised when its JWT stack is unavailable) must never collapse to
+        the generic 401 "Token validation failed" — that collapse is exactly
+        how a missing ``joserfc`` dependency was previously misreported as a
+        rejected credential (a correctly issued token could never have been
+        accepted, and the error blamed the credential instead of the missing
+        dependency)."""
+        from fastapi import HTTPException
+
+        cfg = _make_config(auth_jwt_jwks_uri="https://issuer.invalid/jwks")
+        mw = ActorIdentityMiddleware(_make_inner_app({}))
+
+        async def dependency_missing(_token):
+            raise HTTPException(
+                status_code=500,
+                detail="joserfc is required for JWT authentication. "
+                "Install it with: pip install agent-utilities[auth]",
+            )
+
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch(
+                "agent_utilities.security.request_identity.actor_from_bearer_token",
+                dependency_missing,
+            ),
+        ):
+            sent = await _call(mw, headers=[(b"authorization", b"Bearer opaque")])
+        body = next(m["body"] for m in sent if m["type"] == "http.response.body")
+        assert _status(sent) == 500
+        assert b"Token validation failed" not in body
+        assert b"joserfc" in body
+
     @pytest.mark.asyncio
     async def test_valid_token_without_tenant_is_forbidden(self):
         cfg = _make_config(auth_jwt_jwks_uri="https://issuer.invalid/jwks")

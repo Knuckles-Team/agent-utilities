@@ -56,6 +56,27 @@ dependencies = [
     # Exact release/certification commands validate their packaged JSON Schema
     # subjects at runtime; this cannot live only in the test guardrail group.
     "jsonschema>=4.26.0",
+    # CONCEPT:AU-OS.config.secrets-authentication — JWT bearer verification
+    # (security/auth.py `_decode_jwt`, security/request_identity.py) is a base
+    # capability of every served profile (non-loopback listeners REQUIRE this
+    # boundary), not an opt-in extra. Formerly gated behind `[auth]`, a runtime
+    # image that installed agent-utilities without that extra had NO joserfc, so
+    # `_decode_jwt`'s ImportError was mis-surfaced as a 401 "Token validation
+    # failed" for every caller — a dependency accident masquerading as a
+    # rejected credential; see the fixed error-reporting path in
+    # `security/auth.py`/`security/request_identity.py`. Promoted to base so
+    # enforcement is a pure runtime/config toggle (`AUTH_JWT_JWKS_URI` set or
+    # not — see `TestVerifyCredentials` in `tests/unit/core/test_auth.py`),
+    # never a packaging accident. Pure-Python (no compiled extension); its only
+    # dependency is `cryptography`, already required above — so this adds ~71 KB
+    # wheel / ~560 KB installed and zero new transitive packages. Import is
+    # lazy (inside `_decode_jwt`), so processes that never verify a JWT pay
+    # nothing; the one-time cost when the path IS exercised is ~80ms (pulling
+    # additional `cryptography.x509` submodules `import cryptography` alone
+    # does not load). `[auth]` is kept below as a no-op alias extra: ~69
+    # external fleet manifests still pin `agent-utilities[auth]` and must keep
+    # resolving.
+    "joserfc>=1.7.4",
     # CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — the
     # engine is a HARD base dependency, so a bare `pip install agent-utilities` already
     # yields a self-contained, FULLY-CAPABLE graph-os when the approved `epistemic-graph`
@@ -342,9 +363,14 @@ ingest-dedup = [
 vault = [
     "hvac>=2.4.0"
 ]
-auth = [
-    "joserfc>=1.7.4"
-]
+# No-op alias, kept for external compatibility only. `joserfc` moved into the
+# base `dependencies` above (JWT verification is now always installed;
+# enforcement is a runtime/config toggle, not a packaging accident — see the
+# comment on the base `joserfc` entry). ~69 external fleet manifests still
+# pin `agent-utilities[auth]`; removing the extra name would break every one
+# of them for zero benefit, so `agent-utilities[auth]` keeps resolving as a
+# deliberate no-op rather than an error.
+auth = []
 serving = [
     # The serving plane (graph-os MCP, host daemon, messaging): NO heavy ML/native deps.
     # Heavy compute is remote (vLLM) or in the Rust engine; torch/transformers/AVX-ann are

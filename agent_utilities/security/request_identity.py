@@ -444,8 +444,14 @@ def mint_actor_from_token_sync(token: str) -> ActorContext:
 
     try:
         return asyncio.run(actor_from_bearer_token(token))
-    except Exception:
-        raise RuntimeError("Graph process identity token validation failed") from None
+    except Exception as exc:
+        # Preserve the cause: this is the same JWT verification path as the
+        # per-request boundary, and discarding it here would hide the exact
+        # class of fault this change targets (a dependency/config fault in
+        # `_decode_jwt` reported as an opaque failure with no signal of why).
+        raise RuntimeError(
+            "Graph process identity token validation failed"
+        ) from exc
 
 
 async def _send_json(send: Any, status: int, payload: dict[str, Any]) -> None:
@@ -520,9 +526,27 @@ class ActorIdentityMiddleware:
             return
 
         if token and actor is None:
+            from fastapi import HTTPException, status as http_status
+
             try:
                 actor = await actor_from_bearer_token(token)
-            except Exception:  # noqa: BLE001 — any failure = invalid credential
+            except HTTPException as exc:
+                if exc.status_code == http_status.HTTP_401_UNAUTHORIZED:
+                    await _send_json(send, 401, {"error": "Token validation failed"})
+                    return
+                # A verification-path fault that is NOT a credential rejection
+                # (currently only `_decode_jwt`'s 500 when its JWT dependency is
+                # missing) must surface loudly and distinctly, never collapse
+                # to a 401 — that collapse is exactly how a missing dependency
+                # was misreported as a rejected credential.
+                logger.error(
+                    "JWT verification path failed (status=%s): %s",
+                    exc.status_code,
+                    exc.detail,
+                )
+                await _send_json(send, exc.status_code, {"error": exc.detail})
+                return
+            except Exception:  # noqa: BLE001 — any other failure = invalid credential
                 await _send_json(send, 401, {"error": "Token validation failed"})
                 return
 
