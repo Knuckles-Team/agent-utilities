@@ -188,7 +188,13 @@ gain five actions:
 | `checkpoint_now` | user / agent | Store to RAM now; `persist=true` also attempts a gated durable write. |
 | `promote` | user | RAM → disk, through the gate. |
 | `explain` | any | Why this checkpoint exists and why it is where it is. |
-| `ram_stats` | any | RAM-tier occupancy + the gate in force. |
+| `ram_stats` | any | RAM-tier occupancy, the gate in force, and **which scorers are registered** (a score is uninterpretable without knowing what produced it). |
+
+`recommend` and `checkpoint_now` also accept `evidence_bundle_json` /
+`context_bundle_json`: an agent that just ran `graph_ask` or a context compile hands the
+result straight over and the grounding, contradiction and novelty axes populate
+themselves. Explicit `observation_json` fields always win over anything derived from a
+bundle — a caller's direct measurement is more authoritative than an inference.
 
 ### How the recommendation reaches the LLM
 

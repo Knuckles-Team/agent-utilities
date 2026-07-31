@@ -239,6 +239,20 @@ class CheckpointObservation(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    @staticmethod
+    def _read(bundle: Any, name: str) -> Any:
+        """Read ``name`` off a bundle that may be an object OR a plain mapping.
+
+        The adapters below are reached two ways — in-process with a real
+        ``EvidenceBundle``/``ContextBundle``, and over the MCP surface with the same
+        thing already decoded from JSON into a dict. Supporting both here means the
+        adapters have exactly one implementation instead of an object version and a
+        near-identical dict version that could drift.
+        """
+        if isinstance(bundle, dict):
+            return bundle.get(name)
+        return getattr(bundle, name, None)
+
     @classmethod
     def from_evidence_bundle(
         cls, bundle: Any, /, **overrides: Any
@@ -246,25 +260,18 @@ class CheckpointObservation(BaseModel):
         """Populate the grounding + contradiction axes from an
         :class:`~agent_utilities.models.evidence_bundle.EvidenceBundle`.
 
-        Duck-typed on purpose (read via ``getattr``, never imported) so this module
-        stays importable without pulling the evidence/model layer onto the KV-cache
-        import path. Anything the bundle does not carry is left unmeasured.
+        Duck-typed on purpose (never imported) so this module stays importable without
+        pulling the evidence/model layer onto the KV-cache import path, and accepts a
+        decoded JSON mapping as readily as the object. Anything the bundle does not
+        carry is left unmeasured.
         """
-        claims = list(getattr(bundle, "claims", None) or [])
-        spans = list(getattr(bundle, "evidence_spans", None) or [])
-        contradictions = list(getattr(bundle, "contradictions", None) or [])
+        claims = list(cls._read(bundle, "claims") or [])
+        spans = list(cls._read(bundle, "evidence_spans") or [])
+        contradictions = list(cls._read(bundle, "contradictions") or [])
         high = sum(
             1
             for c in contradictions
-            if str(
-                (
-                    c.get("severity")
-                    if isinstance(c, dict)
-                    else getattr(c, "severity", "")
-                )
-                or ""
-            ).lower()
-            == "high"
+            if str(cls._read(c, "severity") or "").lower() == "high"
         )
         fields: dict[str, Any] = {
             "claim_count": len(claims),
@@ -288,13 +295,13 @@ class CheckpointObservation(BaseModel):
         ratio. Duck-typed for the same import-hygiene reason as
         :meth:`from_evidence_bundle`.
         """
-        items = list(getattr(bundle, "items", None) or [])
-        dropped_redundant = getattr(bundle, "dropped_redundant", None)
+        items = list(cls._read(bundle, "items") or [])
+        dropped_redundant = cls._read(bundle, "dropped_redundant")
         fields: dict[str, Any] = {}
         if dropped_redundant is not None:
             fields["novel_items"] = len(items)
             fields["retrieved_items"] = len(items) + int(dropped_redundant)
-        citations = getattr(bundle, "citations", None)
+        citations = cls._read(bundle, "citations")
         if citations is not None:
             fields["claim_count"] = len(items)
             fields["evidence_span_count"] = len(list(citations))

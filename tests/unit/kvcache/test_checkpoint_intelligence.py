@@ -733,6 +733,15 @@ def test_an_untouched_run_gets_a_byte_identical_prompt():
     assert "KV-CHECKPOINT ADVISORY" not in (result.all_messages()[0].instructions or "")
 
 
+def test_acting_on_the_advisory_clears_it(manager):
+    """Once someone checkpoints, the advisory is spent — leaving it published would
+    keep inviting the model to duplicate the checkpoint just taken."""
+    manager.recommend(_strong_observation())
+    assert render_checkpoint_advisory_instructions() != ""
+    manager.checkpoint_now(b"kv", key=_key(), trigger="agent")
+    assert render_checkpoint_advisory_instructions() == ""
+
+
 def test_publish_is_context_local_not_global(manager):
     """Two interleaved runs must never read each other's verdict."""
     import contextvars
@@ -773,7 +782,8 @@ def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
         serving_engine="vllm", engine_version="0.9.0",
         prefix_digest=prefix_digest("ctx"), tenant="t1", policy_version="v1",
         run_id="run-1", point="post-plan", requesting_tenant="t1",
-        observation_json="{}", checkpoint_id="", data_b64="",
+        observation_json="{}", evidence_bundle_json="{}",
+        context_bundle_json="{}", checkpoint_id="", data_b64="",
         initiator="user", persist=False, operator_grant=False,
     )
 
@@ -790,6 +800,10 @@ def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
     stats = json.loads(est._kv_checkpoint_intelligence("ram_stats", **common))
     assert stats["result"]["entries"] == 1
     assert stats["result"]["eligibility_gate"] == "operator-grant-default"
+    # A score is uninterpretable without knowing which signals produced it.
+    assert {s["name"] for s in stats["result"]["scorers"]} >= {
+        "rebuild_cost", "contradictions", "model_self_report",
+    }
 
     refused = json.loads(
         est._kv_checkpoint_intelligence(
@@ -849,7 +863,8 @@ def test_mcp_recommend_action_returns_a_rendered_advisory(monkeypatch):
             graph="", data_b64="", model_identity="", quantization="",
             serving_engine="", engine_version="", prefix_digest="", tenant="",
             policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json=observation, initiator="agent",
+            requesting_tenant="", observation_json=observation,
+            evidence_bundle_json="{}", context_bundle_json="{}", initiator="agent",
             persist=False, operator_grant=False,
         )
     )
@@ -870,8 +885,88 @@ def test_mcp_recommend_rejects_a_malformed_observation(monkeypatch):
             graph="", data_b64="", model_identity="", quantization="",
             serving_engine="", engine_version="", prefix_digest="", tenant="",
             policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json="[1,2,3]", initiator="agent",
+            requesting_tenant="", observation_json="[1,2,3]",
+            evidence_bundle_json="{}", context_bundle_json="{}", initiator="agent",
             persist=False, operator_grant=False,
+        )
+    )
+    assert payload["error"]["code"] == "invalid_request"
+
+
+def test_mcp_recommend_derives_signals_from_handed_in_bundles(monkeypatch):
+    """LIVE PATH for the bundle adapters: an agent hands over what graph_ask already
+    gave it, and the grounding/contradiction/novelty axes populate themselves."""
+    from agent_utilities.mcp.tools import engine_surface_tools as est
+
+    monkeypatch.setattr(
+        est, "_checkpoint_manager", lambda graph: TieredCheckpointManager()
+    )
+    payload = json.loads(
+        est._kv_checkpoint_intelligence(
+            "recommend",
+            graph="", data_b64="", model_identity="", quantization="",
+            serving_engine="", engine_version="", prefix_digest="", tenant="",
+            policy_version="", run_id="", point="", checkpoint_id="",
+            requesting_tenant="", observation_json="{}",
+            evidence_bundle_json=json.dumps(
+                {
+                    "claims": [{"id": "c1"}, {"id": "c2"}],
+                    "evidence_spans": [{"id": "e1"}, {"id": "e2"}],
+                    "contradictions": [{"severity": "high"}],
+                }
+            ),
+            context_bundle_json="{}", initiator="agent", persist=False,
+            operator_grant=False,
+        )
+    )
+    signals = {s["name"]: s for s in payload["result"]["signals"]}
+    assert signals["grounding_density"]["value"] is not None
+    # The high-severity contradiction rode in from the bundle and vetoed.
+    assert payload["result"]["recommended_tier"] == "none"
+    assert any("VETO" in b for b in payload["result"]["blockers"])
+
+
+def test_mcp_explicit_observation_fields_win_over_a_bundle(monkeypatch):
+    """A caller's direct measurement is more authoritative than an inference."""
+    from agent_utilities.mcp.tools import engine_surface_tools as est
+
+    monkeypatch.setattr(
+        est, "_checkpoint_manager", lambda graph: TieredCheckpointManager()
+    )
+    payload = json.loads(
+        est._kv_checkpoint_intelligence(
+            "recommend",
+            graph="", data_b64="", model_identity="", quantization="",
+            serving_engine="", engine_version="", prefix_digest="", tenant="",
+            policy_version="", run_id="", point="", checkpoint_id="",
+            requesting_tenant="",
+            observation_json=json.dumps({"claim_count": 99}),
+            evidence_bundle_json=json.dumps({"claims": [{"id": "c1"}]}),
+            context_bundle_json="{}", initiator="agent", persist=False,
+            operator_grant=False,
+        )
+    )
+    grounding = next(
+        s for s in payload["result"]["signals"] if s["name"] == "grounding_density"
+    )
+    assert grounding["detail"]["claim_count"] == 99
+
+
+def test_mcp_rejects_a_malformed_bundle(monkeypatch):
+    from agent_utilities.mcp.tools import engine_surface_tools as est
+
+    monkeypatch.setattr(
+        est, "_checkpoint_manager", lambda graph: TieredCheckpointManager()
+    )
+    payload = json.loads(
+        est._kv_checkpoint_intelligence(
+            "recommend",
+            graph="", data_b64="", model_identity="", quantization="",
+            serving_engine="", engine_version="", prefix_digest="", tenant="",
+            policy_version="", run_id="", point="", checkpoint_id="",
+            requesting_tenant="", observation_json="{}",
+            evidence_bundle_json="[1,2,3]", context_bundle_json="{}",
+            initiator="agent", persist=False, operator_grant=False,
         )
     )
     assert payload["error"]["code"] == "invalid_request"
@@ -892,7 +987,8 @@ def test_mcp_rejects_an_unrecognized_initiator(monkeypatch):
             model_identity="m", quantization="fp16", serving_engine="vllm",
             engine_version="1", prefix_digest="abc", tenant="t1", policy_version="v1",
             run_id="", point="", checkpoint_id="", requesting_tenant="t1",
-            observation_json="{}", initiator="root", persist=True,
+            observation_json="{}", evidence_bundle_json="{}",
+            context_bundle_json="{}", initiator="root", persist=True,
             operator_grant=True,
         )
     )

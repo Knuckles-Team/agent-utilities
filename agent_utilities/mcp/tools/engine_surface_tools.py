@@ -279,6 +279,24 @@ def _checkpoint_manager(graph: str) -> Any:
     )
 
 
+def _bundle_object(raw: str) -> dict[str, Any]:
+    """Decode a caller-supplied bundle, refusing anything that is not an object."""
+    bundle = json.loads(raw)
+    if not isinstance(bundle, dict):
+        raise ValueError("bundle JSON must be an object")
+    return bundle
+
+
+def _measured_fields(observation: Any) -> dict[str, Any]:
+    """The axes a bundle adapter actually populated.
+
+    ``exclude_defaults``/``exclude_none`` together mean an axis the bundle carried no
+    evidence for stays *unset* rather than being merged in as a spurious zero — the same
+    not-measured-is-not-zero rule the scorers depend on.
+    """
+    return observation.model_dump(exclude_defaults=True, exclude_none=True)
+
+
 def _kv_checkpoint_intelligence(
     action: str,
     *,
@@ -296,6 +314,8 @@ def _kv_checkpoint_intelligence(
     checkpoint_id: str,
     requesting_tenant: str,
     observation_json: str,
+    evidence_bundle_json: str,
+    context_bundle_json: str,
     initiator: str,
     persist: bool,
     operator_grant: bool,
@@ -330,10 +350,35 @@ def _kv_checkpoint_intelligence(
     manager = _checkpoint_manager(graph)
 
     def _observation() -> Any:
+        """Build the observation from the explicit fields plus any bundles handed in.
+
+        An agent that has just run ``graph_ask`` / a context compile already holds the
+        exact shapes the grounding, contradiction and novelty scorers want, so it can
+        hand those straight over instead of transcribing four counts by hand. Explicit
+        ``observation_json`` fields always win over anything derived from a bundle —
+        the caller's direct measurement is more authoritative than an inference.
+        """
         payload = json.loads(observation_json) if observation_json else {}
         if not isinstance(payload, dict):
             raise ValueError("observation_json must be a JSON object")
-        return CheckpointObservation(**payload)
+        derived: dict[str, Any] = {}
+        if evidence_bundle_json.strip() not in {"", "{}"}:
+            derived.update(
+                _measured_fields(
+                    CheckpointObservation.from_evidence_bundle(
+                        _bundle_object(evidence_bundle_json)
+                    )
+                )
+            )
+        if context_bundle_json.strip() not in {"", "{}"}:
+            derived.update(
+                _measured_fields(
+                    CheckpointObservation.from_context_bundle(
+                        _bundle_object(context_bundle_json)
+                    )
+                )
+            )
+        return CheckpointObservation(**{**derived, **payload})
 
     if action == "ram_stats":
         return json.dumps(
@@ -343,6 +388,14 @@ def _kv_checkpoint_intelligence(
                 "result": {
                     **manager.ram_store.stats(),
                     "eligibility_gate": manager.eligibility_gate.name,
+                    # Which signals are active in THIS deployment. Without it a score
+                    # is uninterpretable — an operator who removed a default scorer or
+                    # added their own has no other way to see what produced the number.
+                    "scorers": [
+                        {"name": s.name, "weight": s.weight}
+                        for s in manager.advisor.registry.scorers()
+                    ],
+                    "ram_threshold": manager.advisor.ram_threshold,
                 },
             }
         )
@@ -423,9 +476,12 @@ def _kv_checkpoint_intelligence(
             tenant=tenant,
             policy_version=policy_version,
         )
-        observation = (
-            _observation() if observation_json.strip() not in {"", "{}"} else None
+        supplied = (
+            observation_json.strip() not in {"", "{}"}
+            or evidence_bundle_json.strip() not in {"", "{}"}
+            or context_bundle_json.strip() not in {"", "{}"}
         )
+        observation = _observation() if supplied else None
     except Exception as exc:  # noqa: BLE001 — bad payload/key/observation
         return _surface_error(
             exc, surface="kv_checkpoint", action=action, code="invalid_request"
@@ -1288,6 +1344,20 @@ def register_engine_surface_tools(mcp) -> None:
             "field is optional; an omitted field means NOT MEASURED and its scorer "
             "abstains rather than guessing.",
         ),
+        evidence_bundle_json: str = Field(
+            default="{}",
+            description="recommend/checkpoint_now: an EvidenceBundle as JSON (as "
+            "returned by graph_ask/graph_query). Its claims/evidence_spans/"
+            "contradictions populate the grounding and contradiction axes directly, so "
+            "a caller need not transcribe the counts. Explicit observation_json fields "
+            "always win over anything derived here.",
+        ),
+        context_bundle_json: str = Field(
+            default="{}",
+            description="recommend/checkpoint_now: a ContextBundle as JSON. Its items/"
+            "dropped_redundant/citations populate the retrieval-saturation (novelty) "
+            "axis. Same precedence rule as evidence_bundle_json.",
+        ),
         initiator: str = Field(
             default="agent",
             description="checkpoint_now/promote: who is asking — 'user' (a human "
@@ -1343,6 +1413,8 @@ def register_engine_surface_tools(mcp) -> None:
                 checkpoint_id=checkpoint_id,
                 requesting_tenant=requesting_tenant,
                 observation_json=observation_json,
+                evidence_bundle_json=evidence_bundle_json,
+                context_bundle_json=context_bundle_json,
                 initiator=initiator,
                 persist=persist,
                 operator_grant=operator_grant,

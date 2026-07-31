@@ -75,6 +75,7 @@ from agent_utilities.kvcache.worthiness import (
     CheckpointObservation,
     CheckpointRecommendation,
     CheckpointTier,
+    clear_checkpoint_advisory,
     publish_checkpoint_advisory,
 )
 
@@ -433,6 +434,10 @@ class TieredCheckpointManager:
                 recommendation=recommendation,
             )
         _record_tier_op(trigger, "ram", "taken")
+        # The advisory is spent: someone acted on it. Leaving it published would keep
+        # telling the model "checkpoint-worthy, consider checkpointing" on every
+        # subsequent turn and invite a duplicate of the checkpoint just taken.
+        clear_checkpoint_advisory()
         outcome = CheckpointOutcome(
             taken=True,
             tier=CheckpointTier.RAM,
