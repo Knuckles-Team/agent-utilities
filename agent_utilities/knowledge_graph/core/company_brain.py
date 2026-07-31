@@ -288,9 +288,27 @@ class TenancyManager:
         validated (alphanumeric/``-``/``_``/``:`` only — no quote injection) and
         the first ``WHERE``/``RETURN`` is matched **case-insensitively** so a
         lowercase ``return`` can't silently bypass scoping. Queries with no
-        ``RETURN`` (writes/DDL) are returned unchanged.
+        ``WHERE``/``RETURN`` (writes/DDL) are returned unchanged — there is no
+        predicate site to inject into.
+
+        CONCEPT:AU-KG.backend.company-brain-write-guard — the injected predicate
+        scopes against the query's **actual** first bound node variable
+        (:func:`~.cypher_scoping.first_bound_node_variable`), not a hardcoded
+        ``n``. A prior version hardcoded ``n.tenant_id = '...'`` unconditionally,
+        which silently mis-scoped (and, on a lenient backend, silently returned
+        zero rows instead of raising) any query binding its node under a
+        different variable name (``MATCH (x:Entity) RETURN x``). When no bound
+        variable can be found at all, this now raises
+        :class:`~.cypher_scoping.UnscopableQueryError` — fail closed — rather
+        than inject a predicate against a variable the query never bound.
+
+        Raises:
+            UnscopableQueryError: the query has a ``WHERE``/``RETURN`` clause to
+                inject into but no derivable ``MATCH (<var>...`` node variable.
         """
         import re
+
+        from .cypher_scoping import first_bound_node_variable
 
         if not tenant_id:
             return query
@@ -298,15 +316,21 @@ class TenancyManager:
             logger.warning("Refusing to scope with unsafe tenant id %r", tenant_id)
             # Fail closed: an unsafe tenant id yields an impossible predicate.
             tenant_id = "__no_such_tenant__"
-        cond = f"n.tenant_id = '{tenant_id}'"
 
-        m = re.search(r"\bWHERE\b", query, flags=re.IGNORECASE)
-        if m:
-            return query[: m.end()] + f" {cond} AND" + query[m.end() :]
-        m = re.search(r"\bRETURN\b", query, flags=re.IGNORECASE)
-        if m:
-            return query[: m.start()] + f"WHERE {cond} " + query[m.start() :]
-        return query
+        where_match = re.search(r"\bWHERE\b", query, flags=re.IGNORECASE)
+        return_match = re.search(r"\bRETURN\b", query, flags=re.IGNORECASE)
+        if not where_match and not return_match:
+            return query
+
+        var = first_bound_node_variable(query)
+        cond = f"{var}.tenant_id = '{tenant_id}'"
+        if where_match:
+            return query[: where_match.end()] + f" {cond} AND" + query[where_match.end() :]
+        return (
+            query[: return_match.start()]
+            + f"WHERE {cond} "
+            + query[return_match.start() :]
+        )
 
     def is_member(self, actor_id: str, tenant_id: str) -> bool:
         return tenant_id in self.get_actor_tenants(actor_id)

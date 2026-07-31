@@ -66,6 +66,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .embedding_versioning import EmbeddingVersionMismatchError
+
 try:
     from agent_utilities.numeric import NDArray
     from agent_utilities.numeric import xp as np
@@ -378,6 +380,15 @@ class CapabilityIndex:
         # ``required_policy_tags`` filter only if it carries EVERY required tag —
         # an untagged entity fails any non-empty policy requirement (fail-closed).
         self._id_to_policy_tags: dict[str, set[str]] = {}
+        # CONCEPT:AU-KG.retrieval.embedding-version-identity — this index's pinned
+        # embedding version (see embedding_versioning.py). ``None`` until the first
+        # version-carrying ``add()`` pins it; callers that never pass
+        # ``embedding_version`` (capability/tool/skill routing, synthetic test
+        # fixtures) get zero behaviour change — version enforcement is opt-in per
+        # call, native to the document-embedding ingestion path that always
+        # supplies it.
+        self._embedding_version: str | None = None
+        self._id_to_embedding_version: dict[str, str] = {}
 
         # HNSW-specific state
         self._hnsw: Any = None
@@ -408,6 +419,17 @@ class CapabilityIndex:
     def dim(self) -> int | None:
         """Embedding dimensionality, or ``None`` if no vectors added yet."""
         return self._dim
+
+    @property
+    def embedding_version(self) -> str | None:
+        """The embedding version this index is pinned to (CONCEPT:AU-KG.retrieval.embedding-version-identity).
+
+        ``None`` until the first version-carrying :meth:`add` pins it (or if no
+        caller has ever passed ``embedding_version`` — e.g. a capability/tool
+        routing index). See ``embedding_versioning.py`` for the re-index policy
+        once this index's version falls behind the currently configured model.
+        """
+        return self._embedding_version
 
     def __len__(self) -> int:
         return len(self._id_to_vec)
@@ -452,6 +474,7 @@ class CapabilityIndex:
         tenant: str | None = None,
         policy_tags: Any = None,
         reward: float | None = None,
+        embedding_version: str | None = None,
     ) -> None:
         """Add (or replace) an entity in the index.
 
@@ -476,7 +499,32 @@ class CapabilityIndex:
                 already learned from live outcomes; pass the value hydrated from the
                 engine's durable ``capability_reward`` node property (see
                 :mod:`.durable_outcome_store`) to survive a process restart.
+            embedding_version: The :class:`~.embedding_versioning.EmbeddingVersion`
+                id (``"provider:model"``) that produced ``embedding``
+                (CONCEPT:AU-KG.retrieval.embedding-version-identity). ``None`` (the
+                default) skips version enforcement entirely — zero behaviour change
+                for callers that don't track it (capability/tool/skill routing,
+                synthetic test fixtures). The document-embedding ingestion path
+                always passes it: the FIRST version-carrying ``add()`` pins this
+                index's :attr:`embedding_version`, and every later call with a
+                *different* version raises :class:`EmbeddingVersionMismatchError`
+                loudly — comparing vectors from two different embedding models is
+                a silent quality regression, not a value to average over (see the
+                module docstring in ``embedding_versioning.py``).
+
+        Raises:
+            EmbeddingVersionMismatchError: ``embedding_version`` disagrees with
+                this index's already-pinned version.
         """
+        if embedding_version is not None:
+            if self._embedding_version is None:
+                self._embedding_version = embedding_version
+            elif self._embedding_version != embedding_version:
+                raise EmbeddingVersionMismatchError(
+                    expected=self._embedding_version,
+                    actual=embedding_version,
+                    context=f"CapabilityIndex.add(id={id!r})",
+                )
         vec = np.asarray(embedding, dtype=np.float32).reshape(-1)
         if vec.size == 0:
             raise ValueError(f"Empty embedding for id {id!r}")
@@ -510,6 +558,8 @@ class CapabilityIndex:
                     _REWARD_REGEN_DISTANCE,
                 )
         self._id_to_vec[id] = norm_vec
+        if embedding_version is not None:
+            self._id_to_embedding_version[id] = embedding_version
 
         # Ontology type for structured-prior ranking (KG-2.44b). Only overwrite when
         # a type is supplied so a typeless update never erases a known type.
@@ -586,6 +636,7 @@ class CapabilityIndex:
         self._id_to_tenant.pop(id, None)
         self._id_to_policy_tags.pop(id, None)
         self._reward.pop(id, None)
+        self._id_to_embedding_version.pop(id, None)
         partners = self._swappable.pop(id, set())
         for p in partners:
             self._swappable.get(p, set()).discard(id)
@@ -598,6 +649,11 @@ class CapabilityIndex:
                         self._hnsw.mark_deleted(label)
                     except Exception as e:  # noqa: BLE001 — best-effort; stale label is harmless
                         logger.debug("hnsw mark_deleted failed for %r: %s", id, e)
+        if not self._id_to_vec:
+            # Fully drained — release the version pin so this generation can be
+            # repopulated under a new embedding version (the reindex "generation
+            # swap" described in embedding_versioning.py).
+            self._embedding_version = None
         return True
 
     def build_from_edges(self, nodes: Any) -> None:
@@ -728,6 +784,7 @@ class CapabilityIndex:
         prior_weight: float = 0.15,
         tenant: str | None = None,
         required_policy_tags: Any = None,
+        query_embedding_version: str | None = None,
     ) -> list[Designation]:
         """Designate the top-``k`` entities for a task.
 
@@ -752,11 +809,31 @@ class CapabilityIndex:
             required_policy_tags: Optional iterable of policy tags every candidate
                 must carry (CONCEPT:AU-P1-3). An entity with no policy tags fails any
                 non-empty requirement (fail-closed).
+            query_embedding_version: The embedding version (CONCEPT:AU-KG.retrieval.embedding-version-identity)
+                that produced ``prompt_embedding``. ``None`` (the default) skips the
+                check — zero behaviour change for callers that don't track versions.
+                When supplied and this index is already pinned to a *different*
+                version, raises :class:`EmbeddingVersionMismatchError` loudly rather
+                than silently ranking the query against a foreign embedding space.
 
         Returns:
             Up to ``k`` :class:`Designation` objects sorted by descending
             similarity score.
+
+        Raises:
+            EmbeddingVersionMismatchError: ``query_embedding_version`` disagrees
+                with this index's pinned :attr:`embedding_version`.
         """
+        if (
+            query_embedding_version is not None
+            and self._embedding_version is not None
+            and query_embedding_version != self._embedding_version
+        ):
+            raise EmbeddingVersionMismatchError(
+                expected=self._embedding_version,
+                actual=query_embedding_version,
+                context="CapabilityIndex.designate query embedding",
+            )
         if k <= 0 or not self._id_to_vec:
             return []
 
@@ -1072,6 +1149,8 @@ class CapabilityIndex:
             "id_to_policy_tags": {
                 i: sorted(p) for i, p in self._id_to_policy_tags.items()
             },
+            "embedding_version": self._embedding_version,
+            "id_to_embedding_version": dict(self._id_to_embedding_version),
             "bounded_cache_size": self._bounded_cache_size,
             "id_to_label": self._id_to_label,
             "next_label": self._next_label,
@@ -1166,6 +1245,8 @@ class CapabilityIndex:
         idx._id_to_policy_tags = {
             i: set(p) for i, p in meta.get("id_to_policy_tags", {}).items()
         }
+        idx._embedding_version = meta.get("embedding_version")
+        idx._id_to_embedding_version = dict(meta.get("id_to_embedding_version", {}))
         idx._id_to_label = dict(meta["id_to_label"])
         idx._label_to_id = {v: k for k, v in idx._id_to_label.items()}
         idx._next_label = meta["next_label"]
