@@ -312,9 +312,13 @@ def apply_visibility(
     if cond is None:
         return cypher
     if where_match:
-        return cypher[: where_match.end()] + f" {cond} AND" + cypher[where_match.end() :]
+        return (
+            cypher[: where_match.end()] + f" {cond} AND" + cypher[where_match.end() :]
+        )
     return (
-        cypher[: return_match.start()] + f"WHERE {cond} " + cypher[return_match.start() :]
+        cypher[: return_match.start()]
+        + f"WHERE {cond} "
+        + cypher[return_match.start() :]
     )
 
 

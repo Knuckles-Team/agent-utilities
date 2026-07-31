@@ -55,7 +55,9 @@ class LineageNotFoundError(LookupError):
 LineageRecord = dict[str, Any]
 
 
-def _query_cypher_rows(engine: Any, cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+def _query_cypher_rows(
+    engine: Any, cypher: str, params: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Best-effort ``engine.query_cypher`` read; ``[]`` on any unavailability.
 
     Mirrors :func:`~..ingestion.evidence_spine.load_fragments`'s own tolerance:

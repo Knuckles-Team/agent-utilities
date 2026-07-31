@@ -330,7 +330,9 @@ class TenancyManager:
         var = first_bound_node_variable(query)
         cond = f"{var}.tenant_id = '{tenant_id}'"
         if where_match:
-            return query[: where_match.end()] + f" {cond} AND" + query[where_match.end() :]
+            return (
+                query[: where_match.end()] + f" {cond} AND" + query[where_match.end() :]
+            )
         return (
             query[: return_match.start()]
             + f"WHERE {cond} "

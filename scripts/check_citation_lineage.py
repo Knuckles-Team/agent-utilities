@@ -108,7 +108,10 @@ def _check_citation_resolution(*, degrade: bool) -> tuple[bool, str]:
             continue
         unresolvable = [fid for fid in cited if fid not in real_fragment_ids]
         if unresolvable:
-            return False, f"chunk {sp.index} cites non-existent fragment(s) {unresolvable}"
+            return (
+                False,
+                f"chunk {sp.index} cites non-existent fragment(s) {unresolvable}",
+            )
     if uncited:
         return False, f"chunk(s) {uncited} have no fragment citation — not citable"
     return True, f"{len(spans)} chunk(s), all cite >=1 resolvable fragment"
@@ -146,9 +149,15 @@ def _check_embedding_version_mismatch_refused(*, degrade: bool) -> tuple[bool, s
     except EmbeddingVersionMismatchError:
         if degrade:
             return False, "mismatch was refused even with version tagging disabled"
-        return True, "cross-version add() was refused with EmbeddingVersionMismatchError"
+        return (
+            True,
+            "cross-version add() was refused with EmbeddingVersionMismatchError",
+        )
     if degrade:
-        return True, "version tagging disabled -> no check performed (expected under --degrade)"
+        return (
+            True,
+            "version tagging disabled -> no check performed (expected under --degrade)",
+        )
     return False, "cross-version add() was NOT refused — silent comparison risk"
 
 

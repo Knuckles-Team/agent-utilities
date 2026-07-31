@@ -686,7 +686,7 @@ class QueryMixin(_Base):
         self_correct: bool = False,
         corpus_id: str | None = None,
         as_of: str | None = None,
-        session: "GraphSession | None" = None,
+        session: GraphSession | None = None,
     ) -> list[dict[str, Any]]:
         """Perform a multi-faceted search using Hybrid GraphRAG.
 
@@ -774,13 +774,15 @@ class QueryMixin(_Base):
         for r in results:
             if isinstance(r, dict) and r.get("score") is None and "_score" in r:
                 r["score"] = r["_score"]
-        return self._enforce_acl_on_results(results, session=session, summary="hybrid-search")
+        return self._enforce_acl_on_results(
+            results, session=session, summary="hybrid-search"
+        )
 
     def _enforce_acl_on_results(
         self,
         results: list[dict[str, Any]],
         *,
-        session: "GraphSession | None",
+        session: GraphSession | None,
         summary: str,
     ) -> list[dict[str, Any]]:
         """Apply the SAME per-node ACL + owner/scope + audit boundary as
