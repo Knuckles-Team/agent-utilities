@@ -46,7 +46,15 @@ resources:
     label: requires firmware
     target: Firmware
     lpg_rel_type: ''
-actions: []
+actions:
+- id: epistemic-answer
+  name: Epistemic Answer
+  description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
+    confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
+    policy-redaction-aware provenance.'
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
 events:
 - name: rom-games.updated
   resource: game
@@ -190,6 +198,7 @@ provenance:
   generated_by: scripts/generate_connector_manifests.py
   generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
+  - a2a.json
   - rom_manager/connectors/mcp_source_presets.json
   - rom_manager/connectors/tool_schema_fingerprints.json
   - rom_manager/ontology/rom.ttl
@@ -200,7 +209,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: pD6DXPKY3CKo80lIXJ14lPm2r9VqNxUgi2NVkPiwjHqpxYwscQWVHXucDbMICY-pREbozVbuuDIHsnXxxF4gCw
+  signature: 25ja78MLjN7KS88qvfBFCbTVxnzdkF-wbf2UgtVkcPrNQQWfn4tVgO2Dc1ssxtmWxrWs4Mjuc8RJyHe6X6pZAg
 policy:
   pii_fields: {}
   tenant_boundary: null
