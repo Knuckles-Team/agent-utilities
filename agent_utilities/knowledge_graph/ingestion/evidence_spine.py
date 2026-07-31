@@ -399,7 +399,7 @@ class Artifact:
     An artifact is the *object* — a markdown file, a PDF, an API record, a row
     set — not one delivery of it.  :attr:`artifact_id` is therefore keyed to
     source identity and stays put across revisions, while
-    :attr:`content_hash` identifies the revision.  Governance is NOT re-declared
+    :attr:`content_hash` identifies the revision.  Governance is NOT redeclared
     here: it is carried verbatim off the envelope, which is the trust boundary
     that decided it.
 

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1120
+total_concepts: 1123
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1243,6 +1243,13 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
   - agent_utilities/protocols/source_connectors/registry.py
   doc: the discovery half of the self-registering pattern. Called
+- id: AU-ECO.connector.git-markdown-revision-connector
+  name: Git-Markdown Revision Connector
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
+  doc: Git-Markdown Revision Connector
 - id: AU-ECO.connector.git-task-resolver
   name: git issue/PR -> SWE task resolver + webhook ingress
   pillar: AU-ECO
@@ -3930,6 +3937,14 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
   - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
   doc: shared migration tail for the
+- id: AU-KG.ingest.evidence-spine-artifact
+  name: one retrieved source object
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
+  doc: one retrieved source object
 - id: AU-KG.ingest.external-graph-federation
   name: External Graph Federation
   pillar: AU-KG
@@ -4265,6 +4280,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: ────────────────────────────
+- id: AU-KG.ingest.stable-fragment-address
+  name: built on the evidence-spine
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
+  doc: built on the evidence-spine
 - id: AU-KG.ingest.staged
   name: staged
   pillar: AU-KG
@@ -8809,6 +8832,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/deployment/venv_sync.py
+  - agent_utilities/ecosystem/hook_installer.py
   doc: AU-OS.deployment.workspace-venv-reconciler
 - id: AU-OS.governance.action-policy-decision-point
   name: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance

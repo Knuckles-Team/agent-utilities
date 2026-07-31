@@ -54,19 +54,46 @@ already does for HTML), never turned into typed graph facts.
 ``last_envelopes`` with real :class:`ChangeEnvelope` objects (not just
 :class:`SourceDocument` metadata) so a delete is a genuine tombstone
 (``operation="delete"``), and every upsert's ``source_version`` is the commit SHA
-that content was read at. The envelope's node id is computed with the *same*
-formula ``engine.py``'s connector ingestion adaptor uses
-(``sha256(portable_uri)[:24]``) so the governed envelope and the
-``DocumentProcessor``-managed ``Document``/``Chunk`` nodes for the same file are the
-same graph object — the envelope decorates it with git provenance, the document
-processor gives it queryable content.
+that content was read at. Its own governed-envelope identity
+(:meth:`GitMarkdownConnector._revision_record_id`) is a *different* node from the
+``DocumentProcessor``-managed ``Document``/``Chunk`` nodes engine.py's generic
+connector-ingestion adaptor creates for the same file — NOT, as originally
+designed, the same node under engine.py's own ``sha256(portable_uri)[:24]``
+formula. That 24-hex-char (96-bit) digest isn't recognized by
+``envelope_ingest``'s opaque-identifier exemption (only a bare/namespaced
+32-or-64-hex digest qualifies), so embedding it in an identity-checked
+``ChangeEnvelope`` field falls through to a full privacy-pattern scan whose
+case-insensitive IBAN pattern intermittently false-positives on ordinary hex —
+reproducibly hit on 3 of this repo's own real ``docs/pillars`` files while
+building this connector (see ``D-GM-3``,
+``reports/deferred/lane-git-markdown.md``, and this module's test suite).
+``_revision_record_id`` instead uses a full 32-hex-char digest, which always
+satisfies that exemption. The two nodes are joined by the ``relpath``/
+``corpus``/``git_commit`` properties both carry, not by a shared primary key —
+an ordinary graph-modeling join, not a defect.
+
+**Evidence spine.** :meth:`GitMarkdownConnector.build_artifact` builds a real
+``Artifact``/``Fragment`` graph slice (the pinned evidence-spine contract,
+``knowledge_graph.ingestion.evidence_spine``, cherry-picked from
+``feat/evidence-spine`` commit ``961698b8``) over the connector's own verbatim,
+revision-scoped content: the artifact is keyed to the FILE (stable across
+revisions), its ``content_hash``/its fragments' ``content_hash``es carry the git
+revision. :func:`fragment_markdown` is a small ATX-heading + paragraph
+fragmenter — enough to prove the stable-address/content-hash split holds across
+a real git revision; not the evidence-spine lane's own (still in-flight, not
+pinned here) full markdown fragmenter.
 """
 
 import hashlib
+import re
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
+
+if TYPE_CHECKING:
+    from agent_utilities.knowledge_graph.ingestion.evidence_spine import Fragment
 
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
 from agent_utilities.models.company_brain import DataClassification
@@ -152,9 +179,7 @@ def _resolve_repo_root(path: Path) -> Path:
     try:
         out = _run_git(path, "rev-parse", "--show-toplevel")
     except GitMarkdownError as exc:
-        raise GitMarkdownError(
-            f"{path} is not inside a git working tree"
-        ) from exc
+        raise GitMarkdownError(f"{path} is not inside a git working tree") from exc
     return Path(out.strip()).resolve()
 
 
@@ -257,6 +282,104 @@ def _extract_title(text: str, relpath: str) -> str:
     return Path(relpath).stem
 
 
+_ATX_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+
+#: Fragmenter version tag stamped into ``Artifact.provenance["fragmenter"]`` —
+#: bump if the segmentation algorithm below changes so a re-ingest under a new
+#: version is distinguishable from a genuine content edit.
+GIT_MARKDOWN_FRAGMENTER = "git_markdown.headings_paragraphs_v1"
+
+
+def fragment_markdown(artifact_id: str, text: str) -> list[Fragment]:
+    """Fragment VERBATIM markdown into ``heading``/``paragraph`` Fragments.
+
+    CONCEPT:AU-KG.ingest.stable-fragment-address — built on the evidence-spine's
+    pinned contract (``Fragment.at()``): each ATX heading (``#`` .. ``######``)
+    becomes a ``heading`` fragment addressed by a slug of its own text (stable
+    across a heading's body/sibling edits elsewhere in the file); each paragraph
+    becomes a ``paragraph`` fragment addressed by its ordinal among paragraph
+    siblings under the nearest enclosing heading (or the document root).
+    Headings nest by ATX level, so a fragment's structural path mirrors the
+    document's own section hierarchy.
+
+    Deliberately minimal — headings + paragraphs only, no tables/lists/code
+    blocks — the smallest fragmenter that lets the incremental proof show a
+    typo-fix changing exactly one ``content_hash`` while every other fragment's
+    ``fragment_id`` (and, for untouched ones, ``content_hash`` too) stays
+    byte-identical. A fuller fragmenter is the evidence-spine lane's own
+    follow-on wiring (not pinned here — see this module's docstring).
+    """
+    from agent_utilities.knowledge_graph.ingestion.evidence_spine import Fragment
+
+    fragments: list[Any] = []
+    heading_stack: list[tuple[int, tuple[str, ...], str]] = []
+    ordinals: dict[tuple[tuple[str, ...], str], int] = {}
+    sequence = 0
+    paragraph_buf: list[str] = []
+
+    def parent() -> tuple[tuple[str, ...], str | None]:
+        if heading_stack:
+            return heading_stack[-1][1], heading_stack[-1][2]
+        return (), None
+
+    def next_ordinal(parent_path: tuple[str, ...], kind: str) -> int:
+        key = (parent_path, kind)
+        ordinal = ordinals.get(key, 0)
+        ordinals[key] = ordinal + 1
+        return ordinal
+
+    def flush_paragraph() -> None:
+        nonlocal sequence
+        if not paragraph_buf:
+            return
+        para_text = "\n".join(paragraph_buf).strip()
+        paragraph_buf.clear()
+        if not para_text:
+            return
+        parent_path, parent_id = parent()
+        frag = Fragment.at(
+            artifact_id=artifact_id,
+            kind="paragraph",
+            parent_path=parent_path,
+            text=para_text,
+            ordinal=next_ordinal(parent_path, "paragraph"),
+            parent_fragment_id=parent_id,
+            sequence=sequence,
+        )
+        sequence += 1
+        fragments.append(frag)
+
+    for line in text.splitlines():
+        heading_match = _ATX_HEADING_RE.match(line)
+        if heading_match:
+            flush_paragraph()
+            level = len(heading_match.group(1))
+            label = heading_match.group(2).strip()
+            while heading_stack and heading_stack[-1][0] >= level:
+                heading_stack.pop()
+            parent_path, parent_id = parent()
+            frag = Fragment.at(
+                artifact_id=artifact_id,
+                kind="heading",
+                parent_path=parent_path,
+                text=label,
+                label=label,
+                ordinal=next_ordinal(parent_path, "heading"),
+                parent_fragment_id=parent_id,
+                sequence=sequence,
+            )
+            sequence += 1
+            fragments.append(frag)
+            heading_stack.append((level, frag.path, frag.fragment_id))
+            continue
+        if not line.strip():
+            flush_paragraph()
+            continue
+        paragraph_buf.append(line)
+    flush_paragraph()
+    return fragments
+
+
 @register_source("git_markdown")
 class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
     """Ingest markdown files from a git working tree, revision-scoped.
@@ -323,10 +446,10 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
         if subdir:
             resolved_subdir = (self.repo_root / subdir).resolve(strict=False)
             if not resolved_subdir.is_relative_to(self.repo_root):
-                raise ValueError("GitMarkdownConnector subdir must stay within the repo")
-            self.subdir = str(
-                resolved_subdir.relative_to(self.repo_root).as_posix()
-            )
+                raise ValueError(
+                    "GitMarkdownConnector subdir must stay within the repo"
+                )
+            self.subdir = str(resolved_subdir.relative_to(self.repo_root).as_posix())
         else:
             base_rel = base_path.resolve(strict=False)
             self.subdir = (
@@ -371,7 +494,8 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
 
     def _tracked_paths(self, sha: str) -> list[str]:
         return sorted(
-            path for path in _ls_tree(self.repo_root, sha, self.subdir)
+            path
+            for path in _ls_tree(self.repo_root, sha, self.subdir)
             if self._matches(path)
         )
 
@@ -463,7 +587,9 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
         node_id = self._revision_record_id(relpath)
         access = self._access()
         classification = (
-            DataClassification.PUBLIC if access.is_public else DataClassification.INTERNAL
+            DataClassification.PUBLIC
+            if access.is_public
+            else DataClassification.INTERNAL
         )
         return ChangeEnvelope(
             connector="git_markdown",
@@ -529,9 +655,9 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
         prior_sha = checkpoint.watermark if checkpoint and checkpoint.watermark else ""
 
         if not prior_sha:
-            documents = self._full_batch(new_sha)
+            snapshot_documents = self._full_batch(new_sha)
             return CheckpointedBatch(
-                documents=documents,
+                documents=snapshot_documents,
                 checkpoint=ConnectorCheckpoint(has_more=False, watermark=new_sha),
             )
         if prior_sha == new_sha:
@@ -582,3 +708,51 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
         sha = _head_sha(self.repo_root)
         for relpath in self._tracked_paths(sha):
             yield self._portable_uri(relpath), self._access()
+
+    # -- evidence spine (CONCEPT:AU-KG.ingest.evidence-spine-artifact) --------
+
+    def build_artifact(self, sha: str, relpath: str) -> Any | None:
+        """Build the addressable ``Artifact`` + ``Fragment``s for one file.
+
+        Not yet called by the generic ``ContentType.CONNECTOR`` adaptor (that
+        wiring is the evidence-spine lane's own follow-on work, deliberately
+        not taken here — see the module docstring's contract-pin note); this is
+        the connector-side building block a caller commits directly via
+        ``ingest_graph_slice`` (``Artifact.to_graph_slice()``) — see
+        ``tests/integration/knowledge_graph/
+        test_git_markdown_domain_packs_live_engine.py`` for the live proof.
+
+        The artifact is keyed to the FILE (``_revision_record_id``, a stable
+        function of the portable URI — never of content), and its
+        ``content_hash``/its fragments' ``content_hash``es carry the git
+        revision. Re-building the SAME file at a LATER commit therefore updates
+        the same artifact rather than forking a new one.
+        """
+        from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
+            Artifact,
+            artifact_id_for,
+        )
+
+        text = _show(self.repo_root, sha, relpath)
+        if text is None or not text.strip():
+            return None
+        title = _extract_title(text, relpath)
+        safe_text = _privacy_safe_text(text)
+        if not safe_text.strip():
+            return None
+        envelope = self._upsert_envelope(sha, relpath)
+        # Same 3 inputs Artifact.from_envelope will independently re-derive its
+        # own artifact_id from — computed here only so the fragments below can
+        # be built against the identical id ahead of the Artifact existing.
+        artifact_id = artifact_id_for(
+            envelope.connector, envelope.source_instance, envelope.source_object_id
+        )
+        fragments = fragment_markdown(artifact_id, safe_text)
+        return Artifact.from_envelope(
+            envelope,
+            content=safe_text,
+            media_type="text/markdown",
+            fragments=tuple(fragments),
+            title=title,
+            fragmenter=GIT_MARKDOWN_FRAGMENTER,
+        )
