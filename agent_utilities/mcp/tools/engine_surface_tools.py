@@ -244,6 +244,90 @@ def _json_default(obj: Any) -> Any:
     return str(obj)
 
 
+def _trace_waterfall(trace_id: str) -> str:
+    """Fetch one trace's full Span/Generation subgraph from the ALWAYS-ON KG-native
+    sink (CONCEPT:AU-OS.config.model-factory-passthrough) and flatten it into a
+    waterfall-ready node list, for ``graph_traces action='waterfall'`` (D-25-1, the
+    trace-waterfall MCP App).
+
+    Deliberately does NOT probe the raw engine observability surface (unlike
+    ``action='get'``/``'search'`` above): that surface may not exist in a given
+    engine build, while ``harness.tracing.get_kg_trace_sink()`` — the
+    ``KGTraceBackend`` every daemon installs at startup — is the one trace store
+    guaranteed present wherever this tool runs, and is graph-queryable durably (not
+    just this in-memory mirror) once persisted. Neither ``SpanNode`` nor
+    ``GenerationNode`` carries an absolute start timestamp (only a completion-time
+    ``latency_ms`` duration), so this returns a NESTED-DURATION shape — each node's
+    own ``latencyMs`` relative to the trace total, plus ``parentId`` for nesting —
+    rather than fabricating precise concurrent start offsets the data doesn't
+    support. Never raises: an absent sink or unknown trace both return a clean
+    ``degraded``/``error`` payload.
+    """
+    from agent_utilities.harness.tracing import get_kg_trace_sink
+
+    sink = get_kg_trace_sink()
+    if sink is None or not callable(getattr(sink, "get_trace", None)):
+        return _degraded("traces", "waterfall", ["harness.tracing.get_kg_trace_sink"])
+    try:
+        entry = sink.get_trace(trace_id)
+    except Exception as exc:  # noqa: BLE001 — surface as data, never raise
+        return _surface_error(exc, surface="traces", action="waterfall")
+    if entry is None:
+        return json.dumps(
+            {
+                "surface": "traces",
+                "action": "waterfall",
+                "error": "trace not found",
+                "trace_id": trace_id,
+            }
+        )
+    trace = entry.get("trace")
+    nodes: list[dict[str, Any]] = []
+    for span in entry.get("spans", []) or []:
+        nodes.append(
+            {
+                "id": span.id,
+                "parentId": span.parent_span_id or getattr(trace, "id", None),
+                "kind": span.span_kind,
+                "name": span.name,
+                "latencyMs": span.latency_ms or 0,
+                "error": span.error,
+            }
+        )
+    for gen in entry.get("generations", []) or []:
+        nodes.append(
+            {
+                "id": gen.id,
+                "parentId": gen.parent_span_id or getattr(trace, "id", None),
+                "kind": "generation",
+                "name": gen.name,
+                "latencyMs": gen.latency_ms or 0,
+                "model": gen.model,
+                "costUsd": gen.total_cost_usd,
+                "inputTokens": gen.input_tokens,
+                "outputTokens": gen.output_tokens,
+                "error": gen.error,
+            }
+        )
+    result = {
+        "trace": {
+            "id": getattr(trace, "id", trace_id),
+            "name": getattr(trace, "name", ""),
+            "status": getattr(trace, "status", "ok"),
+            "latencyMs": getattr(trace, "latency_ms", None),
+            "costUsd": getattr(trace, "total_cost_usd", 0.0),
+            "inputTokens": getattr(trace, "input_tokens", 0),
+            "outputTokens": getattr(trace, "output_tokens", 0),
+            "toolCalls": getattr(trace, "tool_calls", 0),
+        },
+        "nodes": nodes,
+    }
+    return json.dumps(
+        {"surface": "traces", "action": "waterfall", "result": result},
+        default=_json_default,
+    )
+
+
 def _degraded(surface: str, action: str, tried: list[str]) -> str:
     """Clean 'this engine build lacks the surface' payload (never raise)."""
     return json.dumps(
@@ -1262,15 +1346,20 @@ def register_engine_surface_tools(mcp) -> None:
         description=(
             "CONCEPT:AU-KG.coordination.engine-message-broker — search or fetch distributed traces from the engine's "
             "observability surface. action='search' (filter by 'service'/'operation'/"
-            "free-form 'query', capped by 'limit') or 'get' (a single 'trace_id'). Extra "
-            "engine kwargs via params_json. Degrades cleanly when the engine build has "
-            "no trace surface."
+            "free-form 'query', capped by 'limit'), 'get' (a single 'trace_id' from the "
+            "engine's own trace surface), or 'waterfall' (a single 'trace_id''s full "
+            "Span/Generation subgraph from the always-on KG-native trace sink, flattened "
+            "for the trace-waterfall MCP App). Extra engine kwargs via params_json. "
+            "'search'/'get' degrade cleanly when the engine build has no trace surface; "
+            "'waterfall' degrades cleanly when no KG-native sink is installed."
         ),
         tags=["graph-os", "engine", "observability", "traces"],
     )
     def graph_traces(
-        action: str = Field(default="search", description="search | get"),
-        trace_id: str = Field(default="", description="Trace id (action='get')."),
+        action: str = Field(default="search", description="search | get | waterfall"),
+        trace_id: str = Field(
+            default="", description="Trace id (action='get'/'waterfall')."
+        ),
         service: str = Field(default="", description="Service name filter (search)."),
         operation: str = Field(
             default="", description="Operation/span name filter (search)."
@@ -1295,6 +1384,10 @@ def register_engine_surface_tools(mcp) -> None:
             return json.dumps(
                 {"surface": "traces", "error": "params_json must decode to an object"}
             )
+        if action == "waterfall":
+            if not trace_id:
+                return json.dumps({"surface": "traces", "error": "trace_id required"})
+            return _trace_waterfall(trace_id)
         if action == "get":
             if not trace_id:
                 return json.dumps({"surface": "traces", "error": "trace_id required"})

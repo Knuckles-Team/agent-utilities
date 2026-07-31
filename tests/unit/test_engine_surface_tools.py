@@ -588,6 +588,132 @@ def test_kg_2_310_traces_search_and_get(monkeypatch, tools):
     assert calls[1] == ("get_trace", {"trace_id": "t123"})
 
 
+def test_traces_waterfall_flattens_kg_native_subgraph(monkeypatch, tools):
+    """D-25-1 — action='waterfall' reads the KG-native KGTraceBackend sink
+    (harness.tracing.get_kg_trace_sink()), never the raw engine trace surface, and
+    flattens the trace + its spans/generations into the shape the trace-waterfall
+    MCP App renders."""
+    from types import SimpleNamespace as NS
+
+    trace = NS(
+        id="trace:1",
+        name="agent.run",
+        status="ok",
+        latency_ms=100.0,
+        total_cost_usd=0.05,
+        input_tokens=10,
+        output_tokens=5,
+        tool_calls=1,
+    )
+    span = NS(
+        id="span:1",
+        parent_span_id=None,
+        span_kind="tool",
+        name="search",
+        latency_ms=20.0,
+        error=None,
+    )
+    gen = NS(
+        id="gen:1",
+        parent_span_id="span:1",
+        name="llm",
+        latency_ms=60.0,
+        model="gpt-4o",
+        total_cost_usd=0.05,
+        input_tokens=10,
+        output_tokens=5,
+        error=None,
+    )
+    fake_sink = SimpleNamespace(
+        get_trace=lambda tid: (
+            {"trace": trace, "spans": [span], "generations": [gen]}
+            if tid == "trace:1"
+            else None
+        )
+    )
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink", lambda: fake_sink
+    )
+
+    out = json.loads(
+        tools["graph_traces"](
+            action="waterfall",
+            trace_id="trace:1",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["action"] == "waterfall"
+    result = out["result"]
+    assert result["trace"]["id"] == "trace:1"
+    assert result["trace"]["latencyMs"] == 100.0
+    node_ids = {n["id"] for n in result["nodes"]}
+    assert node_ids == {"span:1", "gen:1"}
+    gen_node = next(n for n in result["nodes"] if n["id"] == "gen:1")
+    assert gen_node["parentId"] == "span:1"
+    assert gen_node["kind"] == "generation"
+    assert gen_node["model"] == "gpt-4o"
+
+
+def test_traces_waterfall_requires_trace_id(tools):
+    out = json.loads(
+        tools["graph_traces"](
+            action="waterfall",
+            trace_id="",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["error"] == "trace_id required"
+
+
+def test_traces_waterfall_unknown_trace_is_clean_error(monkeypatch, tools):
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink",
+        lambda: SimpleNamespace(get_trace=lambda tid: None),
+    )
+    out = json.loads(
+        tools["graph_traces"](
+            action="waterfall",
+            trace_id="nope",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["error"] == "trace not found"
+
+
+def test_traces_waterfall_degrades_without_a_sink(monkeypatch, tools):
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink", lambda: None
+    )
+    out = json.loads(
+        tools["graph_traces"](
+            action="waterfall",
+            trace_id="trace:1",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["degraded"] is True
+
+
 def test_kg_2_310_traces_degrades(monkeypatch, tools):
     """CONCEPT:AU-KG.coordination.engine-message-broker — graph_traces degrades when no trace surface."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())

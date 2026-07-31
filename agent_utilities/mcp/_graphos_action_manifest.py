@@ -2090,6 +2090,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_table", "action": "rows", "name": "graph_table_rows"},
     {"tool": "graph_traces", "action": "get", "name": "graph_traces_get"},
     {"tool": "graph_traces", "action": "search", "name": "graph_traces_search"},
+    {"tool": "graph_traces", "action": "waterfall", "name": "graph_traces_waterfall"},
     {"tool": "graph_workflows", "action": "compile", "name": "graph_workflows_compile"},
     {
         "tool": "graph_workflows",
