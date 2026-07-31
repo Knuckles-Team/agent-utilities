@@ -234,6 +234,10 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,
     )
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
+    )
 
     ingest_routing._reset_for_tests()
 
@@ -241,8 +245,27 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
     routed = f"code:routetest-{uuid.uuid4().hex[:10]}"
     node_id = f"RouteProbe::{uuid.uuid4().hex[:12]}"
     backend = EpistemicGraphBackend(graph_name=routed)
+    base_session = current_session()
     try:
-        backend.add_node(node_id, label="RouteProbe", name="route-probe")
+        # A ``for_graph()``/``EpistemicGraphBackend(graph_name=...)`` view is
+        # routing METADATA only -- production never grants it authority to
+        # retarget the verified GraphSession on its own (the engine's fail-
+        # closed guard rejects exactly that, per AGENTS.md "Session
+        # currency"). The sanctioned way to legitimately write/read a
+        # different named graph within the SAME authenticated identity is
+        # ``use_session(session.with_graph(target))`` -- the pattern already
+        # used in production by analogy_engine.py and by this suite's own
+        # conftest.py test-graph teardown. This admin-scoped test session is
+        # entitled to route its own content graphs, so it rescopes rather
+        # than relying on the view alone.
+        with use_session(base_session.with_graph(routed)):
+            client = getattr(backend._graph, "_client", None)
+            if client is not None:
+                try:
+                    client.tenants.create(routed)
+                except Exception:
+                    pass
+            backend.add_node(node_id, label="RouteProbe", name="route-probe")
         ingest_routing.register_content_graph(routed)
 
         # The unified read resolver must fan across the content-graph set.
@@ -258,10 +281,22 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
         )
 
         # Run the actual query across the union and confirm the node surfaces.
+        # Each fanned-out entry targets its OWN graph (the default graph plus
+        # every active routed content graph), so the session must be rescoped
+        # per entry the same way the write above was.
         found = False
         for _name, engine in entries:
+            entry_graph = getattr(getattr(engine, "backend", None), "graph_name", None)
+            scoped = (
+                use_session(base_session.with_graph(entry_graph))
+                if entry_graph
+                else use_session(base_session)
+            )
             try:
-                rows = engine.query_cypher("MATCH (n:RouteProbe) RETURN n.id AS id", {})
+                with scoped:
+                    rows = engine.query_cypher(
+                        "MATCH (n:RouteProbe) RETURN n.id AS id", {}
+                    )
             except Exception:
                 continue
             if any((r or {}).get("id") == node_id for r in rows or []):
@@ -274,7 +309,8 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
         try:
             client = getattr(backend._graph, "_client", None)
             if client is not None:
-                client.tenants.delete(routed)
+                with use_session(base_session.with_graph(routed)):
+                    client.tenants.delete(routed)
         except Exception:
             pass
         ingest_routing._reset_for_tests()
