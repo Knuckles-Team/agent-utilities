@@ -184,7 +184,7 @@ class ARASeal:
                 ]
                 try:
                     conf = float(self._judge_fn(cl.statement, ev_texts))
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001 — conf keeps its already-computed default (`conf = float(cl.confidence)` above) when the optional judge model fails, rather than the seal check crashing outright
                     logger.debug("rigor judge failed for %s: %s", cl.id, e)
             confidences.append(conf)
             if conf < self._confidence_floor:

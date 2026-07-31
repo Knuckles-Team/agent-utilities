@@ -111,7 +111,7 @@ def _seed_trust(brain: CompanyBrain) -> None:
     for spec in entries:
         try:
             entry = TrustHierarchyEntry(**spec)
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001 — skips one malformed KG_TRUST_HIERARCHY entry and continues seeding the rest via `continue`; a bad config entry is excluded, not silently corrupting the trust hierarchy
             logger.debug("Skipping bad trust entry %s: %s", spec, exc)
             continue
         brain.conflicts.add_trust_entry(entry)

@@ -178,7 +178,7 @@ class MemoryHygiene:
                 "MATCH (n:Memory) WHERE n.embedding IS NOT NULL OR n.content IS NOT NULL "
                 "RETURN n.id as id, n as data LIMIT 5000"
             )
-        except Exception as e:  # pragma: no cover - backend variance
+        except Exception as e:  # pragma: no cover - backend variance  # noqa: BLE001 — returns the documented error dict shape ({'error':..., 'archived':0,...}) — the same shape as the `if backend is None` branch just above, so callers already branch on the 'error' key uniformly
             logger.debug("Hygiene scan query failed: %s", e)
             return {"error": str(e), "archived": 0, "alerted": 0, "merged": 0}
 
@@ -203,7 +203,7 @@ class MemoryHygiene:
                         "MATCH (n) WHERE n.id = $id SET n.valid_to = $vt, n.status = 'ARCHIVED'",
                         {"id": nid, "vt": stamp},
                     )
-                except Exception as e:  # pragma: no cover
+                except Exception as e:  # pragma: no cover  # noqa: BLE001 — one node's archive-stamp write inside the per-node loop; a failed stamp just means that node isn't archived this pass, it's re-selected as a hygiene candidate next run since its embedding/content still matches the scan query above
                     logger.debug("archive failed for %s: %s", nid, e)
             # CONCEPT:EG-KG.compute.compiled-semantic-reasoner — APPLY the semantic merge: survivor absorbs union(tags)+max(importance);
             # each duplicate is soft-retired (status=MERGED + valid_to) and linked MERGED_INTO survivor
@@ -229,7 +229,7 @@ class MemoryHygiene:
                         except Exception:  # noqa: BLE001 - edge is best-effort
                             pass
                         retired += 1
-                except Exception as e:  # pragma: no cover
+                except Exception as e:  # pragma: no cover  # noqa: BLE001 — one duplicate-merge plan's apply inside the per-plan loop; `retired` is only incremented on the success path above, so the count returned to the caller already excludes a failed apply
                     logger.debug("merge apply failed for %s: %s", p["survivor"], e)
         else:
             retired = sum(len(p["retired"]) for p in plans)

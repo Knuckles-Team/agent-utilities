@@ -369,7 +369,7 @@ class ResearchOrchestrator:
         for node in subagent.get_all_nodes():
             try:
                 self.engine.graph.add_node(node.id, **node.model_dump())
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — one node's persist inside the per-node loop over subagent.get_all_nodes(); a failed write just omits that node from the graph, the loop continues persisting the rest
                 logger.debug("Failed to persist node %s: %s", node.id, e)
 
         # Persist provenance edges
@@ -389,7 +389,7 @@ class ResearchOrchestrator:
                 weight=edge.weight,
                 **(edge.metadata or {}),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — provenance-edge write; the two nodes it connects are already persisted independently via _persist_session above, so a failed edge just means less provenance detail, not an orphaned or half-written node
             logger.debug(
                 "Failed to persist edge %s→%s: %s", edge.source, edge.target, e
             )

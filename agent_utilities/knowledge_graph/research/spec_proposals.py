@@ -188,7 +188,7 @@ def get_spec(engine: Any, spec_id: str) -> dict[str, Any] | None:
         rows = engine.query_cypher(
             "MATCH (n:SpecProposal) WHERE n.id = $id RETURN n LIMIT 1", {"id": spec_id}
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns None (the documented 'no such spec' case) — the same shape callers already get for a genuinely nonexistent spec_id
         logger.debug("get_spec query failed: %s", e)
         return None
     for r in rows or []:
@@ -210,7 +210,7 @@ def list_specs(
         return []
     try:
         rows = engine.query_cypher("MATCH (n:SpecProposal) RETURN n LIMIT 500")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns [] (the documented empty-list case) on a query failure — the same shape a legitimately-empty spec backlog returns
         logger.debug("list_specs query failed: %s", e)
         return []
     out: list[dict[str, Any]] = []
@@ -384,14 +384,21 @@ def _bind_develop_loop(engine: Any, spec: dict[str, Any]) -> dict[str, Any] | No
         props["gap_id"] = gap_id
     try:
         engine.add_node(loop_id, "Concept", properties=props)
-    except Exception as e:  # noqa: BLE001
-        logger.debug("_bind_develop_loop stamp failed: %s", e)
+    except Exception as e:
+        # D-DSTK: this stamp is load-bearing, not best-effort — `_advance_develop`
+        # reads `loop.get("spec_id")` on every cycle to decide whether to route
+        # through the develop_spec/governed_publish pipeline at all; if this write
+        # silently fails, the loop node persists with NO spec_id and
+        # `_advance_develop` falls through to the plain validation_cmd branch,
+        # permanently never advancing the spec. Raised so a persistently-failing
+        # backend here is diagnosable instead of invisible.
+        logger.warning("_bind_develop_loop stamp failed: %s", e)
     # D5: (develop-Loop)-[:RESOLVES]->(:Gap) — the edge that closes the loop, so a
     # published branch flips the ORIGIN gap to resolved (a visible END).
     if gap_id:
         try:
             engine.add_edge(loop_id, gap_id, "RESOLVES")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — confirmed non-load-bearing: develop_spec()'s own publish path (this file, ~line 461) independently calls mark_gap_resolved(engine, spec['gap_id']) — sourced from the spec, not this edge — documented there as 'the single chokepoint every caller funnels through, so the gap closes on both'; this RESOLVES edge is redundant graph-native provenance
             logger.debug("RESOLVES edge %s->%s failed: %s", loop_id, gap_id, e)
     return loop
 

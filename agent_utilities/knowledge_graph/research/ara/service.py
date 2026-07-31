@@ -236,7 +236,7 @@ class ARAService:
     def _query(self, cypher: str, params: dict[str, Any] | None = None) -> list[dict]:
         try:
             rows = self._engine.query_cypher(cypher, params or {})
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — returns [] (the documented empty-rows case) — every caller of this internal helper already treats an empty query result as 'not found', identical to a query that legitimately returns nothing
             logger.debug("ARAService query failed: %s", e)
             return []
         return [r for r in (rows or []) if isinstance(r, dict)]

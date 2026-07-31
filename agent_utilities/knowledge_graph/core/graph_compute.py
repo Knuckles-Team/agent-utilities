@@ -851,7 +851,7 @@ def _install_coupled_handlers() -> None:
                     _prev(signum, frame)
 
             signal.signal(_sig, _handler)
-        except (ValueError, OSError, RuntimeError) as exc:
+        except (ValueError, OSError, RuntimeError) as exc:  # noqa: BLE001 — signal handler registration is documented right there (comment above) as expected-unavailable off the main thread, with the atexit hook already covering the same shutdown path
             # Not on the main thread (e.g. inside a server worker) — the atexit
             # hook still covers clean shutdown; skip the signal handler.
             logger.debug("Signal handler registration is unavailable: %s", exc)

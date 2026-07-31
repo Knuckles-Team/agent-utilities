@@ -477,7 +477,7 @@ class PostgreSQLBackend(GraphBackend):
                 with conn.cursor() as cur:
                     cur.execute("SELECT count(*) FROM kg_edges")
                     return int(cur.fetchone()[0])
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — count-only read helper; the None return is the documented 'unknown' sentinel callers already check for, never conflated with a real zero count
             logger.debug("edge_count failed: %s", e)
             return None
 
@@ -621,7 +621,7 @@ class PostgreSQLBackend(GraphBackend):
                                 )
                             """
                             )
-                        except Exception as e:
+                        except Exception as e:  # noqa: BLE001 — pgGraph search-acceleration is an optional secondary index over rows the primary write path already committed; the whole _register_pggraph block is itself wrapped by the outer `except Exception as e: logger.warning(...)` a few lines below
                             logger.debug("pgGraph add_table %s failed: %s", tbl, e)
                             conn.rollback()
 
@@ -640,7 +640,7 @@ class PostgreSQLBackend(GraphBackend):
                             )
                         """
                         )
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — pgGraph edge-registration is the same optional secondary index as the add_table site above, wrapped by the same outer warning-level handler below
                         logger.debug("pgGraph edge registration failed: %s", e)
                         conn.rollback()
 
@@ -649,7 +649,7 @@ class PostgreSQLBackend(GraphBackend):
                         cur.execute("SELECT * FROM graph.build()")
                         conn.commit()
                         logger.info("pgGraph index built successfully")
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — pgGraph index build is the same optional accelerator; wrapped by the same outer `logger.warning("pgGraph registration failed (non-fatal): %s")` a few lines below
                         logger.debug("pgGraph build failed: %s", e)
                         conn.rollback()
         except Exception as e:
@@ -1034,7 +1034,7 @@ class PostgreSQLBackend(GraphBackend):
                         (str(embedding), node_id),
                     )
                     conn.commit()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — embedding write is a secondary vector-search accelerator; the node's canonical row is already committed by the primary write path before add_embedding is ever called
             logger.debug("add_embedding failed for %s: %s", node_id, e)
 
     def semantic_search(
@@ -1137,7 +1137,7 @@ class PostgreSQLBackend(GraphBackend):
                                 results.append(d)
                         except Exception:
                             continue  # nosec B112
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — read-only search helper; a query failure degrades to whatever results were already collected from other tables in the per-table loop above (which itself already catches+skips per-table at line 1138-1139)
             logger.debug("lexical_search error: %s", e)
 
         results.sort(key=lambda x: x.get("_score", 0), reverse=True)
@@ -1159,7 +1159,7 @@ class PostgreSQLBackend(GraphBackend):
                         )
                         conn.commit()
                         logger.info("HNSW index created on %s", tbl)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — index-build is an optional performance accelerator over data that's already durably persisted; a failed CREATE INDEX just means that table's vector search falls back to a full scan, not a lost or mismarked write
                 logger.debug("HNSW index on %s failed: %s", tbl, e)
 
     # ── pgGraph Operations ───────────────────────────────────────────

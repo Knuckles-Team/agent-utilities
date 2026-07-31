@@ -260,7 +260,7 @@ class KGSourceResolver:
                                     "score": hr_score * 10,  # Normalize
                                 }
                             )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — hybrid search is one candidate source among several feeding `results`; a failure here just means this source contributes nothing to the results list that's sorted and returned below
                 logger.debug(f"Hybrid search unavailable: {e}")
 
         results.sort(key=lambda x: x["score"], reverse=True)

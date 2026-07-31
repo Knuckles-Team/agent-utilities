@@ -2225,7 +2225,7 @@ class LoopController:
                 content = (SKILLS_ROOT / skill_id / "SKILL.md").read_text(
                     encoding="utf-8"
                 )
-            except OSError as e:
+            except OSError as e:  # noqa: BLE001 — one bundled skill's SKILL.md is unreadable; `continue`s to the next skill_id so the discovery loop still returns targets for every other skill that read cleanly
                 logger.debug(
                     "[Wave6-signal] skill %s SKILL.md unreadable: %s", skill_id, e
                 )
@@ -2543,8 +2543,13 @@ class LoopController:
             return False
         try:
             return bool(checker())
-        except Exception as e:  # noqa: BLE001
-            logger.debug("run_loop budget check failed: %s", e)
+        except Exception as e:
+            # D-DSTK: same shape as D-DST-4 (DoomLoopDetector) — a runtime failure of
+            # this resource-safety check was silently treated as "not exceeded" (i.e.
+            # keep spending budget) with no operator-visible signal that budget
+            # enforcement was down. Raised to warning so it is loud, matching the
+            # D-DST-4/5 precedent; behavior (fail open, "not exceeded") is unchanged.
+            logger.warning("run_loop budget check failed: %s", e)
             return False
 
     @staticmethod
@@ -3304,7 +3309,7 @@ class LoopController:
                     errors=m.get("error_count", 0),
                     saturation=(gauge or {}).get("gauge") if gauge else None,
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — beacon telemetry write AFTER the metrics dict `m` it reports has already been fully computed above; a failed beacon write loses one telemetry data point, not the loop's actual metrics
                 logger.debug("beacon.finish failed: %s", e)
 
     def _run_audit_gaps(self) -> dict[str, Any]:
@@ -3413,7 +3418,7 @@ class LoopController:
             # Persist the PROPOSAL (TeamSpec/AgentSpec nodes) — not executed.
             try:
                 nodes, edges = persist_synthesis(self.engine.backend, team, *members)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — nodes/edges stay at their initialized 0,0 on failure (matching what's actually true — nothing persisted) and are returned as-is in persisted_nodes/persisted_edges below, so the caller sees the correct count either way
                 logger.debug("persist_synthesis failed: %s", e)
 
         # GOVERNED auto-merge (CONCEPT:AU-AHE.assimilation.research-auto-merge): consider promoting the team
@@ -3429,7 +3434,7 @@ class LoopController:
                 "reason": ev.reason,
                 "audit_ref": ev.audit_ref,
             }
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — merge stays None (its initialized default) on failure — the returned dict already treats merge=None as 'not considered/merged', the same shape as when propose_only is False and this whole block doesn't run
             logger.debug("auto-merge consideration failed: %s", e)
 
         return {
@@ -3468,7 +3473,7 @@ class LoopController:
                 continue
             try:
                 task = synthesize(reader, str(answer_id), hops=2)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — one candidate's search-task synthesis inside the per-candidate loop; `continue`s to the next candidate, and only successfully-synthesized tasks are appended to `tasks` above
                 logger.debug("search-task synthesis failed for %s: %s", answer_id, e)
                 continue
             if task.risk_report.clear and task.difficulty >= 1:
@@ -3499,7 +3504,7 @@ class LoopController:
                         },
                     )
                     persisted += 1
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001 — one task's persist inside the per-task loop; `persisted` is only incremented on the success path above, so the returned persisted_nodes count already reflects exactly what landed
                     logger.debug("SearchTask persist failed: %s", e)
 
         return {

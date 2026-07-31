@@ -1092,7 +1092,7 @@ class DocumentProcessor:
                     e["source"], e["target"], rel_type=e["relationship"], **props
                 )
                 ok = True
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — ok reflects 'at least one item persisted' per this method's documented return semantics ("Returns True if the write path was exercised"); one edge's failure doesn't erase the successful node/edge writes already folded into ok above
                 logger.debug(
                     "[KG-2.48] add_edge failed %s->%s: %s",
                     e["source"],
@@ -1129,7 +1129,7 @@ class DocumentProcessor:
                     e["source"], e["target"], rel_type=e["relationship"], **props
                 )
                 ok = True
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — section-tree edge persist — same documented 'at least one write landed' ok-accumulator semantics as _persist above
                 logger.debug(
                     "[section-tree] add_edge failed %s->%s: %s",
                     e["source"],
@@ -1144,7 +1144,7 @@ class DocumentProcessor:
             props = {k: v for k, v in node.items() if k not in ("id", "node_type")}
             writer.add_node(node["id"], label=node["node_type"], **props)
             return True
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — returns False (not raising) so callers combine it with `|=` into their own best-effort ok accumulator, exactly as _persist/_persist_sections do above
             logger.debug("[KG-2.48] add_node failed for %s: %s", node.get("id"), exc)
             return False
 
@@ -1489,7 +1489,7 @@ def build_section_tree(
         if eff_summarizer is not None:
             try:
                 root.summary = eff_summarizer(root.title, root.text)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — the section's own text/title are already fully constructed above; a summarizer failure just leaves root.summary at its default (unset) rather than blocking the section tree from being returned
                 logger.debug("[section-tree] root summary failed: %s", exc)
         return [root]
 

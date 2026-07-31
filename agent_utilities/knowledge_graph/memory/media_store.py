@@ -393,7 +393,7 @@ class MediaStore:
         """Best-effort undo of a pre-commit ``incref`` after a failed/conflicted commit."""
         try:
             self._client.blob.unref(digest)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — this IS the compensation path for an already-failed/conflicted commit (docstring: 'best-effort undo of a pre-commit incref'); if the compensating unref itself fails there is no further compensation to attempt, the caller is already handling the degraded ref-count state
             logger.debug(
                 "[CONCEPT:AU-KG.identity.asset-occurrence] compensating unref skipped: %s",
                 e,

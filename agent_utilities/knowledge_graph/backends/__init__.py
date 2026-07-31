@@ -543,7 +543,7 @@ def create_backend(
             if resolved_path and os.path.exists(resolved_path):
                 try:
                     backend.load_from_json(resolved_path)
-                except Exception as e:  # pragma: no cover - best-effort load
+                except Exception as e:  # pragma: no cover - best-effort load  # noqa: BLE001 — best-effort preload of a pre-existing on-disk JSON snapshot into a freshly constructed EpistemicGraphBackend; on failure the backend is simply returned empty rather than half-loaded
                     logger.debug(
                         f"Failed to load epistemic graph from {resolved_path}: {e}"
                     )
@@ -716,7 +716,7 @@ def create_backend(
                 from ..migrations import migrate_graph
 
                 migrate_graph(backend)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort schema auto-migration on backend construction (guarded to non-testing environments above); the backend is already usable at this point, migrate_graph only adds schema conveniences on top
             logger.debug(f"Failed to auto-initialize or migrate graph schema: {e}")
 
         # CONCEPT:AU-KG.backend.company-brain-write-guard — wrap with the Company Brain write-path guard

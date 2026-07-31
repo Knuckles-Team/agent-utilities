@@ -252,7 +252,7 @@ class CheckedOutSubgraph:
                     {"source_id": src, "target_id": dst},
                 )
                 summary["edges_written"] += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — the failure is already counted in summary['errors'] (returned to the caller) and the delta stays in the checkout's ledger for the next flush attempt, since clear_deltas() only runs when there are no unresolved conflicts
                 summary["errors"] += 1
                 logger.debug("flush edge %s->%s failed: %s", src, dst, exc)
 
@@ -270,7 +270,7 @@ class CheckedOutSubgraph:
                     f"MATCH (n:{label} {{id: $id}}) DETACH DELETE n", {"id": nid}
                 )
                 summary["nodes_deleted"] += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — node-delete flush inside the same ledgered loop as the edge flush above — summary['errors'] tracks it and clear_deltas() is correspondingly gated
                 summary["errors"] += 1
                 logger.debug("flush delete node %s failed: %s", nid, exc)
 
@@ -282,7 +282,7 @@ class CheckedOutSubgraph:
                     {"source_id": src, "target_id": dst},
                 )
                 summary["edges_deleted"] += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — edge-delete flush, same ledgered-and-counted pattern as the node/edge writes above in this method
                 summary["errors"] += 1
                 logger.debug("flush delete edge %s->%s failed: %s", src, dst, exc)
 

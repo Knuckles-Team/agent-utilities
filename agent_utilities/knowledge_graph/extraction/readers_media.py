@@ -283,7 +283,7 @@ def _persist_image_region_evidence(file_path: str, rows: list) -> None:
                 mime_type=mime_type,
                 source="rapidocr",
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — evidence-store write is a secondary, additive OCR-provenance record; the OCR text itself (this function's actual contribution to ingestion) is produced independently of this write
             logger.debug("image region evidence write failed: %s", e)
 
 

@@ -139,7 +139,7 @@ def _load_event(engine: Any, event_node_id: str) -> dict[str, Any] | None:
         rows = engine.query_cypher(
             "MATCH (e:FleetEvent {id: $id}) RETURN e", {"id": event_node_id}
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only event loader; a failed query returns None exactly like 'event not found' (checked by every caller), and this function performs no writes so nothing is marked done based on the read
         logger.debug("fleet event load failed: %s", e)
         return None
     if not rows:

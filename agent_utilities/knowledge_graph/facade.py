@@ -227,7 +227,7 @@ class KnowledgeGraph:
             )
 
             return Owlready2Backend()
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001 — returns None (the documented 'no OWL backend available' case); callers of retrieval/ontology already handle a None OWL backend by degrading semantic reasoning, not by crashing
             logger.debug("KnowledgeGraph: no OWL backend available: %s", exc)
             return None
 
@@ -397,7 +397,7 @@ class KnowledgeGraph:
             rules = load_active_rules(self.store)
             if rules:
                 results = apply_governance_rules(results, rules)
-        except Exception as exc:  # pragma: no cover - enhancement only
+        except Exception as exc:  # pragma: no cover - enhancement only  # noqa: BLE001 — governance-rule re-ranking is an enhancement over `results`, which is already fully computed and returned unconditionally on the next line
             logger.debug("governance rule application skipped: %s", exc)
         return results
 

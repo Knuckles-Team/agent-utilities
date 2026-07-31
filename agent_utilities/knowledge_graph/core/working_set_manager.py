@@ -448,7 +448,7 @@ class WorkingSetManager:
                     self._graph.add_edge(source, target, {"type": edge_type})
                     edge_count += 1
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — edge_count is a diagnostic tally; the loop already added every edge it successfully built to self._graph before this outer except, so a late failure only under-reports the count, it doesn't roll back or duplicate the edges already added
             logger.debug("Edge loading failed: %s", e)
 
         return edge_count

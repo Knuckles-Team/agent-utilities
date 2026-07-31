@@ -601,7 +601,7 @@ class UsageTelemetry:
                     {"id": nid, "ts": self.trust(nid)},
                 )
                 n += 1
-            except Exception as e:  # pragma: no cover - backend variance
+            except Exception as e:  # pragma: no cover - backend variance  # noqa: BLE001 — one node's trust_score flush inside the per-node loop over self._recalled; `continue`s to the next node so a single bad write doesn't stop the rest of the batch from flushing
                 logger.debug("trust_score flush failed for %s: %s", nid, e)
                 continue
         return n

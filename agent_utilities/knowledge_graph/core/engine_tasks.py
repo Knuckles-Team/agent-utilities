@@ -824,7 +824,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         try:
             from llama_index.core import SimpleDirectoryReader  # noqa: F401
             from llama_index.core.embeddings import BaseEmbedding  # noqa: F401
-        except ImportError as exc:
+        except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional-dependency pre-import (already labeled 'optional dependency' in the log message); LlamaIndex readers are looked up again, lazily, wherever they're actually used
             logger.debug("LlamaIndex pre-import skipped (optional dependency): %s", exc)
 
         # Initialize pluggable persistent task queue
@@ -1159,7 +1159,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
             if repo_counts:
                 return max(repo_counts, key=repo_counts.get)  # type: ignore[arg-type]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort heuristic; returns None (the documented 'unknown' case) exactly like when repo_counts is empty, so callers already handle this return uniformly
             logger.debug(f"Primary codebase detection failed: {e}")
         return None
 
@@ -1463,7 +1463,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             result = collect_local_sessions()
             if result.get("ingested"):
                 logger.info("usage_log_sync: %s", result)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — one maintenance-tick usage-log sync; the next tick retries with no state to reconcile (collect_local_sessions is safe to call repeatedly)
             logger.debug("usage_log_sync skipped: %s", e)
 
     def _tick_usage_pricing_refresh(self) -> None:
@@ -1478,7 +1478,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 backend = None
             n = refresh_catalog(backend=backend)
             logger.debug("usage_pricing_refresh: merged %d models", n)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — one maintenance-tick pricing-catalog refresh; the catalog simply stays at its last-known values until the next tick retries
             logger.debug("usage_pricing_refresh skipped: %s", e)
 
     def _tick_hygiene(self) -> None:
@@ -1905,7 +1905,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                 if get_throttle().should_yield_background:
                     return
-            except ImportError as exc:
+            except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional background-throttle signal; when unavailable the tick proceeds without the early-yield check rather than the enrichment batch being lost
                 logger.debug(
                     "background-throttle check skipped (optional dependency): %s", exc
                 )
@@ -2227,7 +2227,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             take = min(per_table, remaining)
             try:
                 items = self._collect_unembedded_rows(conn_factory, tbl, take)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — one table's row-selection query for this backfill tick; `continue`s to the next table so a single bad table doesn't stop the whole backfill pass, and nothing is marked embedded for the skipped table
                 logger.debug("embed backfill query failed: %s", e)
                 continue
 
@@ -2254,7 +2254,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 total += len(items)
                 remaining -= len(items)
                 self._embed_circuit_record(True, now)  # healthy → close breaker
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — already the safe direction: `total`/`remaining` are only advanced above this except (never inside it), and the circuit breaker is explicitly recorded False + the tick breaks rather than continuing to hammer a down endpoint
                 logger.debug("embed backfill store failed: %s", e)
                 # An embed/store failure means the endpoint is likely down for
                 # every table — record it and stop hammering the rest this tick.
@@ -5142,7 +5142,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "(will retry next cycle)."
                 )
                 return {"status": "deferred", "reason": "bulk_ingest_or_foreground"}
-        except ImportError as exc:
+        except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional background-throttle signal, same pattern as the enrichment tick above; the sweep proceeds without the early-defer check rather than being lost
             logger.debug(
                 "background-throttle check skipped (optional dependency): %s", exc
             )
@@ -5534,7 +5534,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "scorer_version": "0.12.0",
                 },
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one relevance-scoring edge write inside the sweep's per-item loop; a failed write is simply absent from the next query_relevance_rankings read, it does not falsely appear scored
             logger.debug(f"RelevanceSweep: edge persistence error for {item_id}: {e}")
 
     def query_relevance_rankings(
@@ -5788,7 +5788,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         )
                         if completed < cutoff:
                             continue
-                    except (ValueError, TypeError) as exc:
+                    except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable completed_at timestamp; the item is included un-window-filtered (as the log message and the comment above it describe) rather than silently dropped from the aggregate — the safer direction for a metrics report
                         logger.debug(
                             "ingest metrics: unparseable completed_at %r, not window-filtered: %s",
                             ca,
@@ -5914,7 +5914,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     )
                     if completed_dt < cutoff:
                         continue
-                except (ValueError, TypeError) as exc:
+                except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable completed_at timestamp in the tail-tasks profile report — same documented un-window-filtered fallback as aggregate_ingest_metrics above
                     logger.debug(
                         "ingest tail tasks: unparseable completed_at %r, not window-filtered: %s",
                         ca,
@@ -6007,7 +6007,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                             if isinstance(ts, int | float)
                             else datetime.fromisoformat(str(ts)).timestamp()
                         )
-                    except (ValueError, TypeError) as exc:
+                    except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable timestamp is excluded from this one latency bucket (as the log message says) — a metrics-precision loss, not a correctness issue, since the item is simply absent from the bucket
                         logger.debug(
                             "ingest metrics: unparseable timestamp %r, excluded from bucket: %s",
                             ts,

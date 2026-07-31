@@ -1053,7 +1053,7 @@ class HydrationManager:
                                 "domain": "gitlab",
                             }
                         )
-            except Exception as pe:
+            except Exception as pe:  # noqa: BLE001 — one project's pipeline fetch inside the GitLab hydration loop; entities/relationships collected from other projects are unaffected and still ingested via ingest_external_batch below
                 logger.debug(
                     f"Failed to fetch pipelines for GitLab project {proj_id}: {pe}"
                 )
@@ -1352,7 +1352,7 @@ class HydrationManager:
                         "domain_tag": "twenty",
                     }
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one CRM entity-class fetch (companies) inside a 3-step hydration (companies/people/opportunities); a failure here just means an empty companies slice, the other two steps run independently below
             logger.debug(f"Failed to fetch CRM companies: {e}")
 
         # 2. People (Contacts)
@@ -1396,7 +1396,7 @@ class HydrationManager:
                             "domain": "twenty",
                         }
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the people fetch of the same 3-step Twenty CRM hydration — same independence from the companies/opportunities steps
             logger.debug(f"Failed to fetch CRM people: {e}")
 
         # 3. Opportunities
@@ -1440,7 +1440,7 @@ class HydrationManager:
                             "domain": "twenty",
                         }
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the opportunities fetch of the same 3-step Twenty CRM hydration, immediately before entities/relationships are batched into ingest_external_batch below
             logger.debug(f"Failed to fetch CRM opportunities: {e}")
 
         if entities:

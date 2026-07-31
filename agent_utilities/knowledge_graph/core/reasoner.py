@@ -295,7 +295,7 @@ class ReasonerRouter:
             if self._harvester is not None:
                 try:
                     self._harvester.harvest_result(task, result)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 — trajectory-harvesting is a secondary learning-signal capture AFTER result.score has already been recorded via record_outcome above and appended to results/scores below regardless
                     logger.debug("[OS-5.36] harvest skipped: %s", exc)
             results.append(result)
             scores.append(result.score)
