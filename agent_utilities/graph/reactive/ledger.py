@@ -151,7 +151,7 @@ class EventLedger:
                     target_id=prev_id,
                     edge_type="WAS_DERIVED_FROM",
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — the event node itself is already persisted (self.mapper.upsert(event_node) above is unguarded and would raise/propagate on its own failure); _last_event_ids[run_id] is updated unconditionally right after this because it only needs the node to exist, which it does — a missing WAS_DERIVED_FROM edge leaves one gap in the lineage chain, it does not lose the event or point tracking at a node that was never written
                 logger.debug("Failed to link was_derived_from edge (non-fatal): %s", e)
 
         # Update tracking for this run
@@ -188,7 +188,7 @@ class EventLedger:
                     try:
                         # Hydrate using OGM deserializer
                         events.append(self.mapper._deserialize(data, EventNode))
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — a single row's deserialize failure just excludes that one EventNode from the returned list (a read-path skip, not a write), the raw row stays in the backend for the next read attempt
                         logger.debug("Failed to deserialize EventNode: %s", e)
             except Exception as e:
                 logger.warning("Failed to query events from backend: %s", e)

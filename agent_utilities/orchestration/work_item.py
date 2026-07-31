@@ -1349,7 +1349,7 @@ def claim_agent_task_via_work_item(
         if legacy_rows:
             dag_id = legacy_rows[0].get("dag_id") or ""
             checkpoint_id = legacy_rows[0].get("checkpoint_id")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — the claim/lease above (claim_specific + mark_running) already committed before this read; a failed legacy dag_id/checkpoint_id lookup only leaves those two return fields blank, it does not affect whether the task was actually claimed
         logger.debug(
             "work_item bridge: legacy dag_id/checkpoint_id read failed for %s: %s",
             task_id,

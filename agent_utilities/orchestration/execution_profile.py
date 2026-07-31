@@ -305,7 +305,7 @@ def record_shape_outcome(
     if not success:
         try:
             _RECIPE_CACHE.pop(_job_signature(task, profile_hint), None)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — _RECIPE_CACHE is an in-process dict and .pop(key, None) does not raise on a missing key, so this only fires if _job_signature() itself throws (a malformed task/profile_hint); worst case the stale recipe stays cached one extra job and gets re-evicted on its next failure, it is not silently treated as successful
             logger.debug("[ORCH-1.70] recipe outcome record skipped: %s", e)
 
     if shape is not None and latency_s is not None:

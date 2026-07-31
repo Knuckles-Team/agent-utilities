@@ -257,7 +257,7 @@ class KVCheckpointStore:
         """Best-effort undo of a pre-commit ``incref`` after a failed/conflicted commit."""
         try:
             self._client.blob.unref(digest)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — a failed compensating unref leaves the blob's refcount inflated (a slow storage leak, not a correctness bug: the checkpoint commit this compensates for already failed/returned None to the caller, so no reader can reach this blob) rather than corrupting or losing checkpoint data
             logger.debug(
                 "[CONCEPT:AU-KG.memory.kv-checkpoint-resource] compensating unref skipped: %s",
                 e,
@@ -418,7 +418,7 @@ class KVCheckpointStore:
 
         try:
             client.edges.add(node_id, blob_id, {"type": "hasBlob"})
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above (the node's own `blob_id` property, which get_checkpoint reads directly); this edge is purely "for graph navigability" per the docstring, so its loss doesn't affect get_checkpoint/restore_conversation
             logger.debug(
                 "[CONCEPT:AU-KG.memory.kv-checkpoint-resource] checkpoint→blob edge link skipped: %s",
                 e,
