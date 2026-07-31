@@ -795,6 +795,12 @@ class GraphOSV2Gateway:
             "pollIntervalMs": 1_000,
         }
         if projected == "input_required":
+            # `projected` is only ever set to "input_required" when
+            # `pending_input is not None` (above) -- mypy can't correlate the
+            # two separate variables across that branch, so narrow explicitly
+            # (D-25-7) rather than widen `_input_required_status_message`'s
+            # signature to accept `None` for a case that can't occur.
+            assert pending_input is not None
             # The pinned Tasks schema has no dedicated structured field for the
             # request content on a GetTaskResult (`additionalProperties: False`
             # -- see test_pinned_tasks_extension.py); `statusMessage` is the one
