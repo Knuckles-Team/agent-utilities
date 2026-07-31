@@ -623,16 +623,33 @@ class DocumentProcessor:
                 )
                 result.access_synced = result.persisted
             else:
-                from ...protocols.source_connectors.permission_sync import sync_access
-
+                # No graph configured at all (``self.graph is None``): per this
+                # class's own contract ("the processor runs offline ... but
+                # performs no graph writes"), ``sync_access`` — which WRITES
+                # through ``apply_marking``'s mandatory-marking persistence —
+                # must be skipped the same way ``_persist`` below already
+                # no-ops via ``_resolve_writer() is None``, not attempted and
+                # left to hard-fail the whole chunking pass. Enforcement is
+                # unaffected: whenever a real writer IS configured, this
+                # branch is not taken at all (the ``self.engine is not None``
+                # branch above applies the ACL/markings natively), so no
+                # document that is actually persisted anywhere ever skips its
+                # mandatory marking.
                 access_edges = [
                     (edge["source"], edge["target"])
                     for edge in [*edges, *result.section_edges]
                     if edge.get("relationship")
                     in {HAS_CHUNK_EDGE, HAS_SECTION_EDGE, HAS_SUBSECTION_EDGE}
                 ]
-                sync_access(doc_id, access, access_edges)
-                result.access_synced = True
+                if self._resolve_writer() is not None:
+                    from ...protocols.source_connectors.permission_sync import (
+                        sync_access,
+                    )
+
+                    sync_access(doc_id, access, access_edges)
+                    result.access_synced = True
+                else:
+                    result.access_synced = False
                 result.persisted = self._persist(
                     document_node, chunk_nodes + link_nodes, edges
                 )
