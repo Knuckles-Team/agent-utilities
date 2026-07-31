@@ -449,9 +449,7 @@ def mint_actor_from_token_sync(token: str) -> ActorContext:
         # per-request boundary, and discarding it here would hide the exact
         # class of fault this change targets (a dependency/config fault in
         # `_decode_jwt` reported as an opaque failure with no signal of why).
-        raise RuntimeError(
-            "Graph process identity token validation failed"
-        ) from exc
+        raise RuntimeError("Graph process identity token validation failed") from exc
 
 
 async def _send_json(send: Any, status: int, payload: dict[str, Any]) -> None:
@@ -526,7 +524,8 @@ class ActorIdentityMiddleware:
             return
 
         if token and actor is None:
-            from fastapi import HTTPException, status as http_status
+            from fastapi import HTTPException
+            from fastapi import status as http_status
 
             try:
                 actor = await actor_from_bearer_token(token)
