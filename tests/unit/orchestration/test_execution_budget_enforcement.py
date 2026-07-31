@@ -224,8 +224,36 @@ def mock_graph():
     return graph
 
 
+@pytest.fixture
+def isolated_discovery_registry(monkeypatch):
+    """Keep the ``execute_graph`` tests below off the shared durable graph.
+
+    ``execute_graph`` calls ``get_discovery_registry()`` (engine.py:612) purely to
+    merge domain tags into ``deps.tag_prompts``; that call reaches the live KG
+    engine and its durable graph lifecycle. These three tests are about
+    budget-outcome CLASSIFICATION and do not care about discovery at all, but
+    without this they inherit whatever graph-lifecycle state an earlier test
+    module left behind — observed concretely as
+    ``RuntimeError: durable graph registration failed: STALE_FENCE: lifecycle
+    batch ... is no longer current`` when ``tests/unit/mcp`` runs first, which is
+    exactly what happens under the full-suite alphabetical ordering. They passed
+    alone and at directory scope and failed only in the whole-suite run — a test
+    that only passes in isolation is a masked failure, so it is pinned here
+    rather than left order-dependent.
+    """
+    registry = MagicMock()
+    registry.agents = []
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.engine.get_discovery_registry",
+        lambda *a, **k: registry,
+    )
+    return registry
+
+
 @pytest.mark.asyncio
-async def test_run_graph_classifies_budget_exceeded_outcome_and_dimension(mock_graph):
+async def test_run_graph_classifies_budget_exceeded_outcome_and_dimension(
+    mock_graph, isolated_discovery_registry
+):
     mock_graph.run.return_value = {
         "error": "Execution budget exceeded: max total tokens.",
         "results": {"specialist_0": "partial finding"},
@@ -247,7 +275,9 @@ async def test_run_graph_classifies_budget_exceeded_outcome_and_dimension(mock_g
 
 
 @pytest.mark.asyncio
-async def test_run_graph_classifies_node_transitions_budget_dimension(mock_graph):
+async def test_run_graph_classifies_node_transitions_budget_dimension(
+    mock_graph, isolated_discovery_registry
+):
     mock_graph.run.return_value = {
         "error": "Execution budget exceeded: max node transitions.",
         "results": {},
@@ -265,7 +295,9 @@ async def test_run_graph_classifies_node_transitions_budget_dimension(mock_graph
 
 
 @pytest.mark.asyncio
-async def test_run_graph_non_budget_terminal_error_keeps_generic_outcome(mock_graph):
+async def test_run_graph_non_budget_terminal_error_keeps_generic_outcome(
+    mock_graph, isolated_discovery_registry
+):
     mock_graph.run.return_value = {
         "error": "policy violation: destructive action blocked",
         "results": {},

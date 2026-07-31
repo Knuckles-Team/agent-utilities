@@ -15,6 +15,7 @@ claims:
     - ontology_interface
     - ontology_leanix_sync
     - ontology_link_materialize
+    - ontology_model_profile
     - ontology_property_types
     - ontology_sampling_profile
     - ontology_value_types
