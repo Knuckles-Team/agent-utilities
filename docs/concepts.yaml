@@ -6681,6 +6681,13 @@ concepts:
   code_paths:
   - agent_utilities/graph/topology_engine.py
   doc: Dynamic Topology Materialization
+- id: AU-ORCH.execution.dynamic-workflow-resume
+  name: a run
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/governed_dynamic_workflow.py
+  doc: a run
 - id: AU-ORCH.execution.dynamic-workflows
   name: approved per-delegation
   pillar: AU-ORCH

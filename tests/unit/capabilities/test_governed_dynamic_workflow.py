@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 from types import SimpleNamespace
 from typing import Any
@@ -72,6 +73,37 @@ class RecordingTraceEngine:
 
     def link_nodes(self, source, target, relationship, properties=None):
         self.edges.append((source, target, relationship))
+
+
+class RecordingKGEngine:
+    """A minimal engine double that round-trips node writes.
+
+    ``RecordingTraceEngine`` above only records writes for assertion; it
+    cannot answer a later read. The resume cache
+    (``governed_dynamic_workflow._load_resume_cache``/``_save_resume_cache``)
+    needs a real round trip across two independent ``execute()`` calls, so
+    this double additionally implements the ``backend_type == "rust"``
+    read shape (``has_node``/``__getitem__``) the resume cache checks.
+    """
+
+    backend = None
+    backend_type = "rust"
+
+    def __init__(self) -> None:
+        self.node_store: dict[str, dict] = {}
+        self.edges: list[tuple[str, str, str]] = []
+
+    def add_node(self, node_id, label, properties=None):
+        self.node_store[node_id] = dict(properties or {})
+
+    def link_nodes(self, source, target, relationship, properties=None):
+        self.edges.append((source, target, relationship))
+
+    def has_node(self, node_id):
+        return node_id in self.node_store
+
+    def __getitem__(self, node_id):
+        return self.node_store[node_id]
 
 
 def _workflow_model() -> FunctionModel:
@@ -415,3 +447,339 @@ async def test_manager_fallback_is_only_for_upstream_unavailability(
     assert result["backend"] == "stored_dag"
     assert result["fallback_used"] is True
     fallback.assert_awaited_once()
+
+
+def _dual_reviewer_workflow_model() -> FunctionModel:
+    """A conductor that fans a task across ``reviewer`` twice, then ``summarizer``.
+
+    Deterministically re-issues the SAME script text on every attempt, so a
+    resumed attempt exercises the resume cache under the exact scenario the
+    model would produce after a genuine budget-halted retry: it does not know
+    which calls already completed and simply re-asks for all of them.
+    """
+
+    async def respond(messages, _info):
+        if any(
+            isinstance(part, ToolReturnPart)
+            for message in messages
+            for part in message.parts
+        ):
+            return ModelResponse(parts=[TextPart("workflow attempt complete")])
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "run_workflow",
+                    {
+                        "code": (
+                            'r1 = await reviewer(task="pass one")\n'
+                            'r2 = await reviewer(task="pass two")\n'
+                            'await summarizer(task="combine")'
+                        )
+                    },
+                )
+            ]
+        )
+
+    return FunctionModel(respond)
+
+
+def _resume_test_workflow(*, max_agent_calls: int) -> GovernedDynamicWorkflow:
+    return GovernedDynamicWorkflow(
+        name="resume-review",
+        query="review and summarize",
+        max_agent_calls=max_agent_calls,
+        resource_limits=WorkflowResourceLimits(max_concurrency=1),
+        steps=[
+            DelegationStep(id="reviewer", description="review"),
+            DelegationStep(
+                id="summarizer", description="summarize", depends_on=["reviewer"]
+            ),
+        ],
+    )
+
+
+async def test_budget_halted_then_restarted_workflow_persists_no_duplicate_toolcalls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The acceptance test: budget halt then restart produces NO duplicate ToolCalls.
+
+    Attempt 1 runs with ``max_agent_calls=2``: both `reviewer` calls succeed
+    (real GraphOS dispatches -- the equivalent of a real ``:ToolCall`` each),
+    then `summarizer` hits the Harness's own host-enforced budget ceiling and
+    the run halts (a truthful, non-exceptional completion carrying the
+    budget-exhausted terminal result). Attempt 2 reuses the SAME
+    ``workflow_run_id`` against the SAME durable engine but a FRESH in-memory
+    ``GovernedDynamicWorkflow``/runtime (simulating a process restart) and a
+    larger budget. The model re-issues the identical script, unaware of what
+    already completed -- proving the resume cache, not model good behavior,
+    is what prevents duplicate work.
+    """
+
+    from agent_utilities.core import contextual_model
+
+    monkeypatch.setattr(contextual_model, "_context_compiler_enabled", lambda: False)
+
+    engine = RecordingKGEngine()
+    orchestrator = RecordingOrchestrator(engine)
+    workflow_run_id = "wf:resume-acceptance-test"
+
+    attempt_one = _resume_test_workflow(max_agent_calls=2)
+    result_one = await attempt_one.execute(
+        orchestrator,
+        orchestrator_model=_dual_reviewer_workflow_model(),
+        workflow_run_id=workflow_run_id,
+    )
+
+    # Attempt 1: both reviewer calls actually dispatched through GraphOS;
+    # summarizer never did (blocked by the harness's own per-run ceiling).
+    calls_after_attempt_one = list(orchestrator.calls)
+    assert [c["task"] for c in calls_after_attempt_one] == ["pass one", "pass two"]
+    assert result_one.resumed is False
+
+    attempt_two = _resume_test_workflow(max_agent_calls=3)
+    result_two = await attempt_two.execute(
+        orchestrator,
+        orchestrator_model=_dual_reviewer_workflow_model(),
+        workflow_run_id=workflow_run_id,
+    )
+
+    # Attempt 2 re-issued the SAME two reviewer calls plus summarizer. Only
+    # summarizer is a NEW GraphOS dispatch -- the reviewer calls are replayed
+    # from the persisted resume cache, so the total ToolCall-equivalent count
+    # across BOTH attempts is exactly 3, never 5.
+    all_calls = orchestrator.calls
+    assert len(all_calls) == 3
+    assert [c["task"] for c in all_calls] == ["pass one", "pass two", "combine"]
+
+    # Truthfulness: attempt 2 is explicitly marked resumed, never reported as
+    # an indistinguishable clean success.
+    assert result_two.resumed is True
+    assert set(result_two.replayed_step_ids) == {"reviewer"}
+    replayed = [c for c in result_two.child_runs if c.outcome == "replayed"]
+    assert len(replayed) == 2
+    assert {c.step_id for c in replayed} == {"reviewer"}
+    fresh = [c for c in result_two.child_runs if c.outcome == "ok"]
+    assert [c.step_id for c in fresh] == ["summarizer"]
+
+    # The generated script and the normalised call graph are stored as trace
+    # artifacts (not merely returned to the caller).
+    script_nodes = [
+        (node_id, props)
+        for node_id, props in engine.node_store.items()
+        if node_id.startswith("workflow-script:")
+    ]
+    assert script_nodes
+    assert all(node[1]["code"] for node in script_nodes)
+
+    run_trace = next(
+        props
+        for node_id, props in engine.node_store.items()
+        if node_id.startswith("trace:")
+    )
+    assert run_trace["graph_resume_supported"] is True
+    assert run_trace["graph_topology_digest"]
+    assert run_trace["graph_version_digest"]
+    assert json.loads(run_trace["graph_transition_sequence"])
+
+    # Restore-and-continue: a real conductor checkpoint exists for each
+    # attempt (CheckpointMiddleware is now default-on for this path).
+    assert result_one.checkpoint_ids
+    assert result_two.checkpoint_ids
+
+
+async def test_sub_agent_dispatch_inherits_ambient_context_across_the_monty_sandbox_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tenant/session contextvar set before ``execute()`` reaches every real
+    GraphOS dispatch inside the Monty sandbox, unchanged -- the Monty
+    boundary does not strip ambient context (CONCEPT:AU-ORCH.execution.dynamic-workflows).
+    """
+
+    from agent_utilities.core import contextual_model
+
+    monkeypatch.setattr(contextual_model, "_context_compiler_enabled", lambda: False)
+
+    tenant_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("test_tenant_ctx")
+
+    class TenantRecordingOrchestrator(RecordingOrchestrator):
+        async def execute_agent(self, **kwargs):
+            kwargs["observed_tenant"] = tenant_ctx.get(None)
+            return await super().execute_agent(**kwargs)
+
+    orchestrator = TenantRecordingOrchestrator()
+    workflow = GovernedDynamicWorkflow(
+        steps=[
+            DelegationStep(id="reviewer", description="review"),
+            DelegationStep(
+                id="summarizer", description="summarize", depends_on=["reviewer"]
+            ),
+        ]
+    )
+
+    token = tenant_ctx.set("tenant-acme")
+    try:
+        result = await workflow.execute(
+            orchestrator, orchestrator_model=_workflow_model()
+        )
+    finally:
+        tenant_ctx.reset(token)
+
+    assert result.output == "workflow complete"
+    assert len(orchestrator.calls) == 2
+    assert all(call["observed_tenant"] == "tenant-acme" for call in orchestrator.calls)
+    # Ambient context is caller-scoped, not leaked into a later unrelated call.
+    assert tenant_ctx.get(None) is None
+
+
+async def test_nested_dynamic_workflow_is_rejected_across_the_graphos_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sub-agent's own attempt to run a nested DynamicWorkflow is refused.
+
+    Upstream enforces "workflows do not nest" through an asyncio contextvar
+    set for the duration of the outer sandbox's ``call_tool``; GraphOS's
+    sub-agent dispatch is a plain awaited call within that SAME context (no
+    new task boundary), so the inner attempt inherits the flag with no
+    GraphOS-side code required. This proves that inheritance holds across a
+    REAL two-level GraphOS delegation, not just inside upstream's own tests.
+    """
+
+    from agent_utilities.core import contextual_model
+
+    monkeypatch.setattr(contextual_model, "_context_compiler_enabled", lambda: False)
+
+    inner_workflow = GovernedDynamicWorkflow(
+        steps=[DelegationStep(id="leaf", description="leaf step")]
+    )
+
+    def _echoing_inner_model() -> FunctionModel:
+        """Echo the ``run_workflow`` tool's raw return content into the final
+        text, so the test can see the nesting-rejection payload rather than a
+        content-blind "done" the way real deployed models would report it."""
+
+        async def respond(messages, _info):
+            for message in messages:
+                for part in message.parts:
+                    if isinstance(part, ToolReturnPart):
+                        return ModelResponse(parts=[TextPart(str(part.content))])
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "run_workflow", {"code": 'await leaf(task="trigger nested")'}
+                    )
+                ]
+            )
+
+        return FunctionModel(respond)
+
+    class NestingOrchestrator(RecordingOrchestrator):
+        async def execute_agent(self, **kwargs):
+            if kwargs["agent_name"] == "reviewer":
+                nested_orchestrator = RecordingOrchestrator()
+                nested_result = await inner_workflow.execute(
+                    nested_orchestrator,
+                    orchestrator_model=_echoing_inner_model(),
+                )
+                # The nested call must never re-enter GraphOS: no real
+                # dispatch happened for the inner workflow's OWN catalog.
+                assert nested_orchestrator.calls == []
+                return json.dumps(
+                    {
+                        "output": str(nested_result.output),
+                        "run_summary": {"outcome": "ok"},
+                    }
+                )
+            return await super().execute_agent(**kwargs)
+
+    outer_orchestrator = NestingOrchestrator()
+    outer_workflow = GovernedDynamicWorkflow(
+        steps=[DelegationStep(id="reviewer", description="review")]
+    )
+
+    def _single_call_model() -> FunctionModel:
+        async def respond(messages, _info):
+            for message in messages:
+                for part in message.parts:
+                    if isinstance(part, ToolReturnPart):
+                        return ModelResponse(parts=[TextPart(str(part.content))])
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "run_workflow",
+                        {"code": 'await reviewer(task="trigger nested")'},
+                    )
+                ]
+            )
+
+        return FunctionModel(respond)
+
+    result = await outer_workflow.execute(
+        outer_orchestrator, orchestrator_model=_single_call_model()
+    )
+
+    # The nested attempt's rejection message round-trips all the way back
+    # through GraphOS's real dispatch into the outer script's own result --
+    # proving the inheritance holds across a REAL two-level GraphOS
+    # delegation, not merely inside upstream's own unit tests.
+    assert "do not nest" in str(result.output)
+    assert result.child_runs[0].outcome == "ok"
+
+
+async def test_upstream_dispatch_is_cancelled_through_the_harness_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A shared ``cancellation`` event reaches an in-flight catalog call even
+    through the real Harness/Monty execution path, not just the static
+    ``ParallelEngine`` fallback (already covered by
+    ``test_execute_static_propagates_cancellation``).
+    """
+
+    from agent_utilities.core import contextual_model
+
+    monkeypatch.setattr(contextual_model, "_context_compiler_enabled", lambda: False)
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    cancelled_inside = asyncio.Event()
+
+    class SlowOrchestrator(RecordingOrchestrator):
+        async def execute_agent(self, **kwargs):
+            started.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                cancelled_inside.set()
+                raise
+            return await super().execute_agent(**kwargs)  # pragma: no cover
+
+    def _single_reviewer_model() -> FunctionModel:
+        async def respond(messages, _info):
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "run_workflow", {"code": 'await reviewer(task="slow")'}
+                    )
+                ]
+            )
+
+        return FunctionModel(respond)
+
+    orchestrator = SlowOrchestrator()
+    workflow = GovernedDynamicWorkflow(
+        steps=[DelegationStep(id="reviewer", description="review")]
+    )
+    cancellation = asyncio.Event()
+
+    task = asyncio.create_task(
+        workflow.execute(
+            orchestrator,
+            orchestrator_model=_single_reviewer_model(),
+            cancellation=cancellation,
+        )
+    )
+    await started.wait()
+    cancellation.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled_inside.is_set()

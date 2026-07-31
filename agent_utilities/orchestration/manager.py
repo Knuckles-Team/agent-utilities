@@ -53,6 +53,11 @@ class DynamicWorkflowExecutionPayload(TypedDict, total=False):
     usage: dict[str, int]
     fallback_used: bool
     fallback_reason: str
+    # CONCEPT:AU-ORCH.execution.dynamic-workflow-resume — the truthfulness contract for
+    # a resumed run (see governed_dynamic_workflow.GovernedDynamicWorkflowResult).
+    resumed: bool
+    replayed_step_ids: list[str]
+    checkpoint_ids: list[str]
 
 
 def _bounded_text(value: Any, limit: int) -> str:
