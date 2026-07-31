@@ -2131,6 +2131,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py
+  - agent_utilities/mcp/kg_server.py
   doc: AU-KG.audit.hydration-absent-vs-hidden
 - id: AU-KG.audit.hydration-manifest-signed
   name: builds ON
@@ -2138,6 +2139,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py
+  - agent_utilities/mcp/kg_server.py
   doc: builds ON
 - id: AU-KG.audit.kg-native-audit-sink
   name: PA-R1.7

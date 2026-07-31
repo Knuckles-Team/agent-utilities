@@ -469,3 +469,92 @@ def test_first_int_raises_on_a_dict_row_with_no_integer_value():
 def test_first_int_raises_on_a_malformed_sequence_row():
     with pytest.raises(hm.GraphReaderError):
         hm._first_int([("not-a-number",)], "Server")
+
+
+# ---------------------------------------------------------------------------
+# The manifest must be WIRED, not merely importable (waves 1-5 gate regression)
+# ---------------------------------------------------------------------------
+
+
+def test_boot_hydration_plan_records_a_signed_manifest(monkeypatch):
+    """`_run_boot_hydration_plan` must build+sign+persist the manifest.
+
+    Regression (waves 1-5 gate): this module shipped with NO production caller.
+    Signing and the serving-vs-service two-authority cross-check were correct but
+    ran on no live path, so the absent-vs-hidden ambiguity the manifest exists to
+    resolve stayed unresolved for every real deployment, and
+    ``scripts/check_surface_parity.py`` counted it as an unexposed capability.
+    """
+    from agent_utilities.mcp import kg_server
+
+    calls: list[str] = []
+
+    monkeypatch.setattr(kg_server, "_record_boot_hydration_step", lambda *a, **k: None)
+    for step in (
+        "_enqueue_fleet_tool_schema_hydration",
+        "_ingest_self_tool_surface_at_boot",
+        "_ingest_capabilities",
+        "_ingest_prompts_at_boot",
+        "_sync_ontologies_at_boot",
+        "_hydrate_code_and_configured_connectors",
+    ):
+        monkeypatch.setattr(kg_server, step, lambda *a, **k: None)
+    monkeypatch.setattr(
+        kg_server,
+        "_record_hydration_manifest",
+        lambda engine: calls.append("manifest"),
+    )
+
+    kg_server._run_boot_hydration_plan(object())
+
+    assert calls == ["manifest"], (
+        "boot hydration finished without recording a hydration manifest"
+    )
+
+
+def test_record_hydration_manifest_drives_the_real_build_sign_persist_chain(
+    monkeypatch,
+):
+    from agent_utilities.mcp import kg_server
+
+    seen: dict[str, object] = {}
+    sentinel_engine = object()
+
+    class _Manifest:
+        generated_at = "2026-07-30T00:00:00+00:00"
+
+    built = _Manifest()
+    monkeypatch.setattr(hm, "build_hydration_manifest", lambda: built)
+    def _sign(manifest):
+        seen["signed"] = manifest
+        return "DOC"
+
+    monkeypatch.setattr(hm, "sign_hydration_manifest", _sign)
+    monkeypatch.setattr(
+        hm,
+        "persist_hydration_manifest",
+        lambda engine, doc: seen.update(engine=engine, doc=doc),
+    )
+
+    kg_server._record_hydration_manifest(sentinel_engine)
+
+    assert seen["signed"] is built
+    assert seen["doc"] == "DOC"
+    assert seen["engine"] is sentinel_engine
+
+
+def test_record_hydration_manifest_never_blocks_boot(monkeypatch, caplog):
+    """A missing signing key (the normal dev-checkout case) must degrade, not raise."""
+    from agent_utilities.mcp import kg_server
+
+    def _boom():
+        raise RuntimeError("no release signing key configured")
+
+    monkeypatch.setattr(hm, "build_hydration_manifest", _boom)
+
+    with caplog.at_level("DEBUG", logger="agent_utilities.mcp.kg_server"):
+        kg_server._record_hydration_manifest(object())  # must not raise
+
+    assert "no release signing key configured" in caplog.text, (
+        "the cause must be logged, not discarded"
+    )

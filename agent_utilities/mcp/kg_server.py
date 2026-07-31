@@ -2954,6 +2954,49 @@ def _run_boot_hydration_plan(
             logger.error("Boot hydration step %s failed", name, exc_info=True)
         else:
             _record_boot_hydration_step(engine, name, priority, "completed")
+    _record_hydration_manifest(engine)
+
+
+def _record_hydration_manifest(engine: Any) -> None:
+    """Build, sign and persist the boot hydration manifest.
+
+    CONCEPT:AU-KG.audit.hydration-manifest-signed / CONCEPT:AU-KG.audit.hydration-absent-vs-hidden
+
+    This is the one production call site of
+    :mod:`agent_utilities.knowledge_graph.ingestion.hydration_manifest`. Without
+    it the module was a 912-line orphan: its signing and its serving-vs-service
+    two-authority cross-check were correct but ran on no live path, so the
+    absent-vs-hidden ambiguity it exists to resolve stayed unresolved for every
+    real deployment (and ``scripts/check_surface_parity.py`` flagged it as an
+    unexposed capability). Running it HERE — immediately after every plan leg has
+    reported completed/failed — is what makes the manifest a truthful record of
+    what that boot actually hydrated, rather than a snapshot of an arbitrary
+    later moment.
+
+    Best-effort by design, exactly like :func:`_record_boot_hydration_step`:
+    boot hydration must never be blocked by its own audit record. A missing
+    release-signing key is the normal case for a dev checkout and degrades to a
+    debug line rather than a failed boot.
+    """
+    from agent_utilities.knowledge_graph.ingestion.hydration_manifest import (
+        build_hydration_manifest,
+        persist_hydration_manifest,
+        sign_hydration_manifest,
+    )
+
+    try:
+        manifest = build_hydration_manifest()
+        signed = sign_hydration_manifest(manifest)
+        persist_hydration_manifest(engine, signed)
+    except Exception as exc:  # noqa: BLE001 - the audit record must never block
+        # boot hydration itself. The cause IS logged so a persistently
+        # unsignable/unbuildable manifest is diagnosable rather than silent.
+        logger.debug("boot hydration manifest not recorded: %s", exc)
+    else:
+        logger.info(
+            "Recorded signed hydration manifest (generated_at=%s)",
+            manifest.generated_at,
+        )
 
 
 def _ingest_prompts_at_boot() -> None:
