@@ -555,6 +555,27 @@ def _build_or_test_command(cmdline: Sequence[str]) -> str | None:
     return None
 
 
+def _looks_like_interpreter_or_test_command(cmdline: Sequence[str]) -> bool:
+    """Whether ``cmdline`` is plausibly python/test work, not merely an
+    inherited environment (D-VS-9).
+
+    ``VIRTUAL_ENV`` is inherited by every descendant of an activated shell, so
+    an unrelated child of that shell (``tail -40``, ``ls``, an editor) reads as
+    "busy" purely because its parent activated the venv — a live run showed
+    exactly this with ``tail -40``. Require the executable itself to look like
+    a Python interpreter/tool or a recognised build/test command before
+    treating an inherited ``VIRTUAL_ENV`` as evidence of in-flight work; the
+    ``cmdline[0].startswith(venv_bin)`` and lease probes are unaffected and
+    still catch the real cases directly.
+    """
+    if not cmdline:
+        return False
+    exe = Path(cmdline[0]).name
+    if exe.startswith("python") or exe in {"pip", "pip3"}:
+        return True
+    return _build_or_test_command(cmdline) is not None
+
+
 class ProcessActivityProbe:
     """Detect live processes bound to the shared venv by reading ``/proc``.
 
@@ -597,8 +618,12 @@ class ProcessActivityProbe:
             reason: str | None = None
             if cmdline[0].startswith(venv_bin):
                 reason = "executing from the shared venv"
-            elif _proc_environ_virtualenv(entry) == str(workspace.venv):
-                reason = "VIRTUAL_ENV points at the shared venv"
+            elif _proc_environ_virtualenv(entry) == str(
+                workspace.venv
+            ) and _looks_like_interpreter_or_test_command(cmdline):
+                reason = (
+                    "VIRTUAL_ENV points at the shared venv (interpreter/test command)"
+                )
             else:
                 tool = _build_or_test_command(cmdline)
                 if tool is not None:

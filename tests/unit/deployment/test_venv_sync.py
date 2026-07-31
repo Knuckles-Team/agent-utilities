@@ -12,7 +12,10 @@ through, these tests fail.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -28,6 +31,7 @@ from agent_utilities.deployment.venv_sync import (
     ActivityRecord,
     LockBackupStore,
     PlanParseError,
+    ProcessActivityProbe,
     SyncContext,
     SyncInvocation,
     SyncPlan,
@@ -521,3 +525,59 @@ def test_detect_drift_surfaces_a_stuck_flip_queue(
     report = venv_sync.detect_drift(workspace, include_floor=False)
     assert report.status == "warn"
     assert any(f.code == "pending_flips" for f in report.findings)
+
+
+class TestProcessActivityProbeInheritedVirtualEnv:
+    """CONCEPT:AU-OS.deployment.workspace-venv-reconciler (D-VS-9).
+
+    ``VIRTUAL_ENV`` is inherited by every descendant of an activated shell.
+    Before the fix, ANY process with that variable set — including an
+    unrelated child like ``tail -40`` — read as "busy", which could delay a
+    merge-triggered flip indefinitely behind a long-lived activated shell.
+    These spawn REAL child processes (not synthetic ``ActivityRecord``s) and
+    read them back through ``/proc``, the same path the probe uses live.
+    """
+
+    def test_a_non_interpreter_child_of_an_activated_shell_is_not_activity(
+        self, workspace: Workspace
+    ) -> None:
+        env = dict(os.environ)
+        env["VIRTUAL_ENV"] = str(workspace.venv)
+        proc = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
+            ["sleep", "30"], env=env, stdin=subprocess.DEVNULL
+        )
+        try:
+            # Give /proc a moment to reflect the new process.
+            for _ in range(50):
+                if (Path("/proc") / str(proc.pid)).exists():
+                    break
+                time.sleep(0.02)
+            records = ProcessActivityProbe().busy(workspace)
+            identifiers = {r.identifier for r in records}
+            assert f"pid {proc.pid}" not in identifiers, records
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+    def test_a_python_child_of_an_activated_shell_is_still_activity(
+        self, workspace: Workspace
+    ) -> None:
+        env = dict(os.environ)
+        env["VIRTUAL_ENV"] = str(workspace.venv)
+        proc = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            env=env,
+            stdin=subprocess.DEVNULL,
+        )
+        try:
+            records = ()
+            for _ in range(50):
+                records = ProcessActivityProbe().busy(workspace)
+                if any(r.identifier == f"pid {proc.pid}" for r in records):
+                    break
+                time.sleep(0.02)
+            identifiers = {r.identifier for r in records}
+            assert f"pid {proc.pid}" in identifiers, records
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
