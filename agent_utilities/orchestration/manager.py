@@ -184,11 +184,39 @@ class Orchestrator:
                 f"injection/threat. Details: {result.explanation}"
             )
 
+    @staticmethod
+    def _redact_task(task: str) -> str:
+        """Redact PII from task text before it is PERSISTED (D-OB-17 residual).
+
+        The harness content guardrails are attached at the AGENT seam
+        (``create_agent``/``create_context_agent``), which is downstream of this
+        method: :meth:`dispatch_task` writes the raw text into a durable
+        ``WorkItem.description`` in the graph BEFORE any agent — and therefore any
+        guardrail — sees it. Under the deleted ``ContentFilterPolicy`` that text was
+        gated at dispatch; without a filter here, a PII-bearing dispatch persists
+        unredacted PII into the KG and the later agent-seam redaction is too late.
+
+        Reuses the SAME ``_pii_guard`` the guardrail seam uses — one detector, one
+        verdict — rather than resurrecting ``PolicyEngine``. It REDACTS rather than
+        blocks, deliberately: the agent-path ``InputGuardrail`` already rewrites the
+        prompt exactly this way, so doing it earlier is behaviour-preserving for the
+        worker while keeping the unredacted value out of durable storage. Blocking
+        instead would newly reject any dispatch merely mentioning an email address.
+        """
+        from agent_utilities.capabilities.content_guardrails import _pii_guard
+
+        verdict = _pii_guard(task)
+        replacement = getattr(verdict, "replacement", None)
+        return replacement if isinstance(replacement, str) else task
+
     async def dispatch_task(
         self, task: str, dependencies: list[str] | None = None
     ) -> str:
         """Submit an orchestrator assignment to the sole WorkItem authority."""
+        # Scan the ORIGINAL text (redaction must not mask an injection payload),
+        # then persist only the redacted form.
         self._scan_task(task)
+        task = self._redact_task(task)
         job_id = f"orch-{uuid.uuid4().hex}"
         from agent_utilities.knowledge_graph.core.session import resolve_session
         from agent_utilities.orchestration.work_item import (

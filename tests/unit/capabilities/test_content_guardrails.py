@@ -181,10 +181,28 @@ def test_default_runtime_capabilities_includes_content_guardrails():
     input_guardrails = [c for c in defaults if isinstance(c, InputGuardrail)]
     output_guardrails = [c for c in defaults if isinstance(c, OutputGuardrail)]
 
+    # Assert WHICH guards are wired, not just how many. A bare count breaks the
+    # moment a legitimate new guard is added (it did: the migrated G8
+    # prompt-injection guard, D-OB-17) without saying anything about whether the
+    # guards that matter are still there — which is the actual contract.
+    from agent_utilities.capabilities.content_guardrails import (
+        _pii_guard,
+        _prompt_injection_guard,
+        _secret_leak_guard,
+    )
+
+    input_guards = [c.guard for c in input_guardrails]
+    output_guards = [c.guard for c in output_guardrails]
+
     # PII redaction contributes one InputGuardrail + one OutputGuardrail; the
+    # migrated prompt-injection guard contributes the second InputGuardrail; the
     # secret-leak and output-schema guardrails each contribute one more
-    # OutputGuardrail (3 total).
-    assert len(input_guardrails) == 1
+    # OutputGuardrail.
+    assert input_guards.count(_pii_guard) == 1
+    assert input_guards.count(_prompt_injection_guard) == 1
+    assert len(input_guardrails) == 2
+    assert output_guards.count(_pii_guard) == 1
+    assert output_guards.count(_secret_leak_guard) == 1
     assert len(output_guardrails) == 3
 
 

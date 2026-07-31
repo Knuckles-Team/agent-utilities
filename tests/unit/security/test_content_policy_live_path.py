@@ -136,3 +136,43 @@ def test_policy_engine_and_its_rules_stay_deleted() -> None:
     assert not hasattr(threat_defense, "PromptInjectionPolicy")
     # ...but the scanner it wrapped must survive — that is the whole argument.
     assert hasattr(threat_defense, "PromptInjectionScanner")
+
+
+class TestDispatchTimeContentFilter:
+    """D-OB-17 residual: ContentFilterPolicy's seam vs the Guardrails seam.
+
+    The deleted ``ContentFilterPolicy`` gated ``dispatch_task``'s input text.
+    The harness content guardrails replacing it attach at the AGENT seam
+    (``create_agent``/``create_context_agent``), which is DOWNSTREAM of
+    ``dispatch_task`` -- which persists the raw text as a durable
+    ``WorkItem.description`` first. So the input text was NOT content-filtered
+    at or before the Guardrails seam, and unredacted PII would have reached
+    durable storage. Closed by filtering at that seam with the SAME
+    ``_pii_guard`` the guardrails use -- never by resurrecting ``PolicyEngine``.
+    """
+
+    def test_dispatch_redacts_pii_before_persisting(self) -> None:
+        redacted = Orchestrator._redact_task(
+            "Onboard this employee, SSN 123-45-6789, email bob@example.com."
+        )
+        assert "123-45-6789" not in redacted
+        assert "bob@example.com" not in redacted
+        assert "[REDACTED_SSN]" in redacted
+        assert "[REDACTED_EMAIL]" in redacted
+        # the instruction itself survives -- this redacts, it does not truncate
+        assert "Onboard this employee" in redacted
+
+    def test_dispatch_leaves_clean_text_untouched(self) -> None:
+        task = "Summarize last night's log volume."
+        assert Orchestrator._redact_task(task) == task
+
+    def test_injection_is_scanned_before_redaction(self) -> None:
+        """Redaction must not be able to mask an injection payload.
+
+        ``dispatch_task`` scans the ORIGINAL text and only then redacts, so a
+        payload that happened to contain PII is still caught.
+        """
+        source = inspect.getsource(Orchestrator.dispatch_task)
+        scan_at = source.index("self._scan_task(task)")
+        redact_at = source.index("self._redact_task(task)")
+        assert scan_at < redact_at
