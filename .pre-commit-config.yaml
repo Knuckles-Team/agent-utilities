@@ -425,6 +425,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: guardrail-citation-lineage
+    name: Guardrail — citation lineage (mandatory evidence citation + embedding versioning)
+    entry: python3 scripts/check_citation_lineage.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: guardrail-liveness
     name: Guardrail — liveness ratchet
     entry: python3 scripts/check_liveness.py

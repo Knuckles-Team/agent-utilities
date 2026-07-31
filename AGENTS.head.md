@@ -305,7 +305,8 @@ case itself next time. The goal is orchestrating completely off the harness.
   `scripts/build_concepts_yaml.py`; README/AGENTS counts come from it).
 - **Guardrail gates (CI + pre-commit, `guardrails.yml`):** `scripts/check_no_stub.py`,
   `check_sprawl.py`, `check_concepts.py`, `check_coupling.py`,
-  `check_retrieval_quality.py`, `check_no_env_sprawl.py`, with meta-tests in `tests/gates/`.
+  `check_retrieval_quality.py`, `check_citation_lineage.py`, `check_no_env_sprawl.py`,
+  with meta-tests in `tests/gates/`.
 - **Cardinal rules:** no stubs (`raise NotImplementedError` only with `# ABSTRACT-OK`);
   strangler-then-delete (never "v2 beside old"); keep the unit suite green.
 
@@ -1012,6 +1013,7 @@ a regression.** Before merging to `main`, the full gate suite must be green:
 - **Every guardrail gate** (`guardrails.yml`): `check_no_stub`, `check_concepts`,
   `check_prompt_schema --strict`, `check_genesis_manifest`, `check_ontology`,
   `check_retrieval_quality`, `check_eval_corpus`, `check_reliability_corpus`,
+  `check_citation_lineage`,
   `check_sprawl`, `check_no_env_sprawl`, `check_surface_parity`, the
   `tests/gates` meta-tests, and `test_prod_profile_guard` — run the ones your change
   could touch locally; **a gate red on `main` is a release-blocker, fix it (even if a

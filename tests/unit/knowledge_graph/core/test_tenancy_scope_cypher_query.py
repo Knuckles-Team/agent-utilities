@@ -13,7 +13,10 @@ never be true and the read silently returned zero rows.
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.knowledge_graph.core.company_brain import TenancyManager
+from agent_utilities.knowledge_graph.core.cypher_scoping import UnscopableQueryError
 
 
 def test_scopes_by_the_querys_own_variable_not_a_hardcoded_n():
@@ -62,16 +65,18 @@ def test_multi_variable_join_scopes_by_the_first_matchs_variable():
     assert "a.tenant_id = 'acme'" in scoped
 
 
-def test_fully_anonymous_query_is_returned_unscoped_not_fabricated():
-    """No bound variable exists to scope by -- must not inject a reference to
-    a variable that was never in the query (that is the exact D-SH-4 bug,
-    just with a different fabricated name)."""
+def test_fully_anonymous_query_fails_closed_instead_of_running_unscoped():
+    """No bound variable exists to scope by. Two unsafe options were on the
+    table — inject a reference to a variable that was never in the query (the
+    original D-SH-4 bug, just with a different fabricated name), or silently
+    run the query with NO tenant predicate at all (which returns matching rows
+    from EVERY tenant — a cross-tenant leak, strictly worse than the original
+    bug's silent-empty result). This module's contract takes neither: it
+    refuses to execute an unscoped read (CONCEPT:AU-KG.backend.company-brain-write-guard)."""
     tm = TenancyManager()
 
-    original = "MATCH ()-[r]->() RETURN count(r) AS c"
-    scoped = tm.scope_cypher_query(original, tenant_id="acme")
-
-    assert scoped == original
+    with pytest.raises(UnscopableQueryError):
+        tm.scope_cypher_query("MATCH ()-[r]->() RETURN count(r) AS c", tenant_id="acme")
 
 
 def test_unsafe_tenant_id_still_fails_closed_with_the_detected_variable():
