@@ -543,6 +543,16 @@ class QueryMixin(_Base):
                     node_id = str(item["id"])
                     data = hydrated.get(node_id) or dict(item)
                     data["id"] = node_id
+                    # ``discover`` server-side ranks each hit under "score";
+                    # hydration replaces ``data`` with the raw node-property
+                    # dict, which drops it. Carry it forward as "_score" (the
+                    # convention every other retrieval arm in
+                    # ``HybridRetriever.retrieve_hybrid`` uses) so a caller that
+                    # runs quality-gated retrieval over this keyword-only path
+                    # (no embedder configured/reachable) doesn't read every hit
+                    # as an un-scored 0.0 and always fail LOW_RELEVANCE_TOPK.
+                    if "_score" not in data and "score" in item:
+                        data["_score"] = item["score"]
                     req_class = data.get("requiresClassification", 0)
                     if isinstance(req_class, int) and req_class > clearance_level:
                         continue
