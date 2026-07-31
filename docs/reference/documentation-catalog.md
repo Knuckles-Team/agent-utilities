@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-363 publishable pages · 178 direct nav targets · 119 public capabilities · 770 action rows · 543 typed configuration fields · 348 runtime-only call-site inputs.
+364 publishable pages · 179 direct nav targets · 119 public capabilities · 770 action rows · 545 typed configuration fields · 348 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -217,6 +217,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Multi-Tenant graph-os over Streamable-HTTP](../architecture/multi_tenant_streamable_http.md) — catalog
 - [Non-Blocking Hierarchical Execution](../architecture/non-blocking-execution.md) — direct nav
 - [North-Star Architecture — one saturating engine, a non-blocking pipeline, and 100% delegation](../architecture/north-star-architecture.md) — direct nav
+- [Incremental object-centric derivation + conformance checking](../architecture/object_centric_derivation_and_conformance.md) — direct nav
 - [Observability — Metrics, Logs, Traces, Alerts](../architecture/observability.md) — direct nav
 - [Ontology Federation & Package Migration](../architecture/ontology-federation.md) — direct nav
 - [Ontology-Guided Ingestion & Entity Resolution](../architecture/ontology-guided-ingestion.md) — direct nav
