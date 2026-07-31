@@ -1365,8 +1365,20 @@ def register_analysis_tools(mcp):
                     return "Error: recommend needs a query/intent in `query`."
 
                 def _recommend() -> list[Any] | None:
+                    # CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval — pass the
+                    # served call's ambient GraphSession so candidate nodes are
+                    # ACL/owner-scope filtered before they reach the recommender
+                    # (see search_hybrid's docstring — a no-op for callers that
+                    # pass no session).
+                    from agent_utilities.knowledge_graph.core.session import (
+                        current_session,
+                    )
+
                     candidates = (
-                        engine.search_hybrid(query, top_k=max(top_k * 4, 20)) or []
+                        engine.search_hybrid(
+                            query, top_k=max(top_k * 4, 20), session=current_session()
+                        )
+                        or []
                     )
                     items = []
                     for c in candidates:

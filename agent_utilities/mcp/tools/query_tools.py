@@ -1153,9 +1153,27 @@ def register_query_tools(mcp):
                     return public_error_text(e)
 
             def _search_with_engine(engine: Any) -> str:
+                # CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval — every served
+                # `graph_search` call already runs inside the middleware-minted
+                # ambient GraphSession (`verified_tool_session_scope`). Passing it
+                # explicitly opts THIS served path into `search_hybrid`'s per-node
+                # ACL + owner/scope + audit enforcement (a no-op for internal
+                # callers that pass no session — see `search_hybrid`'s docstring),
+                # closing the gap where vector/hybrid results reached an external
+                # caller completely unfiltered, unlike the guarded `graph_query`
+                # Cypher path.
+                from agent_utilities.knowledge_graph.core.session import (
+                    current_session,
+                )
+
+                _session = current_session()
                 if mode in ("hyde", "deep"):
                     results = engine.search_hybrid(
-                        query=query, top_k=top_k, mode=mode, self_correct=self_correct
+                        query=query,
+                        top_k=top_k,
+                        mode=mode,
+                        self_correct=self_correct,
+                        session=_session,
                     )
                 elif mode == "hybrid":
                     results = engine.search_hybrid(
@@ -1163,11 +1181,16 @@ def register_query_tools(mcp):
                         top_k=top_k,
                         self_correct=self_correct,
                         as_of=as_of or None,
+                        session=_session,
                     )
                 elif mode == "concept":
-                    results = engine.search_hybrid(query=query, top_k=top_k)
+                    results = engine.search_hybrid(
+                        query=query, top_k=top_k, session=_session
+                    )
                 elif mode == "analogy":
-                    results = engine.search_hybrid(query=query, top_k=top_k)
+                    results = engine.search_hybrid(
+                        query=query, top_k=top_k, session=_session
+                    )
                 elif mode == "adore":
                     results = engine.search_adore(query=query, top_k=top_k)
                 elif mode == "chrono_ids":
@@ -1204,7 +1227,10 @@ def register_query_tools(mcp):
                         SingleShotSIRA,
                     )
 
-                    base = engine.search_hybrid(query=query, top_k=top_k) or []
+                    base = (
+                        engine.search_hybrid(query=query, top_k=top_k, session=_session)
+                        or []
+                    )
                     results = SingleShotSIRA(engine).align_context(base)
                 elif mode == "hard_negatives":
                     # KG-2.3 — mine hard negatives via the engine's hybrid retriever.
@@ -1227,7 +1253,10 @@ def register_query_tools(mcp):
                         HybridSearchScorer,
                     )
 
-                    base = engine.search_hybrid(query=query, top_k=top_k) or []
+                    base = (
+                        engine.search_hybrid(query=query, top_k=top_k, session=_session)
+                        or []
+                    )
                     docs = [
                         {
                             "id": (r.get("node", r) or {}).get("id", ""),
