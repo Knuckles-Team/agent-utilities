@@ -123,7 +123,7 @@ tolerance, and tolerance at the boundary of a safety decision is permission.
 
 ### 2.1 Return `None` on failure, never an empty success
 
-CONCEPT: `AU-OS.governance.fail-closed-degraded-read`
+CONCEPT:AU-OS.governance.fail-closed-degraded-read
 
 A reader that catches its exception and returns `[]`, `0`, `False`, or `{}` produces a
 value that is **indistinguishable at the call site** from a genuine, healthy "nothing
@@ -156,7 +156,7 @@ the bug, not the caller.
 
 ### 2.2 Never advance state on an unverified write
 
-CONCEPT: `AU-OS.governance.verified-write-state-advance`
+CONCEPT:AU-OS.governance.verified-write-state-advance
 
 The shape — call it **write-then-mark-seen**:
 
@@ -226,7 +226,7 @@ before diffing) so nobody has to disprove it by hand.
 
 ## 3. Long-running work under interruption
 
-CONCEPT: `AU-OS.governance.premise-revalidation` covers §1.2; this section is the
+CONCEPT:AU-OS.governance.premise-revalidation covers §1.2; this section is the
 operational side of the same problem — **state that outlives the process that made it**.
 
 ### 3.1 Commit early and often
