@@ -3531,6 +3531,58 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
+        # D-62-2 — typed columns for ClaimNode/ExtractionRunNode (previously
+        # falling back to GENERIC_NODE_COLUMNS on a strict-schema backend, which
+        # already worked but gave neither table's typed fields first-class
+        # columns there). Backfills the pre-existing ``Claim`` gap in the same
+        # pass as the new ``ExtractionRun`` table, per this item's own scoping.
+        TableDefinition(
+            name="Claim",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "name": "STRING",
+                "description": "STRING",
+                "claim_text": "STRING",
+                "confidence": "FLOAT",
+                "claim_type": "STRING",
+                "source_ids": "STRING[]",
+                "extracted_from": "STRING",
+                "domain": "STRING",
+                "is_verified": "BOOLEAN",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+                "embedding": EMBEDDING_TYPE,
+            },
+        ),
+        TableDefinition(
+            name="ExtractionRun",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "name": "STRING",
+                "description": "STRING",
+                "source_id": "STRING",
+                "input_hash": "STRING",
+                "parser_version": "STRING",
+                "extractor_version": "STRING",
+                "schema_pack_ref": "STRING",
+                "model_ref": "STRING",
+                "graph_epoch": "INT64",
+                "calibration_policy": "STRING",
+                "thresholds": "STRING",
+                "outcome": "STRING",
+                "outcome_counts": "STRING",
+                "entities_count": "INT64",
+                "claims_count": "INT64",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
     ],
     edges=[
         # Core Relationships
@@ -4061,6 +4113,11 @@ SCHEMA = GraphSchemaDefinition(
                 {"from": "Document", "to": "Action"},
                 {"from": "Fact", "to": "Episode"},
                 {"from": "Evidence", "to": "ReasoningTrace"},
+                # D-62-2 — every entity/claim EntityClaimExtractor persists is
+                # linked back to the ExtractionRun that produced it (PROV-O
+                # wasGeneratedBy); see ExtractionRunNode's docstring.
+                {"from": "Entity", "to": "ExtractionRun"},
+                {"from": "Claim", "to": "ExtractionRun"},
             ],
         ),
         RelDefinition(

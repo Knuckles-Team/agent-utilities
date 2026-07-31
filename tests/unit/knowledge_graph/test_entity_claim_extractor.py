@@ -219,6 +219,20 @@ class TestEntityClaimExtractor:
         ]
         assert len(claim_nodes) == 1
 
+    def test_persisted_relationship_carries_review_state(self, mock_engine):
+        """D-62-3 — a persisted relationship's edge is classified, not just
+        tallied: a high-confidence 'cites' citation lands accepted."""
+        mock_engine.graph.add_node("doc:cites", node_type="article", name="Cites Doc")
+        extractor = EntityClaimExtractor(mock_engine)
+        content = "As shown by (Johnson, 2022), this is important."
+
+        extractor.extract_and_persist(content, source_id="doc:cites")
+
+        edges = list(mock_engine.graph.edges(data=True))
+        cites_edges = [d for _, _, d in edges if d.get("relationship") == "cites"]
+        assert len(cites_edges) >= 1
+        assert all(edge["review_state"] == "accepted" for edge in cites_edges)
+
 
 class TestEdgeTypes:
     """Test new CONCEPT:AU-KG.ingest.engineering-rules edge types exist in the registry."""

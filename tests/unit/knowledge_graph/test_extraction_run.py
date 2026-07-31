@@ -26,10 +26,14 @@ from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
     EntityClaimExtractor,
 )
 from agent_utilities.knowledge_graph.kb.extraction_run import (
+    EXTRACTOR_VERSION,
+    NEEDS_REVIEW_CONFIDENCE_THRESHOLD,
+    PARSER_VERSION,
     ExtractionOutcome,
     OutcomeCounts,
     classify_claim,
     classify_entity,
+    classify_relationship,
     content_hash,
     decide_outcome,
 )
@@ -115,6 +119,24 @@ class TestClassifyClaim:
             guard=guard,
         )
         assert result == "quarantined"
+
+
+class TestClassifyRelationship:
+    """D-62-3 — relationships are individually confidence-classified (only
+    accepted/needs_review apply; see classify_relationship's docstring for
+    why rejected/quarantined have no analog for an edge)."""
+
+    def test_high_confidence_accepted(self):
+        assert classify_relationship(0.9) == "accepted"
+
+    def test_low_confidence_needs_review(self):
+        assert classify_relationship(0.5) == "needs_review"
+
+    def test_exactly_at_threshold_is_accepted(self):
+        assert classify_relationship(NEEDS_REVIEW_CONFIDENCE_THRESHOLD) == "accepted"
+
+    def test_custom_threshold_is_honoured(self):
+        assert classify_relationship(0.5, review_threshold=0.3) == "accepted"
 
 
 def test_content_hash_deterministic_and_sensitive_to_content():
@@ -428,3 +450,128 @@ async def test_extractor_unavailable_surfaced_through_enrich_text():
 
     assert out["entities"] == 0
     assert out["extraction_outcomes"].get("extractor_unavailable", 0) >= 1
+
+
+# --------------------------------------------------------------------------- #
+# 4. Strict-schema (Kuzu/LadybugDB) typed columns (D-62-2)
+# --------------------------------------------------------------------------- #
+
+
+def test_claim_and_extraction_run_have_table_definitions() -> None:
+    """``Claim``/``ExtractionRun`` get first-class typed columns on a
+    strict-schema backend instead of only the ``GENERIC_NODE_COLUMNS``
+    fallback (the fallback still works — this is fidelity, not correctness)."""
+    from agent_utilities.models.schema_definition import SCHEMA
+
+    table_names = {t.name for t in SCHEMA.nodes}
+    assert "Claim" in table_names
+    assert "ExtractionRun" in table_names
+
+
+def test_claim_table_covers_claim_node_fields() -> None:
+    from agent_utilities.models.schema_definition import SCHEMA
+
+    claim_table = next(t for t in SCHEMA.nodes if t.name == "Claim")
+    for field_name in (
+        "claim_text",
+        "confidence",
+        "claim_type",
+        "source_ids",
+        "extracted_from",
+        "domain",
+        "is_verified",
+    ):
+        assert field_name in claim_table.columns, (
+            f"Claim TableDefinition missing column {field_name!r}"
+        )
+
+
+def test_extraction_run_table_covers_extraction_run_node_fields() -> None:
+    from agent_utilities.models.schema_definition import SCHEMA
+
+    run_table = next(t for t in SCHEMA.nodes if t.name == "ExtractionRun")
+    for field_name in (
+        "source_id",
+        "input_hash",
+        "parser_version",
+        "extractor_version",
+        "schema_pack_ref",
+        "model_ref",
+        "graph_epoch",
+        "calibration_policy",
+        "thresholds",
+        "outcome",
+        "outcome_counts",
+        "entities_count",
+        "claims_count",
+    ):
+        assert field_name in run_table.columns, (
+            f"ExtractionRun TableDefinition missing column {field_name!r}"
+        )
+
+
+def test_was_generated_by_covers_entity_and_claim_to_extraction_run() -> None:
+    """The PROV-O ``wasGeneratedBy`` link ``link_generated_by`` writes
+    (``child WAS_GENERATED_BY run``) is a declared connection on a
+    strict-schema backend, for both persisted node types."""
+    from agent_utilities.models.schema_definition import SCHEMA
+
+    generated_by = next(e for e in SCHEMA.edges if e.type == "WAS_GENERATED_BY")
+    connections = {(c["from"], c["to"]) for c in generated_by.connections}
+    assert ("Entity", "ExtractionRun") in connections
+    assert ("Claim", "ExtractionRun") in connections
+
+
+# --------------------------------------------------------------------------- #
+# 5. PARSER_VERSION/EXTRACTOR_VERSION drift ratchet (D-62-4)
+# --------------------------------------------------------------------------- #
+#
+# PARSER_VERSION/EXTRACTOR_VERSION are hand-maintained constants (deliberately
+# NOT an automated content-hash-of-source versioning scheme — that would be a
+# bigger, separate mechanism the original lane correctly scoped out). What WAS
+# a real gap: nothing failed when the underlying patterns/logic changed
+# without a matching version bump. These two tests are that enforcement: they
+# hash the actual source of `extract_deterministic` (what PARSER_VERSION
+# names) and of the classification logic `extract_and_persist` calls (what
+# EXTRACTOR_VERSION names) and pin the digest. A change to either source
+# fails the pinned-digest assertion below — the fix is to bump the
+# corresponding VERSION constant AND update the pinned digest in the SAME
+# commit, so the two can never silently drift apart again.
+
+
+def _source_fingerprint(*functions: Any) -> str:
+    import hashlib
+    import inspect
+
+    source = "\n".join(inspect.getsource(fn) for fn in functions)
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def test_parser_version_bump_is_enforced_by_a_pinned_source_digest() -> None:
+    from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
+        extract_deterministic,
+    )
+
+    digest = _source_fingerprint(extract_deterministic)
+    assert digest == (
+        "8bdf559f98e86cd3d65acf8a7945abb4ebf3c3a1745d97e7135679fd374263c4"
+    ), (
+        "extract_deterministic's source changed but PARSER_VERSION "
+        f"({PARSER_VERSION!r}) was not bumped. Bump PARSER_VERSION in "
+        "extraction_run.py AND update the pinned digest above in the SAME "
+        "commit."
+    )
+
+
+def test_extractor_version_bump_is_enforced_by_a_pinned_source_digest() -> None:
+    digest = _source_fingerprint(
+        classify_entity, classify_claim, classify_relationship, decide_outcome
+    )
+    assert digest == (
+        "13972c20f31ef72b5c4ef40b53ed2f09a1a8011a184e76781a01f26cb6661f14"
+    ), (
+        "extract_and_persist's classification logic changed but "
+        f"EXTRACTOR_VERSION ({EXTRACTOR_VERSION!r}) was not bumped. Bump "
+        "EXTRACTOR_VERSION in extraction_run.py AND update the pinned digest "
+        "above in the SAME commit."
+    )
