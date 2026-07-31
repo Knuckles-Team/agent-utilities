@@ -11,14 +11,21 @@ transitions against a real in-memory ``EpistemicGraphBackend`` (no isolated
 ``__control__`` graph in these tests — the same pattern
 ``test_task_reaper.py``/``test_task_queue_controls.py`` already use).
 
-These exercise ``TaskManagerMixin._claim_next_task`` with ``_select_pending_task``
-stubbed to hand back a controlled candidate queue (the bucket-ascending
-selection itself is covered elsewhere: ``test_select_pending_admission.py``):
-a winning claim must create+claim the shadow WorkItem, mirror
-``:Task.status: running`` + the shadow's id/epoch, and skip a candidate whose
-shadow is already claimed elsewhere; two sequential claims of the same row
-must produce one winner and one loser.
+These exercise ``TaskManagerMixin._claim_next_task``. A later migration
+(ORCH-1.8x) retired the Python-side ``_select_pending_task`` candidate-queue
+cursor entirely — ``_claim_next_task`` now claims exclusively through the
+native ``work_item.claim_next`` queue scan ("native selection owns ordering,
+quota, dependency release, and lease recovery" — work_item.py), so a claimable
+job needs a REAL ``:WorkItem`` submitted into the ``ingest_task`` queue, not
+just a candidate handed back by a stub (``_add_task`` below does both: the
+legacy ``:Task`` node AND its native WorkItem shadow). A winning claim must
+create+claim the shadow WorkItem, mirror ``:Task.status: running`` + the
+shadow's id/epoch, and skip a candidate whose shadow is already claimed
+elsewhere; two sequential claims of the same row must produce one winner and
+one loser.
 """
+
+import threading
 
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
@@ -36,46 +43,54 @@ TOKEN = "claimhost:333:1700000003"
 class _ClaimHarness:
     """Minimal object exposing exactly what _claim_next_task touches.
 
-    ``_select_pending_task`` is stubbed to hand back a controlled queue of
-    candidate rows (the bucket-ascending selection is covered elsewhere); the
-    win/lose arbitration is the REAL ``work_item`` state machine against a
-    real ``EpistemicGraphBackend`` bound as BOTH ``backend`` and the control
-    plane (``_control`` falls back to ``self.backend`` when no isolated
-    ``control_backend`` is set — CONCEPT:AU-KG.backend.schedule-on-control-graph).
+    ``_claim_next_task`` claims through the native WorkItem queue directly
+    (see the module docstring) with ``worker_id`` left ``None`` here, so the
+    ``hydration_reserved``/admission-policy branch (which needs
+    ``worker_id``) is never reached — these tests exercise only the win/lose
+    WorkItem CAS arbitration. That arbitration is the REAL ``work_item``
+    state machine against a real ``EpistemicGraphBackend`` bound as BOTH
+    ``backend`` and the control plane. ``_control`` (engine_tasks.py) now
+    fails closed when ``control_backend`` is unset
+    (CONCEPT:AU-KG.backend.schedule-on-control-graph hardened it — no more
+    falling back to ``self.backend``), so this harness binds both explicitly
+    to the same backend, matching how a real engine's ``control_backend`` is
+    always configured in production.
     """
 
-    def __init__(self, candidates, backend=None):
+    def __init__(self, backend=None):
         self.backend = backend if backend is not None else EpistemicGraphBackend()
-        self._candidates = list(candidates)
+        self.control_backend = self.backend
         self._tok = TOKEN
-
-    def _select_pending_task(self, admit=None):
-        # ORCH-1.81 added an admission predicate; this harness hands back a
-        # controlled candidate queue regardless (admission is tested separately).
-        return self._candidates.pop(0) if self._candidates else None
-
-    def _make_admission(self):
-        # ORCH-1.81: disable the admission gate for these pure claim tests.
-        return None
+        # _claim_next_task remembers/reads the in-flight native claim through
+        # these two (engine_tasks.py's real __init__ sets the same pair).
+        self._active_work_item_claims: dict = {}
+        self._active_work_item_claims_lock = threading.Lock()
 
     def _get_host_token(self) -> str:
         return self._tok
 
-    control_backend = None
     _control = TaskManagerMixin._control
     _control_cypher = TaskManagerMixin._control_cypher
     _work_item_engine = TaskManagerMixin._work_item_engine
+    _remember_work_item_claim = TaskManagerMixin._remember_work_item_claim
+    _active_work_item_claim = TaskManagerMixin._active_work_item_claim
+    _ingest_task_metadata = TaskManagerMixin._ingest_task_metadata
 
     # Bind the real method under test.
     _claim_next_task = TaskManagerMixin._claim_next_task
 
 
 def _add_task(b: EpistemicGraphBackend, tid: str, **meta) -> None:
+    """Create the legacy ``:Task`` node AND its native ``ingest_task`` WorkItem
+    shadow — ``_claim_next_task`` claims exclusively from the native queue (see
+    the module docstring), so a job is only claimable once both exist."""
     b.add_node(tid, node_type="Task", status="pending", metadata=_encode_metadata(meta))
-
-
-def _task_row(tid: str) -> dict:
-    return {"id": tid, "meta": None}
+    wi.submit_work_item(
+        _ClaimHarness(backend=b)._work_item_engine,
+        kind="ingest_task",
+        payload_ref=tid,
+        work_item_id=wi.ingest_task_work_item_id(tid),
+    )
 
 
 def _task_status(b: EpistemicGraphBackend, tid: str) -> str | None:
@@ -88,7 +103,7 @@ def test_claim_wins_creates_running_shadow_and_stamps_task():
     onto the legacy :Task node (status + work_item_id/epoch stamped)."""
     b = EpistemicGraphBackend()
     _add_task(b, "job-1", target="/x")
-    h = _ClaimHarness(candidates=[_task_row("job-1")], backend=b)
+    h = _ClaimHarness(backend=b)
 
     result = h._claim_next_task()
 
@@ -123,18 +138,11 @@ def test_claim_skips_candidate_whose_shadow_already_claimed():
     b = EpistemicGraphBackend()
     _add_task(b, "job-lost", target="/x")
     _add_task(b, "job-won", target="/y")
-    h = _ClaimHarness(
-        candidates=[_task_row("job-lost"), _task_row("job-won")], backend=b
-    )
+    h = _ClaimHarness(backend=b)
 
-    # A peer already won job-lost's shadow (fresh lease — not stale).
+    # A peer already won job-lost's shadow (fresh lease — not stale). Its
+    # WorkItem was already submitted by _add_task above; just claim it.
     peer_item_id = wi.ingest_task_work_item_id("job-lost")
-    wi.submit_work_item(
-        h._work_item_engine,
-        kind="ingest_task",
-        payload_ref="job-lost",
-        work_item_id=peer_item_id,
-    )
     peer_claim = wi.claim_specific(
         h._work_item_engine, peer_item_id, token="peerhost:1:1"
     )
@@ -151,8 +159,8 @@ def test_claim_skips_candidate_whose_shadow_already_claimed():
 
 
 def test_claim_returns_none_when_idle():
-    """No pending candidates → no claim attempt, returns None."""
-    h = _ClaimHarness(candidates=[])
+    """No pending WorkItems → no claim attempt, returns None."""
+    h = _ClaimHarness()
 
     assert h._claim_next_task() is None
 
@@ -163,16 +171,10 @@ def test_claim_returns_none_when_all_candidates_already_claimed():
     b = EpistemicGraphBackend()
     _add_task(b, "a", target="/a")
     _add_task(b, "b", target="/b")
-    h = _ClaimHarness(candidates=[_task_row("a"), _task_row("b")], backend=b)
+    h = _ClaimHarness(backend=b)
 
     for job_id in ("a", "b"):
         item_id = wi.ingest_task_work_item_id(job_id)
-        wi.submit_work_item(
-            h._work_item_engine,
-            kind="ingest_task",
-            payload_ref=job_id,
-            work_item_id=item_id,
-        )
         assert (
             wi.claim_specific(h._work_item_engine, item_id, token="peerhost:1:1")
             is not None
@@ -193,7 +195,7 @@ def test_two_sequential_claims_of_same_task_first_wins_second_loses():
     _add_task(b, "job-shared", target="/x")
 
     def make_harness() -> _ClaimHarness:
-        return _ClaimHarness(candidates=[_task_row("job-shared")], backend=b)
+        return _ClaimHarness(backend=b)
 
     first = make_harness()._claim_next_task()
     second = make_harness()._claim_next_task()
