@@ -491,29 +491,66 @@ work (`.specify/specs/reasoning-rl-2026/`):
 ## Wire-First — reachable ≠ invoked (READ BEFORE shipping a complex feature)
 
 A feature is **not done when its code exists and unit-tests pass** — it is done when a **live call
-path actually invokes it**. We have repeatedly shipped code that was importable and unit-tested but
-*never called on any real path* (e.g. `mount_skill_unit` stored a skill's SOP but the prompt builder
-never read it; `UsageTelemetry` existed but `plan_and_retrieve` never recorded recall; a GEPA
-held-out split existed but the entry point passed `dev_fraction=0`). These pass every unit test and
-are still **dead code**.
+path invokes it and a test proves that edge**. We have shipped, repeatedly, importable, fully
+unit-tested, never-called code: `PolicyEngine` (zero live callers, in the *safety* layer); KV forking
+(plumbed end-to-end, no caller passed `kv_page_keys`); `AdmissionPolicy.decide`. All green. All dead.
+**Unit coverage is not evidence of reachability** — the most expensive confusion in this repo.
 
-When implementing any non-trivial feature you MUST verify and test the *invocation*, not just the API:
+### Test taxonomy — say what each level can honestly claim
 
-1. **Trace the live path end-to-end.** From an entry point (MCP tool, API route, CLI, hook, daemon
-   tick, or a registry/discovery mechanism) to your new code. If you added a method/field/flag, grep
-   that the existing hot path **actually calls/reads it** — don't assume `__init__` storing it is enough.
-2. **Default the integration ON.** If a new behavior needs a flag/param to activate, the live entry
-   point must pass a sensible default that turns it on (or it's off in production).
-3. **Write a LIVE-PATH test, not just an API test.** Exercise the *existing* class/entry point and
-   assert the new behavior happens as a side effect (e.g. "call `plan_and_retrieve`, assert recall was
-   recorded"), in addition to unit-testing the helper in isolation. Name it `*_live_path` / `*_integration`.
-4. **Run `check_wiring.py`** (import-graph, ≤3 hops) — but know its **blind spot**: it cannot see
-   **plugin/decorator dynamic registration** (`register_source` + `pkgutil` discovery, entry-points,
-   `@adaptor`). For those, also grep that a discovery/registration call runs on a live path. A
-   "0 hops / unreachable" result for a self-registering module is a false negative — verify the
-   discovery, don't delete the module.
-5. **No silent storage.** A value set in `__init__`/a setter but read nowhere is a bug. Either wire it
-   into the behavior or don't add it.
+| Level | Proves | Does NOT prove |
+|---|---|---|
+| **Unit** | the component behaves in isolation | **nothing about reachability** — a fully-tested class can have zero callers |
+| **Wiring** | it is **reached from a real entrypoint**, real construction, no mock standing in for the seam | that it is correct, complete, or works against real infra |
+| **Contract** | a public surface (MCP tool list, dispatch registry, REST routes, capability catalogue) is **exactly** as intended over **every** mode/profile | that anything behind the surface works |
+| **Live-path** | it works against **real** dependencies and transport, no fakes at the validated boundary | — the only level proving deployability |
+
+All four are required; none substitutes for another. Name them `*_wiring`/`*_contract`.
+
+### The rules
+
+1. **A capability is not "done" until a wiring test proves it is reached from a live entrypoint.**
+   Trace the path first (MCP tool, REST route, CLI, daemon tick, registry discovery), then drive
+   *that entrypoint* in the test — not the component.
+2. **Never mock the seam you are validating.** `tests.wiring.observe(...)` wraps the real attribute
+   **pass-through** — production code still runs and you assert it *ran*; `patch()` on the seam
+   proves only that your own mock was called. (`observe` refuses an already-mocked target.)
+3. **Observe the deepest seam carrying the behaviour, not the wrapper that delegates.**
+   `Orchestrator._scan_task` once guarded on a method the scanner never had, so the gate ran and
+   never fired — observing the wrapper would have passed throughout.
+4. **Default the integration ON, and assert the argument** (`call.arg("<param>")`) — the KV-fork
+   failure was complete plumbing plus a caller that never passed the parameter switching it on.
+5. **Pin every public surface with an exact-set contract test, parameterised over every
+   mode/profile** — `tests.wiring.assert_surface(...)`. A superset check is not a contract: the
+   regression exposing 118 MCP tools instead of ~11 would have passed one. Members surviving every
+   parameterisation (the five fleet meta-tools) go in `invariant=`.
+6. **A test that cannot run in CI is worse than no test — it manufactures false confidence.** Four
+   ways we have done it: **outside `pytest.ini` `testpaths`** (hid the fleet's default transport
+   being broken) → `assert_collected_by_pytest`; **`MagicMock(spec=[])` for a maybe-missing module**
+   → `assert_not_faked`; **skipped behind an extra CI never installs** → `require_module` *fails*
+   (declare a truly-unrunnable test with a marker, so `pytest.ini` shows the exclusion); **a global
+   test flag deleting the production branch** — `AGENT_UTILITIES_TESTING=true` makes `create_agent`
+   skip its MCP-toolset governance block entirely, so restore production conditions first.
+7. **No silent storage.** A value set in `__init__`/a setter and read nowhere is a bug.
+
+### Writing one costs four lines
+```python
+with observe(PromptInjectionScanner, "scan_text") as scanned:  # real impl still runs
+    with past_the_seam(must_not_raise="Security Alert"):       # downstream needs no engine
+        await Orchestrator(engine=object()).dispatch_task("git status")
+scanned.assert_called(why="every delegation entrypoint scans untrusted task text")
+```
+
+Kit + rationale: **[`tests/wiring.py`](tests/wiring.py)**. Copy the exemplar nearest your seam —
+`tests/unit/**/test_*_wiring.py` and `test_*_contract.py`; start with
+`tests/unit/mcp/test_served_tool_surface.py` (contract over all four `MCP_TOOL_MODE`s + the
+meta-tool invariant) and `.../security/test_agent_permission_context_wiring.py` (un-mocking a seam
+the existing suite mocks).
+
+**The ceiling:** a wiring test proves an *edge*, not deployability — real transports, auth, engines
+and serialisation are only proven by running the thing. `scripts/check_wiring.py
+--wire-first-report` answers "does anything import or call this?" statically: a *finder of
+suspects*, not a gate (blind to decorator/entry-point registration and out-of-repo callers).
 
 ## Native by default — every enhancement is always-on and woven into the flow (READ BEFORE gating a feature)
 
