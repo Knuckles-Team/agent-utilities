@@ -372,8 +372,9 @@ class PackageDelta:
     """One package uv would install, uninstall or replace."""
 
     name: str
-    version: str
+    version: str = ""
     source: str | None = None
+    url: str | None = None
 
     @property
     def canonical(self) -> str:
@@ -381,15 +382,23 @@ class PackageDelta:
 
     @property
     def is_local(self) -> bool:
-        return bool(self.source and self.source.startswith("file://"))
+        for candidate in (self.source, self.url):
+            if candidate and candidate.startswith("file://"):
+                return True
+        return False
 
 
 _HEADER_RE = re.compile(
     r"^Would (?P<verb>install|uninstall|update|downgrade) (?P<count>\d+) packages?$"
 )
+#: uv writes registry packages as ``name==version`` and local/direct-URL ones as
+#: ``name @ file:///path`` — an editable member's *install* line uses the second
+#: form while its *uninstall* line uses the first, so both must parse or a
+#: rebuild looks like a pure removal.
 _ENTRY_RE = re.compile(
     r"^\s*(?P<sign>[-+~])\s+(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)"
-    r"==(?P<version>[^\s(]+)(?:\s+\((?:from\s+)?(?P<source>[^)]*)\))?\s*$"
+    r"(?:==(?P<version>[^\s(]+)|\s+@\s+(?P<url>\S+))"
+    r"(?:\s+\((?:from\s+)?(?P<source>[^)]*)\))?\s*$"
 )
 _NO_CHANGES_RE = re.compile(r"^Would make no changes$")
 
@@ -406,6 +415,28 @@ class SyncPlan:
     @property
     def is_empty(self) -> bool:
         return not self.installs and not self.uninstalls
+
+    @property
+    def removals(self) -> tuple[PackageDelta, ...]:
+        """Uninstalls that are NOT paired with a reinstall of the same package.
+
+        uv renders a *replacement* as an uninstall line plus an install line —
+        which is what every editable member looks like whenever its metadata is
+        rebuilt.  Treating those as removals would make the guardrails refuse
+        the correct, sanctioned sync (observed end-to-end: a dependency added to
+        a member produced ``- demo==1.0.0`` / ``+ demo @ file://…``).  Only the
+        *net* removals are the dangerous ones the guardrails care about.
+        """
+
+        reinstalled = {delta.canonical for delta in self.installs}
+        return tuple(d for d in self.uninstalls if d.canonical not in reinstalled)
+
+    @property
+    def replacements(self) -> tuple[PackageDelta, ...]:
+        """Packages uv would uninstall and immediately reinstall."""
+
+        reinstalled = {delta.canonical for delta in self.installs}
+        return tuple(d for d in self.uninstalls if d.canonical in reinstalled)
 
     @classmethod
     def parse(cls, text: str) -> SyncPlan:
@@ -440,8 +471,9 @@ class SyncPlan:
                 continue
             delta = PackageDelta(
                 name=entry.group("name"),
-                version=entry.group("version"),
+                version=entry.group("version") or "",
                 source=entry.group("source"),
+                url=entry.group("url"),
             )
             if entry.group("sign") == "-":
                 uninstalls.append(delta)
@@ -835,10 +867,10 @@ class MemberUninstallGuardrail:
     pre_plan = False
 
     def evaluate(self, plan: SyncPlan | None, ctx: SyncContext) -> Verdict | None:
-        if plan is None or not plan.uninstalls:
+        if plan is None or not plan.removals:
             return None
         members = {member.canonical for member in ctx.workspace.members()}
-        offending = [d for d in plan.uninstalls if d.canonical in members]
+        offending = [d for d in plan.removals if d.canonical in members]
         if not offending:
             return None
         names = ", ".join(sorted(d.name for d in offending)[:8])
@@ -867,14 +899,12 @@ class LockedDistributionUninstallGuardrail:
     pre_plan = False
 
     def evaluate(self, plan: SyncPlan | None, ctx: SyncContext) -> Verdict | None:
-        if plan is None or not plan.uninstalls:
+        if plan is None or not plan.removals:
             return None
         locked = _locked_distribution_names(ctx.workspace)
         if not locked:
             return None
-        offending = sorted(
-            {d.name for d in plan.uninstalls if d.canonical in locked}
-        )
+        offending = sorted({d.name for d in plan.removals if d.canonical in locked})
         if not offending:
             return None
         return Verdict(
@@ -897,7 +927,7 @@ class UninstallBudgetGuardrail:
     def evaluate(self, plan: SyncPlan | None, ctx: SyncContext) -> Verdict | None:
         if plan is None:
             return None
-        count = len(plan.uninstalls)
+        count = len(plan.removals)
         if count <= ctx.allow_uninstalls:
             return None
         return Verdict(
@@ -1391,7 +1421,7 @@ def _sync_locked(
             applied=False,
             detail=(
                 f"plan approved but not applied (--dry-run): "
-                f"{len(plan.installs)} install(s), {len(plan.uninstalls)} uninstall(s)"
+                f"{len(plan.installs)} install(s), {len(plan.removals)} removal(s)"
             ),
             duration_s=time.monotonic() - started,
         )
@@ -1407,7 +1437,7 @@ def _sync_locked(
         applied=True,
         detail=(
             f"applied {len(plan.installs)} install(s), "
-            f"{len(plan.uninstalls)} uninstall(s)"
+            f"{len(plan.removals)} removal(s), {len(plan.replacements)} replacement(s)"
         ),
         duration_s=time.monotonic() - started,
     )
@@ -1487,7 +1517,15 @@ DEFAULT_IMPORT_PROBE_MODULES: tuple[str, ...] = (
 
 
 class ImportProbe:
-    """Import canary modules inside the shared venv's interpreter."""
+    """Import canary modules inside the shared venv's interpreter.
+
+    A canary that is simply *not installed* in this environment is not a
+    failure — it is inapplicable, and reported as ``ok=None``.  A canary that is
+    installed but raises on import IS a failure, and that distinction is the
+    entire value of the probe: the ten-day outage was ``agent_utilities.mcp
+    .child_resilience`` present-but-unimportable against a stale ``fastmcp``,
+    which reads as "installed and broken", not "absent".
+    """
 
     name = "imports"
 
@@ -1504,14 +1542,22 @@ class ImportProbe:
             )
         script = "\n".join(
             [
-                "import importlib, json, sys",
-                "bad = {}",
+                "import importlib, importlib.util, json, sys",
+                "bad, absent = {}, []",
                 f"for name in {list(self.modules)!r}:",
+                "    top = name.split('.')[0]",
+                "    try:",
+                "        found = importlib.util.find_spec(top) is not None",
+                "    except BaseException:",
+                "        found = True",
+                "    if not found:",
+                "        absent.append(name)",
+                "        continue",
                 "    try:",
                 "        importlib.import_module(name)",
                 "    except BaseException as exc:",
                 "        bad[name] = f'{type(exc).__name__}: {exc}'",
-                "json.dump(bad, sys.stdout)",
+                "json.dump({'bad': bad, 'absent': absent}, sys.stdout)",
             ]
         )
         try:
@@ -1528,8 +1574,10 @@ class ImportProbe:
                 name=self.name, ok=False, detail=f"import probe could not run: {exc}"
             )
         try:
-            failures = json.loads(completed.stdout or "{}")
-        except ValueError as exc:
+            payload = json.loads(completed.stdout or "{}")
+            failures = dict(payload.get("bad", {}))
+            absent = list(payload.get("absent", []))
+        except (ValueError, TypeError) as exc:
             return ProbeResult(
                 name=self.name,
                 ok=False,
@@ -1544,10 +1592,20 @@ class ImportProbe:
                 ok=False,
                 detail="; ".join(f"{k} -> {v}" for k, v in sorted(failures.items())),
             )
+        checked = len(self.modules) - len(absent)
+        if not checked:
+            return ProbeResult(
+                name=self.name,
+                ok=None,
+                detail=f"no canary module is installed here (absent: {absent})",
+            )
         return ProbeResult(
             name=self.name,
             ok=True,
-            detail=f"{len(self.modules)} canary module(s) import cleanly",
+            detail=(
+                f"{checked} canary module(s) import cleanly"
+                + (f"; not installed here: {absent}" if absent else "")
+            ),
         )
 
 
@@ -1968,18 +2026,16 @@ def detect_drift(workspace: Workspace, *, include_floor: bool = True) -> DriftRe
                     data={"installs": [f"{d.name}=={d.version}" for d in plan.installs[:40]]},
                 )
             )
-            if plan.uninstalls:
+            if plan.removals:
                 findings.append(
                     DriftFinding(
                         code="env_extraneous",
                         severity="warn",
                         detail=(
-                            f"{len(plan.uninstalls)} installed package(s) are not in "
+                            f"{len(plan.removals)} installed package(s) are not in "
                             "the lock; --inexact leaves them alone deliberately"
                         ),
-                        data={
-                            "packages": [d.name for d in plan.uninstalls[:40]],
-                        },
+                        data={"packages": [d.name for d in plan.removals[:40]]},
                     )
                 )
 

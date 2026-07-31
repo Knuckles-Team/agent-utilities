@@ -24,12 +24,49 @@ Then, from anywhere in the workspace::
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import stat
 import sys
+import types
 from pathlib import Path
 
 _CHECKOUT = Path(__file__).resolve().parents[1]
+
+
+def _load_standalone() -> object:
+    """Load the reconciler without executing ``agent_utilities/__init__.py``.
+
+    The package ``__init__`` chain imports ``httpx`` and friends, so a plain
+    ``import agent_utilities.deployment.venv_sync`` fails in exactly the
+    situation this tool exists for — a virtualenv missing its dependencies.
+    Registering namespace stand-ins for the two parent packages lets the real
+    module files load by path while their own intra-package imports still
+    resolve through ``sys.modules``, so there is only ever ONE copy of the
+    module (and therefore one guardrail registry), not two.
+    """
+
+    for name, directory in (
+        ("agent_utilities", _CHECKOUT / "agent_utilities"),
+        ("agent_utilities.deployment", _CHECKOUT / "agent_utilities" / "deployment"),
+    ):
+        if name in sys.modules:
+            continue
+        shim = types.ModuleType(name)
+        shim.__path__ = [str(directory)]  # type: ignore[attr-defined]
+        shim.__doc__ = "namespace stand-in installed by scripts/venvctl"
+        sys.modules[name] = shim
+
+    target = _CHECKOUT / "agent_utilities" / "deployment" / "venv_sync.py"
+    spec = importlib.util.spec_from_file_location(
+        "agent_utilities.deployment.venv_sync", target
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not build a module spec for {target}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _install_launcher(destinations: list[Path]) -> int:
@@ -57,13 +94,24 @@ def main(argv: list[str] | None = None) -> int:
         sys.path.insert(0, str(_CHECKOUT))
     try:
         from agent_utilities.deployment.venv_sync import main as venv_main
-    except ImportError as exc:
+    except ImportError as package_exc:
+        # The package could not be imported — very often because the venv it
+        # manages is the broken thing.  Fall back to loading the module files
+        # directly, and say why, so the degraded mode is never silent.
         sys.stderr.write(
-            f"error: could not import the reconciler from {_CHECKOUT}: {exc}\n"
-            "This launcher must live in an agent-utilities checkout "
-            "(scripts/venvctl next to the agent_utilities package).\n"
+            "notice: agent_utilities is not importable "
+            f"({type(package_exc).__name__}: {package_exc}); "
+            "loading the reconciler standalone from "
+            f"{_CHECKOUT}\n"
         )
-        return 2
+        try:
+            venv_main = _load_standalone().main  # type: ignore[attr-defined]
+        except (ImportError, OSError, AttributeError) as standalone_exc:
+            raise ImportError(
+                f"could not load the reconciler from {_CHECKOUT}: {standalone_exc}. "
+                "This launcher must live in an agent-utilities checkout "
+                "(scripts/venvctl beside the agent_utilities package)."
+            ) from standalone_exc
     return venv_main(args)
 
 

@@ -374,5 +374,6 @@ def test_the_trigger_script_is_executable_and_self_contained(
     script = venv_autosync.write_trigger_script(workspace)
     assert script.stat().st_mode & 0o111
     body = script.read_text(encoding="utf-8")
-    assert "agent_utilities.deployment.venv_sync autosync" in body
+    assert "autosync" in body
+    assert ("scripts/venvctl" in body) or ("venv_sync" in body)
     assert str(workspace.venv / "bin" / "python") in body

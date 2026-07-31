@@ -189,6 +189,39 @@ def test_plan_parses_clean_and_behind_states() -> None:
     assert not behind.uninstalls
 
 
+# Verbatim uv output for an editable member whose metadata was rebuilt after a
+# dependency was added.  Caught end-to-end on 2026-07-31: the uninstall line uses
+# `name==version` while the reinstall line uses `name @ file://…`, so a naive
+# parser saw a member being removed and refused the CORRECT sync.
+REBUILD_PLAN = """Would use project environment at: .venv
+Resolved 3 packages in 3ms
+Would download 1 package
+Would uninstall 1 package
+Would install 2 packages
+ - alpha==1.2.3 (from file:///ws/pkgs/alpha)
+ + alpha @ file:///ws/pkgs/alpha
+ + six==1.17.0
+"""
+
+
+def test_an_editable_rebuild_is_a_replacement_not_a_removal() -> None:
+    plan = SyncPlan.parse(REBUILD_PLAN)
+    assert {d.name for d in plan.installs} == {"alpha", "six"}
+    assert [d.name for d in plan.uninstalls] == ["alpha"]
+    assert [d.name for d in plan.replacements] == ["alpha"]
+    assert plan.removals == ()
+    reinstall = next(d for d in plan.installs if d.name == "alpha")
+    assert reinstall.is_local and reinstall.url == "file:///ws/pkgs/alpha"
+
+
+def test_guardrails_allow_a_member_rebuild(workspace: Workspace) -> None:
+    """The sanctioned sync of a metadata change must not be refused."""
+
+    plan = SyncPlan.parse(REBUILD_PLAN)
+    verdict = evaluate_plan(plan, SyncContext(workspace=workspace, ignore_activity=True))
+    assert verdict.decision == ALLOW
+
+
 def test_plan_parse_fails_closed_when_uninstalls_cannot_be_enumerated() -> None:
     """Under-counting removals is the one direction that must never be silent."""
 
