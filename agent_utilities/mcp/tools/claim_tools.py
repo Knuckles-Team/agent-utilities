@@ -25,6 +25,17 @@ persists its own ``ActionDecision`` audit node, and every real
 ``ClaimFlywheel`` transition persists its own append-only
 ``ClaimLifecycleEvent`` node — both writes already exist upstream of this
 tool.
+
+**The universal-ingestion program's governed promotion** (CONCEPT:
+AU-KG.ingest.governed-claim-promotion, ``knowledge_graph/ingestion/
+promotion.py``) hooks into this SAME ``accept``/``retract`` dispatch rather
+than a separate tool: ``accept`` calls ``promotion.materialize_on_claim_accepted``
+(the ONLY place an ingestion candidate claim's proposed fact gets written —
+so the fail-closed ``ActionPolicy`` approval-queue hold on ``claim.accept``
+IS that program's steward-review hold, not a second gate), and ``retract``
+calls ``promotion.supersede_materialized_claim`` (tombstones an already-
+materialized fact rather than deleting it). Both hooks are no-ops for any
+claim without a ``proposed_envelope`` (every non-ingestion claim family).
 """
 
 from __future__ import annotations
@@ -84,7 +95,13 @@ def register_claim_tools(mcp):
             "queue verdict blocks the mutation and is returned under `policy` — "
             "and only then is routed through the SAME ClaimFlywheel the mining "
             "pipeline uses; this tool never reimplements the transition rules or "
-            "recomputes governance validity itself. 'get' returns one claim's "
+            "recomputes governance validity itself. For an ingestion candidate "
+            "claim (knowledge_graph/ingestion/promotion.py) this IS the steward-"
+            "review hold: 'accept' is the only action that materializes the "
+            "claim's proposed fact (returned under `materialization`), and "
+            "'retract' supersedes an already-materialized fact rather than "
+            "deleting it (returned under `superseded_fact`) — both are no-ops "
+            "(null) for every other claim family. 'get' returns one claim's "
             "current state + full transition history; 'list' enumerates claims "
             "by their current state."
         ),
@@ -172,6 +189,8 @@ def register_claim_tools(mcp):
                     }
                 )
 
+            materialization = None
+            superseded_fact = None
             try:
                 if action == "propose":
                     transition = flywheel.propose(
@@ -185,6 +204,19 @@ def register_claim_tools(mcp):
                         reason=reason or "action-gated promotion",
                         action_decision=policy["decision"],
                     )
+                    # Ingestion candidate-claim materialization hook
+                    # (CONCEPT:AU-KG.ingest.governed-claim-promotion): a no-op
+                    # (returns None) for every OTHER claim family (mining,
+                    # ops-causal, ...) — only a claim carrying a
+                    # ``proposed_envelope`` (this program's promotion.py)
+                    # writes the real fact here. Never swallowed: a failed
+                    # materialization is returned to the caller, not hidden
+                    # behind an "accepted" that silently wrote nothing.
+                    from agent_utilities.knowledge_graph.ingestion.promotion import (
+                        materialize_on_claim_accepted,
+                    )
+
+                    materialization = materialize_on_claim_accepted(engine, claim_id)
                 elif action == "deprecate":
                     transition = flywheel.deprecate(
                         claim_id, reason=reason or "superseded or drifted"
@@ -192,6 +224,13 @@ def register_claim_tools(mcp):
                 else:  # retract
                     transition = flywheel.retract(
                         claim_id, reason=reason or "retracted"
+                    )
+                    from agent_utilities.knowledge_graph.ingestion.promotion import (
+                        supersede_materialized_claim,
+                    )
+
+                    superseded_fact = supersede_materialized_claim(
+                        engine, claim_id, reason=reason or "retracted"
                     )
             except IllegalTransition as e:
                 return json.dumps(
@@ -210,6 +249,8 @@ def register_claim_tools(mcp):
                     "claim_id": claim_id,
                     "policy": policy,
                     "transition": transition.to_dict() if transition else None,
+                    "materialization": materialization,
+                    "superseded_fact": superseded_fact,
                 },
                 default=str,
             )
