@@ -336,6 +336,14 @@ class LoopController:
         if (setting("FRESHRSS_URL", default="") or "").strip():
             report["freshrss"] = _stage("freshrss", self._run_freshrss_intake)
 
+        # -0.3 ARXIV — pull native arXiv category listings through the SAME
+        # world-model research gate (delta), when categories are configured. Default
+        # ON when configured; the category list's presence is the on-signal, the
+        # watermark keeps it idempotent, and the SAME budget gate as FreshRSS/
+        # ScholarX keeps it selective. (CONCEPT:AU-KG.ingest.arxiv-feed-connector, KG-7.3)
+        if (setting("KG_ARXIV_CATEGORIES", default="") or "").strip():
+            report["arxiv"] = _stage("arxiv", self._run_arxiv_intake)
+
         # 0. ASSIMILATE — graph-compute middle (dedup/gap/synergy/rank), idempotent.
         if assimilate:
             report["assimilate"] = _stage(
@@ -2972,6 +2980,19 @@ class LoopController:
         from ..core.source_sync import sync_source
 
         return sync_source(self.engine, "freshrss", mode="delta")
+
+    def _run_arxiv_intake(self) -> dict[str, Any]:
+        """Pull native arXiv category listings through the world-model gate (delta).
+
+        Delegates to the unified ``sync_source`` entrypoint (``_sync_arxiv``):
+        enumerate entries past the submitted-date watermark per configured category
+        and route each through :class:`WorldModelPipelineRunner`, which recognizes
+        every item as research and defers to the SAME ``grade_and_enqueue_paper``
+        budget gate as FreshRSS-arXiv and ScholarX. (CONCEPT:AU-KG.ingest.arxiv-feed-connector, KG-7.3)
+        """
+        from ..core.source_sync import sync_source
+
+        return sync_source(self.engine, "arxiv", mode="delta")
 
     def _run_breadth(self) -> dict[str, Any]:
         """Ingest the OSS/repos/docs corpus (idempotent).

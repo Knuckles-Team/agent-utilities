@@ -40,6 +40,7 @@ def test_native_manifest_inventory_and_code_pins_are_deterministic():
 
     expected = {
         "ard",
+        "arxiv",
         "database",
         "external_graph",
         "filesystem",

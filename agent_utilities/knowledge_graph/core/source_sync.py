@@ -1420,6 +1420,7 @@ def _sync_rss(
     is the cross-run dedup.
     """
     from ...automation.feed_sources import (
+        _scholarx_mcp_configured,
         list_feed_sources,
         register_feed_nodes,
         scholarx_feed_documents,
@@ -1441,16 +1442,21 @@ def _sync_rss(
         ):
             native_url_set.add(str(node["feed_url"]))
     native_urls = sorted(native_url_set)
+    # ScholarX is reachable either via the local package (its own arXiv parser) or,
+    # per CONCEPT:AU-KG.ingest.research-connector-presets, via the fleet's scholarx-mcp server — either
+    # is sufficient to enable the research feed (``scholarx_feed_documents`` itself
+    # prefers the package and falls back to MCP).
     try:
         import scholarx  # noqa: F401
 
         scholarx_ok = True
     except Exception:  # noqa: BLE001
-        scholarx_ok = False
+        scholarx_ok = _scholarx_mcp_configured()
     if not native_urls and not scholarx_ok:
         return {
             "status": "skipped",
-            "reason": "no native RSS feeds (set KG_RSS_FEEDS) and scholarx not installed",
+            "reason": "no native RSS feeds (set KG_RSS_FEEDS) and scholarx not "
+            "configured (install scholarx or add scholarx-mcp to mcp_config)",
         }
 
     since = None if mode == "full" else _read_envelope_watermark(engine, "rss")
@@ -1499,6 +1505,100 @@ def _sync_rss(
         "source": "rss",
         "mode": mode,
         "delta_capable": True,
+        "items_seen": len(docs),
+        "ingested": report.ingested,
+        "relevant": report.relevant,
+        "marginal": report.marginal,
+        "research": report.research,
+        "skipped_unchanged": report.skipped,
+        "failed": report.failed,
+        "since": since,
+        "watermark": new_watermark or since,
+    }
+
+
+def _sync_arxiv(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Native arXiv category listings through the ONE world-model research gate.
+
+    Zero-infra sibling to ``rss``/``freshrss``/ScholarX (CONCEPT:AU-KG.ingest.arxiv-feed-connector, KG-7.3):
+    drains the native ``arxiv`` connector (``export.arxiv.org``, no MCP server or
+    account needed) and routes every item through
+    :meth:`WorldModelPipelineRunner.run_gated_ingest`, which recognizes it as
+    research (``origin.streamId="arxiv:api"``) and defers to the SAME
+    ``grade_and_enqueue_paper`` budget gate as FreshRSS-arXiv and ScholarX — this
+    connector only widens the funnel's mouth, never bypasses its throat.
+
+    **Opt-in only** (``KG_ARXIV_CATEGORIES``): an unscoped arXiv query is not a
+    valid listing (``ArxivConnector`` raises without categories), so this handler
+    skips cleanly rather than defaulting to a firehose-shaped category set.
+    """
+    from ...automation.feed_sources import upsert_feed_source
+    from ...automation.worldmodel_pipeline import WorldModelPipelineRunner
+    from ...core.config import config as _cfg
+    from ...protocols.source_connectors.base import ConnectorCheckpoint
+    from ...protocols.source_connectors.registry import build_connector
+
+    categories = [
+        c.strip()
+        for c in (getattr(_cfg, "kg_arxiv_categories", "") or "").split(",")
+        if c.strip()
+    ]
+    if not categories:
+        return {
+            "status": "skipped",
+            "reason": "arXiv not configured (set KG_ARXIV_CATEGORIES, e.g. 'cs.AI,cs.LG')",
+        }
+
+    for category in categories:
+        upsert_feed_source(
+            engine,
+            key=category,
+            source_system="arxiv",
+            feed_url=f"https://export.arxiv.org/api/query?search_query=cat:{category}",
+            kind="RssFeed",
+            name=f"arXiv {category}",
+        )
+
+    since = None if mode == "full" else _read_envelope_watermark(engine, "arxiv")
+    try:
+        max_results = int(getattr(_cfg, "kg_arxiv_max_results", 50) or 50)
+    except (TypeError, ValueError):
+        max_results = 50
+    conn = build_connector(
+        "arxiv", {"categories": categories, "max_results": max_results}
+    )
+    cp = ConnectorCheckpoint(watermark=since) if since else None
+    docs = list(conn.poll_all(cp)) if hasattr(conn, "poll_all") else list(conn.load())  # type: ignore[attr-defined]
+
+    report = WorldModelPipelineRunner(
+        engine=engine, connector="arxiv"
+    ).run_gated_ingest(docs)
+
+    iso_dates = [d.updated_at for d in docs if getattr(d, "updated_at", None)]
+    new_watermark = max(iso_dates) if iso_dates else None
+    if not report.failed and new_watermark and (since is None or new_watermark > since):
+        _ingest_graph_slice_via_envelope(
+            engine,
+            "arxiv",
+            [
+                {
+                    "id": "arxiv:review-checkpoint",
+                    "type": "SourceReviewCheckpoint",
+                    "updatedAt": new_watermark,
+                    "items_seen": len(docs),
+                }
+            ],
+            checkpoint=new_watermark,
+        )
+
+    return {
+        "status": "partial" if report.failed else "ok",
+        "source": "arxiv",
+        "mode": mode,
+        "delta_capable": True,
+        "categories": categories,
         "items_seen": len(docs),
         "ingested": report.ingested,
         "relevant": report.relevant,
@@ -4158,6 +4258,7 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "gitlab": _sync_gitlab,
     "freshrss": _sync_freshrss,
     "rss": _sync_rss,
+    "arxiv": _sync_arxiv,
     "jira": _sync_jira,
     "confluence": _sync_confluence,
     "plane": _sync_plane,
@@ -4346,6 +4447,14 @@ def _dispatch_sync_source(
                     "no client",
                     "credential",
                     "unconfigured",
+                    # A source is "configured" (e.g. its MCP server is registered
+                    # in mcp_config) but the connector PACKAGE that ships the
+                    # matching contributed mcp_tool preset isn't pip-installed in
+                    # this process — e.g. FreshRSS/ScholarX reached purely over
+                    # the wire without the freshrss-agent/scholarx package
+                    # co-installed (CONCEPT:AU-KG.ingest.research-connector-presets). Also a skip, not a
+                    # task failure — the preset genuinely isn't resolvable here.
+                    "unknown mcp_tool preset",
                 )
             ):
                 return {"status": "skipped", "source": source, "reason": str(exc)[:160]}
