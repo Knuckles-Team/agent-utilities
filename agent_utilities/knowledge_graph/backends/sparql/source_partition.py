@@ -82,6 +82,8 @@ KNOWN_SOURCE_SYSTEMS: frozenset[str] = frozenset(
         # feeds / research / media
         "rss",
         "freshrss",
+        "arxiv",
+        "scholarx",
         "archivebox",
         "audiobookshelf",
         "ard",

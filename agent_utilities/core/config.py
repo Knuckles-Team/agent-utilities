@@ -3528,6 +3528,14 @@ class AgentConfig(BaseSettings):
     # feeds added at runtime via graph_feeds live as :FeedSource nodes in the KG and
     # are swept too. Empty by default (a deployment opts in its feeds).
     kg_rss_feeds: str = Field(default="", alias="KG_RSS_FEEDS")
+    # CONCEPT:AU-KG.ingest.arxiv-feed-connector — native arXiv category codes (comma-separated, e.g.
+    # "cs.AI,cs.LG") the zero-infra `arxiv` connector polls through the SAME unified
+    # world-model gate as `rss`/`freshrss` (research items route to the budget-bounded
+    # ``grade_and_enqueue_paper`` path, never a firehose). Empty by default — an
+    # unscoped arXiv query is not supported (see ``ArxivConnector.configure``), so a
+    # deployment must opt in its categories.
+    kg_arxiv_categories: str = Field(default="", alias="KG_ARXIV_CATEGORIES")
+    kg_arxiv_max_results: int = Field(default=50, alias="KG_ARXIV_MAX_RESULTS")
     # SAI factory self-specialization (CONCEPT:AU-AHE.harness.sai-controller). LLM-free, bounded, and
     # propose-only (it only persists a SaiFactoryCycle metrics node — nothing is
     # merged or deployed), and a *no-op when there is too little transition history*,

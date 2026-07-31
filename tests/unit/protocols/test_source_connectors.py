@@ -908,3 +908,91 @@ def test_rss_connector_fetches_feeds_concurrently():
     # serial would be n*delay = 2.0s; concurrent (<=12 workers) must be far less
     assert elapsed < n * delay * 0.5, f"feeds not fetched concurrently: {elapsed:.2f}s"
     assert len(docs) == n * 2  # _RSS_XML has 2 entries per feed
+
+
+# ── Native arXiv connector (CONCEPT:AU-KG.ingest.arxiv-feed-connector) ──────────────────
+
+_ARXIV_ATOM = """<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2601.00090v1</id>
+    <title>Self-improving agent harnesses</title>
+    <summary>We study self-improving agent harnesses over a shared KG.</summary>
+    <published>2026-01-02T09:00:00Z</published>
+    <updated>2026-01-02T09:00:00Z</updated>
+    <author><name>A. Researcher</name></author>
+    <author><name>B. Researcher</name></author>
+    <category term="cs.AI"/>
+    <link href="http://arxiv.org/abs/2601.00090v1" rel="alternate"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2601.00090v1" type="application/pdf" rel="related"/>
+  </entry>
+</feed>"""
+
+
+@pytest.mark.concept("AU-KG.ingest.arxiv-feed-connector")
+def test_arxiv_connector_registered():
+    assert "arxiv" in set(list_sources())
+
+
+@pytest.mark.concept("AU-KG.ingest.arxiv-feed-connector")
+def test_arxiv_connector_requires_categories():
+    with pytest.raises(ValueError, match="categories"):
+        build_connector("arxiv", {"fetch_fn": lambda url, params: _ARXIV_ATOM})
+
+
+@pytest.mark.concept("AU-KG.ingest.arxiv-feed-connector")
+def test_arxiv_connector_parses_entries_and_shapes_record():
+    conn = build_connector(
+        "arxiv",
+        {"categories": ["cs.AI"], "fetch_fn": lambda url, params: _ARXIV_ATOM},
+    )
+    docs = list(conn.load())
+    assert len(docs) == 1
+    doc = docs[0]
+    # Canonical arxiv:<id> so this converges with the SAME paper arriving via
+    # FreshRSS/ScholarX (WorldModelPipelineRunner._arxiv_id dedup convergence).
+    assert doc.id == "arxiv:2601.00090"
+    assert doc.doc_type == "paper"
+    assert doc.title == "Self-improving agent harnesses"
+    assert doc.updated_at == "2026-01-02T09:00:00Z"
+    rec = doc.metadata["record"]
+    assert rec["id"] == "2601.00090"
+    assert rec["authors"] == ["A. Researcher", "B. Researcher"]
+    assert rec["pdf_url"] == "http://arxiv.org/pdf/2601.00090v1"
+    assert rec["origin"]["streamId"] == "arxiv:api"
+    assert doc.metadata["source_system"] == "arxiv"
+
+
+@pytest.mark.concept("AU-KG.ingest.arxiv-feed-connector")
+def test_arxiv_connector_dedups_cross_listed_categories():
+    conn = build_connector(
+        "arxiv",
+        {
+            "categories": ["cs.AI", "cs.LG"],
+            "fetch_fn": lambda url, params: _ARXIV_ATOM,
+        },
+    )
+    docs = list(conn.load())
+    assert len(docs) == 1  # same paper served by both categories → one document
+
+
+@pytest.mark.concept("AU-KG.ingest.arxiv-feed-connector")
+def test_arxiv_connector_poll_watermark_dedup():
+    conn = build_connector(
+        "arxiv",
+        {"categories": ["cs.AI"], "fetch_fn": lambda url, params: _ARXIV_ATOM},
+    )
+    b1 = conn.poll()
+    assert len(b1.documents) == 1
+    assert b1.checkpoint.watermark == "2026-01-02T09:00:00Z"
+    b2 = conn.poll(b1.checkpoint)  # unchanged listing → nothing new
+    assert b2.documents == []
+
+
+@pytest.mark.concept("AU-KG.ingest.arxiv-feed-connector")
+def test_arxiv_connector_dead_category_is_skipped():
+    def _boom(url, params):
+        raise RuntimeError("network fail")
+
+    conn = build_connector("arxiv", {"categories": ["cs.AI"], "fetch_fn": _boom})
+    assert list(conn.load()) == []  # a dead category never aborts the sweep
