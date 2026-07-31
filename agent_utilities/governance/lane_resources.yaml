@@ -34,11 +34,14 @@ resources:
     mechanism: partitioned_paths().stash_ref
     evidence: >-
       refs/stash is a SINGLE ref shared by all worktrees; six collisions across
-      38 worktrees. Prohibition alone does not hold: an actor with the
-      never-stash rule in front of it still reached for `git stash` reflexively,
-      because a clean tree for a moment is a real need. `lane park` supplies that
-      need against the per-lane ref, so the dangerous verb is unnecessary rather
-      than merely forbidden.
+      38 worktrees, plus four reflexive violations in one day by careful actors
+      with the never-stash rule in front of them. Prohibition alone does not
+      hold — but the lane that found a substitute stopped violating it. Two
+      distinct needs hide behind the reflex: (1) READ the pristine file while
+      yours is dirty -> `git show <ref>:<path>`, which mutates nothing and is the
+      common case; (2) actually PARK work -> a scratch commit on your own branch,
+      or `lane park` against the per-lane ref. Name the replacement or the rule
+      loses.
 
   - name: lane-scratch
     class: partition

@@ -213,13 +213,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     _lane_parser("status", "this lane's isolation, partitions, and live leases")
     _lane_parser("env", "shell exports that give this lane its own build/test state")
-    _lane_parser("classify", "the shared-resource -> arbitration-class table").add_argument(
+    _lane_parser(
+        "classify", "the shared-resource -> arbitration-class table"
+    ).add_argument(
         "--resource", default="", help="one resource instead of the whole table"
     )
     guard_p = _lane_parser("guard", "refuse a mutation that would destroy other work")
-    guard_p.add_argument(
-        "--operation", default="edit", help="what is being attempted"
-    )
+    guard_p.add_argument("--operation", default="edit", help="what is being attempted")
     guard_p.add_argument(
         "--reset", default="", help="path a global actor wants to reset or discard"
     )
@@ -232,9 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
     _lane_parser("unpark", "restore what `lane park` set aside")
     lease_p = _lane_parser("lease", "hold a LEASE-class resource, or report its holder")
     lease_p.add_argument("--resource", default="", help="LEASE-class resource name")
-    lease_p.add_argument(
-        "--operation", default="", help="why the lease is being taken"
-    )
+    lease_p.add_argument("--operation", default="", help="why the lease is being taken")
     lease_p.add_argument(
         "--ttl", dest="lease_ttl", type=int, default=1_800, help="lease TTL seconds"
     )
@@ -497,7 +495,9 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
             "stash_ref": parts.stash_ref,
             "note": (
                 "never `git stash` — refs/stash is one ref shared by every "
-                f"worktree; use `git stash create` + `git update-ref {parts.stash_ref}`"
+                "worktree. To READ a pristine file while yours is dirty use "
+                "`git show HEAD:<path>` (mutates nothing). To PARK work use a "
+                f"scratch commit on your branch, or `lane park` -> {parts.stash_ref}"
             ),
         }
     if action == "park":
@@ -543,7 +543,10 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
         }
     command = [a for a in getattr(args, "command_args", []) if a != "--"]
     if not command:
-        return {"resource": args.resource, "holder": lanes.lease_status(args.resource, path)}
+        return {
+            "resource": args.resource,
+            "holder": lanes.lease_status(args.resource, path),
+        }
     try:
         with lanes.hold_lease(
             args.resource,

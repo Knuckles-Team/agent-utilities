@@ -7,8 +7,8 @@ suffered has one shape:
 > **A background or global actor mutates state a lane assumed it owned.**
 
 Every rule that would have prevented those collisions was already written down
-when it was broken — ten documented violations in a single day, the last of them
-by a careful actor with the rule in front of it. So this design does not add
+when it was broken — **eleven documented violations in a single day**, by
+competent, honest actors who had the rule in front of them. So this design does not add
 rules. It classifies each shared resource into one of four classes and gives each
 class one mechanism that makes the dangerous path **fail loudly** instead of
 silently succeeding.
@@ -57,7 +57,7 @@ fail to exclude the actor that collides with you.
 |---|---|---|---|
 | cargo target dir | PARTITION | repo | A shared `CARGO_TARGET_DIR` serialises **and corrupts** concurrent builds |
 | pytest tmp | PARTITION | repo | ~28 concurrent pytest runs skewed a baseline into a near-false regression |
-| `refs/stash` | PARTITION | repo | One ref shared by 38 worktrees; six collisions |
+| `refs/stash` | PARTITION | repo | One ref shared by 38 worktrees; six collisions + four reflexive violations in a day |
 | lane scratch | PARTITION | repo | Lanes overwrote each other's intermediate state |
 | concept reservations | APPEND-ONLY | repo | A mutable shared ledger rewritten whole-file by many sessions |
 | deferred register | APPEND-ONLY | repo | 63 lane files + 3 program docs, no single authority |
@@ -73,11 +73,21 @@ hard error, not a default — you must classify a resource before contending for
 ## PARTITION — supply the affordance, don't just ban the verb
 
 The `git stash` rule is the instructive one. It was stated prominently and
-violated anyway, because *"I need a clean tree for a moment without losing work"*
-is a real need and `git stash` is the muscle-memory answer. Prohibition without a
-substitute guarantees recurrence.
+violated anyway — **four times in one day, across two independent lanes** — by
+careful actors who caught themselves and reported it. The lane that then *found a
+substitute* (`git show HEAD:<path>`) stopped violating it. The rule did not work;
+the alternative did.
 
-So `lane park` **is** the substitute. `git stash create` builds exactly the same
+Two different needs hide behind the reflex, and only one of them needs a stash at
+all:
+
+* **"Show me the pristine file while mine is dirty"** — the common case. Answer:
+  `git show <ref>:<path>`. It mutates nothing and works on a dirty tree. This is
+  the first thing to reach for.
+* **"Park my work briefly"** — answer: a scratch commit on your own branch, or
+  `lane park`.
+
+So `lane park` **is** the substitute for the second case. `git stash create` builds exactly the same
 stash commit but writes **no ref**; the lane's own ref is pointed at it, and only
 then is the tree cleaned. `lane unpark` applies it back.
 

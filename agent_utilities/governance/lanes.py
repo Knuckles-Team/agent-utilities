@@ -60,7 +60,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +73,7 @@ _LANE_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 _IN_PROGRESS_HEADS = ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD")
 
 
-class ArbitrationClass(str, Enum):
+class ArbitrationClass(StrEnum):
     """How a shared resource is arbitrated between concurrent lanes."""
 
     PARTITION = "partition"
@@ -197,7 +197,9 @@ def lane_scope(path: Path | str | None = None) -> LaneScope:
     if start.is_file():
         start = start.parent
     tree = Path(_git(["rev-parse", "--show-toplevel"], start)).resolve()
-    common = Path(_git(["rev-parse", "--path-format=absolute", "--git-common-dir"], tree))
+    common = Path(
+        _git(["rev-parse", "--path-format=absolute", "--git-common-dir"], tree)
+    )
     listing = _git(["worktree", "list", "--porcelain"], tree)
     main_line = next(
         (ln for ln in listing.splitlines() if ln.startswith("worktree ")), ""
@@ -465,9 +467,10 @@ def hold_lease(
         with _lease_mutex(scope, name):
             if lease_file.exists():
                 current = json.loads(lease_file.read_text(encoding="utf-8"))
-                if current.get("pid") == record["pid"] and current.get(
-                    "acquired_at"
-                ) == record["acquired_at"]:
+                if (
+                    current.get("pid") == record["pid"]
+                    and current.get("acquired_at") == record["acquired_at"]
+                ):
                     lease_file.unlink()
 
 
@@ -502,9 +505,12 @@ def _flow_line(record: dict[str, Any]) -> str:
     """One record as a single-line YAML flow mapping (the merge-safe unit)."""
     import yaml
 
-    return "- " + yaml.safe_dump(
-        record, default_flow_style=True, sort_keys=False, width=10_000
-    ).strip()
+    return (
+        "- "
+        + yaml.safe_dump(
+            record, default_flow_style=True, sort_keys=False, width=10_000
+        ).strip()
+    )
 
 
 @dataclass(frozen=True)
