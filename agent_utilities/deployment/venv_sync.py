@@ -2120,6 +2120,43 @@ def _pending_intent_count(workspace: Workspace) -> int:
     return len(list(directory.glob("*.json")))
 
 
+def session_start_hint(workspace: Workspace) -> str | None:
+    """A near-zero-cost drift check, safe to run on every agent session start.
+
+    CONCEPT:AU-OS.deployment.workspace-venv-reconciler (D-VS-6). ``detect_drift``
+    is the full picture, but two of its three checks (``lock_check``,
+    ``plan_sync``) spawn a real ``uv`` subprocess each — ~10s combined, an
+    operator-visible latency this lane declined to impose on every session
+    start by default. ``member_install_states`` is pure Python (reads
+    dist-info + ``pyproject.toml`` off disk, no subprocess), so it is the one
+    piece of drift detection cheap enough to run unconditionally. It also
+    covers the single highest-signal case: an editable member whose *source*
+    has moved (version, console scripts, editability) without a resync —
+    exactly what went undetected for ten days before this lane existed.
+
+    Returns ``None`` when there is nothing to say (clean, or the check itself
+    could not run) so a hooked-up caller stays silent on the common case;
+    never raises, so it can never turn a session-start hook into a failure.
+    """
+    try:
+        if not workspace.venv.is_dir():
+            return None
+        stale = [s for s in member_install_states(workspace) if s.stale]
+    except (OSError, VenvSyncError):  # noqa: BLE001 — best-effort session hint,
+        # never the reason a session fails to start; caller sees silence.
+        logger.debug("session_start_hint: drift check failed", exc_info=True)
+        return None
+    if not stale:
+        return None
+    names = ", ".join(sorted(s.member.name for s in stale)[:5])
+    more = f" (+{len(stale) - 5} more)" if len(stale) > 5 else ""
+    return (
+        f"agent-utilities-venv: {len(stale)} editable member(s) look stale in "
+        f"the shared venv ({names}{more}) — run `agent-utilities-venv status` "
+        "for the full report, `agent-utilities-venv sync` to reconcile."
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Upgrade / relock / rollback
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2512,6 +2549,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("verify", help="run the post-change health probes")
     sub.add_parser("members", help="per-member editable install state")
     sub.add_parser("activity", help="what the activity probes currently see")
+    sub.add_parser(
+        "session-hint",
+        help=(
+            "near-zero-cost drift check (D-VS-6), safe for a SessionStart hook: "
+            "silent when clean, never raises, no `uv` subprocess"
+        ),
+    )
 
     lease = sub.add_parser("lease", help="declare/release a do-not-swap window")
     lease.add_argument("action", choices=["acquire", "release", "list"])
@@ -2641,6 +2685,18 @@ def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
             as_json=as_json,
         )
         return 0 if not any(s.stale for s in states) else 3
+
+    if args.command == "session-hint":
+        # D-VS-6: deliberately never propagates a raised error and always
+        # exits 0 — a SessionStart hook command that can fail a session is a
+        # worse outcome than staying silent about drift for one session.
+        hint = session_start_hint(workspace)
+        if hint is not None:
+            if as_json:
+                emit({"hint": hint}, as_json=True)
+            else:
+                print(hint)
+        return 0
 
     if args.command == "activity":
         records = detect_activity(workspace)

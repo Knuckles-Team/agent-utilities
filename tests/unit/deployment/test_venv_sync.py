@@ -42,6 +42,7 @@ from agent_utilities.deployment.venv_sync import (
     evaluate_plan,
     exclusive_lock,
     member_install_states,
+    session_start_hint,
 )
 
 # Verbatim head/tail of the observed destructive plan (2026-07-31).
@@ -436,6 +437,53 @@ def test_dynamic_versions_are_not_reported_as_skew(workspace: Workspace) -> None
     )
     states = {s.member.name: s for s in member_install_states(workspace)}
     assert not states["alpha"].stale
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# session_start_hint (D-VS-6): near-zero-cost, safe on every session start
+# ─────────────────────────────────────────────────────────────────────────────
+def test_session_start_hint_is_silent_when_nothing_is_stale(
+    workspace: Workspace,
+) -> None:
+    assert session_start_hint(workspace) is None
+
+
+def test_session_start_hint_names_a_stale_editable_member(
+    workspace: Workspace,
+) -> None:
+    _write(
+        workspace.root / "pkgs" / "alpha" / "pyproject.toml",
+        '[project]\nname = "alpha"\nversion = "9.9.9"\n\n[project.scripts]\n'
+        'alpha = "alpha:main"\n',
+    )
+    hint = session_start_hint(workspace)
+    assert hint is not None
+    assert "alpha" in hint
+    assert "agent-utilities-venv status" in hint
+
+
+def test_session_start_hint_is_none_without_a_venv(tmp_path: Path) -> None:
+    root = tmp_path / "no-venv-ws"
+    _write(
+        root / "pyproject.toml",
+        '[project]\nname = "root-project"\nversion = "0.1.0"\ndependencies = []\n'
+        '\n[tool.uv.workspace]\nmembers = ["pkgs/*"]\n',
+    )
+    _write(
+        root / "pkgs" / "alpha" / "pyproject.toml",
+        '[project]\nname = "alpha"\nversion = "1.0.0"\n',
+    )
+    ws = Workspace.discover(root, uv="uv", state_dir=tmp_path / "state")
+    assert session_start_hint(ws) is None
+
+
+def test_session_start_hint_never_raises_on_a_broken_pyproject(
+    workspace: Workspace,
+) -> None:
+    """Malformed source metadata must degrade to silence, never a raised error —
+    a session-start hook that can crash a session is worse than no hint at all."""
+    _write(workspace.root / "pkgs" / "alpha" / "pyproject.toml", "not [valid toml")
+    assert session_start_hint(workspace) is None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
