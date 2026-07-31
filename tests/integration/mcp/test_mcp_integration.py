@@ -50,8 +50,12 @@ def test_mcp_server_ingestion_and_discovery(mock_create_model, graph_engine):
     )
 
     # 2. Verify CallableResources exist
+    # NOTE: every governed row must carry an id (secured_reads.row_node_ids /
+    # filter_rows fail-closed: "a projection that removes identity is not
+    # governable and is denied") -- so r.id is always projected alongside the
+    # fields under test.
     res = graph_engine.query_cypher(
-        "MATCH (r:CallableResource) RETURN r.name as name, r.resource_type as type"
+        "MATCH (r:CallableResource) RETURN r.id as id, r.name as name, r.resource_type as type"
     )
     assert len(res) == 2
     names = [r["name"] for r in res]
@@ -73,7 +77,8 @@ def test_mcp_server_ingestion_and_discovery(mock_create_model, graph_engine):
 
     # 5. Verify agent is linked to tools
     links = graph_engine.query_cypher(
-        "MATCH (a:SpawnedAgent {id: $aid})-[:USES]->(r:CallableResource) RETURN r.name as name",
+        "MATCH (a:SpawnedAgent {id: $aid})-[:USES]->(r:CallableResource) "
+        "RETURN r.id as id, r.name as name",
         {"aid": agent_id},
     )
     assert len(links) > 0
@@ -91,11 +96,12 @@ def test_mcp_metadata_linkage(graph_engine):
     ]
     graph_engine.ingest_mcp_server("DocServer", "http://docs.local", tools)
 
-    # Query via metadata tags
+    # Query via metadata tags. r.id is projected alongside name -- see the
+    # governed-row-id note in test_mcp_server_ingestion_and_discovery above.
     query = """
     MATCH (r:CallableResource)-[:HAS_METADATA]->(m:ToolMetadata)
     WHERE 'docs' IN m.tags
-    RETURN r.name as name
+    RETURN r.id as id, r.name as name
     """
     res = graph_engine.query_cypher(query)
     assert len(res) > 0
