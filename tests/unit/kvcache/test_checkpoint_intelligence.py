@@ -100,8 +100,11 @@ def _strong_observation(**overrides) -> CheckpointObservation:
         "tenant": "t1",
         "point": "post-plan",
         "rebuild": RebuildCostInputs(
-            prompt_tokens=55_000, completion_tokens=3_000, tool_calls=19,
-            retrievals=14, wall_time_s=110.0,
+            prompt_tokens=55_000,
+            completion_tokens=3_000,
+            tool_calls=19,
+            retrievals=14,
+            wall_time_s=110.0,
         ),
         "sibling_task_count": 5,
         "queued_task_count": 3,
@@ -126,8 +129,9 @@ def _weak_observation() -> CheckpointObservation:
     return CheckpointObservation(
         run_id="run-2",
         tenant="t1",
-        rebuild=RebuildCostInputs(prompt_tokens=400, tool_calls=0, retrievals=1,
-                                  wall_time_s=1.5),
+        rebuild=RebuildCostInputs(
+            prompt_tokens=400, tool_calls=0, retrievals=1, wall_time_s=1.5
+        ),
         sibling_task_count=0,
         queued_task_count=0,
         retrieved_items=10,
@@ -151,25 +155,35 @@ class _FakeDiskStore:
         self.created: list[dict] = []
         self.records: dict[str, KVCheckpointRecord] = {}
 
-    def create_checkpoint(self, data, *, key, run_id, point, session=None,
-                          provenance=None):
+    def create_checkpoint(
+        self, data, *, key, run_id, point, session=None, provenance=None
+    ):
         self.created.append(
             {
-                "data": data, "key": key, "run_id": run_id, "point": point,
+                "data": data,
+                "key": key,
+                "run_id": run_id,
+                "point": point,
                 "provenance": provenance or {},
             }
         )
         record = KVCheckpointRecord(
-            checkpoint_id=key.checkpoint_id, key=key,
-            blob_id=f"kvblob:{key.tenant}:d", digest="d", run_id=run_id, point=point,
-            size_bytes=len(data), created_at="2026-07-31T00:00:00Z",
+            checkpoint_id=key.checkpoint_id,
+            key=key,
+            blob_id=f"kvblob:{key.tenant}:d",
+            digest="d",
+            run_id=run_id,
+            point=point,
+            size_bytes=len(data),
+            created_at="2026-07-31T00:00:00Z",
             provenance=provenance or {},
         )
         self.records[record.checkpoint_id] = record
         return record
 
-    def get_checkpoint(self, checkpoint_id, *, requesting_tenant,
-                       current_policy_version=None):
+    def get_checkpoint(
+        self, checkpoint_id, *, requesting_tenant, current_policy_version=None
+    ):
         record = self.records.get(checkpoint_id)
         if record is None:
             raise KVCheckpointError(f"no checkpoint {checkpoint_id}")
@@ -312,12 +326,9 @@ def test_unmeasured_is_not_zero_for_rebuild_cost():
 
     scorer = RebuildCostScorer()
     assert scorer.score(CheckpointObservation()).abstained is True
-    assert (
-        scorer.score(
-            CheckpointObservation(rebuild=RebuildCostInputs(prompt_tokens=60_000))
-        ).value
-        == pytest.approx(1.0)
-    )
+    assert scorer.score(
+        CheckpointObservation(rebuild=RebuildCostInputs(prompt_tokens=60_000))
+    ).value == pytest.approx(1.0)
 
 
 def test_rebuild_cost_leaves_usd_none_for_an_unpriced_model():
@@ -334,6 +345,55 @@ def test_predicted_reuse_abstains_rather_than_inventing_a_number():
     signal = PredictedReuseScorer().score(CheckpointObservation())
     assert signal.abstained is True
     assert "no predicted-reuse model" in signal.rationale
+
+
+def test_from_prioritization_still_abstains_when_the_engine_has_no_predictor():
+    """A plain object with no predicted_reuse_from_context_overlap method must not
+    make from_prioritization invent anything (D-KCI-2's duck-typing contract)."""
+
+    class _NoPredictorEngine:
+        pass
+
+    observation = CheckpointObservation.from_prioritization(
+        _NoPredictorEngine(), "task-1"
+    )
+    signal = PredictedReuseScorer().score(observation)
+    assert signal.abstained is True
+
+
+def test_from_prioritization_carries_a_genuine_overlap_measurement_through():
+    """D-KCI-2: once an engine records real context overlap, the scorer receives a
+    genuine (possibly zero) measurement rather than an abstention."""
+    from agent_utilities.patterns.prioritization import (
+        PrioritizationEngine,
+        PrioritizedTask,
+    )
+
+    engine = PrioritizationEngine()
+    engine.add_task(
+        PrioritizedTask(
+            id="root",
+            description="root",
+            blocking_ids=["sib"],
+            context_keys=frozenset({"k1"}),
+        )
+    )
+    engine.add_task(
+        PrioritizedTask(
+            id="sib",
+            description="overlapping sibling",
+            blocked_by_ids=["root"],
+            context_keys=frozenset({"k1"}),
+        )
+    )
+
+    observation = CheckpointObservation.from_prioritization(engine, "root")
+    assert observation.sibling_task_count == 1
+    assert observation.queued_task_count == 0
+
+    signal = PredictedReuseScorer().score(observation)
+    assert signal.abstained is False
+    assert signal.value is not None and signal.value > 0.0
 
 
 def test_high_severity_contradiction_vetoes_an_otherwise_perfect_moment():
@@ -398,7 +458,8 @@ def test_disk_rule_fails_on_an_abstention_not_just_a_low_value():
     assert result.disk_verdict is not None
     assert not result.disk_verdict.satisfied
     assert any(
-        "predicted_reuse" in f and "abstained" in f for f in result.disk_verdict.failures
+        "predicted_reuse" in f and "abstained" in f
+        for f in result.disk_verdict.failures
     )
     assert any("disk not recommended" in b for b in result.blockers)
 
@@ -408,8 +469,9 @@ def test_disk_rule_names_exactly_which_requirement_failed():
         min_aggregate=0.0, required_signals={"context_stability": 0.99}
     )
     result = CheckpointAdvisor(disk_rule=rule).evaluate(
-        _strong_observation(context_rewrites=5, evicted_items=5,
-                            turns_since_context_change=0)
+        _strong_observation(
+            context_rewrites=5, evicted_items=5, turns_since_context_change=0
+        )
     )
     assert result.disk_verdict is not None and not result.disk_verdict.satisfied
     assert any("context_stability" in f for f in result.disk_verdict.failures)
@@ -430,7 +492,10 @@ def test_autonomous_path_takes_a_ram_checkpoint_when_scored_worthy(manager):
     """Crossing the threshold must actually STORE bytes, not merely return a verdict."""
     key = _key()
     outcome = manager.observe(
-        _strong_observation(), key=key, payload=b"kv-bytes", run_id="run-1",
+        _strong_observation(),
+        key=key,
+        payload=b"kv-bytes",
+        run_id="run-1",
         point="post-plan",
     )
     assert outcome.taken is True
@@ -496,8 +561,14 @@ def test_agent_initiated_persistence_never_reaches_the_durable_store(manager):
 
 def test_user_grant_persists_and_records_why(manager):
     outcome = manager.checkpoint_now(
-        b"kv", key=_key(), run_id="run-1", point="post-plan", trigger="user",
-        persist=True, operator_grant=True, observation=_strong_observation(),
+        b"kv",
+        key=_key(),
+        run_id="run-1",
+        point="post-plan",
+        trigger="user",
+        persist=True,
+        operator_grant=True,
+        observation=_strong_observation(),
     )
     assert outcome.tier is CheckpointTier.DISK
     assert len(manager.disk_store.created) == 1
@@ -516,7 +587,9 @@ def test_persist_without_a_grant_is_refused_even_for_a_user(manager):
     )
     assert outcome.tier is CheckpointTier.RAM
     assert manager.disk_store.created == []
-    assert "no explicit operator grant" in (outcome.eligibility.reason if outcome.eligibility else "")
+    assert "no explicit operator grant" in (
+        outcome.eligibility.reason if outcome.eligibility else ""
+    )
 
 
 def test_ram_residency_is_not_disk_consent(manager):
@@ -524,7 +597,9 @@ def test_ram_residency_is_not_disk_consent(manager):
     taken = manager.checkpoint_now(b"kv", key=_key(), trigger="user", persist=False)
     assert taken.tier is CheckpointTier.RAM
     promoted = manager.promote(
-        taken.checkpoint_id, requesting_tenant="t1", trigger="user",
+        taken.checkpoint_id,
+        requesting_tenant="t1",
+        trigger="user",
         operator_grant=False,
     )
     assert promoted.tier is CheckpointTier.RAM
@@ -575,7 +650,9 @@ def test_the_default_gate_reports_every_unanswerable_policy_question():
     )
     assert decision.permitted is True
     assert set(decision.unresolved) == {
-        "data_residency_region", "data_classification", "retention_period",
+        "data_residency_region",
+        "data_classification",
+        "retention_period",
     }
 
 
@@ -639,8 +716,14 @@ def test_ram_tier_refuses_an_empty_payload():
 
 def test_explain_returns_the_full_reasoning_for_a_persisted_checkpoint(manager):
     outcome = manager.checkpoint_now(
-        b"kv", key=_key(), run_id="run-1", point="post-plan", trigger="user",
-        persist=True, operator_grant=True, observation=_strong_observation(),
+        b"kv",
+        key=_key(),
+        run_id="run-1",
+        point="post-plan",
+        trigger="user",
+        persist=True,
+        operator_grant=True,
+        observation=_strong_observation(),
     )
     explanation = manager.explain(outcome.checkpoint_id, requesting_tenant="t1")
     assert explanation.tier is CheckpointTier.DISK
@@ -682,8 +765,9 @@ def test_recommend_publishes_the_advisory_for_the_next_model_call(manager):
 
 
 def test_advisory_names_its_blockers_and_missing_evidence(manager):
-    manager.recommend(_strong_observation(sibling_task_count=None,
-                                          queued_task_count=None))
+    manager.recommend(
+        _strong_observation(sibling_task_count=None, queued_task_count=None)
+    )
     rendered = render_checkpoint_advisory_instructions()
     assert "blockers:" in rendered
     assert "no evidence from:" in rendered
@@ -779,13 +863,25 @@ def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
     )
 
     common = dict(
-        graph="", model_identity="qwen3.6-27b", quantization="fp16",
-        serving_engine="vllm", engine_version="0.9.0",
-        prefix_digest=prefix_digest("ctx"), tenant="t1", policy_version="v1",
-        run_id="run-1", point="post-plan", requesting_tenant="t1",
-        observation_json="{}", evidence_bundle_json="{}",
-        context_bundle_json="{}", checkpoint_id="", data_b64="",
-        initiator="user", persist=False, operator_grant=False,
+        graph="",
+        model_identity="qwen3.6-27b",
+        quantization="fp16",
+        serving_engine="vllm",
+        engine_version="0.9.0",
+        prefix_digest=prefix_digest("ctx"),
+        tenant="t1",
+        policy_version="v1",
+        run_id="run-1",
+        point="post-plan",
+        requesting_tenant="t1",
+        observation_json="{}",
+        evidence_bundle_json="{}",
+        context_bundle_json="{}",
+        checkpoint_id="",
+        data_b64="",
+        initiator="user",
+        persist=False,
+        operator_grant=False,
     )
 
     taken = json.loads(
@@ -803,7 +899,9 @@ def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
     assert stats["result"]["eligibility_gate"] == "operator-grant-default"
     # A score is uninterpretable without knowing which signals produced it.
     assert {s["name"] for s in stats["result"]["scorers"]} >= {
-        "rebuild_cost", "contradictions", "model_self_report",
+        "rebuild_cost",
+        "contradictions",
+        "model_self_report",
     }
 
     refused = json.loads(
@@ -844,8 +942,12 @@ def test_mcp_recommend_action_returns_a_rendered_advisory(monkeypatch):
     )
     observation = json.dumps(
         {
-            "rebuild": {"prompt_tokens": 55000, "tool_calls": 19, "retrievals": 14,
-                        "wall_time_s": 110.0},
+            "rebuild": {
+                "prompt_tokens": 55000,
+                "tool_calls": 19,
+                "retrievals": 14,
+                "wall_time_s": 110.0,
+            },
             "sibling_task_count": 5,
             "retrieved_items": 20,
             "novel_items": 1,
@@ -861,12 +963,25 @@ def test_mcp_recommend_action_returns_a_rendered_advisory(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json=observation,
-            evidence_bundle_json="{}", context_bundle_json="{}", initiator="agent",
-            persist=False, operator_grant=False,
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="",
+            observation_json=observation,
+            evidence_bundle_json="{}",
+            context_bundle_json="{}",
+            initiator="agent",
+            persist=False,
+            operator_grant=False,
         )
     )
     assert "checkpoint-worthy: score" in payload["result"]["advisory"]
@@ -883,12 +998,25 @@ def test_mcp_recommend_rejects_a_malformed_observation(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json="[1,2,3]",
-            evidence_bundle_json="{}", context_bundle_json="{}", initiator="agent",
-            persist=False, operator_grant=False,
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="",
+            observation_json="[1,2,3]",
+            evidence_bundle_json="{}",
+            context_bundle_json="{}",
+            initiator="agent",
+            persist=False,
+            operator_grant=False,
         )
     )
     assert payload["error"]["code"] == "invalid_request"
@@ -905,10 +1033,20 @@ def test_mcp_recommend_derives_signals_from_handed_in_bundles(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json="{}",
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="",
+            observation_json="{}",
             evidence_bundle_json=json.dumps(
                 {
                     "claims": [{"id": "c1"}, {"id": "c2"}],
@@ -916,7 +1054,9 @@ def test_mcp_recommend_derives_signals_from_handed_in_bundles(monkeypatch):
                     "contradictions": [{"severity": "high"}],
                 }
             ),
-            context_bundle_json="{}", initiator="agent", persist=False,
+            context_bundle_json="{}",
+            initiator="agent",
+            persist=False,
             operator_grant=False,
         )
     )
@@ -937,13 +1077,24 @@ def test_mcp_explicit_observation_fields_win_over_a_bundle(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
             requesting_tenant="",
             observation_json=json.dumps({"claim_count": 99}),
             evidence_bundle_json=json.dumps({"claims": [{"id": "c1"}]}),
-            context_bundle_json="{}", initiator="agent", persist=False,
+            context_bundle_json="{}",
+            initiator="agent",
+            persist=False,
             operator_grant=False,
         )
     )
@@ -962,12 +1113,25 @@ def test_mcp_rejects_a_malformed_bundle(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json="{}",
-            evidence_bundle_json="[1,2,3]", context_bundle_json="{}",
-            initiator="agent", persist=False, operator_grant=False,
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="",
+            observation_json="{}",
+            evidence_bundle_json="[1,2,3]",
+            context_bundle_json="{}",
+            initiator="agent",
+            persist=False,
+            operator_grant=False,
         )
     )
     assert payload["error"]["code"] == "invalid_request"
@@ -984,12 +1148,24 @@ def test_mcp_rejects_an_unrecognized_initiator(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "checkpoint_now",
-            graph="", data_b64=base64.b64encode(b"kv").decode(),
-            model_identity="m", quantization="fp16", serving_engine="vllm",
-            engine_version="1", prefix_digest="abc", tenant="t1", policy_version="v1",
-            run_id="", point="", checkpoint_id="", requesting_tenant="t1",
-            observation_json="{}", evidence_bundle_json="{}",
-            context_bundle_json="{}", initiator="root", persist=True,
+            graph="",
+            data_b64=base64.b64encode(b"kv").decode(),
+            model_identity="m",
+            quantization="fp16",
+            serving_engine="vllm",
+            engine_version="1",
+            prefix_digest="abc",
+            tenant="t1",
+            policy_version="v1",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="t1",
+            observation_json="{}",
+            evidence_bundle_json="{}",
+            context_bundle_json="{}",
+            initiator="root",
+            persist=True,
             operator_grant=True,
         )
     )
