@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1059
+total_concepts: 1063
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1933,6 +1933,14 @@ concepts:
   code_paths:
   - agent_utilities/mcp/multiplexer.py
   doc: a SERVER-level load exposes only the condensed action
+- id: AU-ECO.multiplexer.running-vs-dispatchable-metrics
+  name: child health is
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: child health is
 - id: AU-ECO.multiplexer.tool-gateway-catalog
   name: catalog-aware, collision-free prefix assignment
   pillar: AU-ECO
@@ -8752,6 +8760,14 @@ concepts:
   code_paths:
   - agent_utilities/observability/runtime_health.py
   doc: AU-OS.observability.co-service-visibility
+- id: AU-OS.observability.delegation-run-metrics
+  name: the workflow twin
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/orchestration/manager.py
+  doc: the workflow twin
 - id: AU-OS.observability.deterministic-replay
   name: Deterministic Replay Engine
   pillar: AU-OS
@@ -8815,6 +8831,13 @@ concepts:
   - agent_utilities/observability/langfuse_exporter.py
   - agent_utilities/orchestration/engine.py
   doc: Langfuse exporter for spans, token usage and traces
+- id: AU-OS.observability.multiprocess-registry-guard
+  name: the classic
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/observability/gateway_metrics.py
+  doc: the classic
 - id: AU-OS.observability.no-op-without-metrics
   name: No-op without the metrics extra
   pillar: AU-OS
@@ -8835,6 +8858,13 @@ concepts:
   - agent_utilities/orchestration/scaling_signals.py
   - agent_utilities/server/__init__.py
   doc: No-op without the metrics extra
+- id: AU-OS.observability.otlp-trace-fanout
+  name: Export MUST fail soft — an
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/observability/__init__.py
+  doc: Export MUST fail soft — an
 - id: AU-OS.observability.per-lane-latency-metrics
   name: returns per-lane/stage latency percentiles + token/cost + the parallelism factor
   pillar: AU-OS

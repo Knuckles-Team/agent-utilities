@@ -392,7 +392,8 @@ class TelemetryEngine:
             try:
                 resolved_trace_headers, _ = _resolve_otel_headers(
                     endpoint=traces_endpoint,
-                    headers=str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "") or None,
+                    headers=str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "")
+                    or None,
                     public_key=None,
                     secret_key=None,
                 )

@@ -653,11 +653,14 @@ def _collection_registry() -> Any:
     logged loudly and falls back to the single-process registry rather than
     failing the scrape — a scrape that 500s hides the numbers entirely.
     """
-    import os
-
     from prometheus_client import REGISTRY
 
-    multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "").strip()
+    from agent_utilities.core.config import setting
+
+    # Read through the central accessor (never bare os.environ) — and note this
+    # is prometheus_client's OWN standard variable, set by whatever supervises
+    # the workers, not a flag this package invents.
+    multiproc_dir = str(setting("PROMETHEUS_MULTIPROC_DIR", "") or "").strip()
     if not multiproc_dir:
         return REGISTRY
     try:

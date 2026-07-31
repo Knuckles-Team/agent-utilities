@@ -334,9 +334,7 @@ class TestRunningVsDispatchable:
             == 1
         )
         assert (
-            _sample(
-                "agent_utilities_mcp_child_tools_mounted", {"server": "broken-mcp"}
-            )
+            _sample("agent_utilities_mcp_child_tools_mounted", {"server": "broken-mcp"})
             == 7
         )
         assert (
@@ -435,8 +433,9 @@ class TestRunningVsDispatchable:
         finally:
             mux_mod._LIVE_MULTIPLEXERS.discard(fake)
         text = body.decode()
-        assert 'agent_utilities_mcp_child_tools_dispatchable{server="sampled-mcp"} 1' in (
-            text
+        assert (
+            'agent_utilities_mcp_child_tools_dispatchable{server="sampled-mcp"} 1'
+            in (text)
         )
         assert 'agent_utilities_mcp_child_process_running{server="sampled-mcp"} 1' in (
             text

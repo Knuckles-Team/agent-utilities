@@ -90,6 +90,19 @@ either leave it a clean, zero-overhead no-op — today's behavior.
 install the `agent-utilities[otel]` extra for this pipeline alone, or
 `[logfire]`/`[serving]` (which already carry both transitively).
 
+**Sending traces somewhere other than the base collector.** The OTel-standard
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is honoured as the signal-specific override of
+`OTEL_EXPORTER_OTLP_ENDPOINT`, and (per spec) it is a **complete URL** — no `/v1/traces`
+is appended. This is how spans reach a trace store such as Tempo
+(`http://tempo.apps.svc.cluster.local:4318/v1/traces`) while the base endpoint stays
+pointed at an LLM-observability backend. When the trace destination differs from the base,
+OTLP auth is **re-resolved against the actual trace endpoint**, so a different host never
+receives the base collector's credentials.
+
+Export is **fail-soft but never silent**: a failed batch logs at ERROR (naming the cause,
+throttled to roughly one line per minute) and recovery logs at INFO, so an unreachable
+collector cannot masquerade as an idle system. graph-os itself is unaffected either way.
+
 Triggered once at process bootstrap — `mcp/kg_server.py`'s `mcp_server()` and
 `server/app.py`'s `app_factory()` — never per-request. What it exports:
 
@@ -125,6 +138,53 @@ send that bearer. The route is absent when the reference is unavailable.
 
 These are the server-side complement to the multiplexer's `agent_utilities_mcp_child_*`
 metrics. All metrics no-op without the optional `metrics` extra.
+
+**Scraping graph-os specifically.** graph-os runs `streamable-http` on `0.0.0.0`, so it is
+a non-loopback listener and the bearer above is mandatory — provision
+`MCP_METRICS_TOKEN` in the secret store and set `MCP_METRICS_TOKEN_REF=env://MCP_METRICS_TOKEN`.
+Two things then still trip a scraper up, both by design:
+
+- graph-os enforces an **exact `Host` allowlist** (`MCP_ALLOWED_HOSTS`). A pod-IP scrape is
+  answered `400 host rejected`, because a pod IP can never be allowlisted. Scrape the stable
+  Service authority and make sure that exact `host:port` string is in the allowlist.
+- The `/metrics` route is registered at **server build time**, so provisioning the token
+  requires a restart before the route appears.
+
+### Running vs dispatchable (never conflate them)
+
+A child MCP server's process being up is not the same fact as its tools being callable, and
+the metric names keep them apart — a dashboard must never sum across the two:
+
+| Metric | Type | Labels | Means |
+|---|---|---|---|
+| `agent_utilities_mcp_child_process_running` | gauge | `server` | PROCESS liveness only (child runtime state is `up`). |
+| `agent_utilities_mcp_child_tools_mounted` | gauge | `server` | Tools registered as live forwarders (dynamic mode mounts on demand). |
+| `agent_utilities_mcp_child_tools_dispatchable` | gauge | `server` | Mounted tools a call can reach now (process up AND breaker not open). |
+| `agent_utilities_mcp_servers_running` | gauge | — | Fleet count of running processes. |
+| `agent_utilities_mcp_servers_dispatchable` | gauge | — | Fleet count that can actually serve a call. Always `<=` running. |
+
+`MCPMultiplexer.status_snapshot()` is the single producer for both these gauges and the
+`multiplexer_status` tool, so the scrape and the tool cannot drift. They are sampled at
+scrape time via `gateway_metrics.register_scrape_sampler`.
+
+### Delegation
+
+`DISPATCH_*` covers the queue-consumed dispatch worker. The **in-process**
+`Orchestrator.execute_agent` / `execute_workflow` path — what `graph_orchestrate` takes —
+is covered separately:
+
+- `agent_utilities_delegation_runs_total{kind,target,outcome}` — `kind` is `agent|workflow`,
+  `outcome` is `ok|error|cancelled` (a cancellation is never counted as an error).
+- `agent_utilities_delegation_duration_seconds{kind,target}` (histogram, buckets out to 30 min)
+- `agent_utilities_delegation_in_flight{kind}` (gauge)
+
+### Multi-worker registries
+
+Metrics live in the default per-process registry, which is correct for one server process
+per pod. If a deployment ever puts a server behind a pre-fork worker pool it must set
+`PROMETHEUS_MULTIPROC_DIR`; `render_metrics()` then collects through
+`MultiProcessCollector` instead. A set-but-unusable value degrades to this worker's registry
+and logs at ERROR rather than silently under-reporting the others.
 
 ## Scrape coverage (auto-maintained)
 
