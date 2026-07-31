@@ -460,6 +460,14 @@ def test_autonomous_path_declines_and_never_materializes_the_payload(manager):
     assert "not checkpoint-worthy" in outcome.reason
 
 
+def test_autonomous_path_does_not_advise_the_model_it_already_acted(manager):
+    """`observe` acts; it must not ALSO tell the model to checkpoint, or a model reading
+    the advisory would take a duplicate of what the system just took."""
+    outcome = manager.observe(_strong_observation(), key=_key(), payload=b"kv")
+    assert outcome.taken is True
+    assert render_checkpoint_advisory_instructions() == ""
+
+
 def test_autonomous_path_cannot_reach_disk_on_its_own(manager):
     """A system-scored DISK verdict still produces only a RAM checkpoint plus a
     recorded refusal — visible evidence the system wanted to persist and could not."""

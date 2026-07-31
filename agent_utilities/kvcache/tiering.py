@@ -475,8 +475,13 @@ class TieredCheckpointManager:
         autonomous run that scores high enough for durable persistence still produces a
         RAM checkpoint plus a recorded, refused eligibility verdict — visible evidence
         that the system *wanted* to persist and was not permitted to.
+
+        Unlike :meth:`recommend`, this deliberately does **not** publish an advisory to
+        the model: this path *acts*, so telling the model "checkpoint-worthy, consider
+        checkpointing" right after the system already checkpointed would only invite a
+        duplicate. The agent path is for when the decision is the model's to make.
         """
-        recommendation = self.recommend(observation)
+        recommendation = self.advisor.evaluate(observation)
         if recommendation.recommended_tier is CheckpointTier.NONE:
             _record_tier_op("system", "none", "declined")
             return CheckpointOutcome(
