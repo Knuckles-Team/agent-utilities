@@ -67,12 +67,34 @@ import anyio
 
 # MCP protocol error (e.g. a terminated streamable-http session). SDK v2
 # (>=2.0.0, required by the `fastmcp>=4.0.0b1` floor of the `[mcp]` extra)
-# renamed `McpError` -> `MCPError`. This is a hard import on purpose: the old
-# `try/except ImportError` fallback left the name bound to the empty tuple `()`
-# after the rename, which made :func:`is_session_dead` return ``False`` for
-# every exception — silently disabling session-terminated recovery for the
-# whole child fleet instead of failing loudly.
-from mcp.shared.exceptions import MCPError
+# renamed `McpError` -> `MCPError`; SDK v1 (still what a deployed graph-os pod
+# resolves — measured 1.29.0 in the live fleet) exports only the old spelling.
+#
+# The invariant this must protect is "``MCPError`` names a REAL exception type":
+# the original `try/except ImportError` fallback left it bound to the empty tuple
+# `()` after the rename, which made :func:`is_session_dead` return ``False`` for
+# every exception and silently disabled session-terminated recovery for the whole
+# child fleet. Hard-importing only the v2 spelling protected that invariant but
+# traded one silent failure for a louder, WIDER one: on an SDK-v1 pod the
+# ImportError makes this module — and therefore `agent_utilities.mcp.multiplexer`
+# — unimportable, which takes out fleet-server URL resolution
+# (`agent_runner._fleet_server_url`) and the fleet meta-tools with it, so NO
+# delegation can bind a fleet tool server at all.
+#
+# Accepting either spelling is not a weakening: the type is still resolved from
+# the SDK, still never defaulted to a sentinel, and a genuinely missing symbol
+# still fails loudly below.
+try:  # MCP SDK v2
+    from mcp.shared.exceptions import MCPError
+except ImportError:  # MCP SDK v1 — same type, older name
+    try:
+        from mcp.shared.exceptions import McpError as MCPError
+    except ImportError as exc:  # neither spelling: fail loudly, never bind ()
+        raise ImportError(
+            "the installed MCP SDK exposes neither `MCPError` (v2) nor `McpError` "
+            "(v1) in mcp.shared.exceptions; child-session recovery cannot be armed "
+            "against an unknown protocol-error type"
+        ) from exc
 
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
 from agent_utilities.observability.gateway_metrics import (
