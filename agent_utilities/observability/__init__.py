@@ -194,6 +194,26 @@ def _resolve_traces_endpoint(base: str) -> str:
     return override or f"{base}/v1/traces"
 
 
+def _resolve_metrics_endpoint() -> str:
+    """Resolve the metrics-signal OTLP endpoint — explicit opt-in only (D-OG-3).
+
+    CONCEPT:AU-OS.observability.otlp-metrics-exporter-gated. Unlike traces,
+    there is no safe *default* derivation here: ``_setup_otel`` used to always
+    build a ``MeterProvider`` pointed at ``{base}/v1/metrics`` even though
+    neither of this deployment's actual OTLP destinations (Langfuse — traces
+    only; Tempo — traces only) accepts OTLP metrics, so the
+    ``PeriodicExportingMetricReader`` retried a structurally-404 endpoint
+    forever, pure noise with no destination that could ever succeed.
+    Prometheus's ``GET /metrics`` (:mod:`.gateway_metrics`) is this project's
+    real metrics path, so the OTLP MeterProvider is built ONLY when an
+    operator explicitly points it at a metrics-capable collector via the
+    OTel-standard ``OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`` — a COMPLETE URL, no
+    ``/v1/metrics`` suffix appended, mirroring :func:`_resolve_traces_endpoint`.
+    Traces are unaffected either way.
+    """
+    return str(setting("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "") or "").strip()
+
+
 def _resolve_otel_endpoint() -> str:
     """Resolve the canonical OTLP endpoint, preferring the engine collector.
 
@@ -378,7 +398,10 @@ class TelemetryEngine:
                 base = base.removesuffix(signal_path)
                 break
         traces_endpoint = _resolve_traces_endpoint(base)
-        metrics_endpoint = f"{base}/v1/metrics"
+        # D-OG-3: no default derivation — see :func:`_resolve_metrics_endpoint`.
+        # Empty string means "no metrics-capable collector configured", not
+        # "use the base collector"; the MeterProvider is skipped entirely below.
+        metrics_endpoint = _resolve_metrics_endpoint()
 
         # A signal-specific traces endpoint pointing somewhere OTHER than the
         # base collector must not carry the base collector's credentials — that
@@ -409,13 +432,37 @@ class TelemetryEngine:
                 )
                 trace_headers = {}
 
+        # Same non-reuse-across-origins rule as traces above, applied to an
+        # explicitly configured metrics endpoint (D-OG-3): a metrics collector
+        # named via OTEL_EXPORTER_OTLP_METRICS_ENDPOINT never inherits the base
+        # collector's credentials unless it resolves to the same origin.
+        metric_headers = headers
+        if metrics_endpoint and metrics_endpoint != f"{base}/v1/metrics":
+            try:
+                resolved_metric_headers, _ = _resolve_otel_headers(
+                    endpoint=metrics_endpoint,
+                    headers=str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "")
+                    or None,
+                    public_key=None,
+                    secret_key=None,
+                )
+                metric_headers = parse_otlp_headers(resolved_metric_headers)
+            except Exception as exc:
+                logger.warning(
+                    "TelemetryEngine: could not resolve auth for the "
+                    "metrics-signal endpoint %s (%s); "
+                    "exporting metrics without credentials.",
+                    metrics_endpoint,
+                    exc,
+                )
+                metric_headers = {}
+
         trust = None
         try:
             from agent_utilities.core.http_client import create_requests_session
 
             trust = _resolve_otel_transport(endpoint)
             trace_session = create_requests_session(transport_security=trust)
-            metric_session = create_requests_session(transport_security=trust)
             resource = Resource.create({"service.name": service_ref})
 
             tracer_provider = TracerProvider(resource=resource)
@@ -435,16 +482,26 @@ class TelemetryEngine:
                 )
             )
 
-            metric_reader = PeriodicExportingMetricReader(
-                OTLPMetricExporter(
-                    endpoint=metrics_endpoint,
-                    headers=headers,
-                    session=metric_session,
+            meter_provider: Any = None
+            if metrics_endpoint:
+                metric_session = create_requests_session(transport_security=trust)
+                metric_reader = PeriodicExportingMetricReader(
+                    OTLPMetricExporter(
+                        endpoint=metrics_endpoint,
+                        headers=metric_headers,
+                        session=metric_session,
+                    )
                 )
-            )
-            meter_provider = MeterProvider(
-                resource=resource, metric_readers=[metric_reader]
-            )
+                meter_provider = MeterProvider(
+                    resource=resource, metric_readers=[metric_reader]
+                )
+            else:
+                logger.info(
+                    "TelemetryEngine: OTLP metrics export left disabled — no "
+                    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT configured (D-OG-3). "
+                    "Prometheus GET /metrics (gateway_metrics.py) is this "
+                    "deployment's metrics path; traces still export normally."
+                )
         except Exception as exc:  # noqa: BLE001 — OTel setup must never crash the caller
             if trust is not None:
                 try:
@@ -461,17 +518,18 @@ class TelemetryEngine:
         self._meter_provider = meter_provider
         self._otel_transport_security = trust
         self._tracer = tracer_provider.get_tracer(service_ref)
-        self._meter = meter_provider.get_meter(service_ref)
-        self._token_counter = self._meter.create_counter(
-            "agent_utilities.llm.tokens",
-            unit="token",
-            description="LLM tokens observed per TelemetryEngine.on_response call.",
-        )
-        self._graph_run_counter = self._meter.create_counter(
-            "agent_utilities.graph.runs",
-            unit="run",
-            description="Graph executions observed per TelemetryEngine.on_graph_end call.",
-        )
+        if meter_provider is not None:
+            self._meter = meter_provider.get_meter(service_ref)
+            self._token_counter = self._meter.create_counter(
+                "agent_utilities.llm.tokens",
+                unit="token",
+                description="LLM tokens observed per TelemetryEngine.on_response call.",
+            )
+            self._graph_run_counter = self._meter.create_counter(
+                "agent_utilities.graph.runs",
+                unit="run",
+                description="Graph executions observed per TelemetryEngine.on_graph_end call.",
+            )
 
         # Register globally too (best-effort) so library instrumentation that
         # reads the ambient global provider (e.g. auto-instrumented HTTP
@@ -481,7 +539,8 @@ class TelemetryEngine:
         # ``configure()``) never breaks this engine's own export.
         try:
             otel_trace.set_tracer_provider(tracer_provider)
-            otel_metrics.set_meter_provider(meter_provider)
+            if meter_provider is not None:
+                otel_metrics.set_meter_provider(meter_provider)
         except Exception as exc:  # noqa: BLE001 — best-effort global registration
             logger.debug(
                 "TelemetryEngine: global OTel provider registration skipped "

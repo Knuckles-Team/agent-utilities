@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-547 typed fields · 352 runtime-only call-site inputs.
+547 typed fields · 356 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -843,6 +843,9 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_CARD_MODEL` | 1 |
 | `KG_CONCEPT_CODE_LINK` | 2 |
 | `KG_DAEMON_LOG_LEVEL` | 1 |
+| `KG_DAEMON_METRICS` | 1 |
+| `KG_DAEMON_METRICS_HOST` | 1 |
+| `KG_DAEMON_METRICS_PORT` | 1 |
 | `KG_DAEMON_ROLE` | 5 |
 | `KG_EA_WRITEBACK` | 1 |
 | `KG_EMBED_TIMEOUT` | 1 |
@@ -948,6 +951,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `OPENMAINT_TOKEN` | 1 |
 | `OPENMAINT_URL` | 1 |
 | `OTEL_EXPORTER_OTLP_HEADERS` | 2 |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | 1 |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | 1 |
 | `OTEL_SERVICE_NAME` | 2 |
 | `OTEL_TRACES_EXPORTER` | 1 |

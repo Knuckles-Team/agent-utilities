@@ -99,6 +99,19 @@ pointed at an LLM-observability backend. When the trace destination differs from
 OTLP auth is **re-resolved against the actual trace endpoint**, so a different host never
 receives the base collector's credentials.
 
+**Metrics are opt-in only, no default derivation (D-OG-3).** Unlike traces, the
+`MeterProvider`/`PeriodicExportingMetricReader` is built ONLY when an operator explicitly
+sets the OTel-standard `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` (also a complete URL, same
+non-appending rule and the same cross-origin auth re-resolution as traces). This deployment's
+two collectors — Langfuse (`/api/public/otel`) and Tempo — both accept OTLP **traces only**;
+deriving a default `{base}/v1/metrics` endpoint (the old behavior) built a `MeterProvider`
+that retried a structurally-404 destination forever, pure noise with no reachable endpoint.
+Prometheus `GET /metrics` (`gateway_metrics.py`, see above) is this project's real metrics
+path — leave `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` unset (the default posture) unless a
+genuine OTLP-metrics-capable collector is added to the stack. Traces export normally either
+way; `TelemetryEngine._token_counter`/`_graph_run_counter` simply stay `None` (a no-op) when
+metrics export is disabled.
+
 Export is **fail-soft but never silent**: a failed batch logs at ERROR (naming the cause,
 throttled to roughly one line per minute) and recovery logs at INFO, so an unreachable
 collector cannot masquerade as an idle system. graph-os itself is unaffected either way.

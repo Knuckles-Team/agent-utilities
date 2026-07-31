@@ -28,6 +28,120 @@ logger = logging.getLogger(__name__)
 _engine: Any = None
 _lock = threading.Lock()
 
+_metrics_lock = threading.Lock()
+_metrics_started = False
+
+
+def start_daemon_metrics_listener() -> bool:
+    """Expose this daemon's ``agent_utilities_*`` Prometheus registry over HTTP.
+
+    CONCEPT:AU-OS.observability.daemon-metrics-listener (D-OG-4). The
+    consolidated KG host daemon this module runs records the
+    ``SCHEDULED_JOB_*``/``LANE_*``/``KG_INGEST_*``/``DISPATCH_*`` families
+    (``observability/gateway_metrics.py``) into the SAME per-process
+    ``prometheus_client`` registry every other metric in this package uses —
+    but unlike graph-os (``server_factory.py``, port 8000) or the full
+    gateway (``gateway/graph_api.py``), the standalone entry point this
+    module's :func:`main` runs (``python3 -m agent_utilities.gateway.daemon``
+    — the ``graph-os-host`` container in the live pod) has NO HTTP server of
+    any kind. Half of the package's defined metric series were therefore
+    structurally uncollectable: recorded, but never scrapeable.
+    ``prometheus_client.start_http_server`` is deliberately the entire fix —
+    it starts a small background HTTP thread serving ``generate_latest()``
+    over the default registry; no new route table, no framework.
+
+    Only called from the standalone :func:`main` path, never from
+    :func:`start_host_daemon` directly — when this daemon instead runs
+    in-process inside the full gateway (mounted from its lifespan, per this
+    module's own docstring), that process already serves ``GET /metrics``
+    on its own HTTP port via ``graph_api.py``, reading the identical shared
+    registry; a second listener there would be redundant, not merely
+    harmless.
+
+    Bind address / auth — read the justification, this is a deliberate
+    judgment call, not a default:
+
+    Binds **pod-local** (``0.0.0.0`` inside the container; default port
+    ``9110``, ``KG_DAEMON_METRICS_PORT``) with **no bearer token** — unlike
+    graph-os's own ``/metrics`` (``server_factory.py``), which IS
+    bearer-gated on a non-loopback listener. That is not an inconsistency;
+    it is the same exposure judgment reaching the opposite answer because
+    the exposure itself differs:
+
+    * graph-os's ``/metrics`` (port 8000) lives on the SAME listener as the
+      public/Ingress-facing MCP tool-call surface (``graph-os.arpa``) — an
+      unauthenticated route there is reachable by anyone who can reach that
+      hostname, hence the bearer gate.
+    * This listener has no Service port and no Ingress route. Its only
+      intended consumer is Prometheus's ``kubernetes-pods-metrics-port`` job
+      (``role: pod``, zero-annotation discovery keyed on a container port
+      literally named ``metrics``), which itself only runs inside the
+      cluster's pod network — the same reachability tier as
+      node-exporter/cAdvisor, both already scraped unauthenticated
+      fleet-wide (see docs/architecture/observability.md's topology table).
+      This is that tier, not a broader one.
+    * The content is pure operational counts/durations/labels (schedule
+      names, lane names, queue depths) — never a secret, a tool-call
+      payload, or PII.
+    * A strictly loopback (``127.0.0.1``) bind — the posture the bundled
+      ``epistemic-graph-server`` engine itself uses for its own native
+      metrics listener — would be UNREACHABLE from Prometheus, which scrapes
+      via the Pod IP (the shared pod network's routable interface), not via
+      a process that merely shares the pod's network namespace. Pod-local
+      is the narrowest bind Prometheus's pod-IP scrape model can reach.
+
+    Never blocks daemon startup. Two distinct failure modes are both logged
+    at ERROR — loud, never swallowed — and both leave the daemon running
+    with no metrics listener, exactly as it behaved before this function
+    existed:
+
+    * the optional ``metrics`` extra (``prometheus-client``) is not
+      installed;
+    * the bind itself fails (port already in use, permission denied, ...).
+    """
+    global _metrics_started
+    if not setting("KG_DAEMON_METRICS", True):
+        logger.info("Daemon metrics listener disabled (KG_DAEMON_METRICS=false).")
+        return False
+    with _metrics_lock:
+        if _metrics_started:
+            return True
+        try:
+            from prometheus_client import start_http_server
+        except ImportError as exc:
+            logger.error(
+                "Daemon metrics listener NOT started: the optional 'metrics' "
+                "extra (prometheus-client) is not installed (%s). "
+                "SCHEDULED_JOB_*/LANE_*/KG_INGEST_*/DISPATCH_* series recorded "
+                "by this process will not be scrapeable until it is.",
+                exc,
+            )
+            return False
+        host = str(setting("KG_DAEMON_METRICS_HOST", "0.0.0.0") or "0.0.0.0")
+        port = int(setting("KG_DAEMON_METRICS_PORT", 9110) or 9110)
+        try:
+            start_http_server(port, addr=host)
+        except OSError as exc:
+            logger.error(
+                "Daemon metrics listener NOT started: could not bind %s:%d "
+                "(%s). The daemon continues running WITHOUT "
+                "a scrapeable metrics endpoint — SCHEDULED_JOB_*/LANE_*/"
+                "KG_INGEST_*/DISPATCH_* series stay uncollectable until this "
+                "is resolved.",
+                host,
+                port,
+                exc,
+            )
+            return False
+        _metrics_started = True
+        logger.info(
+            "Daemon metrics listener started on %s:%d "
+            "(CONCEPT:AU-OS.observability.daemon-metrics-listener).",
+            host,
+            port,
+        )
+        return True
+
 
 def mint_process_identity() -> Any:
     """Mint the standalone host daemon's verified graph authority.
@@ -355,6 +469,13 @@ def main() -> None:
                 "KG host is already running (exception_type=%s)", type(exc).__name__
             )
             raise SystemExit(2) from None
+
+        # D-OG-4: the standalone daemon has no HTTP server of its own — start
+        # one, best-effort, purely to expose the metrics this process already
+        # records (see start_daemon_metrics_listener's docstring for the
+        # bind/auth decision). Never fatal: logs loudly and continues on any
+        # failure.
+        start_daemon_metrics_listener()
 
         logger.info("graph-os host daemon running")
 
