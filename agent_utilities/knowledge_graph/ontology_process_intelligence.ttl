@@ -12,6 +12,12 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+:CHECKED_UNDER_PERSPECTIVE a owl:ObjectProperty ;
+    rdfs:label "checked under perspective" ;
+    rdfs:comment "Links a ConformanceRun to the versioned ProcessPerspective its traces were flattened under." ;
+    rdfs:domain :ConformanceRun ;
+    rdfs:range :ProcessPerspective .
+
 :ConformanceRun a owl:Class ;
     rdfs:label "Conformance Run" ;
     rdfs:comment "A versioned comparison of a process model with a frozen object-centric data slice." ;
@@ -24,6 +30,12 @@
     rdfs:label "Process Deviation" ;
     rdfs:comment "Evidence-backed behavioral, participation, state, or temporal deviation found by a ConformanceRun." ;
     rdfs:subClassOf prov:Entity .
+
+:HAS_DEVIATION a owl:ObjectProperty ;
+    rdfs:label "has deviation" ;
+    rdfs:comment "Links a ConformanceRun to one Deviation it found." ;
+    rdfs:domain :ConformanceRun ;
+    rdfs:range :Deviation .
 
 :HAS_EVENT a owl:ObjectProperty ;
     owl:equivalentProperty :ocelHasEvent .

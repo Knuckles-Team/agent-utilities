@@ -87,6 +87,42 @@ flowchart LR
     X --> V
 ```
 
+## Graph writeback — querying past conformance runs (CONCEPT:AU-KG.mining.process-conformance-checking)
+
+A `ConformanceRun`/`Deviation` result is not just an in-process return value —
+`process_conformance.conformance_run_graph_slice(run, deviations,
+source_ref=...)` renders it into the same canonical `(entities, links)` shape
+`ObjectCentricGraphSlice.to_graph_slice()` uses for OCEL, committed the same
+way (`ingest_graph_slice`, the multi-node writer every connector with more
+than one entity per delivery uses — never `ingest_envelope` directly on a raw
+multi-entity `ChangeEnvelope`, which silently collapses onto one untyped node;
+see [Governed JSON-OCEL exchange](governed_ocel.md)).
+`graph_mine(action="process", traces=..., object_ids=..., allowed_edges=...,
+model_ref=..., graph_as_of=..., mapping_version=..., export_digest=..., plus
+the disclosed perspective triple and `tenant`)` runs the check and commits:
+
+```mermaid
+flowchart LR
+    T["traces + object_ids\n+ allowed_edges + model_ref"] --> RC["run_conformance_check"]
+    RC --> CR[":ConformanceRun node"]
+    RC --> DV[":Deviation node(s)"]
+    CR -- CHECKED_UNDER_PERSPECTIVE --> PP[":ProcessPerspective\n(joins the OCEL commit's node)"]
+    CR -- HAS_DEVIATION --> DV
+    CR --> GS["ingest_graph_slice\n(connector='conformance')"]
+    DV --> GS
+```
+
+The `CHECKED_UNDER_PERSPECTIVE` edge targets the SAME node id an OCEL commit
+under the same `source_ref`/`perspective_id` already materialized
+(`_stable_id("process-perspective", source_ref, perspective_id)` — the exact
+scheme `to_graph_slice()` uses), so a conformance run joins the perspective
+node rather than creating a disconnected duplicate. Ontology: `:ConformanceRun`
+/`:Deviation` classes and the `:CHECKED_UNDER_PERSPECTIVE`/`:HAS_DEVIATION`
+properties in `ontology_process_intelligence.ttl`; SHACL shapes in
+`shapes/process_intelligence.shapes.ttl`
+(`tests/unit/knowledge_graph/test_process_conformance.py
+::test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes`).
+
 ## No undisclosed flattening
 
 Classical single-case flattening (one trace per object) is only reachable

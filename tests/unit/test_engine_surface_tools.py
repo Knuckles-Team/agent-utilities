@@ -1069,6 +1069,140 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
     assert calls == [("process", {"traces": [["create"]]})]
 
 
+def _fake_ingest_graph_slice_recorder(committed: list):
+    def _fake(engine, connector, entities, relationships, **kwargs):
+        committed.append(
+            {
+                "engine": engine,
+                "connector": connector,
+                "entities": entities,
+                "relationships": relationships,
+                **kwargs,
+            }
+        )
+        return {"status": "success", "idempotency_key": "fake-conformance-key"}
+
+    return _fake
+
+
+def test_graph_mine_process_conformance_check_commits_a_run_with_a_deviation(
+    monkeypatch, tools
+) -> None:
+    """CONCEPT:AU-KG.mining.process-conformance-checking (D-61-1) —
+    ``graph_mine(action="process", allowed_edges=...)`` runs a REAL conformance
+    check (never re-discovering the model from the traces it checks) and
+    commits the resulting ConformanceRun + Deviation nodes through
+    ``ingest_graph_slice``, exactly like the OCEL commit path."""
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
+    committed: list = []
+    import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest_module
+
+    monkeypatch.setattr(
+        envelope_ingest_module,
+        "ingest_graph_slice",
+        _fake_ingest_graph_slice_recorder(committed),
+    )
+
+    with use_actor(
+        ActorContext(
+            actor_id="conformance-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "traces": [["create", "ship"]],
+                        "object_ids": ["order-1"],
+                        "allowed_edges": [["create", "pack"]],
+                        "model_ref": "model:v1",
+                        "graph_as_of": "2026-01-01T00:00:00Z",
+                        "mapping_version": "ocel-json-2.0",
+                        "export_digest": "abc123",
+                        "object_type": "Order",
+                        "perspective_id": "case:order-view",
+                        "derivation_version": "v1",
+                        "tenant": "tenant-a",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    assert len(committed) == 1
+    commit = committed[0]
+    assert commit["engine"] == "fake-engine"
+    assert commit["connector"] == "conformance"
+    node_types = {node["node_type"] for node in commit["entities"]}
+    assert node_types == {"ConformanceRun", "Deviation"}
+    assert all(node["tenant_id"] == "tenant-a" for node in commit["entities"])
+    relationships = {link["relationship"] for link in commit["relationships"]}
+    assert relationships == {"CHECKED_UNDER_PERSPECTIVE", "HAS_DEVIATION"}
+
+    assert out["tekg"]["commit_status"] == "success"
+    assert out["conformance_run"]["model_ref"] == "model:v1"
+    assert len(out["deviations"]) == 1
+    deviation = out["deviations"][0]
+    assert deviation["kind"] == "unexpected_transition"
+    assert deviation["object_id"] == "order-1"
+    assert deviation["observed_activity"] == "ship"
+
+
+def test_graph_mine_process_conformance_check_no_deviations(monkeypatch, tools) -> None:
+    """A trace that only uses allowed edges reports zero deviations but still
+    commits the (reproducible) ConformanceRun — running the check and finding
+    nothing wrong is itself a real, queryable result."""
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
+    committed: list = []
+    import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest_module
+
+    monkeypatch.setattr(
+        envelope_ingest_module,
+        "ingest_graph_slice",
+        _fake_ingest_graph_slice_recorder(committed),
+    )
+
+    with use_actor(
+        ActorContext(
+            actor_id="conformance-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "traces": [["create", "pack"]],
+                        "object_ids": ["order-1"],
+                        "allowed_edges": [["create", "pack"]],
+                        "model_ref": "model:v1",
+                        "graph_as_of": "2026-01-01T00:00:00Z",
+                        "mapping_version": "ocel-json-2.0",
+                        "export_digest": "abc123",
+                        "object_type": "Order",
+                        "perspective_id": "case:order-view",
+                        "derivation_version": "v1",
+                        "tenant": "tenant-a",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    assert out["deviations"] == []
+    node_types = {node["node_type"] for node in committed[0]["entities"]}
+    assert node_types == {"ConformanceRun"}
+    relationships = {link["relationship"] for link in committed[0]["relationships"]}
+    assert relationships == {"CHECKED_UNDER_PERSPECTIVE"}
+
+
 def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):
     """'entity-resolution' normalizes to 'entity_resolution' (the existing
     hyphen->underscore fold) THEN resolves via the alias map to
