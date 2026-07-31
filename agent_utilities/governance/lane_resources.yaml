@@ -1,0 +1,92 @@
+# Shared-resource classification for concurrent lanes (CONCEPT:AU-OS.governance.lane-arbitration-classes).
+#
+# Every resource that more than one lane can touch belongs to exactly ONE
+# arbitration class, and each class has exactly one mechanism
+# (agent_utilities/governance/lanes.py):
+#
+#   partition    make it per-lane                -> partitioned_paths()
+#   append-only  make writes non-conflicting     -> FragmentStore
+#   lease        announce, others defer          -> hold_lease()
+#   read-only    forbid the mutation entirely    -> require_mutable_tree() /
+#                                                   require_resettable_tree()
+#
+# `evidence` is the real collision this row exists to prevent — every one of
+# these was observed, not hypothesised. Adding a resource is a row here, never a
+# new mechanism.
+resources:
+  - name: cargo-target-dir
+    class: partition
+    mechanism: partitioned_paths().cargo_target_dir
+    evidence: >-
+      A shared CARGO_TARGET_DIR both serialises and CORRUPTS concurrent
+      epistemic-graph worktree builds. The per-lane target dir was a convention
+      nothing enforced.
+
+  - name: pytest-tmp
+    class: partition
+    mechanism: partitioned_paths().pytest_basetemp
+    evidence: >-
+      ~28 concurrent pytest processes shared a basetemp and made a baseline
+      measurement read materially worse, nearly causing a false regression call.
+
+  - name: git-stash
+    class: partition
+    mechanism: partitioned_paths().stash_ref
+    evidence: >-
+      refs/stash is a SINGLE ref shared by all worktrees; six collisions across
+      38 worktrees. Use a branch, or the per-lane ref — never `git stash`.
+
+  - name: lane-scratch
+    class: partition
+    mechanism: partitioned_paths().scratch_dir
+    evidence: >-
+      Lanes writing scratch into the repo tree or a shared temp dir overwrite
+      each other's intermediate state.
+
+  - name: concept-reservations
+    class: append-only
+    mechanism: FragmentStore(docs/concept_reservations.d) folded to docs/concept_reservations.yaml
+    evidence: >-
+      docs/concept_reservations.yaml was a mutable shared ledger many sessions
+      rewrote whole-file; it needed repair via a verified line-union and several
+      lanes declined to commit it at all rather than clobber it.
+
+  - name: deferred-register
+    class: append-only
+    mechanism: reports/deferred/lane-*.md fragments folded to the generated program document
+    evidence: >-
+      63 lane files plus a program markdown, a wave plan, and a wave status file
+      left readers with no single authority and writers with shared files.
+
+  - name: dependency-lock
+    class: lease
+    mechanism: hold_lease("dependency-lock")
+    evidence: >-
+      One shared .venv and uv.lock across ~26 worktrees; a bare `uv sync` would
+      have uninstalled all 555 packages, the venv silently rotted for 10 days
+      hiding 13 real defects, and a lane observed another actor swapping
+      packages mid-run.
+
+  - name: precommit-all-files
+    class: lease
+    mechanism: hold_lease("precommit-all-files")
+    evidence: >-
+      `pre-commit run --all-files` can destroy unstaged work (D-OB-12) and
+      concurrent runs contend for the same caches; the safe wrapper existed but
+      nothing forced its use.
+
+  - name: reconciliation-merge
+    class: lease
+    mechanism: hold_lease("reconciliation-merge")
+    evidence: >-
+      A reconciliation gate accumulated 26 commits on a DETACHED HEAD with no
+      ref, having already orphaned an earlier correct merge resolution the same
+      way. Concurrent merges into the shared base are the cause.
+
+  - name: canonical-checkout
+    class: read-only
+    mechanism: require_mutable_tree() / require_resettable_tree()
+    evidence: >-
+      A background actor reset a canonical checkout mid-pre-commit and destroyed
+      ~20 minutes of a lane's work — precisely the window in which the lane
+      cannot yet commit. "Commit often" does not close this hole.
