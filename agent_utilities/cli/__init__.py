@@ -226,6 +226,11 @@ def build_parser() -> argparse.ArgumentParser:
     guard_p.add_argument(
         "--owner", default="", help="the lane that owns the reset target"
     )
+    guard_p.add_argument(
+        "command_args",
+        nargs=argparse.REMAINDER,
+        help="`-- <command>` to run under the guard (lease held across the mutation)",
+    )
     _lane_parser(
         "park", "clean this tree for a moment WITHOUT touching the shared refs/stash"
     )
@@ -523,12 +528,28 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
             ]
         }
     if action == "guard":
+        command = [a for a in getattr(args, "command_args", []) if a != "--"]
         try:
             if args.reset:
-                lanes.require_resettable_tree(
-                    args.reset, operation=args.operation, owner=args.owner or "unknown"
-                )
-                return {"allowed": True, "target": args.reset}
+                owner = args.owner or "unknown"
+                if not command:
+                    lanes.require_resettable_tree(
+                        args.reset, operation=args.operation, owner=owner
+                    )
+                    return {"allowed": True, "target": args.reset}
+                # The mutation itself runs INSIDE the guard, so the tree cannot go
+                # dirty between the check and the command — the whole point of the
+                # single choke point.
+                with lanes.guarded_tree_mutation(
+                    args.reset, operation=args.operation, owner=owner
+                ) as scope:
+                    completed = subprocess.run(command, check=False)  # noqa: S603
+                return {
+                    "allowed": True,
+                    "target": str(scope.tree),
+                    "command": command,
+                    "exit_code": completed.returncode,
+                }
             scope = lanes.require_mutable_tree(path, operation=args.operation)
             return {"allowed": True, "lane": scope.lane, "tree": str(scope.tree)}
         except lanes.LaneArbitrationError as exc:

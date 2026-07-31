@@ -90,7 +90,9 @@ def test_global_actor_cannot_reset_a_dirty_tree_it_does_not_own(
 ) -> None:
     """The exact collision: a background sync resetting a lane mid-pre-commit."""
     lane = _add_worktree(canonical, "lane-c")
-    (lane / "work_in_progress.py").write_text("# 20 minutes of work\n", encoding="utf-8")
+    (lane / "work_in_progress.py").write_text(
+        "# 20 minutes of work\n", encoding="utf-8"
+    )
     assert lanes.tree_has_uncommitted_work(lane) is True
     with pytest.raises(lanes.UnownedTreeError, match="uncommitted work"):
         lanes.require_resettable_tree(lane, operation="reset", owner="background-sync")
@@ -127,9 +129,7 @@ def test_lease_is_shared_across_worktrees_not_per_worktree(canonical: Path) -> N
     lane = _add_worktree(canonical, "lane-f")
     with lanes.hold_lease("precommit-all-files", operation="gate", path=canonical):
         with pytest.raises(lanes.LeaseUnavailable):
-            with lanes.hold_lease(
-                "precommit-all-files", operation="gate", path=lane
-            ):
+            with lanes.hold_lease("precommit-all-files", operation="gate", path=lane):
                 pytest.fail("worktrees took independent leases")
 
 
@@ -255,7 +255,9 @@ def test_two_lanes_park_independently(canonical: Path) -> None:
 
 
 def test_park_refuses_the_canonical_checkout(canonical: Path) -> None:
-    (canonical / "docs" / "concepts.yaml").write_text("concepts: []\n", encoding="utf-8")
+    (canonical / "docs" / "concepts.yaml").write_text(
+        "concepts: []\n", encoding="utf-8"
+    )
     with pytest.raises(lanes.CanonicalCheckoutError):
         lanes.park_worktree(canonical)
 
@@ -366,9 +368,7 @@ def test_reserving_from_a_worktree_never_writes_the_canonical_tree(
     before = (canonical / "docs" / "concept_reservations.yaml").read_text(
         encoding="utf-8"
     )
-    ca.reserve_concept_id(
-        "AU-KG.compute.isolated", session_id="lane", repo_root=lane
-    )
+    ca.reserve_concept_id("AU-KG.compute.isolated", session_id="lane", repo_root=lane)
     assert (canonical / "docs" / "concept_reservations.yaml").read_text(
         encoding="utf-8"
     ) == before
@@ -423,7 +423,9 @@ def test_every_known_collision_resource_is_classified() -> None:
 
 
 def test_an_unclassified_resource_is_a_hard_error() -> None:
-    with pytest.raises(lanes.LaneArbitrationError, match="unclassified shared resource"):
+    with pytest.raises(
+        lanes.LaneArbitrationError, match="unclassified shared resource"
+    ):
         lanes.resource_class("some-new-shared-thing")
 
 
@@ -442,7 +444,9 @@ def test_lane_report_names_the_canonical_checkout(canonical: Path) -> None:
     assert report["canonical_checkout"] == str(canonical)
     assert report["partitioned"]["stash_ref"].startswith("refs/lane/")
     assert set(report["leases"]) == {
-        r.name for r in lanes.resource_rules() if r.arbitration is lanes.ArbitrationClass.LEASE
+        r.name
+        for r in lanes.resource_rules()
+        if r.arbitration is lanes.ArbitrationClass.LEASE
     }
 
 
