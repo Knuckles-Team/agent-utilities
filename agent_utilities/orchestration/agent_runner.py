@@ -1824,6 +1824,36 @@ def _skill_unrunnable_reason(
     where = f" served by '{server}'" if server else ""
     if blocked:
         return f"unmet precondition '{blocked}'{where}"
+    # No recorded block reason. Do NOT assume the runnable resource is missing —
+    # asserting an absence without checking is how a diagnostic starts lying.
+    # Check, then report whichever is actually true.
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+
+    slug = skill_reference(skill_name).removeprefix("skill://")
+    try:
+        bound = engine.backend.execute(
+            "MATCH (r:CallableResource) WHERE r.id = $rid RETURN r.id AS id",
+            {"rid": f"resource:skill:{slug}"},
+        )
+    except Exception as exc:  # noqa: BLE001 — diagnostic only; say so plainly.
+        logger.warning(
+            "[ORCH-1.96] could not confirm the runnable resource for %s (%s)",
+            skill_name,
+            type(exc).__name__,
+            exc_info=True,
+        )
+        return f"its runnable resource could not be confirmed ({type(exc).__name__}: {exc})"
+    if bound:
+        # The resource EXISTS, so resolution failed later — in
+        # ``_hydrate_skill_runnable``, which fails closed on an incomplete body,
+        # a missing digest, or a digest that no longer matches the body.
+        return (
+            f"its runnable resource exists{where} but failed hydration — its "
+            "instruction body, digest, or source_ref is incomplete or no longer "
+            "matches (unmet precondition 'runnable_metadata_intact')"
+        )
     return (
         f"it is ingested{where} but has no runnable CallableResource "
         "(unmet precondition 'skill_body_served')"
