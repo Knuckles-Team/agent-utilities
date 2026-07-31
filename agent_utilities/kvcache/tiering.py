@@ -753,9 +753,7 @@ class TieredCheckpointManager:
         if record is not None:
             return CheckpointExplanation(
                 checkpoint_id=checkpoint_id,
-                tier=(
-                    CheckpointTier.DISK if record.promoted else CheckpointTier.RAM
-                ),
+                tier=(CheckpointTier.DISK if record.promoted else CheckpointTier.RAM),
                 trigger=record.trigger,
                 created_at=record.created_at,
                 size_bytes=record.size_bytes,
