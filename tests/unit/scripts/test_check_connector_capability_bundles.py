@@ -70,6 +70,39 @@ def _workspace(path: Path, providers: tuple[str, ...]) -> Path:
     return path
 
 
+def _registry_for_copied_bundle(repo: Path, tmp_path: Path) -> Path:
+    """Register ``repo`` under the alias its OWN copied preset already declares.
+
+    CONCEPT:AU-KG.ontology.registry-derived-server-alias — the generator now
+    derives every sync preset's ``server`` from the fleet registry and fails
+    closed on disagreement. This test exercises the real leanix-agent bundle
+    end to end through the gate machinery; it is not about what the live,
+    shipped ``deploy/mcp-fleet.registry.yml`` currently maps that provider to
+    (that is D-OB-7 drift the provider repo itself must fix). Register
+    whichever alias the copied preset already declares so this stays a test of
+    staging/gate behavior, not an assertion about live registry content.
+    """
+
+    declared: set[str] = set()
+    for presets_path in repo.glob("*/connectors/mcp_source_presets.json"):
+        data = json.loads(presets_path.read_text(encoding="utf-8"))
+        for value in data.values():
+            if isinstance(value, dict) and value.get("server"):
+                declared.add(str(value["server"]))
+    alias = declared.pop() if len(declared) == 1 else repo.name
+    path = tmp_path / f"{repo.name}-mcp-fleet.registry.yml"
+    path.write_text(
+        "version: 1\n"
+        "services:\n"
+        f"  - name: {alias}\n"
+        f"    package: {repo.name}\n"
+        f"    console_script: {alias}\n"
+        "    host_port: 8200\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _copy_current_bundle(tmp_path: Path, monkeypatch) -> _CopiedBundle:
     source_repo = gate._default_agents_root() / "leanix-agent"
     source_module = gate._module(source_repo)
@@ -104,12 +137,14 @@ def _copy_current_bundle(tmp_path: Path, monkeypatch) -> _CopiedBundle:
     )
     signer = ontology_integrity.ReleaseSigner.from_runtime()
     monkeypatch.setenv("ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS", signer.public_key)
+    registry_path = _registry_for_copied_bundle(repo, tmp_path)
     publications = generator._stage_one(
         repo,
         bundled_output=bundled_root,
         staging_root=tmp_path / "staging",
         now=datetime(2026, 7, 18, tzinfo=UTC),
         release_signer=signer,
+        registry_path=registry_path,
     )
     generator._publish_transaction(list(publications))
     certification = gate._load_json(certification_path)

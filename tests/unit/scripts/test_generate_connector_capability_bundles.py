@@ -52,6 +52,30 @@ def signer(monkeypatch: pytest.MonkeyPatch) -> ontology_integrity.ReleaseSigner:
     return ontology_integrity.ReleaseSigner.from_runtime()
 
 
+#: CONCEPT:AU-KG.ontology.registry-derived-server-alias — the generator now derives
+#: every sync preset's ``server`` from the fleet registry and fails closed when a
+#: provider is unregistered; register every synthetic provider this file builds.
+_REGISTRY = """\
+version: 1
+services:
+  - name: configured-agent
+    package: configured-agent
+    console_script: configured-agent
+    host_port: 8200
+  - name: rotated-agent
+    package: rotated-agent
+    console_script: rotated-agent
+    host_port: 8201
+"""
+
+
+@pytest.fixture
+def registry(tmp_path: Path) -> Path:
+    path = tmp_path / "mcp-fleet.registry.yml"
+    path.write_text(_REGISTRY, encoding="utf-8")
+    return path
+
+
 def _manifest() -> ConnectorManifest:
     return ConnectorManifest(
         connector="fixture-connector",
@@ -128,9 +152,12 @@ def test_source_attestation_never_claims_live_execution(
         "privacy_contract": "passed",
         "manifest_integrity": "passed",
     }
+    # CONCEPT:AU-KG.ontology.derived-compatibility-band — the band is a MINOR
+    # floor (>=MAJOR.MINOR.0,<MAJOR+1), derived from the pinned engine version,
+    # not restated as its literal patch.
     assert attestation["compatibility"] == {
         "agent_utilities": ">=2.1.0,<3",
-        "epistemic_graph": ">=2.23.1,<3",
+        "epistemic_graph": ">=2.23.0,<3",
         "bundle_schema": "2",
     }
     assert ontology_integrity.verify_release_signature(
@@ -160,13 +187,14 @@ def test_capability_gate_rejects_old_live_pass_shape() -> None:
     assert "source attestation shape differs" in violations
     assert "source attestation identity differs" in violations
     assert "source attestation checks differ" in violations
-    assert "source attestation compatibility differs" in violations
+    assert "source attestation compatibility shape differs" in violations
     assert "source attestation timestamp is invalid" in violations
     assert "source attestation artifact ledger is invalid" in violations
 
 
 def test_generation_uses_workspace_membership_and_one_signer(
     tmp_path: Path,
+    registry: Path,
     signer: ontology_integrity.ReleaseSigner,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -177,17 +205,20 @@ def test_generation_uses_workspace_membership_and_one_signer(
     workspace = _workspace(tmp_path / "workspace.yml", (configured.name,))
     calls = 0
 
-    def _runtime_signer(
-        cls: type[ontology_integrity.ReleaseSigner],
-    ) -> ontology_integrity.ReleaseSigner:
+    def _publication_signer(**_: object) -> ontology_integrity.ReleaseSigner:
+        # CONCEPT:AU-KG.ontology.release-key-rotation — the real resolver now
+        # requires versioned secret custody (vault:///secret://) and agreement
+        # with the real shipped ontology.lock, neither of which this workspace/
+        # generation test is about; stub the ONE preflight resolution point
+        # directly so "exactly one signer" stays what's under test here.
         nonlocal calls
         calls += 1
         return signer
 
     monkeypatch.setattr(
-        ontology_integrity.ReleaseSigner,
-        "from_runtime",
-        classmethod(_runtime_signer),
+        ontology_integrity,
+        "release_signer_for_publication",
+        _publication_signer,
     )
     monkeypatch.setattr(
         sys,
@@ -202,6 +233,8 @@ def test_generation_uses_workspace_membership_and_one_signer(
             str(workspace),
             "--now",
             "2026-07-18T00:00:00Z",
+            "--registry",
+            str(registry),
         ],
     )
 
@@ -214,6 +247,7 @@ def test_generation_uses_workspace_membership_and_one_signer(
 
 def test_staging_validates_rotated_manifest_against_current_signer(
     tmp_path: Path,
+    registry: Path,
     signer: ontology_integrity.ReleaseSigner,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -230,6 +264,7 @@ def test_staging_validates_rotated_manifest_against_current_signer(
     generator._stage_one(
         repo,
         bundled_output=tmp_path / "bundled",
+        registry_path=registry,
         staging_root=staging_root,
         now=datetime(2026, 7, 18, tzinfo=UTC),
         release_signer=signer,

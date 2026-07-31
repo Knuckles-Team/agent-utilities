@@ -20,6 +20,7 @@ from types import ModuleType
 
 import pytest
 
+from agent_utilities.knowledge_graph.ontology import ontology_integrity
 from agent_utilities.orchestration.fleet_reconciler import (
     FleetRegistryError,
     registry_server_alias,
@@ -69,8 +70,18 @@ services:
 
 
 @pytest.fixture
-def signer(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Manifest generation signs; the drift under test is orthogonal to the key."""
+def signer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> ontology_integrity.ReleaseSigner:
+    """Manifest generation signs; the drift under test is orthogonal to the key.
+
+    CONCEPT:AU-KG.ontology.release-key-rotation — publication signing now
+    requires versioned secret custody (``vault://``/``secret://``), which this
+    fixture's ``env://`` material intentionally is not. Return an explicit
+    signer built from that material (``ReleaseSigner.from_runtime`` has no such
+    restriction) so callers bypass the publication resolver entirely, the same
+    pattern used throughout the connector-manifest test suite.
+    """
 
     key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
     monkeypatch.setenv("ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL", key)
@@ -78,6 +89,7 @@ def signer(monkeypatch: pytest.MonkeyPatch) -> None:
         "ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF",
         "env://ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL",
     )
+    return ontology_integrity.ReleaseSigner.from_runtime()
 
 
 @pytest.fixture
@@ -115,11 +127,13 @@ def _provider(agents_root: Path, name: str, declared_server: str) -> Path:
 
 
 def test_the_alias_is_derived_from_the_registry(
-    tmp_path: Path, registry: Path, signer: None
+    tmp_path: Path, registry: Path, signer: ontology_integrity.ReleaseSigner
 ) -> None:
     repo = _provider(tmp_path / "agents", "widget-agent", "widget-mcp")
 
-    manifest = generator.build_manifest(repo, registry_path=registry)
+    manifest = generator.build_manifest(
+        repo, registry_path=registry, release_signer=signer
+    )
 
     assert [sync.server for sync in manifest.sync] == ["widget-mcp"]
     assert [sync.raw["server"] for sync in manifest.sync] == ["widget-mcp"]
@@ -146,11 +160,13 @@ def test_an_unregistered_provider_cannot_be_signed(
 
 
 def test_an_omitted_server_field_still_resolves(
-    tmp_path: Path, registry: Path, signer: None
+    tmp_path: Path, registry: Path, signer: ontology_integrity.ReleaseSigner
 ) -> None:
     repo = _provider(tmp_path / "agents", "widget-agent", "")
 
-    manifest = generator.build_manifest(repo, registry_path=registry)
+    manifest = generator.build_manifest(
+        repo, registry_path=registry, release_signer=signer
+    )
 
     assert [sync.server for sync in manifest.sync] == ["widget-mcp"]
 
