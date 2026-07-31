@@ -25,8 +25,14 @@ from agent_utilities.security.identifiers import (
 )
 
 from .base import GraphBackend
+from .mirror_target import MirrorTarget, resolve_mirror_target
 
 logger = logging.getLogger(__name__)
+
+# Apache AGE has no server-side "default graph" — a graph name is always
+# required — so this name plays the instance-default role when a connection
+# names none (CONCEPT:AU-KG.backend.mirror-target-graph).
+DEFAULT_GRAPH_NAME = "agent_graph"
 
 # Embedding dimension from env (must match model output)
 _EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
@@ -87,18 +93,30 @@ class PostgreSQLBackend(GraphBackend):
     def __init__(
         self,
         dsn: str,
-        graph_name: str = "agent_graph",
+        graph_name: str | None = None,
         pool_min: int = 2,
         pool_max: int = 10,
         pggraph_schema: str | None = None,
         pool_timeout: float | None = None,
+        mirror_target: MirrorTarget | None = None,
         tls_profile: str | None = None,
         tls_profile_ref: str | None = None,
         tls_profile_config: Mapping[str, Any] | None = None,
         profile_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
         self._dsn = dsn
-        self._graph_name = _require_sql_identifier(graph_name)
+        # CONCEPT:AU-KG.backend.mirror-target-graph — the AGE graph name IS this
+        # tier's isolation unit, so the resolved target picks it. An explicit
+        # ``graph_name`` stays exactly as configured (mode ``named``).
+        self.mirror_target = mirror_target or resolve_mirror_target(
+            None,
+            backend_type="age",
+            named_selector=graph_name,
+            default_name=DEFAULT_GRAPH_NAME,
+        )
+        self._graph_name = _require_sql_identifier(
+            self.mirror_target.name or DEFAULT_GRAPH_NAME
+        )
         self._pool_min = pool_min
         self._pool_max = pool_max
         # Bound the wait to acquire a connection (CONCEPT:AU-KG.backend.authority-write-tail). The default

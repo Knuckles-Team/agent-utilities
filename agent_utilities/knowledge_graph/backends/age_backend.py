@@ -24,6 +24,7 @@ import re
 import secrets
 from typing import Any
 
+from .mirror_target import cypher_target_has_data
 from .postgresql_backend import PostgreSQLBackend
 
 logger = logging.getLogger(__name__)
@@ -323,6 +324,43 @@ class AGEBackend(PostgreSQLBackend):
                     f"(node_id TEXT PRIMARY KEY, embedding vector({dim}))"
                 )
             conn.commit()
+
+    # ── Mirror target (CONCEPT:AU-KG.backend.mirror-target-graph) ────────────
+
+    def mirror_target_locator(self) -> str:
+        """Name the resolved target the way an AGE operator would."""
+        return (
+            f"{self.mirror_target.describe()} — Apache AGE graph {self._graph_name!r}"
+        )
+
+    def _age_graph_exists(self) -> bool:
+        """Whether ``ag_catalog`` already knows this graph."""
+        graph_name = _require_age_graph_name(self._graph_name)
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s", (graph_name,)
+                )
+                return cur.fetchone() is not None
+
+    def mirror_target_has_data(self) -> bool:
+        """Whether the selected AGE graph already holds vertices.
+
+        A graph AGE has never heard of holds nothing — and must not be queried
+        with ``cypher()``, which errors on an unknown graph.
+        """
+        if not self._age_graph_exists():
+            return False
+        return cypher_target_has_data(self)
+
+    def ensure_mirror_target(self) -> None:
+        """Create the dedicated AGE graph if absent — the existing create path.
+
+        ``create_schema`` already runs ``ag_catalog.create_graph`` for
+        ``self._graph_name`` (which the resolved target selects), so dedicating
+        a graph reuses it rather than inventing a second creation route.
+        """
+        self.create_schema()
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         vec = "[" + ",".join(repr(float(x)) for x in embedding) + "]"

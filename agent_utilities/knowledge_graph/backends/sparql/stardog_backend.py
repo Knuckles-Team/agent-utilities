@@ -49,10 +49,31 @@ from urllib.parse import quote
 
 from agent_utilities.core.config import setting
 
+from ..mirror_target import (
+    LEVEL_DATABASE,
+    LEVEL_GRAPH,
+    MirrorTarget,
+    database_for_target,
+    graph_iri_for_target,
+    resolve_mirror_target,
+)
 from .base import SparqlAdapter
 from .source_partition import graph_uri_for, route_graph_uri
 
 logger = logging.getLogger(__name__)
+
+# Stardog is the one mirror with TWO isolation levels — a database and a SPARQL
+# named graph (context). The named graph is the DEFAULT level for a dedicated
+# mirror target (CONCEPT:AU-KG.backend.mirror-target-graph) because it needs no
+# admin rights, it is the same mechanism this backend already uses to partition
+# by source, and "dedicate a graph" is literally what a named graph is. Declare
+# ``{"mode": "dedicated", "level": "database"}`` to isolate a whole database
+# instead.
+STARDOG_LEVELS = (LEVEL_GRAPH, LEVEL_DATABASE)
+
+# The database name used when nothing names one — Stardog has no server-side
+# default database, so this constant plays that role.
+DEFAULT_DATABASE = "agent_kg"
 
 # SPARQL-tier namespace — identical to JenaFusekiBackend so a mixed Fuseki/Stardog
 # deployment yields byte-identical IRIs for the same node/edge.
@@ -87,6 +108,7 @@ class StardogSparqlBackend(SparqlAdapter):
         database: str | None = None,
         username: str | None = None,
         password: str | None = None,
+        mirror_target: MirrorTarget | None = None,
     ) -> None:
         try:
             import stardog
@@ -101,7 +123,21 @@ class StardogSparqlBackend(SparqlAdapter):
         self._endpoint = endpoint or setting(
             "STARDOG_ENDPOINT", "http://localhost:5820"
         )
-        self._database = database or setting("STARDOG_DATABASE", "agent_kg")
+        # CONCEPT:AU-KG.backend.mirror-target-graph — one resolved target, mapped
+        # onto whichever of Stardog's two isolation units it names: a dedicated
+        # database, or (the default) a dedicated named graph inside the
+        # configured one. ``_mirror_graph`` non-None means EVERY write this
+        # backend makes lands in that one graph.
+        configured = database or setting("STARDOG_DATABASE", DEFAULT_DATABASE)
+        self.mirror_target = mirror_target or resolve_mirror_target(
+            None,
+            backend_type="stardog",
+            named_selector=database,
+            default_name=configured,
+            supported_levels=STARDOG_LEVELS,
+        )
+        self._database = database_for_target(self.mirror_target, configured)
+        self._mirror_graph = graph_iri_for_target(self.mirror_target)
         self._username = username or setting("STARDOG_USER", "admin")
         self._password = password or setting("STARDOG_PASSWORD", "admin")
         self._conn_details = {
@@ -112,10 +148,56 @@ class StardogSparqlBackend(SparqlAdapter):
         # Client-side embedding cache (Stardog has no native vector index here).
         self._embeddings: dict[str, list[float]] = {}
         logger.info(
-            "StardogSparqlBackend initialized: endpoint=%s, database=%s",
+            "StardogSparqlBackend initialized: endpoint=%s, database=%s, "
+            "mirror_graph=%s",
             self._endpoint,
             self._database,
+            self._mirror_graph or "(source-partitioned)",
         )
+
+    # ------------------------------------------------------------------
+    # Mirror target (CONCEPT:AU-KG.backend.mirror-target-graph)
+    # ------------------------------------------------------------------
+    def mirror_target_locator(self) -> str:
+        """Name the resolved target the way a Stardog operator would."""
+        where = (
+            f"named graph <{self._mirror_graph}>"
+            if self._mirror_graph
+            else "its source-partitioned + default graphs"
+        )
+        return (
+            f"{self.mirror_target.describe()} — Stardog database "
+            f"{self._database!r}, {where}"
+        )
+
+    def mirror_target_has_data(self) -> bool:
+        """Whether the resolved Stardog database already holds any triple.
+
+        Deliberately the whole database, not just the default graph: a mirror on
+        the instance default writes BOTH the default graph and its
+        ``urn:source:*`` partitions, so "is this instance already in use?" is the
+        honest question. A failed probe raises (rather than returning ``False``)
+        so the guard fails closed instead of reading an error row as "empty".
+        """
+        rows = self.execute_sparql_query(
+            "ASK { { ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } } }"
+        )
+        for row in rows or []:
+            if "error" in row:
+                raise RuntimeError(f"Stardog emptiness probe failed: {row['error']}")
+            if "result" in row:
+                return bool(row["result"])
+        raise RuntimeError("Stardog emptiness probe returned no ASK result")
+
+    def ensure_mirror_target(self) -> None:
+        """Ensure the dedicated target exists (idempotent).
+
+        Reuses the existing ensure-database step. A dedicated *named graph* needs
+        no creation — a SPARQL context exists as soon as it holds a triple — so
+        ensuring the database is the whole job at both levels. Dedicating a
+        database makes that step strict: it must actually exist.
+        """
+        self._ensure_database(strict=self.mirror_target.level == LEVEL_DATABASE)
 
     # ------------------------------------------------------------------
     # Connection / lifecycle
@@ -123,8 +205,14 @@ class StardogSparqlBackend(SparqlAdapter):
     def _connection(self):
         return self._stardog.Connection(self._database, **self._conn_details)
 
-    def create_schema(self) -> None:
-        """Ensure the Stardog database exists (idempotent)."""
+    def _ensure_database(self, *, strict: bool = False) -> None:
+        """Create the Stardog database if absent.
+
+        ``strict`` turns the historical best-effort into a hard failure — used
+        when the operator DEDICATED a database (CONCEPT:AU-KG.backend.mirror-target-graph),
+        where silently continuing against a database that was never created
+        would defeat the isolation they asked for.
+        """
         try:
             with self._stardog.Admin(**self._conn_details) as admin:
                 existing = [db.name for db in admin.databases()]
@@ -133,8 +221,17 @@ class StardogSparqlBackend(SparqlAdapter):
                         self._database, {"search.enabled": True, "reasoning.type": "SL"}
                     )
                     logger.info("Created Stardog database: %s", self._database)
-        except Exception as e:  # noqa: BLE001 — best-effort; server may forbid admin
+        except Exception as e:  # noqa: BLE001 — best-effort unless a database was dedicated
+            if strict:
+                raise RuntimeError(
+                    f"Stardog could not ensure the dedicated mirror database "
+                    f"{self._database!r} (creating a database needs admin rights)"
+                ) from e
             logger.debug("Stardog ensure-database skipped: %s", e)
+
+    def create_schema(self) -> None:
+        """Ensure the Stardog database exists (idempotent)."""
+        self._ensure_database()
 
     def close(self) -> None:
         self._embeddings.clear()
@@ -171,7 +268,7 @@ class StardogSparqlBackend(SparqlAdapter):
         except Exception as e:  # noqa: BLE001
             try:
                 conn.rollback()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — a failed rollback must not mask the original update error, which is logged and re-raised below
                 pass
             logger.error("Stardog SPARQL update failed: %s", e)
             raise
@@ -180,6 +277,7 @@ class StardogSparqlBackend(SparqlAdapter):
 
     def upload_graph(self, ttl_content: str, graph_uri: str | None = None) -> None:
         """Upload a Turtle graph into the named graph (or the default graph)."""
+        graph_uri = graph_uri or self._mirror_graph
         conn = self._connection()
         try:
             conn.begin()
@@ -194,7 +292,7 @@ class StardogSparqlBackend(SparqlAdapter):
         except Exception as e:  # noqa: BLE001
             try:
                 conn.rollback()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — a failed rollback must not mask the original update error, which is logged and re-raised below
                 pass
             logger.error("Stardog graph upload failed: %s", e)
             raise
@@ -359,16 +457,26 @@ class StardogSparqlBackend(SparqlAdapter):
         min_importance = float(criteria.get("min_importance", 0.0) or 0.0)
         if min_importance <= 0:
             return
+        # Scoped to the dedicated mirror graph when there is one, so a prune can
+        # never delete a co-tenant's triples (CONCEPT:AU-KG.backend.mirror-target-graph).
+        go, gc = (
+            self._graph_open(self._mirror_graph),
+            self._graph_close(self._mirror_graph),
+        )
         self.execute_sparql_update(
-            f"DELETE {{ ?s ?p ?o }} WHERE {{ ?s <{_NS}importance> ?imp . "
-            f"FILTER(xsd:float(?imp) < {min_importance}) ?s ?p ?o . }}"
+            f"DELETE {{ {go}?s ?p ?o .{gc} }} WHERE {{ {go}?s <{_NS}importance> ?imp . "
+            f"FILTER(xsd:float(?imp) < {min_importance}) ?s ?p ?o .{gc} }}"
         )
 
     def edge_count(self) -> int | None:
         """Total object-property triples between our nodes (drift counting)."""
+        go, gc = (
+            self._graph_open(self._mirror_graph),
+            self._graph_close(self._mirror_graph),
+        )
         rows = self.execute_sparql_query(
-            f"SELECT (COUNT(*) AS ?c) WHERE {{ ?s ?p ?o . "
-            f'FILTER(STRSTARTS(STR(?o), "{_NS}")) FILTER(?p != rdf:type) }}'
+            f"SELECT (COUNT(*) AS ?c) WHERE {{ {go}?s ?p ?o . "
+            f'FILTER(STRSTARTS(STR(?o), "{_NS}")) FILTER(?p != rdf:type){gc} }}'
         )
         try:
             return int(rows[0]["c"]) if rows and "c" in rows[0] else None
@@ -409,9 +517,16 @@ class StardogSparqlBackend(SparqlAdapter):
         if node_id is None:
             return
         s = self._iri(node_id)
-        # Guarded routing: records a default-graph landing by label (leak observability) and,
-        # under strict mode, refuses an un-sourced external entity (CONCEPT:AU-KG.ingest.default-graph-leak-guard).
-        g = route_graph_uri(params, label)
+        # A dedicated mirror graph (CONCEPT:AU-KG.backend.mirror-target-graph) takes
+        # precedence over source partitioning: EVERY triple lands in that one graph
+        # so the whole mirror is one droppable context, and nothing this backend
+        # writes can reach the instance's default or ``urn:source:*`` graphs. The
+        # ``source_system`` property is still written, so the partition remains
+        # queryable inside the mirror graph. Otherwise: guarded source routing —
+        # records a default-graph landing by label (leak observability) and, under
+        # strict mode, refuses an un-sourced external entity
+        # (CONCEPT:AU-KG.ingest.default-graph-leak-guard).
+        g = self._mirror_graph or route_graph_uri(params, label)
         go, gc = self._graph_open(g), self._graph_close(g)
         ops: list[str] = [f"INSERT DATA {{ {go}{s} a {self._iri(label)} .{gc} }}"]
         for key, val in params.items():
@@ -436,7 +551,9 @@ class StardogSparqlBackend(SparqlAdapter):
         """Emit an edge as a direct triple ``s <rel> t`` in the source's named graph."""
         if source_id is None or target_id is None:
             return
-        g = graph_uri_for(props or {})
+        # Dedicated mirror graph wins over source partitioning — see
+        # ``_upsert_node_triples`` (CONCEPT:AU-KG.backend.mirror-target-graph).
+        g = self._mirror_graph or graph_uri_for(props or {})
         go, gc = self._graph_open(g), self._graph_close(g)
         triple = f"{self._iri(source_id)} {self._iri(rel)} {self._iri(target_id)} ."
         self.execute_sparql_update(f"INSERT DATA {{ {go}{triple}{gc} }}")
