@@ -505,7 +505,17 @@ class Orchestrator:
         )
         from agent_utilities.core.contextual_model import use_grounding_policy
 
-        with priority_scope(_delegation_prio), use_grounding_policy(grounding):
+        # CONCEPT:AU-OS.observability.delegation-run-metrics — the in-process
+        # delegation path had no telemetry; this is the one seam every
+        # execute_agent call passes through, so count/duration/outcome land here
+        # rather than in each of the many callers.
+        from agent_utilities.observability.gateway_metrics import delegation_span
+
+        with (
+            priority_scope(_delegation_prio),
+            use_grounding_policy(grounding),
+            delegation_span("agent", agent_name),
+        ):
             result = await run_agent(
                 agent_name=agent_name,
                 task=task,
@@ -919,14 +929,19 @@ class Orchestrator:
             self._scan_task(task)
 
         logger.info(f"Executing workflow {workflow_id} via WorkflowRunner...")
+        from agent_utilities.observability.gateway_metrics import delegation_span
         from agent_utilities.workflows.runner import WorkflowRunner
 
         runner = WorkflowRunner(max_steps_per_agent=max_steps)
-        result = await runner.execute_by_name(
-            workflow_name=workflow_id,
-            engine=self.engine,
-            task=task or None,
-        )
+        # CONCEPT:AU-OS.observability.delegation-run-metrics — the workflow twin
+        # of the execute_agent recording above; ``kind`` keeps the two
+        # populations from merging when a workflow shares an agent's name.
+        with delegation_span("workflow", workflow_id):
+            result = await runner.execute_by_name(
+                workflow_name=workflow_id,
+                engine=self.engine,
+                task=task or None,
+            )
         payload = result.to_dict()
         # ORCH-1.97 — surface a stable run handle for the delegated workflow run.
         payload["run_id"] = result.session_id

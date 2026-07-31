@@ -110,6 +110,37 @@ _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS = frozenset(
 )
 _RUNTIME_CHILD_POLICY_INTERNAL_KEY = "_runtime_child_policy"
 _LIVE_MULTIPLEXERS: weakref.WeakSet[Any] = weakref.WeakSet()
+
+
+def _sample_child_health_gauges() -> None:
+    """Refresh every live multiplexer's child gauges for a ``/metrics`` scrape.
+
+    CONCEPT:AU-ECO.multiplexer.running-vs-dispatchable-metrics — child health is
+    live-object state, not an event stream, so it must be sampled at scrape time
+    or the gauges only ever move when somebody happens to call
+    ``multiplexer_status``. ``status_snapshot()`` publishes the gauges itself,
+    so calling it IS the sample.
+    """
+    for multiplexer in tuple(_LIVE_MULTIPLEXERS):
+        multiplexer.status_snapshot()
+
+
+def _register_child_health_sampler() -> None:
+    """Hook :func:`_sample_child_health_gauges` into the metrics scrape path."""
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            register_scrape_sampler,
+        )
+
+        register_scrape_sampler(_sample_child_health_gauges)
+    except Exception as exc:
+        logger.warning(
+            "Could not register the multiplexer child-health metrics sampler "
+            "(exception_type=%s): %s — mounted/dispatchable gauges will only "
+            "refresh when multiplexer_status is called.",
+            type(exc).__name__,
+            exc,
+        )
 _ENV_RUNTIME_REF_RE = re.compile(r"^env://([A-Z][A-Z0-9_]{0,127})$")
 _STORE_RUNTIME_REF_RE = re.compile(
     r"^(?:vault|secret)://[A-Za-z0-9][A-Za-z0-9_./#-]{0,511}$"
@@ -1014,6 +1045,7 @@ class MCPMultiplexer:
         self._catalog_reload_tasks: set[asyncio.Task[Any]] = set()
         self._authority_scope: Any = None
         _LIVE_MULTIPLEXERS.add(self)
+        _register_child_health_sampler()
 
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
@@ -2621,12 +2653,37 @@ class MCPMultiplexer:
             wanted.update(t.name for t in self.prefixed_tools_for_server(server))
         return sorted(n for n in wanted if n in self.tool_to_server)
 
+    def _mounted_tool_counts(self) -> dict[str, int]:
+        """Live forwarding tools currently registered, per child server.
+
+        ``_exposed`` holds the prefixed names registered as real FastMCP tools;
+        ``tool_to_server`` resolves each back to its child. In dynamic mode a
+        catalogued-but-unmounted child legitimately counts zero.
+        """
+        counts: dict[str, int] = {name: 0 for name in self.children}
+        for prefixed in self._exposed:
+            entry = self.tool_to_server.get(prefixed)
+            if entry is not None:
+                counts[entry[0]] = counts.get(entry[0], 0) + 1
+        return counts
+
     def status_snapshot(self) -> dict[str, Any]:
-        """Fleet health surface: per-child state, limits, load, restarts."""
-        return {
+        """Fleet health surface: per-child state, limits, load, restarts.
+
+        CONCEPT:AU-ECO.multiplexer.running-vs-dispatchable-metrics — this is the
+        ONE producer of child health, rendered two ways: the
+        ``multiplexer_status`` tool returns the dict, and the Prometheus child
+        gauges are published from the very same dict on the way out, so the
+        scrape and the tool can never disagree. ``mounted_tools`` makes the
+        process-up / tools-callable distinction explicit in the payload instead
+        of leaving it implied by a child's absence from ``children``.
+        """
+        mounted = self._mounted_tool_counts()
+        snapshot = {
             "children": {
                 name: {
                     **runtime.status(),
+                    "mounted_tools": mounted.get(name, 0),
                     **(
                         {"catalog_fingerprint": self._child_catalog_fingerprints[name]}
                         if name in self._child_catalog_fingerprints
@@ -2638,6 +2695,22 @@ class MCPMultiplexer:
             "total_children": len(self.children),
             "total_tools": len(self.aggregated_tools),
         }
+        try:
+            from agent_utilities.observability.gateway_metrics import (
+                publish_multiplexer_child_gauges,
+            )
+
+            publish_multiplexer_child_gauges(snapshot)
+        except Exception as exc:
+            # Metrics must never break the health surface — but never silently:
+            # a health snapshot that stopped feeding the scrape is exactly the
+            # kind of blind spot these gauges exist to remove.
+            logger.warning(
+                "Could not publish multiplexer child gauges (exception_type=%s): %s",
+                type(exc).__name__,
+                exc,
+            )
+        return snapshot
 
     async def aclose(self) -> None:
         """Shut down every child runtime and direct stack registration."""

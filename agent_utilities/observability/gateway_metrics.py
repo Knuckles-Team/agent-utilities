@@ -31,6 +31,8 @@ container. See ``docs/architecture/gateway_scaling.md``.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import time
 from typing import Any
@@ -42,11 +44,18 @@ __all__ = [
     "GATEWAY_RATE_LIMITED",
     "GATEWAY_REQUEST_DURATION",
     "GATEWAY_REQUESTS",
+    "BUS_DISPATCH",
+    "BUS_MESSAGES",
+    "BUS_PARTICIPANTS",
+    "BUS_SEND_DURATION",
     "CONTEXT_COMPILER_ITEMS",
     "CONTEXT_COMPILER_KV_CACHE",
     "CONTEXT_COMPILER_TOKENS",
     "CONTEXT_COMPILER_TTFT",
     "DB_CALLS",
+    "DELEGATION_DURATION",
+    "DELEGATION_IN_FLIGHT",
+    "DELEGATION_RUNS",
     "DISPATCH_QUEUE_DEPTH",
     "DISPATCH_TURNS",
     "DISPATCH_WORKERS",
@@ -65,8 +74,13 @@ __all__ = [
     "LANE_QUEUE_DEPTH",
     "MCP_CHILD_BREAKER_STATE",
     "MCP_CHILD_CALLS",
+    "MCP_CHILD_PROCESS_RUNNING",
     "MCP_CHILD_QUEUE_DEPTH",
     "MCP_CHILD_RESTARTS",
+    "MCP_CHILD_TOOLS_DISPATCHABLE",
+    "MCP_CHILD_TOOLS_MOUNTED",
+    "MCP_SERVERS_DISPATCHABLE",
+    "MCP_SERVERS_RUNNING",
     "MCP_TOOL_CALLS",
     "MCP_TOOL_DURATION",
     "MCP_TOOL_IN_FLIGHT",
@@ -76,8 +90,11 @@ __all__ = [
     "SKILL_CALLS",
     "TOOL_CALLS",
     "GatewayMetricsMiddleware",
+    "delegation_span",
     "metrics_asgi_endpoint",
     "metrics_endpoint",
+    "publish_multiplexer_child_gauges",
+    "register_scrape_sampler",
     "render_metrics",
 ]
 
@@ -282,6 +299,57 @@ MCP_CHILD_QUEUE_DEPTH = _gauge(
     ("server",),
 )
 
+# Running vs dispatchable — the ONE distinction these series exist to preserve
+# (CONCEPT:AU-ECO.multiplexer.running-vs-dispatchable-metrics). A child process
+# being up is NOT the same fact as its tools being callable: a mounted child
+# whose circuit breaker is open, or one whose tools were never registered as
+# live FastMCP forwarders, is `running` yet dispatches nothing. Conflating the
+# two is precisely the lie the multiplexer's health surface removed, so the
+# metric names keep them apart and a dashboard must never sum them together:
+#
+#   * ``*_process_running`` / ``*_servers_running``  → PROCESS-level fact only.
+#   * ``*_tools_dispatchable`` / ``*_servers_dispatchable`` → can a tool call
+#     actually be served right now (child up AND breaker not open).
+#   * ``*_tools_mounted`` → registered as live forwarding tools (dynamic mode
+#     mounts on demand, so mounted <= aggregated and mounted != dispatchable).
+#
+# Sampled by ``MCPMultiplexer.status_snapshot()`` — the same call that renders
+# the ``multiplexer_status`` tool — so the gauge and the tool can never drift.
+# ``server`` is bounded by mcp_config.json (~50 children).
+MCP_CHILD_PROCESS_RUNNING = _gauge(
+    "agent_utilities_mcp_child_process_running",
+    "Per-child PROCESS liveness only (1 = the child runtime reports state 'up', "
+    "0 = starting/restarting/failed). This is NOT dispatchability — see "
+    "agent_utilities_mcp_child_tools_dispatchable.",
+    ("server",),
+)
+MCP_CHILD_TOOLS_MOUNTED = _gauge(
+    "agent_utilities_mcp_child_tools_mounted",
+    "Per-child tools currently registered as live forwarding tools on this "
+    "multiplexer (dynamic mode mounts on demand, so this is <= the child's "
+    "aggregated catalog size).",
+    ("server",),
+)
+MCP_CHILD_TOOLS_DISPATCHABLE = _gauge(
+    "agent_utilities_mcp_child_tools_dispatchable",
+    "Per-child mounted tools that a call could actually be dispatched to right "
+    "now (child process up AND its circuit breaker not open). Always <= "
+    "agent_utilities_mcp_child_tools_mounted; the gap is the degraded set.",
+    ("server",),
+)
+MCP_SERVERS_RUNNING = _gauge(
+    "agent_utilities_mcp_servers_running",
+    "Child servers whose PROCESS is up. Fleet-level twin of "
+    "agent_utilities_mcp_child_process_running — a process-liveness count, "
+    "never a dispatchability claim.",
+)
+MCP_SERVERS_DISPATCHABLE = _gauge(
+    "agent_utilities_mcp_servers_dispatchable",
+    "Child servers that can serve a tool call right now (process up, breaker "
+    "not open, at least one tool mounted). The truthful fleet-capability "
+    "number; always <= agent_utilities_mcp_servers_running.",
+)
+
 # Runtime usage granularity (CONCEPT:AU-OS.observability.persist-this-graph-run): per-tool / per-skill / per-db
 # call counters, siblings of MCP_CHILD_CALLS. Emitted alongside the usage-store
 # rows so the same data is visible in both Prometheus and /api/observability.
@@ -342,6 +410,35 @@ DISPATCH_TURNS = _counter(
 DISPATCH_WORKERS = _gauge(
     "agent_utilities_dispatch_workers",
     "Live agent-dispatch workers (fresh heartbeats in the fleet registry).",
+)
+
+# In-process delegation visibility (CONCEPT:AU-OS.observability.delegation-run-metrics).
+# The DISPATCH_* family above measures the QUEUE-consumed path
+# (agent_dispatch_worker.execute_agent_turn); these measure the synchronous
+# ``Orchestrator.execute_agent``/``execute_workflow`` calls that
+# ``graph_orchestrate`` and every in-process delegate actually take — the path
+# that had no telemetry at all, which is why delegation reliability could only
+# be debugged by reading run traces after the fact. ``target`` is the agent or
+# workflow name (bounded by the registered fleet/workflow set); ``kind``
+# separates the two entry points so an agent named like a workflow cannot
+# merge series.
+DELEGATION_RUNS = _counter(
+    "agent_utilities_delegation_runs_total",
+    "In-process delegated runs by kind (agent|workflow), target name and "
+    "outcome (ok|error|cancelled).",
+    ("kind", "target", "outcome"),
+)
+DELEGATION_DURATION = _histogram(
+    "agent_utilities_delegation_duration_seconds",
+    "Wall-clock duration of one in-process delegated run "
+    "(Orchestrator.execute_agent / execute_workflow), by kind and target.",
+    ("kind", "target"),
+    buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0),
+)
+DELEGATION_IN_FLIGHT = _gauge(
+    "agent_utilities_delegation_in_flight",
+    "Delegated runs currently executing in this process, by kind.",
+    ("kind",),
 )
 
 # Agent-to-agent communication bus visibility (CONCEPT:AU-ECO.bus.operator-view-agentbus, the AgentBus of
@@ -441,12 +538,155 @@ KVCACHE_CHECKPOINT_OPS = _counter(
 )
 
 
+#: Callbacks run immediately before a ``/metrics`` scrape is rendered, for
+#: gauges whose truth lives in a live object rather than in an event stream
+#: (e.g. multiplexer child health). Each runs exception-isolated so one bad
+#: sampler can never blank the whole scrape. Registration is idempotent by
+#: identity, and the list is tiny and bounded by the number of subsystems that
+#: own sampled state — this is not a plugin system.
+_SCRAPE_SAMPLERS: list[Any] = []
+
+
+def register_scrape_sampler(sampler: Any) -> None:
+    """Register a zero-arg callable refreshed on every ``/metrics`` render."""
+    if sampler not in _SCRAPE_SAMPLERS:
+        _SCRAPE_SAMPLERS.append(sampler)
+
+
+def _run_scrape_samplers() -> None:
+    """Refresh sampled gauges, never letting one sampler fail the scrape."""
+    for sampler in tuple(_SCRAPE_SAMPLERS):
+        try:
+            sampler()
+        except Exception as exc:
+            logger.warning(
+                "Metrics scrape sampler %r failed (exception_type=%s): %s — its "
+                "gauges are serving their last known values.",
+                getattr(sampler, "__qualname__", sampler),
+                type(exc).__name__,
+                exc,
+            )
+
+
+@contextlib.contextmanager
+def delegation_span(kind: str, target: str) -> Any:
+    """Record one in-process delegated run (CONCEPT:AU-OS.observability.delegation-run-metrics).
+
+    Wraps the body in the in-flight gauge, the duration histogram and the
+    runs counter, classifying the outcome as ``ok``, ``cancelled``
+    (:class:`asyncio.CancelledError`, which is NOT a delegation failure) or
+    ``error``. The exception always propagates unchanged — this records, it
+    never handles.
+    """
+    DELEGATION_IN_FLIGHT.labels(kind=kind).inc()
+    start = time.perf_counter()
+    outcome = "ok"
+    try:
+        yield
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    except BaseException:
+        outcome = "error"
+        raise
+    finally:
+        DELEGATION_IN_FLIGHT.labels(kind=kind).dec()
+        DELEGATION_DURATION.labels(kind=kind, target=target).observe(
+            time.perf_counter() - start
+        )
+        DELEGATION_RUNS.labels(kind=kind, target=target, outcome=outcome).inc()
+
+
+def publish_multiplexer_child_gauges(snapshot: dict[str, Any]) -> None:
+    """Publish the running-vs-dispatchable child gauges from a status snapshot.
+
+    CONCEPT:AU-ECO.multiplexer.running-vs-dispatchable-metrics. Takes the exact
+    dict ``MCPMultiplexer.status_snapshot()`` returns so the gauges and the
+    ``multiplexer_status`` tool can never disagree — one producer, two
+    renderings. A child is *running* when its runtime state is ``up``; it is
+    *dispatchable* only when it is also not circuit-broken AND has at least one
+    mounted tool, because a call to an open-breaker child is rejected before it
+    ever reaches the child.
+    """
+    children = snapshot.get("children")
+    if not isinstance(children, dict):
+        return
+    running_total = 0
+    dispatchable_total = 0
+    for name, child in children.items():
+        if not isinstance(child, dict):
+            continue
+        server = str(name)
+        running = 1 if str(child.get("state", "")) == "up" else 0
+        mounted = int(child.get("mounted_tools", 0) or 0)
+        breaker_open = str(child.get("breaker", "")) == "open"
+        dispatchable = mounted if (running and not breaker_open) else 0
+        MCP_CHILD_PROCESS_RUNNING.labels(server=server).set(running)
+        MCP_CHILD_TOOLS_MOUNTED.labels(server=server).set(mounted)
+        MCP_CHILD_TOOLS_DISPATCHABLE.labels(server=server).set(dispatchable)
+        running_total += running
+        dispatchable_total += 1 if dispatchable else 0
+    MCP_SERVERS_RUNNING.set(running_total)
+    MCP_SERVERS_DISPATCHABLE.set(dispatchable_total)
+
+
+def _collection_registry() -> Any:
+    """Resolve the registry a scrape must collect from.
+
+    CONCEPT:AU-OS.observability.multiprocess-registry-guard — the classic
+    ``prometheus_client`` footgun. Every metric in this module is created in the
+    default per-process ``REGISTRY``, which is the CORRECT mode for how we
+    actually deploy: graph-os is one FastMCP process per pod and the gateway
+    daemon is a separate container on its own port, so Prometheus already scrapes
+    them as distinct targets and aggregates across replicas with ``sum by``.
+    Multiprocess mode is deliberately NOT the default — it needs a shared
+    writable directory plus dead-worker file cleanup, and it silently changes
+    metric semantics (``Gauge`` needs an explicit ``multiprocess_mode``,
+    in-flight gauges become fleet sums, and ``_created`` series disappear).
+
+    The failure mode we guard against is the *silent* one: if an operator ever
+    puts this process behind a pre-fork server and sets
+    ``PROMETHEUS_MULTIPROC_DIR``, collecting the default ``REGISTRY`` would
+    report only the one worker that happened to serve the scrape while looking
+    perfectly healthy. So when that variable is set we honour it and collect
+    through ``MultiProcessCollector`` instead. A set-but-unusable value is
+    logged loudly and falls back to the single-process registry rather than
+    failing the scrape — a scrape that 500s hides the numbers entirely.
+    """
+    import os
+
+    from prometheus_client import REGISTRY
+
+    multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "").strip()
+    if not multiproc_dir:
+        return REGISTRY
+    try:
+        from prometheus_client import CollectorRegistry, multiprocess
+
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry, path=multiproc_dir)
+        return registry
+    except Exception as exc:
+        logger.error(
+            "PROMETHEUS_MULTIPROC_DIR=%r is set but multiprocess collection "
+            "failed (exception_type=%s: %s); falling back to this worker's "
+            "registry only — the scrape UNDER-REPORTS the other workers. "
+            "Either make the directory writable and empty at boot or unset the "
+            "variable. (CONCEPT:AU-OS.observability.multiprocess-registry-guard)",
+            multiproc_dir,
+            type(exc).__name__,
+            exc,
+        )
+        return REGISTRY
+
+
 def render_metrics() -> tuple[bytes, str]:
     """Render the process metric registry in Prometheus exposition format.
 
     Returns ``(body, content_type)``. Without ``prometheus_client`` installed
     a self-describing placeholder is returned (still a 200 — scrapers treat
-    the target as up, just empty).
+    the target as up, just empty). Honours ``PROMETHEUS_MULTIPROC_DIR`` — see
+    :func:`_collection_registry`.
     """
     if not PROMETHEUS_AVAILABLE:
         return (
@@ -454,9 +694,10 @@ def render_metrics() -> tuple[bytes, str]:
             b"'metrics' extra (prometheus-client). (CONCEPT:AU-OS.observability.no-op-without-metrics)\n",
             "text/plain; version=0.0.4; charset=utf-8",
         )
-    from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-    return generate_latest(REGISTRY), CONTENT_TYPE_LATEST
+    _run_scrape_samplers()
+    return generate_latest(_collection_registry()), CONTENT_TYPE_LATEST
 
 
 async def metrics_endpoint() -> Any:
