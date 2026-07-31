@@ -133,6 +133,33 @@ def test_lease_is_shared_across_worktrees_not_per_worktree(canonical: Path) -> N
                 pytest.fail("worktrees took independent leases")
 
 
+def test_workspace_scoped_lease_leaves_the_repo_scope(canonical: Path) -> None:
+    """The shared venv is contended across repos, so its lease cannot live in one."""
+    assert lanes.resource_scope("dependency-lock") == "workspace"
+    assert lanes.resource_scope("precommit-all-files") == "repo"
+    repo_leases = lanes.lane_scope(canonical).arbitration_dir / "leases"
+    with lanes.hold_lease("dependency-lock", operation="uv sync", path=canonical):
+        assert not (repo_leases / "dependency-lock.lease").exists()
+        assert (
+            lanes.workspace_arbitration_dir() / "leases" / "dependency-lock.lease"
+        ).exists()
+    with lanes.hold_lease("precommit-all-files", operation="gate", path=canonical):
+        assert (repo_leases / "precommit-all-files.lease").exists()
+
+
+def test_guarded_tree_mutation_refuses_and_releases(canonical: Path) -> None:
+    """One choke point: lease held across the whole check-then-mutate."""
+    lane = _add_worktree(canonical, "lane-guarded")
+    (lane / "wip.py").write_text("x = 1\n", encoding="utf-8")
+    with pytest.raises(lanes.UnownedTreeError):
+        with lanes.guarded_tree_mutation(
+            lane, operation="checkout", owner="background-sync"
+        ):
+            pytest.fail("mutation proceeded against a dirty foreign tree")
+    # The refusal must not leak the lease, or one bad call wedges every actor.
+    assert lanes.lease_status("canonical-mutation", lane) is None
+
+
 def test_lease_reclaims_a_dead_holder(canonical: Path) -> None:
     """A crashed lane must not wedge the workspace forever."""
     lease_dir = lanes.lane_scope(canonical).arbitration_dir / "leases"
@@ -184,6 +211,59 @@ def test_partitioned_paths_differ_per_lane_and_never_use_refs_stash(
     assert one.scratch_dir != two.scratch_dir
     assert one.stash_ref != two.stash_ref
     assert one.stash_ref == "refs/lane/lane-g/stash" != "refs/stash"
+
+
+def test_park_gives_a_clean_tree_without_touching_refs_stash(canonical: Path) -> None:
+    """The affordance that makes `git stash` unnecessary rather than merely banned."""
+    lane = _add_worktree(canonical, "lane-park")
+    tracked = lane / "docs" / "concepts.yaml"
+    tracked.write_text("concepts: [{id: AU-KG.compute.wip}]\n", encoding="utf-8")
+    assert lanes.tree_has_uncommitted_work(lane) is True
+
+    parked = lanes.park_worktree(lane)
+    assert parked["parked"] is True
+    assert parked["ref"] == "refs/lane/lane-park/stash"
+    assert lanes.tree_has_uncommitted_work(lane) is False
+    # The shared ref every worktree contends for must be untouched.
+    assert (
+        subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", "refs/stash"],
+            cwd=str(lane),
+            capture_output=True,
+            text=True,
+            check=False,
+        ).returncode
+        != 0
+    )
+
+    lanes.unpark_worktree(lane)
+    assert "AU-KG.compute.wip" in tracked.read_text(encoding="utf-8")
+    assert lanes.tree_has_uncommitted_work(lane) is True
+
+
+def test_two_lanes_park_independently(canonical: Path) -> None:
+    one = _add_worktree(canonical, "lane-park-a")
+    two = _add_worktree(canonical, "lane-park-b")
+    for tree, marker in ((one, "alpha"), (two, "beta")):
+        (tree / "docs" / "concepts.yaml").write_text(
+            f"concepts: []  # {marker}\n", encoding="utf-8"
+        )
+        lanes.park_worktree(tree)
+    for tree, marker in ((one, "alpha"), (two, "beta")):
+        lanes.unpark_worktree(tree)
+        assert marker in (tree / "docs" / "concepts.yaml").read_text(encoding="utf-8")
+
+
+def test_park_refuses_the_canonical_checkout(canonical: Path) -> None:
+    (canonical / "docs" / "concepts.yaml").write_text("concepts: []\n", encoding="utf-8")
+    with pytest.raises(lanes.CanonicalCheckoutError):
+        lanes.park_worktree(canonical)
+
+
+def test_unpark_without_a_park_is_a_loud_error(canonical: Path) -> None:
+    lane = _add_worktree(canonical, "lane-park-c")
+    with pytest.raises(lanes.LaneArbitrationError, match="nothing parked"):
+        lanes.unpark_worktree(lane)
 
 
 # ---------------------------------------------------------------------------

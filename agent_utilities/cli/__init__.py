@@ -226,6 +226,10 @@ def build_parser() -> argparse.ArgumentParser:
     guard_p.add_argument(
         "--owner", default="", help="the lane that owns the reset target"
     )
+    _lane_parser(
+        "park", "clean this tree for a moment WITHOUT touching the shared refs/stash"
+    )
+    _lane_parser("unpark", "restore what `lane park` set aside")
     lease_p = _lane_parser("lease", "hold a LEASE-class resource, or report its holder")
     lease_p.add_argument("--resource", default="", help="LEASE-class resource name")
     lease_p.add_argument(
@@ -496,6 +500,10 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
                 f"worktree; use `git stash create` + `git update-ref {parts.stash_ref}`"
             ),
         }
+    if action == "park":
+        return lanes.park_worktree(path)
+    if action == "unpark":
+        return lanes.unpark_worktree(path)
     if action == "classify":
         rules = lanes.resource_rules()
         if args.resource:

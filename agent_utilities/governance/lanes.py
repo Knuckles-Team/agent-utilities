@@ -289,19 +289,95 @@ def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
     )
 
 
+def park_worktree(
+    path: Path | str | None = None, *, message: str = "lane park"
+) -> dict[str, Any]:
+    """Give this lane a clean tree **without** touching the shared ``refs/stash``.
+
+    ``git stash`` is the reflex when you need a clean tree for a moment, and
+    forbidding it without supplying that affordance guarantees the rule keeps
+    losing — it has now been violated ten times, most recently by an actor with
+    the prohibition in front of it. So this *is* the affordance: ``git stash
+    create`` builds the same stash commit but writes **no ref**, we point this
+    lane's own ref at it, and only then clean the tree.
+
+    Untracked files are deliberately left in place: ``reset --hard`` does not
+    remove them, so nothing has to be captured to survive, and nothing can be
+    lost by a mistake in the capture.
+    """
+    scope = require_mutable_tree(path, operation="park the working tree")
+    require_resettable_tree(scope.tree, operation="park", owner=scope.lane)
+    ref = partitioned_paths(scope.tree).stash_ref
+    created = _git(["stash", "create", message], scope.tree)
+    if not created:
+        return {"parked": False, "reason": "tree has no tracked changes", "ref": ref}
+    _git(["update-ref", ref, created], scope.tree)
+    _git(["reset", "--hard"], scope.tree)
+    return {"parked": True, "ref": ref, "commit": created}
+
+
+def unpark_worktree(path: Path | str | None = None) -> dict[str, Any]:
+    """Restore what :func:`park_worktree` set aside, from this lane's own ref."""
+    scope = require_mutable_tree(path, operation="unpark the working tree")
+    ref = partitioned_paths(scope.tree).stash_ref
+    # `rev-parse --verify` exits non-zero for a missing ref; for-each-ref exits 0
+    # with empty output, so a missing park is an explained refusal, not a stack
+    # trace about git.
+    commit = _git(["for-each-ref", "--format=%(objectname)", ref], scope.tree)
+    if not commit:
+        raise LaneArbitrationError(f"nothing parked at {ref}")
+    _git(["stash", "apply", commit], scope.tree)
+    _git(["update-ref", "-d", ref], scope.tree)
+    return {"restored": True, "ref": ref, "commit": commit}
+
+
 # ---------------------------------------------------------------------------
 # LEASE — announce, then defer
 # ---------------------------------------------------------------------------
-def _lease_dir(scope: LaneScope) -> Path:
-    path = scope.arbitration_dir / "leases"
+def resource_scope(name: str) -> str:
+    """Declared contention scope of *name* (``"repo"`` for anything unregistered)."""
+    for rule in resource_rules():
+        if rule.name == name:
+            return rule.scope
+    return "repo"
+
+
+def workspace_arbitration_dir() -> Path:
+    """Host-wide arbitration root, for resources no single repository owns.
+
+    The shared virtualenv and lockfile are the motivating case: they are
+    contended across every worktree of every repo on the host, so their lease
+    cannot live inside one repository's git directory.
+    """
+    import platformdirs
+
+    path = Path(platformdirs.user_state_dir("agent-utilities")) / ARBITRATION_DIRNAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _lease_dir(scope: LaneScope, name: str = "") -> Path:
+    """Where a lease file lives.
+
+    Repo-scoped leases sit under the repository's shared git directory, which
+    ``git status`` never reports and no commit can capture — the same property
+    repository-manager relies on for its own ``.git/`` lease, so the two are
+    interchangeable rather than competing.
+    """
+    root = (
+        workspace_arbitration_dir()
+        if name and resource_scope(name) == "workspace"
+        else scope.arbitration_dir
+    )
+    path = root / "leases"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 @contextmanager
-def _lease_mutex(scope: LaneScope) -> Iterator[None]:
-    """Serialize lease read-modify-write across every lane sharing this repo."""
-    lock = _lease_dir(scope) / ".mutex"
+def _lease_mutex(scope: LaneScope, name: str = "") -> Iterator[None]:
+    """Serialize lease read-modify-write across every lane sharing this resource."""
+    lock = _lease_dir(scope, name) / ".mutex"
     fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -340,8 +416,8 @@ def _holder_is_live(holder: dict[str, Any]) -> bool:
 def lease_status(name: str, path: Path | str | None = None) -> dict[str, Any] | None:
     """The live holder of *name*, or ``None`` when the lease is free."""
     scope = lane_scope(path)
-    lease_file = _lease_dir(scope) / f"{_LANE_SAFE_RE.sub('-', name)}.lease"
-    with _lease_mutex(scope):
+    lease_file = _lease_dir(scope, name) / f"{_LANE_SAFE_RE.sub('-', name)}.lease"
+    with _lease_mutex(scope, name):
         if not lease_file.exists():
             return None
         holder = json.loads(lease_file.read_text(encoding="utf-8"))
@@ -366,7 +442,7 @@ def hold_lease(
     crashed lane cannot wedge the workspace.
     """
     scope = lane_scope(path)
-    lease_file = _lease_dir(scope) / f"{_LANE_SAFE_RE.sub('-', name)}.lease"
+    lease_file = _lease_dir(scope, name) / f"{_LANE_SAFE_RE.sub('-', name)}.lease"
     now = datetime.now(UTC)
     record = {
         "name": name,
@@ -377,7 +453,7 @@ def hold_lease(
         "acquired_at": now.isoformat(),
         "expires_at": (now + timedelta(seconds=ttl_seconds)).isoformat(),
     }
-    with _lease_mutex(scope):
+    with _lease_mutex(scope, name):
         if lease_file.exists():
             holder = json.loads(lease_file.read_text(encoding="utf-8"))
             if _holder_is_live(holder):
@@ -386,13 +462,37 @@ def hold_lease(
     try:
         yield record
     finally:
-        with _lease_mutex(scope):
+        with _lease_mutex(scope, name):
             if lease_file.exists():
                 current = json.loads(lease_file.read_text(encoding="utf-8"))
                 if current.get("pid") == record["pid"] and current.get(
                     "acquired_at"
                 ) == record["acquired_at"]:
                     lease_file.unlink()
+
+
+@contextmanager
+def guarded_tree_mutation(
+    path: Path | str, *, operation: str, owner: str
+) -> Iterator[LaneScope]:
+    """The one choke point every global actor should route a tree mutation through.
+
+    Combines the two halves that each fail alone: an exclusive lease held across
+    the whole check-then-mutate (so the tree cannot go dirty between the check
+    and the command), and the dirty/ownership refusal itself. It is deliberately
+    **verb-agnostic** — ``checkout``, ``restore``, ``clean``, ``reset``, a branch
+    switch and a stash all destroy uncommitted work, so guarding one verb just
+    moves the hazard.
+
+    **Residual gap, stated plainly:** a lease only binds actors that take it. An
+    unwrapped external process still races, and no amount of leasing changes
+    that. The gap closes only by making the guarded wrapper the *only* way the
+    long operation is run — see the ``lane lease -- <command>`` form and
+    ``reports/PROGRAM.md``. Do not record this as solved.
+    """
+    with hold_lease("canonical-mutation", operation=operation, path=path):
+        require_resettable_tree(path, operation=operation, owner=owner)
+        yield lane_scope(path)
 
 
 # ---------------------------------------------------------------------------
@@ -501,12 +601,19 @@ def write_view(path: Path, body: str) -> None:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class ResourceRule:
-    """One shared resource, the class it belongs to, and how that class is applied."""
+    """One shared resource, the class it belongs to, and how that class is applied.
+
+    ``scope`` says who contends for it: ``"repo"`` (every worktree of one
+    repository) or ``"workspace"`` (every lane on the host — the shared ``.venv``
+    and ``uv.lock`` are contended by ~26 worktrees spanning several repos, so a
+    per-repo lease would not exclude the actor that actually collides with you).
+    """
 
     name: str
     arbitration: ArbitrationClass
     mechanism: str
     evidence: str
+    scope: str = "repo"
 
 
 _RULES_CACHE: list[ResourceRule] | None = None
@@ -529,6 +636,7 @@ def resource_rules() -> list[ResourceRule]:
                 arbitration=ArbitrationClass(str(r["class"])),
                 mechanism=str(r["mechanism"]),
                 evidence=str(r["evidence"]),
+                scope=str(r.get("scope", "repo")),
             )
             for r in rules
         ]

@@ -34,7 +34,11 @@ resources:
     mechanism: partitioned_paths().stash_ref
     evidence: >-
       refs/stash is a SINGLE ref shared by all worktrees; six collisions across
-      38 worktrees. Use a branch, or the per-lane ref — never `git stash`.
+      38 worktrees. Prohibition alone does not hold: an actor with the
+      never-stash rule in front of it still reached for `git stash` reflexively,
+      because a clean tree for a moment is a real need. `lane park` supplies that
+      need against the per-lane ref, so the dangerous verb is unnecessary rather
+      than merely forbidden.
 
   - name: lane-scratch
     class: partition
@@ -60,12 +64,15 @@ resources:
 
   - name: dependency-lock
     class: lease
+    scope: workspace   # ~26 worktrees across several repos contend for ONE venv
     mechanism: hold_lease("dependency-lock")
     evidence: >-
       One shared .venv and uv.lock across ~26 worktrees; a bare `uv sync` would
       have uninstalled all 555 packages, the venv silently rotted for 10 days
       hiding 13 real defects, and a lane observed another actor swapping
-      packages mid-run.
+      packages mid-run. The venvctl lane's /proc-based activity detector is the
+      other half of this lease: an explicit lease covers actors that participate,
+      activity detection catches the ones that do not.
 
   - name: precommit-all-files
     class: lease
@@ -90,3 +97,13 @@ resources:
       A background actor reset a canonical checkout mid-pre-commit and destroyed
       ~20 minutes of a lane's work — precisely the window in which the lane
       cannot yet commit. "Commit often" does not close this hole.
+
+  - name: canonical-mutation
+    class: lease
+    mechanism: guarded_tree_mutation()
+    evidence: >-
+      repository-manager switched the canonical checkout's branch with no
+      dirty-tree guard at all (worktree.py add/merge) and a weak one in
+      pull_project. The verb was `git checkout`, not `git reset` — so the guard
+      must cover every tree-mutating verb, held under one lease across the whole
+      check-then-mutate so the tree cannot go dirty in between.
