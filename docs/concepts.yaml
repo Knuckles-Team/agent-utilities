@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1081
+total_concepts: 1087
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1406,6 +1406,16 @@ concepts:
   - agent_utilities/ingestion/collector.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: client-side chat/session ingestion for Claude + Antigravity
+- id: AU-ECO.mcp.cross-process-skill-harvest
+  name: Cross-Process Skill Harvest
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ingestion/fleet_skill_harvest.py
+  - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py
+  - agent_utilities/mcp/multiplexer.py
+  doc: Cross-Process Skill Harvest
 - id: AU-ECO.mcp.eco-serves-two-ard
   name: / ECO-4.97. Serves the two ARD artifacts at the bare domain root so
   pillar: AU-ECO
@@ -1547,12 +1557,13 @@ concepts:
   - agent_utilities/observability/gateway_metrics.py
   doc: Profile differences from the engine-client breaker
 - id: AU-ECO.mcp.protocol-compat-bridge
-  name: AU-ECO.mcp.protocol-compat-bridge
+  name: closes D-OB-18
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/protocol_compat.py
-  doc: AU-ECO.mcp.protocol-compat-bridge
+  doc: closes D-OB-18
 - id: AU-ECO.mcp.skills-over-mcp-provider
   name: absent/empty for
   pillar: AU-ECO
@@ -6618,6 +6629,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: fan the sweep out as LANED
+- id: AU-ORCH.dispatch.named-runnable-precondition
+  name: AU-ORCH.dispatch.named-runnable-precondition
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: AU-ORCH.dispatch.named-runnable-precondition
 - id: AU-ORCH.dispatch.parameterized-queue-topic
   name: the topic/group are parameters so the agent
   pillar: AU-ORCH
@@ -8519,6 +8537,13 @@ concepts:
   - agent_utilities/observability/runtime_health.py
   - agent_utilities/server/routers/core.py
   doc: see the callers
+- id: AU-OS.deployment.merge-triggered-venv-flip
+  name: AU-OS.deployment.merge-triggered-venv-flip
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/venv_autosync.py
+  doc: AU-OS.deployment.merge-triggered-venv-flip
 - id: AU-OS.deployment.os-2
   name: AU-OS.deployment.os-2
   pillar: AU-OS
@@ -8581,6 +8606,13 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: read-existing + seed a service
+- id: AU-OS.deployment.workspace-venv-reconciler
+  name: AU-OS.deployment.workspace-venv-reconciler
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/venv_sync.py
+  doc: AU-OS.deployment.workspace-venv-reconciler
 - id: AU-OS.governance.action-policy-decision-point
   name: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
     windows, and blast-radius caps consulted before any autonomous mutating fleet action
@@ -8795,6 +8827,14 @@ concepts:
   - agent_utilities/rlm/sandboxes/base.py
   - agent_utilities/runtime/warm_registry.py
   doc: so they are idle-reaped and counted alongside the sandbox warm parents
+- id: AU-OS.host.venv-drift-detector
+  name: AU-OS.host.venv-drift-detector
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  - agent_utilities/deployment/venv_sync.py
+  doc: AU-OS.host.venv-drift-detector
 - id: AU-OS.identity.ard-datapoint-signing
   name: ARD datapoint signing
   pillar: AU-OS
@@ -9112,6 +9152,13 @@ concepts:
   - agent_utilities/usage/schema.py
   - agent_utilities/usage/service.py
   doc: Usage analytics store. These pydantic models are the single
+- id: AU-OS.safety.destructive-sync-refusal
+  name: AU-OS.safety.destructive-sync-refusal
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/venv_sync.py
+  doc: AU-OS.safety.destructive-sync-refusal
 - id: AU-OS.safety.doom-loop-detection
   name: Doom Loop Detection at transition boundary
   pillar: AU-OS

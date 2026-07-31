@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-366 publishable pages · 180 direct nav targets · 119 public capabilities · 770 action rows · 547 typed configuration fields · 350 runtime-only call-site inputs.
+367 publishable pages · 180 direct nav targets · 119 public capabilities · 770 action rows · 547 typed configuration fields · 350 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -243,6 +243,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)](../architecture/sampling_profiles.md) — direct nav
 - [The Self-Evolution Flywheel — transparent, steerable, governed](../architecture/self-evolution-flywheel.md) — direct nav
 - [Self-Improving Reasoning Substrate](../architecture/self_improving_reasoning_substrate.md) — direct nav
+- [The shared workspace .venv — sync, flip-on-merge, drift, upgrade](../architecture/shared-venv-lifecycle.md) — catalog
 - [Shortcut-Resistant Search-Task Synthesis](../architecture/shortcut_resistant_search_synthesis.md) — catalog
 - [Skill-Workflow → Knowledge-Graph Ingestion](../architecture/skill_workflow_ingestion.md) — catalog
 - [Skills-over-MCP: One Ranked Capability Space (CONCEPT:AU-KG.retrieval.unified-capability-contract)](../architecture/skills_over_mcp.md) — direct nav

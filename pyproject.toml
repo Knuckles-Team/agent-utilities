@@ -491,6 +491,10 @@ setup-config = "agent_utilities.deployment.cli:main"
 # Holistic deployment health sweep (brew/flutter-doctor style); also
 # `python -m agent_utilities.deployment.doctor`.
 agent-utilities-doctor = "agent_utilities.deployment.doctor:main"
+# The ONLY sanctioned way to sync/upgrade the shared uv-workspace venv; also
+# `python -m agent_utilities.deployment.venv_sync` (stdlib-only, so it still
+# works when the venv it manages is broken).
+agent-utilities-venv = "agent_utilities.deployment.venv_sync:main"
 graph-os-release-canary = "agent_utilities.deployment.release_canary:main"
 agent-utilities-validate-skills = "agent_utilities.skills.runtime_validation:main"
 agent-utilities-validate-skill-fleet = "agent_utilities.skills.fleet_harness.cli:main"
