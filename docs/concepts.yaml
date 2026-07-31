@@ -3941,6 +3941,14 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
   - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
   doc: shared migration tail for the
+- id: AU-KG.ingest.evidence-spine-artifact
+  name: one retrieved source object
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  doc: one retrieved source object
 - id: AU-KG.ingest.external-graph-federation
   name: External Graph Federation
   pillar: AU-KG
@@ -4287,6 +4295,15 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: ────────────────────────────
+- id: AU-KG.ingest.stable-fragment-address
+  name: Returns fragments in document
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: Returns fragments in document
 - id: AU-KG.ingest.staged
   name: staged
   pillar: AU-KG

@@ -460,6 +460,13 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 .
 
+:artifactOf a owl:ObjectProperty ;
+    rdfs:label "artifact of" ;
+    rdfs:comment "Relates an Artifact to the extracted Document rendering of it (ARTIFACT_OF). CONCEPT:AU-KG.ingest.evidence-spine-artifact." ;
+    rdfs:domain :Artifact ;
+    rdfs:range :Document ;
+    owl:inverseOf :hasArtifact .
+
 :authorOf a owl:ObjectProperty ;
     rdfs:label "author of" ;
     rdfs:comment "Links a creator to their creation. Inverse of createdBy." ;
@@ -493,6 +500,11 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:range bfo:0000004 ;
     owl:inverseOf :locatedIn .
 
+:contentHash a owl:DatatypeProperty ;
+    rdfs:label "content hash" ;
+    rdfs:comment "The sha256:<hex> digest of an Artifact's or Fragment's normalized content — the REVISION identity, distinct from the stable address. CONCEPT:AU-KG.ingest.stable-fragment-address." ;
+    rdfs:range xsd:string .
+
 :corrects a owl:ObjectProperty ;
     rdfs:label "corrects" ;
     rdfs:comment "Links a Correction to the node/output it corrects." ;
@@ -513,6 +525,37 @@ necessarily depends on what it extends.""" ;
     rdfs:domain :Concept ;
     rdfs:range :Concept ;
     rdfs:subPropertyOf :dependsOn .
+
+:fragmentAddress a owl:DatatypeProperty ;
+    rdfs:label "fragment address" ;
+    rdfs:comment "The scoped structural path a Fragment's stable id is derived from, e.g. 'heading:getting-started/paragraph:2'. Derived from structure only, never from the fragment's own body, so a typo fix does not move it. CONCEPT:AU-KG.ingest.stable-fragment-address." ;
+    rdfs:domain :Fragment ;
+    rdfs:range xsd:string .
+
+:fragmentKind a owl:DatatypeProperty ;
+    rdfs:label "fragment kind" ;
+    rdfs:comment "The structural kind of a Fragment (heading | paragraph | table | table_row | list_item | code_block | quote | page | span | record | field). CONCEPT:AU-KG.ingest.stable-fragment-address." ;
+    rdfs:domain :Fragment ;
+    rdfs:range xsd:string .
+
+:fragmentOf a owl:ObjectProperty ;
+    rdfs:label "fragment of" ;
+    rdfs:comment "Relates a Fragment back to its owning Artifact (FRAGMENT_OF). CONCEPT:AU-KG.ingest.stable-fragment-address." ;
+    rdfs:domain :Fragment ;
+    rdfs:range :Artifact ;
+    owl:inverseOf :hasFragment .
+
+:fragmentOrdinal a owl:DatatypeProperty ;
+    rdfs:label "fragment ordinal" ;
+    rdfs:comment "A Fragment's 0-based position among its same-kind siblings under one parent. CONCEPT:AU-KG.ingest.stable-fragment-address." ;
+    rdfs:domain :Fragment ;
+    rdfs:range xsd:int .
+
+:fragmentSequence a owl:DatatypeProperty ;
+    rdfs:label "fragment sequence" ;
+    rdfs:comment "A Fragment's 0-based position in whole-artifact document order — a total order over every Fragment of an Artifact. CONCEPT:AU-KG.ingest.stable-fragment-address." ;
+    rdfs:domain :Fragment ;
+    rdfs:range xsd:int .
 
 :hadDerivation a owl:ObjectProperty ;
     rdfs:label "had derivation" ;
@@ -557,11 +600,23 @@ necessarily depends on what it extends.""" ;
     rdfs:domain :Document ;
     rdfs:range :Concept .
 
+:nextFragment a owl:ObjectProperty ;
+    rdfs:label "next fragment" ;
+    rdfs:comment "Relates a Fragment to the next Fragment among its siblings (NEXT_FRAGMENT) — document order as an explicit edge, so a reader walking evidence needs no sort. CONCEPT:AU-KG.ingest.stable-fragment-address." ;
+    rdfs:domain :Fragment ;
+    rdfs:range :Fragment .
+
 :occurredAt a owl:ObjectProperty ;
     rdfs:label "occurred at" ;
     rdfs:comment "Links an Event to the Place where it happened." ;
     rdfs:domain :Event ;
     rdfs:range :Place .
+
+:parentFragment a owl:ObjectProperty ;
+    rdfs:label "parent fragment" ;
+    rdfs:comment "Relates a Fragment to the Fragment that encloses it (PARENT_FRAGMENT) — a row to its table, a paragraph to its heading. CONCEPT:AU-KG.ingest.stable-fragment-address." ;
+    rdfs:domain :Fragment ;
+    rdfs:range :Fragment .
 
 :precedes a owl:ObjectProperty ;
     rdfs:label "precedes" ;
@@ -680,6 +735,18 @@ necessarily depends on what it extends.""" ;
     rdfs:domain :Incident ;
     rdfs:range :Task .
 
+:hasArtifact a owl:ObjectProperty ;
+    rdfs:label "has artifact" ;
+    rdfs:comment "Relates an extracted Document to the source Artifact it was retrieved from (HAS_ARTIFACT), joining the retrieval unit (Chunk) to the citation unit (Fragment). CONCEPT:AU-KG.ingest.evidence-spine-artifact." ;
+    rdfs:domain :Document ;
+    rdfs:range :Artifact .
+
+:hasFragment a owl:ObjectProperty ;
+    rdfs:label "has fragment" ;
+    rdfs:comment "Relates an Artifact to one of its citation Fragments (HAS_FRAGMENT). CONCEPT:AU-KG.ingest.evidence-spine-artifact." ;
+    rdfs:domain :Artifact ;
+    rdfs:range :Fragment .
+
 :hasTopic a owl:ObjectProperty ;
     rdfs:label "has topic" ;
     rdfs:comment "Links a Document (or other content-bearing entity) to a Topic it was classified under, at any level of the WorldView hierarchy (CONCEPT:AU-KG.enrichment.topic-classification-topology)." ;
@@ -741,16 +808,6 @@ Works for versions, phases, events, role transitions, etc.""" ;
     rdfs:comment "An autonomous software agent. BFO:IndependentContinuant, aligned to prov:SoftwareAgent." ;
     rdfs:subClassOf bfo:0000004 ;
     owl:equivalentClass prov:SoftwareAgent .
-
-:Document a owl:Class ;
-    rdfs:label "Document" ;
-    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
-    rdfs:seeAlso bibo:Document,
-        schema:DigitalDocument ;
-    rdfs:subClassOf [ a owl:Restriction ;
-            owl:onProperty :createdBy ;
-            owl:someValuesFrom bfo:0000004 ],
-        bfo:0000031 .
 
 :DomainEntity a owl:Class ;
     rdfs:label "Domain Entity" ;
@@ -898,6 +955,26 @@ bfo:0000020 a owl:Class ;
     rdfs:comment "BFO:SpecificallyDependentContinuant — depends on a specific bearer." ;
     rdfs:subClassOf bfo:0000002 .
 
+:Artifact a owl:Class ;
+    rdfs:label "Artifact" ;
+    rdfs:comment """One retrieved source object — a markdown file, a PDF, an API
+record, a database row set — keyed to the ChangeEnvelope that delivered it and
+carrying a content hash of what was retrieved.  The root of the evidence spine:
+every citation resolves to a Fragment inside exactly one Artifact.
+CONCEPT:AU-KG.ingest.evidence-spine-artifact.""" ;
+    rdfs:seeAlso prov:Entity ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Document a owl:Class ;
+    rdfs:label "Document" ;
+    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
+    rdfs:seeAlso bibo:Document,
+        schema:DigitalDocument ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :createdBy ;
+            owl:someValuesFrom bfo:0000004 ],
+        bfo:0000031 .
+
 :Place a owl:Class ;
     rdfs:label "Place" ;
     rdfs:comment "A physical, virtual, or contextual location. BFO:IndependentContinuant." ;
@@ -954,6 +1031,19 @@ bfo:0000015 a owl:Class ;
     rdfs:subClassOf bfo:0000015 ;
     owl:equivalentClass schema:Event .
 
+:Fragment a owl:Class ;
+    rdfs:label "Fragment" ;
+    rdfs:comment """The addressable citation unit inside an Artifact — a heading,
+paragraph, table, table row, list item, code block, page, or span.  Carries a
+STABLE structural address (fragmentAddress -> the node id) that survives a body
+edit, and a contentHash that changes exactly when its content does, so a citation
+can both follow the fragment and detect that it went stale.  Fragments are
+orderable (fragmentOrdinal among siblings, fragmentSequence in document order)
+and nestable (parentFragment) — a row inside a table inside a section.
+CONCEPT:AU-KG.ingest.stable-fragment-address.""" ;
+    rdfs:seeAlso prov:Entity ;
+    rdfs:subClassOf bfo:0000031 .
+
 :Concept a owl:Class ;
     rdfs:label "Concept" ;
     rdfs:comment "An atomic knowledge unit. BFO:GenericallyDependentContinuant, aligned to skos:Concept for full SKOS taxonomy support." ;
@@ -979,3 +1069,4 @@ bfo:0000001 a owl:Class ;
 
 [] a owl:AllDisjointClasses ;
     owl:members ( :Person :Organization :Server :Incident :Event ) .
+
