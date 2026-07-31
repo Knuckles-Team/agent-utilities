@@ -12,6 +12,7 @@ import secrets
 import stat
 import sys
 import tomllib
+import traceback
 from pathlib import Path
 
 import yaml
@@ -330,10 +331,12 @@ def main(argv: list[str] | None = None) -> int:
         # drift made `--write` unreachable (D-35-8) even though the two are unrelated.
         try:
             _write_resource_catalog(_resource_catalog_bytes())
-        except Exception:  # noqa: BLE001 - content-free source gate result
+        except Exception as exc:  # noqa: BLE001 — STDOUT stays content-free on purpose (the JSON result is the attested gate contract and must not leak paths), but the cause is NOT discarded: it goes to stderr, which no consumer parses. An opaque "CatalogWriteFailed" with no reason anywhere cost two lanes real time.
             print(
                 json.dumps({"error": "CatalogWriteFailed", "ok": False}, sort_keys=True)
             )
+            print(f"CatalogWriteFailed: {exc!r}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             return 1
     try:
         matrix_digest = _validate_matrix()
@@ -352,8 +355,10 @@ def main(argv: list[str] | None = None) -> int:
         _validate_release_documents()
         _validate_acquisition_surface()
         _validate_certification_surface()
-    except Exception:  # noqa: BLE001 - content-free source gate result
+    except Exception as exc:  # noqa: BLE001 — STDOUT stays content-free on purpose (the JSON result is the attested gate contract and must not leak paths), but the cause is NOT discarded: it goes to stderr, which no consumer parses. An opaque "CatalogInputInvalid" with no reason anywhere cost two lanes real time.
         print(json.dumps({"error": "CatalogInputInvalid", "ok": False}, sort_keys=True))
+        print(f"CatalogInputInvalid: {exc!r}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         return 1
     if (
         _retained_bytes(CONNECTOR_OUTPUT) != connector
