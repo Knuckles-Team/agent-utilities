@@ -181,6 +181,60 @@ def _declared_extra_floor(distribution: str, package: str, extra: str) -> Any | 
     return None
 
 
+def _source_shadow_floor(package: str, extra: str) -> tuple[Any | None, str | None]:
+    """Return the ``package`` floor declared by the SOURCE tree actually imported.
+
+    CONCEPT:AU-ECO.mcp.protocol-compat-bridge
+
+    Closes the D-OB-18 blind spot in :func:`check_mcp_sdk_floor`. Installed
+    ``.dist-info`` metadata is written once, at install time. Every graph-os
+    deployment then bind-mounts a *fresher* copy of this package's source over the
+    installed one (``PYTHONPATH=/au`` shadowing the image's editable install), so the
+    code that actually runs can declare a different floor than the metadata records —
+    which is precisely how a pod ran fastmcp-4-targeted source on a fastmcp-3 runtime
+    while every metadata-only check reported green.
+
+    So: read the floor from the ``pyproject.toml`` sitting next to the imported
+    package, when there is one. Returns ``(requirement, path)``; ``(None, None)`` when
+    no source manifest is reachable (a plain wheel install — the normal case, where
+    installed metadata is already authoritative).
+    """
+    import tomllib
+    from pathlib import Path
+
+    from packaging.requirements import InvalidRequirement, Requirement
+
+    import agent_utilities
+
+    origin = getattr(agent_utilities, "__file__", None)
+    if not origin:
+        return None, None
+    manifest = Path(origin).resolve().parent.parent / "pyproject.toml"
+    if not manifest.is_file():
+        return None, None
+    try:
+        declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        warnings.warn(
+            f"agent-utilities: could not read the source manifest {manifest} to "
+            f"cross-check the declared '{package}' floor: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None, None
+    raw_reqs = (declared.get("project", {}).get("optional-dependencies", {})).get(
+        extra, []
+    )
+    for raw in raw_reqs:
+        try:
+            req = Requirement(raw)
+        except InvalidRequirement:
+            continue  # a malformed requirement string in the manifest — skip it
+        if req.name.lower() == package.lower():
+            return req, str(manifest)
+    return None, str(manifest)
+
+
 def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]:
     """Compare the installed `mcp`/`fastmcp` SDK against the declared `[mcp]` floor.
 
@@ -223,6 +277,34 @@ def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]
         }
 
     problems: list[str] = []
+
+    # D-OB-18 — installed `.dist-info` metadata records the floor as of INSTALL time,
+    # but every graph-os pod shadows the installed package with fresher bind-mounted
+    # source (`PYTHONPATH=/au`), and every editable dev checkout goes stale the moment
+    # pyproject.toml is edited. When the two disagree it is the SOURCE that runs, so the
+    # source floor — not the metadata snapshot — is what the installed SDK must satisfy.
+    # Checking metadata against metadata is precisely how a pod ran fastmcp-4-targeted
+    # source on fastmcp 3.4.5 while reporting green.
+    #
+    # A divergence is NOT by itself a failure (a tightened floor that the installed SDK
+    # still satisfies is harmless); it is reported as context on the outcome so a real
+    # failure names its cause instead of just its symptom.
+    shadow_req, manifest = _source_shadow_floor("fastmcp", "mcp")
+    diverged = shadow_req is not None and str(shadow_req.specifier) != str(
+        fastmcp_req.specifier
+    )
+    if diverged:
+        divergence = (
+            f"source/installed divergence: the imported source ({manifest}) declares "
+            f"fastmcp '{shadow_req.specifier}' under [mcp] while the installed "
+            f"{distribution} metadata declares '{fastmcp_req.specifier}' — this "
+            f"environment was provisioned from a different revision than the source it "
+            f"now runs"
+        )
+        fastmcp_req = shadow_req
+    else:
+        divergence = None
+
     try:
         if not fastmcp_req.specifier.contains(installed_fastmcp, prereleases=True):
             problems.append(
@@ -264,5 +346,9 @@ def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]
         f"mcp={installed_mcp} (floor {mcp_req.specifier if mcp_req else 'unknown'})"
     )
     if problems:
+        if divergence:
+            problems.append(divergence)
         return {"ok": False, "detail": "; ".join(problems) + f" [{summary}]"}
+    if divergence:
+        return {"ok": True, "detail": f"{summary} (note: {divergence})"}
     return {"ok": True, "detail": summary}
