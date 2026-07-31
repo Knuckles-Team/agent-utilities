@@ -65,6 +65,7 @@ fail to exclude the actor that collides with you.
 | `pre-commit --all-files` | LEASE | repo | Can destroy unstaged work (D-OB-12) |
 | reconciliation merge | LEASE | repo | 26 commits stranded on a detached HEAD with no ref |
 | canonical mutation | LEASE | repo | `git checkout` on a dirty canonical tree, no guard at all |
+| epistemic-graph daemon | LEASE | **workspace** | 1,234 `ConnectionRefusedError`s in one lane's log while 3 other runs hammered the same shared engine |
 | canonical checkout | READ-ONLY | repo | A background actor reset one mid-pre-commit; ~20 minutes lost |
 
 Read it live with `agent-utilities lane classify`. An unregistered resource is a
@@ -226,6 +227,31 @@ explicit; the CLI exits **75** so a shell `&&` chain actually stops.
 > guarded wrapper the *only* way the long operation is run, and by pairing
 > explicit leases with activity detection (the venvctl lane's `/proc`-based
 > detector covers actors that never take a lease). Do not record this as closed.
+
+### The epistemic-graph daemon (observed, not hypothesised)
+
+A lane's 37-minute full-suite run reported `731 failed, 14197 passed, 353
+errors`, and its log carried 1,234 occurrences of `ConnectionRefusedError:
+Cannot connect to epistemic-graph service`. That window overlapped two OTHER
+lanes' full-suite runs plus an `--all-files` pre-commit — all four driving the
+same single shared local engine daemon (the `GRAPH_SERVICE_ENDPOINTS`
+externally-provided branch of `tests/conftest.py`'s session-engine fixture,
+which reuses a running daemon verbatim instead of spinning an ephemeral one).
+Ten of the eighteen test files that lane had edited showed as failures despite
+having been verified green individually minutes earlier; two other lanes
+independently reported phantom failure counts (167 and 503) that reproduced
+identically against unmodified base code under the same contention. This is
+**not** a PARTITION case like the cargo target dir: `engine_resolver`'s
+share-running-local/autostart-shared-supervised precedence deliberately hands
+ONE daemon to every entrypoint on the host — across every repo's worktrees, not
+just one repo's lanes, the same shape as the shared `.venv` — so splitting it
+per lane would defeat the sharing it exists for. It is classified LEASE,
+`scope: workspace`, and wired into the session-engine fixture itself
+(`_acquire_engine_daemon_lease` in `tests/conftest.py`): the externally-provided
+branch takes the `epistemic-graph-daemon` lease before reusing the daemon and
+releases it at session teardown, deferring the whole pytest session with
+`pytest.exit(..., returncode=75)` — the pytest-side equivalent of the CLI's
+exit code 75 — when another lane already holds it.
 
 ## READ-ONLY — the canonical checkout is not a workspace
 
