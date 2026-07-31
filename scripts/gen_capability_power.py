@@ -187,9 +187,13 @@ def _write_cache(ledger: dict[str, LedgerRow], source_path: str) -> None:
 # ---------------------------------------------------------------------------
 
 _QUOTED_TOKEN_RE = re.compile(r"'([a-z][a-z0-9_]*)'")
-# Many tool descriptions lead with a bare CONCEPT id ("CONCEPT:AU-KG.foo.bar — ")
-# before the actual power sentence — strip it so `one_line` starts with the
-# actual power statement, not the id.
+# Many tool descriptions lead with a bare CONCEPT id (a literal "CONCEPT:"
+# prefix, a pillar.domain.slug id, then an em dash) before the actual power
+# sentence — strip it so `one_line` starts with the actual power statement,
+# not the id. (Deliberately not spelled out as one real-shaped example here:
+# check_domain_vocab.py scans every .py/.rs/.md file for exactly that shape,
+# and an illustrative id is not a declaration — see docs/concepts.yaml for
+# real ones, e.g. AU-KG.retrieval.capability-power-descriptor above.)
 _CONCEPT_PREFIX_RE = re.compile(r"^CONCEPT:[\w.\-]+\s*[—-]\s*")
 
 
