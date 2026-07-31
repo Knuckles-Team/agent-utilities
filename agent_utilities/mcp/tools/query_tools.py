@@ -1596,14 +1596,18 @@ def register_query_tools(mcp):
             "text-free table-of-contents map = get_document_structure), 'content' "
             "(fetch section bodies for cited char ranges like '96..208,300..420' = "
             "get_page_content), 'retrieve' (walk the tree by relevance and return "
-            "sections with cited start..end ranges). Complements graph_search for "
+            "sections with cited start..end ranges), 'fragments' (the addressable "
+            "evidence spine — every citable Fragment of an artifact/document with "
+            "its stable address + content hash; CONCEPT:AU-KG.ingest.stable-fragment-address), "
+            "'cite' (resolve a stored citation against the current artifact and "
+            "report current | stale | moved | lost). Complements graph_search for "
             "long single documents where similar != relevant."
         ),
         tags=["graph-os", "retrieval", "document", "tree"],
     )
     def graph_document_tree(
         action: str = Field(
-            description="build | structure | content | retrieve",
+            description="build | structure | content | retrieve | fragments | cite",
         ),
         document_id: str = Field(
             default="",
@@ -1639,6 +1643,22 @@ def register_query_tools(mcp):
         use_llm: bool = Field(
             default=False,
             description="action=retrieve — try LLM tree navigation before the lexical walk.",
+        ),
+        artifact_id: str = Field(
+            default="",
+            description="action=fragments/cite — the source Artifact to read the evidence spine of (alternative to document_id).",
+        ),
+        fragment_id: str = Field(
+            default="",
+            description="action=cite — the stable fragment address the citation stored.",
+        ),
+        content_hash: str = Field(
+            default="",
+            description="action=cite — the 'sha256:<hex>' content hash the citation stored, used to detect staleness and to relocate a moved fragment.",
+        ),
+        kinds: str = Field(
+            default="",
+            description="action=fragments — comma-separated fragment kinds to keep (heading,paragraph,table,table_row,list_item,code_block,quote).",
         ),
     ) -> str:
         """Map-then-fetch + tree-navigation retrieval over a document section tree."""
@@ -1746,10 +1766,92 @@ def register_query_tools(mcp):
                 default=str,
             )
 
+        # ── evidence spine (CONCEPT:AU-KG.ingest.stable-fragment-address) ─────
+        # The citation surface: 'fragments' lists what can be cited, 'cite'
+        # answers whether an existing citation still holds.  Both reach the same
+        # core the ingest path writes, so the REST twin (/graph/document-tree)
+        # gets them with no second implementation.
+        if action in {"fragments", "cite"}:
+            from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
+                artifact_id_for,
+                citation_status,
+                fragment_markdown,
+                load_fragments,
+            )
+
+            if text:
+                # Inline text is fragmented deterministically — the same call the
+                # ingest path makes, so an inline preview and a stored spine
+                # agree on every address.
+                resolved_artifact = artifact_id or artifact_id_for(
+                    "inline", "", document_id or "inline-document"
+                )
+                fragments = fragment_markdown(text, artifact_id=resolved_artifact)
+            elif artifact_id or document_id:
+                fragments = load_fragments(
+                    engine, artifact_id=artifact_id, document_id=document_id
+                )
+                resolved_artifact = artifact_id or (
+                    fragments[0].artifact_id if fragments else ""
+                )
+            else:
+                return json.dumps(
+                    {
+                        "error": f"{action} requires 'text', 'artifact_id' or 'document_id'"
+                    }
+                )
+
+            if action == "cite":
+                if not (fragment_id or content_hash):
+                    return json.dumps(
+                        {"error": "cite requires 'fragment_id' and/or 'content_hash'"}
+                    )
+                return json.dumps(
+                    {
+                        "action": "cite",
+                        "artifact_id": resolved_artifact,
+                        **citation_status(
+                            fragments,
+                            fragment_id=fragment_id,
+                            content_hash=content_hash,
+                        ),
+                    },
+                    default=str,
+                )
+
+            wanted = {k.strip() for k in kinds.split(",") if k.strip()}
+            selected = [f for f in fragments if not wanted or f.kind in wanted]
+            return json.dumps(
+                {
+                    "action": "fragments",
+                    "artifact_id": resolved_artifact,
+                    "document_id": document_id,
+                    "fragment_count": len(selected),
+                    "fragments": [
+                        {
+                            "fragment_id": f.fragment_id,
+                            "address": f.address,
+                            "kind": f.kind,
+                            "content_hash": f.content_hash,
+                            "version_id": f.version_id,
+                            "sequence": f.sequence,
+                            "ordinal": f.ordinal,
+                            "depth": f.depth,
+                            "parent_fragment_id": f.parent_fragment_id,
+                            "char_start": f.char_start,
+                            "char_end": f.char_end,
+                            "text": f.text,
+                        }
+                        for f in selected
+                    ],
+                },
+                default=str,
+            )
+
         return json.dumps(
             {
                 "error": f"unknown action '{action}' "
-                "(expected build|structure|content|retrieve)"
+                "(expected build|structure|content|retrieve|fragments|cite)"
             }
         )
 
