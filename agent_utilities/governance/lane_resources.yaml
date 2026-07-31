@@ -128,3 +128,28 @@ resources:
       pull_project. The verb was `git checkout`, not `git reset` — so the guard
       must cover every tree-mutating verb, held under one lease across the whole
       check-then-mutate so the tree cannot go dirty in between.
+
+  - name: epistemic-graph-daemon
+    class: lease
+    scope: workspace   # engine_resolver's share-running-local/autostart-shared-supervised
+                        # precedence deliberately hands ONE local daemon to every
+                        # entrypoint on the host, across every repo's worktrees —
+                        # not just this repo's lanes.
+    mechanism: hold_lease("epistemic-graph-daemon")
+    evidence: >-
+      A lane's 37-minute full-suite run logged 731 failed / 14197 passed / 353
+      errors, with 1,234 occurrences of `ConnectionRefusedError: Cannot connect
+      to epistemic-graph service` in its log — while two OTHER lanes' full-suite
+      runs and an `--all-files` pre-commit ran concurrently, all four driving the
+      SAME single shared local engine daemon (the `GRAPH_SERVICE_ENDPOINTS`
+      externally-provided branch of the session engine fixture, which reuses a
+      running daemon verbatim rather than spinning an ephemeral one). Ten of the
+      eighteen files that lane had edited showed as failures despite passing
+      individually minutes earlier; two other lanes independently reported
+      phantom failure counts (167, 503) that reproduced identically against
+      unmodified base code under the same contention. Not PARTITION: this
+      daemon's own auto-provisioning is explicitly built to be SHARED across
+      every entrypoint on the host (that is the point of "shared" in
+      share-running-local/autostart-shared-supervised) — splitting it per lane
+      would defeat the sharing it exists for, unlike the cargo target dir, which
+      should never have been shared at all.
