@@ -160,8 +160,48 @@ class GraphCheckpointStore(CheckpointStore):
         return None
 
     async def list(self, limit: int = 10) -> builtins.list[Checkpoint]:
-        # Implementation would use Cypher or graph iteration
-        return []
+        """List the most recent checkpoints, newest first, read from the graph.
+
+        Queries ``:checkpoint`` nodes directly via the engine's native Cypher
+        executor (ordered by ``timestamp`` descending), so a caller in a NEW
+        process — with no in-memory ledger to read from — can enumerate a
+        workflow's prior checkpoints from the graph alone (D-41-1). Best-effort
+        and consistent with :meth:`save`/:meth:`get` on this store: a query or
+        parse failure logs the cause and degrades to an empty/partial result
+        rather than raising.
+        """
+        from agent_utilities.models.knowledge_graph import RegistryNodeType
+        from agent_utilities.security.identifiers import validate_identifier
+
+        node_type = validate_identifier(RegistryNodeType.CHECKPOINT.value, kind="label")
+        query_cypher = getattr(self.engine, "query_cypher", None)
+        if not callable(query_cypher):
+            query_cypher = getattr(
+                getattr(self.engine, "graph", None), "query_cypher", None
+            )
+        if not callable(query_cypher):
+            return []
+
+        cypher = (
+            f"MATCH (c:{node_type}) RETURN c.message_data AS message_data "
+            f"ORDER BY c.timestamp DESC LIMIT {int(limit)}"
+        )
+        checkpoints: builtins.list[Checkpoint] = []
+        try:
+            for row in query_cypher(cypher) or []:
+                data = row.get("message_data") if isinstance(row, dict) else None
+                if not data:
+                    continue
+                try:
+                    checkpoints.append(Checkpoint.from_json(data))
+                except Exception as e:
+                    logger.error(
+                        f"Failed to parse a listed checkpoint from the graph: {e}"
+                    )
+        except Exception as e:
+            logger.error(f"Failed to list checkpoints from graph: {e}")
+            return []
+        return checkpoints
 
 
 class FileCheckpointStore(CheckpointStore):
