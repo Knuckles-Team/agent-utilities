@@ -68,6 +68,8 @@ __all__ = [
     "ingest_envelope",
     "ingest_graph_slice",
     "read_change_cursor",
+    "validate_envelope",
+    "validate_rows_against_shacl",
 ]
 
 
@@ -258,6 +260,21 @@ def _shacl_validate_rows(
         )
 
 
+def validate_rows_against_shacl(
+    client: Any, rows: list[tuple[str, dict[str, Any]]]
+) -> None:
+    """Public reuse point for :func:`_shacl_validate_rows` (CONCEPT:AU-KG.ingest.governed-claim-promotion).
+
+    The connector ingestion boundary's fail-closed SHACL gate — unavailable
+    validator, missing shapes, malformed report, or non-conforming data all
+    ``raise`` — exposed so another governed-write caller (e.g.
+    ``knowledge_graph.ingestion.promotion``'s candidate-claim promotion gate)
+    can reuse the SAME unconditional validate-or-raise contract instead of a
+    second SHACL implementation.
+    """
+    _shacl_validate_rows(client, rows)
+
+
 def _shacl_violation_summary(report: dict[str, Any], *, limit: int = 5) -> str:
     """Summarize a non-conforming SHACL report as a short, bounded string."""
     results = report.get("results")
@@ -334,6 +351,18 @@ def _validate_envelope(envelope: ChangeEnvelope) -> list[str]:
             "policy and runtime ACL projection cannot diverge"
         )
     return violations
+
+
+def validate_envelope(envelope: ChangeEnvelope) -> list[str]:
+    """Public reuse point for :func:`_validate_envelope` (CONCEPT:AU-KG.ingest.governed-claim-promotion).
+
+    Lets another governed-write caller (e.g. a candidate-claim promotion gate
+    deciding whether a claim's proposed materialization is even well-formed
+    before a steward reviews it) run the SAME fail-closed schema + policy
+    checks ``ingest_envelope`` itself enforces at the write boundary — never a
+    second, potentially-drifting policy implementation. Empty list = OK.
+    """
+    return _validate_envelope(envelope)
 
 
 def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:

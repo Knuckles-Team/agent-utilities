@@ -727,6 +727,9 @@ class RegistryEdgeType(StrEnum):
     PRESET_OF = "preset_of"
     RAN_PRESET = "ran_preset"
     TASK_DEPENDS_ON = "task_depends_on"
+    # Dead-letter drain lineage (CONCEPT:AU-KG.ingest.dead-letter-drain): the
+    # original dead-lettered WorkItem -> its explicitly-requeued replacement.
+    DRAINED_AS = "drained_as"
     # Risk Scoring Ontology (CONCEPT:AU-KG.research.research-pipeline-runner)
     ASSESSED_RISK = "assessed_risk"
     HAS_RISK_FACTOR = "has_risk_factor"
