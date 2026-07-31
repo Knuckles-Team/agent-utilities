@@ -289,8 +289,27 @@ class TenancyManager:
         the first ``WHERE``/``RETURN`` is matched **case-insensitively** so a
         lowercase ``return`` can't silently bypass scoping. Queries with no
         ``RETURN`` (writes/DDL) are returned unchanged.
+
+        The injected predicate is written against the query's OWN primary bound
+        node variable (:func:`~agent_utilities.knowledge_graph.core.
+        cypher_scope_vars.primary_bound_variable`), not a hardcoded ``n``
+        (D-SH-4, ``reports/deferred/lane-skill-harvest.md``): a query that
+        aliases its node as e.g. ``s``/``w`` (``MATCH (s:Skill) ...``,
+        ``MATCH (w:WorkItem) RETURN count(w)``) used to have ``n.tenant_id = …``
+        injected referencing a variable that does not exist anywhere in the
+        query — Cypher treats that as never matching, so the read silently
+        returned zero rows (or a zero aggregate) instead of the caller's
+        actual, correctly-scoped data. A query whose first pattern is fully
+        anonymous (``MATCH () ...``, ``MATCH (:Label) ...``) has no variable to
+        scope by; it is returned unchanged rather than referencing a
+        fabricated name (this class of query already carries no per-node
+        governable id — see :func:`~agent_utilities.knowledge_graph.core.
+        secured_reads.row_node_ids`, which denies it downstream if it ever
+        surfaces ungoverned rows).
         """
         import re
+
+        from .cypher_scope_vars import primary_bound_variable
 
         if not tenant_id:
             return query
@@ -298,7 +317,17 @@ class TenancyManager:
             logger.warning("Refusing to scope with unsafe tenant id %r", tenant_id)
             # Fail closed: an unsafe tenant id yields an impossible predicate.
             tenant_id = "__no_such_tenant__"
-        cond = f"n.tenant_id = '{tenant_id}'"
+        var = primary_bound_variable(query)
+        if var is None:
+            from ...core.log_privacy import sanitize_log_text
+
+            logger.debug(
+                "scope_cypher_query: no bound node variable in first MATCH — "
+                "leaving query unscoped: %s",
+                sanitize_log_text(query)[:200],
+            )
+            return query
+        cond = f"{var}.tenant_id = '{tenant_id}'"
 
         m = re.search(r"\bWHERE\b", query, flags=re.IGNORECASE)
         if m:
