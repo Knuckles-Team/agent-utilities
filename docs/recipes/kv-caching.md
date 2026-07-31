@@ -4,7 +4,9 @@
 > "how do I switch it on" companion to the
 > [KV-Cache Layering guide](../guides/kvcache-vllm-lmcache.md) (what it is) and the
 > [KV-Cache-Layering Policy](../architecture/kv-cache-layering-policy.md) (when a call is
-> cache-worthy). Concepts: `CONCEPT:AU-KG.backend.kvcache-vllm-connector`
+> cache-worthy) and
+> [KV-Checkpoint Intelligence](../architecture/kv-checkpoint-intelligence.md) (when a
+> whole context is worth freezing as a checkpoint, and whether it may be persisted). Concepts: `CONCEPT:AU-KG.backend.kvcache-vllm-connector`
 > (`EpistemicGraphKVBackend`, the L2 store) · `CONCEPT:EG-KG.enrichment.content-address-separation`
 > (the engine's `SharedKvIndex`).
 

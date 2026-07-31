@@ -8,6 +8,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KV-cache checkpoint intelligence — checkpoint at *good moments*, chosen by the
+  agent, the user, or the system.** `agent_utilities/kvcache/checkpoint.py` already knew
+  *how* to store a KV checkpoint durably and safely
+  (`CONCEPT:AU-KG.memory.kv-checkpoint-resource`); nothing decided *when* one was worth
+  taking, and its only caller was the `graph_kv_checkpoint` MCP tool. Three new modules
+  close that:
+  - `kvcache/worthiness.py` (`CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring`) — the
+    **framework**, not a heuristic. A `CheckpointScorer` protocol + a thread-safe
+    `CheckpointScorerRegistry` an operator adds to / removes from / replaces without
+    touching the advisor, the tiering layer, or the MCP surface; a deployment-specific
+    scorer takes its input from `CheckpointObservation.extras`, so a new signal never
+    edits the core model. Abstention is first class — a scorer with no evidence
+    contributes **nothing** (it does not dilute the aggregate) and is named on the
+    verdict, and a scorer that *raises* becomes a loud abstention rather than a silent
+    zero. Default set: `rebuild_cost` · `predicted_reuse` · `retrieval_saturation` ·
+    `grounding_density` · `contradictions` (the one veto) · `context_stability` ·
+    `phase_boundary` · `model_self_report`. The model's self-report carries the smallest
+    weight **and** cannot carry a recommendation alone — a model claiming confidence is
+    evidence, not proof.
+  - `kvcache/rebuild_cost.py` — the **one** recomputation-cost estimator, factored out so
+    the engine-side pressure-aware eviction gap (`D-5.3-5.6-2`/`D-KVR-1`) consumes it
+    rather than deriving a second definition of "expensive". Distinguishes *not measured*
+    (`None` ⇒ the consumer abstains) from *measured zero*, and leaves `usd` `None` for an
+    unpriced model instead of fabricating `0.0`.
+  - `kvcache/tiering.py` — RAM is the default tier (bounded by entries **and** bytes, LRU,
+    with the same fail-closed tenant check as the durable store); disk requires a
+    materially higher bar (`DiskPromotionRule`: high rebuild cost **and** high predicted
+    reuse **and** stability, where an *abstention fails a requirement*) **and** an
+    eligibility grant. `TieredCheckpointManager` is the one entry point for all three
+    trigger paths — `checkpoint_now` (user/agent), `recommend` (agent), `observe`
+    (system-autonomous, taking the payload as a callable so a non-worthy moment never
+    pays to serialize KV state).
+- **A required, deny-by-default persistence eligibility gate.**
+  `kvcache/eligibility.py` (`CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility`)
+  — a KV cache is derived from user content, so writing one to the blob store is
+  data-at-rest and keeping it past the session is a retention decision. Every durable
+  write consults a pluggable `PersistenceEligibilityGate`; the default
+  `OperatorGrantEligibility` **denies** unless the request carries an explicit operator
+  grant, makes no residency/classification judgement (this platform has no source for
+  either — `D-5.1-3`/`D-KCI-1`), and reports every unanswerable policy question on every
+  decision so the gap is visible at runtime rather than only in a report. **RAM never
+  implies disk consent:** `promote()` re-runs the gate even for a checkpoint that has been
+  resident all session. `set_persistence_eligibility_gate()` is the extension point — a
+  code seam, not a flag, because widening what may be written to disk should require
+  someone to write and review the rule.
+- **The recommendation reaches the LLM.**
+  `CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface` — scoring a moment
+  publishes the verdict to a `ContextVar` (per-run, so interleaved agent runs never read
+  each other's), and `agent/factory.py` renders it through pydantic-ai's
+  `@agent.instructions`: *"checkpoint-worthy: score 0.82, drivers: …"* plus blockers plus
+  what had no evidence. Nothing published — or a "not worth it" verdict — renders the
+  empty string, so a run that never engages this layer sends a byte-identical prompt.
+- **Both surfaces.** `graph_kv_checkpoint` (and its auto-mounted REST twin
+  `POST /api/graph/kv_checkpoint`) gains `recommend` | `checkpoint_now` | `promote` |
+  `explain` | `ram_stats`. `explain` answers *"why does this checkpoint exist and why is it
+  where it is?"*, and the same material — score, drivers, blockers, deciding gate,
+  unresolved policy questions — is written into the durable `:KVCheckpoint` node's
+  `provenance`, so the question stays answerable from the graph after the session ends. A
+  **refused** promotion is recorded too. New metrics:
+  `agent_utilities_kvcache_checkpoint_recommendations_total{tier}` and
+  `agent_utilities_kvcache_checkpoint_tier_ops_total{trigger,tier,outcome}`. Docs:
+  `docs/architecture/kv-checkpoint-intelligence.md`.
+
 - **Live content guardrails, replacing the dead `PolicyEngine`.** D-48: grep
   confirmed `security/guardrails.py`'s `PolicyEngine` (PII, forbidden-content,
   cost-budget, output-schema rules) had zero live callers across the whole
