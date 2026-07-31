@@ -105,6 +105,25 @@ def test_reconcile_marks_landed(repo: Path) -> None:
     ]
 
 
+def test_reconcile_marks_landed_in_the_mcp_v2_gateway_sidecar_package(
+    repo: Path,
+) -> None:
+    """D-25-8 — a CONCEPT: marker landing in mcp_v2_gateway/ (the one other
+    in-repo, deliberately-isolated Python sidecar package) must reconcile to
+    'landed' exactly like one in agent_utilities/ — previously it stayed
+    'reserved' forever because _default_scan_roots() never walked that tree."""
+    concept_id = "AU-KG.compute.gateway-landed-feature"
+    ca.reserve_concept_id(concept_id, session_id="s", repo_root=repo)
+    (repo / "mcp_v2_gateway").mkdir()
+    (repo / "mcp_v2_gateway" / "tracing.py").write_text(
+        f"# CONCEPT:{concept_id}\n", encoding="utf-8"
+    )
+    assert ca.reconcile(repo_root=repo)["landed"] == [concept_id]
+    assert [r["id"] for r in ca.list_reservations(repo_root=repo, status="landed")] == [
+        concept_id
+    ]
+
+
 def test_reconcile_expires_stale_claim(repo: Path) -> None:
     concept_id = "AU-KG.compute.expired-feature"
     ca.reserve_concept_id(
