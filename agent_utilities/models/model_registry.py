@@ -491,7 +491,6 @@ class ModelRegistry(BaseModel):
         idx = _TIER_ORDER.index(tier)
         return _TIER_ORDER[min(len(_TIER_ORDER) - 1, idx + 1)]
 
-
     def _effective_tier(
         self,
         *,

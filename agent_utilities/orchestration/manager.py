@@ -4,6 +4,11 @@ import logging
 import uuid
 from typing import Any, TypedDict, cast
 
+# Aliased below so the delegate a resolved Tool binds through cannot drift
+# between this module and the capability contract that defines the binding.
+from agent_utilities.core.capability_contract import (
+    DEFAULT_TOOL_DELEGATE as _DEFAULT_DELEGATE,
+)
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
 from agent_utilities.observability.trace_ontology import (
@@ -27,11 +32,6 @@ from agent_utilities.security.threat_defense_engine import PromptInjectionScanne
 
 logger = logging.getLogger(__name__)
 
-# Aliased from the capability contract so the delegate a resolved Tool binds
-# through cannot drift between the two modules.
-from agent_utilities.core.capability_contract import (  # noqa: E402
-    DEFAULT_TOOL_DELEGATE as _DEFAULT_DELEGATE,
-)
 _GATEWAY_OUTPUT_LIMIT = 12_000
 _GATEWAY_MERMAID_LIMIT = 8_000
 _GATEWAY_TRACE_TOOL_LIMIT = 32

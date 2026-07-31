@@ -1207,9 +1207,7 @@ def register_analysis_tools(mcp):
                 if not query:
                     return "Error: contradictions needs the new claim text in `query`."
                 neighbours = (
-                    await run_blocking_ordered(
-                        engine.search_hybrid, query, top_k=top_k
-                    )
+                    await run_blocking_ordered(engine.search_hybrid, query, top_k=top_k)
                     or []
                 )
                 existing = [

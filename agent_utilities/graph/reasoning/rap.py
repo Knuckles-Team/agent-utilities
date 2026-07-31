@@ -185,9 +185,7 @@ def run_rap(
                 _backpropagate(state, leaf_id, reward)
                 continue
 
-            child_ids = _expand(
-                state, leaf_id, expand_fn, counter, branching_factor
-            )
+            child_ids = _expand(state, leaf_id, expand_fn, counter, branching_factor)
             if not child_ids:
                 leaf.is_terminal = True
                 reward = _simulate(state, leaf_id, simulate_fn)
