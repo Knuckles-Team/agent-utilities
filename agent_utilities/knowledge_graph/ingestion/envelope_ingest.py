@@ -249,7 +249,35 @@ def _shacl_validate_rows(
             "connector SHACL validator returned an invalid report"
         )
     if not report["conforms"]:
-        raise ValueError("connector material violates the governed ontology")
+        # Name the failing shapes. "violates the governed ontology" without the
+        # violations is unactionable: it cannot distinguish a missing required
+        # property from a bad datatype on a single row out of hundreds.
+        raise ValueError(
+            "connector material violates the governed ontology: "
+            f"{_shacl_violation_summary(report)}"
+        )
+
+
+def _shacl_violation_summary(report: dict[str, Any], *, limit: int = 5) -> str:
+    """Summarize a non-conforming SHACL report as a short, bounded string."""
+    results = report.get("results")
+    if not isinstance(results, list) or not results:
+        return str(report.get("message") or "no violation detail reported")
+    seen: list[str] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        detail = " ".join(
+            str(item[key])
+            for key in ("focusNode", "resultPath", "sourceShape", "resultMessage")
+            if item.get(key)
+        )
+        if detail and detail not in seen:
+            seen.append(detail)
+        if len(seen) >= limit:
+            break
+    extra = len(results) - len(seen)
+    return "; ".join(seen) + (f" (+{extra} more)" if extra > 0 else "")
 
 
 # ── validate ─────────────────────────────────────────────────────────────
@@ -1907,6 +1935,9 @@ def ingest_graph_slice(
         raise RuntimeError(
             "native ChangeEnvelope graph slice failed: "
             f"{result.get('error') or result.get('status')}"
+            # The rejection reason is the only actionable part of this failure;
+            # dropping it forces every caller to re-derive it from logs.
+            + (f" ({result['reason']})" if result.get("reason") else "")
         )
     return result
 
@@ -1953,19 +1984,27 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
             "reason": "authoritative native ChangeEnvelope commit is unavailable",
         }
     except (PermissionError, ValueError) as exc:
-        # D-DSTK: collapsing to type(exc).__name__ alone dropped the actual
-        # rejection reason (e.g. which field/tenant/identity was invalid) —
-        # every caller across the fleet (source_sync, external_graph,
-        # document_processing, ...) only ever saw "ValueError"/"PermissionError"
-        # for a rejected write, with no way to diagnose why an entire sync
-        # silently vetoed. `error` stays the class name (some callers may match
-        # on it); the message now travels too.
-        logger.warning("native ChangeEnvelope rejected (%s): %s", type(exc).__name__, exc)
+        # D-DSTK + D-DG (reconciliation-gate-2: two lanes fixed this same
+        # defect independently). Collapsing to type(exc).__name__ alone dropped
+        # the actual rejection reason (which field/tenant/identity was invalid)
+        # — "rejected (ValueError)" is equally true of a bad property type, an
+        # over-long id and a policy denial, so every caller across the fleet
+        # (source_sync, external_graph, document_processing, ...) reported an
+        # unactionable failure. `error` stays the class name (some callers match
+        # on it); the message now travels too, under the `reason` key this
+        # function already uses everywhere else (including the sibling
+        # "unavailable" return in this very except-chain).
+        # NB: no exc_info — core/log_privacy.py nulls it on every
+        # agent_utilities.* record, so the interpolated message is the only
+        # channel that actually carries the cause.
+        logger.warning(
+            "native ChangeEnvelope rejected (%s): %s", type(exc).__name__, exc
+        )
         return {
             **base,
             "status": "rejected",
             "error": type(exc).__name__,
-            "detail": str(exc),
+            "reason": str(exc),
         }
     except _NativeOccRetryBudgetExhausted as exc:
         logger.warning(
@@ -1977,11 +2016,15 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
             "status": "failed",
             "error": "NativeChangeEnvelopeConflictExhausted",
         }
-    except Exception as exc:  # noqa: BLE001 — never fall back after native failure (this is the authoritative commit path, so a genuine failure must surface as failed status, not be retried on a different path); `error`/`detail` below now carry the real cause instead of only the exception class name
-        logger.warning("native ChangeEnvelope commit failed (%s): %s", type(exc).__name__, exc)
+    except Exception as exc:  # noqa: BLE001 — never fall back after native failure (this is the authoritative commit path, so a genuine failure must surface as failed status, not be retried on a different path); `error`/`reason` below now carry the real cause instead of only the exception class name
+        # Same reasoning as the rejection path above: the class name alone
+        # cannot tell an operator WHICH commit failed or why.
+        logger.warning(
+            "native ChangeEnvelope commit failed (%s): %s", type(exc).__name__, exc
+        )
         return {
             **base,
             "status": "failed",
             "error": type(exc).__name__,
-            "detail": str(exc),
+            "reason": str(exc),
         }

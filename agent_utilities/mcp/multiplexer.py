@@ -94,6 +94,23 @@ _MAX_CATALOG_NODES = 131_072
 # an unbounded resource listing into the KG.
 _MAX_DISCOVERED_SKILLS = 2_048
 _SKILL_RESOURCE_RE = re.compile(r"^skill://(?P<name>[^/]+)/SKILL\.md$")
+# CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a probed child's skill
+# *bodies* are read back over the SAME already-open probe session, so a fleet
+# skill becomes runnable in graph-os without co-installing the child's package
+# (AGENTS.md "Dependency discipline"). Bounded per body and in aggregate: the
+# harvest reads attacker-influenced content, so it can never be allowed to
+# dominate the probe's latency or memory budget.
+_MAX_SKILL_BODY_BYTES = 512 * 1024
+_MAX_HARVEST_TOTAL_BYTES = 8 * 1024 * 1024
+_SKILL_HARVEST_BUDGET_SEC = 120.0
+# A child enforces its OWN request rate limit, and a body harvest is the most
+# request-dense thing we ever do to one: probing a fleet child that serves the
+# whole shared skill corpus tripped "Rate limit exceeded for client: global"
+# after ~50 reads. That is the child correctly defending itself, so the harvest
+# BACKS OFF and retries rather than treating a rate-limited read as a permanent
+# failure (which would silently strand most of the corpus as un-runnable).
+_SKILL_HARVEST_MAX_ATTEMPTS = 5
+_SKILL_HARVEST_BACKOFF_SEC = 0.5
 _SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "service"})
 # Fleet-wide concurrent-probe ceiling (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog), shared
 # across overlapping ``probe_catalog`` calls via ``MCPMultiplexer._probe_semaphore``
@@ -468,6 +485,29 @@ def _bounded_skill_catalog(raw_resources: Any) -> list[dict[str, Any]]:
     except ToolError:
         raise RuntimeError("MCP child skill catalog exceeded its boundary") from None
     return skills
+
+
+def _resource_body_text(result: Any) -> str:
+    """Extract the text payload of one ``resources/read`` result.
+
+    CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a fastmcp-4
+    ``SkillProvider`` serves ``skill://{name}/SKILL.md`` as ``text/markdown``,
+    so the body arrives as a ``TextResourceContents``. A binary/blob payload is
+    NOT a skill instruction body and is rejected rather than coerced, so a
+    child cannot smuggle an unusable resource into the runnable set.
+    """
+    contents = getattr(result, "contents", None)
+    if not isinstance(contents, list | tuple) or not contents:
+        raise RuntimeError("skill resource returned no contents")
+    parts: list[str] = []
+    for item in contents:
+        text = getattr(item, "text", None)
+        if text is None:
+            raise RuntimeError("skill resource body is not text")
+        if not isinstance(text, str):
+            raise RuntimeError("skill resource body is not text")
+        parts.append(text)
+    return "\n".join(parts)
 
 
 def _read_catalog_text(path: Path) -> str:
@@ -2154,7 +2194,7 @@ class MCPMultiplexer:
             )
             return []
         try:
-            return _bounded_skill_catalog(result.resources)
+            skills = _bounded_skill_catalog(result.resources)
         except Exception as exc:  # noqa: BLE001 - a malformed skill catalog from
             # one server must not fail the tool probe that already succeeded.
             # The cause IS logged.
@@ -2164,6 +2204,95 @@ class MCPMultiplexer:
                 exc,
             )
             return []
+        await self._harvest_skill_bodies(server_name, session, skills)
+        return skills
+
+    async def _harvest_skill_bodies(
+        self, server_name: str, session: Any, skills: list[dict]
+    ) -> None:
+        """Read each catalogued ``skill://`` body over the OPEN probe session.
+
+        CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — the fleet's ~62
+        ``agents/*`` packages are deliberately NOT co-installed into graph-os's
+        serving venv (AGENTS.md "Dependency discipline"), so
+        ``resolve_skill_provider_dirs()`` — an in-process
+        ``importlib.metadata`` walk — structurally cannot see their skills. But
+        each child ALREADY serves them as fastmcp-4 ``skill://{name}/SKILL.md``
+        resources, and we ALREADY hold a live session to it. Reading the body
+        here is what turns a name-only fleet ``Skill`` node into something
+        :func:`~..knowledge_graph.ingestion.skill_workflow_ingest.ingest_runnable_skill`
+        can promote to a runnable ``CallableResource``.
+
+        Mutates each entry in place, adding EITHER ``instructions`` (the body)
+        OR ``harvest_error`` (a named reason). Never both, and never silently
+        neither: an entry without ``instructions`` carries the reason it has
+        none, so the downstream promotion fails CLOSED against a named
+        precondition instead of quietly skipping the skill.
+        """
+        harvested_bytes = 0
+        deadline = time.monotonic() + _SKILL_HARVEST_BUDGET_SEC
+        for entry in skills:
+            uri = entry.get("uri") or ""
+            if time.monotonic() >= deadline:
+                entry["harvest_error"] = (
+                    f"skill body harvest budget exceeded after "
+                    f"{_SKILL_HARVEST_BUDGET_SEC:g}s"
+                )
+                continue
+            if harvested_bytes >= _MAX_HARVEST_TOTAL_BYTES:
+                entry["harvest_error"] = "skill body harvest exceeded its total budget"
+                continue
+            try:
+                body = await self._read_skill_body(session, uri, deadline)
+            except Exception as exc:  # noqa: BLE001 - one unreadable skill body
+                # must not fail the tool probe that already succeeded. The cause
+                # is recorded ON THE ENTRY (so the promotion can name it) AND
+                # logged with its traceback — never discarded.
+                entry["harvest_error"] = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "Server %s could not serve skill body %s (%s)",
+                    server_name,
+                    entry.get("name", "?"),
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                continue
+            encoded = len(body.encode("utf-8"))
+            if not body.strip():
+                entry["harvest_error"] = "server served an empty skill body"
+                continue
+            if encoded > _MAX_SKILL_BODY_BYTES:
+                entry["harvest_error"] = "skill body exceeded its size boundary"
+                continue
+            harvested_bytes += encoded
+            entry["instructions"] = body
+
+    @staticmethod
+    async def _read_skill_body(session: Any, uri: str, deadline: float) -> str:
+        """Read one skill body, backing off while the child rate-limits us.
+
+        Retries are bounded by BOTH an attempt count and the caller's harvest
+        deadline, so a permanently-failing child costs a fixed amount of time.
+        The FINAL failure is re-raised with its original cause intact — the
+        caller records and logs it; nothing is swallowed.
+        """
+        delay = _SKILL_HARVEST_BACKOFF_SEC
+        last: Exception | None = None
+        for attempt in range(_SKILL_HARVEST_MAX_ATTEMPTS):
+            try:
+                return _resource_body_text(await session.read_resource(uri))
+            except Exception as exc:  # noqa: BLE001 — retried below, then re-raised
+                last = exc
+                if attempt == _SKILL_HARVEST_MAX_ATTEMPTS - 1:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(delay, remaining))
+                delay *= 2
+        if last is None:  # pragma: no cover — the loop only exits via a failure
+            raise RuntimeError("skill body read failed without a recorded cause")
+        raise last
 
     @classmethod
     async def probe_declaration(

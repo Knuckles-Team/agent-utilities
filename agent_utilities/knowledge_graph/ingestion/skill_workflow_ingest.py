@@ -99,6 +99,7 @@ def ingest_runnable_skill(
     instructions: str,
     provider: str,
     disabled: bool = False,
+    mcp_server: str = "",
 ) -> str:
     """Persist one skill and its executable resource without local paths.
 
@@ -107,6 +108,12 @@ def ingest_runnable_skill(
     the discovery path is not.  A distinct ``CallableResource`` keeps the
     searchable ``Skill`` and runnable object explicit while ``BINDS_RUNNABLE``
     and ``DERIVED_FROM`` retain provenance.
+
+    ``mcp_server``, when set, records WHICH fleet MCP child serves this skill
+    (CONCEPT:AU-ECO.mcp.cross-process-skill-harvest). A skill harvested from a
+    child names that child so the dispatcher can bind the toolset the skill's
+    instructions actually direct it to call; a locally-installed skill leaves
+    it empty and the property is simply absent.
 
     Returns the runnable resource id.
     """
@@ -151,6 +158,11 @@ def ingest_runnable_skill(
         "disabled": bool(disabled),
         "privacy_redactions": description_privacy.redactions + body_privacy.redactions,
     }
+    if str(mcp_server).strip():
+        safe_server, server_privacy = guard.sanitize_text(str(mcp_server).strip())
+        if server_privacy.changed:
+            raise ValueError("skill server identity failed the persistence privacy policy")
+        common["mcp_server"] = safe_server
     with use_actor(session.actor):
         engine._upsert_node(
             "Skill",
