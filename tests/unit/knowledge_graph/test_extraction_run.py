@@ -428,3 +428,73 @@ async def test_extractor_unavailable_surfaced_through_enrich_text():
 
     assert out["entities"] == 0
     assert out["extraction_outcomes"].get("extractor_unavailable", 0) >= 1
+
+
+# --------------------------------------------------------------------------- #
+# 4. Strict-schema (Kuzu/LadybugDB) typed columns (D-62-2)
+# --------------------------------------------------------------------------- #
+
+
+def test_claim_and_extraction_run_have_table_definitions() -> None:
+    """``Claim``/``ExtractionRun`` get first-class typed columns on a
+    strict-schema backend instead of only the ``GENERIC_NODE_COLUMNS``
+    fallback (the fallback still works — this is fidelity, not correctness)."""
+    from agent_utilities.models.schema_definition import SCHEMA
+
+    table_names = {t.name for t in SCHEMA.nodes}
+    assert "Claim" in table_names
+    assert "ExtractionRun" in table_names
+
+
+def test_claim_table_covers_claim_node_fields() -> None:
+    from agent_utilities.models.schema_definition import SCHEMA
+
+    claim_table = next(t for t in SCHEMA.nodes if t.name == "Claim")
+    for field_name in (
+        "claim_text",
+        "confidence",
+        "claim_type",
+        "source_ids",
+        "extracted_from",
+        "domain",
+        "is_verified",
+    ):
+        assert field_name in claim_table.columns, (
+            f"Claim TableDefinition missing column {field_name!r}"
+        )
+
+
+def test_extraction_run_table_covers_extraction_run_node_fields() -> None:
+    from agent_utilities.models.schema_definition import SCHEMA
+
+    run_table = next(t for t in SCHEMA.nodes if t.name == "ExtractionRun")
+    for field_name in (
+        "source_id",
+        "input_hash",
+        "parser_version",
+        "extractor_version",
+        "schema_pack_ref",
+        "model_ref",
+        "graph_epoch",
+        "calibration_policy",
+        "thresholds",
+        "outcome",
+        "outcome_counts",
+        "entities_count",
+        "claims_count",
+    ):
+        assert field_name in run_table.columns, (
+            f"ExtractionRun TableDefinition missing column {field_name!r}"
+        )
+
+
+def test_was_generated_by_covers_entity_and_claim_to_extraction_run() -> None:
+    """The PROV-O ``wasGeneratedBy`` link ``link_generated_by`` writes
+    (``child WAS_GENERATED_BY run``) is a declared connection on a
+    strict-schema backend, for both persisted node types."""
+    from agent_utilities.models.schema_definition import SCHEMA
+
+    generated_by = next(e for e in SCHEMA.edges if e.type == "WAS_GENERATED_BY")
+    connections = {(c["from"], c["to"]) for c in generated_by.connections}
+    assert ("Entity", "ExtractionRun") in connections
+    assert ("Claim", "ExtractionRun") in connections
