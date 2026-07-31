@@ -25,6 +25,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from . import tracing
+
 MCP_V2_PROTOCOL_VERSION = "2026-07-28"
 LEGACY_PROTOCOL_VERSION = "2025-11-25"
 TASKS_EXTENSION = "io.modelcontextprotocol/tasks"
@@ -387,44 +389,74 @@ class GraphOSV2Gateway:
         context: GatewayRequestContext,
     ) -> dict[str, Any]:
         request_id = request.get("id")
-        try:
-            self._validate_request(request)
-            method = request["method"]
-            params = request.get("params") or {}
-            if method == "server/discover":
-                self._require_modern(params)
-                self._require_authorization(context)
-                tools = self._list_tools_result(
-                    await self._downstream.list_tools(context)
+        raw_method = request.get("method")
+        method = raw_method if isinstance(raw_method, str) else "invalid"
+        task_id = self._trace_task_id(request)
+        with tracing.traced_dispatch(
+            method=method,
+            protocol_version=MCP_V2_PROTOCOL_VERSION,
+            task_id=task_id,
+            traceparent=context.traceparent,
+            tracestate=context.tracestate,
+            baggage=context.baggage,
+        ) as span:
+            try:
+                self._validate_request(request)
+                method = request["method"]
+                params = request.get("params") or {}
+                if method == "server/discover":
+                    self._require_modern(params)
+                    self._require_authorization(context)
+                    tools = self._list_tools_result(
+                        await self._downstream.list_tools(context)
+                    )
+                    response = self._success(request_id, self._discovery_result(tools))
+                elif method == "tools/list":
+                    self._require_modern(params)
+                    self._require_authorization(context)
+                    response = self._success(
+                        request_id,
+                        self._list_tools_result(
+                            await self._downstream.list_tools(context)
+                        ),
+                    )
+                elif method == "tools/call":
+                    self._require_modern(params)
+                    self._require_authorization(context)
+                    result = await self._call_tool(params, context)
+                    response = self._success(request_id, result)
+                elif method in {"tasks/get", "tasks/update", "tasks/cancel"}:
+                    self._require_modern(params)
+                    self._require_tasks_capability(params)
+                    self._require_authorization(context)
+                    result = await self._task_method(method, params, context)
+                    response = self._success(request_id, result)
+                else:
+                    raise GatewayProtocolError(-32601, "Method not found")
+            except GatewayProtocolError as exc:
+                response = self._error(request_id, exc)
+            except Exception:
+                # Deliberately do not serialize exception text: it can carry a
+                # bearer, endpoint, tenant, or downstream implementation detail.
+                response = self._error(
+                    request_id, GatewayProtocolError(-32603, "Internal error")
                 )
-                return self._success(request_id, self._discovery_result(tools))
-            if method == "tools/list":
-                self._require_modern(params)
-                self._require_authorization(context)
-                return self._success(
-                    request_id,
-                    self._list_tools_result(await self._downstream.list_tools(context)),
-                )
-            if method == "tools/call":
-                self._require_modern(params)
-                self._require_authorization(context)
-                result = await self._call_tool(params, context)
-                return self._success(request_id, result)
-            if method in {"tasks/get", "tasks/update", "tasks/cancel"}:
-                self._require_modern(params)
-                self._require_tasks_capability(params)
-                self._require_authorization(context)
-                result = await self._task_method(method, params, context)
-                return self._success(request_id, result)
-            raise GatewayProtocolError(-32601, "Method not found")
-        except GatewayProtocolError as exc:
-            return self._error(request_id, exc)
-        except Exception:
-            # Deliberately do not serialize exception text: it can carry a bearer,
-            # endpoint, tenant, or downstream implementation detail.
-            return self._error(
-                request_id, GatewayProtocolError(-32603, "Internal error")
+            tracing.finish_dispatch(
+                span,
+                method=method,
+                protocol_version=MCP_V2_PROTOCOL_VERSION,
+                task_id=task_id,
+                response=response,
             )
+            return response
+
+    @staticmethod
+    def _trace_task_id(request: Mapping[str, Any]) -> str | None:
+        params = request.get("params")
+        if not isinstance(params, Mapping):
+            return None
+        task_id = params.get("taskId")
+        return task_id if isinstance(task_id, str) and task_id else None
 
     def _validate_request(self, request: Mapping[str, Any]) -> None:
         if request.get("jsonrpc") != "2.0" or not isinstance(

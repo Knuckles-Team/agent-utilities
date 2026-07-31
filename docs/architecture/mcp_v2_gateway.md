@@ -69,6 +69,42 @@ Deploy the gateway in the same pod/process network and use `http://127.0.0.1`
 for GraphOS, or use an authenticated HTTPS GraphOS endpoint. Plaintext
 non-loopback downstream URLs fail closed.
 
+## Observability
+
+`mcp_v2_gateway/tracing.py` (CONCEPT:AU-ECO.mcp.v2-gateway-otel-tracing) gives
+the sidecar real logs and traces, replacing the previous
+`logging.basicConfig(level=logging.WARNING)` under which the deployed
+`graph-os-mcp-v2-gateway` container emitted zero logs.
+
+Every `GraphOSV2Gateway.dispatch()` call opens one OTel server span
+(`mcp.dispatch`) as a child of the caller's already-validated
+`traceparent`/`tracestate`/`baggage` (or a fresh root span if none was sent),
+and emits exactly one structured JSON log line correlated to it (`trace_id`,
+`span_id`, `mcp.method`, `mcp.protocol_version`, `mcp.task_id` when present,
+`outcome`, `duration_ms`). The resource-level `mcp.protocol_version` attribute
+also makes the protocol version visible on every span the process emits.
+
+Both the span attribute set and the JSON log fields are explicitly
+allow-listed (`_ALLOWED_SPAN_ATTRIBUTES`/`_JSONLogFormatter`) so tracing can
+never become a second channel for the bearer/endpoint/tool-argument/exception
+content `dispatch()` itself refuses to log; the response bodies read here
+(`error.code`/`error.message`) are already public-safe by construction (see
+`GatewayProtocolError`'s docstring). The raw HTTP access log
+(`BaseHTTPRequestHandler.log_message`) stays disabled -- it can carry
+sensitive query values at reverse proxies -- this structured, allow-listed log
+is its replacement.
+
+Span export is opt-in and fails open: a span is always created (so the
+correlated log line above is never lost), but nothing is sent to a collector
+unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so an unreachable collector can
+never block, slow, or fail a request. When set, spans are rebuilt through a
+self-contained allow-listing exporter (mirroring
+`agent_utilities.observability.custom_observability._MetadataOnlySpanExporter`'s
+approach without depending on `agent_utilities`) before being handed to the
+standard OTLP/HTTP exporter, which reads `OTEL_EXPORTER_OTLP_HEADERS` from the
+environment same as any other OTel SDK consumer. `MCP_V2_GATEWAY_LOG_LEVEL`
+controls JSON log verbosity (default `INFO`).
+
 ## Tasks extension
 
 Tasks remain an experimental MCP extension and may change independently of the
