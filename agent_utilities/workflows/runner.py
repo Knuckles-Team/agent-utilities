@@ -96,6 +96,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.contextual_model import GroundingPolicy, use_grounding_policy
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.graph import GraphPlan
 
 if TYPE_CHECKING:
@@ -428,7 +429,7 @@ class WorkflowRunner:
         _active_workflows[result.session_id] = result
         # CONCEPT:AU-ORCH.execution.best-effort-provenance — close the descriptive↔executable provenance loop
         # for workflows compiled from a BusinessProcess (REALIZES, ORCH-1.41).
-        await asyncio.to_thread(
+        await run_blocking_ordered(
             self._close_out_process_lineage, engine, workflow_name, result
         )
         return result
@@ -634,7 +635,7 @@ class WorkflowRunner:
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
         store = WorkflowStore(engine)
-        plan = await asyncio.to_thread(store.load_workflow, workflow_name)
+        plan = await run_blocking_ordered(store.load_workflow, workflow_name)
         if plan is None:
             raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
 
@@ -669,10 +670,10 @@ class WorkflowRunner:
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
         store = WorkflowStore(engine)
-        plan = await asyncio.to_thread(store.load_workflow, workflow_name)
+        plan = await run_blocking_ordered(store.load_workflow, workflow_name)
         if plan is None:
             raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
-        prior = await asyncio.to_thread(self._load_run_state, engine, session_id)
+        prior = await run_blocking_ordered(self._load_run_state, engine, session_id)
         return await self._execute_plan_via_agents(
             plan=plan,
             engine=engine,
@@ -725,12 +726,12 @@ class WorkflowRunner:
         )
 
         store = WorkflowStore(engine)
-        plan = await asyncio.to_thread(store.load_workflow, workflow_name)
+        plan = await run_blocking_ordered(store.load_workflow, workflow_name)
         if plan is None:
             raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
 
         all_step_ids = [getattr(s, "id", "") or "" for s in plan.steps]
-        region = await asyncio.to_thread(
+        region = await run_blocking_ordered(
             localized_repair_region,
             failed_step,
             engine=engine,
@@ -751,7 +752,7 @@ class WorkflowRunner:
                 r.node_id for r in prior_result.step_results if r.status == "completed"
             }
         else:
-            prior = await asyncio.to_thread(self._load_run_state, engine, session_id)
+            prior = await run_blocking_ordered(self._load_run_state, engine, session_id)
             prior_completed = dict(prior.get("completed") or {})
             prior_satisfied = set(prior.get("satisfied") or set())
 
@@ -977,7 +978,7 @@ class WorkflowRunner:
             gate_progressed = False
             for gstep in gate_steps:
                 gsid = getattr(gstep, "id", "") or f"gate-{wave_idx}"
-                verdict = await asyncio.to_thread(self.gate_checker, engine, gstep)
+                verdict = await run_blocking_ordered(self.gate_checker, engine, gstep)
                 if verdict == "approved":
                     completed[gsid] = StepResult(
                         step_index=wave_idx,
@@ -1123,7 +1124,7 @@ class WorkflowRunner:
                 else "",
             )
             _active_workflows[session_id] = result
-            await asyncio.to_thread(
+            await run_blocking_ordered(
                 self._persist_run_state,
                 engine,
                 session_id,
@@ -1176,7 +1177,7 @@ class WorkflowRunner:
         )
         _active_workflows[session_id] = result
         # Same provenance close-out as the manifest path (ORCH-1.43).
-        await asyncio.to_thread(
+        await run_blocking_ordered(
             self._close_out_process_lineage, engine, workflow_name, result
         )
         return result
