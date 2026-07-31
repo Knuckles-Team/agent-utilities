@@ -53,7 +53,7 @@ def register_write_ingest_tools(mcp):
         ),
         tags=["graph-os", "write", "mutation"],
     )
-    def graph_write(
+    async def graph_write(
         action: str = Field(
             description=(
                 "Action to perform (add_node, add_edge, delete_node, delete_edge, "
@@ -137,209 +137,214 @@ def register_write_ingest_tools(mcp):
         failed / another agent won the race).
         """
 
-        def _write_with_engine(engine: Any) -> str:
-            if not engine:
-                return "Error: IntelligenceGraphEngine not active."
-            try:
-                # ``properties`` carries a JSON dict for node/edge writes, but a
-                # RAW content string for the memory/chat/sdd actions
-                # (store_memory, recall_memory, log_chat, submit_sdd) which read it
-                # directly. Parse it ONLY where it is consumed as a dict — parsing
-                # eagerly for every action raised "Expecting value: line 1 column 1"
-                # on plain content text and broke graph_memory store/recall.
-                def _props() -> dict:
-                    return json.loads(properties) if properties else {}
+        def _execute() -> str:
+            def _write_with_engine(engine: Any) -> str:
+                if not engine:
+                    return "Error: IntelligenceGraphEngine not active."
+                try:
+                    # ``properties`` carries a JSON dict for node/edge writes, but a
+                    # RAW content string for the memory/chat/sdd actions
+                    # (store_memory, recall_memory, log_chat, submit_sdd) which read it
+                    # directly. Parse it ONLY where it is consumed as a dict — parsing
+                    # eagerly for every action raised "Expecting value: line 1 column 1"
+                    # on plain content text and broke graph_memory store/recall.
+                    def _props() -> dict:
+                        return json.loads(properties) if properties else {}
 
-                if action == "add_node":
-                    if not node_id or not node_type:
-                        return "Error: node_id and node_type required"
-                    engine.add_node(node_id, node_type, _props())
-                    return f"Node {node_id} added."
-                elif action == "add_edge":
-                    if not source_id or not target_id or not rel_type:
-                        return "Error: source_id, target_id, and rel_type required"
-                    engine.link_nodes(source_id, target_id, rel_type, _props())
-                    return f"Edge {source_id} -> {target_id} added."
-                elif action == "delete_node":
-                    engine.delete_node(node_id)
-                    return f"Node {node_id} deleted."
-                elif action == "delete_edge":
-                    engine.delete_edge(source_id, target_id, rel_type)
-                    return f"Edge {source_id} -> {target_id} deleted."
-                elif action == "register_external_graph":
-                    if not endpoint_url:
-                        return "Error: endpoint_url required"
-                    engine.add_node(
-                        endpoint_url,
-                        "ExternalGraphReference",
-                        {"graph_type": graph_type},
-                    )
-                    return f"Registered external graph at {endpoint_url}"
-                elif action == "bulk_ingest":
-                    nodes_list = json.loads(nodes) if nodes else []
-                    for n in nodes_list:
+                    if action == "add_node":
+                        if not node_id or not node_type:
+                            return "Error: node_id and node_type required"
+                        engine.add_node(node_id, node_type, _props())
+                        return f"Node {node_id} added."
+                    elif action == "add_edge":
+                        if not source_id or not target_id or not rel_type:
+                            return "Error: source_id, target_id, and rel_type required"
+                        engine.link_nodes(source_id, target_id, rel_type, _props())
+                        return f"Edge {source_id} -> {target_id} added."
+                    elif action == "delete_node":
+                        engine.delete_node(node_id)
+                        return f"Node {node_id} deleted."
+                    elif action == "delete_edge":
+                        engine.delete_edge(source_id, target_id, rel_type)
+                        return f"Edge {source_id} -> {target_id} deleted."
+                    elif action == "register_external_graph":
+                        if not endpoint_url:
+                            return "Error: endpoint_url required"
                         engine.add_node(
-                            n.get("id"), n.get("type", "Node"), n.get("properties", {})
+                            endpoint_url,
+                            "ExternalGraphReference",
+                            {"graph_type": graph_type},
                         )
-                    return f"Bulk ingested {len(nodes_list)} nodes."
-                elif action == "compare_and_set":
-                    # CONCEPT:AU-KG.ingest.atomic-compare-and-set — atomic compare-and-set as a first-class
-                    # agent capability. Applies ``updates`` to the node
-                    # ONLY if every field in ``conditions`` still equals its current
-                    # value (missing field ≡ null), under the engine's write lock —
-                    # the optimistic-concurrency primitive that lets concurrent
-                    # agents shape the same node without lost updates. Returns a
-                    # clear applied/not-applied result; a ``False`` (lost the race /
-                    # precondition failed) is surfaced, never swallowed.
-                    if not node_id:
-                        return "Error: node_id required"
-
-                    # Omitted dict params arrive as the unresolved FastMCP
-                    # ``FieldInfo`` (default_factory is not resolved by the
-                    # internal/REST dispatcher); coerce anything non-dict — and a
-                    # JSON-string some MCP clients send — to a plain dict.
-                    def _as_dict(v: Any) -> dict:
-                        if isinstance(v, dict):
-                            return v
-                        if isinstance(v, str) and v.strip():
-                            try:
-                                parsed = json.loads(v)
-                                return parsed if isinstance(parsed, dict) else {}
-                            except (ValueError, TypeError):
-                                return {}
-                        return {}
-
-                    applied = bool(
-                        engine.backend.compare_and_set_node_fields(
-                            node_id, _as_dict(conditions), _as_dict(updates)
-                        )
-                    )
-                    return json.dumps(
-                        {
-                            "action": "compare_and_set",
-                            "node_id": node_id,
-                            "applied": applied,
-                        }
-                    )
-                elif action in ("store_memory", "recall_memory"):
-                    # The canonical memory store is the engine facade's MemoryMixin
-                    # (engine.store_memory / engine.recall_memory) — the same path
-                    # messaging/kg_ingest and the kg-memory task worker use. The old
-                    # ``agent_utilities.memory.manager.MemoryManager`` indirection
-                    # never existed as a module, so this branch always fell into
-                    # "memory module not available"; wire it to the real method.
-                    if action == "store_memory":
-                        engine.store_memory(
-                            content=properties,
-                            memory_type=node_type or "episodic",
-                            tags=json.loads(nodes) if nodes else [],
-                            agent_id=agent_id,
-                        )
-                        return "Memory stored."
-                    res = engine.recall_memory(
-                        query=properties, memory_type=node_type, top_k=5
-                    )
-                    return "\n".join(str(r) for r in res)
-                elif action == "recall_media":
-                    # CONCEPT:AU-KG.identity.asset-occurrence — list durable media
-                    # occurrence records only. Content identity remains a property;
-                    # it is never reused as occurrence identity.
-                    # Returns metadata (occurrence_id + content_digest + media_type), NOT
-                    # raw bytes (those are fetched by digest via
-                    # MediaStore.fetch_bytes).
-                    # Optional filter: node_id=<message memory id> for a turn's media.
-                    where = "n.node_type = 'AssetOccurrence'"
-                    if node_id:
-                        if not _OPAQUE_NODE_ID.fullmatch(node_id):
-                            return public_error_json(
-                                ValueError("invalid node identifier"),
-                                code="invalid_request",
+                        return f"Registered external graph at {endpoint_url}"
+                    elif action == "bulk_ingest":
+                        nodes_list = json.loads(nodes) if nodes else []
+                        for n in nodes_list:
+                            engine.add_node(
+                                n.get("id"),
+                                n.get("type", "Node"),
+                                n.get("properties", {}),
                             )
-                        where += f" AND n.message_id = '{node_id}'"
-                    try:
-                        rows = engine.query_cypher(
-                            f"MATCH (n) WHERE {where} RETURN "
-                            "n.id AS occurrence_id, n.content_digest AS digest, "
-                            "n.media_type AS media_type, n.mime_type AS mime_type, "
-                            "n.created_at AS created_at LIMIT 50"
+                        return f"Bulk ingested {len(nodes_list)} nodes."
+                    elif action == "compare_and_set":
+                        # CONCEPT:AU-KG.ingest.atomic-compare-and-set — atomic compare-and-set as a first-class
+                        # agent capability. Applies ``updates`` to the node
+                        # ONLY if every field in ``conditions`` still equals its current
+                        # value (missing field ≡ null), under the engine's write lock —
+                        # the optimistic-concurrency primitive that lets concurrent
+                        # agents shape the same node without lost updates. Returns a
+                        # clear applied/not-applied result; a ``False`` (lost the race /
+                        # precondition failed) is surfaced, never swallowed.
+                        if not node_id:
+                            return "Error: node_id required"
+
+                        # Omitted dict params arrive as the unresolved FastMCP
+                        # ``FieldInfo`` (default_factory is not resolved by the
+                        # internal/REST dispatcher); coerce anything non-dict — and a
+                        # JSON-string some MCP clients send — to a plain dict.
+                        def _as_dict(v: Any) -> dict:
+                            if isinstance(v, dict):
+                                return v
+                            if isinstance(v, str) and v.strip():
+                                try:
+                                    parsed = json.loads(v)
+                                    return parsed if isinstance(parsed, dict) else {}
+                                except (ValueError, TypeError):
+                                    return {}
+                            return {}
+
+                        applied = bool(
+                            engine.backend.compare_and_set_node_fields(
+                                node_id, _as_dict(conditions), _as_dict(updates)
+                            )
                         )
                         return json.dumps(
-                            {"action": "recall_media", "occurrences": rows},
-                            default=str,
+                            {
+                                "action": "compare_and_set",
+                                "node_id": node_id,
+                                "applied": applied,
+                            }
                         )
-                    except Exception as e:  # noqa: BLE001
-                        return public_error_json(e)
-                elif action in (
-                    "log_chat",
-                    "submit_sdd",
-                    "register_execution",
-                    "check_loop",
-                ):
-                    if action == "log_chat":
-                        engine.add_node(
-                            f"chat_{agent_id}_{hash(properties)}",
-                            "ChatLog",
-                            {"content": properties, "agent_id": agent_id},
+                    elif action in ("store_memory", "recall_memory"):
+                        # The canonical memory store is the engine facade's MemoryMixin
+                        # (engine.store_memory / engine.recall_memory) — the same path
+                        # messaging/kg_ingest and the kg-memory task worker use. The old
+                        # ``agent_utilities.memory.manager.MemoryManager`` indirection
+                        # never existed as a module, so this branch always fell into
+                        # "memory module not available"; wire it to the real method.
+                        if action == "store_memory":
+                            engine.store_memory(
+                                content=properties,
+                                memory_type=node_type or "episodic",
+                                tags=json.loads(nodes) if nodes else [],
+                                agent_id=agent_id,
+                            )
+                            return "Memory stored."
+                        res = engine.recall_memory(
+                            query=properties, memory_type=node_type, top_k=5
                         )
-                        return "Chat logged."
-                    elif action == "submit_sdd":
-                        engine.add_node(
-                            f"sdd_{agent_id}_{hash(properties)}",
-                            "SDD",
-                            {"content": properties, "agent_id": agent_id},
-                        )
-                        return "SDD submitted."
-                    elif action == "register_execution":
-                        engine.add_node(
-                            f"exec_{agent_id}", "Execution", {"status": "running"}
-                        )
-                        return "Execution registered."
-                    elif action == "check_loop":
-                        return "Loop status: OK"
-                    return f"Error: Action '{action}' not implemented."
-                else:
-                    return f"Error: Unknown write action '{action}'"
+                        return "\n".join(str(r) for r in res)
+                    elif action == "recall_media":
+                        # CONCEPT:AU-KG.identity.asset-occurrence — list durable media
+                        # occurrence records only. Content identity remains a property;
+                        # it is never reused as occurrence identity.
+                        # Returns metadata (occurrence_id + content_digest + media_type), NOT
+                        # raw bytes (those are fetched by digest via
+                        # MediaStore.fetch_bytes).
+                        # Optional filter: node_id=<message memory id> for a turn's media.
+                        where = "n.node_type = 'AssetOccurrence'"
+                        if node_id:
+                            if not _OPAQUE_NODE_ID.fullmatch(node_id):
+                                return public_error_json(
+                                    ValueError("invalid node identifier"),
+                                    code="invalid_request",
+                                )
+                            where += f" AND n.message_id = '{node_id}'"
+                        try:
+                            rows = engine.query_cypher(
+                                f"MATCH (n) WHERE {where} RETURN "
+                                "n.id AS occurrence_id, n.content_digest AS digest, "
+                                "n.media_type AS media_type, n.mime_type AS mime_type, "
+                                "n.created_at AS created_at LIMIT 50"
+                            )
+                            return json.dumps(
+                                {"action": "recall_media", "occurrences": rows},
+                                default=str,
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            return public_error_json(e)
+                    elif action in (
+                        "log_chat",
+                        "submit_sdd",
+                        "register_execution",
+                        "check_loop",
+                    ):
+                        if action == "log_chat":
+                            engine.add_node(
+                                f"chat_{agent_id}_{hash(properties)}",
+                                "ChatLog",
+                                {"content": properties, "agent_id": agent_id},
+                            )
+                            return "Chat logged."
+                        elif action == "submit_sdd":
+                            engine.add_node(
+                                f"sdd_{agent_id}_{hash(properties)}",
+                                "SDD",
+                                {"content": properties, "agent_id": agent_id},
+                            )
+                            return "SDD submitted."
+                        elif action == "register_execution":
+                            engine.add_node(
+                                f"exec_{agent_id}", "Execution", {"status": "running"}
+                            )
+                            return "Execution registered."
+                        elif action == "check_loop":
+                            return "Loop status: OK"
+                        return f"Error: Action '{action}' not implemented."
+                    else:
+                        return f"Error: Unknown write action '{action}'"
+                except Exception as e:
+                    return public_error_text(e)
+
+            # CONCEPT:AU-KG.backend.multi-connection-registry — resolve target connection(s). Writes only fan out on
+            # an EXPLICIT multi-target request ('all' or a list); the default and a
+            # single named target stay single-write to avoid accidental multi-store
+            # writes.
+            try:
+                entries, errors, fanout = kg_server._resolve_target_engines(target)
             except Exception as e:
                 return public_error_text(e)
 
-        # CONCEPT:AU-KG.backend.multi-connection-registry — resolve target connection(s). Writes only fan out on
-        # an EXPLICIT multi-target request ('all' or a list); the default and a
-        # single named target stay single-write to avoid accidental multi-store
-        # writes.
-        try:
-            entries, errors, fanout = kg_server._resolve_target_engines(target)
-        except Exception as e:
-            return public_error_text(e)
+            # CONCEPT:AU-KG.ingest.role-enforcement — role enforcement: a 'read' (data source) or 'mirror'
+            # (fan-out replica) connection rejects direct target= writes. Mirrors are
+            # written only through the fan-out outbox, never here.
+            registry = kg_server.get_connection_registry()
+            errors = dict(errors)
+            writable = []
+            for name, eng in entries:
+                if registry.is_writable(name):
+                    writable.append((name, eng))
+                else:
+                    errors[name] = (
+                        f"connection '{name}' is read-only (role={registry.role(name)})"
+                    )
 
-        # CONCEPT:AU-KG.ingest.role-enforcement — role enforcement: a 'read' (data source) or 'mirror'
-        # (fan-out replica) connection rejects direct target= writes. Mirrors are
-        # written only through the fan-out outbox, never here.
-        registry = kg_server.get_connection_registry()
-        errors = dict(errors)
-        writable = []
-        for name, eng in entries:
-            if registry.is_writable(name):
-                writable.append((name, eng))
-            else:
-                errors[name] = (
-                    f"connection '{name}' is read-only (role={registry.role(name)})"
-                )
+            if not fanout:
+                if not writable:
+                    return json.dumps(
+                        {"error": errors.get(entries[0][0], "target is read-only")},
+                        default=str,
+                    )
+                return _write_with_engine(writable[0][1])
 
-        if not fanout:
-            if not writable:
-                return json.dumps(
-                    {"error": errors.get(entries[0][0], "target is read-only")},
-                    default=str,
-                )
-            return _write_with_engine(writable[0][1])
+            # Fan-out — per-target timeout so one slow backend can't stall the set.
+            results, fan_errors = kg_server.fanout_execute(
+                writable, lambda name, eng: _write_with_engine(eng)
+            )
+            return json.dumps(
+                {"targets": results, "errors": {**errors, **fan_errors}}, default=str
+            )
 
-        # Fan-out — per-target timeout so one slow backend can't stall the set.
-        results, fan_errors = kg_server.fanout_execute(
-            writable, lambda name, eng: _write_with_engine(eng)
-        )
-        return json.dumps(
-            {"targets": results, "errors": {**errors, **fan_errors}}, default=str
-        )
+        return await run_blocking_ordered(_execute)
 
     kg_server.REGISTERED_TOOLS["graph_write"] = graph_write
 
@@ -367,7 +372,7 @@ def register_write_ingest_tools(mcp):
         ),
         tags=["graph-os", "feedback", "learning"],
     )
-    def graph_feedback(
+    async def graph_feedback(
         correction_type: str = Field(
             description=(
                 "outcome | rule | eval | reads_avoided | action_outcome | gotcha | "
@@ -398,24 +403,28 @@ def register_write_ingest_tools(mcp):
         engine = kg_server._get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
-        try:
-            from agent_utilities.knowledge_graph.adaptation.feedback import (
-                FeedbackService,
-            )
 
-            service = FeedbackService.from_engine(engine)
-            result = service.record_correction(
-                correction_type,
-                target_id,
-                corrected_value=corrected_value or None,
-                reason=reason,
-                actor_id=actor_id,
-                rule_scope=rule_scope,
-                rule_kind=rule_kind,
-            )
-            return json.dumps(result.as_dict())
-        except Exception as e:
-            return public_error_text(e)
+        def _execute() -> str:
+            try:
+                from agent_utilities.knowledge_graph.adaptation.feedback import (
+                    FeedbackService,
+                )
+
+                service = FeedbackService.from_engine(engine)
+                result = service.record_correction(
+                    correction_type,
+                    target_id,
+                    corrected_value=corrected_value or None,
+                    reason=reason,
+                    actor_id=actor_id,
+                    rule_scope=rule_scope,
+                    rule_kind=rule_kind,
+                )
+                return json.dumps(result.as_dict())
+            except Exception as e:
+                return public_error_text(e)
+
+        return await run_blocking_ordered(_execute)
 
     kg_server.REGISTERED_TOOLS["graph_feedback"] = graph_feedback
 

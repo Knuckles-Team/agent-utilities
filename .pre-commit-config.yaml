@@ -149,7 +149,7 @@ repos:
     pass_filenames: false
     always_run: true
   - id: check-event-loop-blocking
-    name: Event-loop blocking heuristic (report-only — see script docstring)
+    name: Event-loop blocking heuristic (ratchet — no new candidate sites)
     entry: python3 scripts/check_event_loop_blocking.py
     language: system
     pass_filenames: false

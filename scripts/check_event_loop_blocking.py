@@ -25,19 +25,25 @@ run_blocking`/``invoke_client_method``, or ``loop.run_in_executor`` — includin
 nested function is exempted when its name is passed as a bare reference to one of
 those hop calls anywhere in the same enclosing async function.
 
-REPORT-ONLY, not enforcing. A prior full sweep (`0aae9c59` + this one) fixed the
-highest-value sites reachable in one pass, but this codebase still has a large,
-UNTRIAGED population of matching call shapes (every remaining ``async def`` MCP tool
-handler, every background daemon coroutine) that nobody has individually verified is
-either genuinely non-blocking (e.g. the engine's own async wire client) or already
-safe for another reason (a fresh per-task event loop on a dedicated worker thread, as
-``knowledge_graph/core/engine_tasks.py``'s ``_run_background_task`` is). Turning this
-into a hard gate today would fail on a mountain of pre-existing, untriaged code
-(noisy-always-failing is worse than no gate) — so, like ``check_swallowed_errors.py``
-before its baseline existed, this ships in **report-only** mode: it always exits 0 and
-prints findings for human triage. A follow-up can freeze a baseline
-(mirroring ``check_no_env_sprawl.py``'s ratchet) once the population has been triaged,
-turning this into an enforcing gate against *new* violations only.
+RATCHET, not report-only (D-G2C — closed the D-54 deferred item). A prior full sweep
+(`0aae9c59` + this one) fixed the highest-value sites reachable in one pass, but this
+codebase still has a large, untriaged population of matching call shapes (every
+remaining ``async def`` MCP tool handler, every background daemon coroutine) that
+nobody has individually verified is either genuinely non-blocking (e.g. the engine's
+own async wire client) or already safe for another reason (a fresh per-task event loop
+on a dedicated worker thread, as ``knowledge_graph/core/engine_tasks.py``'s
+``_run_background_task`` is). Turning this into a hard gate against the WHOLE
+population would fail on a mountain of pre-existing, untriaged code (noisy-always-
+failing is worse than no gate) — so, mirroring ``check_no_env_sprawl.py``'s ratchet,
+the pre-existing population is frozen in ``scripts/event_loop_blocking_baseline.txt``
+and the gate fails only on *new* candidate sites not already in that baseline. Fixing
+a baselined site (adding a real thread hop) is always allowed and shrinks the baseline
+on the next ``--update-baseline``; regenerate after any such fix so the ratchet keeps
+tightening.
+
+Usage:
+  python3 scripts/check_event_loop_blocking.py [PATH…]           # ratchet check (exit 1 on new sites)
+  python3 scripts/check_event_loop_blocking.py --update-baseline # freeze the current set
 
 KNOWN SCOPE LIMIT — plain-``def`` tool handlers are NOT covered. This scanner walks
 ``ast.AsyncFunctionDef`` bodies only. A large share of this package's MCP tool handlers
@@ -61,10 +67,6 @@ SECOND SCOPE LIMIT — only ``engine.*``-shaped attribute calls and a fixed set 
 helper function (``persist_facts(store, facts)``, which loops over synchronous KG writes)
 is invisible to this AST walk; catching that class needs a call graph, not a syntax
 scan. Recorded as D-W15-6 in ``reports/deferred/waves1-5-gate.md``.
-
-Usage:
-  python3 scripts/check_event_loop_blocking.py              # scan agent_utilities/
-  python3 scripts/check_event_loop_blocking.py PATH [PATH…] # scan specific paths
 """
 
 from __future__ import annotations
@@ -75,6 +77,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "agent_utilities"
+BASELINE = ROOT / "scripts" / "event_loop_blocking_baseline.txt"
 
 # Hop helpers: passing the blocking callable as a bare reference to one of these is
 # the sanctioned escape hatch. Matched by the CALLED function's simple name only
@@ -136,6 +139,19 @@ class Finding:
 
     def __str__(self) -> str:
         return f"{self.path}:{self.line}: [async def {self.func}] {self.label}"
+
+    def key(self) -> tuple[str, str, str]:
+        """Ratchet identity: (relpath, function, label) — deliberately WITHOUT the
+        line number. A line number shifts on any unrelated edit above it in the
+        same file, which would make the baseline spuriously "new" on every diff;
+        (file, function, blocking-call-shape) is what actually identifies a site
+        for triage purposes, mirroring ``check_no_env_sprawl.py``'s (relpath, KEY).
+        """
+        try:
+            rel = str(self.path.resolve().relative_to(ROOT))
+        except ValueError:
+            rel = str(self.path)
+        return (rel, self.func, self.label)
 
 
 def _dotted_name(node: ast.AST) -> str | None:
@@ -239,8 +255,39 @@ def scan_file(path: Path) -> list[Finding]:
     return findings
 
 
+def load_baseline() -> set[tuple[str, str, str]]:
+    if not BASELINE.exists():
+        return set()
+    out: set[tuple[str, str, str]] = set()
+    for line in BASELINE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) == 3:
+            out.add((parts[0], parts[1], parts[2]))
+    return out
+
+
+def write_baseline(findings: list[Finding]) -> None:
+    entries = sorted({finding.key() for finding in findings})
+    body = "\n".join("\t".join(entry) for entry in entries)
+    BASELINE.write_text(
+        "# Frozen baseline of check_event_loop_blocking.py candidate sites\n"
+        "# (ratchet — burn-down toward zero, D-G2C/D-54). Format: relpath\\tfunc\\tlabel.\n"
+        "# New sites not listed here fail the gate; fixing a listed site (a real thread\n"
+        "# hop via run_blocking_ordered/to_thread) is always allowed and should be\n"
+        "# followed by --update-baseline to shrink this file. See script docstring.\n"
+        + body
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def main(argv: list[str]) -> int:
-    targets = [Path(a) for a in argv[1:]] or [PKG]
+    args = [a for a in argv[1:] if a != "--update-baseline"]
+    update_baseline = "--update-baseline" in argv[1:]
+    targets = [Path(a) for a in args] or [PKG]
     all_findings: list[Finding] = []
     for target in targets:
         files = [target] if target.is_file() else sorted(target.rglob("*.py"))
@@ -249,17 +296,41 @@ def main(argv: list[str]) -> int:
                 continue
             all_findings.extend(scan_file(f))
 
+    if update_baseline:
+        write_baseline(all_findings)
+        print(
+            f"check_event_loop_blocking: baseline updated: "
+            f"{len({f.key() for f in all_findings})} entries -> {BASELINE.name}"
+        )
+        return 0
+
     if not all_findings:
         print("check_event_loop_blocking: no candidate sites found.")
         return 0
 
-    print(
-        f"check_event_loop_blocking: {len(all_findings)} candidate site(s) found "
-        "(REPORT-ONLY — does not fail the build; see script docstring):"
-    )
-    for finding in all_findings:
-        print(f"  {finding}")
-    return 0  # report-only: never fail the build (see docstring)
+    baseline = load_baseline()
+    current_keys = {f.key() for f in all_findings}
+    new_findings = [f for f in all_findings if f.key() not in baseline]
+
+    if new_findings:
+        print(
+            f"check_event_loop_blocking: {len(new_findings)} NEW candidate site(s) "
+            f"not in the frozen baseline ({BASELINE.name}):"
+        )
+        for finding in new_findings:
+            print(f"  {finding}")
+        print(
+            "\nAdd a real thread hop (run_blocking_ordered / asyncio.to_thread) around "
+            "the blocking call, or — if it is genuinely non-blocking / already isolated "
+            "for a reason this AST heuristic can't see — regenerate the baseline with "
+            "--update-baseline and say why in the commit message. See script docstring."
+        )
+        return 1
+
+    removed = len(baseline) - len(baseline & current_keys)
+    msg = f"check_event_loop_blocking: OK — no new candidate sites ({len(current_keys)} baselined"
+    print(msg + (f", {removed} fixed since baseline)." if removed else ")."))
+    return 0
 
 
 if __name__ == "__main__":
