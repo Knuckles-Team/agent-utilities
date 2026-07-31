@@ -116,7 +116,7 @@ class ToolEnabledJudge:
             parsed = json.loads(text)
             passed = bool(parsed.get("pass", False))
             return (1.0 if passed else 0.0, str(parsed.get("reasoning", "")))
-        except Exception as exc:  # pragma: no cover - model optional / parse failure
+        except Exception as exc:  # pragma: no cover - model optional / parse failure  # noqa: BLE001 — returns an explicit self-describing (0.0, "tool-judge unavailable: ...") result, never silently reported as a passed judgment
             logger.debug("tool-judge unavailable/failed: %s", exc)
             return (0.0, f"tool-judge unavailable: {exc}")
 

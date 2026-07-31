@@ -83,7 +83,7 @@ class AgenticEvolutionEngine:
                 from .variant_pool import VariantPool
 
                 self._variant_pool = VariantPool(self._engine)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — every _variant_pool consumer (register_variant/evaluate_fitness/tournament_select/promote_winner) checks `if not self._variant_pool` first and no-ops; _lazy_init is single-shot by design (self._initialized is set at the top), so a failed optional subsystem degrades gracefully for this process
                 logger.debug("VariantPool not available: %s", e)
 
         # Unified evolving-memory store (KG-2.1) — captures per-cycle insights.
@@ -91,7 +91,7 @@ class AgenticEvolutionEngine:
             from .evolving_memory import EvolvingMemoryStore
 
             self._memory_store = EvolvingMemoryStore(engine=self._engine)
-        except Exception as e:  # pragma: no cover - defensive
+        except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — same lazy-init-once degradation as VariantPool above; _record_skill checks `if self._memory_store is None` before use
             logger.debug("EvolvingMemoryStore not available: %s", e)
             self._memory_store = None
 
@@ -103,7 +103,7 @@ class AgenticEvolutionEngine:
             from .decentralized_memory import DecentralizedMemory
 
             self._decentralized_memory = DecentralizedMemory(engine=self._engine)
-        except Exception as e:  # pragma: no cover - defensive
+        except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — same lazy-init-once degradation pattern as VariantPool above
             logger.debug("DecentralizedMemory not available: %s", e)
             self._decentralized_memory = None
 
@@ -112,7 +112,7 @@ class AgenticEvolutionEngine:
             from .replay_buffer import PrioritizedReplayBuffer
 
             self._replay_buffer = PrioritizedReplayBuffer()
-        except Exception as e:  # pragma: no cover - defensive
+        except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — same lazy-init-once degradation pattern as VariantPool above
             logger.debug("PrioritizedReplayBuffer not available: %s", e)
             self._replay_buffer = None
 
@@ -140,7 +140,7 @@ class AgenticEvolutionEngine:
                 return ("solved", diff <= 0.7)
 
             self._self_play = SelfGuidedSelfPlay(_conjecture, _solve)
-        except Exception as e:  # pragma: no cover - defensive
+        except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — same lazy-init-once degradation pattern as VariantPool above
             logger.debug("SelfGuidedSelfPlay not available: %s", e)
             self._self_play = None
 
@@ -163,7 +163,7 @@ class AgenticEvolutionEngine:
             self._fast_slow = FastSlowController(
                 _harness_update, trainer_fn=self._substrate_trainer.as_trainer_fn()
             )
-        except Exception as e:  # pragma: no cover - defensive
+        except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — same lazy-init-once degradation pattern as VariantPool above; both self._fast_slow and self._substrate_trainer are explicitly reset to None together so no half-constructed pair is left dangling
             logger.debug("FastSlowController not available: %s", e)
             self._fast_slow = None
             self._substrate_trainer = None
@@ -181,7 +181,7 @@ class AgenticEvolutionEngine:
             )
             self._skill_factory = SkillFactory()
             self._skill_merger = SkillMerger(merge_threshold=self._merge_threshold)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — same lazy-init-once degradation pattern as VariantPool above; skill-evolution consumers check these attributes before use
             logger.debug("SkillEvolver not available: %s", e)
 
     # --- Variant Pool API (AHE-3.2) ---
@@ -308,7 +308,7 @@ class AgenticEvolutionEngine:
                 importance=0.55,
                 metadata={"source": source, "skill_id": str(getattr(skill, "id", ""))},
             )
-        except Exception as e:  # pragma: no cover - best-effort
+        except Exception as e:  # pragma: no cover - best-effort  # noqa: BLE001 — the skill itself was already created/merged by the caller before _record_skill runs (see create_skill/merge_skills); this only mirrors it into the SKILL memory bank for recall, a failure here does not lose or corrupt the skill
             logger.debug("skill memory record failed: %s", e)
 
     # --- Unified Evolution Cycle ---
