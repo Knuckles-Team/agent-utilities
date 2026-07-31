@@ -6145,7 +6145,9 @@ def _fetch_prompt_agents(
         # caching side: this failure is now reported to the caller via
         # ``errors`` so ``_RegistryCache`` does not cache a partial registry
         # for the life of the process.
-        logger.warning(f"Failed to fetch Prompt nodes (registry cache may go stale): {e}")
+        logger.warning(
+            f"Failed to fetch Prompt nodes (registry cache may go stale): {e}"
+        )
         if errors is not None:
             errors.append(f"prompt_agents: {e}")
     return agents
@@ -6185,15 +6187,15 @@ def _fetch_specialist_agents(
         # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
         # (see _fetch_prompt_agents above) so it isn't cached as a false
         # "complete" registry for the life of the process.
-        logger.warning(f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}")
+        logger.warning(
+            f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}"
+        )
         if errors is not None:
             errors.append(f"specialist_agents: {e}")
     return agents
 
 
-def _fetch_tools(
-    engine: Any, errors: list[str] | None = None
-) -> list[MCPToolInfo]:
+def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolInfo]:
     """Fetch Tool nodes from the KG.
 
     Args:

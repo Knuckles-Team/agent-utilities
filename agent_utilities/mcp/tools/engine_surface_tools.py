@@ -2252,7 +2252,9 @@ def register_engine_surface_tools(mcp) -> None:
                         record_evidence,
                     )
 
-                    record_evidence(kg_server._get_engine(), from_process_signal(evidence))
+                    record_evidence(
+                        kg_server._get_engine(), from_process_signal(evidence)
+                    )
                 except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: this Evidence write is a pure observability side-channel over an import that has ALREADY succeeded, and the comment above states it "never gates the import". Failing it must not fail the caller's OCEL import. The cause is preserved (the exception is interpolated), at DEBUG because the authoritative import outcome is already reported through the normal return path.
                     logger.debug(
                         "OCEL process_signal evidence record failed for %s: %s",
