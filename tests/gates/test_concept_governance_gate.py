@@ -44,8 +44,11 @@ def test_has_design_doc_reads_the_design_corpus(tmp_path):
     design_dir = tmp_path / "design"
     design_dir.mkdir()
     (design_dir / "feature").mkdir(parents=True)
+    # Built via concatenation, never as a literal "CONCEPT:AU-..." substring
+    # in THIS file's own source — otherwise this test file's fake demo id
+    # would itself be swept up as a real marker by the very scanner it tests.
     (design_dir / "feature" / "design.md").write_text(
-        "covers CONCEPT:AU-KG.demo.covered", encoding="utf-8"
+        "covers " + "CONCEPT:" + "AU-KG.demo.covered", encoding="utf-8"
     )
     assert has_design_doc("AU-KG.demo.covered", design_dir=design_dir)
     assert not has_design_doc("AU-KG.demo.not-covered", design_dir=design_dir)
@@ -95,7 +98,7 @@ def test_audit_merged_sees_debt_the_diff_based_gate_cannot(tmp_path):
         ids=["AU-KG.demo.already-documented", "AU-KG.demo.merged-with-no-doc"],
     )
     (design_dir / "feature.md").write_text(
-        "CONCEPT:AU-KG.demo.already-documented", encoding="utf-8"
+        "CONCEPT:" + "AU-KG.demo.already-documented", encoding="utf-8"
     )
 
     # No baseline yet -> the undocumented, merged concept is visible and fails.
