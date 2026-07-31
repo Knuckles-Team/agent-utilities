@@ -195,8 +195,19 @@ def test_predicted_edge_not_promoted_stays_out_of_materialize_path():
 
     # The propose-time `:DerivedFrom` provenance edges (X-6 / Seam 3) still land
     # regardless -- unconditional, unrelated to promotion.
+    #
+    # Scoped to the CLAIM's own outgoing edges, which is what this assertion has
+    # always been about. `DERIVED_FROM` is not claim-exclusive: since the unified
+    # Evidence resource landed (CONCEPT:AU-KG.evolution.unified-evidence-resource),
+    # `research.evidence.record_evidence` writes its own
+    # `(EvolutionEvidence)-[:DERIVED_FROM]->(source)` edge on the same run. That is
+    # a different subject asserting a different fact, so an unscoped set equality
+    # here fails on a legitimate, unrelated write instead of on a real change to
+    # the claim's provenance.
     assert {
-        (s, d) for s, d, rel_type, _props in eng.edges if rel_type == "DERIVED_FROM"
+        (s, d)
+        for s, d, rel_type, _props in eng.edges
+        if rel_type == "DERIVED_FROM" and s == claim_id
     } == {
         (claim_id, "concept:mining"),
         (claim_id, "concept:calibration"),
