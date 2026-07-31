@@ -22,6 +22,7 @@ repeated identical tool calls, KG-native audit only when a graph engine is prese
 and the model's first attempt fails), so a normal run is unaffected.
 """
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -47,6 +48,8 @@ def default_runtime_capabilities(
     include_teams: bool = False,
     structured_output_repair: bool = True,
     max_output_repairs: int | None = None,
+    content_guardrails: bool = True,
+    output_schema_required_keys: Sequence[str] = (),
 ) -> list[AbstractCapability[Any]]:
     """Build the default-ON reliability capability set (excluding ``HooksCapability``).
 
@@ -60,6 +63,11 @@ def default_runtime_capabilities(
     had.
     """
     from .checkpointing import CheckpointMiddleware, InMemoryCheckpointStore
+    from .content_guardrails import (
+        output_schema_guardrail,
+        pii_redaction_guardrails,
+        secret_leak_guardrail,
+    )
     from .context_warnings import ContextLimitWarner
     from .eviction import ToolOutputEviction
     from .kg_audit_sink import AuditLog
@@ -123,6 +131,18 @@ def default_runtime_capabilities(
                 )
             )
         )
+
+    # CONCEPT:AU-OS.safety.harness-guardrails-adoption — Harness Guardrails Adoption
+    # This is the live replacement for the dead PolicyEngine (D-48). PII redaction
+    # only fires on an actual SSN/tax-id/credit-card/email match; the secret-leak
+    # guardrail only fires on a credential-shaped token; the output-schema guardrail
+    # is a pure no-op when output_schema_required_keys is empty (the default) — so
+    # attaching all three unconditionally costs nothing on a normal run, exactly
+    # like every other capability here.
+    if content_guardrails:
+        capabilities.extend(pii_redaction_guardrails())
+        capabilities.append(secret_leak_guardrail())
+        capabilities.append(output_schema_guardrail(output_schema_required_keys))
 
     return capabilities
 

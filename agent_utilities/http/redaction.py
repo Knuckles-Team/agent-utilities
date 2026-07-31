@@ -25,7 +25,7 @@ import logging
 import re
 from collections.abc import Callable, Iterable
 
-__all__ = ["REDACTED", "LogRedactor", "redact_text"]
+__all__ = ["REDACTED", "LogRedactor", "contains_secret", "redact_text"]
 
 REDACTED = "***REDACTED***"
 
@@ -74,6 +74,27 @@ def redact_text(text: str, secrets: Iterable[str] | None = None) -> str:
     text = _TOKEN_SHAPES_RE.sub(REDACTED, text)
     text = _SECRET_ASSIGNMENT_RE.sub(lambda m: m.group("key") + REDACTED, text)
     return text
+
+
+def contains_secret(text: str) -> bool:
+    """Return ``True`` if ``text`` contains a credential-shaped substring.
+
+    Reuses the same detectors as :func:`redact_text` (scheme credentials, DSN-
+    embedded credentials, well-known PAT/API-key token shapes, and
+    ``key=value``/``"key": "value"`` secret assignments) as a pure membership
+    check — for a guardrail/policy that needs to **block** on a secret rather
+    than redact it (e.g. ``capabilities/content_guardrails.py``'s forbidden-
+    content guardrail, which blocks an agent output that would otherwise leak
+    a credential to the caller).
+    """
+    if not text:
+        return False
+    return bool(
+        _AUTH_SCHEME_RE.search(text)
+        or _DSN_CREDENTIALS_RE.search(text)
+        or _TOKEN_SHAPES_RE.search(text)
+        or _SECRET_ASSIGNMENT_RE.search(text)
+    )
 
 
 class LogRedactor(logging.Filter):

@@ -11,9 +11,9 @@ If a constraint is violated at the prompt level (soft), it escalates
 to enforcement at the middleware/runtime level (hard). If the agent
 "forgets" a constraint, the system blocks the action automatically.
 
-The constraint hierarchy works with the existing guardrails.py
-PolicyEngine and tool_guard.py — it adds the concept of
-**automatic escalation** based on observed failures.
+The constraint hierarchy works with the content guardrails
+(``capabilities/content_guardrails.py``) and tool_guard.py — it adds the
+concept of **automatic escalation** based on observed failures.
 
 Levels (from softest to hardest):
     1. PROMPT: Constraint is included in the system prompt (advisory)
@@ -102,8 +102,9 @@ class ConstraintViolation(BaseModel):
 class ConstraintEngine:
     """Manages the constraint hierarchy with automatic escalation.
 
-    Integrates with guardrails.py PolicyEngine and tool_guard.py
-    to provide AHE-style runtime enforcement.
+    Integrates with the content guardrails
+    (``capabilities/content_guardrails.py``) and tool_guard.py to provide
+    AHE-style runtime enforcement.
 
     The engine:
         1. Evaluates tool calls against active constraints

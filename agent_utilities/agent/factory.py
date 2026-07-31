@@ -290,6 +290,8 @@ def create_agent(
     stuck_loop_action: Literal["warn", "error"] = "warn",
     structured_output_repair: bool = True,
     max_output_repairs: int | None = None,
+    content_guardrails: bool = True,
+    output_schema_required_keys: list[str] | None = None,
     hooks: list[Any] | None = None,
     context_warnings: bool = True,
     max_context_tokens: int | None = None,
@@ -347,6 +349,14 @@ def create_agent(
         permissions_kernel: Optional explicitly injected permissions kernel.
         agent_identity: Optional signed identity paired with the injected kernel.
         isolate_mcp: Whether to isolate MCP tools from the main agent.
+        content_guardrails: Whether to attach the default-ON PII-redaction,
+            secret-leak-blocking, and output-schema content guardrails
+            (CONCEPT:AU-OS.safety.harness-guardrails-adoption). Each guard only
+            acts on its own trigger, so leaving this on costs nothing on a
+            normal run; see ``capabilities/content_guardrails.py``.
+        output_schema_required_keys: Optional required-key list enforced by the
+            output-schema guardrail against dict/BaseModel structured output.
+            A no-op when omitted.
 
     Returns:
         A tuple containing the initialized Agent and a list of all initialized toolsets.
@@ -643,6 +653,8 @@ def create_agent(
         include_teams=include_teams,
         structured_output_repair=structured_output_repair,
         max_output_repairs=max_output_repairs,
+        content_guardrails=content_guardrails,
+        output_schema_required_keys=output_schema_required_keys or (),
     )
 
     # CONCEPT:AU-ORCH.routing.sampling-profile-selection (v2 synergy) — native provider-side extended thinking. Opt-in

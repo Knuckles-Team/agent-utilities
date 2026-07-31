@@ -177,6 +177,13 @@ agent-runtime = [
     "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]>=2.14.1,<3.0.0",
     "pydantic-graph>=2.14.1,<3.0.0",
     "fasta2a[pydantic-ai]>=0.6.1",
+    # CONCEPT:AU-OS.safety.harness-guardrails-adoption — bare harness (no extras): its
+    # own metadata requires only httpx + pydantic-ai-slim (both already required above),
+    # so it rides along wherever an agent can be built. Provides InputGuardrail/
+    # OutputGuardrail, the live replacement for the dead PolicyEngine (D-48), wired
+    # default-on via capabilities/content_guardrails.py. NOT `[dynamic-workflow]`/`[acp]`
+    # — those extras' heavier deps (pydantic-monty, agent-client-protocol) stay opt-in.
+    "pydantic-ai-harness>=0.14.0,<0.15.0",
 ]
 # Server-side agent runtime WITHOUT the frontend component libraries. `agent-runtime`
 # pulls `ag-ui` (agent-webui) + `terminal` (agent-terminal-ui), which a serving
@@ -194,7 +201,10 @@ agent-headless = [
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
     "pydantic-ai-slim[mcp,openai,web,cli]>=2.14.1,<3.0.0",
     "pydantic-graph>=2.14.1,<3.0.0",
-    "fasta2a[pydantic-ai]>=0.6.1"
+    "fasta2a[pydantic-ai]>=0.6.1",
+    # See agent-runtime above: bare harness for InputGuardrail/OutputGuardrail
+    # (CONCEPT:AU-OS.safety.harness-guardrails-adoption), the serving-plane path.
+    "pydantic-ai-harness>=0.14.0,<0.15.0",
 ]
 agent-google = [
     "pydantic-ai-slim[google]>=2.14.1,<3.0.0"

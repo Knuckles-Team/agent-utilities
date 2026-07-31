@@ -1,0 +1,216 @@
+"""Default-ON content guardrails (CONCEPT:AU-OS.safety.harness-guardrails-adoption).
+
+Covers: the live agent path for all three guardrails that replace the dead
+``PolicyEngine`` (D-48) — a PII input/output actually gets redacted, a
+forbidden-content (secret-shaped) output actually gets blocked, and an
+output-schema violation actually gets caught — all exercised through a real
+``pydantic_ai.Agent`` run (``FunctionModel``), never by calling the guard
+helper directly. Also covers the composition seam (default-ON, opt-out,
+required-keys no-op) mirroring ``test_output_repair.py``'s pattern.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from pydantic_ai import Agent
+from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.models.function import FunctionModel
+from pydantic_ai_harness import InputGuardrail, OutputGuardrail
+from pydantic_ai_harness.guardrails import OutputBlocked
+
+from agent_utilities.capabilities.content_guardrails import (
+    SECRET_LEAK_BLOCK_MESSAGE,
+    output_schema_guardrail,
+    pii_redaction_guardrails,
+    secret_leak_guardrail,
+)
+
+# ---------------------------------------------------------------------------
+# Live path: PII redaction (output)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pii_in_output_is_redacted_live_path():
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content="My SSN is 123-45-6789.")])
+
+    agent = Agent(
+        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails()
+    )
+    result = await agent.run("go")
+
+    assert "123-45-6789" not in result.output
+    assert "[REDACTED_SSN]" in result.output
+
+
+@pytest.mark.asyncio
+async def test_clean_output_passes_pii_guard_unchanged_live_path():
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content="The answer is 4.")])
+
+    agent = Agent(
+        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails()
+    )
+    result = await agent.run("go")
+
+    assert result.output == "The answer is 4."
+
+
+@pytest.mark.asyncio
+async def test_pii_in_input_is_redacted_before_reaching_model_live_path():
+    seen_prompts: list[str] = []
+
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        for message in messages:
+            for part in message.parts:
+                if hasattr(part, "content") and isinstance(part.content, str):
+                    seen_prompts.append(part.content)
+        return ModelResponse(parts=[TextPart(content="ok")])
+
+    agent = Agent(
+        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails()
+    )
+    await agent.run("Contact john@example.com about my SSN 123-45-6789")
+
+    combined = " ".join(seen_prompts)
+    assert "123-45-6789" not in combined
+    assert "john@example.com" not in combined
+    assert "[REDACTED_SSN]" in combined
+    assert "[REDACTED_EMAIL]" in combined
+
+
+# ---------------------------------------------------------------------------
+# Live path: forbidden-content (secret-leak) blocking
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_secret_shaped_output_is_blocked_live_path():
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(
+            parts=[TextPart(content="here is the key: AKIAABCDEFGHIJKLMNOP")]
+        )
+
+    agent = Agent(
+        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()]
+    )
+
+    with pytest.raises(OutputBlocked) as exc_info:
+        await agent.run("go")
+
+    assert SECRET_LEAK_BLOCK_MESSAGE in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_clean_output_passes_secret_leak_guard_live_path():
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content="The weather is sunny today.")])
+
+    agent = Agent(
+        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()]
+    )
+    result = await agent.run("go")
+
+    assert result.output == "The weather is sunny today."
+
+
+# ---------------------------------------------------------------------------
+# Live path: output-schema violation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_output_missing_required_keys_is_caught_live_path():
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content='{"status": "ok"}')])
+
+    agent = Agent(
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[output_schema_guardrail(["status", "result"])],
+    )
+
+    with pytest.raises(OutputBlocked) as exc_info:
+        await agent.run("go")
+
+    assert "result" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_output_with_required_keys_present_passes_live_path():
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content='{"status": "ok", "result": 42}')])
+
+    agent = Agent(
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[output_schema_guardrail(["status", "result"])],
+    )
+    result = await agent.run("go")
+
+    assert result.output == '{"status": "ok", "result": 42}'
+
+
+@pytest.mark.asyncio
+async def test_output_schema_guardrail_is_a_noop_with_no_required_keys_live_path():
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content="not json at all")])
+
+    agent = Agent(
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[output_schema_guardrail([])],
+    )
+    result = await agent.run("go")
+
+    assert result.output == "not json at all"
+
+
+# ---------------------------------------------------------------------------
+# composition.py -- default-ON, opt-out, required-keys threading
+# ---------------------------------------------------------------------------
+
+
+def test_default_runtime_capabilities_includes_content_guardrails():
+    from agent_utilities.capabilities.composition import default_runtime_capabilities
+
+    defaults = default_runtime_capabilities()
+    input_guardrails = [c for c in defaults if isinstance(c, InputGuardrail)]
+    output_guardrails = [c for c in defaults if isinstance(c, OutputGuardrail)]
+
+    # PII redaction contributes one InputGuardrail + one OutputGuardrail; the
+    # secret-leak and output-schema guardrails each contribute one more
+    # OutputGuardrail (3 total).
+    assert len(input_guardrails) == 1
+    assert len(output_guardrails) == 3
+
+
+def test_default_runtime_capabilities_content_guardrails_false_excludes_them():
+    from agent_utilities.capabilities.composition import default_runtime_capabilities
+
+    defaults = default_runtime_capabilities(content_guardrails=False)
+    assert not any(isinstance(c, InputGuardrail) for c in defaults)
+    assert not any(isinstance(c, OutputGuardrail) for c in defaults)
+
+
+@pytest.mark.asyncio
+async def test_create_context_agent_wires_content_guardrails_by_default_live_path():
+    """The whole point of D-48: the guard must fire via the shared composition
+    seam (``create_context_agent``), not only when constructed by hand."""
+    from agent_utilities.core.contextual_model import (
+        create_context_agent,
+        use_grounding_policy,
+    )
+
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content="My SSN is 123-45-6789.")])
+
+    agent = create_context_agent(FunctionModel(func), output_type=str)
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
+
+    assert "123-45-6789" not in result.output
+    assert "[REDACTED_SSN]" in result.output
