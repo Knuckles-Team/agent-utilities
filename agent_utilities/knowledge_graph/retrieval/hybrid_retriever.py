@@ -10,6 +10,7 @@ and optional backlink-density retrieval weighting (CONCEPT:AU-KG.ingest.engineer
 import json
 import logging
 import math
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,33 @@ if TYPE_CHECKING:
     from agent_utilities.models.schema_pack import SchemaPack
 
 logger = logging.getLogger(__name__)
+
+# CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — how many independent
+# neighbour point-reads the context-assembly BFS may have in flight at once.
+# Sized as a latency-hiding window, NOT a throughput dial: the engine is the
+# scarce resource (a single process behind a UDS socket), so this stays small
+# enough that a retrieval leg cannot stampede it away from interactive callers
+# (CONCEPT:AU-ORCH.scheduling.resource-priority-edict) while still collapsing a
+# 10-node frontier from ten serial round-trips into two waves.
+_NEIGHBOR_FETCH_CONCURRENCY = 6
+
+# CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — hard ceiling on how many
+# neighbour point-reads ONE context-assembly may issue.
+#
+# Batching bounds the round-trip COUNT per frontier; it does not bound the
+# frontier's WIDTH. With multi_hop_depth=2 over a hub-heavy graph the second hop
+# fans out with the data, so the compile's cost is data-dependent and unbounded —
+# and an unbounded cost can never fit the FIXED wall-clock budget the
+# model-transport boundary enforces
+# (``contextual_model._CONTEXT_COMPILE_TIMEOUT_S``). Measured on the live graph:
+# the second hop issued 80 neighbour reads at ~8s each.
+#
+# Capping the expansion makes the traversal degrade GRACEFULLY — fewer context
+# nodes, still scored, still passed through the retrieval-quality gate — instead
+# of blowing the budget and degrading to NO evidence at all, which under the
+# default grounding='required' fails the whole run closed. Fewer-but-real
+# neighbours strictly dominate none.
+_MAX_NEIGHBOR_EXPANSIONS = 24
 
 
 class _EmbeddingCircuitOpenError(Exception):
@@ -345,6 +373,120 @@ class HybridRetriever:
                         out[nid] = p
                 except Exception:  # noqa: BLE001,S112
                     continue
+        return out
+
+    def _exists_batch(self, ids: list[str]) -> dict[str, bool]:
+        """Existence for many node ids in ONE engine round-trip.
+
+        CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — the engine is a
+        separate process behind a UDS socket, so a point-read costs a full
+        round-trip *regardless of payload size* (measured: 2.5-3.0s each on a
+        contended engine, whether the answer is 0 rows or 40). Checking N base
+        nodes with N ``has_node`` calls therefore costs N round-trips for
+        information the engine can return in one.
+        """
+        graph = getattr(self.engine, "graph", None)
+        wanted = [nid for nid in dict.fromkeys(ids) if nid]
+        if not wanted or graph is None:
+            return {}
+        batch = getattr(graph, "has_batch", None)
+        if callable(batch):
+            try:
+                return {str(k): bool(v) for k, v in (batch(wanted) or {}).items()}
+            except Exception as e:
+                # Degrade to per-id existence rather than failing assembly; the
+                # cause is kept in the log, never discarded silently.
+                logger.debug("has_batch unavailable, falling back per-id: %s", e)
+        has_node = getattr(graph, "has_node", None)
+        if not callable(has_node):
+            return {}
+        return {nid: bool(has_node(nid)) for nid in wanted}
+
+    def _neighbors_batch(self, ids: list[str]) -> dict[str, list[str]]:
+        """Undirected neighbour ids for many nodes, overlapping the round-trips.
+
+        CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — two independent
+        wins over the previous per-node ``get_successors`` + ``get_predecessors``
+        pair:
+
+        1. **One call instead of two.** ``get_neighbors`` is the engine's own
+           predecessors-∪-successors op, so a node's undirected neighbourhood
+           costs one round-trip rather than two. The BFS unions both directions
+           into a single frontier set anyway, so this is byte-for-byte the same
+           id set.
+        2. **Overlapped, not serialized.** The engine has no batched multi-node
+           neighbour op, so N nodes genuinely need N calls — but they are
+           mutually independent, and the client blocks on a socket rather than
+           burning CPU. Issuing them through a small bounded pool turns N
+           sequential round-trips into ``ceil(N / _NEIGHBOR_FETCH_CONCURRENCY)``
+           waves. The pool is deliberately small: the engine is the contended
+           resource, and the resource-priority edict
+           (CONCEPT:AU-ORCH.scheduling.resource-priority-edict) means a retrieval
+           leg must not stampede it.
+
+        Each worker runs under a **copy of the calling context**, so the verified
+        ambient ``GraphSession`` and the ambient ``PriorityClass`` reach the
+        engine exactly as they do on the sequential path. Without that copy the
+        workers would raise ``SessionRequiredError`` — the authority boundary is
+        preserved, not bypassed.
+        """
+        graph = getattr(self.engine, "graph", None)
+        wanted = [nid for nid in dict.fromkeys(ids) if nid]
+        if not wanted or graph is None:
+            return {}
+        unioned = getattr(graph, "get_neighbors", None)
+        if callable(unioned):
+            fetch: Callable[[str], list[str]] = unioned
+        else:
+            # Facade without the unioned op: fall back to the directed pair so a
+            # graph double / older engine keeps the SAME id set, just at two
+            # round-trips per node instead of one.
+            succ = getattr(graph, "get_successors", None)
+            pred = getattr(graph, "get_predecessors", None)
+            if not callable(succ) or not callable(pred):
+                return {}
+
+            def fetch(nid: str) -> list[str]:
+                return list(succ(nid) or []) + list(pred(nid) or [])
+
+        if len(wanted) == 1:
+            return {wanted[0]: [str(n) for n in (fetch(wanted[0]) or [])]}
+
+        import concurrent.futures
+        import contextvars
+
+        def _one(nid: str, ctx: contextvars.Context) -> list[str]:
+            return [str(n) for n in (ctx.run(fetch, nid) or [])]
+
+        out: dict[str, list[str]] = {}
+        workers = min(_NEIGHBOR_FETCH_CONCURRENCY, len(wanted))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            # ONE Context object per task, snapshotted here on the calling thread.
+            # A single `contextvars.Context` may not be entered by two threads at
+            # once ("cannot enter context: ... is already entered"), so sharing one
+            # copy across the pool would fail every task after the first — and,
+            # because the failure surfaces per node, it would look exactly like a
+            # graph with no edges.
+            futures = {
+                pool.submit(_one, nid, contextvars.copy_context()): nid
+                for nid in wanted
+            }
+            for fut in concurrent.futures.as_completed(futures):
+                nid = futures[fut]
+                try:
+                    out[nid] = fut.result()
+                except Exception as e:
+                    # One node's failure must not abort the whole sweep, but
+                    # NEVER silently map a failure onto "no neighbours": that is
+                    # indistinguishable from a genuinely isolated node and would
+                    # corrupt the assembled subgraph without a trace.
+                    logger.warning(
+                        "neighbour fetch failed for %s (%s: %s) — treating as "
+                        "unresolved, not as an empty neighbourhood",
+                        nid,
+                        type(e).__name__,
+                        e,
+                    )
         return out
 
     def _compute_positional_interactions(self, pos_a: int, pos_b: int) -> list[float]:
@@ -671,6 +813,64 @@ class HybridRetriever:
         assembled_subgraph = []
         visited = set()
 
+        # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — resolve the
+        # existence + first-hop neighbourhood of EVERY base node up front, in
+        # batched/overlapped round-trips, instead of paying three serial
+        # point-reads (`has_node`, `get_successors`, `get_predecessors`) per base
+        # node inside the loop below.
+        #
+        # Why this mattered: an engine point-read costs a full round-trip
+        # regardless of payload (measured 2.5-3.0s each against a contended
+        # engine, even when the answer is zero rows). With the default
+        # context_window=10 the old shape issued ~4 serial round-trips per base
+        # node, so the mandatory evidence compilation at the model-transport
+        # boundary took >90s against its hard 10s budget
+        # (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract) — which, under
+        # the default grounding='required', made EVERY delegated run fail closed
+        # with GroundingUnavailableError before it ever reached the model. The
+        # prefetch is pure round-trip amortization: it fetches exactly what the
+        # loop would have fetched, so `visited` semantics and the assembled node
+        # set are unchanged.
+        _base_ids = [
+            str(n.get("id") or "") for n in base_nodes if isinstance(n, dict)
+        ]
+        _base_ids = [nid for nid in _base_ids if nid]
+        _exists = self._exists_batch(_base_ids) if _base_ids else {}
+        _neighbors: dict[str, list[str]] = (
+            self._neighbors_batch(_base_ids[:_MAX_NEIGHBOR_EXPANSIONS])
+            if _base_ids
+            else {}
+        )
+
+        _expansion_budget = [_MAX_NEIGHBOR_EXPANSIONS - len(_neighbors)]
+
+        def _expand(ids: list[str]) -> None:
+            """Resolve up to the remaining budget of neighbourhoods, in one wave."""
+            todo = [nid for nid in ids if nid and nid not in _neighbors]
+            if not todo or _expansion_budget[0] <= 0:
+                return
+            if len(todo) > _expansion_budget[0]:
+                # Deterministic truncation: sorted ids, so the same query against
+                # the same graph always compiles the same evidence.
+                todo = sorted(todo)[: _expansion_budget[0]]
+                logger.debug(
+                    "[CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch] frontier "
+                    "wider than the remaining expansion budget; assembling context "
+                    "from the first %d neighbourhoods.",
+                    len(todo),
+                )
+            _expansion_budget[0] -= len(todo)
+            _neighbors.update(self._neighbors_batch(todo))
+
+        def _neighbors_of(nid: str) -> list[str]:
+            """Prefetched undirected neighbours for ``nid``.
+
+            Returns ``[]`` for a node the expansion budget did not reach — a
+            deliberate, logged truncation of BREADTH, never a silent substitution
+            for a failed read (:meth:`_neighbors_batch` warns and omits those).
+            """
+            return _neighbors.get(nid, [])
+
         for node in base_nodes:
             node_id = node["id"]
             if node_id in visited:
@@ -707,19 +907,21 @@ class HybridRetriever:
             else:
                 # GraphComputeEngine BFS fallback
                 try:
-                    if self.engine.graph.has_node(node_id):
+                    if _exists.get(node_id, False):
                         # BFS traversal up to multi_hop_depth
                         all_discovered = [node_id]
                         frontier = {node_id}
                         for _depth in range(multi_hop_depth):
                             next_frontier: set[str] = set()
+                            # Resolve the WHOLE frontier's neighbourhoods in one
+                            # overlapped wave, then filter — same id set as the
+                            # per-node successors/predecessors pair, one wave of
+                            # round-trips instead of 2x|frontier| serial ones.
+                            _expand(sorted(frontier))
                             for nid in frontier:
-                                for s in self.engine.graph.get_successors(nid):
-                                    if s not in visited and s not in all_discovered:
-                                        next_frontier.add(s)
-                                for p in self.engine.graph.get_predecessors(nid):
-                                    if p not in visited and p not in all_discovered:
-                                        next_frontier.add(p)
+                                for n in _neighbors_of(nid):
+                                    if n not in visited and n not in all_discovered:
+                                        next_frontier.add(n)
                             frontier = next_frontier
                             for f_node in sorted(frontier):
                                 if f_node not in all_discovered:

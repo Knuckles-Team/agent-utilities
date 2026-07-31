@@ -599,6 +599,7 @@ def _degrade_for_policy(
     *,
     reason: str,
     compiled_bundle: ContextBundle | None = None,
+    cause: BaseException | None = None,
 ) -> tuple[list[Any], ContextBundle | None]:
     """Apply the ambient :data:`GroundingPolicy` to a degraded/no-evidence outcome.
 
@@ -618,6 +619,12 @@ def _degrade_for_policy(
     genuinely ran but the quality gate rejected every candidate — so TTFT/KV-cache
     metrics attribution is unaffected; it is a marker of "no usable evidence", not
     "no compute happened".
+
+    ``cause`` is the underlying exception when this degradation came from a failed
+    compile. It is CHAINED onto the raised :class:`GroundingUnavailableError` — the
+    ``reason`` string alone (``"error:SomeError"``) names a type but discards the
+    traceback and the ``__cause__`` behind it, which is precisely what made a
+    grounding failure undiagnosable from the caller's side.
     """
     policy = _grounding_policy.get()
     _mark_grounding_degraded(reason)
@@ -628,7 +635,7 @@ def _degrade_for_policy(
             "default) — refusing to send an ungrounded request. Pass "
             "grounding='best_effort' or grounding='none' to explicitly opt into "
             "degraded operation."
-        )
+        ) from cause
     from pydantic_ai.messages import ModelRequest, SystemPromptPart
 
     status = "none" if policy == "none" else "degraded"
@@ -710,14 +717,16 @@ async def _compiled_evidence_and_bundle_bounded(
     except Exception as exc:  # noqa: BLE001 — best-effort boundary, never block
         logger.warning(
             "[CONCEPT:AU-KG.retrieval.context-compiler] evidence compilation failed "
-            "(%s); applying the grounding policy instead of silently sending this "
-            "model request without compiled evidence.",
+            "(%s: %s); applying the grounding policy instead of silently sending "
+            "this model request without compiled evidence.",
             type(exc).__name__,
+            exc,
+            exc_info=exc,
         )
         _record_retrieval_degraded("error", model_name, error_type=type(exc).__name__)
         _ctx_compile_note_degradation()
         return _degrade_for_policy(
-            messages, model_name, reason=f"error:{type(exc).__name__}"
+            messages, model_name, reason=f"error:{type(exc).__name__}", cause=exc
         )
 
     _ctx_compile_note_success()
