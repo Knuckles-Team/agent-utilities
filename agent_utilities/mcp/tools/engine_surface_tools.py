@@ -322,9 +322,14 @@ def _session_bound_tenant(declared: str) -> str:
     try:
         from agent_utilities.knowledge_graph.core.session import current_session
 
-        verified = current_session().tenant
+        session = current_session()
     except Exception:  # noqa: BLE001 — no bound session is a legitimate RAM-only case
         return declared
+    if session is None:
+        # ``current_session`` returns None (rather than raising) when authority has
+        # been explicitly suspended — the same RAM-only case as the exception path.
+        return declared
+    verified = session.tenant
     if declared and declared != verified:
         raise ValueError(
             f"tenant {declared!r} does not match the verified session tenant "
