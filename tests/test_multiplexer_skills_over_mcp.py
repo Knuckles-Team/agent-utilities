@@ -143,6 +143,10 @@ async def test_probe_server_lists_skills_for_an_already_mounted_child(tmp_path):
             "name": "onboarding",
             "uri": "skill://onboarding/SKILL.md",
             "description": "onboard a user",
+            # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest landed after this
+            # test was first written and now harvests every catalogued skill's
+            # body over the same probe session, mounted-child path included.
+            "instructions": "# skill://onboarding/SKILL.md\n\nbody",
         }
     ]
 
