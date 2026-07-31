@@ -117,7 +117,7 @@ import hashlib
 import logging
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -1652,11 +1652,9 @@ class MediaStore:
         empty set (worst case a re-run mints one duplicate occurrence for the
         affected ids, rather than raising).
         """
-        from ..core.bounded_read import iter_nodes_by_types
-
         migrated: set[str] = set()
         try:
-            for _nid, data in iter_nodes_by_types(self._compute, "AssetOccurrence"):
+            for _nid, data in self._iter_nodes_by_written_type("AssetOccurrence"):
                 legacy_id = (
                     data.get("legacy_asset_id") if isinstance(data, dict) else None
                 )
@@ -1668,6 +1666,38 @@ class MediaStore:
                 e,
             )
         return migrated
+
+    def _iter_nodes_by_written_type(
+        self, *types: str
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        """Bounded node scan matching THIS module's own write convention.
+
+        :func:`~..core.bounded_read.iter_nodes_by_types` filters strictly on the
+        canonical ``node_type`` property. Every node this module writes (via the
+        native ``client.txn.add_node`` call, not the ``GraphComputeEngine.add_node``
+        Python facade — see :meth:`store_media`/:meth:`migrate_legacy_asset`) is
+        stamped with a ``type`` property instead, so a ``node_type``-only scan
+        silently matches nothing: :meth:`_migrated_legacy_ids` always returned an
+        empty set and :meth:`migrate_legacy_assets_bulk` never found any legacy
+        ``MediaAsset`` node to migrate. Accept either key so the scan finds nodes
+        regardless of which convention wrote them.
+        """
+        from ..core.bounded_read import iter_nodes_by_types
+
+        wanted = {t.lower() for t in types}
+        seen: set[str] = set()
+        for nid, data in iter_nodes_by_types(self._compute, *types):
+            seen.add(nid)
+            yield nid, data
+        by_label = getattr(self._compute, "get_nodes_by_label", None)
+        if not callable(by_label):
+            node_iter = self._compute.nodes(data=True)
+            for nid, data in node_iter:
+                if nid in seen or not isinstance(data, dict):
+                    continue
+                if str(data.get("type", "")).lower() in wanted:
+                    seen.add(nid)
+                    yield nid, data
 
     def migrate_legacy_assets_bulk(
         self,
@@ -1705,11 +1735,9 @@ class MediaStore:
 
         Returns a :class:`BulkMigrationResult` summarizing the whole sweep.
         """
-        from ..core.bounded_read import iter_nodes_by_types
-
         already_migrated = self._migrated_legacy_ids()
         legacy_ids = [
-            nid for nid, _data in iter_nodes_by_types(self._compute, "MediaAsset")
+            nid for nid, _data in self._iter_nodes_by_written_type("MediaAsset")
         ]
         scanned = len(legacy_ids)
         migrated_occurrence_ids: list[str] = []
