@@ -618,6 +618,94 @@ class TestActorIdentityMiddleware:
             sent = await _call(mw)
         assert _status(sent) == 401
 
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
+    @pytest.mark.asyncio
+    async def test_non_admin_principal_completes_a_served_request(self):
+        """The served edge that 500'd before D-SP-1, end to end.
+
+        A real RS256 credential carrying only ``kg:read`` — no ``kg:admin``, no
+        ``admin:cluster-read``, and a principal with no entry in the engine's
+        ``IsolationLayer`` — is validated by the real JWKS path, minted by the
+        real middleware, and reaches graph-os's real per-tool authority boundary
+        (``kg_server.verified_tool_session_scope``), which admits it.
+
+        The seams are observed, not replaced: ``resolve_placement`` is the real
+        function and must simply never be reached, because reaching it is what
+        required cluster-admin authority to authenticate at all.
+        """
+        from agent_utilities.knowledge_graph.core import placement_catalog
+        from agent_utilities.mcp.kg_server import verified_tool_session_scope
+        from tests.wiring import observe
+
+        token, jwks = _make_token_and_jwks(scope="kg:read", tenant_id="tenant-a")
+        cfg = _make_config(auth_jwt_jwks_uri="https://idp/jwks")
+        captured: dict = {}
+
+        async def graph_tool_app(scope, receive, send):  # noqa: ARG001
+            # graph-os's real per-call authority gate, not a stand-in.
+            with verified_tool_session_scope() as session:
+                captured["session"] = session
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        async def fake_jwks(_uri):
+            return jwks
+
+        mw = ActorIdentityMiddleware(graph_tool_app)
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch("agent_utilities.security.auth._fetch_jwks", fake_jwks),
+            observe(placement_catalog, "resolve_placement") as resolved,
+        ):
+            sent = await _call(
+                mw, headers=[(b"authorization", f"Bearer {token}".encode())]
+            )
+
+        assert _status(sent) == 200
+        resolved.assert_not_called(
+            why="a non-admin principal must authenticate without the engine's "
+            "admin:cluster-read PlacementRoute call"
+        )
+        session = captured["session"]
+        assert session is not None
+        assert session.scopes == frozenset({"kg:read"})
+        assert "kg:admin" not in session.scopes
+        assert session.tenant == "tenant-a"
+        # The verified engine claims a tool call forwards are complete without
+        # any route being bound.
+        assert session.engine_verified_context()["tenant"] == "tenant-a"
+
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
+    @pytest.mark.asyncio
+    async def test_unauthenticated_request_still_401s_and_never_reaches_the_app(self):
+        """The other half of D-SP-1: no enforcement was traded away."""
+        from agent_utilities.security.request_identity import (
+            HEALTH_PATHS,
+            UNAUTHENTICATED_PATHS,
+        )
+
+        # The exempt set is exactly the non-fingerprinting probes — unchanged.
+        assert UNAUTHENTICATED_PATHS == HEALTH_PATHS
+        assert UNAUTHENTICATED_PATHS == frozenset(
+            {"/health", "/health/ready", "/healthz", "/api/health", "/api/healthz"}
+        )
+
+        reached: dict = {}
+
+        async def graph_tool_app(scope, receive, send):  # noqa: ARG001
+            reached["app"] = True
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        mw = ActorIdentityMiddleware(graph_tool_app)
+        with mock.patch(
+            "agent_utilities.core.config.config",
+            _make_config(auth_jwt_jwks_uri="https://idp/jwks"),
+        ):
+            sent = await _call(mw, path="/api/graph/query")
+        assert _status(sent) == 401
+        assert "app" not in reached
+
 
 # ---------------------------------------------------------------------------
 # kg_server identity resolution + read-only gate
