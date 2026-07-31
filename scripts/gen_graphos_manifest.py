@@ -16,13 +16,17 @@ discoverable actions is a single operation (``graph_query`` takes a query, not a
 action) and is emitted as one verbose op with ``action=None``.
 
 Output: ``agent_utilities/mcp/_graphos_action_manifest.py`` (``GRAPHOS_ACTIONS``).
-Regenerate after changing the graph-os tool surface; ``ruff format`` afterwards.
+Regenerate after changing the graph-os tool surface. The emitted file is
+formatted in place with ``ruff format``, so a no-change regeneration is a
+byte-level no-op rather than a whole-file reformat diff (D-KCI-6).
 """
 
 from __future__ import annotations
 
 import ast
 import inspect
+import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Literal, get_args, get_origin, get_type_hints
@@ -291,6 +295,39 @@ def _load_previous_manifest(path: Path) -> list[dict] | None:
     return list(module.GRAPHOS_ACTIONS)
 
 
+def _format_in_place(path: Path) -> None:
+    """Run the repo formatter over the emitted file.
+
+    The generator writes one dict per line; `ruff format` then applies the repo's
+    own line-length wrapping (`[tool.ruff] line-length = 88`), which explodes the
+    longer entries across several lines. Deferring to the formatter — rather than
+    reimplementing its wrapping — is what makes a no-change regeneration a
+    byte-level no-op against the checked-in, formatter-owned file (D-KCI-6).
+
+    A missing formatter is loud and fatal: emitting an unformatted manifest would
+    silently reintroduce the very diff-noise this exists to remove, and the next
+    `ruff-format` hook would rewrite the file anyway.
+    """
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell, repo-local tool
+            ["ruff", "format", "--quiet", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"cannot format {path}: 'ruff' is not runnable ({exc}). The manifest "
+            "must be emitted in the repo's formatted style or every regeneration "
+            "shows as a spurious whole-file diff."
+        ) from exc
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"'ruff format' failed on {path} (exit {proc.returncode}): "
+            f"{proc.stderr.strip() or proc.stdout.strip()}"
+        )
+
+
 def main() -> None:
     out = (
         Path(__file__).resolve().parent.parent
@@ -350,8 +387,29 @@ def main() -> None:
         "    action: str | None\n"
         "    name: str\n"
     )
-    body = "GRAPHOS_ACTIONS: list[GraphosAction] = " + repr(ops) + "\n"
+
+    # Emit ONE dict per line, matching the formatter's own output, so a no-change
+    # regeneration is a byte-level no-op. `repr(ops)` writes the whole list on a
+    # single ~80KB line; the checked-in file is formatter-pretty-printed across
+    # 2400+ lines. That mismatch meant every faithful regen showed as a ~-2367
+    # line diff, so the file's own "regenerate after changing the tool surface"
+    # instruction looked destructive and was rationally never followed — the
+    # manifest then drifted from its generator and had to be hand-edited
+    # (D-KCI-6). Formatting is the contract here, not decoration.
+    def _lit(value: str | None) -> str:
+        # json.dumps gives the double-quoted, correctly-escaped form the formatter
+        # emits. A blanket `repr(...).replace("'", '"')` would corrupt any value
+        # containing an apostrophe, so quote per-value instead of per-line.
+        return "None" if value is None else json.dumps(value)
+
+    rows = "".join(
+        f'    {{"tool": {_lit(op["tool"])}, "action": {_lit(op["action"])}, '
+        f'"name": {_lit(op["name"])}}},\n'
+        for op in ops
+    )
+    body = f"GRAPHOS_ACTIONS: list[GraphosAction] = [\n{rows}]\n"
     out.write_text(header + "\n" + typedef + "\n\n" + body)
+    _format_in_place(out)
     print(
         f"Wrote {len(ops)} verbose ops across "
         f"{len({o['tool'] for o in ops})} tools -> {out}"
