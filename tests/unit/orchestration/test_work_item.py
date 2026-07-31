@@ -1332,6 +1332,186 @@ def test_claim_next_without_resource_class_searches_all_lanes(
     assert claim["work_item_id"] == maintenance_id
 
 
+# ---------------------------------------------------------------------------
+# consent + expiry gate (D-25-3, CONCEPT:AU-ORCH.dispatch.workitem-consent-gate)
+# ---------------------------------------------------------------------------
+
+
+def test_ordinary_work_item_is_unaffected_by_the_consent_gate(
+    cas_engine: CasEngine,
+) -> None:
+    """The D-25-3 migration decision: consent_required defaults False, so an
+    ordinary/legacy WorkItem (no consent fields at all) claims exactly as before."""
+    item_id = wi.submit_work_item(cas_engine, kind="generic", payload_ref="p")
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+    assert claim is not None
+
+
+def test_claim_specific_denies_when_consent_is_absent(cas_engine: CasEngine) -> None:
+    """consent_required=True with no consent_granted_at is the ABSENT state —
+    denied, and (unlike a lapsed grant) never had a lease to release."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+    )
+    item = wi.get_work_item(cas_engine, item_id)
+    assert item["status"] == "ready"  # not yet claimed
+
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+
+    assert claim is None
+    item = wi.get_work_item(cas_engine, item_id)
+    assert item["status"] == "ready"  # denied before the engine was ever touched
+    assert item["lease_owner"] is None
+
+
+def test_claim_specific_denies_when_consent_has_lapsed(cas_engine: CasEngine) -> None:
+    """A consent that WAS granted and has since expired is LAPSED — a state
+    distinct from absent, but the claim path denies both."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_scope="data_processing:analytics",
+        consent_subject="subject:opaque-1",
+        consent_basis="explicit",
+        consent_granted_at=100.0,
+        consent_expires_at=500.0,
+    )
+
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+
+    assert claim is None
+
+
+def test_claim_specific_allows_active_consent(cas_engine: CasEngine) -> None:
+    """A live, unexpired grant claims normally — the gate isn't overzealous."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=5000.0,
+    )
+
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+
+    assert claim is not None
+    item = wi.get_work_item(cas_engine, item_id)
+    assert item["status"] == "leased"
+
+
+def test_claim_specific_denies_on_malformed_consent_record(
+    cas_engine: CasEngine,
+) -> None:
+    """Fail CLOSED: an unreadable consent_granted_at must deny, never default
+    to allow (constraint 4)."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_granted_at=100.0,
+    )
+    # Corrupt the persisted grant timestamp directly on the fake node store —
+    # simulating a malformed/unreadable record already in the graph.
+    cas_engine.nodes[item_id]["consent_granted_at"] = "not-a-timestamp"
+
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+
+    assert claim is None
+
+
+def test_claim_next_releases_a_consent_denied_item_instead_of_returning_it(
+    cas_engine: CasEngine,
+) -> None:
+    """claim_next selects blind; a consent-denied item it picks up must be
+    released (deferred, not handed to the caller) and the caller sees None."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=500.0,  # already lapsed by now=1000.0
+    )
+
+    claim = wi.claim_next(cas_engine, now=1000.0)
+
+    assert claim is None
+    item = wi.get_work_item(cas_engine, item_id)
+    # Deferred back to "ready" (a bounded cooldown, not a terminal tombstone —
+    # consent could still be restored by an operator) rather than left
+    # dangling under a lease the caller never received.
+    assert item["status"] == "ready"
+    assert item["next_retry_at"] == 1000.0 + wi.CONSENT_RECHECK_BACKOFF_S
+    assert item["lease_owner"] is None
+
+
+def test_heartbeat_denies_once_a_running_item_s_consent_lapses(
+    cas_engine: CasEngine,
+) -> None:
+    """Consent lapsing mid-flight must stop renewal at the next heartbeat
+    (bounded-time enforcement), not just block new claims."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=1500.0,
+    )
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+    assert claim is not None
+
+    # Still within the grant's window: renewal succeeds normally.
+    assert wi.heartbeat(cas_engine, item_id, claim, now=1010.0, lease_ttl_s=60.0)
+
+    # Past consent_expires_at: renewal is now denied even though the lease
+    # itself is still fresh.
+    assert wi.heartbeat(cas_engine, item_id, claim, now=1600.0, lease_ttl_s=60.0) is False
+
+
+def test_consent_absent_and_lapsed_are_distinct_states() -> None:
+    """The model must not collapse 'never consented' into 'consent expired' —
+    they are different facts for an auditor and are reported differently."""
+    from agent_utilities.models.knowledge_graph import WorkItemNode
+
+    now = 1000.0
+    never_consented = WorkItemNode(
+        id="w1", name="n", tenant="t", kind="generic", consent_required=True
+    )
+    lapsed = WorkItemNode(
+        id="w2",
+        name="n",
+        tenant="t",
+        kind="generic",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=500.0,
+    )
+    not_required = WorkItemNode(id="w3", name="n", tenant="t", kind="generic")
+    active = WorkItemNode(
+        id="w4",
+        name="n",
+        tenant="t",
+        kind="generic",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=5000.0,
+    )
+
+    assert never_consented.consent_state(now=now) == "absent"
+    assert lapsed.consent_state(now=now) == "lapsed"
+    assert not_required.consent_state(now=now) == "not_required"
+    assert active.consent_state(now=now) == "active"
+    assert len({"absent", "lapsed", "not_required", "active"}) == 4
+
+
 def test_cas_backend_unavailable_fails_loud_not_silent() -> None:
     no_cas = NoCasEngine()
     no_cas.add_node("workitem:x", "WorkItem", properties={"status": "ready"})

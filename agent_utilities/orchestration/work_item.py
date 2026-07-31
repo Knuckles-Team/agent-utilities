@@ -149,6 +149,12 @@ _NODE_LABEL = "WorkItem"
 DEFAULT_LEASE_TTL_S = 3600.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_BASE_S = 30.0
+#: Cooldown before a consent-denied item selected by :func:`claim_next` becomes
+#: reselectable, so a fleet claiming blind doesn't hot-loop reclaiming/deferring
+#: the same lapsed/unconsented item (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate,
+#: D-25-3). Consent is not expected to self-heal within seconds, so this is a
+#: coarser cooldown than ``DEFAULT_BACKOFF_BASE_S``'s retry backoff.
+CONSENT_RECHECK_BACKOFF_S = 300.0
 #: Bounded retries for optimistic-concurrency CAS loops (dependency release,
 #: downstream indexing, cancel) — mirrors ``engine_tasks._CLAIM_MAX_RETRIES``.
 _CAS_LOOP_MAX_RETRIES = 8
@@ -197,6 +203,12 @@ _FIELDS: tuple[str, ...] = (
     "created_by",
     "metadata",
     "loop_statechart_instance_id",
+    "consent_required",
+    "consent_scope",
+    "consent_subject",
+    "consent_basis",
+    "consent_granted_at",
+    "consent_expires_at",
 )
 
 
@@ -400,6 +412,47 @@ def _delegation_still_live(*, now: float | None = None) -> bool:
         delegation.agent_instance_id,
     )
     return True
+
+
+def _consent_still_live(item: dict[str, Any] | None, *, now: float | None = None) -> bool:
+    """False when a WorkItem's consent gate denies a claim/lease-renewal.
+
+    CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — mirrors
+    :func:`_delegation_still_live`'s shape (a boolean pre-flight gate called by
+    every claim/renew entry point). Delegates the four-state classification to
+    :func:`agent_utilities.models.knowledge_graph.classify_work_item_consent`, the
+    single source of truth shared with :meth:`WorkItemNode.consent_state`, so this
+    module never re-derives the state machine.
+
+    An item that never opted into consent tracking (``consent_required`` False —
+    the default for every pre-existing and ordinary operational/infra WorkItem) is
+    always live: this gate ONLY engages for a producer that explicitly requires
+    consent. ``"absent"`` and ``"lapsed"`` are both denied — they are DIFFERENT
+    audit-visible reasons (see the logged ``state``), not different enforcement
+    actions; either fails the claim/renewal closed. A missing item (``None``) is
+    not this gate's concern (callers already short-circuit on a missing item).
+    """
+    if item is None:
+        return True
+    from agent_utilities.models.knowledge_graph import classify_work_item_consent
+
+    state = classify_work_item_consent(
+        bool(item.get("consent_required")),
+        item.get("consent_granted_at"),
+        item.get("consent_expires_at"),
+        now=now,
+    )
+    if state in ("not_required", "active"):
+        return True
+    logger.warning(
+        "[consent] work item %s claim/renewal DENIED: consent state=%s "
+        "(scope=%r, subject=%r)",
+        item.get("id") or "<unknown>",
+        state,
+        item.get("consent_scope"),
+        item.get("consent_subject"),
+    )
+    return False
 
 
 def new_work_item_id() -> str:
@@ -619,6 +672,12 @@ def submit_work_item(
     work_item_id: str | None = None,
     max_tenant_in_flight: int | None = None,
     now: float | None = None,
+    consent_required: bool = False,
+    consent_scope: str = "",
+    consent_subject: str = "",
+    consent_basis: str = "",
+    consent_granted_at: float | None = None,
+    consent_expires_at: float | None = None,
 ) -> str:
     """Submit one WorkItem; returns its id.
 
@@ -628,6 +687,15 @@ def submit_work_item(
     ids). No dependency ⇒ immediately ``ready``; any unresolved dependency ⇒
     ``submitted`` with ``dep_count`` set, released atomically as each parent
     succeeds in the engine-native commit transaction.
+
+    ``consent_*`` (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate, D-25-3):
+    default ``consent_required=False`` submits an ordinary, ungated item — the
+    overwhelming majority of WorkItems (goal loops, agent dispatch, ingest jobs).
+    A producer binding this item to subject-consented work passes
+    ``consent_required=True`` plus ``consent_scope``/``consent_subject``/
+    ``consent_basis``/``consent_granted_at`` (and, if the grant has an explicit
+    lifetime, ``consent_expires_at``); see :func:`claim_specific`/:func:`claim_next`
+    for the enforcement this then engages.
     """
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
     from agent_utilities.models.knowledge_graph import WorkItemNode
@@ -717,6 +785,12 @@ def submit_work_item(
         created_at=now,
         updated_at=now,
         submitted_at=now,
+        consent_required=consent_required,
+        consent_scope=consent_scope,
+        consent_subject=consent_subject,
+        consent_basis=consent_basis,
+        consent_granted_at=consent_granted_at,
+        consent_expires_at=consent_expires_at,
     )
     _authority(engine).add_node(
         item_id, _NODE_LABEL, properties=node.model_dump(exclude={"id", "type"})
@@ -775,15 +849,22 @@ def claim_specific(
     """Natively claim one known ``ready`` WorkItem.
 
     Returns ``None`` when the item doesn't exist, is terminal, is still
-    ``submitted`` (deps unresolved), or has a live lease held elsewhere. A
-    malformed or unauthorizable item fails closed. Expired-lease recovery is
-    part of the engine-native claim transaction.
+    ``submitted`` (deps unresolved), has a live lease held elsewhere, or fails
+    the consent gate (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate, D-25-3 —
+    ``consent_required`` and either absent or lapsed). A malformed or
+    unauthorizable item fails closed. Expired-lease recovery is part of the
+    engine-native claim transaction.
     """
     token = token or _default_token()
     now = now if now is not None else _now()
 
     item = get_work_item(engine, item_id)
     if item is None:
+        return None
+    if not _consent_still_live(item, now=now):
+        # Denied before the engine is ever touched: no lease is granted, so
+        # there is nothing to release (contrast claim_next, which must release
+        # a lease the engine already handed out blind).
         return None
     if not item.get("tenant"):
         raise WorkItemBackendUnavailable(
@@ -823,6 +904,16 @@ def claim_next(
 
     ``max_candidates`` remains an API-level bound for callers but native
     selection owns ordering, quota, dependency release, and lease recovery.
+
+    Consent gate (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate, D-25-3): unlike
+    :func:`claim_specific`, the engine selects blind here, so a consent-denied
+    item can only be checked AFTER the engine hands out a lease. When that
+    happens this releases the lease via :func:`defer_work_item` (a bounded
+    cooldown, not a terminal state — consent can be restored by an operator) and
+    returns ``None`` to the caller, exactly as if nothing were claimable. If the
+    release itself fails, the lease is simply left to expire naturally at
+    ``lease_ttl_s`` — either way the caller never receives a consent-denied
+    claim.
     """
     token = token or _default_token()
     now = now if now is not None else _now()
@@ -840,7 +931,31 @@ def claim_next(
             lease_ttl_s=lease_ttl_s,
         ),
     )
-    return _normalize_native_claim(native)
+    claimed = _normalize_native_claim(native)
+    if claimed is None:
+        return None
+    claimed_item_id = claimed["work_item_id"]
+    item = get_work_item(engine, claimed_item_id)
+    if _consent_still_live(item, now=now):
+        return claimed
+    try:
+        defer_work_item(
+            engine,
+            claimed_item_id,
+            claimed,
+            next_retry_at=now + CONSENT_RECHECK_BACKOFF_S,
+            reason_ref="consent_gate_denied",
+            now=now,
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort release; an unreleased
+        # lease simply expires naturally at lease_ttl_s, so a failed defer here
+        # cannot let a consent-denied item run — it can only delay the reclaim.
+        logger.warning(
+            "[consent] failed to defer consent-denied claim %s: %s",
+            claimed_item_id,
+            exc,
+        )
+    return None
 
 
 def mark_running(
@@ -904,6 +1019,13 @@ def heartbeat(
     renewal fail, so the lease lapses and the reaper terminates the spawn at its next renewal —
     bounded-time revocation without a separate kill channel. In ``warn`` mode the would-be
     failure is logged but the lease still renews (legacy behavior); ``off`` is a no-op.
+
+    CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — the same bounded-time
+    posture applies to consent: if this item's consent lapses (or was withdrawn)
+    WHILE it is already running, this renewal denies (returns ``False``) at the
+    next heartbeat instead of letting an in-flight claim run indefinitely under a
+    now-invalid consent. The lease then expires at ``lease_ttl_s`` and the item
+    becomes reclaimable, at which point the gate is re-evaluated from scratch.
     """
     now = now if now is not None else _now()
     if not _delegation_still_live(now=now):
@@ -911,6 +1033,8 @@ def heartbeat(
     epoch = claim.get("lease_epoch", claim.get("fence_token"))
     fencing_token = claim.get("fencing_token", claim.get("fence_token"))
     item = get_work_item(engine, item_id) or {}
+    if not _consent_still_live(item, now=now):
+        return False
     native = _native_call(
         engine,
         "renew_work_item_lease",

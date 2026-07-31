@@ -4082,6 +4082,62 @@ class SpecialistPackageNode(RegistryNode):
     )
 
 
+def classify_work_item_consent(
+    consent_required: bool,
+    consent_granted_at: float | None,
+    consent_expires_at: float | None,
+    *,
+    now: float | None = None,
+) -> str:
+    """Classify a WorkItem's consent posture into one of four states.
+
+    CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3). The single source of
+    truth for the consent state machine, shared by :meth:`WorkItemNode.consent_state`
+    (typed model callers) and ``orchestration.work_item``'s claim/renew gate (raw KG
+    row callers) so the classification is never duplicated or allowed to drift.
+
+    Returns one of:
+
+    * ``"not_required"`` — ``consent_required`` is falsy. The default for every
+      pre-existing and ordinary operational/infra WorkItem (goal loops, agent
+      dispatch, ingest jobs, ...): consent tracking was never opted into, so
+      this item is not gated at all (D-25-3 migration decision — see
+      :class:`WorkItemNode`'s docstring for the full trade-off).
+    * ``"absent"`` — consent IS required but was never recorded
+      (``consent_granted_at is None``), or the recorded grant timestamp is
+      unreadable/malformed. Fails CLOSED: a malformed record is never treated
+      as a live grant.
+    * ``"active"`` — a grant is recorded and either has no expiry or has not
+      yet lapsed.
+    * ``"lapsed"`` — a grant was recorded but its ``consent_expires_at`` has
+      passed, OR the expiry value itself is malformed/unreadable (fails
+      CLOSED as already-lapsed rather than silently treating it as active).
+
+    ``"absent"`` and ``"lapsed"`` are deliberately DISTINCT states — a work
+    item with no consent history at all must never collapse into (or be
+    reported as) one that had consent and lost it; they mean different things
+    to an auditor and must be told apart.
+    """
+    if not consent_required:
+        return "not_required"
+    if consent_granted_at is None:
+        return "absent"
+    try:
+        float(consent_granted_at)
+    except (TypeError, ValueError):
+        return "absent"  # malformed grant timestamp -> fail closed as never-granted
+    if consent_expires_at is None:
+        return "active"
+    try:
+        expires_at = float(consent_expires_at)
+    except (TypeError, ValueError):
+        return "lapsed"  # malformed expiry -> fail closed as already-lapsed
+    import time as _time
+
+    resolved_now = now if now is not None else _time.time()
+    return "active" if expires_at > resolved_now else "lapsed"
+
+
 class WorkItemNode(RegistryNode):
     """The ONE engine-native work-item state machine (AU-P1-1).
 
@@ -4212,6 +4268,94 @@ class WorkItemNode(RegistryNode):
     updated_at: float = Field(default=0.0)
     submitted_at: float = Field(default=0.0)
     completed_at: float | None = Field(default=None)
+
+    # ── consent + expiry (D-25-3) ───────────────────────────────────────
+    #
+    # CONCEPT:AU-ORCH.dispatch.workitem-consent-gate — a WorkItem is bound only to
+    # a tenant by default; these fields let a producer additionally represent WHAT
+    # a subject consented to, BY WHOM, WHEN, and under WHICH basis, plus an explicit
+    # lifetime on that grant. Opt-in (``consent_required`` defaults False) rather
+    # than retrofit onto every WorkItem: the vast majority of WorkItems are internal
+    # operational plumbing (goal loops, agent dispatch, ingest jobs) with no data
+    # subject to consent from at all, and requiring these fields unconditionally
+    # would either (a) silently fabricate consent for legacy/infra items that never
+    # had any, or (b) halt the entire live queue on deploy. A producer that DOES
+    # bind a WorkItem to subject-consented work sets ``consent_required=True`` at
+    # submission; see :func:`classify_work_item_consent` for the resulting state
+    # machine and ``orchestration.work_item``'s claim/renew gate for enforcement.
+    #
+    # MIGRATION for pre-existing WorkItems (neither field previously existed):
+    # they deserialize with ``consent_required=False`` (the Pydantic default),
+    # i.e. "not applicable" / unaffected by the gate — NOT "treat as consented
+    # forever" and NOT "treat as unconsented". Both of those blanket defaults were
+    # considered and rejected: always-consented would be a SILENT privacy
+    # regression for the unknown subset of legacy items that do carry subject data
+    # (we cannot tell which, post hoc, from the field alone); always-unconsented
+    # would instantly deny every claim across the fleet's entire non-empty backlog
+    # (goal loops, dispatch, ingest, teams) — an availability outage disguised as
+    # a privacy fix. "Not applicable" changes nothing for existing traffic and
+    # only engages the gate for new producers that explicitly opt in. Retroactively
+    # auditing which LEGACY items are actually subject-bound (and should be
+    # migrated to ``consent_required=True`` with a real grant or an explicit
+    # withdrawal) is a data-classification judgment this code cannot make and is
+    # therefore an OPERATOR decision, not a default this migration guesses at.
+    consent_required: bool = Field(
+        default=False,
+        description=(
+            "Opt-in per item: True when this WorkItem's claim/renewal is gated on "
+            "a recorded, unlapsed consent. False (default) for every pre-existing "
+            "and ordinary operational/infra WorkItem — unaffected by the gate."
+        ),
+    )
+    consent_scope: str = Field(
+        default="",
+        description=(
+            "WHAT was consented to: purpose/scope, e.g. "
+            "'data_processing:analytics'. Empty when consent_required is False. "
+            "Mirrored in the ontology as :consentPurpose (NOT :consentScope, which "
+            "is the unrelated medical :ConsentRecord's property)."
+        ),
+    )
+    consent_subject: str = Field(
+        default="",
+        description=(
+            "BY WHOM: opaque reference to the data subject the consent pertains "
+            "to — distinct from `tenant` (owning org) and `assigned_to` (worker)."
+        ),
+    )
+    consent_basis: str = Field(
+        default="",
+        description=(
+            "UNDER WHICH basis the consent was granted, e.g. 'explicit' | "
+            "'contract' | 'legitimate_interest'."
+        ),
+    )
+    consent_granted_at: float | None = Field(
+        default=None,
+        description=(
+            "WHEN: Unix timestamp consent was granted. None = ABSENT (never "
+            "recorded) — a state distinct from a granted consent that has since "
+            "LAPSED (see consent_expires_at / consent_state())."
+        ),
+    )
+    consent_expires_at: float | None = Field(
+        default=None,
+        description=(
+            "The consent's explicit lifetime: Unix timestamp after which a "
+            "granted consent LAPSES. None with consent_granted_at set = a "
+            "perpetual grant (no expiry) — a deliberate, explicit choice by the "
+            "granter, not a default absence of information."
+        ),
+    )
+
+    def consent_state(self, now: float | None = None) -> str:
+        """Classify this item's consent posture; see :func:`classify_work_item_consent`."""
+        return classify_work_item_consent(
+            self.consent_required,
+            self.consent_granted_at,
+            self.consent_expires_at,
+            now=now,
+        )
 
 
 class AgentMailboxNode(RegistryNode):

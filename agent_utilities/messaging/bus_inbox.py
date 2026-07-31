@@ -184,6 +184,17 @@ def _properties(
         submitted_at=now,
         completed_at=now if audit_sink else None,
         result_ref=outcome_id if audit_sink else None,
+        # Consent/expiry (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate, D-25-3):
+        # populated from the already-privacy-sanitized `clean_meta`, same pattern
+        # as `deadline_unix`/`budget` above. This module only MATERIALIZES the
+        # WorkItem (the native-work-item-boundary gate forbids it from claiming/
+        # transitioning one) — enforcement lives solely in `orchestration.work_item`.
+        consent_required=bool(clean_meta.get("consent_required") or False),
+        consent_scope=str(clean_meta.get("consent_scope") or ""),
+        consent_subject=str(clean_meta.get("consent_subject") or ""),
+        consent_basis=str(clean_meta.get("consent_basis") or ""),
+        consent_granted_at=clean_meta.get("consent_granted_at"),
+        consent_expires_at=clean_meta.get("consent_expires_at"),
     ).model_dump(exclude={"id", "type"})
     work["node_type"] = "WorkItem"
     outcome = {

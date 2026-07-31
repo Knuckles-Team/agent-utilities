@@ -1141,14 +1141,14 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 1112 concepts across 9 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1114 concepts across 9 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
 | **AU-AHE** | 117 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
-| **AU-ECO** | 125 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
+| **AU-ECO** | 126 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
 | **AU-KG** | 482 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
-| **AU-ORCH** | 211 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
+| **AU-ORCH** | 212 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
 | **AU-OS** | 145 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
 | **EG-KG** | 29 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
