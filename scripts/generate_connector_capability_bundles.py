@@ -54,7 +54,11 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (  
 from agent_utilities.security.persistence_privacy import (  # noqa: E402
     PersistencePrivacyGuard,
 )
-from scripts.generate_connector_manifests import _to_yaml, build_manifest  # noqa: E402
+from scripts.generate_connector_manifests import (  # noqa: E402
+    _to_yaml,
+    build_manifest,
+    write_a2a_card,
+)
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_]")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -392,6 +396,14 @@ def _stage_one(
     registry_path: Path | None = None,
 ) -> tuple[_Publication, ...]:
     module = _module_dir(repo)
+    # a2a.json is regenerated in place, in the connector's OWN repo, before the
+    # manifest (and therefore the certification ledger) is built from it — the
+    # certification-bundle pipeline is the one place that always runs before a
+    # provider's artifacts are hashed and signed, so this is the load-bearing
+    # point that keeps a2a.json from ever drifting: there is no hand-maintained
+    # copy left to go stale (CONCEPT:AU-KG.ontology.a2a-card-generation).
+    if (repo / "pyproject.toml").is_file():
+        write_a2a_card(repo, dry_run=False)
     manifest = build_manifest(
         repo, now=now, release_signer=release_signer, registry_path=registry_path
     )
