@@ -82,6 +82,29 @@ class SkillCompiler:
                 step_title = match[1].strip()
                 step_body = match[2].strip()
 
+                # Parse an explicit skill annotation if present, e.g.
+                # "### Step 0: spec-intake-wizard [skill: spec-intake-wizard]".
+                # This MUST be stripped before the depends_on parsing and the
+                # colon-split heuristic below: the colon inside "[skill: ...]"
+                # otherwise gets mistaken for the "Step N: <title>" separator,
+                # corrupting the parsed id with a stray trailing "]" (e.g. the
+                # id comes out as "spec-intake-wizard]").
+                explicit_skill_id = None
+                skill_match = re.search(
+                    r"\[skill:\s*(.*?)\]", step_title, re.IGNORECASE
+                )
+                if skill_match:
+                    explicit_skill_id = (
+                        skill_match.group(1)
+                        .strip()
+                        .lower()
+                        .replace(" ", "-")
+                        .replace("_", "-")
+                    )
+                    step_title = re.sub(
+                        r"\[skill:\s*(.*?)\]", "", step_title, flags=re.IGNORECASE
+                    ).strip()
+
                 # Parse explicit depends_on annotation if present: e.g. [depends_on: agent-a, agent-b]
                 depends_on = []
                 dep_match = re.search(
@@ -124,21 +147,25 @@ class SkillCompiler:
                             [parsed_step_info[-1][1]] if parsed_step_info else []
                         )
 
-                # Try to extract agent name if step title specifies it, e.g. "### Step 1: Agent Name"
-                agent_name = "executor"
-                title_parts = step_title_clean.split(":", 1)
-                if len(title_parts) > 1:
-                    agent_name = (
-                        title_parts[1]
-                        .strip()
-                        .lower()
-                        .replace(" ", "-")
-                        .replace("_", "-")
-                    )
+                # An explicit "[skill: ...]" annotation is the authoritative id;
+                # only fall back to inferring one from the title text when absent.
+                if explicit_skill_id:
+                    agent_name = explicit_skill_id
                 else:
-                    agent_name = (
-                        step_title_clean.lower().replace(" ", "-").replace("_", "-")
-                    )
+                    # Try to extract agent name if step title specifies it, e.g. "### Step 1: Agent Name"
+                    title_parts = step_title_clean.split(":", 1)
+                    if len(title_parts) > 1:
+                        agent_name = (
+                            title_parts[1]
+                            .strip()
+                            .lower()
+                            .replace(" ", "-")
+                            .replace("_", "-")
+                        )
+                    else:
+                        agent_name = (
+                            step_title_clean.lower().replace(" ", "-").replace("_", "-")
+                        )
 
                 # Ensure agent_name is unique
                 base_name = agent_name
