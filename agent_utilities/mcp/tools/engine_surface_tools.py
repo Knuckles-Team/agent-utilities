@@ -45,12 +45,15 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import uuid
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+logger = logging.getLogger(__name__)
 
 # CONCEPT:AU-KG.mining.dsm-forecast-delegation — the fleet write-side connector (call
 # a named MCP server's tool once, synchronously, decoded) is the SAME primitive the
@@ -1724,6 +1727,23 @@ def register_engine_surface_tools(mcp) -> None:
                     "node_count": len(envelope.typed_payload["entities"]),
                     "relationship_count": len(envelope.typed_payload["relationships"]),
                 }
+                # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
+                # D-71-1) — the process_signal channel: recorded HERE, at the one place
+                # this import's real outcome is computed, never re-derived by a second
+                # query. Best-effort audit overlay; never gates the import.
+                try:
+                    from agent_utilities.knowledge_graph.research.evidence import (
+                        from_process_signal,
+                        record_evidence,
+                    )
+
+                    record_evidence(kg_server._get_engine(), from_process_signal(evidence))
+                except Exception as exc:
+                    logger.debug(
+                        "OCEL process_signal evidence record failed for %s: %s",
+                        evidence.get("idempotency_key"),
+                        exc,
+                    )
                 if ocel_mode == "validate":
                     return json.dumps(
                         {
