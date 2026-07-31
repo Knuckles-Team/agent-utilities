@@ -3694,6 +3694,7 @@ def _build_server(
         register_graph_engineering_tools,
         register_incident_tools,
         register_job_tools,
+        register_mcp_apps_tools,
         register_media_sidecar_tools,
         register_ontology_tools,
         register_ops_causal_tools,
@@ -3748,6 +3749,13 @@ def _build_server(
         mode_override=tool_profile,
         force_condensed_registration=canonical_surface,
     )
+
+    # CONCEPT:AU-ECO.ui.mcp-apps-host — the MCP Apps entry-point tool + its
+    # ui:// resource (agent_utilities/mcp/tools/mcp_apps.py). Registered
+    # directly, not through register_tool_surface: it has no `action` param
+    # to condense/verbose-split (a single-purpose tool + a resource, not an
+    # action-routed dispatcher), so it doesn't fit that harness's contract.
+    register_mcp_apps_tools(mcp)
 
     # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8, Phases 2-3) — the ADDITIONAL, small
     # "ask/find/write/act/manage/why" intent surface, selected by the default

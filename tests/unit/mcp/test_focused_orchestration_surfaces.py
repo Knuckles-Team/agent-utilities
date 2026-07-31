@@ -88,7 +88,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "submit_risk_veto",
             "verify_action",
         },
-        "graph_jobs": {"dispatch", "status", "cancel"},
+        "graph_jobs": {"dispatch", "status", "cancel", "input"},
         "graph_rlm": {"run", "benchmark", "evolve_prompt"},
         "graph_workflows": {
             "compile",
@@ -101,13 +101,16 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    # 36, not 35: the reconciliation-gate-2 merge of feat/wave7-followups-evolution
-    # genuinely adds ONE action — `graph_evolution action="evidence_lineage"`
-    # (D-71-4), listed in `expected_actions` above. The set was merged in but this
-    # total was not, because the two lanes touched different lines. The
+    # 37, computed from `expected_actions` above, not guessed. Reconciliation
+    # gate 2 merged TWO lanes that each add exactly one action:
+    #   feat/wave7-followups-evolution -> graph_evolution "evidence_lineage" (D-71-4)
+    #   feat/wave25-followups-mcpapps  -> graph_jobs      "input"
+    # Each lane updated the action SET but not this total (they touched different
+    # lines, so git merged both sets cleanly and left the stale count). The
     # `harvest_actions(...) == actions` assertion below is what actually pins the
-    # surface; this total is the redundant ratchet that catches a silent addition.
-    assert sum(map(len, expected_actions.values())) == 36
+    # surface against the real tools; this total is the redundant ratchet that
+    # catches a silently added action.
+    assert sum(map(len, expected_actions.values())) == 37
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 

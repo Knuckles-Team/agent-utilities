@@ -75,6 +75,8 @@ __all__ = [
     "commit_result",
     "cancel_work_item",
     "defer_work_item",
+    "request_work_item_input",
+    "submit_work_item_input",
     "reap_expired_leases",
     "tenant_in_flight_count",
     "machine_state_distribution",
@@ -1201,6 +1203,111 @@ def defer_work_item(
         return False
     raise WorkItemBackendUnavailable(
         f"native DeferWorkItem returned unknown status {status!r}"
+    )
+
+
+# ── external input request/response (MCP Tasks `input_required`) ──────
+#
+# CONCEPT:AU-ECO.mcp.tasks-workitem-bridge — the WorkItem-side hook for the
+# ``io.modelcontextprotocol/tasks`` extension's ``working`` <-> ``input_required``
+# cycle. Deliberately NOT a new status in ``WORK_ITEM_STATES``/
+# ``TERMINAL_WORK_ITEM_STATUSES``: the WorkItem stays ``running`` the whole
+# time (a worker can still heartbeat/checkpoint it normally); only
+# ``metadata.pending_input_request``/``pending_input_response`` change. A
+# Tasks adapter (``mcp_v2_gateway.gateway``, or a native
+# ``fastmcp.server.extensions.ServerExtension``) projects the presence of a
+# live ``pending_input_request`` onto the extension's ``input_required``
+# wire status; everything else about submit/claim/commit is unchanged.
+
+
+def request_work_item_input(
+    engine: Any,
+    item_id: str,
+    claim: dict[str, Any],
+    *,
+    request: dict[str, Any],
+    now: float | None = None,
+    lease_ttl_s: float = DEFAULT_LEASE_TTL_S,
+) -> bool:
+    """Mark a claimed, running WorkItem as awaiting external client input.
+
+    A worker holding the live lease calls this instead of committing a
+    result when it needs a client round-trip before it can continue. Fenced
+    identically to :func:`checkpoint_work_item` (same status/tenant/lease
+    conditions, via the same ``heartbeat``-then-CAS shape); the only thing
+    that changes is ``metadata``, not ``status`` -- so the core state machine
+    is unmodified. ``request`` is sanitized through the same
+    :class:`~agent_utilities.security.persistence_privacy.PersistencePrivacyGuard`
+    :func:`submit_work_item` already uses for ``metadata`` -- never raw content
+    written to the graph unguarded.
+    """
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    now = now if now is not None else _now()
+    if not heartbeat(engine, item_id, claim, now=now, lease_ttl_s=lease_ttl_s):
+        return False
+    item = get_work_item(engine, item_id)
+    if item is None or item.get("status") not in {"leased", "running"}:
+        return False
+    epoch = claim.get("lease_epoch", claim.get("fence_token"))
+    fencing_token = claim.get("fencing_token", claim.get("fence_token"))
+    old_metadata = dict(item.get("metadata") or {})
+    clean_request, _report = PersistencePrivacyGuard().sanitize(dict(request))
+    new_metadata = dict(old_metadata)
+    new_metadata["pending_input_request"] = clean_request
+    new_metadata.pop("pending_input_response", None)
+    conditions = {
+        "status": item.get("status"),
+        "tenant": item.get("tenant"),
+        "lease_owner": claim.get("lease_owner") or _default_token(),
+        "lease_epoch": epoch,
+        "fencing_token": fencing_token,
+        "metadata": old_metadata,
+    }
+    return _cas(
+        engine, item_id, conditions, {"metadata": new_metadata, "updated_at": now}
+    )
+
+
+def submit_work_item_input(
+    engine: Any,
+    item_id: str,
+    *,
+    tenant: str,
+    response: dict[str, Any],
+    now: float | None = None,
+) -> bool:
+    """Attach an external client's response to a WorkItem awaiting input.
+
+    Unlike :func:`request_work_item_input`, this does NOT require the caller
+    to hold the active lease: the submitter is an external MCP client (the
+    Tasks extension's ``tasks/update``), never the worker -- the same
+    "no claim, tenant-scoped" shape as :func:`cancel_work_item`. Optimistically
+    fenced on the exact pending request still being live (via a whole-value
+    ``metadata`` CAS condition), so two concurrent submissions cannot both
+    "win" -- this is this module's established read-then-CAS idiom
+    (:func:`checkpoint_work_item`, :func:`heartbeat`), not a new concurrency
+    pattern. Returns ``False`` if the item is missing, not running,
+    tenant-mismatched, has no pending request outstanding, or lost the race.
+    """
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    now = now if now is not None else _now()
+    item = get_work_item(engine, item_id)
+    if item is None or item.get("status") not in {"leased", "running"}:
+        return False
+    if str(item.get("tenant") or "") != tenant:
+        return False
+    old_metadata = dict(item.get("metadata") or {})
+    if not old_metadata.get("pending_input_request"):
+        return False
+    clean_response, _report = PersistencePrivacyGuard().sanitize(dict(response))
+    new_metadata = dict(old_metadata)
+    new_metadata["pending_input_response"] = clean_response
+    new_metadata.pop("pending_input_request", None)
+    conditions = {"tenant": tenant, "metadata": old_metadata}
+    return _cas(
+        engine, item_id, conditions, {"metadata": new_metadata, "updated_at": now}
     )
 
 

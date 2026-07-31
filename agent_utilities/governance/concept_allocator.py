@@ -248,7 +248,19 @@ def _is_expired(expires_at: Any, now: datetime) -> bool:
 # Public API — reserve / release / reconcile / list
 # ---------------------------------------------------------------------------
 def _default_scan_roots(repo_root: Path) -> list[Path]:
-    return [repo_root / "agent_utilities"]
+    """Every source tree a ``CONCEPT:`` marker can land in, for reservation
+    scans and ``reconcile()`` (D-25-8).
+
+    ``agent_utilities/`` is the main package; ``mcp_v2_gateway/`` is the one
+    other in-repo, deliberately-isolated Python sidecar package (see its own
+    ``AGENTS.md`` / ``pyproject.toml`` — separate wheel, separate deploy
+    surface, same repo). Before this fix a marker landing there (e.g.
+    ``AU-ECO.mcp.v2-gateway-otel-tracing``) never left ``reserved`` status
+    because ``scan_code_markers`` never walked it.  ``scan_code_markers``
+    already skips a root that doesn't exist, so this is safe for a synthetic
+    test ``repo_root`` fixture that only creates ``agent_utilities/``.
+    """
+    return [repo_root / "agent_utilities", repo_root / "mcp_v2_gateway"]
 
 
 def _taken_union(

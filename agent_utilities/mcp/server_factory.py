@@ -1602,14 +1602,26 @@ def create_mcp_server(
         auth=auth,
         instructions=instructions,
         lifespan=_fleet_registration_lifespan_factory(args, name),
-        # FastMCP 3.4.5 pins MCP Python SDK <2 and therefore implements the
-        # superseded 2025-11-25 task protocol, not the 2026-07-28
-        # ``io.modelcontextprotocol/tasks`` extension. Do not advertise that
-        # incompatible lifecycle. Official MCP SDK 2.0 support requires a
-        # deliberate FastMCP migration/dual-stack adapter; durable WorkItem
-        # status/cancellation remains available through normal MCP/REST actions.
+        # `tasks=` only sets the DEFAULT task-mode for individual `@mcp.tool()`
+        # registrations (fastmcp.utilities.tasks.TaskConfig) -- it does not by
+        # itself mount the `io.modelcontextprotocol/tasks` extension's
+        # `tasks/get`/`tasks/update`/`tasks/cancel` methods (that requires a
+        # `ServerExtension`, added below). Kept False: no tool here is
+        # registered with `task=True`, so there is nothing for a per-tool
+        # default to apply to yet.
         tasks=False,
     )
+    # CONCEPT:AU-ECO.mcp.tasks-workitem-bridge -- mount the native WorkItem-backed
+    # Tasks extension (agent_utilities/mcp/tasks_extension.py), NOT
+    # fastmcp_tasks.extension.TasksExtension: that package's engine is
+    # hard-wired to Docket/Redis, a second job system this codebase's one
+    # WorkItem state machine (AU-P1-1) forbids duplicating. This makes the
+    # exact same WorkItem-backed contract the isolated mcp_v2_gateway sidecar
+    # already exposes for 2026-07-28 stateless clients reachable to a client
+    # connected directly to this server too.
+    from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
+
+    mcp.add_extension(WorkItemTasksExtension())
 
     # Operational routes live outside the tool authorization path. Health is a
     # generic readiness result. Metrics are local-only unless a remote listener
