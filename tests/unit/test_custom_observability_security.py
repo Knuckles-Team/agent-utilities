@@ -80,7 +80,6 @@ def test_metadata_only_exporter_drops_events_links_resources_and_status_text() -
     exported = inner.export.call_args.args[0][0]
     rendered = repr(
         {
-            "name": exported.name,
             "resource": dict(exported.resource.attributes),
             "attributes": dict(exported.attributes or {}),
             "events": exported.events,
@@ -90,15 +89,61 @@ def test_metadata_only_exporter_drops_events_links_resources_and_status_text() -
         }
     )
     for forbidden in (
-        "environment-specific-name",
         "private-host",
         "top-secret",
         "private error description",
         "private-value",
     ):
         assert forbidden not in rendered
+    # D-OG-2: span/operation names are service topology, not user content —
+    # they arrive literal (sanitized, never hashed).
+    assert exported.name == "execute_tool environment-specific-name"
     assert exported.events == ()
     assert exported.links == ()
+
+
+def test_metadata_only_exporter_service_and_operation_names_arrive_literal() -> None:
+    """CONCEPT:AU-OS.observability.literal-service-topology-labels (D-OG-2).
+
+    ``service.name`` and the span name are service *topology* — an operator must
+    be able to pick "graph-os" from a Grafana/Tempo dropdown — so they must reach
+    the exporter untouched (modulo control-character stripping), never as an
+    opaque ``pref_service_<hash>``/``operation:pref_span_name_<hash>`` pair.
+    """
+    sdk_trace = pytest.importorskip("opentelemetry.sdk.trace")
+    resources = pytest.importorskip("opentelemetry.sdk.resources")
+    status_module = pytest.importorskip("opentelemetry.trace.status")
+    trace = pytest.importorskip("opentelemetry.trace")
+
+    context = trace.SpanContext(
+        trace_id=1,
+        span_id=2,
+        is_remote=False,
+        trace_flags=trace.TraceFlags(1),
+        trace_state=trace.TraceState(),
+    )
+    raw = sdk_trace.ReadableSpan(
+        name="engine.GetNodeProperties",
+        context=context,
+        resource=resources.Resource({}),
+        attributes={"tool.arguments": "top-secret"},
+        events=(),
+        links=(),
+        status=status_module.Status(status_module.StatusCode.OK),
+        start_time=1,
+        end_time=2,
+    )
+    inner = MagicMock()
+    inner.export.return_value = "ok"
+    exporter = observability._MetadataOnlySpanExporter(inner, service_ref="graph-os")
+
+    exporter.export([raw])
+    exported = inner.export.call_args.args[0][0]
+
+    assert exported.name == "engine.GetNodeProperties"
+    assert exported.resource.attributes["service.name"] == "graph-os"
+    # a genuine content field on the same span is still redacted.
+    assert "top-secret" not in repr(dict(exported.attributes or {}))
 
 
 def test_setup_installs_explicit_no_content_agent_instrumentation(
@@ -158,9 +203,10 @@ def test_setup_installs_explicit_no_content_agent_instrumentation(
     assert call.kwargs["include_binary_content"] is False
     assert FakeAgent._instrument_default.include_content is False
     assert FakeAgent._instrument_default.include_binary_content is False
+    # D-OG-2: service.name is service topology, not user content — it must
+    # arrive literal so an operator can select the service in Grafana/Tempo.
     assert (
-        "environment-specific-service"
-        not in observability.os.environ["OTEL_SERVICE_NAME"]
+        observability.os.environ["OTEL_SERVICE_NAME"] == "environment-specific-service"
     )
 
 

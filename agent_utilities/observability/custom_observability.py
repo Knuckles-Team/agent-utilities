@@ -109,17 +109,7 @@ _SAFE_ATTRIBUTE_STRINGS = frozenset(
         "unknown",
     }
 )
-_SAFE_SPAN_NAMES = frozenset(
-    {
-        "agent run",
-        "execute_tool",
-        "graph.run",
-        "invoke_agent",
-        "model request",
-        "running output function",
-        "running tool",
-    }
-)
+_TOPOLOGY_LABEL_RE = re.compile(r"[^A-Za-z0-9 ./:_-]+")
 _SENSITIVE_ATTRIBUTE_TERMS = frozenset(
     {
         "argument",
@@ -364,6 +354,34 @@ def _opaque_label(kind: str, value: Any) -> str:
     return persistence_reference(kind, text[:8192], namespace="otel")
 
 
+def _service_topology_label(value: Any) -> str:
+    """Sanitize — but deliberately never hash — a service-topology identifier.
+
+    CONCEPT:AU-OS.observability.literal-service-topology-labels — D-OG-2:
+    ``service.name`` and a span's operation name describe *what code is
+    running* (``graph-os``, ``engine.GetNodeProperties``), not *what a user said*.
+    Routing them through :func:`_opaque_label` made every exported span carry an
+    opaque ``pref_service_<hash>``/``operation:pref_span_name_<hash>`` pair,
+    which made Grafana/Tempo service discovery and the service graph unusable —
+    an operator could not pick "graph-os" from a dropdown, and the hash was not
+    even stable across an ``OTEL_SERVICE_NAME`` change.
+
+    This function only strips control/unsafe characters and caps length so a
+    malformed or oversized identifier cannot corrupt the exported OTel resource
+    — it performs no content-boundary redaction. That is safe specifically
+    because every caller in this codebase builds service/span names from fixed
+    strings and enum-like operation identifiers (``f"engine.{method}"``,
+    ``f"{operation} task"``, ``"agent.run"``, …) — never from request bodies,
+    tool arguments, or model output. Anything that COULD carry user content
+    (span *attributes*, resource *detector* fields) still goes through
+    :func:`_opaque_label`/:func:`_metadata_only_attributes` and stays hashed.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return _TOPOLOGY_LABEL_RE.sub("_", text)[:256]
+
+
 def _safe_attribute_value(key: str, value: Any) -> Any | None:
     if isinstance(value, bool):
         return value
@@ -430,11 +448,7 @@ class _MetadataOnlySpanExporter:
         safe_spans = []
         for span in list(spans)[:2048]:
             raw_name = str(getattr(span, "name", "") or "")
-            name = (
-                raw_name
-                if raw_name in _SAFE_SPAN_NAMES
-                else f"operation:{_opaque_label('span_name', raw_name)}"
-            )
+            name = _service_topology_label(raw_name) or "unnamed_span"
             safe_spans.append(
                 ReadableSpan(
                     name=name,
@@ -649,8 +663,8 @@ def setup_otel(
     if target_protocol != "http/protobuf":
         logger.warning("OTLP setup skipped: unsupported protocol")
         return
-    target_service_name = _opaque_label(
-        "service", service_name or retrieve_package_name() or "agent-utilities"
+    target_service_name = _service_topology_label(
+        service_name or retrieve_package_name() or "agent-utilities"
     )
 
     # Step 3: Set environment variables for downstream OTel SDK consumers
