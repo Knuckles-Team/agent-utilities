@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1059
+total_concepts: 1060
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -5740,6 +5740,13 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/graph_engineering.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   doc: instead of one point-read per
+- id: AU-KG.retrieval.batched-neighborhood-prefetch
+  name: hard ceiling on how many
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+  doc: hard ceiling on how many
 - id: AU-KG.retrieval.capability-power-descriptor
   name: AU-KG.retrieval.capability-power-descriptor
   pillar: AU-KG
@@ -7888,6 +7895,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/resource_priority.py
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/kvcache/policy.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
