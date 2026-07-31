@@ -273,7 +273,11 @@ async def sync_feature_to_memory(ctx: RunContext[AgentDeps], feature_id: str) ->
     existing_mem_id = None
     for node_id in engine.graph.node_ids():
         data = engine.graph._get_node_properties(node_id)
-        if data.get("type") == "memory" and data.get("name") == mem_name:
+        # 'type' is the retired node property (GraphComputeEngine.add_node/
+        # EpistemicGraphBackend.add_node both reject it); add_memory's
+        # MemoryNode.type serializes to the canonical 'node_type' via
+        # engine._serialize_node.
+        if data.get("node_type") == "memory" and data.get("name") == mem_name:
             existing_mem_id = node_id
             break
 
