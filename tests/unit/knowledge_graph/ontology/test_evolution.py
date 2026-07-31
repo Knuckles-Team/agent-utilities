@@ -103,6 +103,70 @@ def test_next_semver(prior, kind, expected):
     assert evolution.next_semver(prior, kind) == expected
 
 
+# ── compare_against_standards (program item 2, D-75-8) — deterministic name
+# collision against the bundled authoritative-standards corpus, never an LLM
+# judgment ────────────────────────────────────────────────────────────────
+
+
+def test_bundled_standard_vocabulary_is_nonempty_and_carries_known_standard_terms():
+    """The bundled ontology.ttl genuinely absorbs BFO/PROV-O/Schema.org/SKOS
+    alignment targets (verified directly against the file), not a stand-in
+    corpus -- 'creativework' (schema:CreativeWork) and 'activity'
+    (prov:Activity) must both be present."""
+    vocab = evolution._bundled_standard_vocabulary()
+    assert "creativework" in vocab
+    assert "activity" in vocab
+
+
+def test_compare_against_standards_flags_a_colliding_class_name():
+    candidate = {
+        "classes": ["http://example.org/pets#CreativeWork", "http://example.org/pets#Dog"],
+        "properties": [],
+    }
+    flags = evolution.compare_against_standards(candidate)
+    assert len(flags) == 1
+    assert flags[0]["term"] == "http://example.org/pets#CreativeWork"
+    assert flags[0]["kind"] == "class"
+    assert flags[0]["local_name"] == "creativework"
+
+
+def test_compare_against_standards_flags_nothing_for_a_novel_name():
+    candidate = {"classes": ["http://example.org/pets#Dog"], "properties": []}
+    assert evolution.compare_against_standards(candidate) == []
+
+
+def test_propose_flags_a_standards_collision_without_forcing_review():
+    """A standards collision is advisory (flagged for a reviewer), never a
+    forced review on its own -- classify_change/validate_graph/replay
+    regressions remain the ONLY things that force requires_review=True."""
+    result = evolution.propose_ontology_change(
+        None,
+        None,
+        PETS_TTL,  # defines :Animal, :Dog (rdfs:subClassOf), :hasOwner -- no collision
+        iri="http://example.org/pets",
+        source_type="text",
+    )
+    proposal = result["proposal"]
+    assert proposal["standards_alignment"]["checked"] is True
+    assert proposal["standards_alignment"]["flags"] == []
+
+
+def test_propose_standards_alignment_flags_present_for_a_colliding_candidate():
+    collide_ttl = """@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix ex: <http://example.org/docs#> .
+<http://example.org/docs> a owl:Ontology .
+ex:CreativeWork a owl:Class .
+"""
+    result = evolution.propose_ontology_change(
+        None, None, collide_ttl, iri="http://example.org/docs", source_type="text"
+    )
+    proposal = result["proposal"]
+    flags = proposal["standards_alignment"]["flags"]
+    assert any(f["local_name"] == "creativework" for f in flags)
+    # advisory only — a pure additive+colliding change still isn't forced to review
+    assert proposal["requires_review"] is False
+
+
 # ── propose — detect/align/decide/shadow, never touches the active ontology ─
 
 
@@ -201,6 +265,60 @@ def test_review_unknown_proposal_errors():
         None, None, "does-not-exist", approve=True, reviewer="alice"
     )
     assert "error" in result
+
+
+# ── shadow-graph GC on rejection (CONCEPT:AU-KG.ontology.shadow-graph-gc, D-75-7) ──
+
+
+def test_reject_discards_the_shadow_graph():
+    """A rejected proposal is never coming back for promotion (promote() reads
+    the stored `turtle`, never the shadow graph) -- rejecting it tears down its
+    scratch shadow graph immediately rather than leaking it until an engine
+    idle-sweep eventually reclaims it."""
+    with patch(
+        "agent_utilities.knowledge_graph.ontology.evolution.materialize_shadow",
+        return_value=("ontology:tenant__shadow__proposal-1", {"loaded_to_engine": True}),
+    ):
+        result = evolution.propose_ontology_change(
+            None, None, PETS_TTL, iri="http://example.org/pets", source_type="text"
+        )
+    proposal_id = result["proposal"]["proposal_id"]
+    assert result["proposal"]["shadow_graph"] == "ontology:tenant__shadow__proposal-1"
+
+    with patch(
+        "agent_utilities.knowledge_graph.ontology.evolution.discard_shadow",
+        return_value={"dropped": True},
+    ) as mock_discard:
+        reviewed = evolution.review_ontology_proposal(
+            None, None, proposal_id, approve=False, reviewer="bob"
+        )
+
+    mock_discard.assert_called_once_with(None, "ontology:tenant__shadow__proposal-1")
+    assert reviewed["proposal"]["shadow_discard"] == {"dropped": True}
+
+
+def test_approve_does_not_discard_the_shadow_graph():
+    """An APPROVED (not yet promoted) proposal keeps its shadow -- only
+    rejection (a dead end) or promotion (which discards it on success, see
+    promote_ontology_proposal) tears it down."""
+    with patch(
+        "agent_utilities.knowledge_graph.ontology.evolution.materialize_shadow",
+        return_value=("ontology:tenant__shadow__proposal-2", {"loaded_to_engine": True}),
+    ):
+        result = evolution.propose_ontology_change(
+            None, None, PETS_TTL, iri="http://example.org/pets", source_type="text"
+        )
+    proposal_id = result["proposal"]["proposal_id"]
+
+    with patch(
+        "agent_utilities.knowledge_graph.ontology.evolution.discard_shadow"
+    ) as mock_discard:
+        reviewed = evolution.review_ontology_proposal(
+            None, None, proposal_id, approve=True, reviewer="alice"
+        )
+
+    mock_discard.assert_not_called()
+    assert "shadow_discard" not in reviewed["proposal"]
 
 
 # ── promote — gated by the SAME action_policy decision point as every other

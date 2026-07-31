@@ -631,6 +631,7 @@ class OntologyLifecycle:
             "engine": engine_report,
             "category": category,
             "tags": list(tags) if tags else [],
+            "deprecated": False,
             "turtle": turtle,
         }
         self._store.set(key, record)
@@ -649,6 +650,7 @@ class OntologyLifecycle:
         self,
         *,
         active_only: bool = False,
+        deprecated_only: bool = False,
         search: str = "",
         category: str = "",
         source_type: str = "",
@@ -664,11 +666,16 @@ class OntologyLifecycle:
         ``iri``/``version``/``source``; ``category``/``source_type``/``tag`` are
         case-insensitive exact matches against those stored record fields (a
         record matches ``tag`` if it appears anywhere in its ``tags`` list).
+        ``deprecated_only`` mirrors ``active_only`` for the ``deprecated`` flag
+        (CONCEPT:AU-KG.ontology.deprecation-workflow, D-75-5) — the two are
+        independent axes (a version can be deprecated and still active, e.g.
+        during a migration window), so neither implies the other.
         """
         records = [
             self._public(r)
             for r in self._store.values()
-            if not active_only or r.get("active")
+            if (not active_only or r.get("active"))
+            and (not deprecated_only or r.get("deprecated"))
         ]
         if search:
             needle = search.lower()
@@ -902,6 +909,27 @@ class OntologyLifecycle:
             )
         else:
             record["active"] = False
+        self._store.set(key, record)
+        return {"status": "ok", "ontology": self._public(record)}
+
+    # ── deprecate (advisory) ─────────────────────────────────────────────────
+    def set_deprecated(
+        self, iri: str, *, version: str | None = None, deprecated: bool = True
+    ) -> dict[str, Any]:
+        """Mark/unmark a hosted version as deprecated (CONCEPT:AU-KG.ontology.deprecation-workflow, D-75-5).
+
+        Purely advisory: unlike :meth:`set_active`, this never touches the
+        engine or reasoning participation — a superseded-and-inactive version
+        was already indistinguishable from a deliberately-sunset one before
+        this flag existed; this makes that distinction explicit and queryable
+        (:meth:`list_ontologies`'s ``deprecated_only``) without changing what
+        "active" means.
+        """
+        resolved = self._resolve(iri, version)
+        if resolved is None:
+            return {"error": f"ontology not hosted: {iri} (version={version})"}
+        key, record = resolved
+        record["deprecated"] = bool(deprecated)
         self._store.set(key, record)
         return {"status": "ok", "ontology": self._public(record)}
 
