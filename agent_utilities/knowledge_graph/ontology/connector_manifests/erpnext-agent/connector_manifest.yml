@@ -58,7 +58,15 @@ resources:
   label: Supplier
   id_prefix: supplier
   relations: []
-actions: []
+actions:
+- id: epistemic-answer
+  name: Epistemic Answer
+  description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
+    confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
+    policy-redaction-aware provenance.'
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
 events:
 - name: erpnext-sales-orders.updated
   resource: erpnext_sales_order
@@ -145,7 +153,7 @@ schema_mappings:
       postingDate: xsd:date
 sync:
 - preset: erpnext-items
-  server: erpnext-agent
+  server: erpnext-mcp
   tool: erpnext_agent_resource
   action: list_documents
   records_path: data
@@ -157,7 +165,7 @@ sync:
   doc_type: erpnext_item
   tool_schema_sha256: 5d745f7b08c9a3bd2dae41f5fe1ddaca65e361c53dc4b831b6cddcb09c38febf
   raw:
-    server: erpnext-agent
+    server: erpnext-mcp
     tool: erpnext_agent_resource
     action: list_documents
     params:
@@ -174,7 +182,7 @@ sync:
     text_field: description
     doc_type: erpnext_item
 - preset: erpnext-sales-orders
-  server: erpnext-agent
+  server: erpnext-mcp
   tool: erpnext_agent_resource
   action: list_documents
   records_path: data
@@ -186,7 +194,7 @@ sync:
   doc_type: erpnext_sales_order
   tool_schema_sha256: 5d745f7b08c9a3bd2dae41f5fe1ddaca65e361c53dc4b831b6cddcb09c38febf
   raw:
-    server: erpnext-agent
+    server: erpnext-mcp
     tool: erpnext_agent_resource
     action: list_documents
     params:
@@ -209,8 +217,9 @@ sync:
     doc_type: erpnext_sales_order
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
+  - a2a.json
   - erpnext_agent/connectors/mcp_source_presets.json
   - erpnext_agent/connectors/tool_schema_fingerprints.json
   - erpnext_agent/ontology/erpnext.ttl
@@ -221,7 +230,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 55LkspMbYs9zcaMHcpGihsJNUMl0v4bIVJ78yIpOyai_oO5S7Cr1bKaeH36_NdsiIDME4pUAE5aODVvEpNF2BQ
+  signature: QINWxEOcz2XX0XZsXkbRDx8VQdsZUo9KNfBCe752PORMi-L5qoJi7JUe_WNjYax6CZKKFsx80lAc04CDR9_pDw
 policy:
   pii_fields: {}
   tenant_boundary: null

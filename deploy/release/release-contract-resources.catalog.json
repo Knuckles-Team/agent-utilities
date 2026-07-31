@@ -34,7 +34,7 @@
     },
     {
       "path": "deploy/release/connector-bundles.catalog.json",
-      "sha256": "9211f25b6aa51a388344e077e1445ff24cab327d34d74a5ae1ef483126b49b5a"
+      "sha256": "793112966e29c8a96250154d252fde8087454beb81b911220bf894f2f5f726ef"
     },
     {
       "path": "deploy/release/connector-live-certification-ledger.schema.json",

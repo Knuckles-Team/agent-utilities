@@ -51,6 +51,11 @@ resources:
     target: DatabaseTable
     lpg_rel_type: ''
 actions:
+- id: epistemic-answer
+  name: Epistemic Answer
+  description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
+    confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
+    policy-redaction-aware provenance.'
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
@@ -134,7 +139,7 @@ sync:
     doc_type: database_table
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - sql_mcp/connectors/mcp_source_presets.json
@@ -147,7 +152,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: csSsFdqATCKfHsjYgkM6hLwgIVZVabctyb3wijKo3qXKbTLuDZnDw0Q-ay9hr72E19T7IVWFLmmPCy3szVofCQ
+  signature: Z6f3r8t6xjJyl_lPdAFFi94jyNV_5-EepQCzg6i18wyxZNpa-qpvKhEf24_vBt1XrCl0J_Xih6RdluFZYKI7Ag
 policy:
   pii_fields: {}
   tenant_boundary: null
