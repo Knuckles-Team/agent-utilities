@@ -3864,7 +3864,16 @@ class AgentConfig(BaseSettings):
     any one (``target=<name>``) or fan out to all (``target="all"``). The
     zero-infra default is fully preserved: unset → only the ambient ``default``
     connection exists. For Postgres, use ``"backend": "age"`` for native
-    openCypher portability."""
+    openCypher portability.
+
+    A ``role="mirror"`` entry may also declare ``mirror_target``
+    (CONCEPT:AU-KG.backend.mirror-target-graph) to say WHERE in that store
+    mirroring writes: ``"dedicated"`` (a graph reserved for mirroring, created if
+    absent — ``{"mode": "dedicated", "name": "<graph>"}`` to name it, plus
+    ``"level": "database"`` on Stardog), ``"default"`` (the instance default,
+    refused if it already holds data), or ``"default-overwrite"`` (the instance
+    default with that guard waived). Omitted, a connection that names its own
+    ``database``/``db_name``/``graph_name`` keeps writing exactly there."""
 
     gitlab_instances: list[dict[str, Any]] | None = Field(
         default=None, alias="GITLAB_INSTANCES"

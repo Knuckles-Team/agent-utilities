@@ -399,6 +399,62 @@ You may also set the authority to any durable store (e.g. `GRAPH_AUTHORITY=pg-ag
 — whichever connection you name becomes the read source-of-truth, and the rest
 are mirrors.
 
+### Where a mirror writes — the mirror target graph (CONCEPT:AU-KG.backend.mirror-target-graph)
+
+A mirror never has to take over the store it lands in. Each backend has a native
+**isolation unit**, and one `mirror_target` declaration on the connection picks
+which one mirroring uses — resolved in a single place
+(`backends/mirror_target.py`, applied by `create_backend`), never four times:
+
+| Backend | Native isolation unit | Dedicated target becomes |
+|---|---|---|
+| Neo4j | a **database** (`session(database=…)`) | that database (`CREATE DATABASE … IF NOT EXISTS`, Enterprise) |
+| Stardog | a **database** *and* a SPARQL **named graph** | `urn:mirror:<name>` — a named graph inside the configured database (default level), or a whole database with `"level":"database"` |
+| PostgreSQL/AGE | an **AGE graph** | that graph (`ag_catalog.create_graph`) |
+| FalkorDB | a **graph key** | that key (`select_graph`; created on first write) |
+
+```jsonc
+// kg_connections — mirror into a graph dedicated to mirroring
+{"name":"prod-neo4j","backend":"neo4j","role":"mirror","mirror_target":"dedicated"}
+// ...under a name you choose
+{"name":"pg-age","backend":"age","role":"mirror",
+ "mirror_target":{"mode":"dedicated","name":"kg_mirror"}}
+// Stardog: dedicate the whole database instead of a named graph
+{"name":"stardog","backend":"stardog","role":"mirror",
+ "mirror_target":{"mode":"dedicated","name":"kg_mirror","level":"database"}}
+```
+
+Three modes, all explicit:
+
+| `mirror_target` | Where writes land | Guarded? |
+|---|---|---|
+| *(omitted, connection names `database`/`db_name`/`graph_name`)* | exactly that unit — **unchanged from before** | no |
+| `"dedicated"` / `{"mode":"dedicated","name":…}` | a graph reserved for mirroring, created if absent | no |
+| `"default"` | the instance default | **yes** |
+| `"default-overwrite"` | the instance default, guard waived | no |
+
+On a single-level store (AGE, FalkorDB) `"dedicated"` **supersedes** the
+connection's own graph name — those connection profiles require one, so
+dedicating could otherwise never be expressed. It is logged, never silent.
+
+### The non-empty-default guard (CONCEPT:AU-KG.backend.mirror-nonempty-default-guard)
+
+Before a mirror is attached to the fan-out, `preflight_mirror_target` creates a
+dedicated target if absent and then, when the resolved target **is** the instance
+default, proves it empty. If it already holds data the mirror is **refused**:
+nothing is written, the refusal is logged at ERROR with both fixes, and
+`graph_configure(action="mirror_status")` reports it with `refused: true`. The
+authority and every other mirror are unaffected. The probe **fails closed** — a
+target whose emptiness cannot be proven is refused too.
+
+> **The one behaviour change.** A deployment that named its database/graph
+> explicitly is untouched. A deployment that relied on an *implicit* default —
+> a Neo4j mirror with no `database`, or a Stardog mirror with no `STARDOG_DATABASE`
+> (including `continuous_stardog_mirror`) — now **refuses to start that mirror**
+> if the instance already holds data. That is a refusal, never a silent redirect
+> and never a silent overwrite. Fix it by declaring `"mirror_target":"dedicated"`
+> (recommended) or `"mirror_target":"default-overwrite"` to keep the old behaviour.
+
 ### How it stays lossless
 
 * **Authority commits synchronously; mirrors apply async.** A write returns once
