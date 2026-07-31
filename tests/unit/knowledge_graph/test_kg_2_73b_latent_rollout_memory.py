@@ -119,12 +119,15 @@ async def test_world_model_rollout_live_path(monkeypatch):
     kg_server.ensure_tools_registered()
 
     res = await kg_server._execute_tool(
-        "graph_analyze",
+        "graph_evaluate",
         action="world_model_rollout",
         query="room_alpha",
         top_k=6,
     )
-    report = json.loads(res)
+    # graph_evaluate returns the sole typed EvidenceBundle response (not a JSON
+    # string) — world_model_rollout's payload has no "rows"/"results" key, so
+    # EvidenceBundle.from_payload wraps the whole dict as the sole claim.
+    report = res.claims[0]
     assert report["status"] == "ok"
     assert report["horizon"] == 6
     assert len(report["steps"]) == 6

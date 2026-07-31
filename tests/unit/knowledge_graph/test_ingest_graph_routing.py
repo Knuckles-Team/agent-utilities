@@ -391,7 +391,10 @@ async def test_aggregation_query_merges_not_duplicates(monkeypatch) -> None:
         cypher="MATCH (r:Record) RETURN r.lane AS lane, r.status AS status, count(*) AS n",
         target="",
     )
-    rows = json.loads(out)
+    # graph_query returns the sole typed EvidenceBundle response (not a JSON
+    # string) — EvidenceBundle.from_payload projects a {"rows": [...]} payload
+    # into .claims, one dict per row.
+    rows = out.claims
     assert rows == canonical_rows  # exactly one row per group, NOT 24 duplicates
 
 
@@ -419,7 +422,9 @@ async def test_routed_node_query_still_fans_and_dedups_once(monkeypatch) -> None
         cypher="MATCH (f:Function {name:'probe'}) RETURN f.id AS id, f.name AS name",
         target="",
     )
-    rows = json.loads(out)
+    # graph_query returns the sole typed EvidenceBundle response (not a JSON
+    # string) — one dict per row in .claims.
+    rows = out.claims
     ids = [r["id"] for r in rows]
     assert ids.count("Func::probe") == 1  # routed node returned exactly once
     assert "Func::other" in ids  # fan still gathers other routed content
