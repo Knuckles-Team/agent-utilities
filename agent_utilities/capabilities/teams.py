@@ -406,6 +406,6 @@ class TeamCapability(AbstractCapability[Any]):
 
         members: list[str] = []
         for src, tgt, data in engine.graph.in_edges(self.team_id, data=True):
-            if data.get("type") == "BELONGS_TO_TEAM":
+            if data.get("relationship") == "BELONGS_TO_TEAM":
                 members.append(src)
         return members or list(self.members)

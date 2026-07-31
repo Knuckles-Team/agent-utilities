@@ -160,9 +160,7 @@ def _default_gate_checker(engine: Any, step: Any) -> str | None:
     if graph is not None:
         try:
             for _src, _tgt, edata in graph.out_edges(step_id, data=True):
-                rel = str(
-                    (edata or {}).get("type") or (edata or {}).get("rel_type") or ""
-                )
+                rel = str((edata or {}).get("relationship") or "")
                 if rel == "satisfiedBy":
                     return _decision(edata or {})
         except Exception as exc:  # noqa: BLE001 — read is best-effort
@@ -470,16 +468,12 @@ class WorkflowRunner:
             try:
                 for nid, data in graph.nodes(data=True):
                     if (
-                        data.get("type") != "WorkflowDefinition"
+                        data.get("node_type") != "WorkflowDefinition"
                         or data.get("name") != workflow_name
                     ):
                         continue
                     for _src, tgt, edata in graph.out_edges(nid, data=True):
-                        rel = str(
-                            (edata or {}).get("type")
-                            or (edata or {}).get("rel_type")
-                            or ""
-                        ).upper()
+                        rel = str((edata or {}).get("relationship") or "").upper()
                         if rel == "REALIZES":
                             try:
                                 props = dict(graph.nodes[tgt])

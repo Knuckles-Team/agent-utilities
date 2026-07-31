@@ -90,7 +90,7 @@ class TestKGSourceResolverWithEngine:
         self.graph.add_node(
             article_id,
             **{
-                "type": RegistryNodeType.ARTICLE,
+                "node_type": RegistryNodeType.ARTICLE,
                 "name": title,
                 "description": content[:200],
                 "content": content,
@@ -106,7 +106,7 @@ class TestKGSourceResolverWithEngine:
         self.graph.add_node(
             kb_id,
             **{
-                "type": RegistryNodeType.KNOWLEDGE_BASE,
+                "node_type": RegistryNodeType.KNOWLEDGE_BASE,
                 "name": name,
                 "description": f"Knowledge base: {name}",
                 "content": f"Content of {name} knowledge base with code examples",
@@ -202,7 +202,7 @@ class TestKGSourceResolverWithEngine:
         self.graph.add_node(
             "article:empty",
             **{
-                "type": RegistryNodeType.ARTICLE,
+                "node_type": RegistryNodeType.ARTICLE,
                 "name": "Empty Article",
                 "description": "",
                 "content": "",

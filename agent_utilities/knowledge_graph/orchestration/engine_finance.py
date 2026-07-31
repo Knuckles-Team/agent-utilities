@@ -341,7 +341,7 @@ class FinanceEngineMixin(_Base):
         # Find the latest regime matrix for this strategy
         matrix_data = None
         for _, data in self.graph.nodes(data=True):
-            if data.get("type") == "markov_transition_matrix" and data.get(
+            if data.get("node_type") == "markov_transition_matrix" and data.get(
                 "asset_class"
             ):
                 matrix_data = data
@@ -462,6 +462,6 @@ class FinanceEngineMixin(_Base):
         # Fallback to in-memory graph
         regime_nodes = []
         for _, data in self.graph.nodes(data=True):
-            if data.get("type") == "markov_regime_state":
+            if data.get("node_type") == "markov_regime_state":
                 regime_nodes.append(data)
         return sorted(regime_nodes, key=lambda x: x.get("timestamp", ""))

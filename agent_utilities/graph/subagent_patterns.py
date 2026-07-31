@@ -266,7 +266,7 @@ class SubagentPatternRouter:
             else:
                 # Fallback: count agent nodes in NX
                 for _, data in self.engine.graph.nodes(data=True):
-                    if data.get("type") == "agent":
+                    if data.get("node_type") == "agent":
                         count += 1
                 count = min(count, 10)
         except Exception:  # nosec B110
@@ -321,7 +321,7 @@ class SubagentPatternRouter:
             total_count = 0
             for nid, data in self.engine.graph.nodes(data=True):
                 if (
-                    data.get("type") == "subagent_pattern_decision"
+                    data.get("node_type") == "subagent_pattern_decision"
                     and data.get("pattern") == pattern.value
                 ):
                     total_count += 1
@@ -407,7 +407,7 @@ class SubagentPatternRouter:
         try:
             for nid, data in self.engine.graph.nodes(data=True):
                 if (
-                    data.get("type") == "subagent_pattern_decision"
+                    data.get("node_type") == "subagent_pattern_decision"
                     and data.get("timestamp") == decision.timestamp
                     and data.get("pattern") == decision.pattern.value
                 ):
