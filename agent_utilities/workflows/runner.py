@@ -95,6 +95,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from agent_utilities.core.contextual_model import GroundingPolicy, use_grounding_policy
 from agent_utilities.models.graph import GraphPlan
 
 if TYPE_CHECKING:
@@ -611,6 +612,7 @@ class WorkflowRunner:
         engine: IntelligenceGraphEngine,
         trace_session: str | None = None,
         task: str | None = None,
+        grounding: GroundingPolicy = "required",
     ) -> WorkflowResult:
         """Load a stored workflow by name from the KG and execute its step-DAG.
 
@@ -622,6 +624,12 @@ class WorkflowRunner:
         RunTrace + :ToolCall provenance (KG-2.296) written for free. This is the
         execution half of "ingested workflow → executed", routed here from
         ``graph_workflows action=execute``.
+
+        ``grounding`` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract) gives
+        symmetry with ``Orchestrator.execute_agent``/``execute_capability``: every
+        step's ``run_agent`` call opens this same policy scope. Defaults to the
+        process-wide fail-closed ``"required"``, unchanged from before this
+        parameter existed.
         """
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
@@ -636,6 +644,7 @@ class WorkflowRunner:
             workflow_name=workflow_name,
             trace_session=trace_session,
             task=task,
+            grounding=grounding,
         )
 
     async def resume(
@@ -644,6 +653,7 @@ class WorkflowRunner:
         engine: IntelligenceGraphEngine,
         session_id: str,
         task: str | None = None,
+        grounding: GroundingPolicy = "required",
     ) -> WorkflowResult:
         """Resume a run that :meth:`_execute_plan_via_agents` SUSPENDED on a gate.
 
@@ -670,6 +680,7 @@ class WorkflowRunner:
             trace_session=session_id,
             task=task,
             resume_state=prior,
+            grounding=grounding,
         )
 
     async def resume_localized(
@@ -680,6 +691,7 @@ class WorkflowRunner:
         failed_step: str,
         task: str | None = None,
         prior_result: WorkflowResult | None = None,
+        grounding: GroundingPolicy = "required",
     ) -> WorkflowResult:
         """Resume a run after a STEP FAILURE (not a gate), re-executing ONLY the
         region ``failed_step`` actually invalidates — Atomic Task Graph paper
@@ -759,6 +771,7 @@ class WorkflowRunner:
             trace_session=session_id,
             task=task,
             resume_state=trimmed,
+            grounding=grounding,
         )
         logger.info(
             "[ORCH.repair] workflow %s localized repair from %s: invalidated=%s preserved=%s",
@@ -856,6 +869,7 @@ class WorkflowRunner:
         trace_session: str | None = None,
         task: str | None = None,
         resume_state: dict[str, Any] | None = None,
+        grounding: GroundingPolicy = "required",
     ) -> WorkflowResult:
         """Run a stored plan's steps via :func:`run_agent`, respecting dependencies.
 
@@ -1034,15 +1048,16 @@ class WorkflowRunner:
                 )
                 t0 = _time.monotonic()
                 try:
-                    out = await run_agent(
-                        agent_name=sid,
-                        task=str(step_task),
-                        engine=engine,
-                        max_steps=self.max_steps_per_agent,
-                        context=ctx or None,
-                        session_id=session_id,
-                        reasoning_effort=effort,
-                    )
+                    with use_grounding_policy(grounding):
+                        out = await run_agent(
+                            agent_name=sid,
+                            task=str(step_task),
+                            engine=engine,
+                            max_steps=self.max_steps_per_agent,
+                            context=ctx or None,
+                            session_id=session_id,
+                            reasoning_effort=effort,
+                        )
                     ok = not str(out).startswith("Agent execution failed")
                     return StepResult(
                         step_index=wave,

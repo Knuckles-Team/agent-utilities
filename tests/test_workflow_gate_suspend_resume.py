@@ -208,6 +208,39 @@ async def test_custom_gate_checker_is_consulted(_fake_agent):
     assert result.status == "completed"
 
 
+async def test_grounding_policy_threads_into_each_step(monkeypatch):
+    """D-38: ``grounding`` opens the same ``use_grounding_policy`` scope
+    ``Orchestrator.execute_agent`` already does, per step — symmetric with the
+    agent/skill resolution path (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract)."""
+    from agent_utilities.core.contextual_model import _grounding_policy
+
+    policies_read: list[str] = []
+
+    async def _policy_spy(agent_name, task, engine=None, **kw):
+        policies_read.append(_grounding_policy.get())
+        return f"ok:{agent_name}"
+
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.agent_runner.run_agent", _policy_spy
+    )
+    engine = FakeEngine()
+    runner = WorkflowRunner()
+    plan = GraphPlan(steps=[ExecutionStep(id="prep")])
+
+    result = await runner._execute_plan_via_agents(
+        plan, engine, "wf", trace_session="run-grounding-1", grounding="best_effort"
+    )
+    assert result.status == "completed"
+    assert policies_read == ["best_effort"]
+
+    # Default (no grounding kwarg) still gets the process-wide fail-closed default.
+    policies_read.clear()
+    await runner._execute_plan_via_agents(
+        plan, engine, "wf", trace_session="run-grounding-2"
+    )
+    assert policies_read == ["required"]
+
+
 def test_gate_step_round_trips_through_workflow_store():
     """A gate ExecutionStep persists its kind/condition/on_reject via WorkflowStore
     and reloads with them intact (§7.1 delta 2)."""
