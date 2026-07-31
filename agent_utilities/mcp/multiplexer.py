@@ -1944,6 +1944,24 @@ class MCPMultiplexer:
             registered.append(prefixed_tool)
         return registered
 
+    async def _live_skills_for_server(self, server_name: str) -> list[dict]:
+        """Live ``skill://`` resource listing for an already-mounted child
+        (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
+
+        Unlike tools, a mounted child's Skills-over-MCP resources are never
+        cached into an aggregation map at mount time (:meth:`_register_child_result`
+        only indexes ``tools``) — so the cold-probe path's ``_probe_skills`` call
+        was the ONLY place a server's skills were ever discovered, leaving an
+        already-mounted server's skills invisible to ``find``/``find_tools``
+        until it happened to be probed cold at least once (D-2.2-2.3-1). Reuses
+        the mounted child's live primary session (no reconnect) and the same
+        best-effort degrade-to-``[]`` semantics as the cold-probe path.
+        """
+        session = self.sessions.get(server_name)
+        if session is None:
+            return []
+        return await self._probe_skills(server_name, session)
+
     async def mount_child(self, server_name: str) -> list[mcp.types.Tool]:
         """Start ONE configured child on demand and register its tools
         (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
@@ -2053,6 +2071,7 @@ class MCPMultiplexer:
         if server_name in self.children:
             info: dict[str, Any] = {
                 "tools": self._live_tools_for_server(server_name),
+                "skills": await self._live_skills_for_server(server_name),
                 "error": None,
             }
             return self._cache_probe(server_name, info)

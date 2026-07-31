@@ -101,6 +101,32 @@ async def test_probe_server_captures_skill_resources_alongside_tools(tmp_path):
     ]
 
 
+async def test_probe_server_lists_skills_for_an_already_mounted_child(tmp_path):
+    """D-2.2-2.3-1: an already-mounted child's probe used to skip the ``skills``
+    key entirely (only the cold-probe branch called ``_probe_skills``), so a
+    mounted server's Skills-over-MCP resources were invisible to
+    ``find``/``find_tools`` until it happened to be probed cold at least once.
+    A mounted child's live primary session is now reused to list resources."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    await mux.mount_child(CNT)
+    mux.sessions[CNT] = _fake_session_with_resources(
+        [(CNT_TOOL, "manage containers")],
+        [_fake_skill_resource("skill://onboarding/SKILL.md", "onboard a user")],
+    )
+
+    info = await mux.probe_server(CNT)
+
+    assert info["error"] is None
+    assert info["tools"][0]["name"] == CNT_TOOL
+    assert info["skills"] == [
+        {
+            "name": "onboarding",
+            "uri": "skill://onboarding/SKILL.md",
+            "description": "onboard a user",
+        }
+    ]
+
+
 async def test_probe_server_degrades_when_list_resources_unsupported(tmp_path):
     """A server (or an mcp SDK build) with no ``resources/list`` support must
     still yield its tools — Skills-over-MCP is optional, never load-bearing."""
