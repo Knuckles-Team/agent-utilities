@@ -397,5 +397,17 @@ class TestCodebaseArtifactRouting:
         )
 
         assert len(seen_documents) == 3
-        assert not backend.nodes
-        assert not backend.edges
+        # D-07: this fixture's own repo (mixed_repo) legitimately contains two
+        # spec files (`.specify/specs/feature/spec.md`, `auth.spec.md`), and
+        # `_route_classified_artifacts` documents Spec routing as an INLINE write
+        # ("Spec -> inline Spec node (no SPEC adaptor exists)") plus the Repo node
+        # itself + CONTAINS edges linking every routed child -- both intentional,
+        # separate from the Document path this test actually exercises. The
+        # blanket "backend stays untouched" assertion predates that documented
+        # behavior (or predated this fixture growing specs) and no longer holds;
+        # narrowed to the test's actual claim: DOCUMENTS specifically never write
+        # to backend directly (no ``Document`` labeled node), only the governed
+        # ChangeEnvelope-backed unit they're monkeypatched to use here does.
+        node_labels = {props.get("label") for _id, props in backend.nodes}
+        assert node_labels == {"Repo", "Spec"}
+        assert "Document" not in node_labels

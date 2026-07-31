@@ -469,7 +469,7 @@ def build_community_reports(
                     global_embedding = embed_model.get_text_embedding(
                         f"{theme}. {summary}".strip(". ") or theme
                     )
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 — global_embedding stays at its initialized None on failure; the CommunityReport node below is written either way, just without a global_embedding property
                     logger.debug(
                         "build_community_reports: global embedding failed: %s", exc
                     )
@@ -761,7 +761,7 @@ def _rank_reports(reports: list[dict[str, Any]], query: str) -> list[dict[str, A
     if embed_model is not None:
         try:
             query_embedding = embed_model.get_text_embedding(query)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — query_embedding stays None on failure; _rank_reports already documents (docstring) that it degrades to lexical/no-embedding ranking rather than dropping candidates when no embedding model is configured
             logger.debug("global_search: query embedding failed: %s", exc)
 
     scored: list[dict[str, Any]] = []

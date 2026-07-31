@@ -65,22 +65,28 @@ from typing import Any
 
 import anyio
 
-# MCP protocol error (e.g. a terminated streamable-http session). SDK v2
-# (>=2.0.0, required by the `fastmcp>=4.0.0b1` floor of the `[mcp]` extra)
-# renamed `McpError` -> `MCPError`. This is a hard import on purpose: the old
-# `try/except ImportError` fallback left the name bound to the empty tuple `()`
-# after the rename, which made :func:`is_session_dead` return ``False`` for
-# every exception — silently disabling session-terminated recovery for the
-# whole child fleet instead of failing loudly.
-from mcp.shared.exceptions import MCPError
-
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
+from agent_utilities.mcp.protocol_compat import mcp_protocol_error
 from agent_utilities.observability.gateway_metrics import (
     MCP_CHILD_BREAKER_STATE,
     MCP_CHILD_CALLS,
     MCP_CHILD_QUEUE_DEPTH,
     MCP_CHILD_RESTARTS,
 )
+
+# MCP protocol error (e.g. a terminated streamable-http session). SDK v2
+# (>=2.0.0, the floor `fastmcp>=4.0.0b1` pulls in) renamed `McpError` ->
+# `MCPError`, but SDK v1 installs (fastmcp 3.x — still what the baked runtime
+# images ship) only have the old spelling. A hard
+# `from mcp.shared.exceptions import MCPError` therefore raises ImportError at
+# MODULE scope on SDK v1, and because `multiplexer.py` imports this module at
+# module scope that took the entire graph-os fleet loader (meta-tools +
+# session-visibility middleware) down with it.
+# :func:`mcp_protocol_error` binds whichever spelling the installed SDK exposes
+# and raises loudly if neither does; it never falls back to a benign default
+# (the older `except ImportError: pass` left the name bound to `()`, which made
+# :func:`is_session_dead` return ``False`` for every exception).
+MCPError: type[BaseException] = mcp_protocol_error()
 
 logger = logging.getLogger("mcp_multiplexer.child")
 

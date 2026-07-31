@@ -539,9 +539,38 @@ class GraphState:
         )
         tot_tokens = _to_int(getattr(result_usage, "total_tokens", 0))
 
+        # Provider prompt-cache tokens (D-54c-1). pydantic-ai's ``RunUsage``/``Usage``
+        # name these ``cache_write_tokens``/``cache_read_tokens``; fall back to the
+        # Anthropic-native ``cache_creation_input_tokens``/``cache_read_input_tokens``
+        # names for a raw provider usage object that isn't wrapped in pydantic-ai's type.
+        cache_write_tokens = _to_int(
+            getattr(
+                result_usage,
+                "cache_write_tokens",
+                getattr(result_usage, "cache_creation_input_tokens", 0),
+            )
+        )
+        cache_read_tokens = _to_int(
+            getattr(
+                result_usage,
+                "cache_read_tokens",
+                getattr(result_usage, "cache_read_input_tokens", 0),
+            )
+        )
+        # Reasoning tokens live in pydantic-ai's ``details`` dict (no dedicated
+        # attribute), keyed ``reasoning_tokens`` (OpenAI-style) or ``thoughts_tokens``
+        # (Gemini-style).
+        details = getattr(result_usage, "details", None) or {}
+        reasoning_tokens = _to_int(
+            details.get("reasoning_tokens") or details.get("thoughts_tokens") or 0
+        )
+
         self.session_usage.input_tokens += req_tokens
         self.session_usage.output_tokens += res_tokens
         self.session_usage.total_tokens += tot_tokens
+        self.session_usage.cache_creation_input_tokens += cache_write_tokens
+        self.session_usage.cache_read_input_tokens += cache_read_tokens
+        self.session_usage.reasoning_tokens += reasoning_tokens
 
         # Simple cost estimation based on Sonnet 3.5 defaults
         self.session_usage.estimated_cost_usd = (

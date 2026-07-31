@@ -145,7 +145,7 @@ def _push_camunda(
         return
     try:
         instances = list_instances({"processDefinitionKey": process_key}) or []
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — result.errors is incremented and the function returns early; the caller's WritebackResult already reflects this as a failed push for this process_key, no state elsewhere is marked done
         logger.debug(
             "camunda list_process_instances failed for %s: %s", process_key, exc
         )
@@ -173,7 +173,7 @@ def _push_camunda(
                 {"modifications": {INTELLIGENCE_KEY: {"value": value, "type": "Json"}}},
             )
             result.enriched += 1
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — per-instance Camunda variable modification inside the per-instance loop; result.errors is incremented for this one instance while the loop continues to the rest
             logger.debug("camunda modify vars failed for %s: %s", instance_id, exc)
             result.errors += 1
 
@@ -201,7 +201,7 @@ def _push_aris(
     try:
         setter(model_id, {INTELLIGENCE_KEY: json.dumps(hashed, default=str)})
         result.enriched += 1
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — ARIS set_model_attributes push — same WritebackResult-counted pattern (result.errors incremented) as the Camunda sinks above
         logger.debug("aris set_model_attributes failed for %s: %s", model_id, exc)
         result.errors += 1
 

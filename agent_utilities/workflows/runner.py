@@ -95,6 +95,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from agent_utilities.core.contextual_model import GroundingPolicy, use_grounding_policy
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.graph import GraphPlan
 
 if TYPE_CHECKING:
@@ -427,7 +429,7 @@ class WorkflowRunner:
         _active_workflows[result.session_id] = result
         # CONCEPT:AU-ORCH.execution.best-effort-provenance — close the descriptive↔executable provenance loop
         # for workflows compiled from a BusinessProcess (REALIZES, ORCH-1.41).
-        await asyncio.to_thread(
+        await run_blocking_ordered(
             self._close_out_process_lineage, engine, workflow_name, result
         )
         return result
@@ -611,6 +613,7 @@ class WorkflowRunner:
         engine: IntelligenceGraphEngine,
         trace_session: str | None = None,
         task: str | None = None,
+        grounding: GroundingPolicy = "required",
     ) -> WorkflowResult:
         """Load a stored workflow by name from the KG and execute its step-DAG.
 
@@ -622,11 +625,17 @@ class WorkflowRunner:
         RunTrace + :ToolCall provenance (KG-2.296) written for free. This is the
         execution half of "ingested workflow → executed", routed here from
         ``graph_workflows action=execute``.
+
+        ``grounding`` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract) gives
+        symmetry with ``Orchestrator.execute_agent``/``execute_capability``: every
+        step's ``run_agent`` call opens this same policy scope. Defaults to the
+        process-wide fail-closed ``"required"``, unchanged from before this
+        parameter existed.
         """
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
         store = WorkflowStore(engine)
-        plan = await asyncio.to_thread(store.load_workflow, workflow_name)
+        plan = await run_blocking_ordered(store.load_workflow, workflow_name)
         if plan is None:
             raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
 
@@ -636,6 +645,7 @@ class WorkflowRunner:
             workflow_name=workflow_name,
             trace_session=trace_session,
             task=task,
+            grounding=grounding,
         )
 
     async def resume(
@@ -644,6 +654,7 @@ class WorkflowRunner:
         engine: IntelligenceGraphEngine,
         session_id: str,
         task: str | None = None,
+        grounding: GroundingPolicy = "required",
     ) -> WorkflowResult:
         """Resume a run that :meth:`_execute_plan_via_agents` SUSPENDED on a gate.
 
@@ -659,10 +670,10 @@ class WorkflowRunner:
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
         store = WorkflowStore(engine)
-        plan = await asyncio.to_thread(store.load_workflow, workflow_name)
+        plan = await run_blocking_ordered(store.load_workflow, workflow_name)
         if plan is None:
             raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
-        prior = await asyncio.to_thread(self._load_run_state, engine, session_id)
+        prior = await run_blocking_ordered(self._load_run_state, engine, session_id)
         return await self._execute_plan_via_agents(
             plan=plan,
             engine=engine,
@@ -670,6 +681,7 @@ class WorkflowRunner:
             trace_session=session_id,
             task=task,
             resume_state=prior,
+            grounding=grounding,
         )
 
     async def resume_localized(
@@ -680,6 +692,7 @@ class WorkflowRunner:
         failed_step: str,
         task: str | None = None,
         prior_result: WorkflowResult | None = None,
+        grounding: GroundingPolicy = "required",
     ) -> WorkflowResult:
         """Resume a run after a STEP FAILURE (not a gate), re-executing ONLY the
         region ``failed_step`` actually invalidates — Atomic Task Graph paper
@@ -713,12 +726,12 @@ class WorkflowRunner:
         )
 
         store = WorkflowStore(engine)
-        plan = await asyncio.to_thread(store.load_workflow, workflow_name)
+        plan = await run_blocking_ordered(store.load_workflow, workflow_name)
         if plan is None:
             raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
 
         all_step_ids = [getattr(s, "id", "") or "" for s in plan.steps]
-        region = await asyncio.to_thread(
+        region = await run_blocking_ordered(
             localized_repair_region,
             failed_step,
             engine=engine,
@@ -739,7 +752,7 @@ class WorkflowRunner:
                 r.node_id for r in prior_result.step_results if r.status == "completed"
             }
         else:
-            prior = await asyncio.to_thread(self._load_run_state, engine, session_id)
+            prior = await run_blocking_ordered(self._load_run_state, engine, session_id)
             prior_completed = dict(prior.get("completed") or {})
             prior_satisfied = set(prior.get("satisfied") or set())
 
@@ -759,6 +772,7 @@ class WorkflowRunner:
             trace_session=session_id,
             task=task,
             resume_state=trimmed,
+            grounding=grounding,
         )
         logger.info(
             "[ORCH.repair] workflow %s localized repair from %s: invalidated=%s preserved=%s",
@@ -835,7 +849,7 @@ class WorkflowRunner:
                     )
                     if rows and isinstance(rows[0].get("r"), dict):
                         raw = dict(rows[0]["r"])
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 — backend fallback failing just means raw stays {}; the caller treats "no persisted state" as "start fresh" (idempotent), matching the save side's already-justified best-effort persistence at line 811
                     logger.debug("[ORCH.gate] run-state load failed: %s", exc)
         if not raw:
             return {}
@@ -844,7 +858,7 @@ class WorkflowRunner:
                 "completed": json.loads(raw.get("completed_json") or "{}"),
                 "satisfied": set(json.loads(raw.get("satisfied_json") or "[]")),
             }
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — malformed persisted state degrades to "start fresh" (idempotent), same rationale as the backend-fallback except above
             logger.debug("[ORCH.gate] run-state decode failed: %s", exc)
             return {}
 
@@ -856,6 +870,7 @@ class WorkflowRunner:
         trace_session: str | None = None,
         task: str | None = None,
         resume_state: dict[str, Any] | None = None,
+        grounding: GroundingPolicy = "required",
     ) -> WorkflowResult:
         """Run a stored plan's steps via :func:`run_agent`, respecting dependencies.
 
@@ -963,7 +978,7 @@ class WorkflowRunner:
             gate_progressed = False
             for gstep in gate_steps:
                 gsid = getattr(gstep, "id", "") or f"gate-{wave_idx}"
-                verdict = await asyncio.to_thread(self.gate_checker, engine, gstep)
+                verdict = await run_blocking_ordered(self.gate_checker, engine, gstep)
                 if verdict == "approved":
                     completed[gsid] = StepResult(
                         step_index=wave_idx,
@@ -1034,15 +1049,16 @@ class WorkflowRunner:
                 )
                 t0 = _time.monotonic()
                 try:
-                    out = await run_agent(
-                        agent_name=sid,
-                        task=str(step_task),
-                        engine=engine,
-                        max_steps=self.max_steps_per_agent,
-                        context=ctx or None,
-                        session_id=session_id,
-                        reasoning_effort=effort,
-                    )
+                    with use_grounding_policy(grounding):
+                        out = await run_agent(
+                            agent_name=sid,
+                            task=str(step_task),
+                            engine=engine,
+                            max_steps=self.max_steps_per_agent,
+                            context=ctx or None,
+                            session_id=session_id,
+                            reasoning_effort=effort,
+                        )
                     ok = not str(out).startswith("Agent execution failed")
                     return StepResult(
                         step_index=wave,
@@ -1108,7 +1124,7 @@ class WorkflowRunner:
                 else "",
             )
             _active_workflows[session_id] = result
-            await asyncio.to_thread(
+            await run_blocking_ordered(
                 self._persist_run_state,
                 engine,
                 session_id,
@@ -1161,7 +1177,7 @@ class WorkflowRunner:
         )
         _active_workflows[session_id] = result
         # Same provenance close-out as the manifest path (ORCH-1.43).
-        await asyncio.to_thread(
+        await run_blocking_ordered(
             self._close_out_process_lineage, engine, workflow_name, result
         )
         return result

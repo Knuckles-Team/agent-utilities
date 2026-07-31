@@ -1808,6 +1808,12 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {"tool": "graph_jobs", "action": "dispatch", "name": "graph_jobs_dispatch"},
     {"tool": "graph_jobs", "action": "status", "name": "graph_jobs_status"},
+    {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "checkpoint_now",
+        "name": "graph_kv_checkpoint_checkpoint_now",
+    },
     {
         "tool": "graph_kv_checkpoint",
         "action": "create",
@@ -1815,8 +1821,28 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_kv_checkpoint",
+        "action": "explain",
+        "name": "graph_kv_checkpoint_explain",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
         "action": "instantiate_agent",
         "name": "graph_kv_checkpoint_instantiate_agent",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "promote",
+        "name": "graph_kv_checkpoint_promote",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "ram_stats",
+        "name": "graph_kv_checkpoint_ram_stats",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "recommend",
+        "name": "graph_kv_checkpoint_recommend",
     },
     {
         "tool": "graph_kv_checkpoint",
@@ -2090,6 +2116,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_table", "action": "rows", "name": "graph_table_rows"},
     {"tool": "graph_traces", "action": "get", "name": "graph_traces_get"},
     {"tool": "graph_traces", "action": "search", "name": "graph_traces_search"},
+    {"tool": "graph_traces", "action": "waterfall", "name": "graph_traces_waterfall"},
     {"tool": "graph_workflows", "action": "compile", "name": "graph_workflows_compile"},
     {
         "tool": "graph_workflows",

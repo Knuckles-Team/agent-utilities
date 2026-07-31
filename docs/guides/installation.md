@@ -69,7 +69,11 @@ pip install agent-utilities[mcp]        # MCP Server hosting capabilities (fastm
                                          # see CONCEPT:AU-ECO.mcp.protocol-compat-bridge in pyproject.toml)
 pip install agent-utilities[logfire]    # Observability & Tracing
 pip install agent-utilities[vault]      # HashiCorp Vault & OpenBao secrets
-pip install agent-utilities[auth]       # JWT/OIDC support
+
+# JWT/OIDC verification (joserfc) is a BASE dependency — every install already has
+# it. `[auth]` is kept only as a no-op alias so existing manifests pinning it still
+# resolve; enforcement is a runtime/config toggle (set AUTH_JWT_JWKS_URI), never a
+# packaging concern. See docs/guides/secrets-auth.md.
 
 # ---------------------------------------------------------
 # 7. Everything

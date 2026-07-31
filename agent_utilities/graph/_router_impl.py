@@ -167,7 +167,7 @@ async def router_step(
                 designated = designate_specialists(ke, ctx.state.query, k=5)
                 if designated:
                     _matched.update(designated)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — one of several matching mechanisms feeding `_matched` (keyword lookup above, hybrid search / policy / process discovery below); a failure here just leaves out the ANN-designated specialists this pass, the others still populate the router's candidate set
                 logger.debug("Router: capability designation skipped: %s", e)
             # 2. Hybrid Search (Semantic + Keyword)
             _hybrid = ke.search_hybrid(ctx.state.query, top_k=5)
@@ -279,7 +279,7 @@ async def router_step(
                             deps.event_queue, "router", "node_complete"
                         )
                         return "dispatcher"
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — 1st of 3 sequential planning strategies; ctx.state.plan is unconditionally reassigned by the LLM planner below if this path doesn't return "dispatcher"
                 logger.debug(
                     f"TeamConfig lookup failed, continuing with LLM planning: {e}"
                 )
@@ -341,7 +341,7 @@ async def router_step(
                     )
                     _emit_node_lifecycle(deps.event_queue, "router", "node_complete")
                     return "dispatcher"
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — same fallback chain as the TeamConfig lookup above; falls through to the LLM planner, which reassigns ctx.state.plan unconditionally
                 logger.debug(
                     f"KG AgentTemplate routing failed, continuing with LLM planning: {e}"
                 )
@@ -356,7 +356,7 @@ async def router_step(
                 memory_retriever = MemoryRetriever(deps.knowledge_engine)
                 current = await asyncio.to_thread(memory_retriever.get_current)
                 discovery_context += self_model_context(current)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — pure prompt-context string enrichment (discovery_context +=); failure just omits the extra text, router prompt still built normally
                 logger.debug(f"Self-Model proficiency injection failed: {e}")
     # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — DIRECT-DISPATCH FAST PATH.
     # When the task resolves to a single connected MCP server (the common single-server
@@ -522,7 +522,7 @@ async def router_step(
                 current = await asyncio.to_thread(memory_retriever.get_current)
                 if current and current.pheromone_trails and relevant:
                     relevant = filter_by_pheromone(relevant, current.pheromone_trails)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — `relevant` keeps its pre-filter value on failure, identical shape to the sibling telemetry-pruning block just below (already annotated in this codebase)
             logger.debug(f"Reward-driven routing optimization failed: {e}")
 
         try:
@@ -539,7 +539,7 @@ async def router_step(
                         if r.get("agent_name")
                     }
                     relevant = prune_by_telemetry(relevant, anomaly_map)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — per-request routing refinement; `relevant` just keeps its pre-prune value on failure, this pass falls back to the unpruned specialist set rather than an incorrect or stale one
             logger.debug(f"Telemetry-driven routing optimization failed: {e}")
 
         # R6 (CONCEPT:AU-ORCH.routing.filtered-specialist-injection) — filtered specialist injection (prompt-bloat reduction).
@@ -958,7 +958,13 @@ async def dispatcher_step(
     except ImportError:  # noqa: BLE001 — optional stability detector is not installed
         pass
     except Exception as e:
-        logger.debug("Doom loop detection skipped: %s", e)
+        # D-DST-4 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): DoomLoopDetector
+        # is a safety control (AU-OS.safety.doom-loop-detection), not best-effort telemetry —
+        # a runtime failure here (module present but erroring, unlike the ImportError case
+        # above) silently disables loop protection for this transition with no operator-
+        # visible signal. Raised to warning so a persistently-failing detector is
+        # diagnosable instead of invisible.
+        logger.warning("Doom loop detection failed (safety check skipped): %s", e)
 
     # CONCEPT:AU-ORCH.routing.transition-state-checkpoint — State checkpoint at transition boundary.
     # Routes through the consolidated CheckpointManager (KG backend). The old
@@ -981,7 +987,7 @@ async def dispatcher_step(
             if isinstance(checkpoint_id, str) and checkpoint_id:
                 ctx.state.checkpoint_ids.append(checkpoint_id)
                 ctx.state.checkpoint_ts = time.time()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — ctx.state.checkpoint_ids.append() only executes inside the try after a successful save (guarded by the isinstance check above), so a failure here never records a checkpoint id that doesn't exist; this is best-effort HSM state durability, not the primary transition flow
         logger.debug("State checkpointing skipped: %s", e)
 
     # HSM: Process deferred events (user follows-up received mid-execution)

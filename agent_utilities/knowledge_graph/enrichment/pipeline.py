@@ -651,7 +651,7 @@ class EnrichmentPipeline:
                     self._write_intelligence(node)
                     summary.intelligence_nodes += 1
                 all_edges.extend(intel_edges)
-            except Exception as exc:  # pragma: no cover - enrichment best-effort
+            except Exception as exc:  # pragma: no cover - enrichment best-effort  # noqa: BLE001 — the Document node itself was already committed via self.backend.add_node above; a failed intelligence-extraction pass just means fewer Insight/Fact/Framework/Playbook nodes for this document, not a lost or falsely-marked-processed document
                 logger.debug("intelligence extraction skipped for %s: %s", p, exc)
             for c in concepts:
                 # Concepts are canonical by id; merge source_ids across docs.

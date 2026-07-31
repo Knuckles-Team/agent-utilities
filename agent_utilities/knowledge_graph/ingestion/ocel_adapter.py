@@ -18,8 +18,10 @@ schema currently describes attribute values as strings.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import math
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, TypeVar, cast
@@ -30,6 +32,7 @@ from .semantic_event_model import (
     BusinessObject,
     EventAttributeValue,
     EventObjectParticipation,
+    NeuralRelationPrediction,
     ObjectCentricGraphSlice,
     OcelAttributeDefinition,
     OcelAttributeType,
@@ -38,6 +41,7 @@ from .semantic_event_model import (
     ProcessEvent,
     QualifiedObjectRelationship,
     ScalarValue,
+    SemanticEntityRef,
     TemporalAttributeValue,
 )
 
@@ -45,6 +49,98 @@ OCEL_VERSION = "2.0"
 OCEL_MAPPING_VERSION = "ocel-json-2.0"
 _ATTRIBUTE_TYPES = frozenset({"string", "time", "integer", "float", "boolean"})
 _Declaration = TypeVar("_Declaration", OcelEventType, OcelObjectType)
+
+# -- structural NeuralRelationPrediction producer (CONCEPT:AU-KG.evolution.neural-relation-proposal-producer, D-OB-11) --
+# A degenerate event that touches more than this many objects is skipped for
+# PAIRWISE co-occurrence expansion (its objects still count toward each
+# object's own participation set) — a defensive bound against one pathological
+# event turning C(n, 2) into a blowup on an otherwise ordinary log; not a
+# deployment-varying value, so a constant, not an env flag.
+_MAX_EVENT_FANOUT_FOR_CO_OCCURRENCE = 64
+_NEURAL_PREDICTION_TOP_K = 20
+_NEURAL_PREDICTION_MIN_SCORE = 0.1
+
+
+def predict_object_co_occurrence_relations(
+    events: Sequence[ProcessEvent],
+    object_relationships: Sequence[QualifiedObjectRelationship],
+    *,
+    source_ref: str,
+    candidate_set_ref: str,
+    top_k: int = _NEURAL_PREDICTION_TOP_K,
+    min_score: float = _NEURAL_PREDICTION_MIN_SCORE,
+) -> tuple[NeuralRelationPrediction, ...]:
+    """Object-object relation CANDIDATES from real event co-participation.
+
+    D-OB-11: ``NeuralRelationPrediction`` (the model class, ontology concept, and
+    SHACL shape) had zero producers anywhere. A sibling lane (D-73-6) confirmed
+    by exhaustive repo-wide grep that no reviewed accept/reject label set exists
+    for relation types anywhere in the codebase, and correctly declined to build
+    a *relation-aware* (ComplEx/RotatE-style, "is there a link with predicate P")
+    scorer rather than fabricate one. This producer stays strictly on the honest
+    side of that line: it does NOT guess a relation TYPE (no qualifier is
+    predicted) — it only proposes THAT two objects are plausibly related, scored
+    by Jaccard similarity of the sets of events they co-participate in. That is
+    a real, deterministic structural computation over the slice's own event log
+    (the same feature family — common-neighbors / Jaccard — the engine's own
+    ``graph_learn`` link-predictor already uses), not a neural-network inference;
+    it is named and ``model_ref``-tagged accordingly so nobody mistakes an
+    uncalibrated structural score for a validated probability (mirrors the
+    documented-placeholder precedent in the sibling lane's entity-resolution
+    ``_calibrate()``).
+
+    Object pairs already asserted as a ``QualifiedObjectRelationship`` in this
+    same slice are excluded — this only proposes genuinely NEW candidates, never
+    restates known ground truth as a "prediction". Every prediction cites the
+    real co-occurring event ids as its ``evidence_refs`` (traceable, never
+    fabricated). ``decision_status`` stays the type's own invariant, "proposed":
+    nothing here is a fact.
+    """
+    participation: dict[str, set[str]] = defaultdict(set)
+    pair_shared_events: dict[frozenset[str], set[str]] = defaultdict(set)
+    for event in events:
+        object_ids = sorted({item.object_id for item in event.objects})
+        for object_id in object_ids:
+            participation[object_id].add(event.event_id)
+        if len(object_ids) > _MAX_EVENT_FANOUT_FOR_CO_OCCURRENCE:
+            continue
+        for a, b in itertools.combinations(object_ids, 2):
+            pair_shared_events[frozenset((a, b))].add(event.event_id)
+
+    known_pairs = {
+        frozenset((r.source_object_id, r.target_object_id))
+        for r in object_relationships
+    }
+
+    scored: list[tuple[float, str, str, tuple[str, ...]]] = []
+    for pair, shared in pair_shared_events.items():
+        if pair in known_pairs:
+            continue
+        a, b = sorted(pair)
+        union = participation[a] | participation[b]
+        score = len(shared) / len(union) if union else 0.0
+        if score < min_score:
+            continue
+        scored.append((score, a, b, tuple(sorted(shared))))
+    # Deterministic ranking: score desc, then the pair itself for stable ties.
+    scored.sort(key=lambda item: (-item[0], item[1], item[2]))
+
+    predictions: list[NeuralRelationPrediction] = []
+    for score, a, b, shared_events in scored[:top_k]:
+        predictions.append(
+            NeuralRelationPrediction(
+                prediction_id=f"co-occurs:{source_ref}:{a}:{b}",
+                subject=SemanticEntityRef(kind="object", source_id=a),
+                predicate="co_occurrence_candidate",
+                object=SemanticEntityRef(kind="object", source_id=b),
+                score=round(score, 6),
+                uncertainty=round(1.0 - score, 6),
+                model_ref="structural-event-co-participation-jaccard-uncalibrated-v1",
+                candidate_set_ref=candidate_set_ref,
+                evidence_refs=tuple(shared_events),
+            )
+        )
+    return tuple(predictions)
 
 
 def _text(value: object, field: str) -> str:
@@ -466,6 +562,16 @@ def import_ocel_json(
         )
     _unique(event_ids, "event identifiers")
 
+    # Structural NeuralRelationPrediction candidates (D-OB-11) — native-by-default,
+    # computed from THIS import's own event log, never fabricated (see
+    # predict_object_co_occurrence_relations' docstring for the honesty boundary).
+    neural_predictions = predict_object_co_occurrence_relations(
+        events,
+        object_relationships,
+        source_ref=effective_source,
+        candidate_set_ref=f"ocel-co-occurrence:{content_sha256[:32]}",
+    )
+
     try:
         slice_ = ObjectCentricGraphSlice(
             log_id=f"ocel-log:{content_sha256[:32]}",
@@ -481,6 +587,7 @@ def import_ocel_json(
                     key=lambda item: item.relationship_id,
                 )
             ),
+            neural_predictions=neural_predictions,
         )
     except ValidationError as exc:
         raise ValueError(

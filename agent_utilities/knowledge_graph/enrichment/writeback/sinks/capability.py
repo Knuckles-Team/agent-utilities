@@ -56,7 +56,7 @@ def _push_archi(client: Any, node: Any, result: WritebackResult) -> None:
             properties={"source": "agent-utilities"},
         )
         result.created += 1
-    except Exception as exc:  # pragma: no cover - external transport
+    except Exception as exc:  # pragma: no cover - external transport  # noqa: BLE001 — result.errors is incremented in the except itself; the writeback framework's caller already aggregates created/errors per WritebackResult rather than needing an exception to propagate
         logger.debug("Archi add_element failed: %s", exc)
         result.errors += 1
 
@@ -67,7 +67,7 @@ def _push_leanix(client: Any, node: Any, result: WritebackResult) -> None:
         try:
             create_fs("BusinessCapability", _name_of(node))
             result.created += 1
-        except Exception as exc:  # pragma: no cover - external transport
+        except Exception as exc:  # pragma: no cover - external transport  # noqa: BLE001 — LeanIX create_fact_sheet push — same WritebackResult-counted pattern as _push_archi above (result.errors incremented, caller aggregates)
             logger.debug("LeanIX create_fact_sheet failed: %s", exc)
             result.errors += 1
         return
@@ -77,7 +77,7 @@ def _push_leanix(client: Any, node: Any, result: WritebackResult) -> None:
             try:
                 method({"name": _name_of(node), "type": "BusinessCapability"})
                 result.created += 1
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:  # pragma: no cover  # noqa: BLE001 — LeanIX fallback-method push — same WritebackResult-counted pattern; this is the last of the tried method names, each already gated by its own callable() check above
                 logger.debug("LeanIX %s failed: %s", method_name, exc)
                 result.errors += 1
             return

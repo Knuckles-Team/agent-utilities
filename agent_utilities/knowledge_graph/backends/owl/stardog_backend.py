@@ -17,6 +17,13 @@ from typing import Any
 
 from agent_utilities.core.config import setting
 
+from ..mirror_target import (
+    LEVEL_DATABASE,
+    MirrorTarget,
+    database_for_target,
+    resolve_mirror_target,
+)
+from ..sparql.stardog_backend import DEFAULT_DATABASE
 from .base import OWLBackend
 
 logger = logging.getLogger(__name__)
@@ -43,6 +50,7 @@ class StardogBackend(OWLBackend):
         database: str | None = None,
         username: str | None = None,
         password: str | None = None,
+        mirror_target: MirrorTarget | None = None,
     ):
         try:
             import stardog  # noqa: F401
@@ -57,7 +65,19 @@ class StardogBackend(OWLBackend):
         self._endpoint = endpoint or setting(
             "STARDOG_ENDPOINT", "http://localhost:5820"
         )
-        self._database = database or setting("STARDOG_DATABASE", "agent_kg")
+        # CONCEPT:AU-KG.backend.mirror-target-graph — the SAME database resolution
+        # as ``sparql/stardog_backend.py`` so the two Stardog backends cannot
+        # drift. Only the DATABASE level applies here: this backend reasons over a
+        # TBox and has no per-write named-graph routing to dedicate.
+        configured = database or setting("STARDOG_DATABASE", DEFAULT_DATABASE)
+        self.mirror_target = mirror_target or resolve_mirror_target(
+            None,
+            backend_type="stardog-owl",
+            named_selector=database,
+            default_name=configured,
+            supported_levels=(LEVEL_DATABASE,),
+        )
+        self._database = database_for_target(self.mirror_target, configured)
         self._username = username or setting("STARDOG_USER", "admin")
         self._password = password or setting("STARDOG_PASSWORD", "admin")
 
@@ -89,6 +109,15 @@ class StardogBackend(OWLBackend):
                     },
                 )
                 logger.info("Created Stardog database: %s", self._database)
+
+    def ensure_mirror_target(self) -> None:
+        """Create the dedicated database if absent (CONCEPT:AU-KG.backend.mirror-target-graph).
+
+        The same idempotent create path this backend has always used, exposed
+        under the shared name so a dedicated target is honored identically here
+        and in the SPARQL data backend.
+        """
+        self._ensure_database()
 
     def _connection(self):
         """Create a new Stardog connection (caller must manage lifecycle)."""

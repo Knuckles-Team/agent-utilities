@@ -808,5 +808,5 @@ class CognitiveScheduler:
                     type=RegistryEdgeType.CHECKPOINTED_TO,
                 )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — this is a pure observability/audit mirror (docstring: "for observability and auditing"); AgentProcess scheduling state itself lives in self._processes in-process, not gated on this KG write, so a failed mirror never affects scheduling correctness
             logger.debug("Failed to persist process %s: %s", proc.id, e)

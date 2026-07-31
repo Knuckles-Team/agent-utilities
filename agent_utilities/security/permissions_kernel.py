@@ -860,7 +860,7 @@ class PermissionsKernel:
                     logger.warning(
                         "Failed to register identity with Rust backend: %s", e
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the KG graph write is a durability/cross-process mirror only; verify_identity/authorize_tool/get_identity all read self._identities (already cached above in issue_identity), not this graph node
             logger.debug("Failed to persist identity: %s", e)
 
 
@@ -1218,8 +1218,8 @@ def resolve_permission_context(
         )
     except PermissionBootstrapError:
         raise
-    except Exception:
-        raise PermissionBootstrapError("permission context bootstrap failed") from None
+    except Exception as exc:
+        raise PermissionBootstrapError("permission context bootstrap failed") from exc
     if not kernel.verify_identity(identity):
         raise PermissionBootstrapError("permission context verification failed")
     return PermissionContext(kernel, identity)

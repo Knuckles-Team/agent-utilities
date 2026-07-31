@@ -21,12 +21,17 @@ pytestmark = pytest.mark.concept(id="AU-ORCH.routing.rejected-candidate-provenan
 
 
 class _FakeEngine:
+    """Mirrors the real ``IntelligenceGraphEngine.add_node(node_id, node_type,
+    properties)`` contract (D-5.1-5) — no ``**kwargs`` catch-all."""
+
     def __init__(self):
         self.added: list[tuple[str, dict]] = []
         self.linked: list[tuple[str, str, str]] = []
 
-    def add_node(self, node_id: str, **props) -> None:
-        self.added.append((node_id, dict(props)))
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict | None = None
+    ) -> None:
+        self.added.append((node_id, {"node_type": node_type, **(properties or {})}))
 
     def link_nodes(self, src, dst, rel):
         self.linked.append((src, dst, str(rel)))

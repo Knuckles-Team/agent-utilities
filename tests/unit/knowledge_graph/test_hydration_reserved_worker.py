@@ -18,6 +18,8 @@ exercise the pure claim-selection logic (no engine/backend).
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
 
@@ -137,6 +139,89 @@ def test_hydration_reserved_worker_falls_back_to_ordinary_work_when_idle(monkeyp
     claimed = harness._claim_next_task(hydration_reserved=True)
 
     assert claimed == ("legacy-connector", {"type": "connector_sync"})
+
+
+class _StopLoop(BaseException):
+    """Escapes ``_task_worker_loop``'s own ``except Exception`` handler —
+    unlike ``StopIteration``/any ``Exception`` subclass, which that handler's
+    error-recovery path (a genuine, legitimate behavior: one bad claim must
+    not kill the worker thread) would swallow and keep looping past."""
+
+
+def test_task_worker_loop_alternates_hydration_priority_on_the_degenerate_single_worker_case():
+    """D-43: with no second thread to keep pinned to general work,
+    ``hydration_reserved`` stays ``False`` at the thread level for a
+    single-worker pool, but ``hydration_alternate=True`` makes
+    ``_task_worker_loop`` check the hydration lane first on every OTHER poll —
+    a bounded floor that never fully starves general work even under a
+    sustained hydration-type firehose."""
+    from unittest.mock import patch
+
+    seen_hydration_reserved: list[bool] = []
+
+    class AlternatingWorker:
+        _task_worker_loop = TaskManagerMixin._task_worker_loop
+
+        def _claim_next_task(
+            self, *, worker_id: str | None = None, hydration_reserved: bool = False
+        ):
+            seen_hydration_reserved.append(hydration_reserved)
+            if len(seen_hydration_reserved) >= 4:
+                raise _StopLoop
+            return None  # idle each time -> falls to the time.sleep backoff
+
+    worker = AlternatingWorker()
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.engine_tasks.time.sleep",
+            return_value=None,
+        ),
+        patch(
+            "agent_utilities.core.background_throttle.get_throttle"
+        ) as mock_throttle,
+    ):
+        mock_throttle.return_value.should_yield_background = False
+        with pytest.raises(_StopLoop):
+            worker._task_worker_loop(hydration_reserved=False, hydration_alternate=True)
+
+    # True, False, True, False, ... — every other poll is hydration-first.
+    assert seen_hydration_reserved == [True, False, True, False]
+
+
+def test_task_worker_loop_no_alternation_when_disabled():
+    """A thread-level-reserved worker (``hydration_reserved=True``) or an
+    ordinary one (both ``False``) never alternates — D-43's alternation is
+    strictly additive for the degenerate single-worker case."""
+    from unittest.mock import patch
+
+    seen_hydration_reserved: list[bool] = []
+
+    class PlainWorker:
+        _task_worker_loop = TaskManagerMixin._task_worker_loop
+
+        def _claim_next_task(
+            self, *, worker_id: str | None = None, hydration_reserved: bool = False
+        ):
+            seen_hydration_reserved.append(hydration_reserved)
+            if len(seen_hydration_reserved) >= 3:
+                raise _StopLoop
+            return None
+
+    worker = PlainWorker()
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.engine_tasks.time.sleep",
+            return_value=None,
+        ),
+        patch(
+            "agent_utilities.core.background_throttle.get_throttle"
+        ) as mock_throttle,
+    ):
+        mock_throttle.return_value.should_yield_background = False
+        with pytest.raises(_StopLoop):
+            worker._task_worker_loop(hydration_reserved=False, hydration_alternate=False)
+
+    assert seen_hydration_reserved == [False, False, False]
 
 
 def test_hydration_task_types_land_in_the_connectors_or_ingestion_lane_as_expected():

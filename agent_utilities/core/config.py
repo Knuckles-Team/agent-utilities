@@ -3864,7 +3864,16 @@ class AgentConfig(BaseSettings):
     any one (``target=<name>``) or fan out to all (``target="all"``). The
     zero-infra default is fully preserved: unset → only the ambient ``default``
     connection exists. For Postgres, use ``"backend": "age"`` for native
-    openCypher portability."""
+    openCypher portability.
+
+    A ``role="mirror"`` entry may also declare ``mirror_target``
+    (CONCEPT:AU-KG.backend.mirror-target-graph) to say WHERE in that store
+    mirroring writes: ``"dedicated"`` (a graph reserved for mirroring, created if
+    absent — ``{"mode": "dedicated", "name": "<graph>"}`` to name it, plus
+    ``"level": "database"`` on Stardog), ``"default"`` (the instance default,
+    refused if it already holds data), or ``"default-overwrite"`` (the instance
+    default with that guard waived). Omitted, a connection that names its own
+    ``database``/``db_name``/``graph_name`` keeps writing exactly there."""
 
     gitlab_instances: list[dict[str, Any]] | None = Field(
         default=None, alias="GITLAB_INSTANCES"
@@ -5290,6 +5299,18 @@ class AgentConfig(BaseSettings):
     )
     """Enable streaming synthesis as agents complete (CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling)."""
 
+    distillation_promotion_threshold: int = Field(
+        default=3, alias="DISTILLATION_PROMOTION_THRESHOLD"
+    )
+    """Repeat-execution count before a workflow pattern is promoted to a reusable
+    Workflow+TeamConfig pair (CONCEPT:AU-AHE.optimization.workflow-distillation)."""
+
+    distillation_quality_score_minimum: float = Field(
+        default=0.6, alias="DISTILLATION_QUALITY_SCORE_MINIMUM"
+    )
+    """Minimum execution quality score required before a repeated pattern is eligible
+    for distillation (CONCEPT:AU-AHE.optimization.workflow-distillation)."""
+
     # --- Innovation Framework (CONCEPT:AU-OS.state.cognitive-scheduler-preemption through CONCEPT:AU-OS.state.cognitive-scheduler-preemption) ---
 
     homeostatic_downgrade_enabled: bool = Field(
@@ -6074,7 +6095,12 @@ def _fetch_prompt_agents(engine: Any) -> list[MCPAgent]:
                 )
             )
     except Exception as e:
-        logger.debug(f"Failed to fetch Prompt nodes: {e}")
+        # D-DST-6: _RegistryCache.get_registry() (this function's caller, one frame up)
+        # has no TTL and caches whatever _fetch_registry_from_kg() returns for the life
+        # of the process — a transient failure here silently produces a partial/empty
+        # agent registry that then never self-heals. Raised to warning for visibility;
+        # the cache-poisoning fix itself belongs to _RegistryCache (see D-DSTO follow-up).
+        logger.warning(f"Failed to fetch Prompt nodes (registry cache may go stale): {e}")
     return agents
 
 
@@ -6101,7 +6127,9 @@ def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
                 )
             )
     except Exception as e:
-        logger.debug(f"Failed to fetch specialist agents from KG: {e}")
+        # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
+        # raised to warning so a persistently-failing fetch is diagnosable.
+        logger.warning(f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}")
     return agents
 
 
@@ -6124,7 +6152,10 @@ def _fetch_tools(engine: Any) -> list[MCPToolInfo]:
                 )
             )
     except Exception as e:
-        logger.debug(f"Failed to fetch Tool nodes: {e}")
+        # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
+        # a failure here additionally drops all dynamically-synthesized partition agents
+        # (they're derived from `tools`). Raised to warning for visibility.
+        logger.warning(f"Failed to fetch Tool nodes (registry cache may go stale): {e}")
     return tools
 
 
@@ -6254,7 +6285,7 @@ def get_relevant_specialists(
 
         if relevant:
             return relevant[:top_n]
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — explicit fallback returned right below (all_agents[:top_n]); a search failure degrades relevance ranking, it does not lose any agent from consideration
         logger.debug(f"Hybrid search for adaptive_agent_router failed: {e}")
 
     # Fallback: return all agents (capped)
@@ -6614,7 +6645,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                                 _sc = create_secrets_client()
                                 _user_token = _sc.get("session_token")
-                            except Exception as exc:
+                            except Exception as exc:  # noqa: BLE001 — best-effort: on failure AGENT_USER_TOKEN is simply omitted from the subprocess env; any MCP subprocess call that actually needs delegated auth fails its own auth check visibly downstream rather than silently using a stale/wrong token
                                 logger.debug(
                                     "Optional session-token enrichment unavailable: %s",
                                     exc,

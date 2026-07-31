@@ -556,7 +556,7 @@ class WorkflowStore:
                 ):
                     workflows.append(r)
             return workflows
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — returns [] (the documented empty-results case) on a semantic search failure; find_similar's own contract is 'zero or more similar workflows', so an empty list on failure is indistinguishable from a legitimate no-match
             logger.debug("[ORCH-1.22] Semantic workflow search failed: %s", e)
             return []
 

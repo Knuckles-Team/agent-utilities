@@ -204,7 +204,7 @@ def _derive_kv_page_keys(backend: Any, candidates: list[dict[str, Any]]) -> list
     for candidate in candidates:
         try:
             payload = json.dumps(candidate, sort_keys=True, default=str).encode("utf-8")
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:  # noqa: BLE001 — best-effort/order-preserving per the docstring above: a non-serializable candidate is simply skipped, never disabling the whole rung
             logger.debug("KV-fork candidate not serializable, skipped: %s", exc)
             continue
         key = hashlib.sha256(payload).hexdigest()
@@ -386,6 +386,37 @@ class CrossModalForkFanout:
             _record_fork_outcome("fallback", reason="no_derivable_pages")
         return keys
 
+    def _auto_kv_page_keys(self, candidates: list[dict[str, Any]]) -> list[str]:
+        """DEFAULT-ON derivation of ``kv_page_keys`` when a caller doesn't supply real ones.
+
+        Only reached when :meth:`fan_out` was called with no explicit ``kv_page_keys``
+        AND the cohort has more than one branch (a single branch has no sharing to
+        gain). Resolves the KV backend, cheaply probes its fork-surface capability
+        (:meth:`~agent_utilities.kvcache.EpistemicGraphKVBackend.supports_fork` when the
+        backend exposes it — absent on a bare test double, which then just tries and
+        degrades naturally), and derives pages from the candidate set
+        (:func:`_derive_kv_page_keys`). Every dead end records a ``"fallback"``
+        telemetry event with the specific reason and returns ``[]`` — never raises.
+        """
+        backend = self._resolve_kv_backend()
+        if backend is None:
+            _record_fork_outcome("fallback", reason="backend_unavailable")
+            return []
+        supports = getattr(backend, "supports_fork", None)
+        if callable(supports):
+            try:
+                supported = supports()
+            except Exception as exc:  # noqa: BLE001 — probe failure ⇒ unsupported
+                logger.debug("KV-fork capability probe failed: %s", exc)
+                supported = False
+            if not supported:
+                _record_fork_outcome("fallback", reason="fork_unsupported")
+                return []
+        keys = _derive_kv_page_keys(backend, candidates)
+        if not keys:
+            _record_fork_outcome("fallback", reason="no_derivable_pages")
+        return keys
+
     def _snapshot_and_fork(
         self, kv_page_keys: Sequence[str], branch_count: int
     ) -> tuple[int | None, list[int | None], dict[str, Any]]:
@@ -418,6 +449,48 @@ class CrossModalForkFanout:
             "forked", shared_bytes=int(stats.get("shared_bytes", 0) or 0)
         )
         return snap_id, branch_ids, stats
+
+    def _release_kv_fork_resources(
+        self, kv_snapshot_id: int, kv_branch_ids: list[int | None]
+    ) -> None:
+        """Drop every forked branch, then release the parent snapshot (D-KVR-2).
+
+        Engine-side ``release_snapshot`` refuses a snapshot with any still-live
+        branch (``StillReferenced``, ``409``) — so branches must be dropped FIRST,
+        in the same order they were forked, before the snapshot release can
+        succeed. Called from :meth:`fan_out`'s ``finally`` once the cohort
+        completes (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork), so a caller that
+        never explicitly releases no longer leaks: the pinned pages free as soon
+        as their fan-out is done, not only when/if something else calls
+        ``release_snapshot``/``drop_branch`` directly. Every outcome is logged at
+        debug (not warning) — a `"not_found"`/`"still_referenced"` here is
+        unexpected but not actionable by this caller, and neither method ever
+        raises (same graceful-degradation contract as the rest of the connector).
+        """
+        backend = self._resolve_kv_backend()
+        if backend is None:
+            return
+        drop_branch = getattr(backend, "drop_branch", None)
+        if callable(drop_branch):
+            for branch_id in kv_branch_ids:
+                if branch_id is None:
+                    continue
+                outcome = drop_branch(branch_id)
+                if outcome not in ("released", "not_found"):
+                    logger.debug(
+                        "kv-fork cohort cleanup: drop_branch(%s) -> %s",
+                        branch_id,
+                        outcome,
+                    )
+        release_snapshot = getattr(backend, "release_snapshot", None)
+        if callable(release_snapshot):
+            outcome = release_snapshot(kv_snapshot_id)
+            if outcome not in ("released", "not_found"):
+                logger.debug(
+                    "kv-fork cohort cleanup: release_snapshot(%s) -> %s",
+                    kv_snapshot_id,
+                    outcome,
+                )
 
     async def fan_out(
         self,
@@ -577,9 +650,21 @@ class CrossModalForkFanout:
             async with sem:
                 return await _run_branch(idx, snippet)
 
-        results = await asyncio.gather(
-            *(_guarded(i, s) for i, s in enumerate(branch_list))
-        )
+        try:
+            results = await asyncio.gather(
+                *(_guarded(i, s) for i, s in enumerate(branch_list))
+            )
+        finally:
+            # D-KVR-2 (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork): the engine's
+            # DELETE /kv/snapshot/<id> + DELETE /kv/branch/<bid> routes only close the
+            # fork/snapshot leak if a caller actually issues them once the cohort is
+            # done with the shared pages. Runs even if a branch's own execution raised
+            # past `_run_branch`'s own catch-all (defense in depth) — never on the
+            # engine's happy path only. Best-effort: `release_snapshot`/`drop_branch`
+            # already never raise (same graceful-degradation contract as the rest of
+            # this connector), so no try/except is needed around the calls themselves.
+            if kv_snapshot_id is not None:
+                self._release_kv_fork_resources(kv_snapshot_id, kv_branch_ids)
 
         return CrossModalForkResult(
             query=query,

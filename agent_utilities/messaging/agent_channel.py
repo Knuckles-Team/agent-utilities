@@ -257,6 +257,6 @@ def close(engine: Any, channel_id: str) -> bool:
     try:
         ch.close(channel_id)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — best-effort channel close; False propagates to the caller as {"closed": false}, no state is falsely marked closed
         logger.debug("channel close (%s): %s", channel_id, exc)
         return False

@@ -166,7 +166,7 @@ class DockerFleetObserver:
             if proc.returncode != 0:
                 return []
             return [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — subprocess failure degrades to [] same as a genuinely empty docker output; observe() omits the service and service_status() defaults to STATUS_UNKNOWN (not "up"), which run_deploy_watch already treats as OUTCOME_UNOBSERVED and explicitly never rolls back on
             logger.debug("DockerFleetObserver: %s failed: %s", args[0], e)
             return []
 
@@ -233,7 +233,7 @@ class CompositeFleetObserver:
         for observer in self.observers:
             try:
                 snapshot = observer.observe()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — class docstring: "Merge several observers; positive evidence beats silence"; a failed observer is skipped via `continue` and the merge proceeds with the remaining observers, exactly the documented degradation
                 logger.debug(
                     "observer %s failed: %s", getattr(observer, "name", "?"), e
                 )

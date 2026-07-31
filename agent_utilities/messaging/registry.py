@@ -112,7 +112,7 @@ class MessagingRegistry:
                     ep.name,
                     ep.value,
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — entry-point scan is best-effort; downstream is_installed()/list_backends() correctly reflect only what was discovered
             logger.debug(
                 "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Entry-point discovery failed: %s",
                 e,

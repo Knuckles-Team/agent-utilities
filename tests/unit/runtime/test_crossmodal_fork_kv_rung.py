@@ -105,6 +105,15 @@ class _FakeKvBackend:
         self.put_calls: list[str] = []
         self._next_branch = 100
         self.fork_stats_calls = 0
+        self.drop_branch_calls: list[int] = []
+        self.release_snapshot_calls: list[int] = []
+
+    def supports_fork(self) -> bool:
+        return self._fork_supported
+
+    def put(self, key: str, value: bytes) -> bool:
+        self.put_calls.append(key)
+        return True
 
     def supports_fork(self) -> bool:
         return self._fork_supported
@@ -122,6 +131,14 @@ class _FakeKvBackend:
         bid = self._next_branch
         self._next_branch += 1
         return bid
+
+    def drop_branch(self, branch_id):
+        self.drop_branch_calls.append(branch_id)
+        return "released"
+
+    def release_snapshot(self, snapshot_id):
+        self.release_snapshot_calls.append(snapshot_id)
+        return "released"
 
     def fork_stats(self):
         self.fork_stats_calls += 1
@@ -276,6 +293,67 @@ async def test_kv_rung_degrades_to_copy_path_when_snapshot_fails(
     # The cohort still ran on the copy path (kv_branch_id simply never bound).
     assert all(b.ok for b in res.branches), [b.error for b in res.branches]
     assert all(b.output == 2 for b in res.branches)
+
+
+# ── D-KVR-2: cohort completion releases every forked branch + the snapshot ─────
+async def test_fan_out_releases_kv_fork_resources_on_cohort_completion(
+    clean_registry, sandbox
+):
+    """A fan-out that engaged the KV-fork rung must drop every branch (in fork
+    order) THEN release the parent snapshot once the cohort finishes — closing
+    the fork/snapshot leak this rung would otherwise create on every call
+    (D-KVR-2: the engine's DELETE routes only close the leak if a caller
+    actually issues them)."""
+    kv = _FakeKvBackend()
+    fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
+
+    res = await fanout.fan_out("q", ["kv_branch_id"] * 3)
+
+    assert res.kv_snapshot_id == 42
+    assert res.kv_branch_ids == [100, 101, 102]
+    # Branches dropped first (parent snapshot release would 409 otherwise),
+    # in the same order they were forked.
+    assert kv.drop_branch_calls == [100, 101, 102]
+    assert kv.release_snapshot_calls == [42]
+
+
+async def test_fan_out_skips_kv_release_when_rung_never_engaged(
+    clean_registry, sandbox
+):
+    """No snapshot/branches were forked (rung off) ⇒ no release calls at all."""
+    kv = _FakeKvBackend(fork_supported=False)
+    fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
+
+    res = await fanout.fan_out("q", ["length"] * 3)
+
+    assert res.kv_snapshot_id is None
+    assert kv.drop_branch_calls == []
+    assert kv.release_snapshot_calls == []
+
+
+async def test_fan_out_release_relies_on_the_connectors_own_no_raise_contract(
+    clean_registry, sandbox
+):
+    """`_release_kv_fork_resources` does not wrap its calls in try/except — it
+    relies on `EpistemicGraphKVBackend.release_snapshot`/`drop_branch` already
+    honoring the connector's graceful-degradation contract (every transport/
+    protocol error maps to `"error"`, never a raise). This proves that contract
+    is load-bearing: a backend that violates it (raises instead of degrading)
+    is NOT silently swallowed — the exception propagates from the `finally`
+    block rather than being caught-and-hidden, and cleanup was still attempted
+    (the branch appears in `drop_branch_calls`) before it propagated."""
+
+    class _FlakyReleaseBackend(_FakeKvBackend):
+        def drop_branch(self, branch_id):
+            self.drop_branch_calls.append(branch_id)
+            raise RuntimeError("engine unreachable during cleanup")
+
+    kv = _FlakyReleaseBackend()
+    fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
+
+    with pytest.raises(RuntimeError, match="engine unreachable during cleanup"):
+        await fanout.fan_out("q", ["kv_branch_id"] * 3)
+    assert kv.drop_branch_calls == [100]
 
 
 def test_kv_backend_is_resolved_once_per_process_not_per_fanout(monkeypatch):

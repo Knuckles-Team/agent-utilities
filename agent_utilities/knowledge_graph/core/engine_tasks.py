@@ -824,7 +824,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         try:
             from llama_index.core import SimpleDirectoryReader  # noqa: F401
             from llama_index.core.embeddings import BaseEmbedding  # noqa: F401
-        except ImportError as exc:
+        except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional-dependency pre-import (already labeled 'optional dependency' in the log message); LlamaIndex readers are looked up again, lazily, wherever they're actually used
             logger.debug("LlamaIndex pre-import skipped (optional dependency): %s", exc)
 
         # Initialize pluggable persistent task queue
@@ -1159,7 +1159,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
             if repo_counts:
                 return max(repo_counts, key=repo_counts.get)  # type: ignore[arg-type]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort heuristic; returns None (the documented 'unknown' case) exactly like when repo_counts is empty, so callers already handle this return uniformly
             logger.debug(f"Primary codebase detection failed: {e}")
         return None
 
@@ -1412,7 +1412,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.info(
                     "Reaped %d idle dev-workspace container(s).", len(workspaces)
                 )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — reap is best-effort (mirrors the warm-parent reap above); a skipped tick just leaves idle containers for the NEXT scheduled tick to reap, no state is falsely advanced
             logger.debug("dev-workspace reap skipped: %s", e)
 
     def _tick_package_install_ingest(self) -> None:
@@ -1463,7 +1463,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             result = collect_local_sessions()
             if result.get("ingested"):
                 logger.info("usage_log_sync: %s", result)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — one maintenance-tick usage-log sync; the next tick retries with no state to reconcile (collect_local_sessions is safe to call repeatedly)
             logger.debug("usage_log_sync skipped: %s", e)
 
     def _tick_usage_pricing_refresh(self) -> None:
@@ -1478,7 +1478,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 backend = None
             n = refresh_catalog(backend=backend)
             logger.debug("usage_pricing_refresh: merged %d models", n)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — one maintenance-tick pricing-catalog refresh; the catalog simply stays at its last-known values until the next tick retries
             logger.debug("usage_pricing_refresh skipped: %s", e)
 
     def _tick_hygiene(self) -> None:
@@ -1905,7 +1905,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                 if get_throttle().should_yield_background:
                     return
-            except ImportError as exc:
+            except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional background-throttle signal; when unavailable the tick proceeds without the early-yield check rather than the enrichment batch being lost
                 logger.debug(
                     "background-throttle check skipped (optional dependency): %s", exc
                 )
@@ -2227,7 +2227,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             take = min(per_table, remaining)
             try:
                 items = self._collect_unembedded_rows(conn_factory, tbl, take)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — one table's row-selection query for this backfill tick; `continue`s to the next table so a single bad table doesn't stop the whole backfill pass, and nothing is marked embedded for the skipped table
                 logger.debug("embed backfill query failed: %s", e)
                 continue
 
@@ -2254,7 +2254,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 total += len(items)
                 remaining -= len(items)
                 self._embed_circuit_record(True, now)  # healthy → close breaker
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — already the safe direction: `total`/`remaining` are only advanced above this except (never inside it), and the circuit breaker is explicitly recorded False + the tick breaks rather than continuing to hammer a down endpoint
                 logger.debug("embed backfill store failed: %s", e)
                 # An embed/store failure means the endpoint is likely down for
                 # every table — record it and stop hammering the rest this tick.
@@ -2598,7 +2598,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     if get_throttle().should_yield_background:
                         time.sleep(busy)
                         continue
-                except ImportError as exc:
+                except ImportError as exc:  # noqa: BLE001 — background_throttle is an optional yield-to-foreground hint; when absent the loop just skips the yield and proceeds straight to _tick_embedding_backfill() below, it does not skip or mark any embedding work
                     logger.debug(
                         "background-throttle check skipped (optional dependency): %s",
                         exc,
@@ -3074,10 +3074,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                 self._dropped_tables: set[str] = set()
             new_tables = [t for t in affected_tables if t not in self._dropped_tables]
             if new_tables:
-                self._dropped_tables.update(new_tables)
                 try:
                     self.backend.drop_vector_indices(tables=new_tables)
-                except Exception as e:
+                    # D-DST-3 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): only
+                    # mark these tables dropped AFTER drop_vector_indices actually succeeds.
+                    # Marking them first (the prior order) meant a failed drop was never
+                    # retried on the next submit_task call for this task_type — the write-
+                    # then-mark-seen shape this triage was scoped to find — while the still-
+                    # indexed columns kept failing the ingestion SET the comment above warns
+                    # about ("Kuzu can't SET on indexed columns").
+                    self._dropped_tables.update(new_tables)
+                except Exception as e:  # noqa: BLE001 — the drop stays un-marked on failure (see above), so the next task submission for this task_type retries it instead of permanently believing the indexes are gone
                     logger.debug(f"Pre-ingestion index drop skipped: {e}")
 
         # Lazily start workers if they aren't already running
@@ -3339,11 +3346,28 @@ class TaskManagerMixin(GraphEngineProtocol):
         # the pool. Reuses the existing hot-spare sizing
         # (``SchedulerConfig.reserved`` / ``KG_SCHED_RESERVED``, same knob the
         # interactive-lane floor uses) rather than introducing a second reservation
-        # knob. Degenerates to 0 on a single-worker pool — same "one worker serves
-        # everything" floor as the interactive reservation.
+        # knob. A dedicated ``worker_count - 1`` cap keeps at least one thread
+        # NEVER hydration-first even on a large pool, so a hydration firehose
+        # can't fully starve ordinary connector-sync work either.
         from .worker_scheduler import scheduler_config_from_env
 
         hydration_reserved_count = 0
+        # D-43: a single-worker pool used to reserve 0 (the ``worker_count - 1``
+        # cap forces this — you cannot dedicate a whole 1-worker pool to
+        # hydration-first without a *second* thread to still guarantee general
+        # work, which doesn't exist here). That left minimal/laptop deployments
+        # with the original starvation exposure this whole mechanism exists to
+        # close. Since ``_claim_next_task(hydration_reserved=True)`` already
+        # FALLS THROUGH to the normal unrestricted claim whenever no hydration
+        # work is pending (see its docstring), a hydration-first check never
+        # drops general-work coverage by itself — the only real risk is a
+        # sustained hydration-type firehose keeping the sole worker permanently
+        # in the hydration branch, starving general work in the OTHER
+        # direction. Alternating the check (hydration-first on every other
+        # poll) gives hydration work a genuine floor without that full-reversal
+        # risk: even under a firehose, half the polls still go straight to the
+        # general claim.
+        single_worker_alternate = worker_count == 1
         if worker_count > 1:
             hydration_reserved_count = min(
                 max(1, scheduler_config_from_env(worker_count).reserved),
@@ -3352,14 +3376,15 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         logger.info(
             f"Starting {worker_count} TaskManager workers "
-            f"({hydration_reserved_count} hydration-reserved)..."
+            f"({hydration_reserved_count} hydration-reserved"
+            f"{', alternating on the sole worker' if single_worker_alternate else ''})..."
         )
         for i in range(worker_count):
             t = _authorized_background_thread(
                 background_session,
                 self._task_worker_loop,
                 name=f"KGTaskWorker-{i}",
-                args=(i < hydration_reserved_count,),
+                args=(i < hydration_reserved_count, single_worker_alternate),
             )
             t.start()
 
@@ -3867,16 +3892,26 @@ class TaskManagerMixin(GraphEngineProtocol):
             self._worker_registry().start(worker_id, lane, tkind)
         return job_id, meta
 
-    def _task_worker_loop(self, hydration_reserved: bool = False):
+    def _task_worker_loop(
+        self, hydration_reserved: bool = False, hydration_alternate: bool = False
+    ):
         """Distributed polling loop that picks up pending tasks natively.
 
         ``hydration_reserved`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) marks this
         as one of the pool's reserved hydration-priority workers — see
         :meth:`_claim_next_task` and :meth:`start_task_workers`.
+
+        ``hydration_alternate`` (D-43) is the degenerate single-worker case: this
+        worker checks the hydration lane first on every OTHER poll instead of
+        never (``hydration_reserved`` stays permanently ``False`` when there is
+        no second thread to keep pinned to general work). Bounded so a sustained
+        hydration-type firehose can't fully starve ordinary connector-sync work
+        either — only every other poll is hydration-first.
         """
         # ORCH-1.81: a stable per-thread id keys this worker in the admission
         # registry, so the policy knows what THIS worker is processing.
         worker_id = threading.current_thread().name
+        poll_count = 0
         while True:
             try:
                 job_id = None
@@ -3884,8 +3919,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                 is_codebase = False
                 task_type = "document"
 
+                effective_hydration_reserved = hydration_reserved or (
+                    hydration_alternate and poll_count % 2 == 0
+                )
+                poll_count += 1
                 claimed = self._claim_next_task(
-                    worker_id=worker_id, hydration_reserved=hydration_reserved
+                    worker_id=worker_id,
+                    hydration_reserved=effective_hydration_reserved,
                 )
                 if claimed:
                     job_id, meta = claimed
@@ -5135,7 +5175,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "(will retry next cycle)."
                 )
                 return {"status": "deferred", "reason": "bulk_ingest_or_foreground"}
-        except ImportError as exc:
+        except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional background-throttle signal, same pattern as the enrichment tick above; the sweep proceeds without the early-defer check rather than being lost
             logger.debug(
                 "background-throttle check skipped (optional dependency): %s", exc
             )
@@ -5527,7 +5567,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "scorer_version": "0.12.0",
                 },
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one relevance-scoring edge write inside the sweep's per-item loop; a failed write is simply absent from the next query_relevance_rankings read, it does not falsely appear scored
             logger.debug(f"RelevanceSweep: edge persistence error for {item_id}: {e}")
 
     def query_relevance_rankings(
@@ -5781,7 +5821,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         )
                         if completed < cutoff:
                             continue
-                    except (ValueError, TypeError) as exc:
+                    except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable completed_at timestamp; the item is included un-window-filtered (as the log message and the comment above it describe) rather than silently dropped from the aggregate — the safer direction for a metrics report
                         logger.debug(
                             "ingest metrics: unparseable completed_at %r, not window-filtered: %s",
                             ca,
@@ -5907,7 +5947,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     )
                     if completed_dt < cutoff:
                         continue
-                except (ValueError, TypeError) as exc:
+                except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable completed_at timestamp in the tail-tasks profile report — same documented un-window-filtered fallback as aggregate_ingest_metrics above
                     logger.debug(
                         "ingest tail tasks: unparseable completed_at %r, not window-filtered: %s",
                         ca,
@@ -6000,7 +6040,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                             if isinstance(ts, int | float)
                             else datetime.fromisoformat(str(ts)).timestamp()
                         )
-                    except (ValueError, TypeError) as exc:
+                    except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable timestamp is excluded from this one latency bucket (as the log message says) — a metrics-precision loss, not a correctness issue, since the item is simply absent from the bucket
                         logger.debug(
                             "ingest metrics: unparseable timestamp %r, excluded from bucket: %s",
                             ts,

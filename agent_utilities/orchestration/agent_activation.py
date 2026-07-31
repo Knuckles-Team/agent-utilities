@@ -530,7 +530,7 @@ def _link(engine: Any, source_id: str, target_id: str, rel_type: str) -> None:
         linker = getattr(_authority(engine), "link_nodes", None)
         if callable(linker):
             linker(source_id, target_id, rel_type)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — docstring: "never blocks an activation on a graph-viz edge"; the real state transition (drain_mailbox's consumed-marking / deliver_activation's WorkItem creation) is a separate, unrelated call
         logger.debug(
             "agents-as-data: edge %s -> %s (%s) failed: %s",
             source_id,

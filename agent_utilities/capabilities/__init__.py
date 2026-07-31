@@ -18,7 +18,6 @@ from .checkpointing import (
 from .composition import default_runtime_capabilities, merge_capabilities
 from .content_guardrails import (
     PROMPT_INJECTION_BLOCK_PREFIX,
-    SECRET_LEAK_BLOCK_MESSAGE,
     output_schema_guardrail,
     pii_redaction_guardrails,
     prompt_injection_guardrail,
@@ -90,7 +89,6 @@ __all__ = [
     "default_runtime_capabilities",
     "merge_capabilities",
     "PROMPT_INJECTION_BLOCK_PREFIX",
-    "SECRET_LEAK_BLOCK_MESSAGE",
     "output_schema_guardrail",
     "pii_redaction_guardrails",
     "prompt_injection_guardrail",

@@ -94,6 +94,39 @@ def _check_python_env() -> dict[str, Any]:
     )
 
 
+def _check_mcp_sdk_floor() -> dict[str, Any]:
+    """The installed `mcp`/`fastmcp` SDK must satisfy the `[mcp]` extra's declared floor.
+
+    A runtime that resolved an older SDK line (`mcp` v1 while the extra declares
+    `fastmcp>=4.0.0b1` / SDK v2) previously only failed as a swallowed `ImportError`
+    deep inside `child_resilience.py` at serve time (D-ISR-2). This surfaces that
+    mismatch here instead — see `agent_utilities.mcp.protocol_compat.check_mcp_sdk_floor`.
+    """
+    try:
+        from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor
+    except ImportError as exc:
+        return _result(
+            "mcp_sdk_floor",
+            "skip",
+            f"protocol_compat unavailable ({type(exc).__name__})",
+        )
+    outcome = check_mcp_sdk_floor()
+    if outcome["ok"] is None:
+        return _result("mcp_sdk_floor", "skip", outcome["detail"])
+    if outcome["ok"]:
+        return _result("mcp_sdk_floor", "ok", outcome["detail"])
+    return _result(
+        "mcp_sdk_floor",
+        "fail",
+        outcome["detail"],
+        remediation=(
+            "reinstall/rebuild the runtime image so `mcp`/`fastmcp` resolve the "
+            "versions declared by the `[mcp]` extra in pyproject.toml (e.g. "
+            "`pip install -U 'agent-utilities[mcp]'` or re-lock and redeploy)"
+        ),
+    )
+
+
 def _check_config() -> dict[str, Any]:
     try:
         from agent_utilities.deployment.config_generator import config_doctor
@@ -400,10 +433,15 @@ def _check_ontology_release_signing() -> dict[str, Any]:
 
         signer = ontology_integrity.ReleaseSigner.from_runtime()
         trusted = ontology_integrity.release_trusted_public_keys()
+        lock_pins = _release_lock_pinned_public_keys()
+        pinned_anywhere = bool(trusted) or bool(lock_pins)
+        signer_trusted = (not pinned_anywhere) or (
+            signer.public_key in trusted or signer.public_key in lock_pins
+        )
         data.update(
             signing_authority_ready=True,
             trusted_public_key_count=len(trusted),
-            signer_public_key_trusted=signer.public_key in trusted,
+            signer_public_key_trusted=signer_trusted,
         )
     except Exception as exc:  # noqa: BLE001 - secret-provider details stay redacted
         return _result(
@@ -416,12 +454,52 @@ def _check_ontology_release_signing() -> dict[str, Any]:
             ),
             data=data,
         )
+    if not data["signer_public_key_trusted"]:
+        # D-35-4: the seed behind ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF derives a
+        # public key that neither ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS nor any
+        # provider's ontology.lock pin trusts -- report the (public) key only, and
+        # fail closed rather than silently reporting "ready". This is the drift class
+        # that let a rotated seed swap the fleet's trust anchor unnoticed until every
+        # provider failed release signature verification (D-35-1).
+        return _result(
+            "ontology_release_signing",
+            "fail",
+            "the configured signing key derives a public key no pin trusts "
+            f"({signer.public_key})",
+            remediation=(
+                "Restore the pinned signing seed, or explicitly authorize a signed "
+                "rotation of ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS / every provider's "
+                "ontology.lock pin to the new public key -- never sign a release "
+                "with an unpinned key."
+            ),
+            data=data,
+        )
     return _result(
         "ontology_release_signing",
         "ok",
         "stable ontology release signing authority is ready",
         data=data,
     )
+
+
+def _release_lock_pinned_public_keys() -> frozenset[str]:
+    """Every ``signing_public_key``/``certification_signing_public_key`` pinned in
+    this package's own ``ontology.lock`` (the fleet-wide release trust floor)."""
+    from pathlib import Path
+
+    from agent_utilities.knowledge_graph.ontology import ontology_integrity
+
+    lock_path = Path(__file__).resolve().parent.parent / "ontology.lock"
+    entries = ontology_integrity.load_lock(lock_path)
+    keys: set[str] = set()
+    for entry in entries.values():
+        if not isinstance(entry, dict):
+            continue
+        for field_name in ("signing_public_key", "certification_signing_public_key"):
+            value = entry.get(field_name)
+            if isinstance(value, str) and value:
+                keys.add(value)
+    return frozenset(keys)
 
 
 def _check_transport_security() -> dict[str, Any]:
@@ -3926,6 +4004,66 @@ def _check_unified_install() -> dict[str, Any]:
     )
 
 
+def _check_venv_drift() -> dict[str, Any]:
+    """Is the shared uv-workspace venv still what its lock says it should be?
+
+    CONCEPT:AU-OS.host.venv-drift-detector
+
+    This check exists because the shared development environment silently sat
+    ten days behind its own lock: one import failed, an entire test module
+    stopped collecting, and thirteen real defects were invisible until somebody
+    happened to look.  Nothing was checking, so nothing was known.  Running it
+    here means every ``agent-utilities doctor`` answers the question.
+
+    Deployments have no uv workspace above them (the runtime image installs
+    wheels), so an absent workspace is a ``skip``, not a failure.
+    """
+
+    try:
+        from agent_utilities.deployment.venv_sync import (
+            Workspace,
+            WorkspaceNotFoundError,
+            detect_drift,
+        )
+    except ImportError as exc:
+        return _result(
+            "venv_drift", "error", f"venv_sync is not importable: {exc}"
+        )
+
+    try:
+        workspace = Workspace.discover()
+    except WorkspaceNotFoundError:
+        return _result(
+            "venv_drift",
+            "skip",
+            "no uv workspace above this checkout (normal for a deployed runtime)",
+        )
+    except Exception as exc:  # noqa: BLE001 - a probe must never crash the doctor
+        return _result("venv_drift", "error", f"workspace discovery failed: {exc}")
+
+    try:
+        report = detect_drift(workspace)
+    except Exception as exc:  # noqa: BLE001 - a probe must never crash the doctor
+        return _result("venv_drift", "error", f"drift detection failed: {exc}")
+
+    status = {"ok": "ok", "warn": "warn", "fail": "fail"}[report.status]
+    return _result(
+        "venv_drift",
+        status,
+        report.summary,
+        remediation=(
+            None
+            if status == "ok"
+            else (
+                "`agent-utilities-venv status` for detail, then "
+                "`agent-utilities-venv sync` (safe form, guardrailed) or "
+                "`agent-utilities-venv relock` when a manifest moved."
+            )
+        ),
+        data=report.as_dict(),
+    )
+
+
 def _check_warm_fork() -> dict[str, Any]:
     """Report available confined sandbox rungs and pooled VM parents."""
     rungs: dict[str, dict[str, Any]] = {}
@@ -4097,6 +4235,7 @@ def _check_a2a_persistence() -> dict[str, Any]:
 # Registry: name -> callable. Order is the report order.
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
+    "mcp_sdk_floor": _check_mcp_sdk_floor,
     "config": _check_config,
     "evolution_staging": _check_evolution_staging,
     "execution_security": _check_execution_security,
@@ -4133,6 +4272,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "bus": _check_bus,
     "skills": _check_skills,
     "unified_install": _check_unified_install,
+    "venv_drift": _check_venv_drift,
     "warm_fork": _check_warm_fork,
 }
 

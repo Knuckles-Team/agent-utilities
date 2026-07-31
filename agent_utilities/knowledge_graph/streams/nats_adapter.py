@@ -61,7 +61,7 @@ class NatsStreamAdapter(BaseStreamAdapter):
         if self._nc is not None and self._owns_conn:
             try:
                 await self._nc.close()
-            except Exception as exc:  # pragma: no cover - shutdown best-effort
+            except Exception as exc:  # pragma: no cover - shutdown best-effort  # noqa: BLE001 — shutdown-path best-effort connection close; self._connected is set False unconditionally on the next line, same pattern as the Kafka adapter's disconnect() above
                 logger.debug("NATS close failed: %s", exc)
         self._connected = False
 
@@ -107,7 +107,7 @@ class NatsStreamAdapter(BaseStreamAdapter):
             if callable(ack):
                 try:
                     await ack()
-                except Exception as exc:  # pragma: no cover
+                except Exception as exc:  # pragma: no cover  # noqa: BLE001 — one message's ack inside the consume-batch loop; the message has already been decoded and appended to `events` above, so a failed ack only risks redelivery, it does not lose the event from this batch's return value
                     logger.debug("NATS ack failed: %s", exc)
         return StreamBatch(
             stream_id=getattr(self.config, "stream_id", "nats"),

@@ -876,7 +876,7 @@ class ContextCompiler:
                             "cached bundle violates the persistence privacy contract"
                         )
                     cached_bundle = ContextBundle.from_dict(cached_value)
-                except (
+                except (  # noqa: BLE001 — a corrupt/incompatible cached bundle is treated as a cache MISS (falls through to recompute below) rather than a hard failure — the safe direction for a KV cache seam
                     json.JSONDecodeError,
                     UnicodeDecodeError,
                     TypeError,

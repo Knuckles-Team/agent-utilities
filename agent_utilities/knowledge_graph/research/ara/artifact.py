@@ -262,7 +262,7 @@ class ResearchArtifact(BaseModel):
             try:
                 engine.add_edge(edge["source"], edge["target"], edge["type"])
                 e_ok += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — edge persistence inside the per-edge loop; e_ok is only incremented on the success path above, so the returned {'edges': e_ok,...} tally already reflects exactly which edges landed
                 logger.debug("ARA edge persist failed: %s", exc)
         return {"nodes": n_ok, "edges": e_ok, "artifact": self.node_id}
 

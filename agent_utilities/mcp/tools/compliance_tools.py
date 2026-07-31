@@ -33,6 +33,7 @@ from typing import Any
 
 from pydantic import Field
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import public_error_payload
 
@@ -365,7 +366,7 @@ def register_compliance_tools(mcp: Any) -> None:
         ),
         tags=["graph-os", "compliance", "audit", "governance", "redaction"],
     )
-    def graph_compliance(
+    async def graph_compliance(
         action: str = Field(default="posture", description="posture | export"),
         cypher: str = Field(
             default="",
@@ -394,18 +395,18 @@ def register_compliance_tools(mcp: Any) -> None:
         """Compliance posture rollup + redacted bulk subgraph export."""
         action_key = (action or "posture").strip().lower()
         if action_key == "posture":
-            return json.dumps(_posture(), default=str)
+            result = await run_blocking_ordered(_posture)
+            return json.dumps(result, default=str)
         if action_key == "export":
-            return json.dumps(
-                _export(
-                    cypher=cypher,
-                    node_ids_json=node_ids,
-                    disclosure_level=disclosure_level,
-                    as_of=as_of,
-                    limit=limit,
-                ),
-                default=str,
+            result = await run_blocking_ordered(
+                _export,
+                cypher=cypher,
+                node_ids_json=node_ids,
+                disclosure_level=disclosure_level,
+                as_of=as_of,
+                limit=limit,
             )
+            return json.dumps(result, default=str)
         return json.dumps(
             {
                 "surface": "compliance",

@@ -241,7 +241,7 @@ def initialize_graph_from_workspace(
                         pass
                     else:
                         asyncio.run(ingest_prompts_to_graph())
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — ingest_prompts_to_graph() has its own durable content-hash DeltaManifest checkpoint; an unwritten checkpoint on failure means automatic retry on the next init call
                 logger.debug(f"Registry rebuild failed: {e}")
 
         try:
@@ -259,7 +259,7 @@ def initialize_graph_from_workspace(
                             logger.info(
                                 "Initializing Graph: MCP agents synced successfully."
                             )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — sync_mcp_agents() stamps t.last_sync only on success; should_sync() re-derives from that stamp, so a failure here self-heals on the next init call
                     logger.debug(f"Sync skip/fail: {e}")
             else:
                 logger.debug(
@@ -303,7 +303,7 @@ def initialize_graph_from_workspace(
 
                     _aio.run(sync_a2a_agents(config_path=_a2a_config))
                     logger.info("Initializing Graph: A2A agents synced successfully.")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — mirrors the MCP-sync branch above; discovery falls back to discover_all_specialists(), and the next init call retries the sync
             logger.debug(f"A2A agent sync skip/fail: {e}")
 
     # Unified Discovery: merge MCP, A2A, and prompt sources into a single roster
@@ -552,7 +552,7 @@ def create_graph_agent(
                     knowledge_engine = IntelligenceGraphEngine.get_or_create(
                         backend=active_backend
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — knowledge_engine defaults to None (line ~503) and every consumer graph-wide already gates on `if deps.knowledge_engine:`; this is the supported "KG disabled" path, not a false-success state
                     logger.debug(f"Knowledge engine initialization failed: {e}")
     except ImportError:
         logger.debug("Registry Graph subpackage not found or dependencies missing.")

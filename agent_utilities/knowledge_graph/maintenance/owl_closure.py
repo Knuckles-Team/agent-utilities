@@ -107,7 +107,7 @@ def run_closure(engine: Any, limit: int = 2000) -> dict[str, Any]:
     # last-resort fallback (used only for the full-DL cycle), kept out of this hot path.
     try:
         from ..core.owl_bridge import OWLBridge
-    except Exception as exc:  # pragma: no cover - core import failure
+    except Exception as exc:  # pragma: no cover - core import failure  # noqa: BLE001 — returns the documented `_empty_summary('owl bridge unavailable')` sentinel — the same shape callers already get from every other 'nothing to close' path in this function
         logger.debug("OWLBridge unavailable, skipping closure: %s", exc)
         return _empty_summary("owl bridge unavailable")
 

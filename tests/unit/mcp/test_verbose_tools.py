@@ -452,7 +452,11 @@ def test_surface_intent_mode_gates_condensed_tools(monkeypatch):
 
 
 def test_surface_tool_registry(monkeypatch):
-    monkeypatch.setenv("MCP_TOOL_MODE", "verbose")  # condensed registry skipped
+    """D-WS-1: verbose mode (with a verbose target) still runs the condensed
+    registry — it populates the dispatch core (REGISTERED_TOOLS) every verbose
+    alias and REST route depends on — rather than skipping it and leaving the
+    dispatch core empty behind a served-but-undispatchable verbose surface."""
+    monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
     calls = []
     registry = [("a", "ATOOL", lambda mcp: calls.append("a"))]
     mcp = FastMCP("t")
@@ -463,8 +467,9 @@ def test_surface_tool_registry(monkeypatch):
         service="servicenow-api",
         tool_registry=registry,
     )
-    assert calls == []  # verbose-only mode does not run condensed registry
-    assert "servicenow_get_cmdb_instance" in {t.name for t in _tools_list(mcp)}
+    assert calls == ["a"]  # condensed registry runs to populate the dispatch core
+    names = {t.name for t in _tools_list(mcp)}
+    assert "servicenow_get_cmdb_instance" in names  # verbose surface present too
 
 
 def test_surface_discovery_excludes_shared_helpers(monkeypatch):
@@ -555,7 +560,15 @@ def test_surface_condensed_only_server_survives_global_verbose(monkeypatch):
 
 
 def test_surface_verbose_register_hook(monkeypatch):
-    """verbose_register builds a custom 1:1 surface (graph-os action-core case)."""
+    """verbose_register builds a custom 1:1 surface (graph-os action-core case).
+
+    D-WS-1: even though a custom verbose surface exists, the condensed registry
+    still runs in verbose mode — it is what populates the dispatch core
+    (REGISTERED_TOOLS) the verbose aliases dispatch through — but is gated from
+    the default session view (like intent mode) so it isn't double-listed
+    alongside the 1:1 verbose tools."""
+    from agent_utilities.mcp.verbose_tools import gated_tool_names
+
     seen = {}
 
     def _custom_verbose(mcp):
@@ -564,7 +577,7 @@ def test_surface_verbose_register_hook(monkeypatch):
             lambda: None
         )
 
-    # verbose mode: condensed skipped, custom verbose runs (not left empty)
+    # verbose mode: condensed ALSO runs (dispatch core), custom verbose runs too
     monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
     mcp = FastMCP("t")
     tags = register_tool_surface(
@@ -573,7 +586,11 @@ def test_surface_verbose_register_hook(monkeypatch):
         tools_module=_surface_module(),
         verbose_register=_custom_verbose,
     )
-    assert tags == []  # condensed NOT force-added — a verbose surface exists
+    assert set(tags) == {"cmdb", "change_management"}  # dispatch core populated
+    assert gated_tool_names(mcp) == {
+        "svc_cmdb",
+        "svc_change_management",
+    }  # ...but held back from the default view, same as intent mode
     assert seen.get("called") is True
     assert "gx_write_add_node" in {t.name for t in _tools_list(mcp)}
 

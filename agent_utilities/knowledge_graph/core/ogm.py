@@ -390,7 +390,7 @@ class KGMapper:
                 data = row.get("n", row)
                 try:
                     results.append(self._deserialize(data, model_cls))
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 — best-effort per-row hydration — one malformed row must not fail the whole listing; log the real cause so a systematically bad row shape is diagnosable (rationale already documented in the comment below)
                     # Best-effort per-row hydration — one malformed row must
                     # not fail the whole listing; log the real cause so a
                     # systematically bad row shape is diagnosable.

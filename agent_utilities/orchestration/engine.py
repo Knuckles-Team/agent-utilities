@@ -637,7 +637,7 @@ class AgentOrchestrationEngine:
                     "run_graph: Service registry initialized with %d services",
                     svc_count,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — svc_registry/svc_count are never referenced again in this function; ServiceRegistry.instance() is a lazy singleton re-initialized elsewhere (agent_runner.py's dispatch path), this is pure redundant warm-up
                 logger.debug("run_graph: Service registry init skipped: %s", e)
 
             # --- Security Guard Pre-Flight (OS-5.4, OS-5.5) ---
@@ -672,7 +672,16 @@ class AgentOrchestrationEngine:
             except ImportError:  # noqa: BLE001 — optional prompt scanner is not installed
                 pass  # Scanner not available
             except Exception as e:
-                logger.debug("run_graph: Prompt scanning skipped: %s", e)
+                # D-DST-6: Security Guard Pre-Flight (OS-5.4/5.5) — a scanner crash here
+                # was previously indistinguishable from "the scan ran clean and found
+                # nothing" (the exact guardrail-crash-reads-as-clean-pass cousin), and
+                # the query proceeds UNSCANNED either way. Raised to warning (matching
+                # this lane's DoomLoopDetector/adversarial-verification precedent) so a
+                # persistently-failing scanner is diagnosable rather than invisible.
+                logger.warning(
+                    "run_graph: prompt scanner failed (query proceeding UNSCANNED): %s",
+                    e,
+                )
             result = None
             _graph_run_start = time.perf_counter()
             try:
@@ -759,6 +768,22 @@ class AgentOrchestrationEngine:
                 f"registry_keys={list(state.results_registry.keys())}"
             )
 
+            # --- Cost-plane usage snapshot (CONCEPT:AU-OS.observability.usage-analytics-store, D-54c-1) ---
+            # ``state.session_usage`` is the ONE accumulator every specialist node already
+            # feeds via ``GraphState._update_usage`` (including provider cache read/write +
+            # reasoning tokens) — build the ``token_usage`` dict every downstream consumer
+            # below reads FROM IT, not from ``result.metadata["token_usage"]`` (nothing ever
+            # wrote that key, so it was always ``{}``: cost attribution and cache-savings
+            # telemetry were structurally hollow regardless of what any node returned).
+            _usage: dict[str, int] = {
+                "input_tokens": state.session_usage.input_tokens,
+                "output_tokens": state.session_usage.output_tokens,
+                "cache_creation_input_tokens": state.session_usage.cache_creation_input_tokens,
+                "cache_read_input_tokens": state.session_usage.cache_read_input_tokens,
+                "reasoning_tokens": state.session_usage.reasoning_tokens,
+            }
+            _run_model = str(config.get("agent_model") or "")
+
             # --- Langfuse auto-export (CONCEPT:AU-OS.observability.langfuse-exporter) ---
             # Default-on: ships this graph run as a Langfuse trace + token-usage
             # generation when LANGFUSE_* keys are configured. No-ops cleanly when
@@ -768,11 +793,6 @@ class AgentOrchestrationEngine:
 
                 _exporter = get_langfuse_exporter()
                 if _exporter is not None:
-                    _usage: dict[str, int] = {}
-                    if isinstance(result, GraphResponse):
-                        _usage = result.metadata.get("token_usage", {}) or {}
-                    elif isinstance(result, dict):
-                        _usage = result.get("metadata", {}).get("token_usage", {}) or {}
                     await _offload_sync(
                         _exporter.export_graph_run,
                         run_id=run_id,
@@ -780,7 +800,7 @@ class AgentOrchestrationEngine:
                         status="success" if result else "timeout",
                         duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
                         token_usage=_usage,
-                        model=str(config.get("agent_model") or ""),
+                        model=_run_model,
                         metadata={
                             "domain": state.routed_domain,
                             "execution_mode": "pydantic_graph",
@@ -827,18 +847,8 @@ class AgentOrchestrationEngine:
             # token counts/cost feed the same /api/observability surface the
             # ingested agent logs do. Best-effort; never affects the run.
             try:
-                from agent_utilities.usage.recorder import get_usage_recorder
-
-                _rt_usage: dict[str, int] = {}
-                _rt_model = ""
-                if isinstance(result, GraphResponse):
-                    _rt_usage = result.metadata.get("token_usage", {}) or {}
-                    _rt_model = str(result.metadata.get("model", "") or "")
-                elif isinstance(result, dict):
-                    _md = result.get("metadata", {}) or {}
-                    _rt_usage = _md.get("token_usage", {}) or {}
-                    _rt_model = str(_md.get("model", "") or "")
                 from agent_utilities.security.brain_context import current_actor
+                from agent_utilities.usage.recorder import get_usage_recorder
 
                 await _offload_sync(
                     get_usage_recorder().record_run,
@@ -846,8 +856,8 @@ class AgentOrchestrationEngine:
                     query=query,
                     status="success" if result else "timeout",
                     duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
-                    token_usage=_rt_usage,
-                    model=_rt_model,
+                    token_usage=_usage,
+                    model=_run_model,
                     project=str(state.routed_domain or ""),
                     tenant_id=current_actor().tenant_id,
                 )
@@ -858,16 +868,15 @@ class AgentOrchestrationEngine:
                 )
 
             # --- OTel gen_ai span attrs (CONCEPT:AU-OS.observability.telemetry-observability, X2) ---
-            # Reuses the SAME ``_rt_usage``/``_rt_model`` this block already extracted
-            # for the usage recorder above — stamps them onto run_agent's own span
-            # (opened by ``on_graph_start`` in ``agent_runner.run_agent``) as
-            # ``gen_ai.request.model``/``gen_ai.usage.*``. Best-effort; a run with no
-            # tracked span (OTel unconfigured) is a clean no-op.
+            # Reuses the SAME ``_usage``/``_run_model`` snapshot built above — stamps them
+            # onto run_agent's own span (opened by ``on_graph_start`` in
+            # ``agent_runner.run_agent``) as ``gen_ai.request.model``/``gen_ai.usage.*``.
+            # Best-effort; a run with no tracked span (OTel unconfigured) is a clean no-op.
             try:
                 from ..observability import get_telemetry_engine
 
                 get_telemetry_engine().on_response(
-                    run_id=run_id, usage=_rt_usage, model=_rt_model
+                    run_id=run_id, usage=_usage, model=_run_model
                 )
             except Exception as _otel_exc:  # noqa: BLE001 — tracing must never crash a run
                 logger.debug(
@@ -883,6 +892,12 @@ class AgentOrchestrationEngine:
                     "run_id": run_id,
                     "domain": state.routed_domain,
                     "execution_mode": "pydantic_graph",
+                    # D-54c-1: stamp the real accumulated usage (incl. cache read/write +
+                    # reasoning tokens) onto the response too, not just the side-channel
+                    # exporters above — any other reader of GraphResponse.metadata now
+                    # sees real cost-plane data instead of a permanently-empty dict.
+                    "token_usage": _usage,
+                    "model": _run_model,
                 }
             )
             # Surface the graph run's accumulated tool calls so run_agent persists them

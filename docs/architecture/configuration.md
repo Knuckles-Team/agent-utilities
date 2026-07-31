@@ -523,6 +523,19 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `LANGFUSE_TOKEN_BASELINE` | `20000` | Token-usage baseline for anomaly scoring |
 | `LANGFUSE_VERIFIER_FALLBACK_LIMIT` | `1` | Verifier fallback attempts |
 
+**Content boundary (CONCEPT:AU-OS.observability.literal-service-topology-labels).**
+`custom_observability._MetadataOnlySpanExporter` strips every exported span down to
+metadata before it leaves the process, but it draws an explicit line between two kinds
+of value: *service topology* (`service.name`, the span/operation name — always built
+from fixed strings and enum-like identifiers such as `graph-os` or
+`engine.GetNodeProperties`, never from a request body/tool argument/model output) is
+sanitized (control characters stripped, length capped) but exported **literal**, so an
+operator can pick a service in Grafana/Tempo and the service graph renders correctly.
+Anything that could carry user content — span *attributes*, resource detector fields —
+still goes through `_opaque_label`/`_metadata_only_attributes` and is exported as an
+opaque, namespaced `pref_*` reference. See `_service_topology_label` vs `_opaque_label`
+in `agent_utilities/observability/custom_observability.py`.
+
 ### G.8 A2A (agent-to-agent)
 
 | Flag | Default | What it sets |

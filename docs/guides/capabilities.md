@@ -37,6 +37,11 @@ await store.save(cp)
 
 # On failure recovery:
 restored = await store.get("cp_3")
+
+# Enumerate a workflow's checkpoint history from the graph alone, with no
+# in-memory ledger and no already-known checkpoint id (D-41-1) -- reads
+# :checkpoint nodes back via the engine's own query_cypher, newest first.
+recent = await store.list(limit=5)
 ```
 
 ### Context Window Warnings (`capabilities/context_warnings.py`)

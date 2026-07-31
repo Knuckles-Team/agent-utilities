@@ -110,7 +110,7 @@ def build_schema_context(engine: Any, *, max_labels: int = 60) -> dict[str, Any]
         from .table_ingest import list_tables
 
         tables = list_tables(engine)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — schema-context enrichment for an NL-query prompt; tables stays [] (its initialized default) so the prompt is simply missing the table hint, not built on stale or wrong data
         logger.debug("schema table probe failed: %s", exc)
 
     return {

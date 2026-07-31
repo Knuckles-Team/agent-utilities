@@ -66,7 +66,7 @@ def _get_latest_version_from_history(
                 try:
                     content = f.read_text(encoding="utf-8", errors="ignore")
                     seen_hashes.add(_get_md5(content))
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — one unreadable history file just contributes no hash to the dedup set, version scan continues
                     logger.debug("Failed to read historical file: %s", e)
 
     return version, seen_hashes
@@ -180,7 +180,7 @@ def ingest_plan_version(
     )
     try:
         engine.backend.execute(query_project, {"plan_id": plan_id})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — Project linkage is a discoverability edge; the ImplementationPlan node itself is already MERGEd above unconditionally
         logger.debug(f"Could not link plan to project: {e}")
 
     # 5. Link to Session node
@@ -195,7 +195,7 @@ def ingest_plan_version(
             engine.backend.execute(
                 query_session, {"session_id": session_id, "plan_id": plan_id}
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — Session linkage is a discoverability edge; the ImplementationPlan node itself is already MERGEd above unconditionally
             logger.debug(f"Could not link plan to session: {e}")
 
     return plan_id
@@ -281,7 +281,7 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
     file_key = str(file_path.resolve())
     try:
         mtime = file_path.stat().st_mtime
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
         logger.debug("Failed to stat watched file: %s", e)
         mtime = 0.0
 
@@ -383,7 +383,7 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
     file_key = str(file_path.resolve())
     try:
         mtime = file_path.stat().st_mtime
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
         logger.debug("Failed to stat watched file: %s", e)
         mtime = 0.0
 
@@ -641,7 +641,7 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
     file_key = str(file_path.resolve())
     try:
         mtime = file_path.stat().st_mtime
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
         logger.debug(
             "Failed to stat %s: %s",
             skill_reference(file_path.parent.name),
@@ -681,7 +681,7 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
                 frontmatter = yaml.safe_load(frontmatter_str) or {}
                 skill_name = str(frontmatter.get("name", skill_name))
                 skill_desc = frontmatter.get("description", "")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — malformed frontmatter falls back to the directory-name default already assigned above
                 logger.debug(
                     "Failed to parse frontmatter for %s: %s",
                     skill_reference(file_path.parent.name),
@@ -743,7 +743,7 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
         )
         try:
             engine.backend.execute(query_project, {"node_id": node_id})
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — Project linkage is a discoverability edge; the Skill node itself is already added above unconditionally
             logger.debug(
                 "Could not link %s to project: %s",
                 skill_reference(skill_name),
@@ -843,7 +843,11 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
 
             _ingest_capabilities(engine)
         except Exception as e:
-            logger.debug(f"Failed to re-ingest capabilities: {e}")
+            # D-SWG-2: loud, not debug — the content hash below is recorded
+            # unconditionally regardless of this try's outcome, so a failed
+            # re-ingest is never retried on a later scan; a buried DEBUG line
+            # would make a stale capability inventory permanently invisible.
+            logger.error(f"Failed to re-ingest capabilities: {e}")
     else:
         try:
             if hasattr(engine, "submit_task"):
@@ -903,7 +907,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                 process_plan_file(engine, f, workspace_path)
             elif f.name.lower() in {"tasks.md", "task.md"}:
                 process_tasks_file(engine, f, workspace_path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — this phase is one of 6 independent scan phases in run_watcher_scan; one phase's failure must not block the others, and the outer run_plan_watcher_loop already logs any escaping exception at ERROR
         logger.debug("Nested specification scan failed: %s", e)
 
     # 4. Multi-IDE / Platform Skills Scan
@@ -924,7 +928,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                     process_plan_file(engine, f, workspace_path)
                 elif f.name.lower() in {"tasks.md", "task.md"}:
                     process_tasks_file(engine, f, workspace_path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Skills scan failed: %s", e)
 
     # 5. Watched directories scan — ScholarX/research downloads (top-level) +
@@ -948,7 +952,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                     process_watched_file(engine, item, source=source)
             except Exception as exc:  # noqa: BLE001 — one watch root is non-fatal
                 logger.debug("Watched-directory scan failed for %s: %s", w_dir, exc)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Watched-directory scan failed: %s", e)
 
     # 6. Core Knowledge Graph Ingest Locations Scan
@@ -966,7 +970,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                             process_kg_ingest_location(engine, child)
                 except Exception as exc:  # noqa: BLE001 — one KG root is non-fatal
                     logger.debug("Could not enumerate KG ingest path %s: %s", p, exc)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Core KG ingestion-location scan failed: %s", e)
 
 

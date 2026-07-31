@@ -106,7 +106,7 @@ def list_chats_from_disk() -> list[dict[str, Any]]:
                 }
             )
         return chats
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort read: on KG failure the UI/API (server/routers/core.py) shows an empty chat list rather than a 500; no state is written here, and a transient failure self-heals on the next poll
         logger.debug(f"Failed to list chats from graph: {e}")
         return []
 
@@ -383,7 +383,7 @@ def search_chat_history(
             query=query,
         )
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — best-effort read: chat_search.py's convenience wrapper treats an empty ChatRecallResults as "no matches"; nothing is written on this path
         logger.debug("Chat history search failed: %s", exc)
         return ChatRecallResults(query=query)
 

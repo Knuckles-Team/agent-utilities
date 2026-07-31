@@ -361,7 +361,7 @@ class CoordinationLayer:
                                 uses,
                             )
                             return p
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — KG history lookup is opportunistic; select_protocol() only branches on "if best_from_history:" and otherwise falls straight through to the deterministic agent_count/execution_mode heuristic
             logger.debug("CoordinationLayer: KG lookup failed: %s", e)
 
         return None
@@ -500,6 +500,6 @@ class CoordinationLayer:
             logger.debug("[ORCH-1.5] Persisted coordination trace %s to KG", trace_id)
             return trace_id
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — trace persistence is fire-and-forget observability; all call sites discard the returned trace_id, so a write failure only drops one history record, not a control-flow dependency
             logger.debug("CoordinationLayer: trace persistence failed: %s", e)
             return None

@@ -205,3 +205,40 @@
             sh:maxCount 1 ;
             sh:path :trigger ] ;
     sh:targetClass :Schedule .
+
+# CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — a WorkItem's own
+# consent/expiry fields. Mirrors :ValidityIntervalShape's "end must not precede
+# start" invariant (temporal.shapes.ttl) for the same shape of bug: an expiry
+# recorded before its grant, or an expiry with no grant at all, is a malformed
+# consent window the enforcement gate (orchestration.work_item) already fails
+# CLOSED on (treats as lapsed) — this makes that malformation a DETECTABLE SHACL
+# violation rather than only a runtime deny. A self-contained prefix declaration
+# is used (not temporal.shapes.ttl's :temporalPrefixes) because the ontology gate
+# validates each shapes/*.ttl file in isolation.
+:consentPrefixes
+    sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] .
+
+:WorkItemConsentBooleanShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — when present, consent_required must be boolean." ;
+    sh:name "Work Item Consent Required Shape" ;
+    sh:property [ sh:datatype xsd:boolean ;
+            sh:maxCount 1 ;
+            sh:message "WorkItem.consent_required must be a single boolean." ;
+            sh:path :consent_required ] ;
+    sh:targetClass :WorkItem .
+
+:WorkItemConsentWindowShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — a WorkItem's consent_expires_at must not precede its consent_granted_at, and an expiry must never be recorded without a grant." ;
+    sh:name "Work Item Consent Window Shape" ;
+    sh:targetClass :WorkItem ;
+    sh:sparql [
+        sh:message "consent_expires_at precedes consent_granted_at, or an expiry is recorded with no grant — malformed consent window (the claim/renewal gate treats this as LAPSED, fail-closed)." ;
+        sh:prefixes :consentPrefixes ;
+        sh:select """
+            SELECT $this ?expiresAt
+            WHERE {
+                $this kg:consent_expires_at ?expiresAt .
+                OPTIONAL { $this kg:consent_granted_at ?grantedAt }
+                FILTER (!BOUND(?grantedAt) || ?expiresAt < ?grantedAt)
+            }
+        """ ] .

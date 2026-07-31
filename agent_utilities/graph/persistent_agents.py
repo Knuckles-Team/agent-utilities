@@ -178,7 +178,13 @@ class PersistentAgentManager:
                     {"aid": agent_id, "ts": timestamp},
                 )
             except Exception as e:
-                logger.debug("Heartbeat update failed: %s", e)
+                # D-DST-6: the in-memory registry's heartbeat_ts (line ~171) already
+                # advanced regardless of this write's outcome — a persistently-failing
+                # KG write leaves the graph-side liveness signal silently stale with no
+                # operator-visible sign, indistinguishable from a healthy write. Raised
+                # to warning (matching register_agent's precedent for the same resource
+                # just above) so a broken heartbeat mirror is diagnosable.
+                logger.warning("Heartbeat update failed (KG liveness signal now stale): %s", e)
 
     def update_status(self, agent_id: str, status: str) -> None:
         """Update an agent's lifecycle status.
@@ -225,7 +231,14 @@ class PersistentAgentManager:
                     {"aid": agent_id, "state": json.dumps(state)},
                 )
             except Exception as e:
-                logger.debug("State save failed: %s", e)
+                # D-DST-6: save_state's contract is session continuity across process
+                # restarts — the local dict (line ~216) already reflects the new state,
+                # but a failed KG write means a later load_state() (a different process,
+                # or this one after a restart) will silently return the STALE previous
+                # snapshot with no sign this save was lost. Raised to warning (matching
+                # register_agent's precedent for the same resource) so lost saves are
+                # diagnosable.
+                logger.warning("State save failed (session continuity NOT persisted): %s", e)
 
     def load_state(self, agent_id: str) -> dict[str, Any]:
         """Load an agent's saved state snapshot.
@@ -256,7 +269,14 @@ class PersistentAgentManager:
                         return json.loads(raw)
                     return raw if isinstance(raw, dict) else {}
             except Exception as e:
-                logger.debug("State load failed: %s", e)
+                # D-DST-6: a query/deserialize failure here falls through to the same
+                # `return {}` as "no saved state exists" (line ~261) — a caller resuming
+                # an agent after restart cannot tell "genuinely fresh agent" from "state
+                # existed but the backend read/json.loads failed", and will silently
+                # reinitialize from scratch, discarding real prior progress. Raised to
+                # warning so a broken load path is diagnosable instead of masquerading
+                # as a legitimate fresh start.
+                logger.warning("State load failed (falling back to empty state): %s", e)
 
         return {}
 
@@ -292,7 +312,7 @@ class PersistentAgentManager:
                     aid = r.get("aid", "")
                     if aid and aid not in subscribers:
                         subscribers.append(aid)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — the local-registry scan above always returns whatever it found; a KG-merge failure only leaves a "local-only" view (never a false-empty/false-success result). find_subscribers/list_agents both have zero in-repo callers today (unwired), so this degrade path isn't currently exercised in production
                 logger.debug("Subscriber lookup failed: %s", e)
 
         return subscribers
@@ -364,7 +384,7 @@ class PersistentAgentManager:
                                 "heartbeat_ts": r.get("hb", ""),
                             }
                         )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — local registry entries are already appended to `agents` above before this KG-supplement query runs; a failure here just omits any KG-only agents from the merged list, it never falsely drops or mismarks a local entry
                 logger.debug("Agent listing failed: %s", e)
 
         return agents

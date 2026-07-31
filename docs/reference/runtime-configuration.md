@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-545 typed fields · 350 runtime-only call-site inputs.
+547 typed fields · 356 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -667,6 +667,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `AGENT_EXECUTION_TIMEOUT` | `float` | `120.0` |
 | `CIRCUIT_BREAKER_THRESHOLD` | `int` | `3` |
 | `ENABLE_PROGRESSIVE_SYNTHESIS` | `bool` | `True` |
+| `DISTILLATION_PROMOTION_THRESHOLD` | `int` | `3` |
+| `DISTILLATION_QUALITY_SCORE_MINIMUM` | `float` | `0.6` |
 
 ## Innovation Framework (CONCEPT:AU-OS.state.cognitive-scheduler-preemption through CONCEPT:AU-OS.state.cognitive-scheduler-preemption)
 
@@ -841,6 +843,9 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_CARD_MODEL` | 1 |
 | `KG_CONCEPT_CODE_LINK` | 2 |
 | `KG_DAEMON_LOG_LEVEL` | 1 |
+| `KG_DAEMON_METRICS` | 1 |
+| `KG_DAEMON_METRICS_HOST` | 1 |
+| `KG_DAEMON_METRICS_PORT` | 1 |
 | `KG_DAEMON_ROLE` | 5 |
 | `KG_EA_WRITEBACK` | 1 |
 | `KG_EMBED_TIMEOUT` | 1 |
@@ -946,6 +951,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `OPENMAINT_TOKEN` | 1 |
 | `OPENMAINT_URL` | 1 |
 | `OTEL_EXPORTER_OTLP_HEADERS` | 2 |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | 1 |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | 1 |
 | `OTEL_SERVICE_NAME` | 2 |
 | `OTEL_TRACES_EXPORTER` | 1 |
 | `OWL_ALLOW_REMOTE_IMPORTS` | 1 |
@@ -961,6 +968,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `POSTGRES_DSN` | 1 |
 | `POSTIZ_TOKEN` | 1 |
 | `POSTIZ_URL` | 1 |
+| `PROMETHEUS_MULTIPROC_DIR` | 1 |
 | `PROVIDER` | 2 |
 | `PYTEST_CURRENT_TEST` | 1 |
 | `QUERY_ROUTER_L1_THRESHOLD` | 1 |

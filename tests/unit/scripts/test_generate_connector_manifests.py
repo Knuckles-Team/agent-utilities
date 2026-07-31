@@ -69,6 +69,26 @@ _A2A = """\
 ]}
 """
 
+#: CONCEPT:AU-KG.ontology.registry-derived-server-alias — the generator now derives
+#: every sync preset's ``server`` from the fleet registry and fails closed when a
+#: provider is unregistered; register the fixture provider under the exact alias
+#: its own preset already declares ("acme-api").
+_REGISTRY = """\
+version: 1
+services:
+  - name: acme-api
+    package: acme-api
+    console_script: acme-api
+    host_port: 8200
+"""
+
+
+@pytest.fixture
+def registry(tmp_path: Path) -> Path:
+    path = tmp_path / "mcp-fleet.registry.yml"
+    path.write_text(_REGISTRY, encoding="utf-8")
+    return path
+
 
 @pytest.fixture
 def connector_root(tmp_path: Path) -> Path:
@@ -95,8 +115,23 @@ def release_signing_key(monkeypatch):
     )
 
 
-def test_build_manifest_projects_all_artifacts(connector_root: Path):
-    m = gen.build_manifest(connector_root, now=_NOW)
+@pytest.fixture
+def signer(release_signing_key: None) -> object:
+    """An explicit signer, bypassing ``release_signer_for_publication``.
+
+    CONCEPT:AU-KG.ontology.release-key-rotation — publication signing now requires
+    versioned secret custody (``vault://``/``secret://``); the fixture's ``env://``
+    material intentionally is not that, so the tests that must actually succeed
+    pass this explicit signer rather than relying on the publication resolver.
+    """
+
+    return gen.ontology_integrity.ReleaseSigner.from_runtime()
+
+
+def test_build_manifest_projects_all_artifacts(
+    connector_root: Path, registry: Path, signer: object
+):
+    m = gen.build_manifest(connector_root, now=_NOW, registry_path=registry, release_signer=signer)
     assert m.connector == "acme-api"
     assert m.ontology_source == "acme"  # detected from the ttl's owl:Ontology IRI
     assert {r.name for r in m.resources} == {"Order", "Person"}
@@ -120,7 +155,7 @@ def test_build_manifest_projects_all_artifacts(connector_root: Path):
 
 
 def test_build_manifest_uses_project_identity_in_a_worktree(
-    connector_root: Path,
+    connector_root: Path, registry: Path, signer: object
 ):
     (connector_root / "pyproject.toml").write_text(
         '[project]\nname = "acme-api"\nversion = "1.0.0"\n',
@@ -129,14 +164,22 @@ def test_build_manifest_uses_project_identity_in_a_worktree(
     worktree = connector_root.with_name("fix-governed-source-manifest")
     connector_root.rename(worktree)
 
-    manifest = gen.build_manifest(worktree, now=_NOW)
+    manifest = gen.build_manifest(
+        worktree, now=_NOW, registry_path=registry, release_signer=signer
+    )
 
     assert manifest.connector == "acme-api"
 
 
-def test_build_manifest_is_deterministic(connector_root: Path, monkeypatch):
-    m1 = gen.build_manifest(connector_root, now=_NOW)
-    m2 = gen.build_manifest(connector_root, now=_NOW)
+def test_build_manifest_is_deterministic(
+    connector_root: Path, registry: Path, signer: object, monkeypatch
+):
+    m1 = gen.build_manifest(
+        connector_root, now=_NOW, registry_path=registry, release_signer=signer
+    )
+    m2 = gen.build_manifest(
+        connector_root, now=_NOW, registry_path=registry, release_signer=signer
+    )
     assert gen._to_yaml(m1) == gen._to_yaml(
         m2
     )  # byte-identical, incl. hash + signature
@@ -144,24 +187,30 @@ def test_build_manifest_is_deterministic(connector_root: Path, monkeypatch):
     assert m1.provenance.signature == m2.provenance.signature
 
 
-def test_build_manifest_refuses_missing_release_key(connector_root: Path, monkeypatch):
+def test_build_manifest_refuses_missing_release_key(
+    connector_root: Path, registry: Path, monkeypatch
+):
     monkeypatch.delenv("ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF", raising=False)
 
     with pytest.raises(gen.ontology_integrity.ReleaseSigningError):
-        gen.build_manifest(connector_root, now=_NOW)
+        gen.build_manifest(connector_root, now=_NOW, registry_path=registry)
 
 
 def test_build_manifest_refuses_ambiguous_release_key_sources(
-    connector_root: Path, monkeypatch
+    connector_root: Path, registry: Path, monkeypatch
 ):
     monkeypatch.setenv("ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF", "env://OTHER_KEY")
 
     with pytest.raises(gen.ontology_integrity.ReleaseSigningError):
-        gen.build_manifest(connector_root, now=_NOW)
+        gen.build_manifest(connector_root, now=_NOW, registry_path=registry)
 
 
-def test_pii_and_crosswalk_left_as_review_todos(connector_root: Path):
-    m = gen.build_manifest(connector_root, now=_NOW)
+def test_pii_and_crosswalk_left_as_review_todos(
+    connector_root: Path, registry: Path, signer: object
+):
+    m = gen.build_manifest(
+        connector_root, now=_NOW, registry_path=registry, release_signer=signer
+    )
     # PII heuristic flagged the :email field, and flagged it for review (never auto-enforced).
     assert "email" in m.policy.pii_fields.get(
         "Order", []

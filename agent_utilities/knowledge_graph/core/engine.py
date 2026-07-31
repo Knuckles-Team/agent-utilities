@@ -258,7 +258,7 @@ class IntelligenceGraphEngine(
                 count,
             )
             return count
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — count is returned and used only by the log lines around it; a registration failure here correctly yields 0 services registered, exactly the information the return value already conveys to callers
             logger.debug("Service registration failed: %s", e)
             return 0
 
@@ -1195,7 +1195,7 @@ class IntelligenceGraphEngine(
                 category="deep_analysis",
                 tags=["synthesis", query],
             )
-        except Exception as mem_e:
+        except Exception as mem_e:  # noqa: BLE001 — add_memory is a secondary recall aid over a synthesis (llm_summary) that's already fully computed and returned in the payload below regardless of whether this memory-store call succeeds
             logger.debug(f"Memory store skipped: {mem_e}")
 
         return {
@@ -1257,7 +1257,7 @@ class IntelligenceGraphEngine(
             if ephemeral or not self._compute_is_authority:
                 try:
                     self.graph_compute.remove_node(node_id)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — graph_compute is the ephemeral/secondary mirror here (the durable backend.delete_node above already logs its own failure at warning); 'not found' and a real failure read the same from this call so debug is the right level for the common case
                     logger.debug(
                         f"graph_compute remove_node failed or node not found: {e}"
                     )
@@ -1307,7 +1307,7 @@ class IntelligenceGraphEngine(
             if ephemeral or not self._compute_is_authority:
                 try:
                     self.graph_compute.remove_edge(source_id, target_id)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — graph_compute mirror delete for delete_edge — same reasoning as delete_node above: the durable backend.delete_edge already logs its failure at warning
                     logger.debug(
                         f"graph_compute remove_edge failed or edge not found: {e}"
                     )

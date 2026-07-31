@@ -19,6 +19,16 @@ services:
       - "${MCP_ALLOWED_ORIGIN:?set the exact trusted HTTPS client origin}"
     environment:
       PYTHONUNBUFFERED: "1"
+      # Structured JSON request logs always go to stdout (see mcp_v2_gateway/
+      # tracing.py); MCP_V2_GATEWAY_LOG_LEVEL only changes the verbosity.
+      MCP_V2_GATEWAY_LOG_LEVEL: "${MCP_V2_GATEWAY_LOG_LEVEL:-INFO}"
+      # Trace export is opt-in and fails open: a span is always created for
+      # every request (so the JSON logs above are always trace-correlated),
+      # but nothing is sent over the network unless this is set -- an
+      # unreachable collector must never block or fail a request.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      OTEL_EXPORTER_OTLP_HEADERS: "${OTEL_EXPORTER_OTLP_HEADERS:-}"
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-graphos-mcp-v2-gateway}"
     # The sidecar must only be reachable through an authenticated TLS ingress.
     # It forwards the caller's bearer unchanged to GraphOS; it never owns a
     # second auth, tenant, consent, or durable task store.

@@ -124,6 +124,8 @@ class _TasksDownstream:
             }
         if arguments["action"] == "cancel":
             return {"status": "cancelled"}
+        if arguments["action"] == "input":
+            return {"status": "submitted"}
         raise AssertionError(arguments)
 
 

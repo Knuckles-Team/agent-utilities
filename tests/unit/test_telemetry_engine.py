@@ -43,6 +43,7 @@ def _clean_otel_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("EPISTEMIC_GRAPH_OBS_ADDR", raising=False)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_HEADERS", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
     yield
 
 
@@ -89,21 +90,55 @@ def test_enable_otel_false_stays_unconfigured_even_with_endpoint(
 # ---------------------------------------------------------------------------
 
 
-def test_endpoint_configured_wires_a_real_tracer_and_meter_provider(
+def test_endpoint_configured_wires_a_real_tracer_but_not_a_meter_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The core L24 assertion: enabling OTel configures REAL SDK providers."""
+    """The core L24 assertion, updated for D-OG-3: enabling OTel with only a
+    base/traces endpoint configures a REAL ``TracerProvider`` — but NOT a
+    ``MeterProvider``, since neither of this deployment's real OTLP
+    collectors (Langfuse, Tempo) accepts OTLP metrics. No default derivation
+    of a metrics destination happens; see
+    ``test_metrics_endpoint_configured_wires_a_real_meter_provider`` below for
+    the explicit opt-in path.
+    """
     monkeypatch.setenv("EPISTEMIC_GRAPH_OBS_ADDR", _DEAD_COLLECTOR)
     telemetry = TelemetryEngine()
     try:
         assert telemetry.is_otel_configured() is True
 
-        from opentelemetry.sdk.metrics import MeterProvider
         from opentelemetry.sdk.trace import TracerProvider
 
         assert isinstance(telemetry._tracer_provider, TracerProvider)
-        assert isinstance(telemetry._meter_provider, MeterProvider)
         assert telemetry._tracer is not None
+        # D-OG-3: no metrics-capable endpoint was configured, so the
+        # MeterProvider (and everything downstream of it) stays unbuilt —
+        # a clean no-op, not a partially-wired object.
+        assert telemetry._meter_provider is None
+        assert telemetry._meter is None
+        assert telemetry._token_counter is None
+        assert telemetry._graph_run_counter is None
+    finally:
+        _shutdown(telemetry)
+
+
+def test_metrics_endpoint_configured_wires_a_real_meter_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-OG-3 opt-in path: setting the OTel-standard
+    ``OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`` builds a REAL ``MeterProvider``
+    with real counter instruments — the complement of the no-op default
+    proven above."""
+    monkeypatch.setenv("EPISTEMIC_GRAPH_OBS_ADDR", _DEAD_COLLECTOR)
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", f"{_DEAD_COLLECTOR}/v1/metrics"
+    )
+    telemetry = TelemetryEngine()
+    try:
+        assert telemetry.is_otel_configured() is True
+
+        from opentelemetry.sdk.metrics import MeterProvider
+
+        assert isinstance(telemetry._meter_provider, MeterProvider)
         assert telemetry._meter is not None
         # Real instrument objects, not placeholders/no-op counters.
         assert telemetry._token_counter is not None
@@ -176,17 +211,65 @@ def test_on_response_records_real_token_metrics(
 ) -> None:
     monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
     monkeypatch.setenv("EPISTEMIC_GRAPH_OBS_ADDR", _DEAD_COLLECTOR)
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", f"{_DEAD_COLLECTOR}/v1/metrics"
+    )
     telemetry = TelemetryEngine(enable_audit=False, enable_tokens=False)
     try:
         telemetry._lazy_init()
         assert telemetry.is_otel_configured() is True
-        # Must not raise — the counter is a real instrument backed by the
-        # real MeterProvider constructed above.
+        assert telemetry._token_counter is not None
+        # Drive the real instrument and prove the VALUE actually moves: spy
+        # on the real counter's ``add`` (not a mock counter — the genuine
+        # instrument bound to ``_meter_provider``) and assert it was called
+        # with the actual observed token count, not merely that the call
+        # didn't raise.
+        calls: list[tuple[int, dict]] = []
+        real_add = telemetry._token_counter.add
+
+        def _spy_add(amount, attrs=None):
+            calls.append((amount, dict(attrs or {})))
+            return real_add(amount, attrs)
+
+        monkeypatch.setattr(telemetry._token_counter, "add", _spy_add)
+
         telemetry.on_response(
             run_id="run-1",
             usage={"prompt": 100, "response": 50, "thoughts": 0, "tool_use": 5},
             model="test-model",
         )
+        assert calls, "on_response must drive the real counter instrument"
+        recorded_total = sum(amount for amount, _attrs in calls)
+        assert recorded_total == 155  # 100 (prompt) + 50 (response) + 5 (tool_use)
+        # "thoughts" was 0 — the falsy-count guard skips recording it, so it
+        # must be absent, not merely zero.
+        kinds = {attrs.get("kind") for _amount, attrs in calls}
+        assert kinds == {"prompt", "response", "tool_use"}
+    finally:
+        _shutdown(telemetry)
+
+
+def test_on_response_is_a_clean_noop_without_a_metrics_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-OG-3 wiring proof: with tracing configured but NO metrics endpoint,
+    ``on_response`` must still run to completion (never raise on a ``None``
+    counter) and must genuinely record nothing — proven by
+    ``_token_counter`` staying ``None`` through the real call, not merely by
+    the absence of an exception."""
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    monkeypatch.setenv("EPISTEMIC_GRAPH_OBS_ADDR", _DEAD_COLLECTOR)
+    telemetry = TelemetryEngine(enable_audit=False, enable_tokens=False)
+    try:
+        telemetry._lazy_init()
+        assert telemetry.is_otel_configured() is True
+        assert telemetry._token_counter is None
+        telemetry.on_response(
+            run_id="run-1",
+            usage={"prompt": 100, "response": 50, "thoughts": 0, "tool_use": 5},
+            model="test-model",
+        )
+        assert telemetry._token_counter is None
     finally:
         _shutdown(telemetry)
 

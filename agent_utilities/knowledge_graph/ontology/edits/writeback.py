@@ -171,5 +171,5 @@ class WriteBackRouter:
         for sink in self._sinks.values():
             try:
                 sink.flush()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — one sink's flush inside the per-sink loop over self._sinks.values(); a failing sink doesn't stop the other registered sinks from flushing
                 logger.debug("WriteBackRouter: flush failed: %s", exc)

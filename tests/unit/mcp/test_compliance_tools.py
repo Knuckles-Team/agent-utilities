@@ -10,6 +10,7 @@ export reuses the SAME ``explain_belief`` dispatch ``graph_epistemic``'s
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from agent_utilities.mcp import kg_server
@@ -67,7 +68,17 @@ class _FakeEngine:
 def _register(monkeypatch):
     mcp = _CollectingMCP()
     register_compliance_tools(mcp)
-    return mcp.tools["graph_compliance"]
+    async_tool = mcp.tools["graph_compliance"]
+
+    # graph_compliance is `async def` (D-50 — event-loop isolation for sync
+    # MCP tool handlers with genuine blocking bodies). This suite predates
+    # that change and calls the registered tool directly (bypassing
+    # kg_server._execute_tool, which already awaits async tools) — wrap it so
+    # every existing synchronous `tool(...)` call site keeps working unchanged.
+    def _sync_tool(**kwargs):
+        return asyncio.run(async_tool(**kwargs))
+
+    return _sync_tool
 
 
 def test_registered_on_graphos_tool_table():

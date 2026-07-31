@@ -415,7 +415,14 @@ async def verifier_step(
                             adversarial_result.severity,
                         )
             except Exception as e:
-                logger.debug(f"Adversarial verification skipped: {e}")
+                # D-DST-5 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): adversarial
+                # verification is a security-adjacent "hacker agent" stress-test (AU-AHE.evaluation.
+                # adversarial-verification), not best-effort telemetry — a runtime failure here
+                # silently lets the step proceed to synthesis WITHOUT the adversarial pass ever
+                # having actually run, indistinguishable in the logs from "ran clean". Raised to
+                # warning so a persistently-erroring adversarial check is diagnosable rather than
+                # silently degrading to "quality gate only" coverage.
+                logger.warning(f"Adversarial verification failed to run (step NOT adversarially checked): {e}")
 
         except Exception as e:
             logger.warning(
@@ -590,14 +597,34 @@ async def synthesizer_step(
             "\nThe response contract requires exactly one JSON object. Use the "
             "structured output schema; never emit markdown fences or surrounding prose."
         )
+        _synth_model_settings: Any = ModelSettings(
+            max_tokens=_STRUCTURED_RESPONSE_MAX_TOKENS,
+            temperature=0.0,
+        )
+        try:
+            # D-54c-4 — the verifier's structured-synthesis agent is built with an
+            # explicit model_settings and never runs through attach_profile_resolver,
+            # so fold the provider-native prompt-cache directive here too
+            # (CONCEPT:AU-ORCH.optimization.provider-prompt-cache).
+            from agent_utilities.caching.prompt_cache import fold_prompt_cache_hint
+
+            _agent_model_identity = getattr(
+                ctx.deps.agent_model, "model_name", None
+            ) or (
+                ctx.deps.agent_model if isinstance(ctx.deps.agent_model, str) else None
+            )
+            _synth_model_settings = fold_prompt_cache_hint(
+                _synth_model_settings,
+                system_prompt=final_system_prompt,
+                model_identity=_agent_model_identity,
+            )
+        except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
+            pass
         synthesizer = create_context_agent(
             model=ctx.deps.agent_model,
             system_prompt=final_system_prompt,
             output_type=dict[str, Any],
-            model_settings=ModelSettings(
-                max_tokens=_STRUCTURED_RESPONSE_MAX_TOKENS,
-                temperature=0.0,
-            ),
+            model_settings=_synth_model_settings,
             retries=2,
         )
     else:
@@ -706,7 +733,7 @@ async def synthesizer_step(
                 name=f"Execution {ctx.state.session_id or 'unknown'}",
                 category="historical_execution",
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — fire-and-forget historical context for future runs; doesn't affect the current GraphResponse already returned by this step
         logger.debug(f"Failed to write execution memory: {e}")
 
     # CONCEPT:AU-KG.maintenance.post-execution-feedback — Post-execution feedback loop
@@ -732,7 +759,7 @@ async def synthesizer_step(
                 ctx.state.routed_domain,
                 execution_success,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — learning-signal update only; execution_success was already correctly computed above before this block
             logger.debug(f"Self-Model feedback failed: {e}")
 
         # TeamConfig outcome recording
@@ -754,7 +781,7 @@ async def synthesizer_step(
                         team_config_id,
                         reward,
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — lost reward data point for future team-reuse scoring, not a false-success mark; the reward value itself was already computed correctly
             logger.debug(f"TeamConfig feedback failed: {e}")
 
         # CONCEPT:AU-ORCH.optimization.workflow-distillation — Workflow Distillation Hook (async background)
@@ -782,13 +809,13 @@ async def synthesizer_step(
                             team_config_id=plan_meta.get("team_config_id"),
                             quality_score=1.0,
                         )
-                    except Exception as ex:
+                    except Exception as ex:  # noqa: BLE001 — explicitly "fire and forget" background task; nothing awaits it or checks its outcome
                         logger.debug(f"Distillation hook async task failed: {ex}")
 
                 # Fire and forget — do not block the response
                 asyncio.ensure_future(_fire_distillation())
                 logger.debug("[ORCH-1.8] Distillation hook dispatched (background)")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — outer dispatch-failure wrapper for the same fire-and-forget hook above; nothing depends on the dispatch itself succeeding
                 logger.debug(f"Distillation hook dispatch failed: {e}")
 
     return End(

@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-364 publishable pages · 179 direct nav targets · 119 public capabilities · 770 action rows · 545 typed configuration fields · 350 runtime-only call-site inputs.
+370 publishable pages · 183 direct nav targets · 119 public capabilities · 777 action rows · 547 typed configuration fields · 356 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -27,6 +27,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [OKF-CIS concept IDs](../okf-cis.md) — catalog
 - [Agent Utilities — Concept Overview](../overview.md) — direct nav
 - [Complete OWL Ontology Sweep & Cross-Domain Synergy Blueprint](../owl_kg_synergies.md) — catalog
+- [Project Structure](../project_structure.md) — catalog
 - [Reliability / Chaos Matrix](../reliability_matrix.md) — catalog
 - [Start Here — What agent-utilities Is & How to Use It](../start-here.md) — direct nav
 - [Workflow × Knowledge Graph Synergy Map](../workflow-kg-synergy.md) — catalog
@@ -166,6 +167,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [The delegation-first operating model — local LLM + graph-os do the work; the harness orchestrates + resolves exceptions](../architecture/delegation-first-operating-model.md) — direct nav
 - [Distributed multi-GPU concurrency & optimal planning](../architecture/distributed_gpu_concurrency.md) — direct nav
 - [Document → Knowledge-Graph Fact Extraction](../architecture/document_fact_extraction.md) — direct nav
+- [Drift-proof release & versioning](../architecture/drift_proof_release.md) — direct nav
 - [Dynamic graph construction](../architecture/dynamic-graph-construction.md) — catalog
 - [Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)](../architecture/edit_application_engine.md) — direct nav
 - [Tenant-Partitioned Engine Sharding](../architecture/engine_sharding.md) — direct nav
@@ -201,6 +203,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md) — direct nav
 - [Knowledge Graph Ingestion Stability & Locking Architecture](../architecture/knowledge_graph_ingestion_stability.md) — catalog
 - [Dynamic KV-Cache-Layering Policy (per-execution cache-worthiness)](../architecture/kv-cache-layering-policy.md) — direct nav
+- [KV-Checkpoint Intelligence — checkpointing at good moments](../architecture/kv-checkpoint-intelligence.md) — direct nav
+- [Lane concurrency — four arbitration classes](../architecture/lane-concurrency.md) — direct nav
 - [Latent-Native Memory](../architecture/latent_native_memory.md) — direct nav
 - [Layered Hybrid Architecture — KG Comparative Analysis Pipeline](../architecture/layered_analysis_architecture.md) — catalog
 - [LLM / Embedding Server-Capacity Guard](../architecture/llm-server-capacity-guard.md) — direct nav
@@ -234,6 +238,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Phased Dependency Release Architecture](../architecture/phased_release_architecture.md) — catalog
 - [Privacy-safe external graph ingestion](../architecture/privacy-safe-external-ingestion.md) — direct nav
 - [Pydantic AI v2 migration](../architecture/pydantic-ai-v2-migration.md) — direct nav
+- [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — direct nav
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — direct nav
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — direct nav
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — direct nav
@@ -241,6 +246,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)](../architecture/sampling_profiles.md) — direct nav
 - [The Self-Evolution Flywheel — transparent, steerable, governed](../architecture/self-evolution-flywheel.md) — direct nav
 - [Self-Improving Reasoning Substrate](../architecture/self_improving_reasoning_substrate.md) — direct nav
+- [The shared workspace .venv — sync, flip-on-merge, drift, upgrade](../architecture/shared-venv-lifecycle.md) — catalog
 - [Shortcut-Resistant Search-Task Synthesis](../architecture/shortcut_resistant_search_synthesis.md) — catalog
 - [Skill-Workflow → Knowledge-Graph Ingestion](../architecture/skill_workflow_ingestion.md) — catalog
 - [Skills-over-MCP: One Ranked Capability Space (CONCEPT:AU-KG.retrieval.unified-capability-contract)](../architecture/skills_over_mcp.md) — direct nav

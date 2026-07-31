@@ -113,6 +113,7 @@ _EXTERNAL_PROPERTY_GRAPH_FIELDS = frozenset(
         "ingest_operation",
         "ingest_page_size",
         "mapping_policy_ref",
+        "mirror_target",
         "name",
         "require_approval",
         "reconcile_deletions",
@@ -289,6 +290,33 @@ def validate_persistable_connection_spec(spec: dict[str, Any]) -> None:
             raise ValueError(
                 f"persistent connection field {field!r} must be a secret reference"
             )
+    # CONCEPT:AU-KG.backend.mirror-target-graph — a mirror target is neutral
+    # operator metadata (a mode, plus an optional portable graph name in the same
+    # spirit as the connection's own ``name``), not endpoint/identity material —
+    # so it persists as a literal, but it must PARSE here rather than fail later
+    # at backend-construction time.
+    #
+    # Imported lazily, not at module level: this module is reached from
+    # ``AgentConfig``'s own pydantic validation (``_validate_durable_kg_connections``
+    # imports this function from inside the validator, itself already a lazy
+    # import for the same reason). A module-level import here would force
+    # ``agent_utilities.knowledge_graph.backends`` to initialize — which calls
+    # ``setting()`` at import time (``_pg_pool_size`` module globals) — while
+    # config validation is still in progress, reentering
+    # ``_load_xdg_json_config_locked()`` before the first pass has returned and
+    # raising ``ImportError: cannot import name ... from partially initialized
+    # module`` (this exact chain crashed graph-os on 2026-07-31 boot, D-DM-1
+    # sweep). Keep this import function-scoped.
+    from agent_utilities.knowledge_graph.backends.mirror_target import (
+        MIRROR_TARGET_FIELD,
+        parse_mirror_target,
+        validate_target_name,
+    )
+
+    if MIRROR_TARGET_FIELD in spec:
+        declared = parse_mirror_target(spec.get(MIRROR_TARGET_FIELD))
+        if declared is not None and declared.name:
+            validate_target_name(declared.name)
     backend_value = str(spec.get("backend") or "").strip()
     backend_type_value = str(spec.get("backend_type") or "").strip()
     if backend_value and backend_type_value and backend_value != backend_type_value:

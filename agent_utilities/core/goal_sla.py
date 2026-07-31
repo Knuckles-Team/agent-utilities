@@ -121,7 +121,7 @@ def _escalate(engine: Any, goal: dict[str, Any], verdict: dict[str, Any]) -> Non
             success=False,
             reason=f"SLA breach: open {verdict['age_seconds']}s > {verdict['sla_seconds']}s",
         )
-    except Exception as exc:  # pragma: no cover - best-effort
+    except Exception as exc:  # pragma: no cover - best-effort  # noqa: BLE001 — evaluate_goal_slas already recorded the breach in its own `breached` list before calling _escalate; a failed reward-EMA update only means one action-outcome sample is missed for policy learning, it doesn't affect breach detection or goal state
         logger.debug("goal SLA outcome failed: %s", exc)
     # 2. Notify the goal's owner / operators.
     target = goal.get("escalate_to") or ""

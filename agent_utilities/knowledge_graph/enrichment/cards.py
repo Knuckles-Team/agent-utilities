@@ -380,7 +380,7 @@ def generate_symbol_cards(
                     prompt = build_symbol_prompt(c, calls_by_id.get(c.id))
                     try:
                         summary, resp = _parse_card_json(llm_fn(prompt))
-                    except Exception as e:  # pragma: no cover - transport failure
+                    except Exception as e:  # pragma: no cover - transport failure  # noqa: BLE001 — transient LLM failure marks the card 'failed' (see the return below) so it is retried on the next backfill pass rather than permanently marked done, and the backfill breaker can trip — rationale already documented in the comment below
                         logger.debug("card gen failed for %s: %s", c.id, e)
                         # Transient LLM failure → mark 'failed' so it is retried (not
                         # permanently marked done) and the backfill breaker can trip.
@@ -389,7 +389,7 @@ def generate_symbol_cards(
                 prompt = build_batch_prompt(group, calls_by_id)
                 try:
                     parsed = _parse_batch_cards(llm_fn(prompt), len(group))
-                except Exception as e:  # pragma: no cover - transport failure
+                except Exception as e:  # pragma: no cover - transport failure  # noqa: BLE001 — mirrors the single-symbol branch above: explicitly returns status="failed" cards (see that branch's comment) so the backfill retries them rather than treating a transport failure as a completed card
                     logger.debug("batch card gen failed (%d syms): %s", len(group), e)
                     return [_card_for(c, "", [], status="failed") for c in group]
                 return [

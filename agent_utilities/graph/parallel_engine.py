@@ -1065,7 +1065,7 @@ class ParallelEngine:
                 timeout=60.0,
             )
             text = str(res.output)
-        except Exception as e:  # pragma: no cover - exercised via monkeypatch
+        except Exception as e:  # pragma: no cover - exercised via monkeypatch  # noqa: BLE001 — docstring documents this exact contract ("degrades to pass so verification never blocks execution"); SWARM-2 verification is advisory, not a release gate
             logger.debug("verify judge unavailable, passing: %s", e)
             return True, ""
         passed = "FAIL" not in text.upper().split("FEEDBACK")[0]
@@ -1455,7 +1455,7 @@ class ParallelEngine:
                 )
                 self._record_winners_to_memory(winners)
             return [w.specialist_id for w in winners]
-        except Exception as e:  # pragma: no cover - non-fatal telemetry path
+        except Exception as e:  # pragma: no cover - non-fatal telemetry path  # noqa: BLE001 — explicit empty-list fallback returned right below; callers treat an empty winners list as "no GWT broadcast this round", the underlying `outputs` results are computed and available elsewhere regardless
             logger.debug("WorkspaceAttention broadcast skipped: %s", e)
             return []
 
@@ -1484,7 +1484,7 @@ class ParallelEngine:
                         "source": "workspace_attention",
                     },
                 )
-        except Exception as e:  # pragma: no cover - non-fatal
+        except Exception as e:  # pragma: no cover - non-fatal  # noqa: BLE001 — docstring: "Best-effort"; winners were already selected and returned to the caller before this call, so a memory-store failure only loses INSIGHT-bank reinforcement, not the round's winner list
             logger.debug("EvolvingMemoryStore winner recording skipped: %s", e)
 
     def _social_swarm_health(
@@ -1523,7 +1523,7 @@ class ParallelEngine:
                 float(len(r.output)) if r.success else 0.0 for r in all_results
             ]
             return health
-        except Exception as e:  # pragma: no cover - non-fatal telemetry
+        except Exception as e:  # pragma: no cover - non-fatal telemetry  # noqa: BLE001 — returns {} on failure, and the caller only merges it when truthy; a snapshot failure just omits the P1-P4 block from that wave's telemetry
             logger.debug("Social-system health snapshot skipped: %s", e)
             return {}
 
@@ -1621,7 +1621,7 @@ class ParallelEngine:
                 sum(len(a.depends_on) for a in manifest.agents),
             )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — execution_id is generated up front and already returned unpersisted when self.engine is None, an existing supported no-engine contract; a persistence exception hits that same already-covered return path
             logger.debug("ParallelEngine: KG persistence failed: %s", e)
 
         return execution_id

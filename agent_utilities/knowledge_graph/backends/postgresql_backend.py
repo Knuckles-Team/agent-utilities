@@ -25,8 +25,14 @@ from agent_utilities.security.identifiers import (
 )
 
 from .base import GraphBackend
+from .mirror_target import MirrorTarget, resolve_mirror_target
 
 logger = logging.getLogger(__name__)
+
+# Apache AGE has no server-side "default graph" — a graph name is always
+# required — so this name plays the instance-default role when a connection
+# names none (CONCEPT:AU-KG.backend.mirror-target-graph).
+DEFAULT_GRAPH_NAME = "agent_graph"
 
 # Embedding dimension from env (must match model output)
 _EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
@@ -87,18 +93,30 @@ class PostgreSQLBackend(GraphBackend):
     def __init__(
         self,
         dsn: str,
-        graph_name: str = "agent_graph",
+        graph_name: str | None = None,
         pool_min: int = 2,
         pool_max: int = 10,
         pggraph_schema: str | None = None,
         pool_timeout: float | None = None,
+        mirror_target: MirrorTarget | None = None,
         tls_profile: str | None = None,
         tls_profile_ref: str | None = None,
         tls_profile_config: Mapping[str, Any] | None = None,
         profile_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
         self._dsn = dsn
-        self._graph_name = _require_sql_identifier(graph_name)
+        # CONCEPT:AU-KG.backend.mirror-target-graph — the AGE graph name IS this
+        # tier's isolation unit, so the resolved target picks it. An explicit
+        # ``graph_name`` stays exactly as configured (mode ``named``).
+        self.mirror_target = mirror_target or resolve_mirror_target(
+            None,
+            backend_type="age",
+            named_selector=graph_name,
+            default_name=DEFAULT_GRAPH_NAME,
+        )
+        self._graph_name = _require_sql_identifier(
+            self.mirror_target.name or DEFAULT_GRAPH_NAME
+        )
         self._pool_min = pool_min
         self._pool_max = pool_max
         # Bound the wait to acquire a connection (CONCEPT:AU-KG.backend.authority-write-tail). The default
@@ -291,7 +309,7 @@ class PostgreSQLBackend(GraphBackend):
                     try:
                         safe_ext = validate_sql_identifier(ext, kind="extension")
                         cur.execute(f"CREATE EXTENSION IF NOT EXISTS {safe_ext}")
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — feature-detection for an optional Postgres extension (vector/pg_trgm); paradedb_available() and friends already probe availability rather than assuming this succeeded
                         logger.debug("Extension %s not available: %s", ext, e)
                         conn.rollback()
 
@@ -302,7 +320,7 @@ class PostgreSQLBackend(GraphBackend):
                     ddl = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols})'
                     try:
                         cur.execute(ddl)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — the comment/continue on the next line is the deliberate guard against the exact write-then-mark-seen shape: self._known_tables.add(table_name) is skipped on this path, so a failed CREATE is never mistaken for a ready table
                         logger.debug("Table %s DDL error: %s", table_def.name, e)
                         conn.rollback()
                         continue  # don't cache a table whose CREATE failed
@@ -477,7 +495,7 @@ class PostgreSQLBackend(GraphBackend):
                 with conn.cursor() as cur:
                     cur.execute("SELECT count(*) FROM kg_edges")
                     return int(cur.fetchone()[0])
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — count-only read helper; the None return is the documented 'unknown' sentinel callers already check for, never conflated with a real zero count
             logger.debug("edge_count failed: %s", e)
             return None
 
@@ -621,7 +639,7 @@ class PostgreSQLBackend(GraphBackend):
                                 )
                             """
                             )
-                        except Exception as e:
+                        except Exception as e:  # noqa: BLE001 — pgGraph search-acceleration is an optional secondary index over rows the primary write path already committed; the whole _register_pggraph block is itself wrapped by the outer `except Exception as e: logger.warning(...)` a few lines below
                             logger.debug("pgGraph add_table %s failed: %s", tbl, e)
                             conn.rollback()
 
@@ -640,7 +658,7 @@ class PostgreSQLBackend(GraphBackend):
                             )
                         """
                         )
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — pgGraph edge-registration is the same optional secondary index as the add_table site above, wrapped by the same outer warning-level handler below
                         logger.debug("pgGraph edge registration failed: %s", e)
                         conn.rollback()
 
@@ -649,7 +667,7 @@ class PostgreSQLBackend(GraphBackend):
                         cur.execute("SELECT * FROM graph.build()")
                         conn.commit()
                         logger.info("pgGraph index built successfully")
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — pgGraph index build is the same optional accelerator; wrapped by the same outer `logger.warning("pgGraph registration failed (non-fatal): %s")` a few lines below
                         logger.debug("pgGraph build failed: %s", e)
                         conn.rollback()
         except Exception as e:
@@ -1034,7 +1052,7 @@ class PostgreSQLBackend(GraphBackend):
                         (str(embedding), node_id),
                     )
                     conn.commit()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — embedding write is a secondary vector-search accelerator; the node's canonical row is already committed by the primary write path before add_embedding is ever called
             logger.debug("add_embedding failed for %s: %s", node_id, e)
 
     def semantic_search(
@@ -1137,7 +1155,7 @@ class PostgreSQLBackend(GraphBackend):
                                 results.append(d)
                         except Exception:
                             continue  # nosec B112
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — read-only search helper; a query failure degrades to whatever results were already collected from other tables in the per-table loop above (which itself already catches+skips per-table at line 1138-1139)
             logger.debug("lexical_search error: %s", e)
 
         results.sort(key=lambda x: x.get("_score", 0), reverse=True)
@@ -1159,7 +1177,7 @@ class PostgreSQLBackend(GraphBackend):
                         )
                         conn.commit()
                         logger.info("HNSW index created on %s", tbl)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — index-build is an optional performance accelerator over data that's already durably persisted; a failed CREATE INDEX just means that table's vector search falls back to a full scan, not a lost or mismarked write
                 logger.debug("HNSW index on %s failed: %s", tbl, e)
 
     # ── pgGraph Operations ───────────────────────────────────────────

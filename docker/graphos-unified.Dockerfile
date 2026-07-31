@@ -85,10 +85,13 @@ ENV UV_SYSTEM_PYTHON=1 \
 #    lake-fixture-export / restore / migrate-shards binaries (wheel `data/scripts`)
 #    straight into /usr/local/bin — next to sys.executable, exactly where EngineResolver
 #    (OS-5.63) looks for a co-located engine to autostart.
+#    The wheel directory is deliberately NOT deleted here — step 2's resolver is pointed
+#    back at it with `--find-links` so a re-resolution of `epistemic-graph[full]>=2.23.2`
+#    lands on THIS staged artifact rather than walking off to PyPI (which tops out at
+#    2.23.0, below the floor). It is removed after step 2 instead.
 COPY build-artifacts/eg-wheel/epistemic_graph-2.23.2-py3-none-linux_x86_64.whl /tmp/wheels/
 RUN uv pip install --system --break-system-packages \
-        "/tmp/wheels/epistemic_graph-2.23.2-py3-none-linux_x86_64.whl[full]" \
-    && rm -rf /tmp/wheels
+        "/tmp/wheels/epistemic_graph-2.23.2-py3-none-linux_x86_64.whl[full]"
 
 # 2) au itself — EDITABLE install from the local worktree source (the "editable-source
 #    install model": a deployer can still bind-mount fresher source over
@@ -131,37 +134,54 @@ COPY agent_utilities/ /opt/agent-utilities/agent_utilities/
 #     .dockerignore's admitted set, same as agent_utilities/ above).
 COPY build-artifacts/langfuse-agent-src/pyproject.toml build-artifacts/langfuse-agent-src/build_backend.py build-artifacts/langfuse-agent-src/README.md build-artifacts/langfuse-agent-src/LICENSE /tmp/langfuse-agent-src/
 COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/langfuse_agent/
-# Plain pip here, NOT uv: agent-utilities' own pyproject.toml declares
-# `[tool.uv.sources] epistemic-graph = { workspace = true }` (+ langfuse-agent) for the
-# ecosystem monorepo's uv workspace — a sibling checkout this isolated build context does
-# not have. uv fails resolving that source outside the full workspace; plain pip ignores
-# uv-only tables entirely and just resolves the standard `epistemic-graph[full]>=2.23.2`
-# PEP 508 requirement from `[project.dependencies]`, already satisfied by step 1's install.
+# D-OB-18 — uv here, NOT plain pip, and the reason is the whole point of this step.
 #
-# ONE pip invocation, not two: the exact Pydantic AI family pins below must be visible to
-# the SAME resolution pass as au's own `>=2.14.1,<3.0.0` floor on pydantic-ai-slim, or
-# pip's backtracking resolver first satisfies the loose floor (walked candidates down from
-# 2.18.0), only to have a second, separate `pip install` immediately reinstall it back down
-# to 2.16.0 — slow (pip has no PubGrub-style resolver; it backtracks) and wasteful. One
-# combined requirement set lets it converge directly.
+# The image build resolves from THIS PACKAGE, in an isolated kaniko context with no
+# sibling checkouts and no workspace root. The ecosystem's real dependency policy lives
+# in `/home/apps/workspace/pyproject.toml`'s `[tool.uv] override-dependencies`, which uv
+# honours ONLY from the workspace root — and which plain pip cannot read at all (it is a
+# uv-only table). So a plain-pip build of this package silently resolves a DIFFERENT
+# dependency set than the workspace lock. That is not a theoretical hazard: it is exactly
+# how the runtime came to ship fastmcp 3.4.5 / mcp 1.29.0 underneath fastmcp-4-targeted
+# source, which silently killed `attach_fleet_loader` (`ImportError: cannot import name
+# 'MCPError' from 'mcp.shared.exceptions'` — mcp 2.0.0 renamed `McpError`) and took every
+# fleet meta-tool (`find_tools`/`load_tools`/`list_catalog`) down with it.
+#
+# `overrides.txt` (context root) is the build-side MIRROR of that root table, and
+# `--override` applies it. The historical reason uv was dropped here — au's own
+# `[tool.uv.sources] epistemic-graph = { workspace = true }` (+ langfuse-agent), which uv
+# cannot resolve outside the full workspace — is handled by `--no-sources`, which makes uv
+# ignore uv-only source tables and resolve the standard PEP 508 requirements exactly as
+# pip did. `--find-links /tmp/wheels` then pins `epistemic-graph[full]>=2.23.2` to step
+# 1's staged, kernel-injected wheel instead of PyPI's incomplete 2.23.0.
+#
+# No `--prerelease=allow`: the `>=4.0.0b1` override is itself an explicit prerelease
+# requirement, which is all uv needs to admit fastmcp 4 for THAT package. A blanket
+# prerelease mode bleeds elsewhere (verified: it pulled sqlalchemy 2.1.0b3).
+#
+# ONE invocation, not two: the exact Pydantic AI family pins below must be visible to the
+# SAME resolution pass as au's own `>=2.14.1,<3.0.0` floor on pydantic-ai-slim, and
+# `/tmp/langfuse-agent-src`'s own `agent-utilities[mcp]>=2.0.0,<3.0.0` requirement must
+# see the au install this same command performs.
 #
 # apt's python3-pip pulls in `packaging` via dpkg rather than pip, which ships no pip
-# RECORD file — pip then refuses to upgrade it in place ("Cannot uninstall packaging 26.0
-# ... no RECORD file was found"). Upgrade JUST that one package first, with a narrowly
-# scoped --ignore-installed (Debian/Ubuntu resolve dist-packages with /usr/local taking
+# RECORD file — an in-place upgrade then fails ("Cannot uninstall packaging 26.0 ... no
+# RECORD file was found"). Upgrade JUST that one package first, with a narrowly scoped
+# --ignore-installed (Debian/Ubuntu resolve dist-packages with /usr/local taking
 # precedence over /usr/lib, so this shadows the apt-owned copy at import time without
-# needing to uninstall it). A BLANKET --ignore-installed on the main install below would
-# reintroduce the step-1 problem: it makes pip disregard the already-installed local
-# epistemic-graph wheel too, sending it back to PyPI (which tops out at 2.23.0 < our
-# 2.23.2 floor) — confirmed by hitting exactly that error on the first attempt.
+# needing to uninstall it).
+COPY overrides.txt /tmp/overrides.txt
 RUN pip install --break-system-packages --no-cache-dir --ignore-installed "packaging>=26.2.0"
-RUN pip install --break-system-packages --no-cache-dir \
+RUN uv pip install --system --break-system-packages --no-cache \
+        --no-sources \
+        --override /tmp/overrides.txt \
+        --find-links /tmp/wheels \
         -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,owl,logfire,messaging-telegram,messaging-mattermost,postgresql,acp]" \
         "/tmp/langfuse-agent-src" \
         "redis>=5.0.0" \
         "neo4j>=6.2.0" \
         "falkordb>=1.6.2" \
-        "fastmcp==3.4.5" \
+        "fastmcp>=4.0.0b1" \
         "llama-index-embeddings-openai>=0.6.0" \
         "python-telegram-bot>=22.8" \
         "mattermostdriver>=7.3.2" \
@@ -173,7 +193,7 @@ RUN pip install --break-system-packages --no-cache-dir \
         "pydantic-monty==0.0.19" \
         "fasta2a[pydantic-ai]>=0.6.1" \
     && chmod -R a+rX /opt/agent-utilities \
-    && rm -rf /tmp/langfuse-agent-src
+    && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/overrides.txt
 # ^ this pin list matches the exact stack the CURRENT split-image deploy pip-installs at
 #   pod-start (`kubectl get deploy graph-os -n platform -o yaml`) — most of it
 #   (neo4j/falkordb/telegram/mattermost/embeddings-openai) is already inside [serving];
@@ -191,7 +211,18 @@ RUN pip install --break-system-packages --no-cache-dir \
 # is a plain clap CLI (safe/non-blocking); `graph-os` itself is NOT invoked here — running
 # it would start an MCP server (stdio) rather than return, so only its console-script
 # presence is checked.
-RUN python3 -c "import importlib.metadata as m; import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from pydantic_ai_harness.dynamic_workflow import DynamicWorkflow; from pydantic_ai_harness.experimental.acp import PydanticAIACPAgent; assert m.version('fastmcp') == '3.4.5'; assert m.version('pydantic-ai-slim') == '2.21.0'; assert m.version('pydantic-ai-harness') == '0.14.0'" \
+#
+# D-OB-18 — the version assertion is no longer a hand-copied literal (`fastmcp == 3.4.5`),
+# which is what let the image quietly drift a whole major version below the floor au's own
+# `[mcp]` extra declares. `check_mcp_sdk_floor()` derives the fastmcp floor from
+# agent-utilities' OWN installed metadata and mcp's transitively from fastmcp-slim's, so
+# this assertion tracks the source of truth automatically and cannot go stale.
+#
+# `attach_fleet_loader` is imported EXPLICITLY here, not left to a runtime try/except: the
+# tolerant handler at kg_server's attach site is by design (a dead fleet loader must not
+# take graph-os down), but it also meant a version-mismatched image shipped green and only
+# logged the loss of every fleet meta-tool. Failing the BUILD is where that belongs.
+RUN python3 -c "import importlib.metadata as m; import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from pydantic_ai_harness.dynamic_workflow import DynamicWorkflow; from pydantic_ai_harness.experimental.acp import PydanticAIACPAgent; from agent_utilities.mcp.multiplexer import attach_fleet_loader; from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.21.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('mcp_sdk_floor OK:', r['detail'])" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 

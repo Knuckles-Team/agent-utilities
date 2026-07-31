@@ -113,6 +113,16 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: lane-guard
+    name: Lane guard — canonical checkout is read-only; generated views stay generated
+    # Two rules that were documented and violated anyway, now mechanical:
+    # (1) no non-merge, non-bump commit authored in the canonical checkout, and
+    # (2) no hand-edited docs/concept_reservations.yaml (it is the fold of the
+    #     per-lane append-only fragments). See docs/architecture/lane-concurrency.md.
+    entry: python3 scripts/check_lane_guard.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-concept-gaps
     name: Check Concept ID Gap contiguousness
     entry: python3 scripts/check_concept_gaps.py
@@ -149,7 +159,7 @@ repos:
     pass_filenames: false
     always_run: true
   - id: check-event-loop-blocking
-    name: Event-loop blocking heuristic (report-only — see script docstring)
+    name: Event-loop blocking heuristic (ratchet — no new candidate sites)
     entry: python3 scripts/check_event_loop_blocking.py
     language: system
     pass_filenames: false

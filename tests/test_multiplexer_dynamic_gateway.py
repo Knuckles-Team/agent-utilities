@@ -65,7 +65,7 @@ def _fake_tool(
     tool = MagicMock()
     tool.name = name
     tool.description = description
-    tool.inputSchema = schema if schema is not None else {}
+    tool.input_schema = schema if schema is not None else {}
     tool.annotations = None
     # FastMCP propagates tags via _meta; the multiplexer reads tool.meta.
     tool.meta = {"fastmcp": {"tags": list(tags)}} if tags is not None else None

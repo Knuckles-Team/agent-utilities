@@ -1110,7 +1110,7 @@ def register_query_tools(mcp):
         description="Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, memory, discover, dci).",
         tags=["graph-os", "search"],
     )
-    def graph_search(
+    async def graph_search(
         query: str = Field(description="Natural language search query or concept ID."),
         mode: str = Field(
             default="hybrid",
@@ -1143,213 +1143,218 @@ def register_query_tools(mcp):
     ) -> str:
         """Search the Knowledge Graph using multiple strategies. Useful for finding context, concepts, memories, and capabilities across the ecosystem."""
 
-        def _run_search(engine: Any) -> str:
-            if not engine:
-                return "Error: IntelligenceGraphEngine not active."
+        def _execute() -> str:
+            def _run_search(engine: Any) -> str:
+                if not engine:
+                    return "Error: IntelligenceGraphEngine not active."
+                try:
+                    return _search_with_engine(engine)
+                except Exception as e:
+                    return public_error_text(e)
+
+            def _search_with_engine(engine: Any) -> str:
+                if mode in ("hyde", "deep"):
+                    results = engine.search_hybrid(
+                        query=query, top_k=top_k, mode=mode, self_correct=self_correct
+                    )
+                elif mode == "hybrid":
+                    results = engine.search_hybrid(
+                        query=query,
+                        top_k=top_k,
+                        self_correct=self_correct,
+                        as_of=as_of or None,
+                    )
+                elif mode == "concept":
+                    results = engine.search_hybrid(query=query, top_k=top_k)
+                elif mode == "analogy":
+                    results = engine.search_hybrid(query=query, top_k=top_k)
+                elif mode == "adore":
+                    results = engine.search_adore(query=query, top_k=top_k)
+                elif mode == "chrono_ids":
+                    results = engine.temporal_semantic_ids(query=query, top_k=top_k)
+                elif mode == "dci":
+                    results = engine.search_dci(query=query, top_k=top_k)
+                elif mode == "memory":
+                    results = engine.search_memories(query=query, top_k=top_k)
+                elif mode == "discover":
+                    try:
+                        from agent_utilities.capabilities.manager import (
+                            CapabilityManager,
+                        )
+
+                        manager = CapabilityManager(engine)
+                        results = manager.discover_capabilities(query)
+                        if not results:
+                            return f"No capabilities found for '{query}'"
+                        return "\n".join(
+                            [f"- {r.name}: {r.description}" for r in results]
+                        )
+                    except ImportError:
+                        return "Error: capabilities module not available"
+                elif mode == "latent":
+                    # KG-2.3 — route through the latent topology hierarchy.
+                    from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (  # noqa: E501
+                        LatentTopologicalRAG,
+                    )
+
+                    results = LatentTopologicalRAG(engine).retrieve(query, top_k=top_k)
+                elif mode == "sira":
+                    # Single-shot SIRA: hybrid-retrieve, then sparsity-align the set.
+                    from agent_utilities.knowledge_graph.retrieval.single_shot_sira import (
+                        SingleShotSIRA,
+                    )
+
+                    base = engine.search_hybrid(query=query, top_k=top_k) or []
+                    results = SingleShotSIRA(engine).align_context(base)
+                elif mode == "hard_negatives":
+                    # KG-2.3 — mine hard negatives via the engine's hybrid retriever.
+                    from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (  # noqa: E501
+                        HardNegativeMiner,
+                    )
+
+                    retriever = getattr(engine, "hybrid_retriever", None)
+                    if retriever is None:
+                        return "Error: hybrid retriever unavailable for hard-negative mining."
+                    negs = HardNegativeMiner(retriever).mine(query)
+                    if not negs:
+                        return f"No hard negatives mined for: '{query}'"
+                    return "\n".join(
+                        f"- {n.doc_id}: {getattr(n, 'reason', '')}" for n in negs
+                    )
+                elif mode == "rerank":
+                    # Semantic-retrieval hybrid re-scoring of a candidate set.
+                    from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (  # noqa: E501
+                        HybridSearchScorer,
+                    )
+
+                    base = engine.search_hybrid(query=query, top_k=top_k) or []
+                    docs = [
+                        {
+                            "id": (r.get("node", r) or {}).get("id", ""),
+                            "text": (r.get("node", r) or {}).get("description", ""),
+                            "embedding": (r.get("node", r) or {}).get("embedding"),
+                        }
+                        for r in base
+                    ]
+                    qemb: list[float] = []
+                    embed_model = getattr(
+                        getattr(engine, "hybrid_retriever", None), "embed_model", None
+                    )
+                    if embed_model is not None:
+                        try:
+                            qemb = embed_model.get_text_embedding(query)
+                        except Exception:  # noqa: BLE001
+                            qemb = []
+                    results = HybridSearchScorer().score_documents(query, qemb, docs)
+                elif mode == "compiled":
+                    # CONCEPT:AU-KG.retrieval.context-compiler — policy-aware ContextCompiler bundle: reuses the
+                    # SAME engine ANN/hybrid retriever the other modes call, but
+                    # additionally MMR-diversifies, scores evidence-quality/freshness
+                    # from the epistemic columns (EPI-P3-1), fits a token budget, and
+                    # runs every candidate through the live permissioning gate before
+                    # returning citations + a proof graph — replacing the plain
+                    # relevance-sorted concat the branch below performs for every
+                    # other mode.
+                    from agent_utilities.knowledge_graph.core.session import (
+                        GraphSession,
+                    )
+                    from agent_utilities.knowledge_graph.retrieval.context_compiler import (  # noqa: E501
+                        ContextCompiler,
+                    )
+
+                    session = GraphSession.from_ambient()
+                    compiler = ContextCompiler(engine)
+                    kwargs: dict[str, Any] = {"top_k": top_k, "as_of": as_of or None}
+                    if token_budget:
+                        kwargs["token_budget"] = token_budget
+                    bundle = compiler.compile(query, session=session, **kwargs)
+                    return bundle.as_text()
+                else:
+                    return f"Error: Unknown search mode '{mode}'"
+
+                if not results:
+                    return f"No results found for query: '{query}'"
+
+                # The direct retrieval modes use a flat, score-sorted text block with no
+                # diversity/evidence/freshness/policy/budget shaping — prefer
+                # mode='compiled' for a citation- and proof-graph-bearing bundle.
+                formatted_results = []
+                for res in results:
+                    score = res.get("score", 0)
+                    score = float(score) if score is not None else 0.0
+                    node = res.get("node", res)
+                    label = node.get("type", node.get("label", "Unknown"))
+                    name = node.get("name", "Unnamed")
+                    desc = node.get("description", "")
+                    nid = node.get("id", "N/A")
+                    formatted_results.append(
+                        f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
+                    )
+                return "\n---\n".join(formatted_results)
+
+            # CONCEPT:AU-KG.backend.multi-connection-registry — resolve target connection(s). CONCEPT:AU-KG.ingest.unified-query-routing — an
+            # implicit-default search fans across the active content-graph set so content
+            # routed to ``code:*``/``src:*`` graphs stays findable as one KG.
             try:
-                return _search_with_engine(engine)
+                entries, errors, fanout = kg_server._resolve_read_engines(target)
             except Exception as e:
                 return public_error_text(e)
 
-        def _search_with_engine(engine: Any) -> str:
-            if mode in ("hyde", "deep"):
-                results = engine.search_hybrid(
-                    query=query, top_k=top_k, mode=mode, self_correct=self_correct
-                )
-            elif mode == "hybrid":
-                results = engine.search_hybrid(
-                    query=query,
-                    top_k=top_k,
-                    self_correct=self_correct,
-                    as_of=as_of or None,
-                )
-            elif mode == "concept":
-                results = engine.search_hybrid(query=query, top_k=top_k)
-            elif mode == "analogy":
-                results = engine.search_hybrid(query=query, top_k=top_k)
-            elif mode == "adore":
-                results = engine.search_adore(query=query, top_k=top_k)
-            elif mode == "chrono_ids":
-                results = engine.temporal_semantic_ids(query=query, top_k=top_k)
-            elif mode == "dci":
-                results = engine.search_dci(query=query, top_k=top_k)
-            elif mode == "memory":
-                results = engine.search_memories(query=query, top_k=top_k)
-            elif mode == "discover":
-                try:
-                    from agent_utilities.capabilities.manager import CapabilityManager
+            if not fanout:
+                return _run_search(entries[0][1])
 
-                    manager = CapabilityManager(engine)
-                    results = manager.discover_capabilities(query)
-                    if not results:
-                        return f"No capabilities found for '{query}'"
-                    return "\n".join([f"- {r.name}: {r.description}" for r in results])
-                except ImportError:
-                    return "Error: capabilities module not available"
-            elif mode == "latent":
-                # KG-2.3 — route through the latent topology hierarchy.
-                from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (  # noqa: E501
-                    LatentTopologicalRAG,
-                )
-
-                results = LatentTopologicalRAG(engine).retrieve(query, top_k=top_k)
-            elif mode == "sira":
-                # Single-shot SIRA: hybrid-retrieve, then sparsity-align the set.
-                from agent_utilities.knowledge_graph.retrieval.single_shot_sira import (
-                    SingleShotSIRA,
-                )
-
-                base = engine.search_hybrid(query=query, top_k=top_k) or []
-                results = SingleShotSIRA(engine).align_context(base)
-            elif mode == "hard_negatives":
-                # KG-2.3 — mine hard negatives via the engine's hybrid retriever.
-                from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (  # noqa: E501
-                    HardNegativeMiner,
-                )
-
-                retriever = getattr(engine, "hybrid_retriever", None)
-                if retriever is None:
-                    return (
-                        "Error: hybrid retriever unavailable for hard-negative mining."
-                    )
-                negs = HardNegativeMiner(retriever).mine(query)
-                if not negs:
-                    return f"No hard negatives mined for: '{query}'"
-                return "\n".join(
-                    f"- {n.doc_id}: {getattr(n, 'reason', '')}" for n in negs
-                )
-            elif mode == "rerank":
-                # Semantic-retrieval hybrid re-scoring of a candidate set.
-                from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (  # noqa: E501
-                    HybridSearchScorer,
-                )
-
-                base = engine.search_hybrid(query=query, top_k=top_k) or []
-                docs = [
-                    {
-                        "id": (r.get("node", r) or {}).get("id", ""),
-                        "text": (r.get("node", r) or {}).get("description", ""),
-                        "embedding": (r.get("node", r) or {}).get("embedding"),
-                    }
-                    for r in base
-                ]
-                qemb: list[float] = []
-                embed_model = getattr(
-                    getattr(engine, "hybrid_retriever", None), "embed_model", None
-                )
-                if embed_model is not None:
-                    try:
-                        qemb = embed_model.get_text_embedding(query)
-                    except Exception:  # noqa: BLE001
-                        qemb = []
-                results = HybridSearchScorer().score_documents(query, qemb, docs)
-            elif mode == "compiled":
-                # CONCEPT:AU-KG.retrieval.context-compiler — policy-aware ContextCompiler bundle: reuses the
-                # SAME engine ANN/hybrid retriever the other modes call, but
-                # additionally MMR-diversifies, scores evidence-quality/freshness
-                # from the epistemic columns (EPI-P3-1), fits a token budget, and
-                # runs every candidate through the live permissioning gate before
-                # returning citations + a proof graph — replacing the plain
-                # relevance-sorted concat the branch below performs for every
-                # other mode.
-                from agent_utilities.knowledge_graph.core.session import (
-                    GraphSession,
-                )
-                from agent_utilities.knowledge_graph.retrieval.context_compiler import (  # noqa: E501
-                    ContextCompiler,
-                )
-
-                session = GraphSession.from_ambient()
-                compiler = ContextCompiler(engine)
-                kwargs: dict[str, Any] = {"top_k": top_k, "as_of": as_of or None}
-                if token_budget:
-                    kwargs["token_budget"] = token_budget
-                bundle = compiler.compile(query, session=session, **kwargs)
-                return bundle.as_text()
-            else:
-                return f"Error: Unknown search mode '{mode}'"
-
-            if not results:
-                return f"No results found for query: '{query}'"
-
-            # The direct retrieval modes use a flat, score-sorted text block with no
-            # diversity/evidence/freshness/policy/budget shaping — prefer
-            # mode='compiled' for a citation- and proof-graph-bearing bundle.
-            formatted_results = []
-            for res in results:
-                score = res.get("score", 0)
-                score = float(score) if score is not None else 0.0
-                node = res.get("node", res)
-                label = node.get("type", node.get("label", "Unknown"))
-                name = node.get("name", "Unnamed")
-                desc = node.get("description", "")
-                nid = node.get("id", "N/A")
-                formatted_results.append(
-                    f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
-                )
-            return "\n---\n".join(formatted_results)
-
-        # CONCEPT:AU-KG.backend.multi-connection-registry — resolve target connection(s). CONCEPT:AU-KG.ingest.unified-query-routing — an
-        # implicit-default search fans across the active content-graph set so content
-        # routed to ``code:*``/``src:*`` graphs stays findable as one KG.
-        try:
-            entries, errors, fanout = kg_server._resolve_read_engines(target)
-        except Exception as e:
-            return public_error_text(e)
-
-        if not fanout:
-            return _run_search(entries[0][1])
-
-        # CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default target
-        # (no ``target`` passed, or explicitly "default") fans across every active
-        # content graph, which can be dozens of ``code:<repo>``/``src:<repo>``
-        # connections, often idle/unreachable. An explicit ``target='all'``/list is
-        # a deliberate cross-repo search and keeps the full per-backend budget.
-        is_implicit_target = target is None or (
-            isinstance(target, str) and target.strip().lower() in ("", "default")
-        )
-        if is_implicit_target:
-            # The PRIMARY/``default`` backend must ALWAYS ground: it holds the
-            # primary ``__commons__`` + control-plane content and is the source of
-            # the real ranked hits. So run it separately at the normal budget
-            # (never the skip-timeout) and apply the SHORT skip-timeout ONLY to the
-            # supplementary content backends. Under a wide implicit fan-out (~70
-            # ``code:*`` graphs) a single shared short wall-clock across ALL targets
-            # starved the primary — it was queued behind the hung code backends and
-            # timed out too, so the search returned zero results even though the
-            # engine was healthy. Splitting the primary out fixes that: a search
-            # still returns the primary's real hits in a few seconds when every
-            # supplementary backend is dead.
-            primary = [(n, e) for n, e in entries if n == "default"]
-            supplementary = [(n, e) for n, e in entries if n != "default"]
-            # Robustness: if the resolver produced no ``default`` entry, treat the
-            # first as primary so SOMETHING always grounds at the full budget.
-            if not primary and entries:
-                primary, supplementary = [entries[0]], entries[1:]
-            results: dict[str, Any] = {}
-            fan_errors: dict[str, str] = {}
-            for name, engine in primary:
-                results[name] = _run_search(engine)
-            if supplementary:
-                sup_results, sup_errors = kg_server.fanout_execute(
-                    supplementary,
-                    lambda name, engine: _run_search(engine),
-                    timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
-                )
-                results.update(sup_results)
-                fan_errors.update(sup_errors)
-        else:
-            # Explicit cross-repo fan-out — per-target timeout at the full budget so
-            # one slow backend can't stall the set.
-            results, fan_errors = kg_server.fanout_execute(
-                entries, lambda name, engine: _run_search(engine)
+            # CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default target
+            # (no ``target`` passed, or explicitly "default") fans across every active
+            # content graph, which can be dozens of ``code:<repo>``/``src:<repo>``
+            # connections, often idle/unreachable. An explicit ``target='all'``/list is
+            # a deliberate cross-repo search and keeps the full per-backend budget.
+            is_implicit_target = target is None or (
+                isinstance(target, str) and target.strip().lower() in ("", "default")
             )
-        out_lines = [f"=== {name} ===\n{results[name]}" for name in results]
-        out_lines += [
-            f"=== {name} (error) ===\n{err}"
-            for name, err in {**errors, **fan_errors}.items()
-        ]
-        return "\n\n".join(out_lines)
+            if is_implicit_target:
+                # The PRIMARY/``default`` backend must ALWAYS ground: it holds the
+                # primary ``__commons__`` + control-plane content and is the source of
+                # the real ranked hits. So run it separately at the normal budget
+                # (never the skip-timeout) and apply the SHORT skip-timeout ONLY to the
+                # supplementary content backends. Under a wide implicit fan-out (~70
+                # ``code:*`` graphs) a single shared short wall-clock across ALL targets
+                # starved the primary — it was queued behind the hung code backends and
+                # timed out too, so the search returned zero results even though the
+                # engine was healthy. Splitting the primary out fixes that: a search
+                # still returns the primary's real hits in a few seconds when every
+                # supplementary backend is dead.
+                primary = [(n, e) for n, e in entries if n == "default"]
+                supplementary = [(n, e) for n, e in entries if n != "default"]
+                # Robustness: if the resolver produced no ``default`` entry, treat the
+                # first as primary so SOMETHING always grounds at the full budget.
+                if not primary and entries:
+                    primary, supplementary = [entries[0]], entries[1:]
+                results: dict[str, Any] = {}
+                fan_errors: dict[str, str] = {}
+                for name, engine in primary:
+                    results[name] = _run_search(engine)
+                if supplementary:
+                    sup_results, sup_errors = kg_server.fanout_execute(
+                        supplementary,
+                        lambda name, engine: _run_search(engine),
+                        timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
+                    )
+                    results.update(sup_results)
+                    fan_errors.update(sup_errors)
+            else:
+                # Explicit cross-repo fan-out — per-target timeout at the full budget so
+                # one slow backend can't stall the set.
+                results, fan_errors = kg_server.fanout_execute(
+                    entries, lambda name, engine: _run_search(engine)
+                )
+            out_lines = [f"=== {name} ===\n{results[name]}" for name in results]
+            out_lines += [
+                f"=== {name} (error) ===\n{err}"
+                for name, err in {**errors, **fan_errors}.items()
+            ]
+            return "\n\n".join(out_lines)
+
+        return await run_blocking_ordered(_execute)
 
     kg_server.REGISTERED_TOOLS["graph_search"] = graph_search
 

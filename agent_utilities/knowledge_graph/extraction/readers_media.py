@@ -252,7 +252,7 @@ def _persist_image_region_evidence(file_path: str, rows: list) -> None:
         from ..memory.native_ingest import media_store
 
         store = media_store()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — module unavailable means an early `return` (this function's own docstring: "Best-effort: an unreadable file or an engine-unavailable store is logged and skipped, never raised"); nothing is marked processed since this is a pure additive evidence-store write, not a dedup/retry-gated path
         logger.debug("image region evidence store unavailable: %s", e)
         return
     import mimetypes
@@ -283,7 +283,7 @@ def _persist_image_region_evidence(file_path: str, rows: list) -> None:
                 mime_type=mime_type,
                 source="rapidocr",
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — evidence-store write is a secondary, additive OCR-provenance record; the OCR text itself (this function's actual contribution to ingestion) is produced independently of this write
             logger.debug("image region evidence write failed: %s", e)
 
 

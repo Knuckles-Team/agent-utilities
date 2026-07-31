@@ -50,8 +50,48 @@ def release_signing_key(monkeypatch):
     )
 
 
+#: CONCEPT:AU-KG.ontology.registry-derived-server-alias — the generator now
+#: derives every sync preset's ``server`` from the fleet registry and fails
+#: closed when a provider is unregistered; register both synthetic connectors
+#: this file builds (neither ships a ``mcp_source_presets.json``, so the alias
+#: value itself is never used — only that the provider is registered at all).
+_REGISTRY = """\
+version: 1
+services:
+  - name: acme-api
+    package: acme-api
+    console_script: acme-api
+    host_port: 8200
+  - name: native-source-connectors
+    package: native-source-connectors
+    console_script: native-source-connectors
+    host_port: 8201
+"""
+
+
 @pytest.fixture
-def agents_root(tmp_path: Path) -> Path:
+def registry(tmp_path: Path) -> Path:
+    path = tmp_path / "mcp-fleet.registry.yml"
+    path.write_text(_REGISTRY, encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def signer(release_signing_key: None):
+    """An explicit signer, bypassing ``release_signer_for_publication``.
+
+    CONCEPT:AU-KG.ontology.release-key-rotation — publication signing now
+    requires versioned secret custody (``vault://``/``secret://``); the
+    fixture's ``env://`` material intentionally is not that, so manifest
+    fixtures pass this explicit signer rather than relying on the publication
+    resolver.
+    """
+
+    return gen.ontology_integrity.ReleaseSigner.from_runtime()
+
+
+@pytest.fixture
+def agents_root(tmp_path: Path, registry: Path, signer: object) -> Path:
     root = tmp_path / "agents"
     root.mkdir()
     (root / "AGENTS.md").write_text("# Provider fleet\n", encoding="utf-8")
@@ -59,7 +99,9 @@ def agents_root(tmp_path: Path) -> Path:
     mod = connector / "acme_api" / "ontology"
     mod.mkdir(parents=True)
     (mod / "acme.ttl").write_text(_ONTOLOGY)
-    manifest = gen.build_manifest(connector, now=_NOW)
+    manifest = gen.build_manifest(
+        connector, now=_NOW, registry_path=registry, release_signer=signer
+    )
     (connector / "connector_manifest.yml").write_text(gen._to_yaml(manifest))
     return root
 
@@ -80,12 +122,14 @@ def workspace(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def native_manifest(tmp_path: Path) -> Path:
+def native_manifest(tmp_path: Path, registry: Path, signer: object) -> Path:
     connector = tmp_path / "native-source-connectors"
     ontology = connector / "native_source_connectors" / "ontology"
     ontology.mkdir(parents=True)
     (ontology / "native.ttl").write_text(_ONTOLOGY, encoding="utf-8")
-    manifest = gen.build_manifest(connector, now=_NOW)
+    manifest = gen.build_manifest(
+        connector, now=_NOW, registry_path=registry, release_signer=signer
+    )
     path = connector / "connector_manifest.yml"
     path.write_text(gen._to_yaml(manifest), encoding="utf-8")
     return path
@@ -117,7 +161,14 @@ def test_update_ontology_lock_pins_hash_and_removes_stale_provider(
     agents_root: Path,
     workspace: Path,
     native_manifest: Path,
+    signer: object,
+    monkeypatch: pytest.MonkeyPatch,
 ):
+    # The script runs as a subprocess and inherits this process's environment;
+    # trust the exact key the fixture manifests were just signed with (the
+    # script itself never derives a signer — it only checks a manifest's
+    # declared key against explicitly trusted/lock-pinned keys).
+    monkeypatch.setenv("ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS", signer.public_key)
     lock_path = tmp_path / "ontology.lock"
     lock_path.write_text(
         "agents/stale-api/connector_manifest.yml:\n"
@@ -156,7 +207,10 @@ def test_update_ontology_lock_reports_compile_failure(
     agents_root: Path,
     workspace: Path,
     native_manifest: Path,
+    signer: object,
+    monkeypatch: pytest.MonkeyPatch,
 ):
+    monkeypatch.setenv("ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS", signer.public_key)
     bad = agents_root / "acme-api" / "connector_manifest.yml"
     bad.write_text("not: [valid, connector, manifest")  # malformed YAML
     lock_path = tmp_path / "ontology.lock"

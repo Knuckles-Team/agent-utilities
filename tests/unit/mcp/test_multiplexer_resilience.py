@@ -8,11 +8,11 @@ exercised with in-process fake child sessions (no subprocesses, no network).
 from __future__ import annotations
 
 import asyncio
+import inspect
 from typing import Any
 
 import mcp.types
 import pytest
-from mcp.shared.exceptions import MCPError
 
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
@@ -20,6 +20,7 @@ from agent_utilities.mcp.child_resilience import (
     MCPChildCallTimeoutError,
     MCPChildCircuitOpenError,
     MCPChildUnavailableError,
+    MCPError,
 )
 from agent_utilities.mcp.multiplexer import MCPMultiplexer
 
@@ -85,7 +86,7 @@ async def test_concurrency_limit_enforced_and_excess_call_gets_busy_error():
 
     session.release.set()
     results = await asyncio.gather(first, second)
-    assert all(not r.isError for r in results)
+    assert all(not r.is_error for r in results)
     assert session.max_active == 2
     assert runtime.in_flight == 0
 
@@ -103,7 +104,7 @@ async def test_queued_call_proceeds_when_slot_frees_within_timeout():
 
     session.release.set()
     results = await asyncio.gather(first, second)
-    assert [r.isError for r in results] == [False, False]
+    assert [r.is_error for r in results] == [False, False]
     assert session.max_active == 1  # never overlapped
     assert runtime.queued == 0
 
@@ -125,6 +126,11 @@ async def test_zero_max_concurrency_is_rejected():
 
 async def test_multiplexer_surfaces_busy_error_as_typed_tool_result(tmp_path):
     mux = MCPMultiplexer(tmp_path / "c.json")
+    # Seed the catalog directly (bypassing the on-disk config read) so
+    # call_proxied_tool's "is this child still declared" gate — a deliberate
+    # truthfulness check, not something a test may route around — sees
+    # "child" as a live, configured server.
+    mux._catalog = {"child": {}}
     session = GatedSession()
     runtime = ChildRuntime("child", {"max_concurrency": 1, "queue_timeout": 0.05})
     runtime.adopt_sessions([session])
@@ -135,13 +141,15 @@ async def test_multiplexer_surfaces_busy_error_as_typed_tool_result(tmp_path):
     await asyncio.sleep(0.01)
 
     result = await mux.call_proxied_tool("ch__tool", {})
-    assert result.isError
-    assert "MCPChildBusyError" in result.content[0].text
-    assert "child" in result.content[0].text
+    assert result.is_error
+    # The caller-facing text is deliberately just the class name (so callers
+    # can branch on it); the full "which server" message goes to the
+    # server-side log only (see call_proxied_tool's MCPChildError handler).
+    assert result.content[0].text == "MCPChildBusyError"
 
     session.release.set()
     ok = await blocker
-    assert not ok.isError
+    assert not ok.is_error
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +170,7 @@ async def test_session_pool_round_robins_parallel_calls_across_connections():
     for s in pool:
         s.release.set()
     results = await asyncio.gather(*tasks)
-    assert all(not r.isError for r in results)
+    assert all(not r.is_error for r in results)
 
 
 async def test_multiplexer_opens_pool_size_connections_for_http_child(
@@ -208,8 +216,11 @@ async def test_multiplexer_opens_pool_size_connections_for_http_child(
     monkeypatch.setattr(mod, "ClientSession", FakeSessionCM)
 
     mux = MCPMultiplexer(tmp_path / "c.json")
+    # A non-loopback remote child must be HTTPS (fail-closed transport gate
+    # in _open_one_session) — this test is about pool sizing, not that gate,
+    # so use a scheme the gate actually admits.
     res = await mux._start_child(
-        "pooled-http", {"url": "http://pooled.arpa/mcp", "pool_size": 3}
+        "pooled-http", {"url": "https://pooled.arpa/mcp", "pool_size": 3}
     )
     assert res is not None
     assert len(connects) == 3
@@ -284,7 +295,7 @@ async def test_call_timeout_detaches_cleanly_and_keeps_session_usable():
     # The shared session is NOT corrupted: a second call works fine.
     session.release.set()
     result = await runtime.call_tool("slow", {})
-    assert not result.isError
+    assert not result.is_error
     await asyncio.sleep(0)  # let the detached task's done-callback run
     assert runtime.in_flight == 0
     assert session.completed == 2
@@ -326,7 +337,7 @@ async def test_detached_timeouts_apply_backpressure_until_child_recovers():
     session.release.set()
     await asyncio.sleep(0.01)
     result = await runtime.call_tool("t", {})
-    assert not result.isError
+    assert not result.is_error
 
 
 # ---------------------------------------------------------------------------
@@ -382,28 +393,40 @@ async def test_crash_triggers_restart_and_child_recovers():
     assert tools == ["tool_a"]
     assert runtime.state == "up"
 
-    # The dead pipe surfaces to the caller AND trips the restart cycle.
-    with pytest.raises(ConnectionResetError):
-        await runtime.call_tool("t", {})
+    # ChildRuntime.call_tool retries ONCE on a transient child death,
+    # synchronously waiting for the restart to complete — so the dead pipe
+    # trips the restart cycle AND is invisible to this caller: the single
+    # call transparently returns gen2's answer instead of raising.
+    result = await runtime.call_tool("t", {})
+    assert result.content[0].text == "gen2:t"
 
     await _wait_for(lambda: runtime.state == "up" and connector.connects == 2)
     assert runtime.restart_count == 1
-
-    result = await runtime.call_tool("t", {})
-    assert result.content[0].text == "gen2:t"
     assert runtime.status()["state"] == "up"
     assert runtime.status()["restart_count"] == 1
     await runtime.aclose()
 
 
+def _session_terminated_error() -> BaseException:
+    """The MCP protocol error a redeployed backend raises, on EITHER SDK line.
+
+    SDK v1's ``McpError.__init__`` takes a pre-built ``ErrorData``; SDK v2
+    renamed the class to ``MCPError`` and changed the signature to
+    ``(code, message, data=None)``, building its own ``.error``. Both populate
+    ``exc.error.code``/``.message``, which is all ``is_session_dead`` reads —
+    so branch on the actual signature rather than pinning one SDK line.
+    """
+    if "code" in inspect.signature(MCPError.__init__).parameters:
+        return MCPError(code=32600, message="Session terminated")
+    return MCPError(mcp.types.ErrorData(code=32600, message="Session terminated"))
+
+
 class SessionTerminatedSession:
     """Fake session whose call hits a server-terminated streamable-http session
-    (what a redeployed backend does): MCPError(code=32600)."""
+    (what a redeployed backend does): MCP protocol error with code=32600."""
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        # SDK v2 constructor takes (code, message, data) directly — it builds
-        # its own `.error` ErrorData; it no longer accepts a pre-built one.
-        raise MCPError(code=32600, message="Session terminated")
+        raise _session_terminated_error()
 
 
 async def test_terminated_session_auto_reconnects_and_retries(monkeypatch):
@@ -459,11 +482,17 @@ async def test_calls_during_restart_fail_fast_with_typed_error():
     )
     await runtime.start()
 
-    with pytest.raises(ConnectionResetError):
+    # ChildRuntime.call_tool retries ONCE on a transient child death, waiting
+    # (bounded) for the restart to finish first. Reconnect hangs forever
+    # here, so that wait always elapses -- even this FIRST call already
+    # fails typed instead of raising the raw transport error.
+    with pytest.raises(MCPChildUnavailableError) as exc:
         await runtime.call_tool("t", {})
+    assert "limbo" in str(exc.value)
+    assert exc.value.state == "restarting"
     await _wait_for(lambda: runtime.state == "restarting")
 
-    # Reconnect hangs forever -> a call waits briefly, then fails typed.
+    # A second call while still restarting fails the same typed way.
     with pytest.raises(MCPChildUnavailableError) as exc:
         await runtime.call_tool("t", {})
     assert "limbo" in str(exc.value)
@@ -505,10 +534,15 @@ async def test_zero_max_restarts_disables_auto_restart():
         restart_backoff_base=0.01,
     )
     await runtime.start()
-    with pytest.raises(ConnectionResetError):
+    # With no restart budget the transient death parks the child FAILED
+    # immediately (no reconnect attempt); ChildRuntime.call_tool's one retry
+    # then hits that failed state and surfaces the typed unavailable error,
+    # not the raw transport exception.
+    with pytest.raises(MCPChildUnavailableError) as exc:
         await runtime.call_tool("t", {})
+    assert exc.value.state == "failed"
 
-    await _wait_for(lambda: runtime.state == "failed")
+    assert runtime.state == "failed"
     assert connector.connects == 1  # never reconnected
     await runtime.aclose()
 
@@ -564,22 +598,31 @@ async def test_breaker_opens_after_consecutive_transport_failures_then_recovers(
     runtime = ChildRuntime("breaky", {"breaker_threshold": 2, "breaker_cooldown": 0.05})
     runtime.adopt_sessions([session])
 
-    for _ in range(2):
-        with pytest.raises(ConnectionResetError):
-            await runtime.call_tool("t", {})
+    # ChildRuntime.call_tool retries once on a transient child death, so a
+    # SINGLE top-level call already makes 2 session-level attempts here
+    # (FlakySession(failures=2)) -- both fail, tripping breaker_threshold=2
+    # within that one call. The second top-level call then finds the
+    # circuit already open and fails typed instead of hitting the child.
+    with pytest.raises(ConnectionResetError):
+        await runtime.call_tool("t", {})
+    with pytest.raises(MCPChildCircuitOpenError):
+        await runtime.call_tool("t", {})
     assert runtime.breaker.state == "open"
     assert runtime.status()["breaker"] == "open"
 
     # Open circuit: fail fast, the child is never touched.
     with pytest.raises(MCPChildCircuitOpenError) as exc:
         await runtime.call_tool("t", {})
-    assert "breaky" in str(exc.value)
+    # MCPChildCircuitOpenError's message is just "circuit_open" (str(exc)
+    # deliberately doesn't repeat the server name); the server it belongs to
+    # lives on the typed `.server` attribute instead.
+    assert exc.value.server == "breaky"
     assert session.calls == 2
 
     # After the cooldown the half-open probe goes through and closes it.
     await asyncio.sleep(0.06)
     result = await runtime.call_tool("t", {})
-    assert not result.isError
+    assert not result.is_error
     assert runtime.breaker.state == "closed"
     assert session.calls == 3
 
@@ -591,12 +634,19 @@ async def test_failed_half_open_probe_reopens_the_circuit():
     )
     runtime.adopt_sessions([session])
 
-    with pytest.raises(ConnectionResetError):
+    # breaker_threshold=1 opens the circuit on the very first recorded
+    # failure, which happens during ChildRuntime.call_tool's own retry
+    # attempt inside this first top-level call -- so it already surfaces
+    # the typed circuit-open result, not the raw transport failure.
+    with pytest.raises(MCPChildCircuitOpenError):
         await runtime.call_tool("t", {})
     assert runtime.breaker.state == "open"
 
     await asyncio.sleep(0.06)
-    with pytest.raises(ConnectionResetError):  # the probe itself fails
+    # Same story for the half-open probe: it fails, and the retry inside
+    # that same call reopens the breaker before returning, so this call
+    # ALSO surfaces the typed circuit-open result (not the raw error).
+    with pytest.raises(MCPChildCircuitOpenError):  # the probe itself fails
         await runtime.call_tool("t", {})
     assert runtime.breaker.state == "open"
     with pytest.raises(MCPChildCircuitOpenError):
@@ -613,7 +663,10 @@ async def test_zero_breaker_threshold_disables_short_circuiting():
         with pytest.raises(ConnectionResetError):
             await runtime.call_tool("t", {})
     assert runtime.breaker.state == "closed"
-    assert session.calls == 4
+    # With short-circuiting disabled the breaker never blocks the retry, so
+    # each top-level call makes 2 session-level attempts (ChildRuntime's one
+    # transient-death retry) -- 4 calls x 2 attempts.
+    assert session.calls == 8
 
 
 async def test_application_errors_do_not_trip_the_breaker():
@@ -647,23 +700,34 @@ async def test_busy_rejections_do_not_count_as_breaker_failures():
     assert runtime.breaker.state == "closed"
 
     session.release.set()
-    assert not (await blocker).isError
+    assert not (await blocker).is_error
 
 
 async def test_multiplexer_surfaces_circuit_open_as_typed_tool_result(tmp_path):
     mux = MCPMultiplexer(tmp_path / "c.json")
+    # Seed the catalog directly (bypassing the on-disk config read) so
+    # call_proxied_tool's "is this child still declared" gate — a deliberate
+    # truthfulness check, not something a test may route around — sees
+    # "fused" as a live, configured server.
+    mux._catalog = {"fused": {}}
     runtime = ChildRuntime("fused", {"breaker_threshold": 1, "breaker_cooldown": 60.0})
     runtime.adopt_sessions([FlakySession(failures=1)])
     mux.children["fused"] = runtime
     mux.tool_to_server["fu__tool"] = ("fused", "tool")
 
+    # ChildRuntime.call_tool retries once on a transient child death; with
+    # breaker_threshold=1 the single failure already opens the circuit
+    # before that retry runs, so even this FIRST call surfaces the typed
+    # circuit-open result, not the raw transport failure. The caller-facing
+    # text is deliberately just the class name (server detail stays in the
+    # server-side log — see call_proxied_tool's MCPChildError handler).
     first = await mux.call_proxied_tool("fu__tool", {})
-    assert first.isError  # the transport failure itself
+    assert first.is_error
+    assert first.content[0].text == "MCPChildCircuitOpenError"
 
     second = await mux.call_proxied_tool("fu__tool", {})
-    assert second.isError
-    assert "MCPChildCircuitOpenError" in second.content[0].text
-    assert "fused" in second.content[0].text
+    assert second.is_error
+    assert second.content[0].text == "MCPChildCircuitOpenError"
 
 
 async def test_metrics_are_noop_safe_without_prometheus():

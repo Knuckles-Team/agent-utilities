@@ -94,6 +94,23 @@ _MAX_CATALOG_NODES = 131_072
 # an unbounded resource listing into the KG.
 _MAX_DISCOVERED_SKILLS = 2_048
 _SKILL_RESOURCE_RE = re.compile(r"^skill://(?P<name>[^/]+)/SKILL\.md$")
+# CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a probed child's skill
+# *bodies* are read back over the SAME already-open probe session, so a fleet
+# skill becomes runnable in graph-os without co-installing the child's package
+# (AGENTS.md "Dependency discipline"). Bounded per body and in aggregate: the
+# harvest reads attacker-influenced content, so it can never be allowed to
+# dominate the probe's latency or memory budget.
+_MAX_SKILL_BODY_BYTES = 512 * 1024
+_MAX_HARVEST_TOTAL_BYTES = 8 * 1024 * 1024
+_SKILL_HARVEST_BUDGET_SEC = 120.0
+# A child enforces its OWN request rate limit, and a body harvest is the most
+# request-dense thing we ever do to one: probing a fleet child that serves the
+# whole shared skill corpus tripped "Rate limit exceeded for client: global"
+# after ~50 reads. That is the child correctly defending itself, so the harvest
+# BACKS OFF and retries rather than treating a rate-limited read as a permanent
+# failure (which would silently strand most of the corpus as un-runnable).
+_SKILL_HARVEST_MAX_ATTEMPTS = 5
+_SKILL_HARVEST_BACKOFF_SEC = 0.5
 _SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "service"})
 # Fleet-wide concurrent-probe ceiling (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog), shared
 # across overlapping ``probe_catalog`` calls via ``MCPMultiplexer._probe_semaphore``
@@ -123,6 +140,39 @@ _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS = frozenset(
 )
 _RUNTIME_CHILD_POLICY_INTERNAL_KEY = "_runtime_child_policy"
 _LIVE_MULTIPLEXERS: weakref.WeakSet[Any] = weakref.WeakSet()
+
+
+def _sample_child_health_gauges() -> None:
+    """Refresh every live multiplexer's child gauges for a ``/metrics`` scrape.
+
+    CONCEPT:AU-ECO.multiplexer.running-vs-dispatchable-metrics — child health is
+    live-object state, not an event stream, so it must be sampled at scrape time
+    or the gauges only ever move when somebody happens to call
+    ``multiplexer_status``. ``status_snapshot()`` publishes the gauges itself,
+    so calling it IS the sample.
+    """
+    for multiplexer in tuple(_LIVE_MULTIPLEXERS):
+        multiplexer.status_snapshot()
+
+
+def _register_child_health_sampler() -> None:
+    """Hook :func:`_sample_child_health_gauges` into the metrics scrape path."""
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            register_scrape_sampler,
+        )
+
+        register_scrape_sampler(_sample_child_health_gauges)
+    except Exception as exc:
+        logger.warning(
+            "Could not register the multiplexer child-health metrics sampler "
+            "(exception_type=%s): %s — mounted/dispatchable gauges will only "
+            "refresh when multiplexer_status is called.",
+            type(exc).__name__,
+            exc,
+        )
+
+
 _ENV_RUNTIME_REF_RE = re.compile(r"^env://([A-Z][A-Z0-9_]{0,127})$")
 _STORE_RUNTIME_REF_RE = re.compile(
     r"^(?:vault|secret)://[A-Za-z0-9][A-Za-z0-9_./#-]{0,511}$"
@@ -397,7 +447,7 @@ def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
     for tool in raw_tools:
         name = getattr(tool, "name", None)
         description = getattr(tool, "description", "") or ""
-        input_schema = getattr(tool, "inputSchema", None) or {}
+        input_schema = getattr(tool, "input_schema", None) or {}
         annotations = getattr(tool, "annotations", None)
         if annotations is not None and not isinstance(annotations, dict):
             model_dump = getattr(annotations, "model_dump", None)
@@ -468,6 +518,29 @@ def _bounded_skill_catalog(raw_resources: Any) -> list[dict[str, Any]]:
     except ToolError:
         raise RuntimeError("MCP child skill catalog exceeded its boundary") from None
     return skills
+
+
+def _resource_body_text(result: Any) -> str:
+    """Extract the text payload of one ``resources/read`` result.
+
+    CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a fastmcp-4
+    ``SkillProvider`` serves ``skill://{name}/SKILL.md`` as ``text/markdown``,
+    so the body arrives as a ``TextResourceContents``. A binary/blob payload is
+    NOT a skill instruction body and is rejected rather than coerced, so a
+    child cannot smuggle an unusable resource into the runnable set.
+    """
+    contents = getattr(result, "contents", None)
+    if not isinstance(contents, list | tuple) or not contents:
+        raise RuntimeError("skill resource returned no contents")
+    parts: list[str] = []
+    for item in contents:
+        text = getattr(item, "text", None)
+        if text is None:
+            raise RuntimeError("skill resource body is not text")
+        if not isinstance(text, str):
+            raise RuntimeError("skill resource body is not text")
+        parts.append(text)
+    return "\n".join(parts)
 
 
 def _read_catalog_text(path: Path) -> str:
@@ -1053,6 +1126,7 @@ class MCPMultiplexer:
         self._catalog_reload_tasks: set[asyncio.Task[Any]] = set()
         self._authority_scope: Any = None
         _LIVE_MULTIPLEXERS.add(self)
+        _register_child_health_sampler()
 
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
@@ -1132,7 +1206,7 @@ class MCPMultiplexer:
         catalog = [
             {
                 "annotations": getattr(tool, "annotations", None),
-                "inputSchema": tool.inputSchema,
+                "inputSchema": tool.input_schema,
                 "name": tool.name,
             }
             for tool in tools
@@ -1937,12 +2011,30 @@ class MCPMultiplexer:
             prefixed_tool = mcp.types.Tool(
                 name=prefixed_name,
                 description=tool.description or "",
-                inputSchema=tool.inputSchema,
+                input_schema=tool.input_schema,
                 _meta=getattr(tool, "meta", None),
             )
             self.aggregated_tools.append(prefixed_tool)
             registered.append(prefixed_tool)
         return registered
+
+    async def _live_skills_for_server(self, server_name: str) -> list[dict]:
+        """Live ``skill://`` resource listing for an already-mounted child
+        (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
+
+        Unlike tools, a mounted child's Skills-over-MCP resources are never
+        cached into an aggregation map at mount time (:meth:`_register_child_result`
+        only indexes ``tools``) — so the cold-probe path's ``_probe_skills`` call
+        was the ONLY place a server's skills were ever discovered, leaving an
+        already-mounted server's skills invisible to ``find``/``find_tools``
+        until it happened to be probed cold at least once (D-2.2-2.3-1). Reuses
+        the mounted child's live primary session (no reconnect) and the same
+        best-effort degrade-to-``[]`` semantics as the cold-probe path.
+        """
+        session = self.sessions.get(server_name)
+        if session is None:
+            return []
+        return await self._probe_skills(server_name, session)
 
     async def mount_child(self, server_name: str) -> list[mcp.types.Tool]:
         """Start ONE configured child on demand and register its tools
@@ -2022,7 +2114,7 @@ class MCPMultiplexer:
                 {
                     "name": original,
                     "description": (tobj.description if tobj else "") or "",
-                    "inputSchema": (tobj.inputSchema if tobj else {}) or {},
+                    "inputSchema": (tobj.input_schema if tobj else {}) or {},
                 }
             )
         return out
@@ -2053,6 +2145,7 @@ class MCPMultiplexer:
         if server_name in self.children:
             info: dict[str, Any] = {
                 "tools": self._live_tools_for_server(server_name),
+                "skills": await self._live_skills_for_server(server_name),
                 "error": None,
             }
             return self._cache_probe(server_name, info)
@@ -2135,7 +2228,7 @@ class MCPMultiplexer:
             )
             return []
         try:
-            return _bounded_skill_catalog(result.resources)
+            skills = _bounded_skill_catalog(result.resources)
         except Exception as exc:  # noqa: BLE001 - a malformed skill catalog from
             # one server must not fail the tool probe that already succeeded.
             # The cause IS logged.
@@ -2145,6 +2238,95 @@ class MCPMultiplexer:
                 exc,
             )
             return []
+        await self._harvest_skill_bodies(server_name, session, skills)
+        return skills
+
+    async def _harvest_skill_bodies(
+        self, server_name: str, session: Any, skills: list[dict]
+    ) -> None:
+        """Read each catalogued ``skill://`` body over the OPEN probe session.
+
+        CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — the fleet's ~62
+        ``agents/*`` packages are deliberately NOT co-installed into graph-os's
+        serving venv (AGENTS.md "Dependency discipline"), so
+        ``resolve_skill_provider_dirs()`` — an in-process
+        ``importlib.metadata`` walk — structurally cannot see their skills. But
+        each child ALREADY serves them as fastmcp-4 ``skill://{name}/SKILL.md``
+        resources, and we ALREADY hold a live session to it. Reading the body
+        here is what turns a name-only fleet ``Skill`` node into something
+        :func:`~..knowledge_graph.ingestion.skill_workflow_ingest.ingest_runnable_skill`
+        can promote to a runnable ``CallableResource``.
+
+        Mutates each entry in place, adding EITHER ``instructions`` (the body)
+        OR ``harvest_error`` (a named reason). Never both, and never silently
+        neither: an entry without ``instructions`` carries the reason it has
+        none, so the downstream promotion fails CLOSED against a named
+        precondition instead of quietly skipping the skill.
+        """
+        harvested_bytes = 0
+        deadline = time.monotonic() + _SKILL_HARVEST_BUDGET_SEC
+        for entry in skills:
+            uri = entry.get("uri") or ""
+            if time.monotonic() >= deadline:
+                entry["harvest_error"] = (
+                    f"skill body harvest budget exceeded after "
+                    f"{_SKILL_HARVEST_BUDGET_SEC:g}s"
+                )
+                continue
+            if harvested_bytes >= _MAX_HARVEST_TOTAL_BYTES:
+                entry["harvest_error"] = "skill body harvest exceeded its total budget"
+                continue
+            try:
+                body = await self._read_skill_body(session, uri, deadline)
+            except Exception as exc:  # noqa: BLE001 - one unreadable skill body
+                # must not fail the tool probe that already succeeded. The cause
+                # is recorded ON THE ENTRY (so the promotion can name it) AND
+                # logged with its traceback — never discarded.
+                entry["harvest_error"] = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "Server %s could not serve skill body %s (%s)",
+                    server_name,
+                    entry.get("name", "?"),
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                continue
+            encoded = len(body.encode("utf-8"))
+            if not body.strip():
+                entry["harvest_error"] = "server served an empty skill body"
+                continue
+            if encoded > _MAX_SKILL_BODY_BYTES:
+                entry["harvest_error"] = "skill body exceeded its size boundary"
+                continue
+            harvested_bytes += encoded
+            entry["instructions"] = body
+
+    @staticmethod
+    async def _read_skill_body(session: Any, uri: str, deadline: float) -> str:
+        """Read one skill body, backing off while the child rate-limits us.
+
+        Retries are bounded by BOTH an attempt count and the caller's harvest
+        deadline, so a permanently-failing child costs a fixed amount of time.
+        The FINAL failure is re-raised with its original cause intact — the
+        caller records and logs it; nothing is swallowed.
+        """
+        delay = _SKILL_HARVEST_BACKOFF_SEC
+        last: Exception | None = None
+        for attempt in range(_SKILL_HARVEST_MAX_ATTEMPTS):
+            try:
+                return _resource_body_text(await session.read_resource(uri))
+            except Exception as exc:  # noqa: BLE001 — retried below, then re-raised
+                last = exc
+                if attempt == _SKILL_HARVEST_MAX_ATTEMPTS - 1:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(delay, remaining))
+                delay *= 2
+        if last is None:  # pragma: no cover — the loop only exits via a failure
+            raise RuntimeError("skill body read failed without a recorded cause")
+        raise last
 
     @classmethod
     async def probe_declaration(
@@ -2908,12 +3090,37 @@ class MCPMultiplexer:
             wanted.update(t.name for t in self.prefixed_tools_for_server(server))
         return sorted(n for n in wanted if n in self.tool_to_server)
 
+    def _mounted_tool_counts(self) -> dict[str, int]:
+        """Live forwarding tools currently registered, per child server.
+
+        ``_exposed`` holds the prefixed names registered as real FastMCP tools;
+        ``tool_to_server`` resolves each back to its child. In dynamic mode a
+        catalogued-but-unmounted child legitimately counts zero.
+        """
+        counts: dict[str, int] = {name: 0 for name in self.children}
+        for prefixed in self._exposed:
+            entry = self.tool_to_server.get(prefixed)
+            if entry is not None:
+                counts[entry[0]] = counts.get(entry[0], 0) + 1
+        return counts
+
     def status_snapshot(self) -> dict[str, Any]:
-        """Fleet health surface: per-child state, limits, load, restarts."""
-        return {
+        """Fleet health surface: per-child state, limits, load, restarts.
+
+        CONCEPT:AU-ECO.multiplexer.running-vs-dispatchable-metrics — this is the
+        ONE producer of child health, rendered two ways: the
+        ``multiplexer_status`` tool returns the dict, and the Prometheus child
+        gauges are published from the very same dict on the way out, so the
+        scrape and the tool can never disagree. ``mounted_tools`` makes the
+        process-up / tools-callable distinction explicit in the payload instead
+        of leaving it implied by a child's absence from ``children``.
+        """
+        mounted = self._mounted_tool_counts()
+        snapshot = {
             "children": {
                 name: {
                     **runtime.status(),
+                    "mounted_tools": mounted.get(name, 0),
                     **(
                         {"catalog_fingerprint": self._child_catalog_fingerprints[name]}
                         if name in self._child_catalog_fingerprints
@@ -2925,6 +3132,22 @@ class MCPMultiplexer:
             "total_children": len(self.children),
             "total_tools": len(self.aggregated_tools),
         }
+        try:
+            from agent_utilities.observability.gateway_metrics import (
+                publish_multiplexer_child_gauges,
+            )
+
+            publish_multiplexer_child_gauges(snapshot)
+        except Exception as exc:
+            # Metrics must never break the health surface — but never silently:
+            # a health snapshot that stopped feeding the scrape is exactly the
+            # kind of blind spot these gauges exist to remove.
+            logger.warning(
+                "Could not publish multiplexer child gauges (exception_type=%s): %s",
+                type(exc).__name__,
+                exc,
+            )
+        return snapshot
 
     async def aclose(self) -> None:
         """Shut down every child runtime and direct stack registration."""
@@ -2990,7 +3213,7 @@ def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
         else:
             with mux._authority_scope():
                 result = await mux.call_proxied_tool(prefixed_name, kwargs)
-        if bool(getattr(result, "isError", False)):
+        if bool(getattr(result, "is_error", False)):
             # ``ToolResult`` has no error bit. Returning one here silently
             # converts a child MCP failure into an outer success, so raise the
             # framework's typed error exactly as FastMCP's native proxy does.
@@ -2998,7 +3221,7 @@ def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
             raise ToolError("delegated_child_tool_failed")
         return ToolResult(
             content=list(getattr(result, "content", []) or []),
-            structured_content=getattr(result, "structuredContent", None),
+            structured_content=getattr(result, "structured_content", None),
         )
 
     return _forward
@@ -3026,7 +3249,7 @@ def _register_forwarder(mcp, mux: MCPMultiplexer, tool: mcp.types.Tool) -> bool:
     """
     if tool.name in mux._exposed:
         return False
-    schema = tool.inputSchema or {"type": "object", "properties": {}}
+    schema = tool.input_schema or {"type": "object", "properties": {}}
     mcp.add_tool(
         FunctionTool(
             name=tool.name,
@@ -3107,6 +3330,12 @@ def _session_key() -> str:
     On a shared streamable-http server every client gets its own
     ``Context.session_id``; with no session context (stdio / single-client) all
     requests fall back to one key so behaviour matches the pre-Phase-5 server.
+
+    The HTTP-context check MUST run before consulting ``Context.session_id``:
+    fastmcp 4's ``Context.session_id`` no longer raises when there is no real
+    (HTTP) session — for stdio/in-memory transports it silently mints a fresh
+    UUID on every single call (no stable ``connection`` to cache it on), which
+    would otherwise give every call in the same local session a different key.
     """
     try:
         from fastmcp.server.dependencies import (
@@ -3115,20 +3344,24 @@ def _session_key() -> str:
             get_http_request,
         )
 
-        sid = get_context().session_id
-        if sid:
-            return str(sid)
-    except Exception as exc:
-        logger.debug(
-            "No session context (stdio/single-client); trying next key source: %s",
-            exc,
-        )
-    try:
         get_http_request()
     except RuntimeError:
         return "__local_stdio__"
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: this is a per-request CONTROL-FLOW probe ("is there an HTTP request context?"), not an error path. Every stdio/local call takes it, so WARNING here would emit one line per request. The cause is preserved (interpolated) and the outcome is encoded in the returned key.
+        logger.debug(
+            "No HTTP request context; trying next key source: %s",
+            exc,
+        )
         return "__invalid_http_context__"
+    try:
+        sid = get_context().session_id
+        if sid:
+            return str(sid)
+    except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: same per-request probe as above, one rung down the key-source cascade (session_id -> token -> unauthenticated). Absence is the NORMAL case for an unauthenticated caller, not a failure; the cause is preserved and the cascade continues below.
+        logger.debug(
+            "HTTP context present but no session_id; falling back to token key: %s",
+            exc,
+        )
     try:
         token = get_access_token()
     except Exception:

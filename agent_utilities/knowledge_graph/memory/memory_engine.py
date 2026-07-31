@@ -333,7 +333,7 @@ class MemoryEngine:
         except ImportError:
             logger.debug("MemoryRetriever not available")
             return None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — returns None (the documented 'no self-model' case), the same shape as the ImportError branch immediately above it
             logger.debug("Self-model retrieval failed: %s", e)
             return None
 
@@ -354,7 +354,7 @@ class MemoryEngine:
 
             mr = MemoryRetriever(engine=self.engine)
             return mr.query_capabilities(domain)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — returns the documented zero-valued default dict — the same shape returned when self.engine has no retrieval configured (branch above)
             logger.debug("Capability query failed: %s", e)
             return {"success_rate": 0.0, "confidence": 0.0, "proficiency": 0.0}
 
@@ -1009,7 +1009,7 @@ class StartupContextBuilder:
                 f"- **{r.get('name', r.get('id', ''))}**: {r.get('description', r.get('content', ''))}"
                 for r in results
             ]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — returns [] (the documented empty-results case); this is a read-only recall helper feeding an agent's context, not a write path
             logger.debug("Recall query failed: %s", e)
             return []
 
@@ -1217,7 +1217,7 @@ class StartupContextBuilder:
                         source_authority=AUTHORITY_AUTHORITATIVE,
                     )
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one team's context-chunk load inside a loop building `chunks`; a failure just omits that team's chunk from the returned list, the other teams already appended are untouched
             logger.debug("Team context load failed for '%s': %s", team, e)
         return chunks
 
@@ -1242,7 +1242,7 @@ class StartupContextBuilder:
                     priority=9 + AUTHORITY_BOOST,  # Very high + authoritative (KG-2.14)
                     source_authority=AUTHORITY_AUTHORITATIVE,
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — returns None (the documented 'nothing to load' case) — this function's own return type already allows None for 'no AGENTS.md found', so a load failure degrades identically
             logger.debug("Layered AGENTS.md load failed: %s", e)
         return None
 

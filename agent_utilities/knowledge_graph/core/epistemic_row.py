@@ -505,7 +505,7 @@ def attach_epistemic_columns(
                     for wr in wire_rows
                     if isinstance(wr, dict) and isinstance(wr.get("id"), str)
                 }
-        except Exception as exc:  # pragma: no cover - never break a plain read
+        except Exception as exc:  # pragma: no cover - never break a plain read  # noqa: BLE001 — epistemic-columns enrichment over rows that are already the query result being returned; on failure wire_by_id degrades to {} so every row gets its plain (non-epistemic-annotated) form below, matching the function's documented 'never break a plain read' contract
             logger.debug("light epistemic-columns attach skipped: %s", exc)
             wire_by_id = {}
 
@@ -581,7 +581,7 @@ def attach_epistemic_columns(
             policy_labels=sorted(all_policy_labels),
             source_count=len(rows),
         )
-    except Exception as exc:  # pragma: no cover - tracing must never break a read
+    except Exception as exc:  # pragma: no cover - tracing must never break a read  # noqa: BLE001 — OTel span annotation is pure tracing decoration after `rows` has already been fully computed and is returned unconditionally on the next line
         logger.debug("epistemic OTel span annotation skipped: %s", exc)
 
     return rows

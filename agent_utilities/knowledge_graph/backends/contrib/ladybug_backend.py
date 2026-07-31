@@ -307,7 +307,7 @@ class LadybugBackend(GraphBackend):
                     self.conn.execute("PRAGMA journal_mode=WAL;")
                     self.conn.execute("PRAGMA synchronous=NORMAL;")
                     self.conn.execute("PRAGMA busy_timeout=10000;")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — PRAGMA support varies by LadybugDB build; the connection is already open (self.conn = ladybug.Connection(self.db) above) — WAL/synchronous/busy_timeout are durability tuning, not required for correctness
                     logger.debug(f"WAL pragma not supported or ignored: {e}")
 
                 # Load VECTOR extension
@@ -315,7 +315,7 @@ class LadybugBackend(GraphBackend):
                     self.conn.execute("INSTALL VECTOR;")
                     self.conn.execute("LOAD EXTENSION VECTOR;")
                     logger.debug("LadybugDB VECTOR extension loaded successfully")
-                except Exception as ve:
+                except Exception as ve:  # noqa: BLE001 — feature-detection: the VECTOR extension may not be present in this LadybugDB build; downstream vector-search paths already fall back when unavailable (not gated on any state advanced here)
                     logger.debug(f"Could not load VECTOR extension: {ve}")
 
                 # Auto-initialize schema if not read-only
@@ -815,14 +815,14 @@ class LadybugBackend(GraphBackend):
                 if self.transient:
                     self.close()
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — this except correctly returns False on failure (the `return True` above only executes on success), so callers cannot mistake a failed checkpoint for a completed one
             if self.transient:
                 try:
                     with self._get_lock():
                         self.close()
                 except Exception:
                     pass
-            logger.debug(f"WAL checkpoint not supported or failed: {e}")
+            logger.debug(f"WAL checkpoint not supported or failed: {e}")  # noqa: BLE001 — this except correctly returns False on failure (see the return above only executes on success), so callers cannot mistake a failed checkpoint for a completed one
             return False
 
     def _seed_schema_cache(self) -> None:
@@ -1180,6 +1180,15 @@ class LadybugBackend(GraphBackend):
         if tables:
             embedding_tables = [t for t in embedding_tables if t in tables]
         dropped = 0
+        # D-DSTK: tables whose DROP_VECTOR_INDEX call failed for a REAL reason (not the
+        # benign "not found"/"does not exist" — already gone). engine_tasks.py's
+        # submit_task (D-DST-3) only marks a table's index dropped AFTER this method
+        # returns without raising, specifically so a failed drop is retried next
+        # submission — but this method previously swallowed every per-table failure
+        # internally and never raised, so it always "succeeded" from the caller's view
+        # even when every single drop had genuinely failed. Raising here (after best-
+        # effort attempting every table) closes that gap.
+        failed_tables: list[str] = []
         with self._get_lock():
             self._ensure_connection()
             if self.conn is None:
@@ -1190,7 +1199,7 @@ class LadybugBackend(GraphBackend):
             for table in embedding_tables:
                 try:
                     table = validate_identifier(table, kind="table")
-                except InvalidIdentifierError as e:
+                except InvalidIdentifierError as e:  # noqa: BLE001 — narrow typed exception (InvalidIdentifierError, not a broad swallow): an unrecognized/invalid embedding table name is skipped via `continue` and excluded from the drop attempt entirely, rather than being silently treated as dropped — the D-DSTK fix below (raising when a real DROP_VECTOR_INDEX call fails) only covers tables that reach that call
                     logger.debug("skipping invalid embedding table: %s", e)
                     continue
                 idx_name = f"idx_{table.lower()}_embedding"
@@ -1199,16 +1208,22 @@ class LadybugBackend(GraphBackend):
                         f"CALL DROP_VECTOR_INDEX('{table}', '{idx_name}');"
                     )
                     dropped += 1
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — per-table detail stays at debug; genuine failures are now aggregated into `failed_tables` and raised below, so the caller no longer mistakes this for success
                     if (
                         "not found" not in str(e).lower()
                         and "does not exist" not in str(e).lower()
                     ):
                         logger.debug(f"Drop vector index issue ({idx_name}): {e}")
+                        failed_tables.append(table)
             if self.transient:
                 self.close()
         if dropped:
             logger.info("Dropped %d HNSW vector indexes for re-ingestion.", dropped)
+        if failed_tables:
+            raise RuntimeError(
+                f"drop_vector_indices: {len(failed_tables)} table(s) could not be "
+                f"confirmed dropped: {failed_tables}"
+            )
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Add embedding to an existing node."""

@@ -393,7 +393,7 @@ class MediaStore:
         """Best-effort undo of a pre-commit ``incref`` after a failed/conflicted commit."""
         try:
             self._client.blob.unref(digest)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — this IS the compensation path for an already-failed/conflicted commit (docstring: 'best-effort undo of a pre-commit incref'); if the compensating unref itself fails there is no further compensation to attempt, the caller is already handling the degraded ref-count state
             logger.debug(
                 "[CONCEPT:AU-KG.identity.asset-occurrence] compensating unref skipped: %s",
                 e,
@@ -624,7 +624,7 @@ class MediaStore:
                 client.edges.add(
                     occurrence_id, message_id, {"type": "attachedToMessage"}
                 )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above; these are pure navigability edges outside the txn (per the comment), so get_media/read paths that key off the node's own properties are unaffected
             logger.debug(
                 "[CONCEPT:AU-KG.identity.asset-occurrence] occurrence edge link skipped: %s",
                 e,
@@ -1419,7 +1419,7 @@ class MediaStore:
             )
             if occurrence_id:
                 client.edges.add(occurrence_id, rendition_id, {"type": "hasRendition"})
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above; these are pure navigability edges (hasBlob/derivedFrom/hasRendition), the rendition node itself and its own properties are unaffected
             logger.debug(
                 "[CONCEPT:AU-KG.identity.asset-occurrence] rendition edge link skipped: %s",
                 e,
@@ -1625,7 +1625,7 @@ class MediaStore:
                     legacy["message_id"],
                     {"type": "attachedToMessage"},
                 )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above; _migrated_legacy_ids' idempotency check (below) reads the `legacy_asset_id` PROPERTY already on the committed occurrence node, not this migratedFrom edge, so a failed edge link does not cause a duplicate re-migration on the next bulk sweep
             logger.debug(
                 "[CONCEPT:AU-KG.identity.asset-occurrence] migrated occurrence edge link skipped: %s",
                 e,

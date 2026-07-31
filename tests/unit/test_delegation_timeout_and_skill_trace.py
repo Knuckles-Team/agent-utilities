@@ -66,7 +66,6 @@ class _CapturingEngine:
         return None
 
 
-
 def test_runtrace_records_skill_and_bound_server_and_edge():
     eng = _CapturingEngine()
     ar._record_execution_trace(
@@ -120,3 +119,41 @@ def test_runtrace_no_skill_edge_for_plain_server_run():
     # EXECUTED_ON falls back to the agent's own server node
     exec_on = [c for c in eng.backend.calls if "EXECUTED_ON" in c[0]]
     assert exec_on and exec_on[0][1]["sid"] == "srv:tunnel-manager-mcp"
+
+
+class _FailingEngine:
+    """An engine whose write raises -- reproduces a run that returns `status="ok"`
+    to its caller (this function runs after dispatch, on every exit path) while
+    its own RunTrace persistence fails (D-DG-7)."""
+
+    def add_node(self, *_args, **_kwargs):
+        raise RuntimeError("Graph 'test_9b7c1387b9c7' not found")
+
+    def link_nodes(self, *_args, **_kwargs):
+        return None
+
+
+def test_runtrace_write_failure_is_logged_at_error_not_swallowed_silently(caplog):
+    """D-DG-7: a run that reports `status="ok"` with a `trace_ref` whose write
+    actually failed was invisible to the reward/evolution flywheel because the
+    failure was logged at `debug` -- below every production log level. Assert
+    the failure is now logged at `error`, naming both the run id and the exact
+    trace id a reader would look for, so a failed provenance write is as
+    diagnosable as any other production failure (never raises into the caller
+    -- `_record_execution_trace` runs on every exit path of `run_agent`)."""
+    import logging
+
+    eng = _FailingEngine()
+    with caplog.at_level(
+        logging.ERROR, logger="agent_utilities.orchestration.agent_runner"
+    ):
+        ar._record_execution_trace(  # must not raise
+            eng, "run:trace-write-fails", "some-skill", "t", status="ok"
+        )
+
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records, "expected the failed trace write to log at ERROR"
+    message = error_records[0].getMessage()
+    assert "run_id='run:trace-write-fails'" in message
+    assert trace_id("run:trace-write-fails") in message
+    assert "Graph 'test_9b7c1387b9c7' not found" in message

@@ -5,12 +5,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import logging
 import signal
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from . import tracing
 from .gateway import (
     GraphOSV2Gateway,
     HTTPGatewayResponse,
@@ -37,6 +37,8 @@ def main() -> None:
     )
     parser.add_argument("--max-request-bytes", default=1_048_576, type=int)
     args = parser.parse_args()
+    tracing.configure_logging()
+    tracing.configure_tracing()
     gateway = GraphOSV2Gateway(StreamableHTTPGraphOSClient(args.graphos_mcp_url))
     transport = StreamableHTTPGateway(
         gateway,
@@ -98,11 +100,12 @@ def main() -> None:
                 self.wfile.write(encoded)
 
         def log_message(self, _format: str, *_args: Any) -> None:
-            # Request lines can carry sensitive query values at reverse proxies;
-            # the gateway emits no access logs by default.
+            # Request lines can carry sensitive query values at reverse proxies,
+            # so the raw HTTP access log stays disabled by default. Structured,
+            # allow-listed, trace-correlated request logging is emitted instead
+            # from `GraphOSV2Gateway.dispatch()` via `tracing.finish_dispatch()`.
             return
 
-    logging.basicConfig(level=logging.WARNING)
     server = _GatewayHTTPServer((args.host, args.port), Handler)
 
     def stop_server(_signum: int, _frame: Any) -> None:

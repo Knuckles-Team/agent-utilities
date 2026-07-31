@@ -1,27 +1,37 @@
 """Atomic OKF-CIS concept-ID reservation (CONCEPT:AU-OS.governance.concept-id-allocation).
 
-Many sessions work the package ecosystem at once, each in its own configured git
-worktree, all merging to a shared branch.
-Semantic concept IDs are a contended resource: two sessions can independently
-author the same canonical ID and collide at merge.
+Many sessions work the package ecosystem at once, each in its own git worktree,
+all merging to a shared branch. Semantic concept IDs are a contended resource:
+two sessions can independently author the same canonical ID and collide at merge.
 
-This module makes a claim **atomic and self-correcting**:
+The claim is made **atomic and self-correcting** by three mechanisms, each an
+application of a lane-arbitration class (``agent_utilities.governance.lanes``):
 
-* Callers propose a complete canonical OKF-CIS ID; the allocator never invents
-  semantic names.
-* The set of taken IDs is the union of three sources — markers already in
-  code, ids already in the registry (``docs/concepts.yaml``), and *open
-  reservations* — so an in-flight claim in another worktree is counted before
-  its marker ever lands.
-* Reservations live in a committed, **line-oriented** ledger
-  (``docs/concept_reservations.yaml``) so concurrent worktrees reconcile via a
-  ``merge=union`` git driver instead of overwriting each other.
-* Within a host, the read-modify-write is serialized by an ``fcntl.flock``.
+* **APPEND-ONLY writes.** A lane appends immutable records to *its own* fragment,
+  ``docs/concept_reservations.d/<lane>.yaml``. It never rewrites a file another
+  lane writes, so two lanes reserving at once produce two files that git merges
+  without a conflict and neither can clobber. Status changes (landed / expired /
+  released) are *new appended records*, not edits — the ledger is event-sourced.
+* **A single generated view.** ``docs/concept_reservations.yaml`` is the folded
+  union of every fragment: one record per id, deterministically ordered. Readers
+  consult that one file exactly as before; only writers know fragments exist.
+* **Host-shared arbitration.** The uniqueness check is serialized by a lock in
+  the repository's shared ``--git-common-dir``, and in-flight claims are
+  published to an append-only claims log in that same directory. That directory
+  is identical from every worktree, so a claim in one lane is visible to all the
+  others **immediately**, long before any merge.
 
-The ledger is authoritative for *claiming* (it works offline and across
-worktrees). The MCP/REST surface additionally projects reservations into the
-Knowledge Graph when the gateway is healthy, for queryability — see
-``agent_utilities/mcp/tools/ontology_tools.py`` (``concept_registry``).
+Two defects this replaced, both observed in production:
+
+1. The ledger was a mutable shared file rewritten whole by every writer, so
+   concurrent lanes clobbered each other and it needed repair by hand-verified
+   line-union.
+2. The ledger root was derived from ``__file__``. With an editable install
+   pointing at the canonical checkout, a lane running from a worktree reserved
+   into — and reconciled against — the **canonical** tree, which is why a lane
+   could reserve an id on a feature branch and have ``concept reconcile`` refuse
+   to flip it: the marker scan never saw the lane's own code. The root now
+   resolves from the caller's working tree (:func:`default_repo_root`).
 
 Top-level imports are stdlib-only so the canonical :data:`MARKER_RE` can be
 imported cheaply by ``scripts/build_concepts_yaml.py`` / ``scripts/check_concepts.py``
@@ -31,6 +41,7 @@ without dragging in heavy deps; ``yaml``/``platformdirs`` load lazily.
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import re
 from datetime import UTC, datetime, timedelta
@@ -44,9 +55,19 @@ from agent_utilities.governance.concept_hierarchy import (
     is_valid_domain,
     parse_okf_id,
 )
+from agent_utilities.governance.lanes import (
+    FragmentStore,
+    current_tree,
+    lane_name,
+    render_view,
+    shared_arbitration_dir,
+    write_view,
+)
 
 MARKER_RE = OKF_MARKER_RE
 LEDGER_FILENAME = "concept_reservations.yaml"
+FRAGMENT_DIRNAME = "concept_reservations.d"
+CLAIMS_LOG_FILENAME = "concept-claims.jsonl"
 DEFAULT_TTL_SECONDS = 86_400  # 24h — a reservation older than this is reclaimable.
 _LEDGER_REFERENCE_RE = re.compile(r"^pref_[a-z0-9_]+_[0-9a-f]{64}$")
 _LEDGER_REQUIRED_KEYS = frozenset(
@@ -63,9 +84,41 @@ _LEDGER_REQUIRED_KEYS = frozenset(
 )
 _LEDGER_OPTIONAL_KEYS = frozenset({"design_ref", "landed_at"})
 _LEDGER_STATUSES = frozenset({"reserved", "landed", "expired"})
+# A later event supersedes an earlier one; same-instant events break the tie by
+# how far the record has advanced (a reconcile that lands or expires a claim
+# writes the same reserved_at as the claim it supersedes).
+_STATUS_RANK = {"reserved": 0, "expired": 1, "landed": 2}
 
-# Repo root = three parents up from this file (.../agent_utilities/governance/x.py).
-REPO_ROOT = Path(__file__).resolve().parents[2]
+_VIEW_HEADER = [
+    "# Concept-ID reservation ledger — GENERATED, do not edit by hand.",
+    "# Truth is docs/concept_reservations.d/<lane>.yaml — one append-only fragment",
+    "# per writing lane. Regenerated on reserve/release/reconcile; rebuild with",
+    "# `agent-utilities concept reconcile`. See docs/concept_coordination.md.",
+]
+
+# Where the *package* lives. Only a fallback: the ledger belongs to the caller's
+# working tree, not to wherever agent_utilities happens to be installed from.
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+
+
+def default_repo_root() -> Path:
+    """The ledger root for the **caller's** working tree.
+
+    Falls back to the installed package root only when the process is not inside
+    a git working tree that carries a ledger (e.g. an installed-wheel CLI run
+    from an unrelated directory).
+    """
+    tree = current_tree()
+    if tree is not None and (
+        (tree / "docs" / LEDGER_FILENAME).exists()
+        or (tree / "docs" / FRAGMENT_DIRNAME).is_dir()
+    ):
+        return tree
+    return PACKAGE_ROOT
+
+
+def _root(repo_root: Path | None) -> Path:
+    return repo_root if repo_root is not None else default_repo_root()
 
 
 def _utcnow() -> datetime:
@@ -121,33 +174,67 @@ def registry_ids(concepts_yaml: Path) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Ledger I/O (line-oriented YAML, merge=union friendly)
+# APPEND-ONLY storage: per-lane fragments folded into one generated view
 # ---------------------------------------------------------------------------
-def ledger_path(repo_root: Path = REPO_ROOT) -> Path:
-    return repo_root / "docs" / LEDGER_FILENAME
+def ledger_path(repo_root: Path | None = None) -> Path:
+    """The single generated view every reader consults."""
+    return _root(repo_root) / "docs" / LEDGER_FILENAME
 
 
-def _lock_path(repo_root: Path = REPO_ROOT) -> Path:
-    """Per-repo advisory lock.
-
-    Each repo has its own ledger (agent-utilities, and every per-package repo),
-    so each gets its own lock keyed by a stable hash of the resolved repo path —
-    distinct ledgers never serialize against each other, and concurrent reservers
-    of the *same* ledger always do.
-    """
-    import hashlib
-
-    import platformdirs
-
-    lock_dir = Path(platformdirs.user_runtime_dir("agent-utilities"))
-    lock_dir.mkdir(parents=True, exist_ok=True)
-    # Collision resistance matters: two roots must never share a ledger lock.
-    digest = hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:32]
-    return lock_dir / f"concept_ledger.{digest}.lock"
+def fragment_dir(repo_root: Path | None = None) -> Path:
+    """The directory of per-lane append-only fragments (what writers touch)."""
+    return _root(repo_root) / "docs" / FRAGMENT_DIRNAME
 
 
-def read_ledger(repo_root: Path = REPO_ROOT) -> list[dict[str, Any]]:
-    """Return current-schema reservation records, rejecting stale/raw fields."""
+def _store(repo_root: Path) -> FragmentStore:
+    return FragmentStore(root=fragment_dir(repo_root), key="id")
+
+
+def _event_time(record: dict[str, Any]) -> str:
+    return str(record.get("landed_at") or record.get("reserved_at") or "")
+
+
+def _resolve_record(group: list[dict[str, Any]]) -> dict[str, Any]:
+    """Collapse every appended record for one id down to its latest state."""
+    return max(
+        group,
+        key=lambda r: (_event_time(r), _STATUS_RANK.get(str(r.get("status")), -1)),
+    )
+
+
+def _validate(record: dict[str, Any]) -> dict[str, Any]:
+    """Reject a record that does not match the current, privacy-safe schema."""
+    keys = set(record)
+    if not _LEDGER_REQUIRED_KEYS <= keys or keys - (
+        _LEDGER_REQUIRED_KEYS | _LEDGER_OPTIONAL_KEYS
+    ):
+        raise ValueError("concept reservation ledger record has invalid fields")
+    concept_id = str(record["id"])
+    parsed = parse_okf_id(concept_id)
+    if (
+        str(record["slug"]) != parsed.slug
+        or str(record["pillar"]) != parsed.pillar
+        or str(record["domain"]) != parsed.domain
+    ):
+        raise ValueError("concept reservation ledger identity fields disagree")
+    if str(record["status"]) not in _LEDGER_STATUSES:
+        raise ValueError("concept reservation ledger status is invalid")
+    for field in ("session_ref", "design_ref"):
+        if field in record and not _LEDGER_REFERENCE_RE.fullmatch(str(record[field])):
+            raise ValueError("concept reservation ledger contains a raw identity")
+    for field in ("reserved_at", "expires_at", "landed_at"):
+        if field in record:
+            try:
+                datetime.fromisoformat(str(record[field]))
+            except ValueError:
+                raise ValueError(
+                    "concept reservation ledger timestamp is invalid"
+                ) from None
+    return record
+
+
+def read_ledger(repo_root: Path | None = None) -> list[dict[str, Any]]:
+    """Return current-schema reservation records from the generated view."""
     path = ledger_path(repo_root)
     if not path.exists():
         return []
@@ -162,65 +249,97 @@ def read_ledger(repo_root: Path = REPO_ROOT) -> list[dict[str, Any]]:
     for record in data:
         if not isinstance(record, dict):
             raise ValueError("concept reservation ledger contains a non-record")
-        keys = set(record)
-        if not _LEDGER_REQUIRED_KEYS <= keys or keys - (
-            _LEDGER_REQUIRED_KEYS | _LEDGER_OPTIONAL_KEYS
-        ):
-            raise ValueError("concept reservation ledger record has invalid fields")
-        concept_id = str(record["id"])
-        parsed = parse_okf_id(concept_id)
-        if (
-            str(record["slug"]) != parsed.slug
-            or str(record["pillar"]) != parsed.pillar
-            or str(record["domain"]) != parsed.domain
-        ):
-            raise ValueError("concept reservation ledger identity fields disagree")
-        if str(record["status"]) not in _LEDGER_STATUSES:
-            raise ValueError("concept reservation ledger status is invalid")
-        for field in ("session_ref", "design_ref"):
-            if field in record and not _LEDGER_REFERENCE_RE.fullmatch(
-                str(record[field])
-            ):
-                raise ValueError("concept reservation ledger contains a raw identity")
-        for field in ("reserved_at", "expires_at", "landed_at"):
-            if field in record:
-                try:
-                    datetime.fromisoformat(str(record[field]))
-                except ValueError:
-                    raise ValueError(
-                        "concept reservation ledger timestamp is invalid"
-                    ) from None
-        records.append(record)
+        records.append(_validate(record))
     return records
 
 
-def _dump_ledger(records: list[dict[str, Any]], repo_root: Path = REPO_ROOT) -> None:
-    """Write the ledger as one ``- {…}`` flow-mapping per line.
+def _fold(repo_root: Path) -> list[dict[str, Any]]:
+    """Every fragment, folded to one validated record per concept id."""
+    return [_validate(r) for r in _store(repo_root).fold(_resolve_record)]
 
-    One reservation per physical line is what makes ``merge=union`` safe: two
-    worktrees that each append a distinct reservation merge without a textual
-    conflict. Written via a temp file + ``os.replace`` for atomicity.
+
+def render_view_for(repo_root: Path | None = None) -> str:
+    """The exact text the generated view should hold, without writing it.
+
+    Lets a gate prove a staged view really is the fold of the fragments rather
+    than a hand edit of the shared file.
     """
-    import yaml
-
-    path = ledger_path(repo_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    records = sorted(records, key=lambda r: str(r.get("id", "")))
-    lines = [
-        "# Concept-ID reservation ledger — one reservation per line (merge=union safe).",
-        "# Managed by agent_utilities.governance.concept_allocator; see",
-        "# docs/concept_coordination.md. Reserve via `agent-utilities concept reserve`.",
-    ]
-    for rec in records:
-        flow = yaml.safe_dump(
-            rec, default_flow_style=True, sort_keys=False, width=10_000
-        ).strip()
-        lines.append(f"- {flow}")
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    return render_view(_fold(_root(repo_root)), header=_VIEW_HEADER)
 
 
+def regenerate_view(repo_root: Path | None = None) -> list[dict[str, Any]]:
+    """Fold the fragments and rewrite the generated view. Returns the records."""
+    root = _root(repo_root)
+    records = _fold(root)
+    write_view(ledger_path(root), render_view(records, header=_VIEW_HEADER))
+    return records
+
+
+# ---------------------------------------------------------------------------
+# Host-shared arbitration: one lock and one claims log per repository
+# ---------------------------------------------------------------------------
+def _lock_path(repo_root: Path) -> Path:
+    """The mutex serializing concept claims across **all** worktrees of a repo.
+
+    The previous lock was keyed by the *worktree* path, so two worktrees of the
+    same repository took two different locks and never excluded each other — the
+    serialization it promised did not exist across lanes. The shared git
+    directory resolves identically from every worktree, so the lock is now real.
+    """
+    shared = shared_arbitration_dir(repo_root)
+    if shared is not None:
+        shared.mkdir(parents=True, exist_ok=True)
+        return shared / "concept-ledger.lock"
+    import hashlib
+
+    import platformdirs
+
+    lock_dir = Path(platformdirs.user_runtime_dir("agent-utilities"))
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:32]
+    return lock_dir / f"concept_ledger.{digest}.lock"
+
+
+def _claims_log(repo_root: Path) -> Path | None:
+    shared = shared_arbitration_dir(repo_root)
+    return None if shared is None else shared / CLAIMS_LOG_FILENAME
+
+
+def _record_claim(repo_root: Path, event: dict[str, Any]) -> None:
+    """Publish a claim event where every sibling worktree sees it immediately."""
+    log = _claims_log(repo_root)
+    if log is None:
+        return
+    log.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(log), os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o644)
+    try:
+        os.write(fd, (json.dumps(event, sort_keys=True) + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
+def _claimed_elsewhere(repo_root: Path, *, now: datetime) -> set[str]:
+    """Ids claimed by any lane on this host and not yet released or expired."""
+    log = _claims_log(repo_root)
+    if log is None or not log.exists():
+        return set()
+    latest: dict[str, dict[str, Any]] = {}
+    for line in log.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        latest[str(event.get("id"))] = event
+    return {
+        cid
+        for cid, event in latest.items()
+        if event.get("event") == "reserved"
+        and not _is_expired(event.get("expires_at"), now)
+    }
+
+
+# ---------------------------------------------------------------------------
+# Reservation state
+# ---------------------------------------------------------------------------
 def _open_reservation_ids(records: list[dict[str, Any]], *, now: datetime) -> set[str]:
     """Ids of reservations that still hold a claim (reserved & not expired, or landed)."""
     out: set[str] = set()
@@ -244,11 +363,20 @@ def _is_expired(expires_at: Any, now: datetime) -> bool:
         return False
 
 
-# ---------------------------------------------------------------------------
-# Public API — reserve / release / reconcile / list
-# ---------------------------------------------------------------------------
 def _default_scan_roots(repo_root: Path) -> list[Path]:
-    return [repo_root / "agent_utilities"]
+    """Every source tree a ``CONCEPT:`` marker can land in, for reservation
+    scans and ``reconcile()`` (D-25-8).
+
+    ``agent_utilities/`` is the main package; ``mcp_v2_gateway/`` is the one
+    other in-repo, deliberately-isolated Python sidecar package (see its own
+    ``AGENTS.md`` / ``pyproject.toml`` — separate wheel, separate deploy
+    surface, same repo). Before this fix a marker landing there (e.g.
+    ``AU-ECO.mcp.v2-gateway-otel-tracing``) never left ``reserved`` status
+    because ``scan_code_markers`` never walked it.  ``scan_code_markers``
+    already skips a root that doesn't exist, so this is safe for a synthetic
+    test ``repo_root`` fixture that only creates ``agent_utilities/``.
+    """
+    return [repo_root / "agent_utilities", repo_root / "mcp_v2_gateway"]
 
 
 def _taken_union(
@@ -258,27 +386,53 @@ def _taken_union(
     now: datetime,
     scan_roots: list[Path] | None = None,
 ) -> set[str]:
+    """Every id that is spoken for: in code, in the registry, or claimed in flight."""
     roots = scan_roots if scan_roots is not None else _default_scan_roots(repo_root)
     code = set(scan_code_markers(roots))
     reg = registry_ids(repo_root / "docs" / "concepts.yaml")
     open_res = _open_reservation_ids(records, now=now)
-    return code | reg | open_res
+    in_flight = _claimed_elsewhere(repo_root, now=now)
+    return code | reg | open_res | in_flight
 
 
+class _Arbiter:
+    """Exclusive hold on a repo's concept ledger, shared by all of its worktrees."""
+
+    def __init__(self, repo_root: Path) -> None:
+        self._path = _lock_path(repo_root)
+        self._fd = -1
+
+    def __enter__(self) -> _Arbiter:
+        self._fd = os.open(str(self._path), os.O_CREAT | os.O_WRONLY, 0o644)
+        fcntl.flock(self._fd, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        try:
+            fcntl.flock(self._fd, fcntl.LOCK_UN)
+        finally:
+            os.close(self._fd)
+
+
+# ---------------------------------------------------------------------------
+# Public API — reserve / release / reconcile / list
+# ---------------------------------------------------------------------------
 def reserve_concept_id(
     concept_id: str,
     *,
     session_id: str,
     design_doc: str | None = None,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
-    repo_root: Path = REPO_ROOT,
+    repo_root: Path | None = None,
     scan_roots: list[Path] | None = None,
 ) -> dict[str, Any]:
-    """Atomically reserve an exact canonical ID and append it to the ledger.
+    """Atomically reserve an exact canonical ID by appending to this lane's fragment.
 
-    Serialized by an ``fcntl.flock`` so concurrent callers on the same host can
-    never claim the same ID; the committed line-oriented ledger plus the
-    union-of-everything taken set extend that guarantee across worktrees.
+    Serialized by a lock in the repository's shared git directory, so concurrent
+    callers in *different worktrees* — not merely different processes in one
+    worktree — can never claim the same ID. The claim is published to the shared
+    claims log before the lock is released, so a sibling lane sees it without
+    waiting for a merge.
     """
     if not str(session_id or "").strip():
         raise ValueError("session_id is required")
@@ -287,106 +441,134 @@ def reserve_concept_id(
         raise ValueError(
             f"domain {parsed.domain!r} is not registered for pillar {parsed.pillar!r}"
         )
+    root = _root(repo_root)
 
     from agent_utilities.security.persistence_privacy import persistence_reference
 
-    lock_fd = open(_lock_path(repo_root), "w")  # noqa: SIM115
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    with _Arbiter(root):
         now = _utcnow()
-        records = read_ledger(repo_root)
-        taken = _taken_union(repo_root, records, now=now, scan_roots=scan_roots)
+        records = _fold(root)
+        taken = _taken_union(root, records, now=now, scan_roots=scan_roots)
         if concept_id in taken:
             raise ValueError(
                 f"concept id is already registered or reserved: {concept_id}"
             )
-        record = {
+        expires_at = _iso(now + timedelta(seconds=ttl_seconds))
+        record: dict[str, Any] = {
             "id": concept_id,
             "slug": parsed.slug,
             "pillar": parsed.pillar,
             "domain": parsed.domain,
             "session_ref": persistence_reference("concept_session", session_id),
             "reserved_at": _iso(now),
-            "expires_at": _iso(now + timedelta(seconds=ttl_seconds)),
+            "expires_at": expires_at,
             "status": "reserved",
         }
         if design_doc:
             record["design_ref"] = persistence_reference("design_doc", design_doc)
-        records.append(record)
-        _dump_ledger(records, repo_root)
+        lane = lane_name(root)
+        _store(root).append(_validate(record), lane=lane)
+        _record_claim(
+            root,
+            {
+                "id": concept_id,
+                "event": "reserved",
+                "lane": lane,
+                "at": record["reserved_at"],
+                "expires_at": expires_at,
+            },
+        )
+        regenerate_view(root)
         return record
-    finally:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            lock_fd.close()
 
 
-def release_concept_id(concept_id: str, *, repo_root: Path = REPO_ROOT) -> bool:
-    """Release a reservation (e.g. the work was abandoned). Returns True if found."""
+def release_concept_id(concept_id: str, *, repo_root: Path | None = None) -> bool:
+    """Release a reservation this lane owns (e.g. the work was abandoned).
+
+    A lane may only release a claim recorded in **its own** fragment; releasing
+    another lane's claim would be exactly the cross-lane clobber this design
+    exists to prevent, so it raises rather than silently succeeding.
+    """
     parse_okf_id(concept_id)
-    lock_fd = open(_lock_path(repo_root), "w")  # noqa: SIM115
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        records = read_ledger(repo_root)
-        kept = [r for r in records if str(r.get("id")) != concept_id]
-        found = len(kept) != len(records)
-        if found:
-            _dump_ledger(kept, repo_root)
-        return found
-    finally:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            lock_fd.close()
+    root = _root(repo_root)
+    with _Arbiter(root):
+        store = _store(root)
+        lane = lane_name(root)
+        mine = store.read_fragment(lane)
+        kept = [r for r in mine if str(r.get("id")) != concept_id]
+        if len(kept) == len(mine):
+            if any(str(r.get("id")) == concept_id for r in _fold(root)):
+                raise ValueError(
+                    f"{concept_id} was reserved by another lane — ask that lane to "
+                    "release it, or let its TTL expire"
+                )
+            return False
+        store.rewrite_fragment(lane, kept)
+        _record_claim(
+            root,
+            {
+                "id": concept_id,
+                "event": "released",
+                "lane": lane,
+                "at": _iso(_utcnow()),
+            },
+        )
+        regenerate_view(root)
+        return True
 
 
 def reconcile(
-    *, repo_root: Path = REPO_ROOT, scan_roots: list[Path] | None = None
+    *, repo_root: Path | None = None, scan_roots: list[Path] | None = None
 ) -> dict[str, list[str]]:
-    """Close out reservations against reality.
+    """Close out reservations against reality, in **this lane's** working tree.
 
     * A reservation whose marker now appears in code → ``landed``.
     * A still-``reserved`` reservation past its TTL → ``expired`` (its id is freed).
 
+    Each transition is a *new appended record*, never an edit to an existing one,
+    so a lane can reconcile a claim another lane originally wrote without touching
+    that lane's fragment. Because the scan roots come from the caller's working
+    tree, a marker that landed on a feature branch is now seen — the previous
+    behaviour scanned only the canonical checkout and silently refused to flip it.
+
     Returns ``{"landed": [...], "expired": [...]}``. Safe to call from
     ``build_concepts_yaml.main`` so the ledger self-cleans on every regeneration.
     """
-    lock_fd = open(_lock_path(repo_root), "w")  # noqa: SIM115
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    root = _root(repo_root)
+    with _Arbiter(root):
         now = _utcnow()
-        records = read_ledger(repo_root)
-        roots = scan_roots if scan_roots is not None else _default_scan_roots(repo_root)
+        records = _fold(root)
+        roots = scan_roots if scan_roots is not None else _default_scan_roots(root)
         code = set(scan_code_markers(roots))
         landed: list[str] = []
         expired: list[str] = []
-        changed = False
+        transitions: list[dict[str, Any]] = []
         for rec in records:
             cid = str(rec.get("id"))
-            if rec.get("status") == "reserved" and cid in code:
-                rec["status"] = "landed"
-                rec["landed_at"] = _iso(now)
+            if rec.get("status") != "reserved":
+                continue
+            if cid in code:
+                transitions.append({**rec, "status": "landed", "landed_at": _iso(now)})
                 landed.append(cid)
-                changed = True
-            elif rec.get("status") == "reserved" and _is_expired(
-                rec.get("expires_at"), now
-            ):
-                rec["status"] = "expired"
+            elif _is_expired(rec.get("expires_at"), now):
+                transitions.append({**rec, "status": "expired"})
                 expired.append(cid)
-                changed = True
-        if changed:
-            _dump_ledger(records, repo_root)
+        if transitions:
+            store = _store(root)
+            lane = lane_name(root)
+            for transition in transitions:
+                store.append(_validate(transition), lane=lane)
+            for cid in expired:
+                _record_claim(
+                    root,
+                    {"id": cid, "event": "released", "lane": lane, "at": _iso(now)},
+                )
+            regenerate_view(root)
         return {"landed": landed, "expired": expired}
-    finally:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            lock_fd.close()
 
 
 def list_reservations(
-    *, repo_root: Path = REPO_ROOT, status: str | None = None
+    *, repo_root: Path | None = None, status: str | None = None
 ) -> list[dict[str, Any]]:
     """Return ledger reservations, optionally filtered by status."""
     records = read_ledger(repo_root)

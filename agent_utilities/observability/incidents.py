@@ -90,6 +90,12 @@ _LAYER_PREFIXES: dict[str, str] = {
 DEFAULT_SEVERITY = "warning"
 _MULTI_LAYER_SEVERITY = "critical"
 
+# The standing health:anomaly:... id namespace (health_ingest.ingest_health_anomaly)
+# — used by get_incident_evidence to classify a resolved neighbor as an anomaly vs.
+# an affected entity independent of whether the HealthAnomaly enrichment read
+# succeeds (D-DST-6).
+_HEALTH_ANOMALY_ID_PREFIX = "health:anomaly:"
+
 # The graph_incident tool's ack/resolve state transitions (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation
 # follow-up) — a small, deliberately non-validated status vocabulary (no
 # ClaimFlywheel-style legal-transition machine: an incident is either open,
@@ -376,20 +382,27 @@ def get_incident_evidence(
             "incident evidence: neighbor read failed for %s: %s", incident_id, e
         )
         neighbor_ids = set()
+    # D-DST-6: classify anomaly-vs-entity by the documented id namespace
+    # (health:anomaly:...) FIRST, independent of whether the enrichment read
+    # below succeeds. The prior code derived `entities` as `neighbor_ids -
+    # {successfully-read anomaly ids}` — on a transient HealthAnomaly read
+    # failure, real anomaly ids were silently reclassified as generic
+    # "entities", corrupting the id-set that related_causal_claims() /
+    # incidents_for_causal_claim() match against for B17 bridge correlation.
+    anomaly_neighbor_ids = {
+        nid for nid in neighbor_ids if str(nid).startswith(_HEALTH_ANOMALY_ID_PREFIX)
+    }
     anomalies: list[dict[str, Any]] = []
-    if neighbor_ids:
+    if anomaly_neighbor_ids:
         try:
             rows = eng.get_nodes_by_label("HealthAnomaly", 0) or []
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — props are enrichment only; the anomaly/entity split above already stands without them
             logger.debug("incident evidence: anomaly read failed: %s", e)
             rows = []
-        anomalies = [
-            {"id": node_id, **props}
-            for node_id, props in rows
-            if node_id in neighbor_ids and isinstance(props, dict)
-        ]
+        by_id = {node_id: props for node_id, props in rows if isinstance(props, dict)}
+        anomalies = [{"id": nid, **by_id.get(nid, {})} for nid in anomaly_neighbor_ids]
         anomalies.sort(key=lambda a: str(a.get("observedAt") or ""))
-    entities = sorted(neighbor_ids - {a["id"] for a in anomalies})
+    entities = sorted(neighbor_ids - anomaly_neighbor_ids)
     return {"anomalies": anomalies, "entities": entities}
 
 

@@ -3694,6 +3694,7 @@ def _build_server(
         register_graph_engineering_tools,
         register_incident_tools,
         register_job_tools,
+        register_mcp_apps_tools,
         register_media_sidecar_tools,
         register_ontology_tools,
         register_ops_causal_tools,
@@ -3749,6 +3750,13 @@ def _build_server(
         force_condensed_registration=canonical_surface,
     )
 
+    # CONCEPT:AU-ECO.ui.mcp-apps-host — the MCP Apps entry-point tool + its
+    # ui:// resource (agent_utilities/mcp/tools/mcp_apps.py). Registered
+    # directly, not through register_tool_surface: it has no `action` param
+    # to condense/verbose-split (a single-purpose tool + a resource, not an
+    # action-routed dispatcher), so it doesn't fit that harness's contract.
+    register_mcp_apps_tools(mcp)
+
     # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8, Phases 2-3) — the ADDITIONAL, small
     # "ask/find/write/act/manage/why" intent surface, selected by the default
     # MCP_TOOL_MODE=intent. Every granular tool the
@@ -3779,11 +3787,15 @@ def register_graphos_verbose_tools(mcp) -> None:
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
     from agent_utilities.mcp.verbose_tools import tool_mode
 
-    # In ``both`` mode the condensed action tools are also registered; a single-op
-    # (action=None) verbose tool shares the condensed tool's NAME, so skip it to
-    # avoid overwriting the (untagged) condensed tool with a verbose-tagged
-    # duplicate. In verbose-only mode there is no condensed tool — keep them.
-    skip_single_op = tool_mode() == "both"
+    # In ``both`` mode — and, since D-WS-1, in ``verbose`` mode too — the condensed
+    # action tools are also registered (register_tool_surface now always registers
+    # the condensed registrars so the dispatch core / REGISTERED_TOOLS is never left
+    # empty; see verbose_tools.register_tool_surface). A single-op (action=None)
+    # verbose tool shares the condensed tool's NAME, so skip it to avoid overwriting
+    # the condensed tool's FastMCP component with a verbose-tagged duplicate whose
+    # schema (bare ``params_json``) doesn't match what REGISTERED_TOOLS actually
+    # dispatches for that name.
+    skip_single_op = tool_mode() in ("both", "verbose")
 
     def _make(tool_name: str, action: str | None):
         # The low-level engine_<domain> tools (CONCEPT:AU-ECO.mcp.full-api-mcp-surface) are generic
@@ -4167,6 +4179,48 @@ def _configure_telemetry_engine_otel() -> None:
         )
 
 
+def _preflight_mcp_sdk_floor() -> None:
+    """Fail startup loudly when the installed MCP SDK is below the declared floor.
+
+    CONCEPT:AU-ECO.mcp.protocol-compat-bridge — closes D-OB-18.
+
+    The category defect this exists for is that source-vs-installed divergence was
+    INVISIBLE: graph-os source targeting fastmcp 4 / mcp 2 ran for weeks on an image
+    that shipped fastmcp 3.4.5 / mcp 1.29.0, and the only symptom was a single ERROR
+    log line as `attach_fleet_loader` lost every fleet meta-tool to
+    ``ImportError: cannot import name 'MCPError'``. A rebuilt image with no assertion
+    just resets that clock, so the assertion runs here, at startup, as well as at
+    image-build time.
+
+    Enforcement is a hook, not a hardcoded policy: ``MCP_SDK_FLOOR_ENFORCE`` selects
+    ``error`` (default — refuse to start, because a graph-os that silently loses its
+    fleet surface is worse than one that will not come up) or ``warn`` (log and
+    continue, for an operator who is knowingly running a mismatched pair during a
+    migration).
+    """
+    from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor
+
+    result = check_mcp_sdk_floor()
+    if result["ok"] is True:
+        logger.info("MCP SDK floor OK: %s", result["detail"])
+        return
+    if result["ok"] is None:
+        logger.warning("MCP SDK floor check skipped: %s", result["detail"])
+        return
+
+    mode = os.environ.get("MCP_SDK_FLOOR_ENFORCE", "error").strip().lower()
+    message = (
+        f"installed MCP SDK does not satisfy the declared [mcp] floor: {result['detail']}. "
+        "The runtime image and this source tree have diverged — rebuild the image "
+        "(docker/graphos-unified.Dockerfile) so its dependency closure matches the "
+        "source it serves. Set MCP_SDK_FLOOR_ENFORCE=warn to start anyway."
+    )
+    if mode == "warn":
+        logger.error("graph-os starting with a mismatched MCP SDK: %s", message)
+        return
+    raise RuntimeError(message)
+
+
 def mcp_server() -> None:
     """``graph-os`` MCP server entry point (registered as console_scripts).
 
@@ -4181,6 +4235,7 @@ def mcp_server() -> None:
     from agent_utilities.core.config import load_config
 
     load_config()  # resolve settings through the one shared XDG config.json
+    _preflight_mcp_sdk_floor()
     _configure_graphos_otel()
     _configure_telemetry_engine_otel()
     os.environ["IS_KG_SERVER"] = "true"
@@ -4195,7 +4250,16 @@ def mcp_server() -> None:
     # reaches the rest of the MCP fleet on demand. Attached AFTER the factory middlewares
     # so per-session tool visibility runs with identity/auth already applied. Only for a
     # directly-served process — the embedded API-gateway build owns no serving loop.
-    fleet_mux = None
+    # The five meta-tools this attaches (find_tools/list_catalog/load_tools/
+    # unload_tools/multiplexer_status) plus the session-visibility middleware are
+    # MODE-INDEPENDENT infrastructure — they are the only way to reach anything
+    # the active MCP_TOOL_MODE holds back, so they must be present under intent,
+    # condensed, verbose AND both. A failure here is therefore NOT survivable:
+    # the previous `except Exception: logger.error(...)` downgraded it to a log
+    # line and served a silently wrong surface (an SDK-rename ImportError in
+    # child_resilience left graph-os exposing 118 ungated tools with no
+    # load_tools at all). Fail loud, preserving __cause__.
+    # CONCEPT:AU-ECO.mcp.fleet-meta-tools-always-on
     try:
         from agent_utilities.mcp.multiplexer import attach_fleet_loader
 
@@ -4207,9 +4271,12 @@ def mcp_server() -> None:
             authority_scope=verified_tool_session_scope,
         )
     except Exception as exc:
-        logger.error(
-            "graph-os fleet loader attach failed; fleet tools disabled: %s", exc
-        )
+        raise RuntimeError(
+            "graph-os fleet loader attach failed: the fleet meta-tools "
+            "(find_tools/list_catalog/load_tools/unload_tools/multiplexer_status) "
+            "and the session-visibility middleware could not be registered, so the "
+            "served tool surface would be wrong under every MCP_TOOL_MODE."
+        ) from exc
 
     transport = getattr(args, "transport", "stdio")
     host = getattr(args, "host", "127.0.0.1")

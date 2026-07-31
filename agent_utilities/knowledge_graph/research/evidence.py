@@ -64,6 +64,7 @@ __all__ = [
     "from_health_anomaly",
     "from_candidate_insight",
     "from_process_signal",
+    "from_research_evidence_node",
 ]
 
 #: Finding type routed through the SAME CandidateInsight -> ClaimNode ->
@@ -409,6 +410,43 @@ def from_process_signal(evidence_dict: dict[str, Any]) -> Evidence:
     )
 
 
+def from_research_evidence_node(node: Any) -> Evidence:
+    """(d) research_finding — the SEPARATE ``research_subagent.py`` pipeline's
+    own ``EvidenceNode`` (D-71-3).
+
+    ``candidates_from_evidence``'s (d) channel already covers the mining-
+    flywheel's ``CandidateInsight`` family via :func:`from_candidate_insight`.
+    A second, pre-existing research pipeline — ``knowledge_graph.orchestration.
+    research_subagent.ResearchSubagent`` — persists its own findings as
+    ``models.knowledge_graph.EvidenceNode`` (``RegistryNodeType.EVIDENCE``, a
+    narrower "claim/finding extracted from a source document" type this
+    module deliberately did not repurpose — see
+    :class:`EvolutionEvidenceNode`'s docstring for why). This adapter maps
+    THAT node's real fields onto the same unified contract without collapsing
+    the two distinct node types into one.
+
+    Always PROPOSED (never SUCCESS/FAILURE): an extracted research finding is
+    a candidate observation, not a pass/fail judgement — mirrors
+    :func:`from_process_signal`'s same reasoning. ``confidence`` is the node's
+    own real ``confidence_score``, never fabricated; ``subject_id`` is the
+    node's content-addressed ``evidence_id`` so re-recording the same claim
+    text upserts rather than duplicates.
+    """
+    evidence_node_id = str(getattr(node, "evidence_id", "") or "")
+    node_id = str(getattr(node, "id", "") or "")
+    subject = evidence_node_id or node_id or "unknown-finding"
+    return Evidence(
+        channel=EvidenceChannel.RESEARCH_FINDING,
+        subject_id=subject,
+        outcome=EvidenceOutcome.PROPOSED,
+        signal=0.0,
+        confidence=_clamp01(getattr(node, "confidence_score", 1.0)),
+        source_node_id=node_id or None,
+        source_node_type="EvidenceNode",
+        payload={"claim": str(getattr(node, "claim", "") or "")},
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Writer / reader
 # --------------------------------------------------------------------------- #
@@ -607,5 +645,29 @@ def evidence_lineage(engine: Any, evidence_id: str) -> dict[str, Any]:
         )
         for proposal in proposal_rows:
             chain.append({"stage": "proposal", "claim_id": claim_id, **proposal})
+            proposal_id = proposal.get("id")
+            if not proposal_id:
+                continue
+            # (7.6 follow-up, D-71-5) one more hop: any recorded capability-ratchet
+            # verdict (AHE-3.24, ``capability_ratchet._record``) for this proposal —
+            # the test/rollout half of trace -> evaluation -> proposal -> test ->
+            # rollout. ``proposal_id`` is a plain matched property (not a graph
+            # edge), the SAME lookup ``latest_ratchet_result`` uses, so this hop
+            # never re-derives the verdict, just surfaces it in the chain.
+            ratchet_rows = _rows(
+                "MATCH (r:CapabilityRatchetResult) WHERE r.proposal_id = $pid "
+                "RETURN r.id AS id, r.result AS result, r.recommendation AS recommendation, "
+                "r.recorded_at AS recorded_at "
+                f"LIMIT {10}",
+                {"pid": proposal_id},
+            )
+            for ratchet in ratchet_rows:
+                chain.append(
+                    {
+                        "stage": "capability_ratchet",
+                        "proposal_id": proposal_id,
+                        **ratchet,
+                    }
+                )
 
     return {"evidence_id": evidence_id, "found": True, "chain": chain}

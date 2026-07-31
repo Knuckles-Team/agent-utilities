@@ -1607,7 +1607,7 @@ class EvalRunner:
 
             result = create_context_agent(create_model()).run_sync(prompt)
             return result.output if hasattr(result, "output") else str(result)
-        except Exception as exc:  # pragma: no cover - model optional offline
+        except Exception as exc:  # pragma: no cover - model optional offline  # noqa: BLE001 — callers (_llm_judge_eval, _assertion_judge) explicitly check for a None return and fall back to a deterministic scorer, so a missing/offline model is never mistaken for a scored result
             logger.debug("LLM unavailable for judge: %s", exc)
             return None
 
@@ -1641,7 +1641,7 @@ class EvalRunner:
             reasoning = str(parsed.get("reasoning", ""))
             return (max(0.0, min(1.0, score)), reasoning)
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — explicit deterministic fallback (semantic similarity) computed and returned right below, never silently reported as an LLM-judged score
             logger.debug("LLM judge fallback (no model available): %s", exc)
             # Fallback: use semantic similarity as proxy
             fallback_score = EvalRunner._semantic_similarity_eval(expected, actual)
@@ -1684,7 +1684,7 @@ class EvalRunner:
             passed = bool(parsed.get("pass", False))
             reasoning = str(parsed.get("reasoning", ""))
             return (1.0 if passed else 0.0, reasoning)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — explicit deterministic offline heuristic computed and returned right below, same fallback discipline as _llm_judge_eval above
             logger.debug("assertion judge fallback (no model available): %s", exc)
             # Offline heuristic: pass if the assertion's salient words appear.
             words = [w for w in assertion.lower().split() if len(w) > 3]

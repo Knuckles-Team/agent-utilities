@@ -143,7 +143,11 @@ def _tracing_model_cls() -> Any:
                         latency_ms=(time.time() - t0) * 1000,
                     )
                 except Exception as exc:  # pragma: no cover - capture is best-effort
-                    logger.debug("per-call generation capture failed: %s", exc)
+                    # D-SWG-2: loud, not debug — wrap_model_for_tracing's own
+                    # docstring promises "EVERY LLM request persists a
+                    # GenerationNode"; a silently dropped capture here is the
+                    # exact D-DG-7 shape (a tracing write reported nowhere).
+                    logger.warning("per-call generation capture failed: %s", exc)
             return resp
 
     _TRACING_MODEL_CLS = _TracingModel
@@ -164,7 +168,10 @@ def wrap_model_for_tracing(model: Any) -> Any:
     try:
         return cls(model)
     except Exception as exc:  # pragma: no cover - never break model construction
-        logger.debug("model tracing wrap failed: %s", exc)
+        # D-SWG-2: loud, not debug — falling back to the unwrapped model means
+        # this model's calls are NEVER traced, silently breaking the
+        # "EVERY LLM request" guarantee this function's docstring promises.
+        logger.warning("model tracing wrap failed: %s", exc)
         return model
 
 

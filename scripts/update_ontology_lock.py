@@ -126,15 +126,21 @@ def _certification_metadata(
     }
 
 
-def _trusted_public_keys() -> tuple[str, ...]:
-    keys = list(ontology_integrity.release_trusted_public_keys())
-    try:
-        runtime_signer = ontology_integrity.ReleaseSigner.from_runtime()
-    except ontology_integrity.ReleaseSigningError:
-        runtime_signer = None
-    if runtime_signer is not None:
-        keys.append(runtime_signer.public_key)
-    trusted = tuple(dict.fromkeys(keys))
+def _trusted_public_keys(lock_path: Path) -> tuple[str, ...]:
+    """The keys this lock update may accept — never the ambient runtime key.
+
+    CONCEPT:AU-KG.ontology.release-key-rotation. This helper used to append
+    whatever public key the runtime signing seed happened to derive, which meant a
+    swapped seed was trusted the instant it appeared: exactly how D-OB-5 went
+    unnoticed. Trust now comes only from declared sources — the configured trusted
+    keys, the committed rotation ledger, and the keys the lock already pins. A
+    genuinely new key becomes trusted by being *recorded*, not by being present.
+    """
+    keys = [
+        *ontology_integrity.release_trusted_public_keys(),
+        *sorted(ontology_integrity.lock_pinned_public_keys(lock_path)),
+    ]
+    trusted = tuple(dict.fromkeys(key for key in keys if key))
     if not trusted:
         raise ValueError(
             "release pin update requires an explicit signer or trusted public key"
@@ -350,7 +356,7 @@ def main() -> int:
         return 1
 
     try:
-        trusted_public_keys = _trusted_public_keys()
+        trusted_public_keys = _trusted_public_keys(args.lock_path)
     except Exception:  # noqa: BLE001 - privacy-safe aggregate only
         print("release pin update has no valid trusted signing key")
         return 1

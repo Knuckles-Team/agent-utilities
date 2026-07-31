@@ -52,10 +52,45 @@ attribute set with no other side effects. Delete this module once
 names directly.
 """
 
+import importlib.metadata
 import warnings
 from typing import Any
 
 _installed = False
+
+#: Names `mcp.shared.exceptions` uses for the MCP protocol error, newest first.
+#: SDK v2 (`mcp>=2.0.0`) renamed `McpError` -> `MCPError`; SDK v1 still ships the
+#: old spelling. Both are the SAME protocol error, so code that catches it must
+#: bind whichever one the INSTALLED SDK actually exposes.
+_PROTOCOL_ERROR_NAMES = ("MCPError", "McpError")
+
+
+def mcp_protocol_error() -> type[BaseException]:
+    """Return the MCP protocol-error class for the *installed* MCP SDK line.
+
+    `mcp.shared.exceptions.McpError` (SDK v1) was renamed `MCPError` in SDK v2.
+    A hard `from mcp.shared.exceptions import MCPError` therefore raises
+    `ImportError` on every SDK v1 install — and because the multiplexer imports
+    the child-resilience layer at module scope, that ImportError takes the whole
+    fleet loader down with it (CONCEPT:AU-ECO.mcp.protocol-compat-bridge).
+
+    This resolves the class by name instead. It is deliberately NOT a
+    `try/except ImportError` that falls back to a benign default: binding the
+    name to `()` or `Exception` would silently break session-death detection for
+    the entire child fleet. If neither spelling exists the SDK is unusable here,
+    so this raises loudly.
+    """
+    from mcp.shared import exceptions as mcp_exceptions
+
+    for name in _PROTOCOL_ERROR_NAMES:
+        candidate = getattr(mcp_exceptions, name, None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            return candidate
+    raise ImportError(
+        "mcp.shared.exceptions exposes neither 'MCPError' (MCP SDK v2) nor "
+        "'McpError' (MCP SDK v1); the MCP child-resilience layer cannot detect a "
+        "terminated child session without it."
+    )
 
 
 def install_mcp_v2_bridge() -> None:
@@ -150,3 +185,204 @@ def force_legacy_protocol_mode(toolset: Any) -> Any:
         client.mode = "legacy"
 
     return toolset
+
+
+def _declared_extra_floor(distribution: str, package: str, extra: str) -> Any | None:
+    """Return the ``package`` requirement `distribution` declares under `extra`.
+
+    Reads straight from `distribution`'s OWN installed metadata (PEP 508 extra
+    markers on ``importlib.metadata.requires()``), never a separately-parsed
+    ``pyproject.toml`` — so this is accurate for a dev checkout AND a deployed
+    wheel, and can never drift from what the package actually declares.
+    """
+    from packaging.markers import default_environment
+    from packaging.requirements import Requirement
+
+    try:
+        reqs = importlib.metadata.requires(distribution) or []
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    env = {**default_environment(), "extra": extra}
+    for raw in reqs:
+        try:
+            req = Requirement(raw)
+        except Exception:  # noqa: BLE001 - a malformed requirement string, skip it
+            continue
+        if req.name.lower() != package.lower():
+            continue
+        if req.marker is not None and req.marker.evaluate(env):
+            return req
+    return None
+
+
+def _source_shadow_floor(package: str, extra: str) -> tuple[Any | None, str | None]:
+    """Return the ``package`` floor declared by the SOURCE tree actually imported.
+
+    CONCEPT:AU-ECO.mcp.protocol-compat-bridge
+
+    Closes the D-OB-18 blind spot in :func:`check_mcp_sdk_floor`. Installed
+    ``.dist-info`` metadata is written once, at install time. Every graph-os
+    deployment then bind-mounts a *fresher* copy of this package's source over the
+    installed one (``PYTHONPATH=/au`` shadowing the image's editable install), so the
+    code that actually runs can declare a different floor than the metadata records —
+    which is precisely how a pod ran fastmcp-4-targeted source on a fastmcp-3 runtime
+    while every metadata-only check reported green.
+
+    So: read the floor from the ``pyproject.toml`` sitting next to the imported
+    package, when there is one. Returns ``(requirement, path)``; ``(None, None)`` when
+    no source manifest is reachable (a plain wheel install — the normal case, where
+    installed metadata is already authoritative).
+    """
+    import tomllib
+    from pathlib import Path
+
+    from packaging.requirements import InvalidRequirement, Requirement
+
+    import agent_utilities
+
+    origin = getattr(agent_utilities, "__file__", None)
+    if not origin:
+        return None, None
+    manifest = Path(origin).resolve().parent.parent / "pyproject.toml"
+    if not manifest.is_file():
+        return None, None
+    try:
+        declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        warnings.warn(
+            f"agent-utilities: could not read the source manifest {manifest} to "
+            f"cross-check the declared '{package}' floor: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None, None
+    raw_reqs = (declared.get("project", {}).get("optional-dependencies", {})).get(
+        extra, []
+    )
+    for raw in raw_reqs:
+        try:
+            req = Requirement(raw)
+        except InvalidRequirement:
+            continue  # a malformed requirement string in the manifest — skip it
+        if req.name.lower() == package.lower():
+            return req, str(manifest)
+    return None, str(manifest)
+
+
+def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]:
+    """Compare the installed `mcp`/`fastmcp` SDK against the declared `[mcp]` floor.
+
+    CONCEPT:AU-ECO.mcp.protocol-compat-bridge
+
+    Closes D-ISR-2: nothing previously asserted that the runtime's installed
+    `mcp`/`fastmcp` matched `pyproject.toml`'s declared floor, so v2-targeted
+    source (this module's own bridges) could ship and only fail at import
+    time in production — the exact failure `child_resilience.py` hit when a
+    deployed pod resolved `mcp` 1.29.0 against `fastmcp>=4.0.0b1`-targeted
+    code. This makes that mismatch fail loudly here (wired into
+    `agent-utilities doctor` and a CI regression test) instead of surfacing
+    only as a swallowed `ImportError` deep in a child transport.
+
+    The `fastmcp` floor is read from `distribution`'s own extra metadata
+    (`[mcp]` -> `fastmcp>=...`); the `mcp` floor is derived transitively from
+    `fastmcp-slim`'s own installed metadata (fastmcp's real runtime
+    dependency) rather than a second, hand-maintained copy of the same
+    constraint.
+
+    Returns ``{"ok": bool | None, "detail": str}``. ``ok=None`` means the
+    check could not run (the `[mcp]` extra floor isn't declared at all, e.g.
+    a build of this package that dropped the extra) — distinct from a real
+    mismatch.
+    """
+    from packaging.version import InvalidVersion, Version
+
+    fastmcp_req = _declared_extra_floor(distribution, "fastmcp", "mcp")
+    if fastmcp_req is None:
+        return {
+            "ok": None,
+            "detail": f"{distribution} declares no 'fastmcp' floor under the [mcp] extra",
+        }
+    try:
+        installed_fastmcp = importlib.metadata.version("fastmcp")
+    except importlib.metadata.PackageNotFoundError:
+        return {
+            "ok": False,
+            "detail": "fastmcp is not installed (the [mcp] extra is absent)",
+        }
+
+    problems: list[str] = []
+
+    # D-OB-18 — installed `.dist-info` metadata records the floor as of INSTALL time,
+    # but every graph-os pod shadows the installed package with fresher bind-mounted
+    # source (`PYTHONPATH=/au`), and every editable dev checkout goes stale the moment
+    # pyproject.toml is edited. When the two disagree it is the SOURCE that runs, so the
+    # source floor — not the metadata snapshot — is what the installed SDK must satisfy.
+    # Checking metadata against metadata is precisely how a pod ran fastmcp-4-targeted
+    # source on fastmcp 3.4.5 while reporting green.
+    #
+    # A divergence is NOT by itself a failure (a tightened floor that the installed SDK
+    # still satisfies is harmless); it is reported as context on the outcome so a real
+    # failure names its cause instead of just its symptom.
+    shadow_req, manifest = _source_shadow_floor("fastmcp", "mcp")
+    diverged = shadow_req is not None and str(shadow_req.specifier) != str(
+        fastmcp_req.specifier
+    )
+    if diverged:
+        divergence = (
+            f"source/installed divergence: the imported source ({manifest}) declares "
+            f"fastmcp '{shadow_req.specifier}' under [mcp] while the installed "
+            f"{distribution} metadata declares '{fastmcp_req.specifier}' — this "
+            f"environment was provisioned from a different revision than the source it "
+            f"now runs"
+        )
+        fastmcp_req = shadow_req
+    else:
+        divergence = None
+
+    try:
+        if not fastmcp_req.specifier.contains(installed_fastmcp, prereleases=True):
+            problems.append(
+                f"fastmcp {installed_fastmcp} does not satisfy the declared floor "
+                f"'{fastmcp_req.specifier}'"
+            )
+    except InvalidVersion:
+        problems.append(f"fastmcp reports an unparseable version {installed_fastmcp!r}")
+
+    # `mcp`'s floor is transitive via fastmcp-slim's own extras (`client`/`server`/
+    # `mcp`) — derive it from there instead of hardcoding a second copy that could
+    # silently drift from what fastmcp itself actually requires.
+    mcp_req = None
+    for extra in ("client", "server", "mcp"):
+        mcp_req = _declared_extra_floor("fastmcp-slim", "mcp", extra)
+        if mcp_req is not None:
+            break
+    try:
+        installed_mcp: str | None = importlib.metadata.version("mcp")
+    except importlib.metadata.PackageNotFoundError:
+        installed_mcp = None
+
+    if installed_mcp is None:
+        problems.append("mcp is not installed")
+    elif mcp_req is not None:
+        try:
+            Version(installed_mcp)
+        except InvalidVersion:
+            problems.append(f"mcp reports an unparseable version {installed_mcp!r}")
+        else:
+            if not mcp_req.specifier.contains(installed_mcp, prereleases=True):
+                problems.append(
+                    f"mcp {installed_mcp} does not satisfy fastmcp's declared floor "
+                    f"'{mcp_req.specifier}'"
+                )
+
+    summary = (
+        f"fastmcp={installed_fastmcp} (floor {fastmcp_req.specifier}), "
+        f"mcp={installed_mcp} (floor {mcp_req.specifier if mcp_req else 'unknown'})"
+    )
+    if problems:
+        if divergence:
+            problems.append(divergence)
+        return {"ok": False, "detail": "; ".join(problems) + f" [{summary}]"}
+    if divergence:
+        return {"ok": True, "detail": f"{summary} (note: {divergence})"}
+    return {"ok": True, "detail": summary}

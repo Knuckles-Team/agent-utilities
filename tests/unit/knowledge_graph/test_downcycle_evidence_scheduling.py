@@ -87,6 +87,68 @@ def test_run_breadth_executes_under_background_ingestion_priority(monkeypatch):
     assert current_priority() is None
 
 
+def test_run_assimilate_satisfy_stage_executes_under_background_ingestion_priority(
+    monkeypatch,
+):
+    """(D-71-7) ``_run_assimilate``'s own comparative-analysis LLM-capacity call
+    (``ConceptMatcher.satisfy``, "embedding-recall + LLM-judge" per its own
+    docstring) enters ``BACKGROUND_INGESTION`` too -- not just the two stages
+    lane 7.1 originally wired."""
+    import agent_utilities.knowledge_graph.assimilation as assim
+    from agent_utilities.knowledge_graph.assimilation.concept_matcher import (
+        MatchReport,
+    )
+
+    class _Graph:
+        def __init__(self):
+            self._n: dict = {}
+
+        def nodes(self, data=False):
+            return list(self._n.items()) if data else list(self._n)
+
+        def add_node(self, nid, attrs):
+            self._n[nid] = attrs
+
+        def out_edges(self, nid, data=False):
+            return []
+
+        def in_edges(self, nid, data=False):
+            return []
+
+    class _Engine:
+        def __init__(self):
+            self.graph = _Graph()
+            self.backend = None
+
+        def add_node(self, nid, node_type, properties=None, ephemeral=False):
+            self.graph.add_node(nid, {**(properties or {}), "type": node_type})
+
+        def link_nodes(self, src, dst, rel_type, properties=None, ephemeral=False):
+            pass
+
+    observed: dict = {}
+
+    def fake_satisfy(self, engine, *, feature_types, concept_types, restrict_to=None):
+        observed["priority"] = current_priority()
+        return MatchReport(features=0, concepts=0)
+
+    monkeypatch.setattr(assim.ConceptMatcher, "satisfy", fake_satisfy)
+    monkeypatch.setattr(assim, "dedup_features", lambda engine: None)
+    monkeypatch.setattr(assim, "enrich_concepts", lambda engine: None)
+    monkeypatch.setattr(
+        assim,
+        "synergy_bundles",
+        lambda engine, restrict_to=None: type("S", (), {"bundles": []})(),
+    )
+    monkeypatch.setattr(assim, "rank_features", lambda engine, feature_ids=None: [])
+
+    assert current_priority() is None  # untagged outside the stage
+    LoopController(_Engine())._run_assimilate(force=True)
+    assert observed["priority"] is PriorityClass.BACKGROUND_INGESTION
+    # the scope is exited again afterwards — never leaks into the caller
+    assert current_priority() is None
+
+
 def test_run_intake_papers_executes_under_background_ingestion_priority(monkeypatch):
     from types import SimpleNamespace
 

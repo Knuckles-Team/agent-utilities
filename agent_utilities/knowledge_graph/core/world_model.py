@@ -440,7 +440,7 @@ class WorldModel:
                     "recorded_at": _now_iso(),
                 },
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — returns None (the documented failure sentinel, distinct from a real rollout_id) so callers already branch on None vs a persisted id
             logger.debug("[KG-2.67] could not persist rollout: %s", exc)
             return None
         return rollout_id

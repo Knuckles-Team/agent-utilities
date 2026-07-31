@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import configparser
 import re
 import subprocess
 import sys
@@ -15,6 +16,16 @@ import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 
 ROOT = Path(__file__).resolve().parents[1]
+# Files a release bump may NEVER rewrite: every one of them participates in the
+# validity of an already-signed artifact, so a textual bump would invalidate the
+# signed fleet (CONCEPT:AU-KG.ontology.derived-compatibility-band). Their version
+# coupling is derived at read time instead of duplicated at bump time.
+BUMP_FORBIDDEN_PATHS = (
+    "agent_utilities/knowledge_graph/integrations/connector_source_attestation.py",
+    "agent_utilities/knowledge_graph/ontology.lock",
+    "deploy/mcp-fleet.registry.yml",
+    "deploy/release/connector-bundles.catalog.json",
+)
 VERSION_ATTRIBUTE = "agent_utilities._version.__version__"
 VERSION_IMPORT = "from agent_utilities._version import __version__"
 VERSION_CONSUMERS = (
@@ -83,6 +94,23 @@ def _provider_floor(root: Path) -> frozenset[tuple[str, str]]:
         value: Any = ast.literal_eval(node.value.args[0])
         return frozenset(value)
     raise ValueError("invalid provider floor")
+
+
+def bumpversion_targets(root: Path) -> tuple[str, ...]:
+    """Every repository path a ``bumpversion`` run would textually rewrite."""
+
+    parser = configparser.ConfigParser()
+    try:
+        parser.read_string((root / ".bumpversion.cfg").read_text(encoding="utf-8"))
+    except (OSError, configparser.Error) as exc:
+        raise ValueError("bumpversion configuration is unreadable") from exc
+    targets: list[str] = []
+    for section in parser.sections():
+        if not section.startswith("bumpversion:file"):
+            continue
+        # Sections are "bumpversion:file:<path>" or "bumpversion:file(<tag>):<path>".
+        targets.append(section.split(":", 2)[2])
+    return tuple(sorted(set(targets)))
 
 
 def _duplicate_version_authorities(root: Path) -> list[str]:
@@ -272,6 +300,16 @@ def validate(root: Path = ROOT) -> list[str]:
         f"duplicate-version-authority:{relative_path}"
         for relative_path in _duplicate_version_authorities(root)
     )
+
+    try:
+        forbidden = set(BUMP_FORBIDDEN_PATHS) & set(bumpversion_targets(root))
+    except ValueError:
+        findings.append("bumpversion-attestation-coupling")
+    else:
+        findings.extend(
+            f"bumpversion-attestation-coupling:{relative_path}"
+            for relative_path in sorted(forbidden)
+        )
 
     return sorted(set(findings))
 

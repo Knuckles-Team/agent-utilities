@@ -126,7 +126,7 @@ class SchemaCandidateAuditor:
                 line = line.strip()
                 if line:
                     out.append(json.loads(line))
-        except Exception as e:  # pragma: no cover - defensive read
+        except Exception as e:  # pragma: no cover - defensive read  # noqa: BLE001 — read-only audit-log viewer; a failed read just returns whatever lines were already parsed into `out`, the underlying audit file on disk is untouched
             logger.debug("schema candidate audit read failed: %s", e)
         return out
 

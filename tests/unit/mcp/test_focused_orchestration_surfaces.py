@@ -78,6 +78,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "failure_ingest",
             "optimize_component",
             "publish_proposal",
+            "evidence_lineage",
         },
         "graph_governance": {
             "grant_approval",
@@ -87,7 +88,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "submit_risk_veto",
             "verify_action",
         },
-        "graph_jobs": {"dispatch", "status", "cancel"},
+        "graph_jobs": {"dispatch", "status", "cancel", "input"},
         "graph_rlm": {"run", "benchmark", "evolve_prompt"},
         "graph_workflows": {
             "compile",
@@ -100,7 +101,16 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    assert sum(map(len, expected_actions.values())) == 35
+    # 37, computed from `expected_actions` above, not guessed. Reconciliation
+    # gate 2 merged TWO lanes that each add exactly one action:
+    #   feat/wave7-followups-evolution -> graph_evolution "evidence_lineage" (D-71-4)
+    #   feat/wave25-followups-mcpapps  -> graph_jobs      "input"
+    # Each lane updated the action SET but not this total (they touched different
+    # lines, so git merged both sets cleanly and left the stale count). The
+    # `harvest_actions(...) == actions` assertion below is what actually pins the
+    # surface against the real tools; this total is the redundant ratchet that
+    # catches a silently added action.
+    assert sum(map(len, expected_actions.values())) == 37
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 
@@ -540,3 +550,31 @@ async def test_graph_agents_reason_live_path_drives_real_cot_topology(
     _query, params = engine.backend.calls[-1]
     assert params["tid"] == COT_SPEC.topology_id
     assert params["score"] == 0.8
+def test_graph_evolution_evidence_lineage_action_reaches_the_shared_core(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """(D-71-4) ``evidence_lineage`` was import-only; this proves the MCP action
+    dispatches into the SAME ``evidence.evidence_lineage()`` core."""
+    from agent_utilities.knowledge_graph.research import evidence as evidence_module
+
+    calls: list[tuple[Any, str]] = []
+
+    def _fake_lineage(engine: Any, evidence_id: str) -> dict[str, Any]:
+        calls.append((engine, evidence_id))
+        return {"evidence_id": evidence_id, "found": True, "chain": [{"stage": "evidence"}]}
+
+    engine = object()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(evidence_module, "evidence_lineage", _fake_lineage)
+
+    tool = _register_all().tools["graph_evolution"]
+    payload = json.loads(
+        tool(action="evidence_lineage", target="evolution_evidence:abc")
+    )
+
+    assert calls == [(engine, "evolution_evidence:abc")]
+    assert payload == {
+        "evidence_id": "evolution_evidence:abc",
+        "found": True,
+        "chain": [{"stage": "evidence"}],
+    }

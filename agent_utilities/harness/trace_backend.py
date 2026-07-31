@@ -879,8 +879,13 @@ class KGTraceBackend(TraceBackend):
     Opik's ClickHouse cannot express. Per-generation cost is resolved from the engine's
     own pricing catalog (ECO-4.40), not a vendored price table.
 
-    ``backend`` is the KG facade (duck-typed: ``add_node(id, **props)`` +
-    ``link_nodes(src, dst, rel)``). An in-memory index mirrors what was emitted so the
+    ``backend`` is the KG facade, duck-typed to match the REAL production caller
+    (``gateway/daemon.py`` injects the live ``IntelligenceGraphEngine``, not a
+    ``**kwargs``-shaped stub): ``add_node(node_id, node_type, properties)`` +
+    ``link_nodes(src, dst, rel)`` — ``node_type`` positional/keyword, ``properties``
+    a single dict (the engine rejects a ``"type"`` property key outright and has no
+    ``**kwargs`` catch-all, so the two must be passed exactly this way; see
+    :meth:`_write_node`). An in-memory index mirrors what was emitted so the
     ``TraceDistiller`` read surface (``get_traces``/``get_trace_summary``/
     ``get_trace_scores``) works even before a graph round-trip — exactly the
     best-effort-persist + in-memory pattern :class:`EvalCorpus` uses.
@@ -1023,7 +1028,7 @@ class KGTraceBackend(TraceBackend):
             and hasattr(self.backend, "add_node")
         ):
             try:
-                self.backend.add_node(trace_id, **self._node_props(trace))
+                self._write_node(trace_id, self._node_props(trace))
             except Exception as exc:  # pragma: no cover - best-effort
                 logger.debug(
                     "KGTraceBackend trace persist failed (%s)", type(exc).__name__
@@ -1087,7 +1092,7 @@ class KGTraceBackend(TraceBackend):
 
         if self.backend is not None and hasattr(self.backend, "add_node"):
             try:
-                self.backend.add_node(span_id, **self._node_props(node))
+                self._write_node(span_id, self._node_props(node))
                 link = getattr(self.backend, "link_nodes", None)
                 if callable(link):
                     link(parent_span_id or trace_id, span_id, edge)
@@ -1142,7 +1147,7 @@ class KGTraceBackend(TraceBackend):
             return
         if self.backend is not None and hasattr(self.backend, "add_node"):
             try:
-                self.backend.add_node(clean.id, **self._node_props(clean))
+                self._write_node(clean.id, self._node_props(clean))
                 link = getattr(self.backend, "link_nodes", None)
                 if callable(link):
                     link(trace_id, clean.id, RegistryEdgeType.HAS_ROUTING_DECISION)
@@ -1203,7 +1208,10 @@ class KGTraceBackend(TraceBackend):
             return
         if self.backend is not None and hasattr(self.backend, "add_node"):
             try:
-                self.backend.add_node(clean.id, **self._node_props(clean))
+                # Routed through _write_node (D-5.1-5): add_node(id, **props)
+                # is NOT the engine contract and silently raised into the
+                # except below, so this node never actually persisted.
+                self._write_node(clean.id, self._node_props(clean))
                 link = getattr(self.backend, "link_nodes", None)
                 if callable(link):
                     link(trace_id, clean.id, RegistryEdgeType.HAS_CACHE_DECISION)
@@ -1211,6 +1219,23 @@ class KGTraceBackend(TraceBackend):
                 # backend must not break the lookup/store call this describes.
                 # The cause IS logged so a persistent failure is diagnosable.
                 logger.debug("KGTraceBackend cache decision persist failed: %s", exc)
+    def _write_node(self, node_id: str, props: dict[str, Any]) -> None:
+        """Call ``self.backend.add_node`` with the REAL engine contract.
+
+        ``IntelligenceGraphEngine.add_node`` (``knowledge_graph/core/engine.py``) is
+        ``add_node(node_id, node_type, properties=None, ephemeral=False, *,
+        session=None)`` — it takes NO ``**kwargs`` and raises if a ``"type"`` key
+        is present in ``properties``. The class docstring previously claimed a
+        ``add_node(id, **props)`` duck contract; every call built on that claim
+        raised inside the surrounding ``try/except`` and was silently swallowed,
+        so no ``KGTraceBackend``-persisted node ever reached a real engine
+        (D-5.1-5). ``props`` (from :meth:`_node_props`) already carries
+        ``node_type`` — split it out and pass it positionally instead of via
+        ``**props``.
+        """
+        properties = dict(props)
+        node_type = str(properties.pop("node_type", ""))
+        self.backend.add_node(node_id, node_type, properties)
 
     @staticmethod
     def _node_props(node: Any) -> dict[str, Any]:
@@ -1291,20 +1316,14 @@ class KGTraceBackend(TraceBackend):
     def _persist(self, trace: Any, spans: list[Any], generations: list[Any]) -> None:
         from agent_utilities.models.knowledge_graph import RegistryEdgeType
 
-        def _props(node: Any) -> dict[str, Any]:
-            d = node.model_dump() if hasattr(node, "model_dump") else dict(node)
-            d.pop("id", None)
-            d["node_type"] = str(d.pop("type", ""))
-            return d
-
-        self.backend.add_node(trace.id, **_props(trace))
+        self._write_node(trace.id, self._node_props(trace))
         link = getattr(self.backend, "link_nodes", None)
         for s in spans:
-            self.backend.add_node(s.id, **_props(s))
+            self._write_node(s.id, self._node_props(s))
             if callable(link):
                 link(trace.id, s.id, RegistryEdgeType.HAS_SPAN)
         for g in generations:
-            self.backend.add_node(g.id, **_props(g))
+            self._write_node(g.id, self._node_props(g))
             if callable(link):
                 parent = getattr(g, "parent_span_id", None) or trace.id
                 link(parent, g.id, RegistryEdgeType.HAS_GENERATION)

@@ -92,7 +92,7 @@ def _representation_from_record(record: dict[str, Any]) -> TenantScopedEmbedding
     }
     try:
         return TenantScopedEmbedding.model_validate(fields)
-    except ValidationError as exc:
+    except ValidationError as exc:  # noqa: BLE001 — deliberate best-effort: a record written by an older/newer schema MUST degrade to a cache MISS (a correct, merely slower answer) rather than raise out of a cache lookup. DEBUG is the right level precisely because this is expected and per-record during schema evolution — warning here would emit one line per stale cached embedding. The cause is fully preserved (the exception and exc_info are both passed), so raising the logger level is a one-line change when diagnosing.
         logger.debug(
             "stored NeuralRepresentation %s is not loadable — re-embedding: %s",
             record.get("id"),

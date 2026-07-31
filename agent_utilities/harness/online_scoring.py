@@ -354,11 +354,13 @@ class OnlineScoringSampler:
         try:
             props = node.model_dump()
             props.pop("id", None)
-            props["node_type"] = str(props.pop("type", ""))
+            node_type = str(props.pop("type", ""))
             clean_props, _ = PersistencePrivacyGuard().sanitize(props)
             if not isinstance(clean_props, dict):
                 return
-            be.add_node(node.id, **clean_props)
+            # Real engine contract: add_node(node_id, node_type, properties) — no
+            # **kwargs catch-all (D-5.1-5; matches trace_backend.KGTraceBackend._write_node).
+            be.add_node(node.id, node_type, clean_props)
             link = getattr(be, "link_nodes", None)
             if callable(link):
                 link(trace_id, node.id, RegistryEdgeType.SCORED_BY)

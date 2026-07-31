@@ -316,7 +316,7 @@ class KafkaGraphSyncDaemon:
                         if result:
                             props = result[0].get("n", {})
                             self._graph.add_node(node_id, props)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — one node's reconcile-add inside the L1/L3 reconciliation loop; a skipped node is simply not refreshed in L1 this pass and gets picked up on the next reconcile tick
                         logger.debug("Reconcile add failed for %s: %s", node_id, e)
 
             # Stale in L1 (optional: don't remove, just log)

@@ -198,6 +198,64 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--ttl", type=int, default=86_400, help="reservation TTL seconds")
     cp.add_argument("--repo", default="", help="repo root (default agent-utilities)")
 
+    # CONCEPT:AU-OS.governance.lane-arbitration-classes — concurrent-lane arbitration entry point.
+    # Nested subparsers (not one positional choice) so `lease` can take a
+    # REMAINDER command without swallowing the other actions' own flags.
+    lp = sub.add_parser(
+        "lane", help="concurrent-lane arbitration: isolation, leases, guards"
+    )
+    lane_sub = lp.add_subparsers(dest="lane_action", required=True)
+
+    def _lane_parser(name: str, help_text: str) -> argparse.ArgumentParser:
+        parser = lane_sub.add_parser(name, help=help_text)
+        parser.add_argument("--path", default="", help="working tree (default: cwd)")
+        return parser
+
+    _lane_parser("status", "this lane's isolation, partitions, and live leases")
+    _lane_parser("env", "shell exports that give this lane its own build/test state")
+    _lane_parser(
+        "classify", "the shared-resource -> arbitration-class table"
+    ).add_argument(
+        "--resource", default="", help="one resource instead of the whole table"
+    )
+    guard_p = _lane_parser("guard", "refuse a mutation that would destroy other work")
+    guard_p.add_argument("--operation", default="edit", help="what is being attempted")
+    guard_p.add_argument(
+        "--reset", default="", help="path a global actor wants to reset or discard"
+    )
+    guard_p.add_argument(
+        "--owner", default="", help="the lane that owns the reset target"
+    )
+    guard_p.add_argument(
+        "command_args",
+        nargs=argparse.REMAINDER,
+        help="`-- <command>` to run under the guard (lease held across the mutation)",
+    )
+    _lane_parser(
+        "park", "clean this tree for a moment WITHOUT touching the shared refs/stash"
+    )
+    _lane_parser("unpark", "restore what `lane park` set aside")
+    bind_cargo_p = _lane_parser(
+        "bind-cargo",
+        "write .cargo/config.toml so cargo PARTITION binds with no export needed",
+    )
+    bind_cargo_p.add_argument(
+        "--force",
+        action="store_true",
+        help="append the partition block even if .cargo/config.toml already exists",
+    )
+    lease_p = _lane_parser("lease", "hold a LEASE-class resource, or report its holder")
+    lease_p.add_argument("--resource", default="", help="LEASE-class resource name")
+    lease_p.add_argument("--operation", default="", help="why the lease is being taken")
+    lease_p.add_argument(
+        "--ttl", dest="lease_ttl", type=int, default=1_800, help="lease TTL seconds"
+    )
+    lease_p.add_argument(
+        "command_args",
+        nargs=argparse.REMAINDER,
+        help="`-- <command>` to run while holding the lease (omit to just report)",
+    )
+
     # Self-composing graph-os entrypoint (`uvx agent-utilities graph-os`): runs the
     # SAME ``graph-os`` MCP server as the standalone console script, plus whatever
     # co-services the loaded AgentConfig says are configured (messaging, the KG
@@ -377,7 +435,7 @@ def _concept(args: argparse.Namespace) -> dict[str, Any]:
 
     from agent_utilities.governance import concept_allocator as ca
 
-    repo_root = Path(args.repo).expanduser().resolve() if args.repo else ca.REPO_ROOT
+    repo_root = Path(args.repo).expanduser().resolve() if args.repo else None
     action = args.concept_action
     if action == "list":
         return {
@@ -423,6 +481,123 @@ def _concept(args: argparse.Namespace) -> dict[str, Any]:
         ttl_seconds=int(args.ttl),
         repo_root=repo_root,
     )
+
+
+def _lane(args: argparse.Namespace) -> dict[str, Any]:
+    """Lane arbitration — the operator/agent surface over ``governance.lanes``.
+
+    Every action here exists so the *safe* path is the convenient one: you get
+    your isolated paths from ``env``, you run a contended operation through
+    ``lease``, and ``guard`` refuses the mutation that would eat someone's work.
+    """
+    import subprocess
+
+    from agent_utilities.governance import lanes
+
+    path = args.path or None
+    action = args.lane_action
+    if action == "status":
+        return lanes.lane_report(path)
+    if action == "env":
+        parts = lanes.partitioned_paths(path)
+        return {
+            "exports": {
+                "CARGO_TARGET_DIR": str(parts.cargo_target_dir),
+                "PYTEST_ADDOPTS": f"--basetemp={parts.pytest_basetemp}",
+                "TMPDIR": str(parts.scratch_dir),
+            },
+            "stash_ref": parts.stash_ref,
+            "note": (
+                "never `git stash` — refs/stash is one ref shared by every "
+                "worktree. To READ a pristine file while yours is dirty use "
+                "`git show HEAD:<path>` (mutates nothing). To PARK work use a "
+                f"scratch commit on your branch, or `lane park` -> {parts.stash_ref}"
+            ),
+        }
+    if action == "park":
+        return lanes.park_worktree(path)
+    if action == "unpark":
+        return lanes.unpark_worktree(path)
+    if action == "bind-cargo":
+        try:
+            return lanes.write_cargo_partition_config(path, force=args.force)
+        except lanes.LaneArbitrationError as exc:
+            return {"written": False, "refused": str(exc), "exit_code": 1}
+    if action == "classify":
+        rules = lanes.resource_rules()
+        if args.resource:
+            return {
+                "resource": args.resource,
+                "class": lanes.resource_class(args.resource).value,
+            }
+        return {
+            "resources": [
+                {
+                    "name": r.name,
+                    "class": r.arbitration.value,
+                    "mechanism": r.mechanism,
+                    "evidence": r.evidence,
+                }
+                for r in rules
+            ]
+        }
+    if action == "guard":
+        command = [a for a in getattr(args, "command_args", []) if a != "--"]
+        try:
+            if args.reset:
+                owner = args.owner or "unknown"
+                if not command:
+                    lanes.require_resettable_tree(
+                        args.reset, operation=args.operation, owner=owner
+                    )
+                    return {"allowed": True, "target": args.reset}
+                # The mutation itself runs INSIDE the guard, so the tree cannot go
+                # dirty between the check and the command — the whole point of the
+                # single choke point.
+                with lanes.guarded_tree_mutation(
+                    args.reset, operation=args.operation, owner=owner
+                ) as scope:
+                    completed = subprocess.run(command, check=False)  # noqa: S603
+                return {
+                    "allowed": True,
+                    "target": str(scope.tree),
+                    "command": command,
+                    "exit_code": completed.returncode,
+                }
+            scope = lanes.require_mutable_tree(path, operation=args.operation)
+            return {"allowed": True, "lane": scope.lane, "tree": str(scope.tree)}
+        except lanes.LaneArbitrationError as exc:
+            return {"allowed": False, "refused": str(exc), "exit_code": 1}
+    # lease
+    if not args.resource:
+        return {"exit_code": 2, "error": "lease requires --resource"}
+    if lanes.resource_class(args.resource) is not lanes.ArbitrationClass.LEASE:
+        return {
+            "exit_code": 2,
+            "error": f"{args.resource} is not a LEASE-class resource",
+        }
+    command = [a for a in getattr(args, "command_args", []) if a != "--"]
+    if not command:
+        return {
+            "resource": args.resource,
+            "holder": lanes.lease_status(args.resource, path),
+        }
+    try:
+        with lanes.hold_lease(
+            args.resource,
+            operation=args.operation,
+            ttl_seconds=args.lease_ttl,
+            path=path,
+        ) as held:
+            completed = subprocess.run(command, check=False)  # noqa: S603
+        return {
+            "resource": args.resource,
+            "held_by": held["lane"],
+            "command": command,
+            "exit_code": completed.returncode,
+        }
+    except lanes.LeaseUnavailable as exc:
+        return {"deferred": True, "holder": exc.holder, "exit_code": 75}
 
 
 def _deploy_plan(args: argparse.Namespace) -> dict[str, Any]:
@@ -502,6 +677,8 @@ def main(argv: list[str] | None = None) -> int:
         out = _ingest_sessions(args)
     elif args.command == "concept":
         out = _concept(args)
+    elif args.command == "lane":
+        out = _lane(args)
     elif args.command == "deploy-plan":
         out = _deploy_plan(args)
     else:
@@ -512,7 +689,9 @@ def main(argv: list[str] | None = None) -> int:
             "components": list(COMPONENTS),
         }
     print(json.dumps(out, indent=None if args.json else 2))
-    return 0
+    # A refusal or a deferral must be actionable by a shell/hook, not just
+    # readable — the guard is worthless if `&&` still proceeds after it.
+    return int(out.get("exit_code", 0)) if isinstance(out, dict) else 0
 
 
 if __name__ == "__main__":  # pragma: no cover

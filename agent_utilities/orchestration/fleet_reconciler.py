@@ -167,6 +167,60 @@ def resolve_registry_path(explicit: str | None = None) -> Path | None:
     return shipped if shipped.is_file() else None
 
 
+class FleetRegistryError(RuntimeError):
+    """The fleet registry cannot answer a question it is the authority for."""
+
+
+def registry_server_aliases(registry_path: str | Path | None = None) -> dict[str, str]:
+    """Map every provider distribution name to its ONE registered server alias.
+
+    CONCEPT:AU-KG.ontology.registry-derived-server-alias — ``mcp-fleet.registry.yml``
+    is the single authority for what a fleet server is *called*. Anything that needs
+    that alias derives it here instead of restating it: a restated alias is exactly
+    the D-OB-7 drift, where 27 providers' signed manifests named a server the
+    registry did not have (``github-agent`` where the fleet runs ``github-mcp``) and
+    9 more named servers the registry had never heard of at all.
+    """
+    import yaml
+
+    path = resolve_registry_path(str(registry_path) if registry_path else None)
+    if path is None:
+        raise FleetRegistryError("the MCP fleet registry is not available")
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        services = data["services"]
+    except (KeyError, OSError, TypeError, yaml.YAMLError) as exc:
+        raise FleetRegistryError("the MCP fleet registry is unreadable") from exc
+    if not isinstance(services, list) or not services:
+        raise FleetRegistryError("the MCP fleet registry declares no services")
+    aliases: dict[str, str] = {}
+    for entry in services:
+        if not isinstance(entry, dict):
+            raise FleetRegistryError("the MCP fleet registry has an invalid entry")
+        package = str(entry.get("package") or "")
+        name = str(entry.get("name") or "")
+        if not package or not name:
+            raise FleetRegistryError("a registry service is missing name or package")
+        if package in aliases and aliases[package] != name:
+            raise FleetRegistryError("a provider maps to two registry server aliases")
+        aliases[package] = name
+    return aliases
+
+
+def registry_server_alias(
+    package: str, registry_path: str | Path | None = None
+) -> str:
+    """The registered server alias for one provider distribution — or fail closed."""
+
+    aliases = registry_server_aliases(registry_path)
+    alias = aliases.get(str(package))
+    if not alias:
+        raise FleetRegistryError(
+            "provider is not registered in the MCP fleet registry"
+        )
+    return alias
+
+
 def load_desired_state(
     registry_path: str | Path | None = None,
     override_path: str | Path | None = None,
@@ -349,7 +403,7 @@ class FleetReconciler:
                 "MATCH (a:ActionApproval {status: 'approved'}) "
                 f"RETURN a LIMIT {_APPROVAL_DRAIN_LIMIT}"
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — read-only candidate scan; on failure nothing is mutated (no approvals drained, budget untouched) and every approved row is re-selected on the next tick
             logger.debug("fleet_reconciler: approval drain scan failed: %s", e)
             return []
         drained: list[dict[str, Any]] = []
@@ -380,14 +434,36 @@ class FleetReconciler:
             execution = execute_action(self.engine, request, self.actuator)
             budget -= 1
             new_status = "executed" if execution.get("ok") else "failed"
-            try:
-                self.engine.backend.execute(
-                    "MATCH (a:ActionApproval {id: $id}) "
-                    "SET a.status = $status, a.executed_at = $ts",
-                    {"id": props["id"], "status": new_status, "ts": _now_iso()},
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("fleet_reconciler: approval stamp failed: %s", e)
+            # D-DST-6: execute_action has ALREADY run by this point (and this
+            # actuation may not be idempotent). If the status stamp below
+            # fails, the ActionApproval row stays 'approved' and gets
+            # re-selected by the next tick's scan, causing execute_action to
+            # fire a SECOND time for the same grant. Retry the stamp once
+            # before giving up, and log loud (not DEBUG) when it's still
+            # unstamped so a stuck 'approved' row is discoverable before the
+            # next tick re-fires it.
+            for _attempt in (1, 2):
+                try:
+                    self.engine.backend.execute(
+                        "MATCH (a:ActionApproval {id: $id}) "
+                        "SET a.status = $status, a.executed_at = $ts",
+                        {"id": props["id"], "status": new_status, "ts": _now_iso()},
+                    )
+                    break
+                except Exception as e:  # noqa: BLE001 — retried once above; still logged loud below since a failed stamp risks a duplicate actuation on the next tick
+                    if _attempt == 2:
+                        logger.warning(
+                            "fleet_reconciler: approval %s stamp failed twice, "
+                            "status may still read 'approved' (risk: duplicate "
+                            "actuation next tick): %s",
+                            props.get("id"),
+                            e,
+                        )
+                    else:
+                        logger.debug(
+                            "fleet_reconciler: approval stamp failed, retrying once: %s",
+                            e,
+                        )
             if request.kind in _WATCHED_KINDS and execution.get("ok"):
                 from agent_utilities.orchestration.deploy_watch import watch_deploy
 
@@ -446,7 +522,7 @@ class FleetReconciler:
                     "created_unix": time.time(),
                 },
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — reconcile() already built and returns the full report dict independent of this write; this is only the durable KG audit copy
             logger.debug("fleet_reconciler: report write failed: %s", e)
 
 
@@ -526,7 +602,7 @@ def fire_ready_agent_tasks(
             )
             or []
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only scan for 'blocked' AgentTask nodes; on failure no task is mutated and the same nodes are re-selected on the next tick
         logger.debug("fleet_reconciler: agent-task dependency sweep failed: %s", e)
         return []
 
@@ -542,16 +618,29 @@ def fire_ready_agent_tasks(
             continue
         try:
             ensure_agent_task_work_item(engine, task_id)
-        except Exception as e:  # noqa: BLE001 — the legacy mirror below still fires
-            logger.debug(
-                "fleet_reconciler: work_item shadow-create failed for %s: %s",
+        except Exception as e:
+            # D-DST-6: this docstring calls WorkItem "the write authority" and the
+            # legacy status flip a "best-effort MIRROR" -- but falling through here
+            # (the prior behavior) let the mirror flip to 'ready' even when the
+            # authority write failed. Because this sweep's OWN selection query is
+            # `WHERE status = 'blocked'`, once the legacy status flips to 'ready'
+            # the task permanently drops out of the retry pool even though its
+            # WorkItem was never created -- a transient KG hiccup here could
+            # orphan a task forever (looks 'ready' to legacy readers, invisible to
+            # the WorkItem-based claim path). `continue` so the task stays
+            # 'blocked' (and thus retried next tick) whenever the authority write
+            # fails, instead of letting the mirror advance anyway.
+            logger.warning(
+                "fleet_reconciler: work_item shadow-create failed for %s, "
+                "leaving task 'blocked' for retry: %s",
                 task_id,
                 e,
             )
+            continue
         try:
             engine.add_node(task_id, "AgentTask", properties={"status": "ready"})
             fired.append(task_id)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — on failure the task is not appended to 'fired' and its legacy status stays 'blocked' (the WorkItem authority write above already succeeded), so it is naturally re-swept on the next tick
             logger.debug(
                 "fleet_reconciler: failed to fire agent task %s: %s", task_id, e
             )
@@ -600,7 +689,7 @@ class AgentTaskDepWatcher:
             return None
         try:
             return subscribe(engine, "AgentTask", self._on_change)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — documented fallback: a construction failure returns None, and fire() degrades to the always-sweep Phase-3a-equivalent behavior below
             logger.debug("fleet_reconciler: AgentTask subscription failed: %s", e)
             return None
 

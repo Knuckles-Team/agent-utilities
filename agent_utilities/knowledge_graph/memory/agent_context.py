@@ -1214,7 +1214,7 @@ class AgentContextManager:
                 "MATCH (t {id: $tid}) SET t.last_compacted = $ts",
                 {"tid": thread_id, "ts": datetime.now(UTC).isoformat()},
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — compactor.persist_compaction() above already committed the actual summary/messages; a failed last_compacted stamp only leaves the thread eligible for `_tick_compaction`'s `last_compacted IS NULL` scan again (redundant re-compaction on the next tick), never a lost summary
             logger.debug("Failed to update thread compaction timestamp: %s", e)
 
         # Try escalation if enough L1 summaries exist

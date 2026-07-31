@@ -53,7 +53,12 @@ def _sync_package_ontologies(lc: Any) -> dict[str, Any]:
     """Load every package-contributed ontology through the given lifecycle.
 
     CONCEPT:AU-KG.ontology.federation-runtime — federation runtime: iterate
-    ``resolve_provider_ontologies()`` and call the EXISTING
+    ``resolve_provider_ontologies()`` (installed distributions,
+    ``importlib.metadata.entry_points()``) PLUS
+    ``resolve_workspace_provider_ontologies()`` (source-mounted sibling repos in
+    the workspace that declare the same entry-point group in their
+    ``pyproject.toml`` but are not ``pip install``'d into this interpreter —
+    CONCEPT:AU-KG.ontology.workspace-provider-discovery) and call the EXISTING
     :meth:`OntologyLifecycle.load` per contributed ``.ttl`` (parse + SHACL-validate
     + register + activate for reasoning). No new load logic — reuse the one path
     ``graph_ontology action='load'`` and boot hydration already use. Per-file
@@ -64,17 +69,23 @@ def _sync_package_ontologies(lc: Any) -> dict[str, Any]:
     """
     from agent_utilities.knowledge_graph.core.ontology_federation import (
         resolve_provider_ontologies,
+        resolve_workspace_provider_ontologies,
     )
 
+    providers_seen: set[str] = set()
     loaded_count = 0
     idempotent_count = 0
     errors: list[dict[str, Any]] = []
-    for _provider, ttl_path in resolve_provider_ontologies():
+    contributions = (
+        resolve_provider_ontologies() + resolve_workspace_provider_ontologies()
+    )
+    for provider, ttl_path in contributions:
         if ttl_path.parent.name == "shapes":
             continue
         try:
             report = lc.load(str(ttl_path), source_type="file")
             loaded_count += 1
+            providers_seen.add(provider)
             if bool(report.get("idempotent", False)):
                 idempotent_count += 1
         except Exception as exc:  # noqa: BLE001 — one bad module never blocks rest
@@ -86,6 +97,7 @@ def _sync_package_ontologies(lc: Any) -> dict[str, Any]:
     return {
         "action": "sync_packages",
         "artifacts_loaded": loaded_count,
+        "providers_loaded": len(providers_seen),
         "idempotent_artifacts": idempotent_count,
         "error_count": len(errors),
         "errors": errors,
@@ -569,11 +581,23 @@ def register_ontology_tools(mcp):
             "superseding prior — versioned/bi-temporal), 'delete' (unload from the "
             "hosted set + deactivate), 'validate' (run the valid/connected/SHACL "
             "gate on a candidate WITHOUT committing), 'activate'/'deactivate' "
-            "(toggle participation in reasoning), 'sync_packages' (CONCEPT:AU-KG.ontology.federation-runtime "
+            "(toggle participation in reasoning), 'propose'/'list_proposals'/"
+            "'get_proposal'/'review_proposal'/'promote_proposal'/'rollback_proposal' "
+            "(CONCEPT:AU-KG.ontology.evolution-governed-loop — ontology change as a "
+            "governed proposal: validate + classify additive/breaking + shadow-graph "
+            "competency-query replay on propose; promote is gated by the SAME "
+            "action_policy decision point every other evolution proposal uses — "
+            "SAFETY-CRITICAL, never auto — and rollback reactivates the still-hosted "
+            "prior version), 'sync_packages' (CONCEPT:AU-KG.ontology.federation-runtime "
             "— federation: discover every ontology .ttl contributed by installed "
             "fleet packages via the agent_utilities.ontology_providers entry-point "
             "and load each through the SAME load path, so package-contributed "
-            "ontologies become live for reasoning)."
+            "ontologies become live for reasoning; now ALSO discovers source-mounted "
+            "workspace repos that declare the entry point but aren't pip-installed). "
+            "TBox axioms + the hosted-ontology registry live in a DEDICATED, durable, "
+            "per-tenant ontology graph (CONCEPT:AU-KG.ontology.dedicated-tbox-graph) — "
+            "never the mixed property graph — so a live engine sees no non-durable, "
+            "process-global registry state."
         ),
         tags=["graph-os", "ontology", "lifecycle"],
     )
@@ -582,7 +606,7 @@ def register_ontology_tools(mcp):
             default="list",
             description=(
                 "load | list | get | update | delete | validate | activate | deactivate | "
-                "sync_packages | publish_stardog | import_stardog."
+                "deprecate | undeprecate | sync_packages | publish_stardog | import_stardog."
             ),
         ),
         source: str = Field(
@@ -608,6 +632,10 @@ def register_ontology_tools(mcp):
         active_only: bool = Field(
             default=False,
             description="For action='list': only ontologies currently active for reasoning.",
+        ),
+        deprecated_only: bool = Field(
+            default=False,
+            description="For action='list': only ontologies marked deprecated (advisory; independent of active_only).",
         ),
         drop_inferences: bool = Field(
             default=False,
@@ -650,6 +678,44 @@ def register_ontology_tools(mcp):
             default=True,
             description="For import_stardog: activate the imported ontology for reasoning.",
         ),
+        tenant: str = Field(
+            default="",
+            description=(
+                "Tenant id whose dedicated per-tenant ontology graph this call targets "
+                "(CONCEPT:AU-KG.ontology.dedicated-tbox-graph). Empty (default) resolves the "
+                "ambient session tenant, matching every other tenant-scoped engine call."
+            ),
+        ),
+        proposal_id: str = Field(
+            default="",
+            description="For get_proposal/review_proposal/promote_proposal/rollback_proposal.",
+        ),
+        evidence_refs_json: str = Field(
+            default="",
+            description="For propose: optional JSON array of evidence references, e.g. '[\"doc:123#span=4-9\"]'.",
+        ),
+        proposer: str = Field(
+            default="",
+            description="For propose: who/what filed the proposal (e.g. 'schema_discovery').",
+        ),
+        reason: str = Field(
+            default="", description="For propose: free-text rationale for the change."
+        ),
+        approve: bool = Field(
+            default=True,
+            description="For review_proposal: approve (true) or reject (false).",
+        ),
+        reviewer: str = Field(
+            default="",
+            description="For review_proposal: the reviewing human/policy identity.",
+        ),
+        notes: str = Field(
+            default="", description="For review_proposal: free-text review notes."
+        ),
+        status: str = Field(
+            default="",
+            description="For list_proposals: filter to this status (e.g. 'pending_review').",
+        ),
     ) -> str:
         """Load / list / inspect / version / unload / validate hosted ontologies, and
         publish/import the ontology catalog to/from a Stardog triplestore."""
@@ -660,7 +726,7 @@ def register_ontology_tools(mcp):
                 engine = kg_server._get_engine()
             except Exception:  # noqa: BLE001 — offline → registry-only operations
                 engine = None
-            lc = OntologyLifecycle(engine=engine)
+            lc = OntologyLifecycle(engine=engine, tenant=(tenant or None))
 
             if action == "load":
                 if not source:
@@ -693,6 +759,7 @@ def register_ontology_tools(mcp):
                 return json.dumps(
                     lc.list_ontologies(
                         active_only=bool(active_only),
+                        deprecated_only=bool(deprecated_only),
                         search=search,
                         category=category,
                         source_type=filter_source_type,
@@ -776,6 +843,117 @@ def register_ontology_tools(mcp):
                     lc.set_active(
                         iri, version=version or None, active=(action == "activate")
                     ),
+                    default=str,
+                )
+            if action in ("deprecate", "undeprecate"):
+                if not iri:
+                    return json.dumps({"error": f"{action} requires `iri`"})
+                return json.dumps(
+                    lc.set_deprecated(
+                        iri,
+                        version=version or None,
+                        deprecated=(action == "deprecate"),
+                    ),
+                    default=str,
+                )
+            if action == "propose":
+                if not (source and iri):
+                    return json.dumps({"error": "propose requires `source` and `iri`"})
+                parsed_evidence: list[str] = []
+                if evidence_refs_json:
+                    try:
+                        loaded_evidence = json.loads(evidence_refs_json)
+                    except (TypeError, ValueError):
+                        loaded_evidence = []
+                    if isinstance(loaded_evidence, list):
+                        parsed_evidence = [str(e) for e in loaded_evidence]
+                from agent_utilities.knowledge_graph.ontology.evolution import (
+                    propose_ontology_change,
+                )
+
+                return json.dumps(
+                    propose_ontology_change(
+                        engine,
+                        tenant or None,
+                        source,
+                        iri=iri,
+                        source_type=source_type,
+                        evidence_refs=parsed_evidence,
+                        proposer=proposer,
+                        reason=reason,
+                    ),
+                    default=str,
+                )
+            if action == "list_proposals":
+                from agent_utilities.knowledge_graph.ontology.evolution import (
+                    list_proposals,
+                )
+
+                return json.dumps(
+                    {
+                        "proposals": list_proposals(
+                            engine, tenant or None, status=status
+                        )
+                    },
+                    default=str,
+                )
+            if action == "get_proposal":
+                if not proposal_id:
+                    return json.dumps({"error": "get_proposal requires `proposal_id`"})
+                from agent_utilities.knowledge_graph.ontology.evolution import (
+                    get_proposal,
+                )
+
+                record = get_proposal(engine, tenant or None, proposal_id)
+                if record is None:
+                    return json.dumps(
+                        {"error": f"ontology proposal not found: {proposal_id}"}
+                    )
+                return json.dumps({"proposal": record}, default=str)
+            if action == "review_proposal":
+                if not proposal_id:
+                    return json.dumps(
+                        {"error": "review_proposal requires `proposal_id`"}
+                    )
+                from agent_utilities.knowledge_graph.ontology.evolution import (
+                    review_ontology_proposal,
+                )
+
+                return json.dumps(
+                    review_ontology_proposal(
+                        engine,
+                        tenant or None,
+                        proposal_id,
+                        approve=bool(approve),
+                        reviewer=reviewer,
+                        notes=notes,
+                    ),
+                    default=str,
+                )
+            if action == "promote_proposal":
+                if not proposal_id:
+                    return json.dumps(
+                        {"error": "promote_proposal requires `proposal_id`"}
+                    )
+                from agent_utilities.knowledge_graph.ontology.evolution import (
+                    promote_ontology_proposal,
+                )
+
+                return json.dumps(
+                    promote_ontology_proposal(engine, tenant or None, proposal_id),
+                    default=str,
+                )
+            if action == "rollback_proposal":
+                if not proposal_id:
+                    return json.dumps(
+                        {"error": "rollback_proposal requires `proposal_id`"}
+                    )
+                from agent_utilities.knowledge_graph.ontology.evolution import (
+                    rollback_ontology_proposal,
+                )
+
+                return json.dumps(
+                    rollback_ontology_proposal(engine, tenant or None, proposal_id),
                     default=str,
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
@@ -1029,7 +1207,7 @@ def register_ontology_tools(mcp):
         from agent_utilities.governance import concept_allocator as ca
 
         try:
-            repo_root = Path(repo).expanduser().resolve() if repo else ca.REPO_ROOT
+            repo_root = Path(repo).expanduser().resolve() if repo else None
             if str(action) == "list":
                 return json.dumps(
                     {

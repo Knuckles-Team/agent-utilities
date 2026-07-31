@@ -52,6 +52,7 @@ from typing import Any
 
 from pydantic import Field
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import public_error_json
 
@@ -498,7 +499,7 @@ def register_ops_causal_tools(mcp: Any) -> None:
         ),
         tags=["graph-os", "ops", "causal", "root-cause", "blast-radius"],
     )
-    def graph_ops_causal(
+    async def graph_ops_causal(
         action: str = Field(
             default="root_cause",
             description=(
@@ -559,189 +560,197 @@ def register_ops_causal_tools(mcp: Any) -> None:
     ) -> str:
         """Ops causal graph: join + root-cause/blast-radius/change-risk/control-evidence."""
         action = (action or "root_cause").strip().lower()
-        engine = kg_server._get_engine()
 
-        if action == "related_incidents":
-            # B17 bridge (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation
-            # / CONCEPT:AU-KG.enrichment.ops-causal-graph): a pure Claim/Incident
-            # graph lookup — no StructuralCausalModel involved. Dispatched BEFORE
-            # the causal-model import below (and before _parse_links, which also
-            # unconditionally imports from ops_causal_graph) so this action never
-            # pulls in formal_reasoning_core's numeric-kernel dependency for a
-            # request that has no need of it.
-            if not node_id:
-                return public_error_json(
-                    ValueError("node_id required for related_incidents"),
-                    code="invalid_request",
-                    context={"surface": "ops_causal", "action": action},
+        def _execute() -> str:
+            engine = kg_server._get_engine()
+
+            if action == "related_incidents":
+                # B17 bridge (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation
+                # / CONCEPT:AU-KG.enrichment.ops-causal-graph): a pure Claim/Incident
+                # graph lookup — no StructuralCausalModel involved. Dispatched BEFORE
+                # the causal-model import below (and before _parse_links, which also
+                # unconditionally imports from ops_causal_graph) so this action never
+                # pulls in formal_reasoning_core's numeric-kernel dependency for a
+                # request that has no need of it.
+                if not node_id:
+                    return public_error_json(
+                        ValueError("node_id required for related_incidents"),
+                        code="invalid_request",
+                        context={"surface": "ops_causal", "action": action},
+                    )
+                if engine is None:
+                    return json.dumps(
+                        {
+                            "surface": "ops_causal",
+                            "action": action,
+                            "node_id": node_id,
+                            "error": "no reachable engine",
+                        }
+                    )
+                from agent_utilities.observability.incidents import (
+                    incidents_for_causal_claim,
                 )
-            if engine is None:
+
+                matches = incidents_for_causal_claim(
+                    node_id, engine=engine, limit=max_results
+                )
                 return json.dumps(
                     {
                         "surface": "ops_causal",
                         "action": action,
                         "node_id": node_id,
-                        "error": "no reachable engine",
-                    }
-                )
-            from agent_utilities.observability.incidents import (
-                incidents_for_causal_claim,
-            )
-
-            matches = incidents_for_causal_claim(
-                node_id, engine=engine, limit=max_results
-            )
-            return json.dumps(
-                {
-                    "surface": "ops_causal",
-                    "action": action,
-                    "node_id": node_id,
-                    "count": len(matches),
-                    "result": matches,
-                },
-                default=str,
-            )
-
-        from agent_utilities.knowledge_graph.enrichment.ops_causal_graph import (
-            blast_radius_analysis,
-            build_causal_model,
-            change_risk_score,
-            control_evidence_chain,
-            load_ops_causal_neighborhood,
-            materialize_ops_causal_links,
-            root_cause_rank,
-        )
-
-        try:
-            links = _parse_links(links_json)
-        except ValueError as exc:
-            return public_error_json(
-                exc,
-                code="invalid_request",
-                context={"surface": "ops_causal", "action": action},
-            )
-
-        if not links and node_id and engine is not None:
-            links = load_ops_causal_neighborhood(engine, node_id, depth=depth)
-
-        if action == "join":
-            backend = getattr(engine, "backend", None) if engine else None
-            if backend is None:
-                return json.dumps(
-                    {
-                        "surface": "ops_causal",
-                        "action": action,
-                        "error": "no engine backend available to materialize links",
-                    }
-                )
-            nodes_written, edges_written = materialize_ops_causal_links(backend, links)
-            return json.dumps(
-                {
-                    "surface": "ops_causal",
-                    "action": action,
-                    "result": {
-                        "nodes_written": nodes_written,
-                        "edges_written": edges_written,
+                        "count": len(matches),
+                        "result": matches,
                     },
-                }
+                    default=str,
+                )
+
+            from agent_utilities.knowledge_graph.enrichment.ops_causal_graph import (
+                blast_radius_analysis,
+                build_causal_model,
+                change_risk_score,
+                control_evidence_chain,
+                load_ops_causal_neighborhood,
+                materialize_ops_causal_links,
+                root_cause_rank,
             )
 
-        model = build_causal_model(links)
-        claims_materialized: list[str] = []
-        claim_errors: list[str] = []
-        claim_governance: dict[str, dict[str, Any]] = {}
-        as_claim_fields: dict[str, Any] = {}
+            try:
+                links = _parse_links(links_json)
+            except ValueError as exc:
+                return public_error_json(
+                    exc,
+                    code="invalid_request",
+                    context={"surface": "ops_causal", "action": action},
+                )
 
-        try:
-            if action == "root_cause":
-                result: Any
-                if not node_id:
-                    raise ValueError("node_id required for root_cause")
-                result = root_cause_rank(
-                    model,
-                    node_id,
-                    max_results=max_results,
-                    now=now or None,
-                )
-                if materialize_claims and engine is not None:
-                    (
-                        claims_materialized,
-                        claim_errors,
-                        claim_governance,
-                    ) = _materialize_root_cause_claims(engine, node_id, result)
-                if as_claim and engine is not None:
-                    finding = _root_cause_claim_finding(node_id, result)
-                    if finding is not None:
-                        try:
-                            as_claim_fields = _propose_ops_causal_claim(
-                                engine,
-                                action="root_cause",
-                                seed_node_id=node_id,
-                                finding=finding,
-                            )
-                        except Exception as e:  # noqa: BLE001 — never blocks the read-only answer
-                            as_claim_fields = {"claim_error": str(e)}
-            elif action == "blast_radius":
-                if not node_id:
-                    raise ValueError("node_id required for blast_radius")
-                result = blast_radius_analysis(
-                    model, node_id, depth=depth, max_results=max_results
-                )
-                if as_claim and engine is not None:
-                    finding = _blast_radius_claim_finding(node_id, result)
-                    if finding is not None:
-                        try:
-                            as_claim_fields = _propose_ops_causal_claim(
-                                engine,
-                                action="blast_radius",
-                                seed_node_id=node_id,
-                                finding=finding,
-                            )
-                        except Exception as e:  # noqa: BLE001 — never blocks the read-only answer
-                            as_claim_fields = {"claim_error": str(e)}
-            elif action == "change_risk":
-                if not node_id:
-                    raise ValueError("node_id required for change_risk")
-                history = (
-                    json.loads(incident_history_json) if incident_history_json else []
-                )
-                if not isinstance(history, list):
-                    raise ValueError(
-                        "incident_history_json must decode to a JSON array"
+            if not links and node_id and engine is not None:
+                links = load_ops_causal_neighborhood(engine, node_id, depth=depth)
+
+            if action == "join":
+                backend = getattr(engine, "backend", None) if engine else None
+                if backend is None:
+                    return json.dumps(
+                        {
+                            "surface": "ops_causal",
+                            "action": action,
+                            "error": "no engine backend available to materialize links",
+                        }
                     )
-                result = change_risk_score(model, node_id, incident_history=history)
-            elif action == "control_evidence":
-                if not node_id:
-                    raise ValueError("node_id required for control_evidence")
-                result = control_evidence_chain(model, node_id)
-            else:
+                nodes_written, edges_written = materialize_ops_causal_links(
+                    backend, links
+                )
                 return json.dumps(
                     {
                         "surface": "ops_causal",
                         "action": action,
-                        "error": f"unknown action {action!r}",
+                        "result": {
+                            "nodes_written": nodes_written,
+                            "edges_written": edges_written,
+                        },
                     }
                 )
-        except (ValueError, TypeError) as exc:
-            return public_error_json(
-                exc,
-                code="invalid_request",
-                context={"surface": "ops_causal", "action": action},
-            )
 
-        response: dict[str, Any] = {
-            "surface": "ops_causal",
-            "action": action,
-            "result": result,
-        }
-        if action == "root_cause":
-            response["claims_materialized"] = claims_materialized
-            if claim_errors:
-                response["claim_errors"] = claim_errors
-            if claim_governance:
-                response["claims_governance"] = claim_governance
-        response.update(as_claim_fields)
-        return json.dumps(response, default=str)
+            model = build_causal_model(links)
+            claims_materialized: list[str] = []
+            claim_errors: list[str] = []
+            claim_governance: dict[str, dict[str, Any]] = {}
+            as_claim_fields: dict[str, Any] = {}
+
+            try:
+                if action == "root_cause":
+                    result: Any
+                    if not node_id:
+                        raise ValueError("node_id required for root_cause")
+                    result = root_cause_rank(
+                        model,
+                        node_id,
+                        max_results=max_results,
+                        now=now or None,
+                    )
+                    if materialize_claims and engine is not None:
+                        (
+                            claims_materialized,
+                            claim_errors,
+                            claim_governance,
+                        ) = _materialize_root_cause_claims(engine, node_id, result)
+                    if as_claim and engine is not None:
+                        finding = _root_cause_claim_finding(node_id, result)
+                        if finding is not None:
+                            try:
+                                as_claim_fields = _propose_ops_causal_claim(
+                                    engine,
+                                    action="root_cause",
+                                    seed_node_id=node_id,
+                                    finding=finding,
+                                )
+                            except Exception as e:  # noqa: BLE001 — never blocks the read-only answer
+                                as_claim_fields = {"claim_error": str(e)}
+                elif action == "blast_radius":
+                    if not node_id:
+                        raise ValueError("node_id required for blast_radius")
+                    result = blast_radius_analysis(
+                        model, node_id, depth=depth, max_results=max_results
+                    )
+                    if as_claim and engine is not None:
+                        finding = _blast_radius_claim_finding(node_id, result)
+                        if finding is not None:
+                            try:
+                                as_claim_fields = _propose_ops_causal_claim(
+                                    engine,
+                                    action="blast_radius",
+                                    seed_node_id=node_id,
+                                    finding=finding,
+                                )
+                            except Exception as e:  # noqa: BLE001 — never blocks the read-only answer
+                                as_claim_fields = {"claim_error": str(e)}
+                elif action == "change_risk":
+                    if not node_id:
+                        raise ValueError("node_id required for change_risk")
+                    history = (
+                        json.loads(incident_history_json)
+                        if incident_history_json
+                        else []
+                    )
+                    if not isinstance(history, list):
+                        raise ValueError(
+                            "incident_history_json must decode to a JSON array"
+                        )
+                    result = change_risk_score(model, node_id, incident_history=history)
+                elif action == "control_evidence":
+                    if not node_id:
+                        raise ValueError("node_id required for control_evidence")
+                    result = control_evidence_chain(model, node_id)
+                else:
+                    return json.dumps(
+                        {
+                            "surface": "ops_causal",
+                            "action": action,
+                            "error": f"unknown action {action!r}",
+                        }
+                    )
+            except (ValueError, TypeError) as exc:
+                return public_error_json(
+                    exc,
+                    code="invalid_request",
+                    context={"surface": "ops_causal", "action": action},
+                )
+
+            response: dict[str, Any] = {
+                "surface": "ops_causal",
+                "action": action,
+                "result": result,
+            }
+            if action == "root_cause":
+                response["claims_materialized"] = claims_materialized
+                if claim_errors:
+                    response["claim_errors"] = claim_errors
+                if claim_governance:
+                    response["claims_governance"] = claim_governance
+            response.update(as_claim_fields)
+            return json.dumps(response, default=str)
+
+        return await run_blocking_ordered(_execute)
 
     kg_server.REGISTERED_TOOLS["graph_ops_causal"] = graph_ops_causal
     # No bespoke endpoint needed — the generic REST-twin factory in

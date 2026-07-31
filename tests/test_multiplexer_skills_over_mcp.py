@@ -29,7 +29,16 @@ def _fake_skill_resource(uri: str, description: str = ""):
     return resource
 
 
-def _fake_session_with_resources(tools, resources):
+def _fake_resource_body(text: str):
+    """A ``resources/read`` result carrying one text content part."""
+    content = MagicMock()
+    content.text = text
+    result = MagicMock()
+    result.contents = [content]
+    return result
+
+
+def _fake_session_with_resources(tools, resources, bodies=None):
     sess = AsyncMock()
     tools_result = MagicMock()
     tools_result.tools = [_fake_tool(n, d) for n, d in tools]
@@ -37,6 +46,14 @@ def _fake_session_with_resources(tools, resources):
     resources_result = MagicMock()
     resources_result.resources = resources
     sess.list_resources = AsyncMock(return_value=resources_result)
+    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a probe now also READS
+    # each ``skill://`` body, so a fake child must serve one.
+    bodies = bodies or {}
+
+    async def _read(uri):
+        return _fake_resource_body(bodies.get(str(uri), f"# {uri}\n\nbody"))
+
+    sess.read_resource = AsyncMock(side_effect=_read)
     return sess
 
 
@@ -88,6 +105,35 @@ async def test_probe_server_captures_skill_resources_alongside_tools(tmp_path):
         )
 
     mux._open_one_session = AsyncMock(side_effect=_open)  # type: ignore[method-assign]
+    info = await mux.probe_server(CNT)
+
+    assert info["error"] is None
+    assert info["tools"][0]["name"] == CNT_TOOL
+    assert info["skills"] == [
+        {
+            "name": "onboarding",
+            "uri": "skill://onboarding/SKILL.md",
+            "description": "onboard a user",
+            # The body is what makes the skill promotable to a runnable
+            # resource; a name-only catalog entry never could be.
+            "instructions": "# skill://onboarding/SKILL.md\n\nbody",
+        }
+    ]
+
+
+async def test_probe_server_lists_skills_for_an_already_mounted_child(tmp_path):
+    """D-2.2-2.3-1: an already-mounted child's probe used to skip the ``skills``
+    key entirely (only the cold-probe branch called ``_probe_skills``), so a
+    mounted server's Skills-over-MCP resources were invisible to
+    ``find``/``find_tools`` until it happened to be probed cold at least once.
+    A mounted child's live primary session is now reused to list resources."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    await mux.mount_child(CNT)
+    mux.sessions[CNT] = _fake_session_with_resources(
+        [(CNT_TOOL, "manage containers")],
+        [_fake_skill_resource("skill://onboarding/SKILL.md", "onboard a user")],
+    )
+
     info = await mux.probe_server(CNT)
 
     assert info["error"] is None

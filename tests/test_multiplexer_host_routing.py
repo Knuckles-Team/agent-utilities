@@ -129,7 +129,7 @@ async def test_multiplexer_start_children_aggregation():
             mock_tool = MagicMock()
             mock_tool.name = "healthy_tool"
             mock_tool.description = "Healthy description"
-            mock_tool.inputSchema = {}
+            mock_tool.input_schema = {}
             return server_name, mock_session, [mock_tool], cfg
         return None
 

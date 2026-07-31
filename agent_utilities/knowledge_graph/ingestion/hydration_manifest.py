@@ -452,7 +452,7 @@ def _resolve_freshness(
         return None, None, None
     try:
         record = serving.hydration_step(step)
-    except GraphReaderError as exc:
+    except GraphReaderError as exc:  # noqa: BLE001 — returns the documented (None, None, None) 'unknown freshness' tuple, exactly the same shape as the `if not record` branch two lines below
         logger.debug("freshness read failed for %s: %s", source_class, exc)
         return None, None, None
     if not record or not record.get("updated_at"):

@@ -110,6 +110,16 @@ def test_main_binds_identity_before_engine_start(monkeypatch):
         "stop_host_daemon",
         lambda: order.append("stop"),
     )
+    # This test is about identity-binding ORDER, not the D-OG-4 metrics
+    # listener; stub it out so it never touches a real socket/thread here
+    # (a real prometheus_client server thread would also pick up this test's
+    # ``threading.Event`` monkeypatch below, since ``daemon.threading`` IS
+    # the process-wide ``threading`` module, not a per-file copy).
+    monkeypatch.setattr(
+        daemon,
+        "start_daemon_metrics_listener",
+        lambda: order.append("metrics") or False,
+    )
 
     entered: list[str] = []
 
@@ -144,5 +154,95 @@ def test_main_binds_identity_before_engine_start(monkeypatch):
 
     daemon.main()
 
-    assert order == ["mint", "start", "stop"]
+    assert order == ["mint", "start", "metrics", "stop"]
     assert entered == ["actor", "session"]
+
+
+class _StubEngine:
+    """Minimal engine stand-in: has no ``start_task_workers``, so the pool
+    branch is a no-op and only the two sink installs can fail."""
+
+
+def _drive_host_daemon(monkeypatch, *, failing_import: str, boom: Exception):
+    """Run ``start_host_daemon`` with one best-effort sink install raising.
+
+    Returns the ``logging`` records emitted by the daemon module.
+    """
+    monkeypatch.setattr(daemon, "_engine", None, raising=False)
+    monkeypatch.setattr(
+        "agent_utilities.security.run_token.require_token_secret",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine.get_or_create",
+        classmethod(lambda cls, **kw: _StubEngine()),
+    )
+
+    def _raise(*args, **kwargs):
+        raise boom
+
+    # Both installs are imported INSIDE the try block, so patching the source
+    # module attribute is what the daemon actually resolves.
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.set_kg_trace_sink",
+        _raise if failing_import == "trace" else (lambda sink: None),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.harness.trace_backend.KGTraceBackend",
+        (lambda **kw: object()),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.security.error_surface.register_detail_persistence_sink",
+        _raise if failing_import == "detail" else (lambda sink: None),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.observability.error_detail_sink.GraphErrorDetailSink",
+        (lambda **kw: object()),
+    )
+    return daemon
+
+
+@pytest.mark.parametrize(
+    ("failing_import", "fragment"),
+    [
+        ("trace", "KG trace sink install failed"),
+        ("detail", "durable error-detail sink install failed"),
+    ],
+)
+def test_sink_install_failure_logs_the_real_cause_not_just_its_type(
+    monkeypatch, caplog, failing_import, fragment
+):
+    """A best-effort sink install that fails must log the exception's MESSAGE.
+
+    Falsifying guard for the reconciliation-gate-2 fix: these handlers used to
+    log only ``type(exc).__name__`` ("RuntimeError"), which told an operator a
+    sink was missing but never *why* — the exact cause-dropping shape
+    ``scripts/check_swallowed_errors.py`` classifies as ``log_type_name_only``.
+    The distinctive message below is absent from the old formatting, so this
+    test fails against it and passes against a cause-preserving log.
+    """
+    # NB: no ``host:port`` substring — the observability layer scrubs those to
+    # ``<endpoint>``, which would mask the very thing this test asserts.
+    marker = "signing bundle rejected by the custody policy"
+    _drive_host_daemon(
+        monkeypatch, failing_import=failing_import, boom=RuntimeError(marker)
+    )
+
+    with caplog.at_level("WARNING", logger=daemon.logger.name):
+        engine = daemon.start_host_daemon()
+
+    assert isinstance(engine, _StubEngine), "daemon must still start (best-effort)"
+    matching = [r for r in caplog.records if fragment in r.getMessage()]
+    assert matching, f"no warning matched {fragment!r}: {caplog.text}"
+    record = matching[0]
+    assert marker in record.getMessage(), (
+        "the real cause was dropped — only its type survived: "
+        f"{record.getMessage()!r}"
+    )
+    # NB: ``exc_info`` is deliberately NOT asserted. ``core/log_privacy.py``'s
+    # record factory unconditionally nulls ``exc_info``/``exc_text``/``stack_info``
+    # on every ``agent_utilities.*`` record (tracebacks embed host filesystem
+    # paths), so ``exc_info=exc`` is a no-op in this package — as
+    # ``scripts/check_swallowed_errors.py`` itself documents. The interpolated
+    # message is therefore the ONLY channel that carries the cause, which is
+    # exactly what is asserted above.

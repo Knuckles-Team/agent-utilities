@@ -125,7 +125,7 @@ class ObjectFunctionContext:
         """
         try:
             rel = _rel_label(rel_type)
-        except ValueError as exc:
+        except ValueError as exc:  # noqa: BLE001 — returns [] (the documented empty-neighbors case) on an invalid rel_type label — the same shape returned when the traversal legitimately finds no neighbors
             logger.debug("neighbors: %s", exc)
             return []
         if direction == "in":
@@ -159,7 +159,7 @@ class ObjectFunctionContext:
         hops = max(1, int(hops))
         try:
             rel = _rel_label(rel_type)
-        except ValueError as exc:
+        except ValueError as exc:  # noqa: BLE001 — returns [] on an invalid rel_type label for traverse() — same _rel_label validation pattern as neighbors() above
             logger.debug("traverse: %s", exc)
             return []
         varlen = f"[{rel}*1..{hops}]"
