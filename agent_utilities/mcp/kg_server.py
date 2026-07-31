@@ -3779,11 +3779,15 @@ def register_graphos_verbose_tools(mcp) -> None:
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
     from agent_utilities.mcp.verbose_tools import tool_mode
 
-    # In ``both`` mode the condensed action tools are also registered; a single-op
-    # (action=None) verbose tool shares the condensed tool's NAME, so skip it to
-    # avoid overwriting the (untagged) condensed tool with a verbose-tagged
-    # duplicate. In verbose-only mode there is no condensed tool — keep them.
-    skip_single_op = tool_mode() == "both"
+    # In ``both`` mode — and, since D-WS-1, in ``verbose`` mode too — the condensed
+    # action tools are also registered (register_tool_surface now always registers
+    # the condensed registrars so the dispatch core / REGISTERED_TOOLS is never left
+    # empty; see verbose_tools.register_tool_surface). A single-op (action=None)
+    # verbose tool shares the condensed tool's NAME, so skip it to avoid overwriting
+    # the condensed tool's FastMCP component with a verbose-tagged duplicate whose
+    # schema (bare ``params_json``) doesn't match what REGISTERED_TOOLS actually
+    # dispatches for that name.
+    skip_single_op = tool_mode() in ("both", "verbose")
 
     def _make(tool_name: str, action: str | None):
         # The low-level engine_<domain> tools (CONCEPT:AU-ECO.mcp.full-api-mcp-surface) are generic
