@@ -56,7 +56,7 @@ def find_package_data_dir(package_name: str) -> Path | None:
                     with as_file(pkg_resource_dir) as path:
                         return path.resolve()
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — package/resource lookup is best-effort; a failure and a genuine not-found both correctly resolve to None, which callers already treat as "skip this package"
         logger.debug(f"Failed to find data dir for {package_name}: {e}")
 
     return None

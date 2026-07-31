@@ -25,6 +25,12 @@ class ReplayManifest(BaseModel):
     agent_id: str
     created_at: float = Field(default_factory=time.time)
     steps: list[dict[str, Any]] = Field(default_factory=list)
+    # D-DST-6: whether the KG manifest node write in start_recording() actually
+    # succeeded. Without this, a failed write was invisible — the manifest was
+    # still returned/used as a normal success value, and record_step() would
+    # then unconditionally try to add a HAS_STEP edge FROM a manifest node id
+    # that was never created, silently producing a dangling/missing graph edge.
+    kg_synced: bool = False
 
 
 class InteractionRecord(BaseModel):
@@ -66,7 +72,8 @@ class DistributedReplayEngine:
                     agent_id=agent_id,
                     created_at=manifest.created_at,
                 )
-            except Exception as e:
+                manifest.kg_synced = True
+            except Exception as e:  # noqa: BLE001 — manifest.kg_synced stays False on failure; record_step() below gates its own KG write on this flag instead of assuming the manifest node exists
                 logger.debug("Failed to persist replay manifest node: %s", e)
 
         return manifest
@@ -98,8 +105,10 @@ class DistributedReplayEngine:
         )
         manifest.steps.append(record.model_dump())
 
-        # Persist step and link to manifest in KG if available
-        if self.engine is not None:
+        # Persist step and link to manifest in KG if available -- gated on
+        # kg_synced (D-DST-6) so we never add a HAS_STEP edge FROM a manifest
+        # node that start_recording()'s own KG write never actually created.
+        if self.engine is not None and manifest.kg_synced:
             try:
                 self.engine.graph.add_node(
                     record.step_id,
@@ -117,8 +126,14 @@ class DistributedReplayEngine:
                     record.step_id,
                     type="HAS_STEP",
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — best-effort step mirror; the in-memory manifest.steps append above already recorded the step regardless of this KG write's outcome
                 logger.debug("Failed to persist interaction step node: %s", e)
+        elif self.engine is not None:
+            logger.debug(
+                "Skipping KG persist for step %s: manifest %s never synced to KG",
+                record.step_id,
+                manifest.id,
+            )
 
         return record
 

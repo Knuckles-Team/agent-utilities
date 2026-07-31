@@ -235,7 +235,7 @@ class _GraphReader:
     def nodes_by_label(self, label: str) -> list[tuple[str, dict[str, Any]]]:
         try:
             return self.engine.get_nodes_by_label(label, 0) or []
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — best-effort; its two callers tolerate an empty result: the pre-write dedupe is backstopped by the write's own MERGE on the same deterministic signature-embedded id (no duplicate node), and the sweep self-heals on its next scheduled run
             logger.debug("lifecycle: get_nodes_by_label(%s) failed: %s", label, e)
             return []
 
