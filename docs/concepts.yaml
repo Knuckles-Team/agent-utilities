@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1063
+total_concepts: 1065
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -8760,6 +8760,13 @@ concepts:
   code_paths:
   - agent_utilities/observability/runtime_health.py
   doc: AU-OS.observability.co-service-visibility
+- id: AU-OS.observability.daemon-metrics-listener
+  name: AU-OS.observability.daemon-metrics-listener
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/gateway/daemon.py
+  doc: AU-OS.observability.daemon-metrics-listener
 - id: AU-OS.observability.delegation-run-metrics
   name: the workflow twin
   pillar: AU-OS
@@ -8858,6 +8865,13 @@ concepts:
   - agent_utilities/orchestration/scaling_signals.py
   - agent_utilities/server/__init__.py
   doc: No-op without the metrics extra
+- id: AU-OS.observability.otlp-metrics-exporter-gated
+  name: Unlike traces
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/observability/__init__.py
+  doc: Unlike traces
 - id: AU-OS.observability.otlp-trace-fanout
   name: Export MUST fail soft — an
   pillar: AU-OS

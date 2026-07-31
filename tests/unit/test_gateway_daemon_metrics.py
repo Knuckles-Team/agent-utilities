@@ -58,20 +58,22 @@ def test_listener_serves_a_real_metric_value_that_actually_moves(
 
     # Baseline scrape — establish the family is present and read its current
     # value before mutating it.
-    before = urllib.request.urlopen(
-        f"http://127.0.0.1:{port}/metrics", timeout=5
-    ).read().decode()
+    before = (
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=5)
+        .read()
+        .decode()
+    )
     assert "agent_utilities_scheduled_job_runs_total" in before
 
     # Drive a REAL increment on a schedule/outcome label pair unlikely to
     # collide with anything else the process recorded this run.
-    SCHEDULED_JOB_RUNS.labels(
-        schedule="__test_d_og_4_wiring", outcome="ok"
-    ).inc()
+    SCHEDULED_JOB_RUNS.labels(schedule="__test_d_og_4_wiring", outcome="ok").inc()
 
-    after = urllib.request.urlopen(
-        f"http://127.0.0.1:{port}/metrics", timeout=5
-    ).read().decode()
+    after = (
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=5)
+        .read()
+        .decode()
+    )
     target_line = [
         line
         for line in after.splitlines()
@@ -96,9 +98,7 @@ def test_listener_starts_once_and_is_idempotent(
     # short-circuits on the singleton flag and reports success.
     assert daemon.start_daemon_metrics_listener() is True
 
-    body = urllib.request.urlopen(
-        f"http://127.0.0.1:{port}/metrics", timeout=5
-    ).read()
+    body = urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=5).read()
     assert body  # still genuinely serving
 
 
@@ -167,7 +167,6 @@ def test_missing_metrics_extra_logs_error_and_returns_false(
         result = daemon.start_daemon_metrics_listener()
     assert result is False
     assert any(
-        record.levelname == "ERROR"
-        and "optional 'metrics' extra" in record.message
+        record.levelname == "ERROR" and "optional 'metrics' extra" in record.message
         for record in caplog.records
     )

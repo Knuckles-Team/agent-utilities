@@ -110,6 +110,16 @@ def test_main_binds_identity_before_engine_start(monkeypatch):
         "stop_host_daemon",
         lambda: order.append("stop"),
     )
+    # This test is about identity-binding ORDER, not the D-OG-4 metrics
+    # listener; stub it out so it never touches a real socket/thread here
+    # (a real prometheus_client server thread would also pick up this test's
+    # ``threading.Event`` monkeypatch below, since ``daemon.threading`` IS
+    # the process-wide ``threading`` module, not a per-file copy).
+    monkeypatch.setattr(
+        daemon,
+        "start_daemon_metrics_listener",
+        lambda: order.append("metrics") or False,
+    )
 
     entered: list[str] = []
 
@@ -144,5 +154,5 @@ def test_main_binds_identity_before_engine_start(monkeypatch):
 
     daemon.main()
 
-    assert order == ["mint", "start", "stop"]
+    assert order == ["mint", "start", "metrics", "stop"]
     assert entered == ["actor", "session"]
