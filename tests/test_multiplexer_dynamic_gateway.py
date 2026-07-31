@@ -982,3 +982,181 @@ async def test_server_load_holds_verbose(tmp_path):
     verbose_name = next(n for n in mux.tool_to_server if n.endswith("get_thing"))
     _s2, to_expose2, _f2 = await mux.resolve_and_mount(tools=[verbose_name])
     assert verbose_name in to_expose2
+
+
+# --------------------------------------------------------------------------- #
+# Control-plane truthfulness (lane-mcp-desync): reported "mounted"/"loaded"
+# state must derive from the SAME predicate the dispatch gate enforces, never
+# from a parallel bookkeeping structure that can drift from it.
+# --------------------------------------------------------------------------- #
+
+
+async def test_resolve_and_mount_reports_unknown_tool_name_as_failed(tmp_path):
+    """A prefixed name that resolves to no configured server must never be
+    silently dropped from both ``to_expose`` and ``failed`` — the caller needs
+    to know exactly which of its requested names didn't make it."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "a")]})
+    mounted, to_expose, failed = await mux.resolve_and_mount(
+        tools=["zz__totally_bogus"]
+    )
+    assert mounted == []
+    assert to_expose == []
+    assert "zz__totally_bogus" in failed
+
+
+async def test_resolve_and_mount_reports_disabled_requested_tool_as_failed(tmp_path):
+    """A tool explicitly requested by name, whose owning server mounts fine
+    but that config disables, must show up in ``failed`` — not vanish while
+    ``mounted_servers`` still claims success."""
+    mux = _mux_with_children(
+        tmp_path, {CNT: [(CNT_TOOL, "a"), ("cm_info_operations", "b")]}
+    )
+    _seed_disabled(mux, CNT, ["cm_info_operations"])
+
+    mounted, to_expose, failed = await mux.resolve_and_mount(tools=[CNT_INFO_PREFIXED])
+
+    assert mounted == [CNT]
+    assert CNT_INFO_PREFIXED not in to_expose
+    assert CNT_INFO_PREFIXED in failed
+
+
+async def test_tool_dispatchable_false_for_catalogued_but_unmounted_tool(tmp_path):
+    """A tool the catalog KNOWS about (via the prefix map) but that has never
+    been mounted/exposed must report as NOT dispatchable — the optimistic
+    'not gated -> visible' fallback is only valid for tools the multiplexer's
+    own bookkeeping has no opinion on at all (e.g. native host tools)."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "a")]})
+    assert mux.tool_dispatchable(CNT_PREFIXED, session_key="any-session") is False
+
+
+async def test_tool_dispatchable_is_session_scoped_after_expose(tmp_path):
+    """Reproduces the reported parent-vs-subagent asymmetry at the state layer:
+    once a tool is globally exposed (registered as a live forwarder), it is
+    dispatchable ONLY for the session(s) that actually loaded it — a second,
+    brand-new session must see it as not-yet-dispatchable even though the
+    forwarder already exists process-globally."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "a")]})
+    _mounted, to_expose, failed = await mux.resolve_and_mount(servers=[CNT])
+    assert failed == {}
+    for name in to_expose:
+        mux._exposed.add(name)  # simulates _register_forwarder's bookkeeping
+
+    mux.session_loaded("session-A").add(CNT_PREFIXED)
+
+    assert mux.tool_dispatchable(CNT_PREFIXED, session_key="session-A") is True
+    assert mux.tool_dispatchable(CNT_PREFIXED, session_key="session-B") is False
+
+
+async def test_list_catalog_mounted_matches_dispatch_reality_across_sessions(
+    tmp_path,
+):
+    """End-to-end reproduction of the control-plane desync report: session A's
+    load_tools call makes a tool globally registered, but list_catalog must
+    tell a DIFFERENT session B the truth about what B can dispatch — not what
+    the child process happens to be doing."""
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mux._global_visible = {
+        "find_tools",
+        "list_catalog",
+        "load_tools",
+        "unload_tools",
+        "multiplexer_status",
+    }
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    async with Client(mcp) as a:
+        await a.call_tool("load_tools", {"servers": [CNT]})
+
+        async with Client(mcp) as b:
+            cat_b = await b.call_tool("list_catalog", {"server": CNT})
+            payload_b = cat_b.structured_content
+            entry_b = next(
+                t for t in payload_b["tools"] if t["prefixed_name"] == CNT_PREFIXED
+            )
+            # The child process IS running (session A mounted it)...
+            assert payload_b["process_running"] is True
+            # ...but session B never loaded it, so list_catalog must NOT claim
+            # it's dispatchable — and an actual call must agree with that claim.
+            assert entry_b["mounted"] is False
+            with pytest.raises(ToolError):
+                await b.call_tool(CNT_PREFIXED, {})
+
+        # Session A, which DID load it, is told the truth the other way.
+        cat_a = await a.call_tool("list_catalog", {"server": CNT})
+        entry_a = next(
+            t
+            for t in cat_a.structured_content["tools"]
+            if t["prefixed_name"] == CNT_PREFIXED
+        )
+        assert entry_a["mounted"] is True
+
+
+async def test_notify_tools_changed_returns_false_without_request_context():
+    from agent_utilities.mcp.multiplexer import _notify_tools_changed
+
+    sent = await _notify_tools_changed(None)
+    assert sent is False
+
+
+async def test_notify_tools_changed_surfaces_send_failure(monkeypatch, caplog):
+    """A LIVE client that rejects/drops the push must be visible via the
+    return value (and logged with its real cause) — never swallowed into
+    silence the caller can't observe (CLAUDE.md: never swallow an exception)."""
+    import logging
+
+    from agent_utilities.mcp.multiplexer import _notify_tools_changed
+
+    class _FailingContext:
+        async def send_notification(self, _note):
+            raise RuntimeError("client transport gone")
+
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_context", lambda: _FailingContext()
+    )
+
+    with caplog.at_level(logging.WARNING, logger="mcp_multiplexer"):
+        sent = await _notify_tools_changed(None)
+
+    assert sent is False
+    assert any("list_changed" in r.message for r in caplog.records)
+
+
+async def test_load_tools_reports_notified_true_inside_a_live_session(tmp_path):
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("load_tools", {"servers": [CNT]})
+
+    assert result.structured_content["newly_exposed"]
+    assert result.structured_content["notified"] is True
+
+
+async def test_load_tools_reports_not_notified_outside_a_request_context(tmp_path):
+    """Calling the core helper with no live client context (e.g. the tool's
+    own ``.fn()`` invoked directly, as in ``test_meta_tools_registered_and_load_exposes``)
+    must be truthful that the client was never actually told — a caller that
+    only checked ``newly_exposed`` would otherwise wrongly assume its own
+    client's tool list is already fresh."""
+    from agent_utilities.mcp.multiplexer import load_session_tools
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    from fastmcp import FastMCP
+
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+
+    payload = await load_session_tools(mcp, mux, servers=[CNT])
+
+    assert payload["newly_exposed"]
+    assert payload["notified"] is False
