@@ -243,10 +243,29 @@ class TestDaemonRegistration:
             EpistemicGraphBackend,
         )
         from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
+
+        # A bare EpistemicGraphBackend() independently resolves its OWN
+        # tenant-routed default graph (resolve_routing_graph(None) -> the
+        # shared "tenant__<tenant>____commons__" graph), NOT the per-test
+        # isolated graph tests/conftest.py's isolate_graph_compute_engine
+        # fixture provisions. Every test in a multi-test run that took this
+        # bare path collided on that ONE shared durable tenant graph --
+        # durable lifecycle registrations against it raced across tests and
+        # failed STALE_FENCE ("lifecycle batch ... is no longer current").
+        # Constructing the isolated GraphComputeEngine first and rebinding
+        # the backend to it keeps this test on its own graph, matching the
+        # idiom already established in test_kg_native_orchestration.py.
+        compute = GraphComputeEngine(backend_type="rust")
 
         def _specs():
             inst = TaskManagerMixin.__new__(TaskManagerMixin)
-            inst.backend = EpistemicGraphBackend()
+            backend = EpistemicGraphBackend()
+            backend._graph = compute
+            inst.backend = backend
+            inst.control_backend = backend
             inst._register_maintenance_schedules()
             return {s.name: s for s in se._load_all(inst)}
 
