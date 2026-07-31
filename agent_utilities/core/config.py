@@ -5290,6 +5290,18 @@ class AgentConfig(BaseSettings):
     )
     """Enable streaming synthesis as agents complete (CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling)."""
 
+    distillation_promotion_threshold: int = Field(
+        default=3, alias="DISTILLATION_PROMOTION_THRESHOLD"
+    )
+    """Repeat-execution count before a workflow pattern is promoted to a reusable
+    Workflow+TeamConfig pair (CONCEPT:AU-AHE.optimization.workflow-distillation)."""
+
+    distillation_quality_score_minimum: float = Field(
+        default=0.6, alias="DISTILLATION_QUALITY_SCORE_MINIMUM"
+    )
+    """Minimum execution quality score required before a repeated pattern is eligible
+    for distillation (CONCEPT:AU-AHE.optimization.workflow-distillation)."""
+
     # --- Innovation Framework (CONCEPT:AU-OS.state.cognitive-scheduler-preemption through CONCEPT:AU-OS.state.cognitive-scheduler-preemption) ---
 
     homeostatic_downgrade_enabled: bool = Field(

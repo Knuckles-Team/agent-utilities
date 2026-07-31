@@ -5,14 +5,10 @@ CONCEPT:AU-ORCH.execution.parallel-engine-visualizer × CONCEPT:AU-AHE.optimizat
 Closes the evolution feedback loop by automatically distilling successful
 workflow executions into reusable Workflow+TeamConfig pairs in the KG.
 
-Configuration (from ``config.json``)::
-
-    {
-      "distillation": {
-        "promotion_threshold": 3,
-        "quality_score_minimum": 0.6
-      }
-    }
+Configuration — via :class:`agent_utilities.core.config.AgentConfig`
+(``DISTILLATION_PROMOTION_THRESHOLD`` / ``DISTILLATION_QUALITY_SCORE_MINIMUM``),
+same env-var-driven config surface as the rest of the process, not a standalone
+``config.json`` blob.
 """
 
 from __future__ import annotations
@@ -314,15 +310,23 @@ def _compute_pattern_key(plan: GraphPlan) -> str:
 
 
 def _load_distillation_config() -> tuple[int, float]:
-    """Load distillation thresholds from config.json."""
-    try:
-        from agent_utilities.config import AgentConfig
+    """Load distillation thresholds from :class:`AgentConfig`.
 
-        config = AgentConfig.load()
-        distillation = config.raw.get("distillation", {})
+    D-32(b): this previously imported a nonexistent ``agent_utilities.config``
+    module and read a ``.raw`` dict shape neither of which exist on the real
+    settings class (``agent_utilities.core.config.AgentConfig``, an env-var-driven
+    ``BaseSettings``) — every call silently fell through the bare ``except`` to the
+    hardcoded defaults, so the documented ``config.json``/env override never took
+    effect. Fixed to read the real typed fields.
+    """
+    try:
+        from agent_utilities.core.config import AgentConfig
+
+        config = AgentConfig()
         return (
-            int(distillation.get("promotion_threshold", DEFAULT_PROMOTION_THRESHOLD)),
-            float(distillation.get("quality_score_minimum", DEFAULT_QUALITY_MINIMUM)),
+            int(config.distillation_promotion_threshold),
+            float(config.distillation_quality_score_minimum),
         )
-    except Exception:
+    except Exception as exc:
+        logger.debug("distillation config load failed, using defaults: %s", exc)
         return DEFAULT_PROMOTION_THRESHOLD, DEFAULT_QUALITY_MINIMUM

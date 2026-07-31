@@ -750,10 +750,8 @@ class Orchestrator:
         """Resolve and execute one task through the bounded GraphOS skill gateway.
 
         ``grounding`` forwards to :meth:`execute_agent` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract)
-        for the ``agent``/``skill`` resolution path; a resolved ``workflow`` runs
-        through :meth:`execute_workflow` instead, which is unaffected (each step's own
-        model call still defaults to ``"required"`` — the process-wide default — since
-        no scope is opened for it here).
+        for the ``agent``/``skill`` resolution path, and to :meth:`execute_workflow` for
+        a resolved ``workflow`` — every step in the run opens the same scope.
         """
         execution_mode = validate_execution_mode(execution_mode)
         allowed_tools, required_tools = validate_tool_contract(
@@ -805,6 +803,7 @@ class Orchestrator:
                 workflow_id=target["name"],
                 task=task,
                 max_steps=max_steps,
+                grounding=grounding,
             )
             run_id = str(result.get("run_id") or result.get("session_id") or "")
             provenance = await asyncio.to_thread(self._workflow_provenance, run_id)
@@ -931,7 +930,11 @@ class Orchestrator:
             raise
 
     async def execute_workflow(
-        self, workflow_id: str, task: str = "", max_steps: int = 30
+        self,
+        workflow_id: str,
+        task: str = "",
+        max_steps: int = 30,
+        grounding: str = "required",
     ) -> dict[str, Any]:
         """Execute a compiled workflow by running its STORED step-DAG.
 
@@ -947,6 +950,11 @@ class Orchestrator:
         the ``graph_workflows`` handler before this is called, so governance stays
         in the path. Returns the ``WorkflowResult`` as a dict carrying the ``run_id``
         handle (the session id) so a delegated workflow run is trackable (ORCH-1.97).
+
+        ``grounding`` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract) gives
+        every step in the run the same opt-in ``execute_agent``/``execute_capability``
+        already has — each step still defaults to the process-wide fail-closed
+        ``"required"`` policy when unset.
         """
         if task:
             self._scan_task(task)
@@ -959,6 +967,7 @@ class Orchestrator:
             workflow_name=workflow_id,
             engine=self.engine,
             task=task or None,
+            grounding=grounding,
         )
         payload = result.to_dict()
         # ORCH-1.97 — surface a stable run handle for the delegated workflow run.

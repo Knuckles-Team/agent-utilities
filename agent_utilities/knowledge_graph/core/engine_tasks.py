@@ -3346,11 +3346,28 @@ class TaskManagerMixin(GraphEngineProtocol):
         # the pool. Reuses the existing hot-spare sizing
         # (``SchedulerConfig.reserved`` / ``KG_SCHED_RESERVED``, same knob the
         # interactive-lane floor uses) rather than introducing a second reservation
-        # knob. Degenerates to 0 on a single-worker pool — same "one worker serves
-        # everything" floor as the interactive reservation.
+        # knob. A dedicated ``worker_count - 1`` cap keeps at least one thread
+        # NEVER hydration-first even on a large pool, so a hydration firehose
+        # can't fully starve ordinary connector-sync work either.
         from .worker_scheduler import scheduler_config_from_env
 
         hydration_reserved_count = 0
+        # D-43: a single-worker pool used to reserve 0 (the ``worker_count - 1``
+        # cap forces this — you cannot dedicate a whole 1-worker pool to
+        # hydration-first without a *second* thread to still guarantee general
+        # work, which doesn't exist here). That left minimal/laptop deployments
+        # with the original starvation exposure this whole mechanism exists to
+        # close. Since ``_claim_next_task(hydration_reserved=True)`` already
+        # FALLS THROUGH to the normal unrestricted claim whenever no hydration
+        # work is pending (see its docstring), a hydration-first check never
+        # drops general-work coverage by itself — the only real risk is a
+        # sustained hydration-type firehose keeping the sole worker permanently
+        # in the hydration branch, starving general work in the OTHER
+        # direction. Alternating the check (hydration-first on every other
+        # poll) gives hydration work a genuine floor without that full-reversal
+        # risk: even under a firehose, half the polls still go straight to the
+        # general claim.
+        single_worker_alternate = worker_count == 1
         if worker_count > 1:
             hydration_reserved_count = min(
                 max(1, scheduler_config_from_env(worker_count).reserved),
@@ -3359,14 +3376,15 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         logger.info(
             f"Starting {worker_count} TaskManager workers "
-            f"({hydration_reserved_count} hydration-reserved)..."
+            f"({hydration_reserved_count} hydration-reserved"
+            f"{', alternating on the sole worker' if single_worker_alternate else ''})..."
         )
         for i in range(worker_count):
             t = _authorized_background_thread(
                 background_session,
                 self._task_worker_loop,
                 name=f"KGTaskWorker-{i}",
-                args=(i < hydration_reserved_count,),
+                args=(i < hydration_reserved_count, single_worker_alternate),
             )
             t.start()
 
@@ -3874,16 +3892,26 @@ class TaskManagerMixin(GraphEngineProtocol):
             self._worker_registry().start(worker_id, lane, tkind)
         return job_id, meta
 
-    def _task_worker_loop(self, hydration_reserved: bool = False):
+    def _task_worker_loop(
+        self, hydration_reserved: bool = False, hydration_alternate: bool = False
+    ):
         """Distributed polling loop that picks up pending tasks natively.
 
         ``hydration_reserved`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) marks this
         as one of the pool's reserved hydration-priority workers — see
         :meth:`_claim_next_task` and :meth:`start_task_workers`.
+
+        ``hydration_alternate`` (D-43) is the degenerate single-worker case: this
+        worker checks the hydration lane first on every OTHER poll instead of
+        never (``hydration_reserved`` stays permanently ``False`` when there is
+        no second thread to keep pinned to general work). Bounded so a sustained
+        hydration-type firehose can't fully starve ordinary connector-sync work
+        either — only every other poll is hydration-first.
         """
         # ORCH-1.81: a stable per-thread id keys this worker in the admission
         # registry, so the policy knows what THIS worker is processing.
         worker_id = threading.current_thread().name
+        poll_count = 0
         while True:
             try:
                 job_id = None
@@ -3891,8 +3919,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                 is_codebase = False
                 task_type = "document"
 
+                effective_hydration_reserved = hydration_reserved or (
+                    hydration_alternate and poll_count % 2 == 0
+                )
+                poll_count += 1
                 claimed = self._claim_next_task(
-                    worker_id=worker_id, hydration_reserved=hydration_reserved
+                    worker_id=worker_id,
+                    hydration_reserved=effective_hydration_reserved,
                 )
                 if claimed:
                     job_id, meta = claimed

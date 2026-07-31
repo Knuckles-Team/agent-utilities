@@ -82,7 +82,9 @@ def test_background_task_worker_binds_captured_session_and_actor() -> None:
     engine._workers_running = False
     engine._task_queue_backend_name = "sqlite"
 
-    def one_shot_worker(hydration_reserved: bool = False) -> None:
+    def one_shot_worker(
+        hydration_reserved: bool = False, hydration_alternate: bool = False
+    ) -> None:
         seen.append((current_session(), current_actor()))
         finished.set()
 
@@ -126,7 +128,9 @@ def test_start_task_workers_reserves_a_hydration_floor_of_the_pool() -> None:
     worker_count = 4
     all_started = threading.Event()
 
-    def worker(hydration_reserved: bool = False) -> None:
+    def worker(
+        hydration_reserved: bool = False, hydration_alternate: bool = False
+    ) -> None:
         with lock:
             seen.append(hydration_reserved)
             if len(seen) == worker_count:
@@ -161,17 +165,25 @@ def test_start_task_workers_reserves_a_hydration_floor_of_the_pool() -> None:
     assert sum(seen) == expected_reserved
 
 
-def test_start_task_workers_single_worker_pool_reserves_nothing() -> None:
-    """Degenerate case (mirrors the interactive-lane floor's own degenerate
-    case): a single-worker pool cannot reserve a floor without starving
-    ordinary throughput entirely, so it reserves 0 — the one worker serves
-    everything, same as before this change."""
+def test_start_task_workers_single_worker_pool_alternates_instead_of_reserving_nothing() -> (
+    None
+):
+    """D-43: a single-worker pool cannot dedicate a permanent hydration-first
+    floor without starving ordinary throughput entirely (mirrors the
+    interactive-lane floor's own degenerate case) — so the thread-level
+    ``hydration_reserved`` flag stays ``False``. But it now gets
+    ``hydration_alternate=True`` so ``_task_worker_loop`` checks the hydration
+    lane first on every OTHER poll instead of never, giving minimal/laptop
+    deployments a real (bounded) floor instead of the original starvation
+    exposure."""
     session = _verified_session()
-    seen: list[bool] = []
+    seen: list[tuple[bool, bool]] = []
     finished = threading.Event()
 
-    def worker(hydration_reserved: bool = False) -> None:
-        seen.append(hydration_reserved)
+    def worker(
+        hydration_reserved: bool = False, hydration_alternate: bool = False
+    ) -> None:
+        seen.append((hydration_reserved, hydration_alternate))
         finished.set()
 
     engine = TaskManagerMixin.__new__(TaskManagerMixin)
@@ -196,7 +208,53 @@ def test_start_task_workers_single_worker_pool_reserves_nothing() -> None:
         engine.start_task_workers(worker_count=1)
 
     assert finished.wait(2.0)
-    assert seen == [False]
+    # Not thread-level-reserved (no second thread exists to keep pinned to
+    # general work) but alternation is enabled.
+    assert seen == [(False, True)]
+
+
+def test_start_task_workers_multi_worker_pool_does_not_alternate() -> None:
+    """D-43's alternation is scoped to the degenerate single-worker case only —
+    a pool with a real reserved floor (>=2 workers) must not also alternate,
+    or the reserved workers would double-count their hydration-first
+    priority."""
+    session = _verified_session()
+    seen: list[tuple[bool, bool]] = []
+    lock = threading.Lock()
+    worker_count = 3
+    all_started = threading.Event()
+
+    def worker(
+        hydration_reserved: bool = False, hydration_alternate: bool = False
+    ) -> None:
+        with lock:
+            seen.append((hydration_reserved, hydration_alternate))
+            if len(seen) == worker_count:
+                all_started.set()
+
+    engine = TaskManagerMixin.__new__(TaskManagerMixin)
+    engine.backend = object()
+    engine._worker_lock = threading.Lock()
+    engine._workers_running = False
+    engine._task_queue_backend_name = "sqlite"
+    engine._task_worker_loop = worker
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.host_lock.effective_daemon_role",
+            return_value="host",
+        ),
+        patch(
+            "agent_utilities.core.config.DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+            True,
+        ),
+        use_actor(session.actor),
+        use_session(session),
+    ):
+        engine.start_task_workers(worker_count=worker_count)
+
+    assert all_started.wait(2.0)
+    assert all(alternate is False for _reserved, alternate in seen)
 
 
 def test_background_authority_fails_closed_when_actor_and_session_differ() -> None:
