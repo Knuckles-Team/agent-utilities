@@ -61,8 +61,9 @@ flowchart TD
     B -->|conflicts| RJ1["reject that ONE candidate<br/>batch continues"]
     B --> M["materialize the merged commit<br/>in a throwaway detached worktree"]
     M --> G["FAST GATE<br/>duplicate scan · import smoke · targeted tests"]
-    G -->|fail, N>1| BI["bisect the batch"] --> B
-    G -->|fail, N=1| RJ2["reject with the failing checks"]
+    G -->|fail, batch| BI["bisect the batch"]
+    BI --> B
+    G -->|fail, single| RJ2["reject with the failing checks"]
     G -->|pass| L["git merge --ff-only into main<br/>guarded_tree_mutation"]
     L --> PR["prune worktree + branch<br/>repository-manager prune_guard"]
     L --> S["SLOW TIER, off the queue:<br/>full suite + guardrail gates on main"]

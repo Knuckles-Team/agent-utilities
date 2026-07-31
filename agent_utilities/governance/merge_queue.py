@@ -329,9 +329,9 @@ def queue_report(path: Path | str | None = None) -> dict[str, Any]:
     return {
         "depth": len(pending),
         "queued": [c.to_record() for c in pending],
-        "recent": [
-            c.to_record() for c in everything if c.state in {LANDED, REJECTED}
-        ][-20:],
+        "recent": [c.to_record() for c in everything if c.state in {LANDED, REJECTED}][
+            -20:
+        ],
         "budget_seconds": FAST_GATE_BUDGET_SECONDS,
         "batch_size": DEFAULT_BATCH_SIZE,
         "lease": MERGE_LEASE,
@@ -362,7 +362,9 @@ class TrialMerge:
 
 def trial_merge(repo: Path, base_ref: str, branch: str) -> TrialMerge:
     """Merge *branch* into *base_ref* as objects only; report conflicts, never write a ref."""
-    res = _run_git(["merge-tree", "--write-tree", "--name-only", base_ref, branch], repo)
+    res = _run_git(
+        ["merge-tree", "--write-tree", "--name-only", base_ref, branch], repo
+    )
     if res.ok:
         return TrialMerge(ok=True, tree=res.out.splitlines()[0].strip())
     if res.code != 1:
@@ -379,9 +381,7 @@ def trial_merge(repo: Path, base_ref: str, branch: str) -> TrialMerge:
     return TrialMerge(ok=False, tree=tree, conflicts=conflicts, detail=res.out)
 
 
-def _commit_trial(
-    repo: Path, tree: str, parents: list[str], message: str
-) -> str:
+def _commit_trial(repo: Path, tree: str, parents: list[str], message: str) -> str:
     """Seal a trial tree into a commit object. Creates an object; moves no ref."""
     args = ["commit-tree", tree]
     for parent in parents:
@@ -478,9 +478,7 @@ def duplicate_definitions(
     return [
         {
             "symbol": name,
-            "added_by": [
-                {"branch": ref, "at": where} for ref, where in sorted(sites)
-            ],
+            "added_by": [{"branch": ref, "at": where} for ref, where in sorted(sites)],
         }
         for name, sites in sorted(seen.items())
         if len(sites) > 1
@@ -721,13 +719,20 @@ def run_fast_gate(
                 )
             )
     else:
-        checks.append(Check("import-smoke", ok=True, seconds=0.0, detail="no changed modules"))
+        checks.append(
+            Check("import-smoke", ok=True, seconds=0.0, detail="no changed modules")
+        )
 
     # 3. targeted tests over changed paths.
     tests = select_tests(tree, changed)
     if not tests:
         checks.append(
-            Check("targeted-tests", ok=True, seconds=0.0, detail="no tests map to the changed paths")
+            Check(
+                "targeted-tests",
+                ok=True,
+                seconds=0.0,
+                detail="no tests map to the changed paths",
+            )
         )
     elif len(tests) > MAX_TARGETED_TEST_FILES:
         checks.append(
@@ -832,9 +837,7 @@ def land(repo: Path, commit: str, *, base: str, scope: LaneScope) -> dict[str, A
 # ---------------------------------------------------------------------------
 # Prune on merge — delegated, never re-implemented
 # ---------------------------------------------------------------------------
-def prune_landed(
-    candidate: Candidate, *, repo_name: str, base: str
-) -> dict[str, Any]:
+def prune_landed(candidate: Candidate, *, repo_name: str, base: str) -> dict[str, Any]:
     """Remove a landed candidate's worktree and branch, via repository-manager.
 
     **Delegated on purpose.** repository-manager owns the guarded prune
@@ -865,9 +868,7 @@ def prune_landed(
             ),
         }
     manager = WorktreeManager(Git(path=str(Path(candidate.worktree or ".").parent)))
-    result = manager.remove(
-        repo_name, candidate.branch, delete_branch=True, base=base
-    )
+    result = manager.remove(repo_name, candidate.branch, delete_branch=True, base=base)
     return {"pruned": bool(result.get("ok")), "branch": candidate.branch, **result}
 
 
@@ -893,9 +894,7 @@ def _build_chain(
             conflicted.append((candidate, trial))
             continue
         tip = _require_git(["rev-parse", candidate.branch], repo)
-        if tip == head or _run_git(
-            ["merge-base", "--is-ancestor", tip, head], repo
-        ).ok:
+        if tip == head or _run_git(["merge-base", "--is-ancestor", tip, head], repo).ok:
             # Already contained in the rolling head: nothing to land.
             accepted.append(candidate)
             continue
@@ -940,7 +939,7 @@ def integrate_batch(
             "reason": (
                 "conflicts with the current "
                 f"{base} in: {', '.join(t.conflicts) or 'unreported paths'} — "
-                f"merge {base} into {c.branch} and resolve there, then re-enqueue"
+                f"sync {base} down into {c.branch}, resolve there, then re-enqueue"
             ),
             "conflicts": t.conflicts,
         }
@@ -950,9 +949,7 @@ def integrate_batch(
         return outcomes
 
     duplicates = duplicate_definitions(repo, base, [c.branch for c in accepted])
-    changed = sorted(
-        {p for c in accepted for p in changed_paths(repo, base, c.branch)}
-    )
+    changed = sorted({p for c in accepted for p in changed_paths(repo, base, c.branch)})
     with materialized(repo, head, scope=scope) as tree:
         gate = run_fast_gate(tree, changed=changed, duplicates=duplicates, scope=scope)
 
@@ -1096,9 +1093,7 @@ def promotion_state(path: Path | str | None = None) -> dict[str, Any]:
                 "it and repoint the mount — see docs/architecture/merge-queue.md."
             ),
         }
-    behind = _require_git(
-        ["rev-list", "--count", f"{deployed.out}..{main_tip}"], repo
-    )
+    behind = _require_git(["rev-list", "--count", f"{deployed.out}..{main_tip}"], repo)
     return {
         "decoupled": True,
         "promotion_ref": PROMOTION_REF,
