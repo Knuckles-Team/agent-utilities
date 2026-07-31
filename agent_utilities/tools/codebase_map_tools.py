@@ -107,7 +107,7 @@ class CodebaseMapGenerator:
                     "importance_score": 0.8,
                 },
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the KG node is a supplementary index of the map already written to disk by write(); a failed persist here does not lose the map itself
             logger.debug("[ECO-4.7] KG persist failed: %s", e)
 
     # -- Internal --

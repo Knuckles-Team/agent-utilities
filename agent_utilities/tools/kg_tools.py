@@ -35,7 +35,7 @@ def _active_engine() -> Any:
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         return IntelligenceGraphEngine.get_active()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — every caller already treats a None engine as "feature unavailable" and degrades gracefully; this is the single shared lookup all of them share
         logger.debug("[ECO-4.61] no active engine: %s", exc)
         return None
 

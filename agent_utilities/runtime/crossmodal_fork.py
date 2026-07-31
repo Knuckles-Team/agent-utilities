@@ -204,7 +204,7 @@ def _derive_kv_page_keys(backend: Any, candidates: list[dict[str, Any]]) -> list
     for candidate in candidates:
         try:
             payload = json.dumps(candidate, sort_keys=True, default=str).encode("utf-8")
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:  # noqa: BLE001 — best-effort/order-preserving per the docstring above: a non-serializable candidate is simply skipped, never disabling the whole rung
             logger.debug("KV-fork candidate not serializable, skipped: %s", exc)
             continue
         key = hashlib.sha256(payload).hexdigest()

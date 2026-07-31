@@ -835,7 +835,7 @@ class WorkflowRunner:
                     )
                     if rows and isinstance(rows[0].get("r"), dict):
                         raw = dict(rows[0]["r"])
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 — backend fallback failing just means raw stays {}; the caller treats "no persisted state" as "start fresh" (idempotent), matching the save side's already-justified best-effort persistence at line 811
                     logger.debug("[ORCH.gate] run-state load failed: %s", exc)
         if not raw:
             return {}
@@ -844,7 +844,7 @@ class WorkflowRunner:
                 "completed": json.loads(raw.get("completed_json") or "{}"),
                 "satisfied": set(json.loads(raw.get("satisfied_json") or "[]")),
             }
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — malformed persisted state degrades to "start fresh" (idempotent), same rationale as the backend-fallback except above
             logger.debug("[ORCH.gate] run-state decode failed: %s", exc)
             return {}
 

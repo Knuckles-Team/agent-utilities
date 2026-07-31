@@ -107,7 +107,7 @@ class ParetoFrontier:
                 RegistryEdgeType.PARETO_DOMINATES,
                 {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — the KG edge is a supplementary record of a dominance relation the in-memory Pareto frontier already tracks; the running evolutionary loop does not read this edge back
             logger.debug("Failed to persist dominance edge: %s", exc)
 
 

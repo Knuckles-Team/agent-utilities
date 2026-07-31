@@ -505,7 +505,7 @@ class KGBackend:
 
                     if not isinstance(checkpoint, dict):
                         checkpoint = None
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — one candidate lookup path; the graph/rust-engine mirror lookup below is tried next before returning None
                 logger.debug("Backend checkpoint restore failed: %s", e)
 
         if checkpoint is None and self.engine:
@@ -564,10 +564,9 @@ class KGBackend:
                 state_dict["state_data"] = sd
 
             return state_dict
-        except Exception as exc:
-            # Best-effort: a malformed prior checkpoint must not crash
-            # resumption, but "no checkpoint" and "checkpoint unreadable" are
-            # different operator questions — log which one this is.
+        except Exception as exc:  # noqa: BLE001 — a malformed prior checkpoint degrades to "no checkpoint" (resume starts fresh) rather than crashing resumption
+            # "no checkpoint" and "checkpoint unreadable" are different
+            # operator questions — log which one this is.
             logger.debug("Checkpoint state could not be decoded: %s", exc)
             return None
 

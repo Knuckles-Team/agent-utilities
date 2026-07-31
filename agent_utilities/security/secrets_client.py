@@ -489,7 +489,7 @@ class VaultBackend(SecretsBackend):
             self._token_auth_time = _time.monotonic()
             logger.info("Vault OIDC/JWT authentication succeeded")
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one candidate in _authenticate()'s auto-detect chain (oidc/approle/token/kubernetes); a loud logger.warning already fires there if every candidate fails
             logger.debug("Vault OIDC authentication failed: %s", e)
             return False
 
@@ -509,7 +509,7 @@ class VaultBackend(SecretsBackend):
             self._token_auth_time = _time.monotonic()
             logger.info("Vault: AppRole auth successful.")
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one candidate in _authenticate()'s auto-detect chain; a loud logger.warning already fires there if every candidate fails
             logger.debug("Vault AppRole authentication failed: %s", e)
             return False
 
@@ -531,7 +531,7 @@ class VaultBackend(SecretsBackend):
             self._token_auth_time = _time.monotonic()
             logger.info("Vault: Kubernetes auth successful.")
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one candidate in _authenticate()'s auto-detect chain; a loud logger.warning already fires there if every candidate fails
             logger.debug("Vault Kubernetes authentication failed: %s", e)
             return False
 
@@ -575,7 +575,13 @@ class VaultBackend(SecretsBackend):
             data = resp.get("data", {}).get("data", {})
             return data.get(field if separator else "value")
         except Exception as exc:
-            logger.debug("Vault secret lookup failed: %s", exc)
+            # D-SWG-2: loud, not debug — this catches BOTH "secret genuinely
+            # absent" and "Vault unreachable/unauthorized"; a caller receiving
+            # None can't tell those apart, so a systemic Vault outage would
+            # look identical to a missing key and degrade every consumer's
+            # config silently unless this is visible at a level someone
+            # actually watches.
+            logger.warning("Vault secret lookup failed for %r: %s", full_key, exc)
             return None
 
     def set(self, key: str, value: str, **metadata: Any) -> None:
