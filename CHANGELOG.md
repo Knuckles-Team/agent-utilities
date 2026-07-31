@@ -181,6 +181,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `run_graph` surfaces a truthful `outcome: "budget_exceeded"` +
   `budget_dimension`, preserving partial specialist results alongside the
   error instead of discarding them.
+- **JWT verification no longer depends on which extra was installed.**
+  `joserfc` (the JWT decoder `security/auth.py` `_decode_jwt` needs) lived
+  only in the optional `[auth]` extra, so a runtime image that installed
+  `agent-utilities` without it had no verifier — and `_decode_jwt`'s resulting
+  `ImportError`, turned into an `HTTPException(500)`, was blanket-caught by
+  `authenticate_header_values` and `ActorIdentityMiddleware` and reported as a
+  generic `401 "Token validation failed"`. No correctly issued token could
+  ever have been accepted, and the error blamed the credential instead of the
+  missing dependency. `joserfc` is now a **base** dependency (pure Python; its
+  only requirement, `cryptography`, was already mandatory, so this adds no
+  new transitive package and the import stays lazy — zero cost for a process
+  that never verifies a JWT). `[auth]` remains a no-op alias extra so the
+  ~69 external manifests pinning `agent-utilities[auth]` keep resolving.
+  Enforcement is now purely the existing `AUTH_JWT_JWKS_URI` runtime/config
+  toggle, never an accident of packaging. Independently, `authenticate_header_values`
+  and `ActorIdentityMiddleware` no longer collapse every verification-path
+  fault into that generic 401 — only a genuine 401 credential rejection from
+  `_decode_jwt` does; any other status (currently only the dependency-missing
+  500) now surfaces with its real status and detail.
 
 ## [2.1.1] - 2026-07-28 — Native-cache, connector, teardown, and intent hardening
 
