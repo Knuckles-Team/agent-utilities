@@ -71,16 +71,24 @@ Evidence spans address Fragments
 Track 4 evidence must cite a ``Fragment`` (the addressable evidence-spine unit
 a sibling lane is building — paragraph/heading/table/row/page/span with a
 stable id + content hash), not a raw character offset into an opaque blob.
-That dataclass does not exist yet anywhere in the repo (confirmed by survey:
-no ``Fragment``/``Artifact`` class exists as of this lane's work), so
-:class:`EvidenceSpan` here is a deliberately minimal, duck-typed interim: it
-only requires whatever object it is given to expose ``id``/``text`` (see
-:class:`FragmentLike`) — the exact shape the evidence-spine lane's
-`Fragment` is expected to satisfy (paragraph/heading/table/row/page/span, each
-with a stable id + its own text). When that class ships, swapping the import
-in :data:`FragmentLike` is the only change this module needs; ``fragment_id``
-and ``quote`` are already named to match. Tracked as
-``D-CE-1`` in ``reports/deferred/lane-claims-er.md``.
+That dataclass did not exist anywhere in the repo when this module was first
+written (confirmed by survey), so :class:`EvidenceSpan` here is a deliberately
+minimal, duck-typed interim: it only requires whatever object it is given to
+expose ``fragment_id``/``text`` (see :class:`FragmentLike`).
+
+**Re-verified against the now-published evidence-spine contract**
+(``feat/evidence-spine`` @ ``961698b8``, ``agent_utilities.knowledge_graph.
+ingestion.evidence_spine.Fragment``, not yet merged to ``main``): the real
+``Fragment`` dataclass exposes its stable address as ``.fragment_id``, **not**
+``.id`` — it has no ``id`` attribute at all. :class:`FragmentLike` originally
+duck-typed on ``.id``/``.text``, which the real class would **not** have
+satisfied. Renamed the protocol's address attribute to ``.fragment_id`` to
+match the real contract exactly, so a real ``Fragment`` instance already
+satisfies :class:`FragmentLike` with zero changes once the evidence-spine
+branch merges and this module imports it directly — only the import line
+changes, per the original plan. Tracked as ``D-CE-1`` in
+``reports/deferred/lane-claims-er.md`` (closed: contract re-verified and
+aligned, real import still pending the sibling lane's merge to ``main``).
 """
 
 from __future__ import annotations
@@ -128,16 +136,19 @@ class FragmentLike(Protocol):
     """The minimal shape an evidence-spine ``Fragment`` must satisfy.
 
     Deliberately duck-typed (``@runtime_checkable`` structural ``Protocol``,
-    not a concrete import) so this module never imports a class that does not
-    exist yet — see the module docstring's "Evidence spans address Fragments"
-    section. Any object exposing ``id`` (a stable fragment id) and ``text``
-    (the fragment's own extracted text, the substring evidence spans are
-    located within) satisfies this — a real ``Fragment`` dataclass, a
-    ``SimpleNamespace``, or a plain dict-backed shim in a test all qualify.
+    not a concrete import) so this module never imports a class that has not
+    merged to ``main`` yet — see the module docstring's "Evidence spans
+    address Fragments" section. Any object exposing ``fragment_id`` (the
+    stable fragment address) and ``text`` (the fragment's own extracted text,
+    the substring evidence spans are located within) satisfies this — the
+    real ``agent_utilities.knowledge_graph.ingestion.evidence_spine.Fragment``
+    dataclass, a ``SimpleNamespace``, or a plain dict-backed shim in a test
+    all qualify. Named ``fragment_id`` (not ``id``) specifically because the
+    real ``Fragment`` has no ``id`` attribute — only ``fragment_id``.
     """
 
     @property
-    def id(self) -> str: ...  # noqa: D102
+    def fragment_id(self) -> str: ...  # noqa: D102
 
     @property
     def text(self) -> str: ...  # noqa: D102
@@ -147,15 +158,16 @@ class _FragmentDict:
     """Adapts a ``{"id": ..., "text": ...}`` mapping to :class:`FragmentLike`.
 
     Callers that have not yet wired the evidence spine's real ``Fragment``
-    dataclass may pass plain dicts; this wrapper is the ONE place that
+    dataclass may pass plain dicts keyed ``id``/``text`` (the pre-existing,
+    already-widespread shorthand); this wrapper is the ONE place that
     tolerance lives so :meth:`CandidateClaimExtractor.propose` itself only
-    ever handles the protocol shape.
+    ever handles the protocol shape (``fragment_id``/``text``).
     """
 
-    __slots__ = ("id", "text")
+    __slots__ = ("fragment_id", "text")
 
-    def __init__(self, id: str, text: str) -> None:  # noqa: A002 - matches protocol name
-        self.id = id
+    def __init__(self, fragment_id: str, text: str) -> None:
+        self.fragment_id = fragment_id
         self.text = text
 
 
@@ -196,7 +208,7 @@ class EvidenceSpan(BaseModel):
         if start < 0:
             return None
         return cls(
-            fragment_id=fragment.id,
+            fragment_id=fragment.fragment_id,
             quote=quote,
             start=start,
             end=start + len(quote),

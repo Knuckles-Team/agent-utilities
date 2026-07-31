@@ -34,11 +34,12 @@ from agent_utilities.knowledge_graph.extraction.fact_extractor import FactDedupe
 
 
 class _Fragment:
-    """A minimal, real ``FragmentLike`` — no evidence-spine dataclass exists yet
-    (see the module docstring), so this is what a caller hands in today."""
+    """A minimal, real ``FragmentLike`` — stands in for the real
+    ``evidence_spine.Fragment`` (not yet merged to ``main``; see the module
+    docstring) using the same ``fragment_id``/``text`` attribute names."""
 
-    def __init__(self, id: str, text: str) -> None:  # noqa: A002
-        self.id = id
+    def __init__(self, fragment_id: str, text: str) -> None:
+        self.fragment_id = fragment_id
         self.text = text
 
 
@@ -77,9 +78,10 @@ def _no_op_embed(_text: str) -> list[float]:
 
 
 def test_fragment_like_is_structurally_satisfied_by_a_plain_object() -> None:
-    """No evidence-spine `Fragment` dataclass exists yet — any object exposing
-    `id`/`text` satisfies the duck-typed protocol this module accepts."""
-    assert isinstance(_Fragment(id="f1", text="hello"), FragmentLike)
+    """Any object exposing `fragment_id`/`text` satisfies the duck-typed
+    protocol this module accepts — matching the real (not yet merged)
+    evidence-spine `Fragment` dataclass's actual attribute names."""
+    assert isinstance(_Fragment(fragment_id="f1", text="hello"), FragmentLike)
     assert not isinstance(object(), FragmentLike)
 
 
@@ -93,7 +95,7 @@ async def test_real_prose_fragment_yields_candidate_with_resolvable_evidence_spa
     None
 ):
     fragment = _Fragment(
-        id="frag:doc-1:p3",
+        fragment_id="frag:doc-1:p3",
         text="Acme Corp acquired Globex in 2024 for an undisclosed sum.",
     )
     quote = "Acme Corp acquired Globex in 2024"
@@ -125,7 +127,7 @@ async def test_real_prose_fragment_yields_candidate_with_resolvable_evidence_spa
 
     assert len(claim.evidence) == 1
     span = claim.evidence[0]
-    assert span.fragment_id == fragment.id
+    assert span.fragment_id == fragment.fragment_id
     assert fragment.text[span.start : span.end] == span.quote == quote
     assert batch.unresolved_evidence == 0
 
@@ -134,7 +136,7 @@ async def test_real_prose_fragment_yields_candidate_with_resolvable_evidence_spa
 async def test_evidence_span_pinned_to_fragment_never_fabricated_on_mismatch() -> None:
     """A quote that is NOT a substring of any given fragment resolves to NO
     evidence span at all — never a guessed offset."""
-    fragment = _Fragment(id="frag:x", text="totally unrelated fragment text")
+    fragment = _Fragment(fragment_id="frag:x", text="totally unrelated fragment text")
     stream = _one_shot_stream(
         _fact_json("A", "relates_to", "B", "this quote appears nowhere")
     )
@@ -207,7 +209,7 @@ async def test_full_extraction_run_never_touches_a_live_engine_double() -> None:
     live_engine.graph = Mock()
     live_engine.backend = Mock()
 
-    fragment = _Fragment(id="frag:1", text="Widgets Inc supplies Acme Corp.")
+    fragment = _Fragment(fragment_id="frag:1", text="Widgets Inc supplies Acme Corp.")
     stream = _one_shot_stream(
         _fact_json("Widgets Inc", "supplies", "Acme Corp", "Widgets Inc supplies")
     )
@@ -245,7 +247,7 @@ def test_claim_confidence_abstains_rather_than_fabricating() -> None:
 
 @pytest.mark.asyncio
 async def test_missing_model_confidence_abstains_on_the_candidate() -> None:
-    fragment = _Fragment(id="frag:2", text="Foo Corp merged with Bar Ltd.")
+    fragment = _Fragment(fragment_id="frag:2", text="Foo Corp merged with Bar Ltd.")
     stream = _one_shot_stream(
         _fact_json(
             "Foo Corp", "merged_with", "Bar Ltd", "Foo Corp merged", confidence=None
