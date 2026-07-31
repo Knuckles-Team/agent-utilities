@@ -31,7 +31,12 @@ from pydantic import BaseModel, Field, model_validator
 
 from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.execution_manifest import ExecutionManifest, ExecutionResult
-from agent_utilities.models.graph import GraphPlan
+from agent_utilities.models.graph import (
+    GraphExecutionEvidence,
+    GraphPlan,
+    GraphTaskEvidence,
+    GraphTransitionEvidence,
+)
 from agent_utilities.models.sdd import Task
 from agent_utilities.orchestration.run_identity import new_run_id
 
@@ -99,8 +104,15 @@ class WorkflowScriptEvidence(BaseModel):
 
 
 class ChildRunEvidence(BaseModel):
-    """Trace linkage for one catalog function dispatched through GraphOS."""
+    """Trace linkage for one catalog function dispatched through GraphOS.
 
+    ``outcome`` is one of ``ok`` | ``failed`` | ``timeout`` | ``cancelled`` |
+    ``replayed`` -- ``replayed`` is the truthful marker for a resumed run that
+    reused a prior halted attempt's persisted output instead of re-dispatching
+    through GraphOS (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume).
+    """
+
+    step_id: str = ""
     agent_name: str
     run_id: str
     trace_ref: str
@@ -108,7 +120,14 @@ class ChildRunEvidence(BaseModel):
 
 
 class GovernedDynamicWorkflowResult(BaseModel):
-    """Structured result and trace evidence for an upstream workflow run."""
+    """Structured result and trace evidence for an upstream workflow run.
+
+    ``resumed``/``replayed_step_ids`` are the truthfulness contract for the
+    resume path (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume): a run
+    that reused any prior catalog-call result from a halted attempt of the
+    SAME ``workflow_run_id`` is never reported identical to a clean single-shot
+    success — ``resumed`` is true and the reused step ids are named.
+    """
 
     status: Literal["completed"] = "completed"
     output: Any
@@ -120,6 +139,9 @@ class GovernedDynamicWorkflowResult(BaseModel):
     child_runs: list[ChildRunEvidence] = Field(default_factory=list)
     usage: dict[str, int] = Field(default_factory=dict)
     fallback_used: bool = False
+    resumed: bool = False
+    replayed_step_ids: list[str] = Field(default_factory=list)
+    checkpoint_ids: list[str] = Field(default_factory=list)
 
 
 @dataclass
@@ -127,6 +149,18 @@ class _WorkflowRuntime:
     semaphore: asyncio.Semaphore
     completed: set[str] = field(default_factory=set)
     child_runs: list[ChildRunEvidence] = field(default_factory=list)
+    # Resume state (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume). ``engine``/
+    # ``workflow_run_id`` let a completed dispatch persist itself immediately;
+    # ``resume_cache`` is pre-seeded from prior persisted entries for the SAME
+    # ``workflow_run_id`` so a catalog call already completed before a halt
+    # (budget exhaustion, cancellation, process restart) short-circuits to the
+    # persisted output instead of re-dispatching through GraphOS -- the host
+    # choke point that makes "restart produces no duplicate ToolCalls" hold
+    # regardless of what script the model writes on retry.
+    engine: Any = None
+    workflow_run_id: str = ""
+    resume_cache: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+    persisted_entries: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _load_upstream_dynamic_workflow() -> tuple[type[Any], type[Any], str]:
@@ -148,6 +182,15 @@ def _load_upstream_dynamic_workflow() -> tuple[type[Any], type[Any], str]:
     except PackageNotFoundError:
         harness_version = "unknown"
     return DynamicWorkflow, WorkflowAgent, harness_version
+
+
+def _safe_harness_version() -> str:
+    """Best-effort Harness version for a failure-path evidence record."""
+
+    try:
+        return version("pydantic-ai-harness")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 async def _await_with_cancellation(
@@ -179,6 +222,122 @@ async def _await_with_cancellation(
             operation.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await operation
+
+
+# ---------------------------------------------------------------------------
+# Resume cache (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume)
+#
+# Upstream pydantic-graph v2 removed ``pydantic_graph.persistence`` and a Monty
+# ``run_workflow`` sandbox is stateless per attempt ("a fresh sandbox with no
+# accumulated state"), so there is no runnable graph-resume token to restore.
+# What IS real and restorable is the completed-catalog-call ledger this module
+# already builds (``ChildRunEvidence``): a halted attempt's successfully
+# dispatched sub-agent calls are real, side-effecting GraphOS runs whose
+# outputs must never be silently redone. This cache persists that ledger,
+# keyed by ``workflow_run_id`` (stable across a halt + restart because the
+# caller reuses the SAME id), and seeds it back in on the next attempt so a
+# catalog call already completed short-circuits to its persisted output
+# instead of re-entering GraphOS -- the host choke point, independent of
+# whatever script the model happens to write on retry.
+#
+# This is a SEPARATE node from the privacy-redacted ``RunTrace``/``ToolCall``
+# audit trail: replay requires the literal task/output value, not a digest.
+# ---------------------------------------------------------------------------
+
+_RESUME_NODE_LABEL = "WorkflowResumeState"
+
+
+def _resume_state_node_id(workflow_run_id: str) -> str:
+    return f"workflow-resume:{workflow_run_id}"
+
+
+def _load_resume_cache(engine: Any, workflow_run_id: str) -> list[dict[str, Any]]:
+    """Best-effort load of prior completed dispatches for this workflow run."""
+
+    if engine is None or not workflow_run_id:
+        return []
+    node_id = _resume_state_node_id(workflow_run_id)
+    try:
+        if getattr(engine, "backend_type", None) == "rust":
+            if not engine.has_node(node_id):
+                return []
+            raw = engine[node_id].get("entries_json", "[]")
+        elif hasattr(engine, "graph"):
+            if node_id not in engine.graph:
+                return []
+            raw = engine.graph.nodes[node_id].get("entries_json", "[]")
+        else:
+            return []
+        entries = json.loads(raw or "[]")
+        return entries if isinstance(entries, list) else []
+    except Exception as exc:  # noqa: BLE001 — a corrupt/absent cache must not block a run
+        logger.warning("Could not load DynamicWorkflow resume cache: %s", exc)
+        return []
+
+
+def _save_resume_cache(
+    engine: Any, workflow_run_id: str, entries: list[dict[str, Any]]
+) -> None:
+    """Best-effort persist of the full completed-dispatch ledger, overwrite semantics."""
+
+    if engine is None or not workflow_run_id:
+        return
+    node_id = _resume_state_node_id(workflow_run_id)
+    try:
+        engine.add_node(
+            node_id,
+            _RESUME_NODE_LABEL,
+            properties={
+                "id": node_id,
+                "workflow_run_id": workflow_run_id,
+                "entries_json": json.dumps(
+                    entries, sort_keys=True, separators=(",", ":"), default=str
+                ),
+                "entry_count": len(entries),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — resume is best-effort, never fails the dispatch
+        logger.warning("Could not persist DynamicWorkflow resume cache: %s", exc)
+
+
+def _catalog_topology(steps: list[DelegationStep]) -> str:
+    """Deterministic structural rendering of the reviewed catalog DAG."""
+
+    lines = [
+        f"{step.id}<-{','.join(sorted(step.depends_on))}:{step.kind}:{step.target_name or ''}"
+        for step in steps
+    ]
+    return "\n".join(sorted(lines))
+
+
+def _content_digest(value: str) -> str:
+    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+class _CapturingCheckpointStore:
+    """Wrap a ``CheckpointStore``, capturing every saved checkpoint id.
+
+    The conductor agent is given a real ``CheckpointMiddleware`` (one message-
+    history snapshot per ``run_workflow`` tool call) by default -- "restore and
+    continue a run" for the DynamicWorkflow path is genuinely available via
+    :func:`agent_utilities.capabilities.checkpointing.fork_from_checkpoint`.
+    This wrapper makes the ids inspectable as execution evidence without
+    depending on ``GraphCheckpointStore.list()`` (not yet a real Cypher query).
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.ids: list[str] = []
+
+    async def save(self, checkpoint: Any) -> None:
+        await self._inner.save(checkpoint)
+        self.ids.append(checkpoint.id)
+
+    async def get(self, checkpoint_id: str) -> Any:
+        return await self._inner.get(checkpoint_id)
+
+    async def list(self, limit: int = 10) -> list[Any]:
+        return await self._inner.list(limit=limit)
 
 
 def _string_list(value: Any) -> list[str]:
@@ -315,9 +474,32 @@ def _graphos_agent_class() -> type[Any]:
                     "DynamicWorkflow boundary; use governed model_class routing"
                 )
 
-            child_run_id = new_run_id()
             from agent_utilities.observability.correlation import bind_carrier
             from agent_utilities.observability.trace_ontology import trace_id
+
+            # Resume short-circuit: a catalog call already completed for this
+            # EXACT (step, task) pair in a prior halted attempt of the SAME
+            # ``workflow_run_id`` returns its persisted output directly --
+            # GraphOS's ``execute_agent`` is never re-entered, so this never
+            # produces a duplicate ``:ToolCall``. Reported outcome is the
+            # honest "replayed" (never "ok"), so a resumed run is never
+            # indistinguishable from a clean single-shot success.
+            cached = self._runtime.resume_cache.get((self._step.id, user_prompt))
+            if cached is not None:
+                cached_run_id = str(cached.get("run_id") or new_run_id())
+                self._runtime.completed.add(self._step.id)
+                self._runtime.child_runs.append(
+                    ChildRunEvidence(
+                        step_id=self._step.id,
+                        agent_name=self._step.target_name or self._step.id,
+                        run_id=cached_run_id,
+                        trace_ref=trace_id(cached_run_id),
+                        outcome="replayed",
+                    )
+                )
+                return AgentRunResult(output=str(cached.get("output", "")))
+
+            child_run_id = new_run_id()
 
             async def dispatch() -> Any:
                 target_name = self._step.target_name or self._step.id
@@ -357,6 +539,20 @@ def _graphos_agent_class() -> type[Any]:
                         "GraphOS catalog delegation did not produce a successful outcome"
                     )
                 self._runtime.completed.add(self._step.id)
+                entry = {
+                    "step_id": self._step.id,
+                    "task": user_prompt,
+                    "output": str(output),
+                    "outcome": outcome,
+                    "run_id": child_run_id,
+                }
+                self._runtime.persisted_entries.append(entry)
+                self._runtime.resume_cache[(self._step.id, user_prompt)] = entry
+                _save_resume_cache(
+                    self._runtime.engine,
+                    self._runtime.workflow_run_id,
+                    self._runtime.persisted_entries,
+                )
                 return AgentRunResult(output=str(output))
             except TimeoutError:
                 outcome = "timeout"
@@ -367,6 +563,7 @@ def _graphos_agent_class() -> type[Any]:
             finally:
                 self._runtime.child_runs.append(
                     ChildRunEvidence(
+                        step_id=self._step.id,
                         agent_name=self._step.target_name or self._step.id,
                         run_id=child_run_id,
                         trace_ref=trace_id(child_run_id),
@@ -585,6 +782,17 @@ class GovernedDynamicWorkflow(BaseModel):
         runtime = _WorkflowRuntime(
             semaphore=asyncio.Semaphore(self.resource_limits.max_concurrency)
         )
+        engine = getattr(orchestrator, "engine", None)
+        runtime.engine = engine
+        runtime.workflow_run_id = workflow_run_id
+        prior_entries = _load_resume_cache(engine, workflow_run_id)
+        runtime.persisted_entries = list(prior_entries)
+        for prior in prior_entries:
+            step_id = str(prior.get("step_id") or "")
+            task = str(prior.get("task") or "")
+            if step_id and prior.get("outcome") == "ok":
+                runtime.resume_cache[(step_id, task)] = prior
+                runtime.completed.add(step_id)
         agent_cls = _graphos_agent_class()
         catalog = [
             WorkflowAgent(
@@ -618,6 +826,51 @@ class GovernedDynamicWorkflow(BaseModel):
         )
         return capability, runtime, harness_version
 
+    def _build_graph_execution_evidence(
+        self,
+        *,
+        harness_version: str,
+        runtime: _WorkflowRuntime | None,
+        checkpoint_ids: list[str],
+    ) -> dict[str, Any]:
+        """Build the SAME ``GraphExecutionEvidence`` shape ``pydantic_graph`` runs
+        write onto their ``RunTrace``, but honestly ``resume_supported=True`` --
+        every node/transition below is backed by a real, restorable
+        ``WorkflowResumeState`` cache entry (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume),
+        not an observational snapshot.
+        """
+
+        topology = _catalog_topology(self.steps)
+        child_runs = list(runtime.child_runs) if runtime is not None else []
+        version_payload = json.dumps(
+            {
+                "schema": "governed-dynamic-workflow-resume-v1",
+                "harness_version": harness_version,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        transitions = [
+            GraphTransitionEvidence(
+                sequence=index + 1,
+                scheduled_tasks=[
+                    GraphTaskEvidence(node_id=child.agent_name, task_id=child.run_id)
+                ],
+            )
+            for index, child in enumerate(child_runs)
+        ]
+        evidence = GraphExecutionEvidence(
+            topology=topology,
+            topology_digest=_content_digest(topology),
+            version_digest=_content_digest(version_payload),
+            runtime_version=harness_version,
+            node_sequence=[child.agent_name for child in child_runs],
+            transitions=transitions,
+            checkpoint_ids=list(checkpoint_ids),
+            resume_supported=True,
+        )
+        return evidence.model_dump(mode="json")
+
     def build_upstream_capability(
         self,
         orchestrator: Any,
@@ -649,10 +902,16 @@ class GovernedDynamicWorkflow(BaseModel):
         workflow_run_id = workflow_run_id or new_run_id()
         started = time.monotonic()
         active_runtime: _WorkflowRuntime | None = None
+        active_checkpoint_store: _CapturingCheckpointStore | None = None
 
         from pydantic_ai.messages import ToolCallPart
         from pydantic_ai.usage import UsageLimits
 
+        from agent_utilities.capabilities.checkpointing import (
+            CheckpointMiddleware,
+            GraphCheckpointStore,
+            InMemoryCheckpointStore,
+        )
         from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.harness.tracing import trace
         from agent_utilities.observability.correlation import current_carrier
@@ -664,7 +923,7 @@ class GovernedDynamicWorkflow(BaseModel):
             metadata={"backend": "pydantic-ai-harness.dynamic_workflow"},
         )
         async def run_harness() -> tuple[Any, _WorkflowRuntime, str]:
-            nonlocal active_runtime
+            nonlocal active_runtime, active_checkpoint_store
             # Capture the trace only after the trace wrapper has established it.
             # Caller-provided ``trace_context`` is deliberately not authority.
             capability, runtime, harness_version = self._build_upstream_runtime(
@@ -674,6 +933,21 @@ class GovernedDynamicWorkflow(BaseModel):
                 trace_carrier=current_carrier(),
             )
             active_runtime = runtime
+            # Default-ON conductor checkpointing (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume):
+            # this is the ONE place `default_capabilities=False` previously left the
+            # conductor with ZERO reliability capabilities. Checkpointing is safe to
+            # default on here specifically -- unlike the workspace-wide
+            # `default_runtime_capabilities(include_checkpoints=False)` default, which
+            # governs every agent (many high-volume/short-lived, where a snapshot per
+            # tool call would be wasteful) -- because a DynamicWorkflow conductor makes
+            # exactly one bounded, low-frequency tool call (`run_workflow`) per attempt.
+            inner_store = (
+                GraphCheckpointStore(runtime.engine)
+                if runtime.engine is not None
+                else InMemoryCheckpointStore()
+            )
+            checkpoint_store = _CapturingCheckpointStore(inner_store)
+            active_checkpoint_store = checkpoint_store
             parent = create_context_agent(
                 model=orchestrator_model,
                 name=f"dynamic-workflow:{self.name}",
@@ -683,7 +957,12 @@ class GovernedDynamicWorkflow(BaseModel):
                     "Only catalog functions may perform work. Respect their "
                     "host-enforced dependency contracts and return the final result."
                 ),
-                capabilities=[capability],
+                capabilities=[
+                    capability,
+                    CheckpointMiddleware(
+                        store=checkpoint_store, frequency="every_tool"
+                    ),
+                ],
                 default_capabilities=False,
             )
             from agent_utilities.orchestration.loop_guards import (
@@ -718,6 +997,20 @@ class GovernedDynamicWorkflow(BaseModel):
                 timeout=self.resource_limits.max_duration_secs,
             )
         except BaseException as exc:
+            # A halted attempt's evidence is still real: every completed
+            # dispatch in ``active_runtime.child_runs`` is already persisted to
+            # the resume cache (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume),
+            # so the NEXT call with the SAME ``workflow_run_id`` (a genuine
+            # "budget halt then restart") will not re-dispatch them.
+            failure_evidence = self._build_graph_execution_evidence(
+                harness_version=_safe_harness_version(),
+                runtime=active_runtime,
+                checkpoint_ids=(
+                    list(active_checkpoint_store.ids)
+                    if active_checkpoint_store is not None
+                    else []
+                ),
+            )
             # ``_persist_parent_trace`` performs synchronous native graph writes
             # (RunTrace/Session nodes, PARENT_RUN edges). Run it on a worker so
             # a foreground DynamicWorkflow completion/failure never blocks the
@@ -743,10 +1036,12 @@ class GovernedDynamicWorkflow(BaseModel):
                     else []
                 ),
                 error=type(exc).__name__,
+                graph_execution_evidence=failure_evidence,
             )
             raise
 
         script_evidence: list[WorkflowScriptEvidence] = []
+        script_artifacts: list[dict[str, Any]] = []
         for message in run_result.all_messages():
             for part in getattr(message, "parts", ()) or ():
                 if (
@@ -756,13 +1051,29 @@ class GovernedDynamicWorkflow(BaseModel):
                     continue
                 args = part.args_as_dict()
                 code = str(args.get("code") or "")
+                sha256 = hashlib.sha256(code.encode()).hexdigest()
+                byte_count = len(code.encode())
+                line_count = len(code.splitlines())
                 script_evidence.append(
                     WorkflowScriptEvidence(
                         tool_call_id=part.tool_call_id,
-                        sha256=hashlib.sha256(code.encode()).hexdigest(),
-                        byte_count=len(code.encode()),
-                        line_count=len(code.splitlines()),
+                        sha256=sha256,
+                        byte_count=byte_count,
+                        line_count=line_count,
                     )
+                )
+                # The FULL generated script is stored as a trace artifact (see
+                # ``_persist_parent_trace``'s ``script_artifacts``) -- the
+                # ``script_evidence`` above stays the privacy-safe digest form
+                # returned to every caller.
+                script_artifacts.append(
+                    {
+                        "tool_call_id": part.tool_call_id,
+                        "sha256": sha256,
+                        "byte_count": byte_count,
+                        "line_count": line_count,
+                        "code": code,
+                    }
                 )
 
         usage = run_result.usage
@@ -771,6 +1082,21 @@ class GovernedDynamicWorkflow(BaseModel):
             "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
             "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
         }
+        checkpoint_ids = (
+            list(active_checkpoint_store.ids)
+            if active_checkpoint_store is not None
+            else []
+        )
+        replayed_step_ids = [
+            child.step_id or child.agent_name
+            for child in runtime.child_runs
+            if child.outcome == "replayed"
+        ]
+        evidence = self._build_graph_execution_evidence(
+            harness_version=harness_version,
+            runtime=runtime,
+            checkpoint_ids=checkpoint_ids,
+        )
         # Same worker isolation as the failure path above, so a successful
         # completion's lineage write cannot block the shared event loop either.
         await run_blocking_ordered(
@@ -782,6 +1108,8 @@ class GovernedDynamicWorkflow(BaseModel):
             result_preview=str(run_result.output)[:500],
             child_runs=runtime.child_runs,
             error=None,
+            graph_execution_evidence=evidence,
+            script_artifacts=script_artifacts,
         )
         return GovernedDynamicWorkflowResult(
             output=run_result.output,
@@ -791,6 +1119,9 @@ class GovernedDynamicWorkflow(BaseModel):
             script_evidence=script_evidence,
             child_runs=runtime.child_runs,
             usage=usage_data,
+            resumed=bool(replayed_step_ids),
+            replayed_step_ids=replayed_step_ids,
+            checkpoint_ids=checkpoint_ids,
         )
 
     async def execute(
@@ -820,8 +1151,18 @@ class GovernedDynamicWorkflow(BaseModel):
         result_preview: str,
         child_runs: list[ChildRunEvidence],
         error: str | None,
+        graph_execution_evidence: dict[str, Any] | None = None,
+        script_artifacts: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Persist one parent RunTrace and explicit parent/child lineage."""
+        """Persist one parent RunTrace, its resume evidence, and parent/child lineage.
+
+        ``script_artifacts`` (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume)
+        stores the actual model-authored orchestration code the ``RunTrace``'s
+        privacy-safe ``graph_topology``/evidence only summarizes -- as a
+        dedicated, non-redacted ``WorkflowScriptArtifact`` node, the same way
+        ``CheckpointNode`` stores full replayable message content rather than a
+        digest.
+        """
 
         engine = getattr(orchestrator, "engine", None)
         if engine is None:
@@ -843,6 +1184,7 @@ class GovernedDynamicWorkflow(BaseModel):
                 result_preview=result_preview,
                 execution_mode="dynamic_workflow",
                 tool_call_count=len(child_runs),
+                graph_execution_evidence=graph_execution_evidence,
             )
             session_node = f"session:{workflow_run_id}"
             parent_trace = trace_id(workflow_run_id)
@@ -857,6 +1199,24 @@ class GovernedDynamicWorkflow(BaseModel):
             engine.link_nodes(session_node, parent_trace, "HAS_RUN")
             for child in child_runs:
                 engine.link_nodes(child.trace_ref, parent_trace, "PARENT_RUN")
+            for artifact in script_artifacts or []:
+                script_node = (
+                    f"workflow-script:{workflow_run_id}:{artifact['tool_call_id']}"
+                )
+                engine.add_node(
+                    script_node,
+                    "WorkflowScriptArtifact",
+                    properties={
+                        "id": script_node,
+                        "workflow_run_id": workflow_run_id,
+                        "tool_call_id": artifact["tool_call_id"],
+                        "sha256": artifact["sha256"],
+                        "byte_count": artifact["byte_count"],
+                        "line_count": artifact["line_count"],
+                        "code": artifact["code"],
+                    },
+                )
+                engine.link_nodes(script_node, parent_trace, "SCRIPT_OF")
         except Exception as exc:
             # Trace persistence must never convert an execution result to failure.
             logger.warning(

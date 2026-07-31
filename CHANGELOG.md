@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+<<<<<<< HEAD
 - **Live content guardrails, replacing the dead `PolicyEngine`.** D-48: grep
   confirmed `security/guardrails.py`'s `PolicyEngine` (PII, forbidden-content,
   cost-budget, output-schema rules) had zero live callers across the whole
@@ -36,6 +37,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `execution_stability_engine.RepetitionPolicy`) — dead code with zero live
   callers (D-48). See "Added" above for the replacement.
 
+=======
+- **Proven upstream `DynamicWorkflow` execution + a real governed resume path.**
+  `GovernedDynamicWorkflow.execute_upstream` now provably runs a model-authored
+  script through the real `pydantic-ai-harness`/Monty sandbox end-to-end (a
+  bounded catalog, real fan-out sub-agent calls re-entering GraphOS, real
+  output), with the generated script and normalised call graph persisted as
+  trace artifacts (`WorkflowScriptArtifact` nodes; `RunTrace.graph_*` evidence).
+  Every catalog dispatch inherits ambient trace/tenant/budget/cancellation
+  context across the sandbox boundary (verified end-to-end), and a nested
+  `DynamicWorkflow` attempt is refused. A new `WorkflowResumeState` cache
+  persists each completed `(step, task) -> output` immediately, so a halted
+  attempt (harness budget exhaustion, timeout, cancellation, or a process
+  restart) resumed under the SAME `workflow_run_id` never re-dispatches an
+  already-completed catalog call — proven to produce **zero duplicate
+  `:ToolCall`s** across a budget-halt-then-restart. A resumed run is always
+  reported truthfully (`resumed`/`replayed_step_ids`, `outcome="replayed"`),
+  never as an indistinguishable clean success. The conductor is also given a
+  real default-ON `CheckpointMiddleware` (genuine restore-and-continue via
+  `fork_from_checkpoint`). `GraphExecutionEvidence.resume_supported` is now a
+  per-producer `bool` (was hard-coded `Literal[False]`) — `true` only for this
+  genuinely-resumable path; the `pydantic_graph`/`ParallelEngine` plane is
+  unchanged and still reports `false`.
+>>>>>>> feat/dynamic-workflow-execution-and-resume
 - **Truthful Pydantic Graph execution evidence.** Real blocking and iterative
   graph runs now carry deterministic topology/runtime digests, ordered scheduler
   task batches, and only backend-confirmed checkpoint identifiers through

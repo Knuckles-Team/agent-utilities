@@ -64,6 +64,7 @@ graph TB
         DISPATCH["Orchestrator.execute_agent<br/>policy + skills + tools + model"]
         AGENTGRAPH["GraphOS Pydantic Graph<br/>per catalog call"]
         RUNTRACE["Shared session lineage<br/>RunTrace + ToolCall"]
+        RESUME["WorkflowResumeState<br/>(step,task)→output cache"]
     end
 
     PLANNER --> G1
@@ -75,6 +76,8 @@ graph TB
     ENTERPRISE --> G7
     DYNAMIC --> CONDUCTOR --> MONTY --> CATALOG --> DISPATCH
     DISPATCH --> AGENTGRAPH --> RUNTRACE
+    DISPATCH -. "on success, persist" .-> RESUME
+    RESUME -. "on the next attempt, seed cache" .-> CATALOG
 
     G1 & G2 & G3 & G4 & G5 & G6 & G7 --> MANIFEST
     MANIFEST --> ENGINE
@@ -140,13 +143,48 @@ combinations fail catalog validation before the conductor model runs.
 The parent and every child share one workflow session/run lineage. The
 `governed_dynamic_workflow.upstream` trace contains Harness's `run_workflow`
 span; the returned evidence carries privacy-safe script digests plus each
-child `run_id`/`trace_ref`. Full script text remains in the configured trace
-backend and is not duplicated into KG properties.
+child `run_id`/`trace_ref`. The full generated script is ALSO persisted, as a
+dedicated non-redacted `WorkflowScriptArtifact` KG node linked to the parent
+`RunTrace` (`SCRIPT_OF`) — the same way `CheckpointNode` stores full replayable
+message content rather than a digest — so the actual model-authored
+orchestration code is auditable, not merely its sha256.
 
 Harness availability is fail-loud by default. Callers may explicitly request
 `dynamic_fallback=stored_dag`, which uses the ordinary stored-DAG runner only
 when the optional Harness API is unavailable. Runtime, model, or tool failures
 never silently switch orchestration engines.
+
+#### Resume (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume)
+
+Upstream `pydantic_graph` v2 removed `pydantic_graph.persistence`, and a Monty
+`run_workflow` sandbox is stateless per attempt, so there is no runnable
+graph-resume token upstream can hand back. `GovernedDynamicWorkflow` instead
+persists its OWN completed-catalog-call ledger (a `WorkflowResumeState` KG
+node, keyed by `workflow_run_id`): every successful catalog dispatch writes its
+`(step_id, task) -> output` entry immediately. A halted attempt (harness's own
+`max_agent_calls` budget exhaustion, a timeout, cancellation, or a process
+restart) that is re-run with the SAME `workflow_run_id` seeds this cache back
+in, so a catalog call already completed short-circuits to its persisted output
+instead of re-entering GraphOS — the host choke point that holds regardless of
+what script the model happens to write on retry, guaranteeing NO duplicate
+`:ToolCall`s across a halt-then-restart. A replayed call is reported with the
+honest `outcome="replayed"` (never `"ok"`), and the overall result's
+`resumed`/`replayed_step_ids` fields are `true`/populated whenever any call was
+reused — a resumed run is never reported identical to a clean single-shot
+success. The parent `RunTrace` also carries the SAME `graph_topology_digest` /
+`graph_version_digest` / `graph_node_sequence` / `graph_transition_sequence` /
+`graph_checkpoint_ids` evidence shape the `pydantic_graph` execution plane
+writes, but with `graph_resume_supported=true` (that field stays `false` for
+the `pydantic_graph`/`ParallelEngine` plane, which has no equivalent mechanism).
+
+The conductor agent is additionally given a real `CheckpointMiddleware` +
+`GraphCheckpointStore` by default (one message-history snapshot per
+`run_workflow` tool call) — genuine "restore and continue" for the conductor's
+own conversation via `fork_from_checkpoint()`, independent of the catalog-call
+resume cache above. This is the one default-ON exception to the workspace-wide
+`default_runtime_capabilities(include_checkpoints=False)` default: safe here
+specifically because a DynamicWorkflow conductor makes exactly one bounded,
+low-frequency tool call per attempt.
 
 Current upstream limits are explicit: Harness 0.14 cannot suspend/resume
 GraphOS approval gates, and the facade cannot honor an exact per-step
