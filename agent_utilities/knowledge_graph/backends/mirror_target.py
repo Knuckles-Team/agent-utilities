@@ -421,9 +421,7 @@ def preflight_mirror_target(mirror: str, backend: Any) -> None:
         ensure()
 
     if not target.guarded:
-        logger.info(
-            "mirror %r targets %s", mirror, _locator(backend, target)
-        )
+        logger.info("mirror %r targets %s", mirror, _locator(backend, target))
         return
 
     probe = getattr(backend, "mirror_target_has_data", None)
@@ -452,9 +450,7 @@ def preflight_mirror_target(mirror: str, backend: Any) -> None:
         raise MirrorTargetRefused(
             _refusal_message(mirror, locator, "it ALREADY CONTAINS DATA.")
         )
-    logger.info(
-        "mirror %r targets %s, verified empty", mirror, locator
-    )
+    logger.info("mirror %r targets %s, verified empty", mirror, locator)
 
 
 def cypher_target_has_data(backend: Any) -> bool:

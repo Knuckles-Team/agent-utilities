@@ -45,9 +45,7 @@ from agent_utilities.knowledge_graph.backends.mirror_target import (
 
 def test_omission_on_a_named_connection_is_unchanged():
     """A deployment that already names its database/graph keeps that unit."""
-    target = resolve_mirror_target(
-        None, backend_type="neo4j", named_selector="prod_kg"
-    )
+    target = resolve_mirror_target(None, backend_type="neo4j", named_selector="prod_kg")
     assert target == MirrorTarget(mode=MODE_NAMED, name="prod_kg")
     assert not target.guarded  # never redirected, never refused
 
@@ -281,7 +279,9 @@ def test_neo4j_guard_refuses_a_non_empty_home_database(fake_neo4j):
 
 
 def test_neo4j_guard_passes_on_an_empty_home_database(fake_neo4j):
-    preflight_mirror_target("prod-neo4j", _neo4j(MirrorTarget(mode=MODE_DEFAULT), fake_neo4j))
+    preflight_mirror_target(
+        "prod-neo4j", _neo4j(MirrorTarget(mode=MODE_DEFAULT), fake_neo4j)
+    )
 
 
 def test_neo4j_dedicated_target_is_created_idempotently(fake_neo4j):
@@ -290,7 +290,9 @@ def test_neo4j_dedicated_target_is_created_idempotently(fake_neo4j):
     creates = [
         (db, q, p) for db, q, p in fake_neo4j.runs if q.startswith("CREATE DATABASE")
     ]
-    assert creates == [("system", "CREATE DATABASE $name IF NOT EXISTS", {"name": "kg_mirror"})]
+    assert creates == [
+        ("system", "CREATE DATABASE $name IF NOT EXISTS", {"name": "kg_mirror"})
+    ]
 
 
 # ── FalkorDB: the isolation unit is a GRAPH KEY ──────────────────────────────
@@ -311,9 +313,7 @@ class _FakeFalkorGraph:
     def query(self, query, params=None):
         self.queries.append((query, params))
         if "count(n)" in query:
-            return _FakeFalkorResult(
-                [[self.node_count]], [(1, "mirror_target_nodes")]
-            )
+            return _FakeFalkorResult([[self.node_count]], [(1, "mirror_target_nodes")])
         return _FakeFalkorResult([], [])
 
 
@@ -347,7 +347,9 @@ def _falkor(mirror_target, fake_falkordb):
 
 
 def test_falkordb_dedicated_target_routes_writes_to_that_graph_key(fake_falkordb):
-    backend = _falkor(MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror"), fake_falkordb)
+    backend = _falkor(
+        MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror"), fake_falkordb
+    )
     backend.execute("MERGE (n:Thing {id: $id})", {"id": "a"})
     assert fake_falkordb.selected == ["kg_mirror"]
     assert fake_falkordb.graphs["kg_mirror"].queries  # the write landed there
@@ -364,7 +366,9 @@ def test_falkordb_explicit_default_uses_the_default_graph_key(fake_falkordb):
 
 def test_falkordb_guard_refuses_a_non_empty_default_graph_key(fake_falkordb):
     fake_falkordb.node_count = 7
-    backend = _falkor(MirrorTarget(mode=MODE_DEFAULT, name="agent_graph"), fake_falkordb)
+    backend = _falkor(
+        MirrorTarget(mode=MODE_DEFAULT, name="agent_graph"), fake_falkordb
+    )
     with pytest.raises(MirrorTargetRefused, match="ALREADY CONTAINS DATA"):
         preflight_mirror_target("team-falkor", backend)
     assert all("count(n)" in q for q, _p in fake_falkordb.graphs["agent_graph"].queries)
@@ -468,7 +472,9 @@ def test_age_dedicated_target_routes_writes_to_that_graph(monkeypatch):
         MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror"), server, monkeypatch
     )
     backend.execute("MERGE (n:Thing {id: 'a'})")
-    cypher_sql = [s for s, _p in server.statements if s.startswith("SELECT * FROM cypher(")]
+    cypher_sql = [
+        s for s, _p in server.statements if s.startswith("SELECT * FROM cypher(")
+    ]
     assert cypher_sql and all("cypher('kg_mirror'" in s for s in cypher_sql)
 
 
@@ -480,7 +486,9 @@ def test_age_explicit_default_uses_the_default_graph(monkeypatch):
         monkeypatch,
     )
     backend.execute("MERGE (n:Thing {id: 'a'})")
-    cypher_sql = [s for s, _p in server.statements if s.startswith("SELECT * FROM cypher(")]
+    cypher_sql = [
+        s for s, _p in server.statements if s.startswith("SELECT * FROM cypher(")
+    ]
     assert cypher_sql and all("cypher('agent_graph'" in s for s in cypher_sql)
 
 

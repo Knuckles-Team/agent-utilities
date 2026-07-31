@@ -268,7 +268,7 @@ class StardogSparqlBackend(SparqlAdapter):
         except Exception as e:  # noqa: BLE001
             try:
                 conn.rollback()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — a failed rollback must not mask the original update error, which is logged and re-raised below
                 pass
             logger.error("Stardog SPARQL update failed: %s", e)
             raise
@@ -292,7 +292,7 @@ class StardogSparqlBackend(SparqlAdapter):
         except Exception as e:  # noqa: BLE001
             try:
                 conn.rollback()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — a failed rollback must not mask the original update error, which is logged and re-raised below
                 pass
             logger.error("Stardog graph upload failed: %s", e)
             raise
@@ -459,8 +459,9 @@ class StardogSparqlBackend(SparqlAdapter):
             return
         # Scoped to the dedicated mirror graph when there is one, so a prune can
         # never delete a co-tenant's triples (CONCEPT:AU-KG.backend.mirror-target-graph).
-        go, gc = self._graph_open(self._mirror_graph), self._graph_close(
-            self._mirror_graph
+        go, gc = (
+            self._graph_open(self._mirror_graph),
+            self._graph_close(self._mirror_graph),
         )
         self.execute_sparql_update(
             f"DELETE {{ {go}?s ?p ?o .{gc} }} WHERE {{ {go}?s <{_NS}importance> ?imp . "
@@ -469,8 +470,9 @@ class StardogSparqlBackend(SparqlAdapter):
 
     def edge_count(self) -> int | None:
         """Total object-property triples between our nodes (drift counting)."""
-        go, gc = self._graph_open(self._mirror_graph), self._graph_close(
-            self._mirror_graph
+        go, gc = (
+            self._graph_open(self._mirror_graph),
+            self._graph_close(self._mirror_graph),
         )
         rows = self.execute_sparql_query(
             f"SELECT (COUNT(*) AS ?c) WHERE {{ {go}?s ?p ?o . "

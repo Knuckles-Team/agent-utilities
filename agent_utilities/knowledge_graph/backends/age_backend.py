@@ -330,8 +330,7 @@ class AGEBackend(PostgreSQLBackend):
     def mirror_target_locator(self) -> str:
         """Name the resolved target the way an AGE operator would."""
         return (
-            f"{self.mirror_target.describe()} — Apache AGE graph "
-            f"{self._graph_name!r}"
+            f"{self.mirror_target.describe()} — Apache AGE graph {self._graph_name!r}"
         )
 
     def _age_graph_exists(self) -> bool:
