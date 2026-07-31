@@ -37,9 +37,15 @@ from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.verbose_tools import VALID_TOOL_MODES
 from tests.wiring import assert_surface, observe
 
-#: Modes in which graph-os serves its own action core. ``verbose`` is excluded
-#: deliberately and the reason is pinned executably below (D-WS-1).
-DISPATCHING_MODES = ("intent", "condensed", "both")
+#: Modes in which graph-os serves its own action core. ``verbose`` JOINED this
+#: list when D-WS-1 was fixed: ``register_tool_surface`` now runs the condensed
+#: registrars in ``verbose`` too and merely gates their *visibility*
+#: (``gate_condensed_visibility = mode == "intent" or (mode == "verbose" and
+#: has_verbose)``), so the dispatch core is populated and the REST route table is
+#: live. The defect-pin test that asserted the old empty-registry bug was deleted
+#: per its own instruction ("Move 'verbose' into DISPATCHING_MODES and delete
+#: this test") when reconciliation gate 2 merged the fix.
+DISPATCHING_MODES = ("intent", "condensed", "both", "verbose")
 
 #: The collapsed intent surface — additive on dispatch, subtractive on view.
 INTENT_VERBS = frozenset({"ask", "find", "act", "why", "write", "manage"})
@@ -145,27 +151,3 @@ class TestDispatchRegistryContract:
             kg_server.REGISTERED_TOOLS.clear()
             kg_server.REGISTERED_TOOLS.update(saved)
 
-    def test_verbose_mode_leaves_the_dispatch_core_empty(self, registries) -> None:
-        """DEFECT PIN (D-WS-1) — ``MCP_TOOL_MODE=verbose`` ships a dead server.
-
-        This test asserts a bug, on purpose, so that fixing the bug fails the test
-        and forces ``verbose`` into :data:`DISPATCHING_MODES` above.
-
-        What happens: ``register_tool_surface`` skips the condensed registrars in
-        ``verbose`` mode unless the agent has no verbose surface of its own
-        (``mode == "verbose" and not has_verbose``). graph-os *does* have one
-        (``verbose_register=register_graphos_verbose_tools``), so the condensed
-        registrars never run and ``REGISTERED_TOOLS`` stays empty — while ~750
-        verbose tools are still registered on the MCP instance, every one of which
-        dispatches through ``_execute_tool`` and therefore raises "Tool <x> not
-        registered". The REST route table is dead for the same reason.
-
-        No test caught it because the served surface (748 tools) looks *more*
-        complete than any other mode. It is the mirror image of the 118-vs-11
-        regression: there the count was wrong, here the count is fine and nothing
-        behind it works. Counting a surface is not testing it.
-        """
-        assert registries["verbose"] == set(), (
-            "verbose mode now populates the dispatch registry — D-WS-1 appears "
-            "fixed. Move 'verbose' into DISPATCHING_MODES and delete this test."
-        )
