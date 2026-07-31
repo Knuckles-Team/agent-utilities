@@ -161,6 +161,25 @@ def start_host_daemon(*, defer_background_start: bool = False) -> Any:
                 "host daemon: KG trace sink install failed (exception_type=%s)",
                 type(exc).__name__,
             )
+        # Durable error-detail persistence (D-24, CONCEPT:AU-KG.audit.durable-error-detail):
+        # install the KG-backed sink so a caller's `error.detail_ref` stays resolvable past
+        # this process's lifetime and across replicas. One-time injection; best-effort
+        # (a failure here must never block the daemon or degrade error reporting — the
+        # in-process detail store keeps working on its own either way).
+        try:
+            from agent_utilities.observability.error_detail_sink import (
+                GraphErrorDetailSink,
+            )
+            from agent_utilities.security.error_surface import (
+                register_detail_persistence_sink,
+            )
+
+            register_detail_persistence_sink(GraphErrorDetailSink(engine=_engine))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "host daemon: durable error-detail sink install failed (exception_type=%s)",
+                type(exc).__name__,
+            )
         logger.info("Gateway host daemon started")
     # CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs — the inbound messaging router runs in its OWN process
     # (``agent-utilities-messaging`` / ``agent_utilities.messaging.daemon``), NOT here, so

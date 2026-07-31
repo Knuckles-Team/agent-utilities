@@ -364,13 +364,14 @@ def _actual_code_coverage(
 
     Returns ``(actual_serving, serving_error, actual_service, service_error)``.
 
-    KNOWN LIMITATION: ``repo_symbol_counts`` (reused as-is, not modified here)
-    treats a per-repo query failure the same as a genuine zero count — a
-    transient read error on one repo is therefore indistinguishable from that
-    repo having no ``:Code`` symbols. This class's verdict can accordingly
-    under-report a real error as ``not_started``/``blocked`` rather than
-    surfacing it in ``errors``; a repo-level error classification would require
-    changing ``coverage.repo_symbol_counts`` itself, out of scope here.
+    D-28 fix: ``coverage.repo_symbol_counts`` now reports a per-repo query
+    failure separately from a genuine zero count (it returns
+    ``(counts, errors)`` rather than folding a failure into ``0``). When any
+    repo's query fails under a reader, that reader's rollup is honestly
+    reported as ``None`` with a ``*_error`` message — never as a lower-than-
+    real count — so :func:`_fuse_verdict` correctly classifies it ``blocked``
+    ("the serving-principal read failed; completeness cannot be assessed")
+    instead of silently under-reporting it as ``not_started``.
     """
     try:
         from agent_utilities.knowledge_graph.ingestion.coverage import (
@@ -390,9 +391,19 @@ def _actual_code_coverage(
         if reader is None:
             return None, None
         try:
-            counts = repo_symbol_counts(_BackendAdapter(reader), repos)
+            counts, count_errors = repo_symbol_counts(_BackendAdapter(reader), repos)
         except Exception as exc:  # noqa: BLE001 - one reader's failure isolated
             return None, f"{type(exc).__name__}: {exc}"
+        if count_errors:
+            # A per-repo query failure must never masquerade as a lower (but
+            # real) count — report the reader's rollup as unavailable so
+            # _fuse_verdict classifies it "blocked", not "not_started" (D-28).
+            sample = next(iter(count_errors.values()))
+            return (
+                None,
+                f"{len(count_errors)}/{len(repos)} repo symbol-count "
+                f"quer{'y' if len(count_errors) == 1 else 'ies'} failed ({sample})",
+            )
         return sum(1 for n in counts.values() if n > 0), None
 
     serving_count, serving_error = _covered(serving)

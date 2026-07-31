@@ -66,10 +66,15 @@ def enumerate_agent_packages_repos(manifest_path: Path) -> list[str]:
 
 
 def _count(backend: Any, cypher: str, params: dict[str, Any]) -> int:
-    try:
-        rows = backend.execute(cypher, params)
-    except Exception:
-        return 0
+    """Return the aggregate count, or 0 when the backend returns no rows.
+
+    A genuine backend/query failure is NOT swallowed here (D-28): it
+    propagates to the caller, which is the only place that can tell "this
+    repo really has zero symbols" apart from "the query failed and we don't
+    know". Collapsing both to 0 previously made a transient read error
+    indistinguishable from an honest zero.
+    """
+    rows = backend.execute(cypher, params)
     for row in rows or []:
         if isinstance(row, dict):
             for v in row.values():
@@ -80,17 +85,32 @@ def _count(backend: Any, cypher: str, params: dict[str, Any]) -> int:
     return 0
 
 
-def repo_symbol_counts(backend: Any, repos: list[str]) -> dict[str, int]:
-    """Per-repo ``:Code`` symbol count (0 = not ingested), via the live backend."""
+def repo_symbol_counts(
+    backend: Any, repos: list[str]
+) -> tuple[dict[str, int], dict[str, str]]:
+    """Per-repo ``:Code`` symbol count (0 = not ingested), via the live backend.
+
+    Returns ``(counts, errors)``: ``counts`` holds a real integer (including a
+    genuine ``0``) only for repos whose query succeeded; a repo whose query
+    raised is OMITTED from ``counts`` and instead keyed in ``errors`` with the
+    exception's ``type: message`` text (D-28 — a query failure must never be
+    reported as the same "0" a genuinely un-ingested repo gets, since
+    downstream verdicts such as :func:`assess_coverage` and the signed
+    hydration manifest's ``_fuse_verdict`` treat "0" as "never ingested").
+    """
     counts: dict[str, int] = {}
+    errors: dict[str, str] = {}
     for repo in repos:
         needle = f"/agent-packages/{repo}/"
-        counts[repo] = _count(
-            backend,
-            "MATCH (c:Code) WHERE c.file_path CONTAINS $needle RETURN count(c) AS n",
-            {"needle": needle},
-        )
-    return counts
+        try:
+            counts[repo] = _count(
+                backend,
+                "MATCH (c:Code) WHERE c.file_path CONTAINS $needle RETURN count(c) AS n",
+                {"needle": needle},
+            )
+        except Exception as exc:  # noqa: BLE001 — classified per-repo, never silently 0
+            errors[repo] = f"{type(exc).__name__}: {exc}"
+    return counts, errors
 
 
 def _age_days(updated_at: str, now: datetime) -> float | None:
@@ -112,16 +132,24 @@ def assess_coverage(
     *,
     sla_days: int = DEFAULT_SLA_DAYS,
     now: datetime | None = None,
+    errors: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Compare expected repos vs ingested symbol counts + freshness watermarks.
 
     ``freshness`` maps a source_uri → ISO last-sync timestamp (DeltaManifest);
     a repo whose newest matching watermark is older than ``sla_days`` is stale.
+
+    ``errors`` (D-28) is the per-repo failure map :func:`repo_symbol_counts`
+    returns alongside its counts. A repo present in ``errors`` is reported
+    ONLY in the ``errors`` list — never in ``missing`` — so a transient query
+    failure is never mis-reported as "genuinely not ingested".
     """
     now = now or datetime.now(UTC)
     freshness = freshness or {}
-    covered = [r for r in repos if counts.get(r, 0) > 0]
-    missing = [r for r in repos if counts.get(r, 0) <= 0]
+    errors = errors or {}
+    errored = [r for r in repos if r in errors]
+    covered = [r for r in repos if r not in errors and counts.get(r, 0) > 0]
+    missing = [r for r in repos if r not in errors and counts.get(r, 0) <= 0]
 
     # Newest watermark per repo (match the repo name inside the source_uri key).
     stale: list[dict[str, Any]] = []
@@ -145,6 +173,7 @@ def assess_coverage(
         "covered": len(covered),
         "missing": missing,
         "stale": stale,
+        "errors": errored,
         "coverage_pct": round(100.0 * len(covered) / total, 1) if total else 0.0,
         "total_symbols": total_symbols,
         "sla_days": sla_days,

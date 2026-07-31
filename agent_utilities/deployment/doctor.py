@@ -3441,7 +3441,7 @@ def _check_ingestion_coverage() -> dict[str, Any]:
         from agent_utilities.knowledge_graph.backends import get_active_backend
 
         backend = get_active_backend()
-        counts = repo_symbol_counts(backend, repos)
+        counts, count_errors = repo_symbol_counts(backend, repos)
     except Exception as exc:  # noqa: BLE001
         return _result(
             "ingestion_coverage",
@@ -3459,14 +3459,16 @@ def _check_ingestion_coverage() -> dict[str, Any]:
     except Exception:  # noqa: BLE001 — freshness is best-effort
         freshness = {}
 
-    rep = assess_coverage(repos, counts, freshness)
+    rep = assess_coverage(repos, counts, freshness, errors=count_errors)
     missing_count = len(rep["missing"])
     stale_count = len(rep["stale"])
+    error_count = len(rep["errors"])
     data = {
         "total": rep["total"],
         "covered": rep["covered"],
         "missing_count": missing_count,
         "stale_count": stale_count,
+        "error_count": error_count,
         "coverage_pct": rep["coverage_pct"],
         "total_symbols": rep["total_symbols"],
         "sla_days": rep["sla_days"],
@@ -3480,7 +3482,13 @@ def _check_ingestion_coverage() -> dict[str, Any]:
         detail += f", {missing_count} missing"
     if stale_count:
         detail += f", {stale_count} stale (>{rep['sla_days']}d)"
-    if missing_count or stale_count:
+    if error_count:
+        detail += f", {error_count} query error(s)"
+    if missing_count or stale_count or error_count:
+        # A repo-level query failure (D-28) is at least as actionable as a
+        # missing repo — never let it silently pass as "ok". It also already
+        # lowers coverage_pct (errored repos are excluded from "covered"),
+        # so no separate severity rule is needed here.
         status = "fail" if rep["coverage_pct"] < 75 else "warn"
         return _result(
             "ingestion_coverage",
