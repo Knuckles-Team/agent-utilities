@@ -45,6 +45,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tomllib
 import uuid
 from collections.abc import Iterator, Sequence
@@ -370,9 +371,9 @@ def _materialize_shadow(
     return shadow
 
 
-def split_selection(tail: Sequence[str]) -> tuple[list[str], bool]:
+def split_selection(tail: Sequence[str]) -> tuple[list[str], bool, int]:
     """Return the dependency-selecting flags leading *tail*, and whether the whole
-    leading flag run was recognised.
+    leading flag run was recognised, and the index at which the command begins.
 
     Recognition is the honest part.  Every uv flag understood here is classified
     as either selecting (part of the environment identity) or neutral; the first
@@ -385,14 +386,14 @@ def split_selection(tail: Sequence[str]) -> tuple[list[str], bool]:
     while index < len(tail):
         token = tail[index]
         if token == "--" or not token.startswith("-"):
-            return selection, True
+            return selection, True, index
         name, _, inline = token.partition("=")
         if name in _SELECTION_FLAGS:
             takes_value = _SELECTION_FLAGS[name]
         elif name in _NEUTRAL_FLAGS:
             takes_value = _NEUTRAL_FLAGS[name]
         else:
-            return selection, False
+            return selection, False, index
         value: str | None = None
         if takes_value:
             if inline:
@@ -400,14 +401,61 @@ def split_selection(tail: Sequence[str]) -> tuple[list[str], bool]:
             else:
                 index += 1
                 if index >= len(tail):
-                    return selection, False
+                    return selection, False, index
                 value = tail[index]
         if name in _SELECTION_FLAGS:
             selection.append(name)
             if value is not None:
                 selection.append(value)
         index += 1
-    return selection, True
+    return selection, True, index
+
+
+def foreign_python_console_script(name: str, environment: Path) -> Path | None:
+    """Return where *name* resolves if that is a Python tool OUTSIDE *environment*.
+
+    ``uv run pytest`` does not fail when the environment lacks ``pytest``: it
+    falls through to the first ``pytest`` on ``PATH`` and runs the project's tests
+    under ``/usr/bin/python`` against system site-packages. Measured in this
+    worktree, the same command two ways:
+
+    ==========================  =====================  =======
+    invocation                  ``sys.executable``     fastmcp
+    ==========================  =====================  =======
+    ``run pytest``              ``/usr/bin/python``    3.3.1
+    ``run --all-extras pytest`` ``<env>/bin/python3``  4.0.0b1
+    ==========================  =====================  =======
+
+    The wrong-interpreter run still executes the project's own fail-closed guards,
+    which then report truthfully about the WRONG environment — so the verdict
+    looks authoritative and cites the codebase's own checks. That is what made it
+    survive repeated diagnosis.
+
+    The shebang is the discriminator, and it is why this can be a general rule
+    rather than a list of blessed command names: a Python console script names a
+    Python interpreter on its first line, so ``bash`` or ``find`` resolving
+    outside the environment is legitimate and passes, while ``pytest``, ``ruff``
+    or ``mypy`` resolving outside it is the silent-fallback bug.
+    """
+    if not name or os.sep in name or (os.altsep and os.altsep in name):
+        # An explicit path is a deliberate choice, not a PATH fallback.
+        return None
+    for directory in ("bin", "Scripts"):
+        if (environment / directory / name).exists():
+            return None
+    resolved = shutil.which(name)
+    if resolved is None:
+        # Nowhere at all: let uv report the missing command itself.
+        return None
+    path = Path(resolved)
+    try:
+        with path.open("rb") as handle:
+            if handle.read(2) != b"#!":
+                return None
+            shebang = handle.readline(512).decode("utf-8", "replace")
+    except OSError:
+        return None
+    return path if "python" in shebang else None
 
 
 def normalized_selection(selection: Sequence[str]) -> tuple[str, ...]:
@@ -490,6 +538,7 @@ class UvPlan(NamedTuple):
     environment_path: Path
     selection: tuple[str, ...]
     selection_recognized: bool
+    command_name: str | None
 
 
 def uv_plan(
@@ -509,8 +558,11 @@ def uv_plan(
 
     selection: list[str] = []
     recognized = True
+    command_name: str | None = None
     if subcommand in {"run", "sync"}:
-        selection, recognized = split_selection(tail)
+        selection, recognized, start = split_selection(tail)
+        if subcommand == "run" and recognized and start < len(tail):
+            command_name = tail[start] if tail[start] != "--" else None
 
     prepare: list[tuple[str, ...]] = []
     base = [uv, "--project", str(shadow)]
@@ -555,18 +607,10 @@ def uv_plan(
         environment_path=directory,
         selection=normalized_selection(selection),
         selection_recognized=recognized,
+        command_name=command_name,
     )
 
 
-def uv_invocation(
-    arguments: list[str],
-    *,
-    worktree: Path,
-    shadow: Path,
-) -> tuple[list[str], dict[str, str]]:
-    """Build the uv command and isolated environment for this worktree."""
-    plan = uv_plan(arguments, worktree=worktree, shadow=shadow)
-    return list(plan.execute), plan.environment
 
 
 def _environment_evidence(worktree: Path) -> list[dict[str, Any]]:
@@ -640,12 +684,18 @@ def run_uv(
     workspace: Path,
     shadow: Path,
     prepare: Sequence[Sequence[str]] = (),
+    environment_path: Path | None = None,
+    command_name: str | None = None,
 ) -> int:
     """Execute uv and prove neither authoritative nor generated inputs changed.
 
     ``prepare`` runs first and short-circuits on failure: it is the environment
     synchronisation that must complete before the child may be exec'd against an
     environment nobody is allowed to mutate afterwards.
+
+    ``environment_path`` and ``command_name`` enable the interpreter guard, which
+    runs between the two: the environment is final by then, so the check sees
+    exactly what the child would.
     """
     protected = (
         workspace / "pyproject.toml",
@@ -672,6 +722,19 @@ def run_uv(
         _assert_unchanged()
         if step_result.returncode != 0:
             return step_result.returncode
+    if environment_path is not None and command_name is not None:
+        foreign = foreign_python_console_script(command_name, environment_path)
+        if foreign is not None:
+            raise RuntimeError(
+                f"refusing to run {command_name!r}: it is not installed in "
+                f"{environment_path}, so uv would fall through to {foreign} and "
+                "execute against a DIFFERENT interpreter and site-packages. That "
+                "run would still execute this project's fail-closed guards, which "
+                "would then report truthfully about the wrong environment and look "
+                "authoritative. Request the extras that provide "
+                f"{command_name!r} (for the test suite: --all-extras), or invoke it "
+                "as 'python -m' so it can only resolve inside the environment."
+            )
     result = subprocess.run(
         command,
         cwd=worktree,
@@ -728,10 +791,27 @@ def main(argv: list[str] | None = None) -> int:
         workspace=workspace,
         shadow=shadow,
         prepare=plan.prepare,
+        environment_path=plan.environment_path,
+        command_name=plan.command_name,
     )
     _describe_environment(plan.environment_path, plan.selection)
     return returncode
 
 
+def _cli() -> int:
+    """Report a refusal as a message, not a traceback.
+
+    Every ``RuntimeError`` this module raises is a deliberate refusal addressed to
+    a human — a foreign interpreter, a mutated lock, an unmanaged shadow. A
+    traceback buries that message under frames nobody needs, and this one has to
+    be read to be acted on.
+    """
+    try:
+        return main()
+    except RuntimeError as error:
+        print(f"uv_workspace: {error}", file=sys.stderr)
+        return 2
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_cli())

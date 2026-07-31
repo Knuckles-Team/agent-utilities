@@ -6100,7 +6100,9 @@ def _fetch_prompt_agents(engine: Any) -> list[MCPAgent]:
         # of the process — a transient failure here silently produces a partial/empty
         # agent registry that then never self-heals. Raised to warning for visibility;
         # the cache-poisoning fix itself belongs to _RegistryCache (see D-DSTO follow-up).
-        logger.warning(f"Failed to fetch Prompt nodes (registry cache may go stale): {e}")
+        logger.warning(
+            f"Failed to fetch Prompt nodes (registry cache may go stale): {e}"
+        )
     return agents
 
 
@@ -6129,7 +6131,9 @@ def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
     except Exception as e:
         # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
         # raised to warning so a persistently-failing fetch is diagnosable.
-        logger.warning(f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}")
+        logger.warning(
+            f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}"
+        )
     return agents
 
 

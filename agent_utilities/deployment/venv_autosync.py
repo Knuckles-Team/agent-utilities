@@ -175,12 +175,12 @@ def load_config(workspace: Workspace) -> AutosyncConfig:
     known = {f for f in AutosyncConfig.__dataclass_fields__}
     unknown = sorted(set(payload) - known)
     if unknown:
-        logger.warning("ignoring unknown autosync config key(s): %s", ", ".join(unknown))
+        logger.warning(
+            "ignoring unknown autosync config key(s): %s", ", ".join(unknown)
+        )
     return AutosyncConfig(
         enabled=bool(payload.get("enabled", False)),
-        flip_branches=tuple(
-            payload.get("flip_branches", AutosyncConfig.flip_branches)
-        ),
+        flip_branches=tuple(payload.get("flip_branches", AutosyncConfig.flip_branches)),
         on_metadata_change=str(
             payload.get("on_metadata_change", AutosyncConfig.on_metadata_change)
         ),
@@ -232,7 +232,9 @@ def enqueue(workspace: Workspace, intent: Intent) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{intent.id}.json"
     tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(intent.as_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    tmp.write_text(
+        json.dumps(intent.as_dict(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     os.replace(tmp, path)
     return path
 
@@ -280,7 +282,9 @@ def _record_run(workspace: Workspace, payload: dict[str, Any]) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     path = directory / f"{stamp}.json"
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8"
+    )
     for stale in sorted(directory.glob("*.json"))[:-200]:
         try:
             stale.unlink(missing_ok=True)
@@ -383,7 +387,7 @@ def write_trigger_script(workspace: Workspace) -> Path:
 # CONCEPT:AU-OS.deployment.merge-triggered-venv-flip
 set -u
 LOG={shlex.quote(str(log))}
-for PY in {' '.join(shlex.quote(i) for i in interpreters)}; do
+for PY in {" ".join(shlex.quote(i) for i in interpreters)}; do
     if [ -x "$PY" ] || command -v "$PY" >/dev/null 2>&1; then
         {entry} autosync "$@" >>"$LOG" 2>&1
         exit 0
@@ -406,8 +410,8 @@ def _hook_block(workspace: Workspace, event: str) -> str:
             "# Enqueues a 'make this merge live' intent for the shared uv workspace",
             "# venv. Never blocks the merge and never fails it: a trigger problem is",
             "# written to the log below and announced, not swallowed.",
-            f'if [ -x {shlex.quote(str(script))} ]; then',
-            f'    {shlex.quote(str(script))} trigger --event {shlex.quote(event)} '
+            f"if [ -x {shlex.quote(str(script))} ]; then",
+            f"    {shlex.quote(str(script))} trigger --event {shlex.quote(event)} "
             '--repo "$(git rev-parse --show-toplevel)" || \\',
             f'        echo "agent-utilities venv autosync trigger failed; see '
             f'{log}" >&2',
@@ -459,7 +463,11 @@ class GitHookTrigger:
             if _BLOCK_START not in existing:
                 continue
             remainder = _strip_block(existing)
-            if remainder.strip() in ("", "#!/bin/sh", "#!/bin/sh\n# agent-utilities venv autosync"):
+            if remainder.strip() in (
+                "",
+                "#!/bin/sh",
+                "#!/bin/sh\n# agent-utilities venv autosync",
+            ):
                 path.unlink()
             else:
                 path.write_text(remainder, encoding="utf-8")
@@ -540,7 +548,10 @@ def trigger(
 
     config = load_config(workspace)
     if not config.enabled:
-        return {"action": "skipped", "why": "autosync is off (`autosync on` enables it)"}
+        return {
+            "action": "skipped",
+            "why": "autosync is off (`autosync on` enables it)",
+        }
 
     repo = repo.resolve()
     if not _is_live_checkout(workspace, repo):
@@ -599,7 +610,11 @@ def trigger(
     enqueue(workspace, intent)
 
     if inline:
-        return {"action": "queued+drained", "intent": intent.id, "drain": drain(workspace)}
+        return {
+            "action": "queued+drained",
+            "intent": intent.id,
+            "drain": drain(workspace),
+        }
     _spawn_reconciler(workspace)
     return {"action": "queued", "intent": intent.id, "change_class": change_class}
 
@@ -644,7 +659,9 @@ def _spawn_reconciler(workspace: Workspace) -> int | None:
             )
         return process.pid
     except OSError as exc:
-        logger.error("could not spawn the venv reconciler (%s); intent stays queued", exc)
+        logger.error(
+            "could not spawn the venv reconciler (%s); intent stays queued", exc
+        )
         return None
 
 
@@ -739,9 +756,7 @@ def _resolve_repos(workspace: Workspace, requested: Sequence[str]) -> list[Path]
     return [member.path for member in workspace.members()]
 
 
-def dispatch(
-    args: argparse.Namespace, workspace: Workspace, *, as_json: bool
-) -> int:
+def dispatch(args: argparse.Namespace, workspace: Workspace, *, as_json: bool) -> int:
     from agent_utilities.deployment.venv_sync import emit
 
     action = args.action

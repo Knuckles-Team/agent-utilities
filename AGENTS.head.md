@@ -766,7 +766,7 @@ So the default for any non-trivial change is:
    Do all edits, builds, and tests under that path. (`${XDG_STATE_HOME}/repository-worktrees/` is the convention.)
    Because this location is intentionally outside the ecosystem's uv workspace,
    run dependency-aware commands through `python3 scripts/uv_workspace.py`
-   (for example, `python3 scripts/uv_workspace.py run pytest -q`). The launcher
+   (for example, `python3 scripts/uv_workspace.py run --all-extras pytest -q`). The launcher
    creates a generated workspace view in XDG state, symlinks source members,
    substitutes this worktree for the canonical `agent-utilities` member, and
    uses generated copies of the canonical manifest and lock with forced
@@ -1053,6 +1053,17 @@ agent-utilities lane env      # your private cargo target / pytest basetemp / sc
 ```
 In an agent-utilities worktree use `python3 scripts/uv_workspace.py run <cmd>` instead
 of bare `uv run`, and `... lock --locked` instead of bare `uv lock`.
+
+**Name the extras that provide your tool** — `run --all-extras pytest`, not `run pytest`.
+The launcher partitions the virtualenv by dependency selection, so each selection gets its
+own `.venv-<label>` and concurrent lanes can no longer rewrite one environment underneath
+each other (`uv-project-environment`, PARTITION). The base selection is 42 distributions and
+does **not** contain `pytest`; a bare `run pytest` used to fall through to the *system*
+pytest and run the suite under `/usr/bin/python` against system site-packages, reporting
+`fastmcp 3.3.1` and "environment-blocked" with total conviction (D-SP-4). The launcher now
+**refuses** that instead of doing it, and names the fix in the refusal — but you save a
+round trip by requesting the extras up front. `python -m <tool>` is always safe: it can only
+resolve inside the environment.
 
 **The rules, and what enforces them:**
 1. **Never edit the canonical checkout** (`agent-packages/<repo>`). The `lane-guard`

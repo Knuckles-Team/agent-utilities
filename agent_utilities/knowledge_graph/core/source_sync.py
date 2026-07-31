@@ -462,10 +462,10 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                 "synonyms": synonyms,
                 "kind": "mcp_skill",
                 "disabled": _existing_disabled(engine, skill_node_id),
-                    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
-                    # fleet skill is (or is not) runnable, recorded on the node
-                    # so the execution path can name the unmet precondition
-                    # instead of failing with a generic "not found or runnable".
+                # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
+                # fleet skill is (or is not) runnable, recorded on the node
+                # so the execution path can name the unmet precondition
+                # instead of failing with a generic "not found or runnable".
                 "runnable_blocked_by": _privacy_safe(entry.get("harvest_error", "")),
             }
             # ``skill://<name>`` collides with the persistence-privacy policy's
@@ -540,6 +540,7 @@ def _write_fleet_slice(
     this exists for. A rejected row is returned (and logged at error) so it is
     never a silent omission.
     """
+
     def _attempt(rows: list[dict[str, Any]]) -> bool:
         by_id = {row["id"] for row in rows}
         edges = [
