@@ -50,6 +50,7 @@ GraphResearchAction = Literal[
     "evolve_variants",
     "track_citations",
     "spawn_background",
+    "night_shift",
 ]
 GraphEvaluateAction = Literal[
     "evaluate",
@@ -61,6 +62,7 @@ GraphEvaluateAction = Literal[
     "specialize",
     "world_model_rollout",
     "latent_efficiency_benchmark",
+    "assimilation_benchmark",
     "evolve_model",
     "forecast",
     "causal",
@@ -140,15 +142,17 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "'background_research' (spawn background research), 'relevance_sweep' (sweep "
             "ingested content for relevance), 'research_ingest' (ingest a research artifact), "
             "'evolve_variants' (evolve solution variants), 'track_citations' (citation graph), "
-            "'spawn_background' (spawn a background analysis job). query=source/topic; jobs "
-            "return a job_id to poll with graph_ingest(action='status')."
+            "'spawn_background' (spawn a background analysis job), 'night_shift' (run one "
+            "autonomous overnight second-brain research cycle over a local markdown vault — "
+            "scout/catalog/cartograph/critique/edit; target=vault root, propose-only). "
+            "query=source/topic; jobs return a job_id to poll with graph_ingest(action='status')."
         ),
         tags=["graph-os", "research"],
     )
     async def graph_research(
         action: GraphResearchAction = Field(
             default="synthesize",
-            description="synthesize | deep_extract | background_research | relevance_sweep | research_ingest | evolve_variants | track_citations | spawn_background",
+            description="synthesize | deep_extract | background_research | relevance_sweep | research_ingest | evolve_variants | track_citations | spawn_background | night_shift",
         ),
         query: str = Field(default="", description="Source / topic / artifact."),
         top_k: int = Field(default=10, description="Complexity budget / result count."),
@@ -168,7 +172,9 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "(formal concentration/no-regression SHACL gate — AHE-3.53), 'check_constraints', "
             "'specialize' (one SAI specialization cycle + superhuman cert — AHE-3.29), "
             "'world_model_rollout' (forward-simulate the world model — KG-2.73b), "
-            "'latent_efficiency_benchmark' (AHE-3.48), 'evolve_model', 'forecast', 'causal', "
+            "'latent_efficiency_benchmark' (AHE-3.48), 'assimilation_benchmark' (measured "
+            "empirical-parity evidence — each assimilated paper's mechanism vs baseline, "
+            "with a claim-reproduced verdict), 'evolve_model', 'forecast', 'causal', "
             "'invariant', plus the finance evaluation actions 'quant_crypto', "
             "'quant_exchange', 'quant_microstructure', 'quant_strategy', "
             "'quant_regime', and 'quant_insider'."
@@ -178,7 +184,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
     async def graph_evaluate(
         action: GraphEvaluateAction = Field(
             default="evaluate",
-            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | evolve_model | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
+            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
         ),
         query: str = Field(
             default="",

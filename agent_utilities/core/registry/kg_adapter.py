@@ -432,11 +432,20 @@ class RegistryMixin(_Base):
             data["version_number"] = next_version
             data["parent_id"] = prompt_id
             self._upsert_node("Prompt", new_id, data)
-            self.backend.execute(
-                "MATCH (a:Prompt {id: $new_id}), (b:Prompt {id: $old_id}) "
-                "MERGE (a)-[:SUPERSEDES]->(b)",
-                {"new_id": new_id, "old_id": prompt_id},
-            )
+            # The typed self.graph.add_edge(...) above already durably wrote
+            # this relationship to a native-typed authority (e.g.
+            # EpistemicGraphBackend). Its bounded Cypher write-subset supports
+            # only a single MATCH pattern and a single-node MERGE (no
+            # relationship patterns) — a second, portable-dialect-only raw
+            # MERGE here is both redundant and, for that backend, a parse
+            # error. Only non-native (portable full-Cypher) backends need it,
+            # mirroring core/engine.py's own _upsert_edge dispatch.
+            if getattr(self.backend, "typed_mutation_support", "") != "native":
+                self.backend.execute(
+                    "MATCH (a:Prompt {id: $new_id}) MATCH (b:Prompt {id: $old_id}) "
+                    "MERGE (a)-[:SUPERSEDES]->(b)",
+                    {"new_id": new_id, "old_id": prompt_id},
+                )
 
         return {
             "id": new_id,
@@ -900,9 +909,16 @@ class RegistryMixin(_Base):
                 "relationship": RegistryEdgeType.REUSED_TEAM,
             },
         )
-        if self.backend:
+        # The typed self.graph.add_edge(...) above already durably wrote this
+        # relationship to a native-typed authority; its bounded Cypher
+        # write-subset supports only a single MATCH pattern and a
+        # single-node MERGE (no relationship patterns), so this raw
+        # multi-MATCH MERGE is both redundant and a parse error there. Only
+        # non-native (portable full-Cypher) backends need it, mirroring
+        # core/engine.py's own _upsert_edge dispatch.
+        if self.backend and getattr(self.backend, "typed_mutation_support", "") != "native":
             self.backend.execute(
-                "MATCH (tc {id: $tc_id}), (sc {id: $sc_id}) "
+                "MATCH (tc {id: $tc_id}) MATCH (sc {id: $sc_id}) "
                 "MERGE (tc)-[:REUSED_TEAM]->(sc)",
                 {"tc_id": tc_id, "sc_id": coalition_id},
             )
@@ -949,7 +965,14 @@ class RegistryMixin(_Base):
             # mutated values back to the graph store so reads see the update.
             self.graph.add_node(team_config_id, data)
 
-        if self.backend:
+        # The typed self.graph.add_node(...) above already durably wrote the
+        # recomputed success_rate/usage_count to a native-typed authority.
+        # Its bounded Cypher write-subset's SET only accepts a literal value
+        # per item (no COALESCE(...)/arithmetic expressions), so this raw SET
+        # is both redundant and a parse error there. Only non-native
+        # (portable full-Cypher) backends need it, mirroring
+        # core/engine.py's own _upsert_edge dispatch.
+        if self.backend and getattr(self.backend, "typed_mutation_support", "") != "native":
             self.backend.execute(
                 "MATCH (tc:TeamConfig {id: $id}) "
                 "SET tc.success_rate = $rate, "
@@ -986,9 +1009,16 @@ class RegistryMixin(_Base):
                 "relationship": RegistryEdgeType.USES_PROMPT,
             },
         )
-        if self.backend:
+        # The typed self.graph.add_edge(...) above already durably wrote this
+        # relationship to a native-typed authority; its bounded Cypher
+        # write-subset supports only a single MATCH pattern and a
+        # single-node MERGE (no relationship patterns), so this raw
+        # multi-MATCH MERGE is both redundant and a parse error there. Only
+        # non-native (portable full-Cypher) backends need it, mirroring
+        # core/engine.py's own _upsert_edge dispatch.
+        if self.backend and getattr(self.backend, "typed_mutation_support", "") != "native":
             self.backend.execute(
-                "MATCH (a {id: $aid}), (p {id: $pid}) MERGE (a)-[:USES_PROMPT]->(p)",
+                "MATCH (a {id: $aid}) MATCH (p {id: $pid}) MERGE (a)-[:USES_PROMPT]->(p)",
                 {"aid": agent_id, "pid": prompt_id},
             )
         logger.info("Linked agent to prompt (USES_PROMPT)")

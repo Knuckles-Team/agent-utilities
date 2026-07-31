@@ -48,7 +48,7 @@ class MockEngine:
         """Hybrid search stub — returns nodes from the NX graph."""
         results = []
         for nid, data in self.graph.nodes(data=True):
-            if node_types and data.get("type") not in [
+            if node_types and data.get("node_type") not in [
                 nt.lower().replace(" ", "_") for nt in node_types
             ]:
                 continue
@@ -81,7 +81,7 @@ class MockBackend:
         # Handle AgentTemplate queries
         if "AgentTemplate" in query and "RETURN" in query:
             for nid, data in self._graph.nodes(data=True):
-                if data.get("type") == "agent_template":
+                if data.get("node_type") == "agent_template":
                     if "WHERE" in query and "IN $ids" in query:
                         if nid not in params.get("ids", []):
                             continue
@@ -119,14 +119,14 @@ class MockBackend:
         elif "DEPENDS_ON" in query:
             ids = params.get("ids", [])
             for src, tgt, edata in self._graph.edges(data=True):
-                if edata.get("type") == "depends_on" and src in ids and tgt in ids:
+                if edata.get("relationship") == "depends_on" and src in ids and tgt in ids:
                     results.append({"source": src, "target": tgt})
 
         # Handle Tool queries
         elif "Tool" in query and "$ids" in query:
             ids = params.get("ids", [])
             for nid, data in self._graph.nodes(data=True):
-                if data.get("type") == "tool" and nid in ids:
+                if data.get("node_type") == "tool" and nid in ids:
                     results.append({"name": data.get("name", ""), "server": ""})
 
         return results
@@ -140,23 +140,23 @@ def _build_mock_engine_with_templates() -> MockEngine:
     # Create prompt nodes
     g.add_node(
         "prompt:researcher",
-        type="prompt",
+        node_type="prompt",
         system_prompt="You are a research specialist.",
     )
     g.add_node(
         "prompt:coder",
-        type="prompt",
+        node_type="prompt",
         system_prompt="You are an expert Python programmer.",
     )
 
     # Create tool nodes
-    g.add_node("tool:web_search", type="tool", name="web_search")
-    g.add_node("tool:code_exec", type="tool", name="code_executor")
+    g.add_node("tool:web_search", node_type="tool", name="web_search")
+    g.add_node("tool:code_exec", node_type="tool", name="code_executor")
 
     # Create AgentTemplate nodes
     g.add_node(
         "at:researcher",
-        type="agent_template",
+        node_type="agent_template",
         name="Researcher",
         role="researcher",
         system_prompt_id="prompt:researcher",
@@ -171,7 +171,7 @@ def _build_mock_engine_with_templates() -> MockEngine:
 
     g.add_node(
         "at:coder",
-        type="agent_template",
+        node_type="agent_template",
         name="Coder",
         role="coder",
         system_prompt_id="prompt:coder",
@@ -186,7 +186,7 @@ def _build_mock_engine_with_templates() -> MockEngine:
 
     g.add_node(
         "at:reviewer",
-        type="agent_template",
+        node_type="agent_template",
         name="Reviewer",
         role="reviewer",
         system_prompt_id="",
@@ -200,8 +200,8 @@ def _build_mock_engine_with_templates() -> MockEngine:
     )
 
     # Create DEPENDS_ON edges (researcher → coder → reviewer)
-    g.add_edge("at:researcher", "at:coder", type="depends_on", weight=1.0)
-    g.add_edge("at:coder", "at:reviewer", type="depends_on", weight=1.0)
+    g.add_edge("at:researcher", "at:coder", relationship="depends_on", weight=1.0)
+    g.add_edge("at:coder", "at:reviewer", relationship="depends_on", weight=1.0)
 
     return engine
 
@@ -214,7 +214,7 @@ def _build_mock_engine_parallel() -> MockEngine:
     # Create parallel templates
     g.add_node(
         "at:web_researcher",
-        type="agent_template",
+        node_type="agent_template",
         name="Web Researcher",
         role="web_researcher",
         system_prompt_id="",
@@ -226,7 +226,7 @@ def _build_mock_engine_parallel() -> MockEngine:
     )
     g.add_node(
         "at:doc_researcher",
-        type="agent_template",
+        node_type="agent_template",
         name="Doc Researcher",
         role="doc_researcher",
         system_prompt_id="",
@@ -238,7 +238,7 @@ def _build_mock_engine_parallel() -> MockEngine:
     )
     g.add_node(
         "at:synthesizer",
-        type="agent_template",
+        node_type="agent_template",
         name="Synthesizer",
         role="synthesizer",
         system_prompt_id="",
@@ -250,8 +250,8 @@ def _build_mock_engine_parallel() -> MockEngine:
     )
 
     # DEPENDS_ON: both researchers → synthesizer
-    g.add_edge("at:web_researcher", "at:synthesizer", type="depends_on", weight=1.0)
-    g.add_edge("at:doc_researcher", "at:synthesizer", type="depends_on", weight=1.0)
+    g.add_edge("at:web_researcher", "at:synthesizer", relationship="depends_on", weight=1.0)
+    g.add_edge("at:doc_researcher", "at:synthesizer", relationship="depends_on", weight=1.0)
 
     return engine
 
