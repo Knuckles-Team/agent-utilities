@@ -1953,8 +1953,20 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
             "reason": "authoritative native ChangeEnvelope commit is unavailable",
         }
     except (PermissionError, ValueError) as exc:
-        logger.warning("native ChangeEnvelope rejected (%s)", type(exc).__name__)
-        return {**base, "status": "rejected", "error": type(exc).__name__}
+        # D-DSTK: collapsing to type(exc).__name__ alone dropped the actual
+        # rejection reason (e.g. which field/tenant/identity was invalid) —
+        # every caller across the fleet (source_sync, external_graph,
+        # document_processing, ...) only ever saw "ValueError"/"PermissionError"
+        # for a rejected write, with no way to diagnose why an entire sync
+        # silently vetoed. `error` stays the class name (some callers may match
+        # on it); the message now travels too.
+        logger.warning("native ChangeEnvelope rejected (%s): %s", type(exc).__name__, exc)
+        return {
+            **base,
+            "status": "rejected",
+            "error": type(exc).__name__,
+            "detail": str(exc),
+        }
     except _NativeOccRetryBudgetExhausted as exc:
         logger.warning(
             "native ChangeEnvelope OCC retry budget exhausted (conflict_sequence=%s)",
@@ -1965,6 +1977,11 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
             "status": "failed",
             "error": "NativeChangeEnvelopeConflictExhausted",
         }
-    except Exception as exc:  # noqa: BLE001 - never fall back after native failure
-        logger.warning("native ChangeEnvelope commit failed (%s)", type(exc).__name__)
-        return {**base, "status": "failed", "error": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001 — never fall back after native failure (this is the authoritative commit path, so a genuine failure must surface as failed status, not be retried on a different path); `error`/`detail` below now carry the real cause instead of only the exception class name
+        logger.warning("native ChangeEnvelope commit failed (%s): %s", type(exc).__name__, exc)
+        return {
+            **base,
+            "status": "failed",
+            "error": type(exc).__name__,
+            "detail": str(exc),
+        }
