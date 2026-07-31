@@ -816,18 +816,30 @@ def register_tool_surface(
         ]
     has_verbose = bool(targets) or verbose_register is not None
 
-    # Condensed registers in condensed/both/intent — and ALSO in verbose mode when
-    # the agent has no verbose surface at all, so a condensed-only server is never
-    # left empty by a deployment-wide MCP_TOOL_MODE=verbose meant for connectors.
+    # Condensed registers in condensed/both/intent — and ALWAYS in verbose mode too,
+    # because the condensed registrars are what populate the dispatch core
+    # (``REGISTERED_TOOLS``) that ``_execute_tool``/the REST surface/every verbose
+    # alias dispatches through (D-WS-1: verbose mode used to skip this whenever the
+    # agent had its own explicit verbose surface — e.g. graph-os's
+    # ``verbose_register`` — leaving the dispatch core empty while hundreds of
+    # verbose tools were still served, so every call raised "Tool <x> not
+    # registered"). When the agent already has its own verbose surface
+    # (``has_verbose``), the condensed tools are gated from the default session
+    # view exactly like ``intent`` does — they still populate the dispatch core,
+    # they just aren't double-listed alongside the 1:1 verbose tools. When the
+    # agent has no verbose surface at all, the condensed tools stay the visible
+    # fallback surface (unchanged prior behavior for condensed-only servers under a
+    # deployment-wide MCP_TOOL_MODE=verbose meant for connectors).
     # ``intent`` registers the SAME condensed tools (REST/_execute_tool/
     # REGISTERED_TOOLS are unaffected — they are the backing surface the intent
     # verbs dispatch into) but additionally gates them from the default session
     # view (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
-    if mode in ("condensed", "both", "intent") or (
-        mode == "verbose" and not has_verbose
-    ):
+    if mode in ("condensed", "both", "intent", "verbose"):
         toggles: dict[str, str] = getattr(mcp, "_condensed_tool_toggles", {})
         gated: set[str] = getattr(mcp, "_intent_gated_tools", set())
+        gate_condensed_visibility = mode == "intent" or (
+            mode == "verbose" and has_verbose
+        )
         for tag, env_var, register_fn in _condensed_entries(
             tool_registry, tools_module, registrars
         ):
@@ -845,7 +857,7 @@ def register_tool_surface(
                 if isinstance(tags_attr, set):
                     tags_attr.add(tag)
                     tags_attr.add(GRANULAR_TAG)
-                    if mode == "intent":
+                    if gate_condensed_visibility:
                         tags_attr.add(GATED_TAG)
                         gated.add(name)
                 toggles[name] = env_var
