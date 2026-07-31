@@ -996,9 +996,15 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
     monkeypatch, tools
 ) -> None:
     """CONCEPT:AU-KG.mining.ocel-lossless-roundtrip — 'mine' mode (the
-    default) does not just plan a ChangeEnvelope, it COMMITS it via the same
-    ``ingest_envelope`` idiom every other connector uses, folding the
-    disclosed ProcessPerspective into the same committed slice."""
+    default) does not just plan a ChangeEnvelope, it COMMITS it via
+    ``ingest_graph_slice`` — the SAME multi-node writer every other connector
+    with more than one entity per delivery uses (``IngestionEngine``'s
+    concepts/facts passes) — folding the disclosed ProcessPerspective into the
+    same committed slice. (D-61-4: NOT ``ingest_envelope`` directly — a
+    live-engine test proved that primitive silently collapses a multi-entity
+    ``{"entities": [...], "relationships": [...]}`` typed_payload onto one
+    untyped node; see ``tests/integration/knowledge_graph/test_ocel_live_commit.py``.)
+    """
     calls: list = []
     mining = SimpleNamespace(process=_recording_method(calls, "process"))
     monkeypatch.setattr(
@@ -1008,15 +1014,22 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
 
     committed: list = []
 
-    def _fake_ingest_envelope(engine, envelope):
+    def _fake_ingest_graph_slice(engine, connector, entities, relationships, **kwargs):
         assert engine == "fake-engine"
-        committed.append(envelope)
-        return {"status": "success"}
+        committed.append(
+            {
+                "connector": connector,
+                "entities": entities,
+                "relationships": relationships,
+                **kwargs,
+            }
+        )
+        return {"status": "success", "idempotency_key": "fake-idempotency-key"}
 
     import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest_module
 
     monkeypatch.setattr(
-        envelope_ingest_module, "ingest_envelope", _fake_ingest_envelope
+        envelope_ingest_module, "ingest_graph_slice", _fake_ingest_graph_slice
     )
 
     with use_actor(
@@ -1044,13 +1057,14 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
         )
 
     assert len(committed) == 1
-    envelope = committed[0]
-    assert envelope.connector == "ocel"
-    node_types = {node["node_type"] for node in envelope.typed_payload["entities"]}
+    commit = committed[0]
+    assert commit["connector"] == "ocel"
+    node_types = {node["node_type"] for node in commit["entities"]}
     assert "ProcessPerspective" in node_types
     assert "ProcessEvent" in node_types
     assert "BusinessObject" in node_types
     assert out["tekg"]["commit_status"] == "success"
+    assert out["tekg"]["idempotency_key"] == "fake-idempotency-key"
     assert out["projection"]["perspective_id"] == "case:order-view"
     assert calls == [("process", {"traces": [["create"]]})]
 

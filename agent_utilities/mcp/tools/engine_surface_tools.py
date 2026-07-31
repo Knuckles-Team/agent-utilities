@@ -1727,7 +1727,7 @@ def register_engine_surface_tools(mcp) -> None:
                     }
                 )
             from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
-                ingest_envelope,
+                ingest_graph_slice,
             )
             from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
                 project_object_centric_slice,
@@ -1794,12 +1794,35 @@ def register_engine_surface_tools(mcp) -> None:
                 committed_slice = slice_.model_copy(
                     update={"perspectives": (*slice_.perspectives, perspective)}
                 )
+                # ``to_change_envelope`` still stamps tenant_id/ocel_provenance
+                # onto every entity/link and computes the digest-derived
+                # idempotency key — reuse that rendering — but a
+                # multi-entity slice's ``{"entities": [...], "relationships":
+                # [...]}`` typed_payload is NOT the single-row (+ optional
+                # ``_nodes``/``_links`` auxiliary) shape ``ingest_envelope``'s
+                # ``to_entity_dict``/``_prepare_node_rows`` understand: handing
+                # that envelope to ``ingest_envelope`` directly silently
+                # collapses the whole slice onto ONE untyped node (verified
+                # against a real engine — the "success" status did not mean
+                # the ProcessEvent/BusinessObject/ProcessPerspective nodes
+                # were ever created). ``ingest_graph_slice`` is the existing
+                # writer built for exactly this multi-node shape (first
+                # entity primary, the rest as governed ``_nodes``/``_links``
+                # auxiliaries) — the same one ``IngestionEngine`` already uses
+                # for its concepts/facts passes.
                 envelope = committed_slice.to_change_envelope(
                     tenant=tenant,
                     provenance=provenance,
                 )
                 engine = kg_server._get_engine()
-                applied = ingest_envelope(engine, envelope)
+                applied = ingest_graph_slice(
+                    engine,
+                    envelope.connector,
+                    envelope.typed_payload["entities"],
+                    envelope.typed_payload["relationships"],
+                    source_instance=envelope.source_instance,
+                    checkpoint=envelope.checkpoint,
+                )
                 if applied.get("status") not in {"success", "skipped"}:
                     raise RuntimeError(
                         "OCEL ChangeEnvelope commit failed: "
@@ -1809,7 +1832,9 @@ def register_engine_surface_tools(mcp) -> None:
                     "mode": "ocel_2.0",
                     "tenant": tenant,
                     "content_hash": committed_slice.canonical_digest(),
-                    "idempotency_key": envelope.idempotency_key,
+                    "idempotency_key": applied.get(
+                        "idempotency_key", envelope.idempotency_key
+                    ),
                     "mapping_version": committed_slice.mapping_version,
                     "node_count": len(envelope.typed_payload["entities"]),
                     "relationship_count": len(envelope.typed_payload["relationships"]),
