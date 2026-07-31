@@ -2660,7 +2660,13 @@ def register_analysis_tools(mcp):
                 "GraphQL sources use a read-only runtime adapter; "
                 "their connection, mapping, auth, TLS, and variables documents remain "
                 "separate refs, and every ingest rechecks the approved schema and "
-                "mapping-policy digests."
+                "mapping-policy digests. Stardog instance-data actions: "
+                "push_to_stardog, pull_from_stardog, stardog_sparql, and "
+                "stardog_export_graph/stardog_import_graph (bulk Turtle backup/"
+                "restore/migrate of one named graph — config_value.graph_uri "
+                "optional, defaults to the resolved connection's own dedicated "
+                "mirror graph if any; stardog_import_graph requires "
+                "config_value.turtle)."
             ),
         ),
         config_key: str = Field(
@@ -3531,7 +3537,13 @@ def register_analysis_tools(mcp):
                 # optional single mirror name; empty = all mirrors).
                 return json.dumps(inner.reconcile(config_key or None), default=str)
             # ── CONCEPT:AU-KG.query.stardog-instance-data: Stardog instance-data push / pull / query ──
-            if action in ("push_to_stardog", "pull_from_stardog", "stardog_sparql"):
+            if action in (
+                "push_to_stardog",
+                "pull_from_stardog",
+                "stardog_sparql",
+                "stardog_export_graph",
+                "stardog_import_graph",
+            ):
                 try:
                     opts = json.loads(config_value) if config_value else {}
                 except Exception:
@@ -3588,6 +3600,49 @@ def register_analysis_tools(mcp):
                         )
                     return json.dumps(
                         {"results": sd_backend.execute_sparql(query)}, default=str
+                    )
+
+                # ── CONCEPT:AU-KG.backend.mirror-target-graph: bulk Turtle
+                # export/import (D-MT-1). SparqlAdapter.upload_graph/download_graph
+                # existed with no production caller before this — a real backup/
+                # restore/migrate-between-instances primitive for a Stardog mirror or
+                # ad-hoc connection, complementary to (not a replacement for) the
+                # per-node/edge push_to_stardog/pull_from_stardog above. Omitting
+                # config_value.graph_uri targets the resolved backend's own dedicated
+                # mirror graph, if any (a per-source graph_uri from D-MT-4 is reached
+                # by naming it explicitly).
+                if action in ("stardog_export_graph", "stardog_import_graph"):
+                    if not hasattr(sd_backend, "download_graph") or not hasattr(
+                        sd_backend, "upload_graph"
+                    ):
+                        return json.dumps(
+                            {
+                                "error": f"{type(sd_backend).__name__} does not "
+                                "support Turtle graph export/import"
+                            }
+                        )
+                    graph_uri = opts.get("graph_uri")
+                    if action == "stardog_export_graph":
+                        return json.dumps(
+                            {
+                                "status": "ok",
+                                "graph_uri": graph_uri,
+                                "turtle": sd_backend.download_graph(graph_uri),
+                            },
+                            default=str,
+                        )
+                    # stardog_import_graph
+                    ttl_content = opts.get("turtle")
+                    if not isinstance(ttl_content, str) or not ttl_content.strip():
+                        return json.dumps(
+                            {
+                                "error": "config_value.turtle (a Turtle document) "
+                                "is required"
+                            }
+                        )
+                    sd_backend.upload_graph(ttl_content, graph_uri)
+                    return json.dumps(
+                        {"status": "ok", "graph_uri": graph_uri}, default=str
                     )
 
                 authority = kg_server.get_connection_registry().get_engine(None)

@@ -1370,6 +1370,16 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_configure",
+        "action": "stardog_export_graph",
+        "name": "graph_configure_stardog_export_graph",
+    },
+    {
+        "tool": "graph_configure",
+        "action": "stardog_import_graph",
+        "name": "graph_configure_stardog_import_graph",
+    },
+    {
+        "tool": "graph_configure",
         "action": "stardog_sparql",
         "name": "graph_configure_stardog_sparql",
     },
