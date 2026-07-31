@@ -316,7 +316,7 @@ sync:
     doc_type: series
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - arr_mcp/connectors/mcp_source_presets.json
   - arr_mcp/connectors/tool_schema_fingerprints.json
@@ -328,7 +328,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: -6nw2h027VdSVi-X3mhhXjG6eycwM4qKDPrBWljfo_b5MkZXf6ZyxHI_QuISTBnpNgYBWpOgg_kF-uEsYWM4DQ
+  signature: PH40cVDY4kra8zF3GIE2J5xFmTBiyCvnheOVCCTjG6oflMMhywNE9TXbQQ0X2B-fy8lvmH9gWBCJJSgm87HhCA
 policy:
   pii_fields: {}
   tenant_boundary: null

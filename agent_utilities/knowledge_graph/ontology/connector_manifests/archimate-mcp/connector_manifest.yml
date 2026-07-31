@@ -786,7 +786,7 @@ sync:
     doc_type: archimate-relationship
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - archimate_mcp/connectors/mcp_source_presets.json
@@ -799,7 +799,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: nzU62yACQRe4GdmXgt9mt3YICW19ZmtRcUKTn1XtNPCNlpBJkpNCL0SnDLdFEzIFpEUOY0tCo7znfjf7RHUXCQ
+  signature: aQhnXLxM4OysiJypKQ6kQ04FQCnrNUfg8U66jtELdPWoMGc43v9h4hSYPgzSE1f0xRkw_UZbYOXNMoErVZAaCQ
 policy:
   pii_fields: {}
   tenant_boundary: null

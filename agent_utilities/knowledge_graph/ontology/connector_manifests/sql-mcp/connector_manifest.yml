@@ -134,7 +134,7 @@ sync:
     doc_type: database_table
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - sql_mcp/connectors/mcp_source_presets.json
@@ -147,7 +147,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: csSsFdqATCKfHsjYgkM6hLwgIVZVabctyb3wijKo3qXKbTLuDZnDw0Q-ay9hr72E19T7IVWFLmmPCy3szVofCQ
+  signature: 1vFU9qv0cMcPXVx9c8qumw8TJtIivF2r_9kGQlqmY4Wnb40iwMAbe5-715DqYJrzZqh1RPei1zmLKVx96rCcDw
 policy:
   pii_fields: {}
   tenant_boundary: null

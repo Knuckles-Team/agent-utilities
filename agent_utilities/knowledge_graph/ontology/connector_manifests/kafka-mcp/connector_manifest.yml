@@ -202,7 +202,7 @@ sync:
     doc_type: kafka_topic
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - kafka_mcp/connectors/mcp_source_presets.json
@@ -215,7 +215,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: nPqVXJC5VCzhseFW0e9qU7WlUBbL6NkJUiO-fWsUrSRsPpSgsRWALdtKjq7rBuMzac8OM5s2tpQC2Y5461y3AA
+  signature: itGw7YSgxP7VyVQJDPXAwyjhRSZIizQhOGJtwEt2ZT4TzQ1IyuLD9rHIUQFya2FkIa4fivHGhySSgqBtUWEQBg
 policy:
   pii_fields: {}
   tenant_boundary: null

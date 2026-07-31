@@ -236,7 +236,7 @@ sync:
     doc_type: person
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - gramps_mcp/connectors/mcp_source_presets.json
@@ -249,7 +249,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: cGuOmzuyHr9ApE41o5547Kk7KbPNDUuUVjDUSbPUoh-KXQ_eGuL_rjg9SJ6UtVxFulj_mjvqXybclr8hVgUkCw
+  signature: kapEPpixi67krW-TjteCl5TnDFiCj5mXk9TrdWTAuiR3uDgm1cC5Ps8_g4huFpj2Nma1QNoaEtywfS0lOBv2DA
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -125,7 +125,7 @@ sync:
     doc_type: governance_rule
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - egeria_mcp/connectors/mcp_source_presets.json
   - egeria_mcp/connectors/tool_schema_fingerprints.json
@@ -137,7 +137,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 9vVseDlgW6ZrKZmB238x0oWHYdpEZcbemXBPw1dYyBStXOEPeQannUIUV0Kfqv4CN32cjcYqCuZcl8t5IQp2Bw
+  signature: nmdu3GtsXQEiFVrIC5nb_xKPsQR1k095J9hpxrK7LNy9tAtPMb8YXja05snSyuSawBMQD-Qf-pij4HIQHNe9Dw
 policy:
   pii_fields: {}
   tenant_boundary: null

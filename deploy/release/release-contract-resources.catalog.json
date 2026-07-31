@@ -34,7 +34,7 @@
     },
     {
       "path": "deploy/release/connector-bundles.catalog.json",
-      "sha256": "9211f25b6aa51a388344e077e1445ff24cab327d34d74a5ae1ef483126b49b5a"
+      "sha256": "9f771a6ced005eb253ad61b1c83e56541e485a2c16434a573268f2003e0902c6"
     },
     {
       "path": "deploy/release/connector-live-certification-ledger.schema.json",
@@ -90,7 +90,7 @@
     },
     {
       "path": "deploy/release/prebundled-skills.catalog.json",
-      "sha256": "013bac4c03bf54383b94ced26e04196381e176313a05932ff610b21a58913772"
+      "sha256": "244358a3eb63449724525e227a66a2d3cb7f9fef14bb0ddd67ebe5cfca59ff58"
     },
     {
       "path": "deploy/release/release-assembly.schema.json",

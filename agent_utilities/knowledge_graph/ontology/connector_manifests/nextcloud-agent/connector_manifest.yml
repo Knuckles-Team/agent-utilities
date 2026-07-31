@@ -86,7 +86,7 @@ schema_mappings:
       sizeBytes: xsd:integer
 sync:
 - preset: nextcloud-files
-  server: nextcloud-agent
+  server: nextcloud-mcp
   tool: nextcloud_files
   action: list_files
   records_path: ''
@@ -98,7 +98,7 @@ sync:
   doc_type: file
   tool_schema_sha256: 48b75e28f34f73c2ae78c6d06deebf16dbca2220148b4fb6f83c9f316738265b
   raw:
-    server: nextcloud-agent
+    server: nextcloud-mcp
     tool: nextcloud_files
     action: list_files
     records_path: ''
@@ -109,7 +109,7 @@ sync:
     doc_type: file
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - nextcloud_agent/connectors/mcp_source_presets.json
@@ -122,7 +122,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: r561ybZKHJhVLh1XkbuhRHV_1mg9A_OMU8vRCBiD37MtfTFWg_HDGEfpKOl9fT3EwhNM_nP9NoxQnZGWQz4ADw
+  signature: l7cS0Zij_l4qW03fgtG1XqrnuuYJfgCEC_4SpzyTj6wv6SOWMHfPAJDqeqk2wOimzPvctrcK7M7DQl-XAUdTAg
 policy:
   pii_fields: {}
   tenant_boundary: null

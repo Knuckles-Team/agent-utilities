@@ -121,7 +121,7 @@ schema_mappings:
       username: xsd:string
 sync:
 - preset: keycloak-realms
-  server: keycloak-agent
+  server: keycloak-mcp
   tool: keycloak_agent_realms
   action: list_realms
   records_path: ''
@@ -133,7 +133,7 @@ sync:
   doc_type: keycloak_realm
   tool_schema_sha256: 723894566ec98fdd0f42479f9cb2da3bd0c98d0d706311ded129d24e67ff5976
   raw:
-    server: keycloak-agent
+    server: keycloak-mcp
     tool: keycloak_agent_realms
     action: list_realms
     records_path: ''
@@ -144,7 +144,7 @@ sync:
     doc_type: keycloak_realm
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - keycloak_agent/connectors/mcp_source_presets.json
   - keycloak_agent/connectors/tool_schema_fingerprints.json
@@ -156,7 +156,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: BQfPxXrPQ7uxKDpNVVu7QHv1QBbtz8BaSuaff0C8YwnZOPn-wc-0s5sEZUkfb8b7zZDRWhKkeLh7p5VMOoiLDA
+  signature: 8LsAho8UZV-w2lm9vF-jF7aBzgdU3rr-oBRtArS-qBcQTdLfAxx_YUjeRfmGc1wenPHcJHJPZK4QhIy84ew1BQ
 policy:
   pii_fields:
     Client:

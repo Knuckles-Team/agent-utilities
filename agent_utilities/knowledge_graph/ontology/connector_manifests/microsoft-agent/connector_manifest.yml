@@ -63,7 +63,7 @@ schema_mappings:
     fields: {}
 sync:
 - preset: microsoft-event-structure
-  server: microsoft-agent
+  server: microsoft-mcp
   tool: list_microsoft_ingestion_projection
   action: null
   records_path: records
@@ -75,7 +75,7 @@ sync:
   doc_type: microsoft-event-reference
   tool_schema_sha256: aed3830a8e60658aa10f9b7bc680226e9ac3a76a43ccdca813161211cea57e15
   raw:
-    server: microsoft-agent
+    server: microsoft-mcp
     tool: list_microsoft_ingestion_projection
     params_style: args
     params:
@@ -85,7 +85,7 @@ sync:
     id_field: id
     doc_type: microsoft-event-reference
 - preset: microsoft-message-structure
-  server: microsoft-agent
+  server: microsoft-mcp
   tool: list_microsoft_ingestion_projection
   action: null
   records_path: records
@@ -97,7 +97,7 @@ sync:
   doc_type: microsoft-message-reference
   tool_schema_sha256: aed3830a8e60658aa10f9b7bc680226e9ac3a76a43ccdca813161211cea57e15
   raw:
-    server: microsoft-agent
+    server: microsoft-mcp
     tool: list_microsoft_ingestion_projection
     params_style: args
     params:
@@ -107,7 +107,7 @@ sync:
     id_field: id
     doc_type: microsoft-message-reference
 - preset: microsoft-user-structure
-  server: microsoft-agent
+  server: microsoft-mcp
   tool: list_microsoft_ingestion_projection
   action: null
   records_path: records
@@ -119,7 +119,7 @@ sync:
   doc_type: microsoft-person-reference
   tool_schema_sha256: aed3830a8e60658aa10f9b7bc680226e9ac3a76a43ccdca813161211cea57e15
   raw:
-    server: microsoft-agent
+    server: microsoft-mcp
     tool: list_microsoft_ingestion_projection
     params_style: args
     params:
@@ -130,7 +130,7 @@ sync:
     doc_type: microsoft-person-reference
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - microsoft_agent/connectors/mcp_source_presets.json
@@ -143,7 +143,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: QbubWGM9jRJ0B4hRO6O8GtLs2F3c_u_9kl1MPsvVjZ8MP90G1yVVSxlQjBR7OKEp-bjIfNQbadg1-eiS7QoXAg
+  signature: aCqZyCmpB4GhZeXyZDwktWx8d9CyfV3VbQYRHz8kJ3RqPcBBp67XJIT0XRyFUr_LVliG_Ac-RGujb8zajkLvAA
 policy:
   pii_fields: {}
   tenant_boundary: null

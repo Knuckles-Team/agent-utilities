@@ -151,7 +151,7 @@ sync:
     doc_type: social
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - pulselink_mcp/connectors/mcp_source_presets.json
@@ -164,7 +164,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: mVYwPshBKHVZizk7CzBLWWQVHYI7NvF8q7gfdftRQrx_2UJjSdo_Z0WIwHpOZNobX48yAf7rg_abX3XCL-1wAA
+  signature: ZAl7NrQwkFtyZMTng5aUfycY5StrsMVnwf1jlUtZ9qDyn8x7O--Z7lbAVp_HPcsBBTIAYldMgqfs2K6UEt84CQ
 policy:
   pii_fields: {}
   tenant_boundary: null

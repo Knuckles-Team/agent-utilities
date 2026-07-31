@@ -125,7 +125,7 @@ schema_mappings:
       viewerCount: xsd:integer
 sync:
 - preset: owncast-followers
-  server: owncast-agent
+  server: owncast-mcp
   tool: owncast_internal
   action: get_followers
   records_path: results
@@ -137,7 +137,7 @@ sync:
   doc_type: owncast_follower
   tool_schema_sha256: cdd5cf7e2ebb9fad36c8c81efb88341e14b31295e7ae9f825e09ad8b52273d36
   raw:
-    server: owncast-agent
+    server: owncast-mcp
     tool: owncast_internal
     action: get_followers
     params:
@@ -150,7 +150,7 @@ sync:
     doc_type: owncast_follower
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - owncast_agent/connectors/mcp_source_presets.json
@@ -163,7 +163,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: eLBdmpm9WuvGl5kTq3A0P_EFBM2NdfbZtjE8x4qc_8AEZ50_dcoVKOpc2ILwczMLWTUWb2cGMdV8lLB2h4fnDQ
+  signature: dnwdpQYaFxyVHx8W_QpI95NCzzpJUoWv-7t3iBgw44h6Q7JAB5GP2jAD14GwS5HE5OQSBFnXFF9fmju45T8tCw
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -99,7 +99,7 @@ schema_mappings:
       worktreeStatus: xsd:string
 sync:
 - preset: repository-worktrees
-  server: repository-manager
+  server: repository-manager-mcp
   tool: rm_worktree
   action: list
   records_path: worktrees
@@ -111,7 +111,7 @@ sync:
   doc_type: repository
   tool_schema_sha256: 32a9d56b6b468dd37af05dee6884c7ba1616dc14a8ec6c6feb4d7e7ca82418e8
   raw:
-    server: repository-manager
+    server: repository-manager-mcp
     tool: rm_worktree
     params_style: args
     action: list
@@ -122,7 +122,7 @@ sync:
     doc_type: repository
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - repository_manager/connectors/mcp_source_presets.json
@@ -135,7 +135,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: OHv--vpi4_sesI1KjxsgFUmbSkrn3CUer5SA8GYJx3g7-aKLyuVhMOY-9McsJwkQunHIrTmYhUfS2CUD1IurAA
+  signature: 7SpmQhP7QZZOeUkdLSTFyPr6-cxxH7tJV4rETH3FLWCXH1LtLWOzIO9nPQgmtPCEU_uWLCW1wOsqwfAm9eWqAg
 policy:
   pii_fields: {}
   tenant_boundary: null

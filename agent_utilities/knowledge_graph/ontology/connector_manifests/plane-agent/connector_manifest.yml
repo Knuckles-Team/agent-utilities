@@ -134,7 +134,7 @@ schema_mappings:
       startDate: xsd:string
 sync:
 - preset: plane-projects
-  server: plane-agent
+  server: plane-mcp
   tool: plane_projects
   action: list_projects
   records_path: data
@@ -146,7 +146,7 @@ sync:
   doc_type: project
   tool_schema_sha256: d9f601a73357bfa53b4bc761c1d72175f8b0f15cfc707191b5be4c0e4342873b
   raw:
-    server: plane-agent
+    server: plane-mcp
     tool: plane_projects
     action: list_projects
     records_path: data
@@ -157,7 +157,7 @@ sync:
     doc_type: project
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - plane_agent/connectors/mcp_source_presets.json
@@ -170,7 +170,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: dIqx0qlqxvupQgxg-4kAyk4Fc2ouoJ5KfLK9jx669WKvxZBnmi3oryLEBUFYuxh79h6A3mljysqXWDCaZ9ZLBw
+  signature: tU8kSVjAtGIgQ0R0Um6YyaDKCD0eQn4TliOb6RLp_nVHGeknZmouZ1R2YgqJgj1g52qzqicxbC2LXY5pnt_TAg
 policy:
   pii_fields: {}
   tenant_boundary: null

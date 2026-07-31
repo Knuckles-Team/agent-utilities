@@ -478,7 +478,7 @@ sync:
     doc_type: datascience_model
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - data_science_mcp/connectors/mcp_source_presets.json
   - data_science_mcp/connectors/tool_schema_fingerprints.json
@@ -490,7 +490,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: U91MSUKsppnzd2O94di69a27dw4veq0shB7nEvSWOAW-HbnbK1IaaKgielUuM3SGmzk_493mq-oHibVFMl0NBg
+  signature: HHDFyPEQDXpMCG1yvBIqTIJnnzWNxe97NLn1TfUVJjZ8s8FVNIlBVjcOQj2CWBPn6c9gSxWKYrY1t5QbXdIGBA
 policy:
   pii_fields: {}
   tenant_boundary: null

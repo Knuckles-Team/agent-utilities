@@ -144,7 +144,7 @@ schema_mappings:
       unitOfMeasurement: xsd:string
 sync:
 - preset: homeassistant-states
-  server: home-assistant-agent
+  server: home-assistant-mcp
   tool: home_assistant_states
   action: list_states
   records_path: ''
@@ -156,7 +156,7 @@ sync:
   doc_type: home_entity
   tool_schema_sha256: 51b7be8e26d9ef60091d57fdea46e78effd16d13c4fa828e95c4d2cc8ca402c5
   raw:
-    server: home-assistant-agent
+    server: home-assistant-mcp
     tool: home_assistant_states
     action: list_states
     records_path: ''
@@ -167,7 +167,7 @@ sync:
     doc_type: home_entity
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - home_assistant_agent/connectors/mcp_source_presets.json
@@ -180,7 +180,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 6NpbpMdooagEjmoX8J7Mdzk6dIm2IpEIBDINUqiWodkCuRnlozmqbb4xh4AZpfLrArPAk4QtE3SZ5wfBd8bHBw
+  signature: 6HbkG4B_z2kLW2Aon1RM06EqFi9Zvq_l7fNGv-OTmnmfR8FEoFJn1XIJOsxdCDFA1AbBFMJsgFmTLyXd5LPfCQ
 policy:
   pii_fields: {}
   tenant_boundary: null

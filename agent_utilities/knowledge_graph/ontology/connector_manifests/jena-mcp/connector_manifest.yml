@@ -183,7 +183,7 @@ sync:
     doc_type: rdf-resource
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - jena_mcp/connectors/mcp_source_presets.json
@@ -196,7 +196,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: qlSVKY6R6OF9SqyDpOBr8kbLI-Z6f6cm7GSaxudJ4OYDJYVIeqKV-bw56f7V1cV4rrv0BWYFIia3IDsxgeaYDQ
+  signature: 8QFVmvHyUSWMTenwsm9sUyMxzALaKQv1EICmoDVjpSdT0Mufg194Fj5-sL4Ds4Xwokw8slHe0-HMzyIP6sdpBA
 policy:
   pii_fields: {}
   tenant_boundary: null

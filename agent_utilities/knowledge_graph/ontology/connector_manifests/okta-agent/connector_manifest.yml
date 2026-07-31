@@ -193,7 +193,7 @@ schema_mappings:
       status: xsd:string
 sync:
 - preset: okta-apps
-  server: okta-agent
+  server: okta-mcp
   tool: okta_apps
   action: list
   records_path: data
@@ -205,7 +205,7 @@ sync:
   doc_type: Application
   tool_schema_sha256: 6ff2bae6fae945eff62584efc2d75bddad777e61f209cad0de904055c20fc243
   raw:
-    server: okta-agent
+    server: okta-mcp
     tool: okta_apps
     action: list
     records_path: data
@@ -215,7 +215,7 @@ sync:
     updated_field: lastUpdated
     doc_type: Application
 - preset: okta-groups
-  server: okta-agent
+  server: okta-mcp
   tool: okta_groups
   action: list
   records_path: data
@@ -227,7 +227,7 @@ sync:
   doc_type: Group
   tool_schema_sha256: edb42a85eb1ac297aff11b6104a116c3565ce76e10131c6a3fc0e16c51977e5c
   raw:
-    server: okta-agent
+    server: okta-mcp
     tool: okta_groups
     action: list
     records_path: data
@@ -237,7 +237,7 @@ sync:
     updated_field: lastUpdated
     doc_type: Group
 - preset: okta-users
-  server: okta-agent
+  server: okta-mcp
   tool: okta_users
   action: list
   records_path: data
@@ -249,7 +249,7 @@ sync:
   doc_type: User
   tool_schema_sha256: e458bef4e01d9a616200031a49892c3fe3f352312bf8889f3c5766d7f7d1941e
   raw:
-    server: okta-agent
+    server: okta-mcp
     tool: okta_users
     action: list
     records_path: data
@@ -260,7 +260,7 @@ sync:
     doc_type: User
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - okta_agent/connectors/mcp_source_presets.json
@@ -273,7 +273,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: WFBL7Sg51UdQcUbkBOS3qsWJl7Wr7K9gS355Cavrut9_NF0en-BOo33rhVjuuQZDpKbiFdKZIbc1VGbM13h5Aw
+  signature: USuZVP7e_i_PnX7MJW9-j-3FvD5Q_4s9lahh19Mqxhk35q7gqzyUtIT-pOkiaKvQExboAeHYu9l9m-L7qQlKAQ
 policy:
   pii_fields:
     Application:

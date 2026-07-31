@@ -94,7 +94,7 @@ schema_mappings:
       summary: xsd:string
 sync:
 - preset: atlassian-confluence-pages
-  server: atlassian-agent
+  server: atlassian-mcp
   tool: atlassian_confluence_page
   action: get_pages
   records_path: data.results
@@ -106,7 +106,7 @@ sync:
   doc_type: confluence_page
   tool_schema_sha256: 8c4bda7733728fb8a8ce53211edf69e5931212c088bb7c93ab342e19fdd3e173
   raw:
-    server: atlassian-agent
+    server: atlassian-mcp
     tool: atlassian_confluence_page
     action: get_pages
     records_path: data.results
@@ -116,7 +116,7 @@ sync:
     updated_field: version
     doc_type: confluence_page
 - preset: atlassian-jira-issues
-  server: atlassian-agent
+  server: atlassian-mcp
   tool: atlassian_jira_issue
   action: search_for_issues_using_jql
   records_path: data.issues
@@ -128,7 +128,7 @@ sync:
   doc_type: jira_issue
   tool_schema_sha256: e23246d14d338cc81acbb5920ea81c9ed743e87689e1303229fb0e02a81f93aa
   raw:
-    server: atlassian-agent
+    server: atlassian-mcp
     tool: atlassian_jira_issue
     action: search_for_issues_using_jql
     records_path: data.issues
@@ -139,7 +139,7 @@ sync:
     doc_type: jira_issue
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - atlassian_agent/connectors/mcp_source_presets.json
   - atlassian_agent/connectors/tool_schema_fingerprints.json
@@ -151,7 +151,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: t7bXOcaLGwtmz4jdaRAhBa1BsyUmYaMZQIFMEYF37DeJqNLtH6se94iAeSyZWUehlOhO5o4-EUdApP9UJETPDQ
+  signature: 0oQDusjlQyp6xpV6hMhyPRxGyBC1oCh2S2WBk-uhZuGdb_LG5VHHjtED_s2dGXKJhx_55nTcLmN_ydYrOv9_Ag
 policy:
   pii_fields: {}
   tenant_boundary: null

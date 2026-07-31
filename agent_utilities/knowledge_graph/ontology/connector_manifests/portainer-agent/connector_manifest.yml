@@ -262,7 +262,7 @@ schema_mappings:
       status: xsd:string
 sync:
 - preset: portainer-environments
-  server: portainer-agent
+  server: portainer-mcp
   tool: portainer_environment
   action: get_endpoints
   records_path: data
@@ -274,7 +274,7 @@ sync:
   doc_type: environment
   tool_schema_sha256: b50529ca205c7216273190f09e90c507282e9b072f31d151b2f637d4197eb3cb
   raw:
-    server: portainer-agent
+    server: portainer-mcp
     tool: portainer_environment
     action: get_endpoints
     records_path: data
@@ -283,7 +283,7 @@ sync:
     text_field: URL
     doc_type: environment
 - preset: portainer-stacks
-  server: portainer-agent
+  server: portainer-mcp
   tool: portainer_stack
   action: get_stacks
   records_path: data
@@ -295,7 +295,7 @@ sync:
   doc_type: stack
   tool_schema_sha256: edd1ff95e420d32372d5544ae802f85527155df6125b36bf68aef75be9f60852
   raw:
-    server: portainer-agent
+    server: portainer-mcp
     tool: portainer_stack
     action: get_stacks
     records_path: data
@@ -305,7 +305,7 @@ sync:
     doc_type: stack
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - portainer_agent/connectors/mcp_source_presets.json
@@ -318,7 +318,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: VvZvqDzeYpKgLySxNyD63m9Uo2uB7HaELpzpCmwKH9RaxDy3f_dfbsl33346iSOazOMfnSkAEBSCXj2F9foGDw
+  signature: BwF4ChHSn3LGzgZqUuf540hHm0q2OwCSWvrqlgcgwNQ9pMKZ6P_5-o0GT1ugERR9bUdxrU8dgb2XYgOGQbfkDQ
 policy:
   pii_fields: {}
   tenant_boundary: null

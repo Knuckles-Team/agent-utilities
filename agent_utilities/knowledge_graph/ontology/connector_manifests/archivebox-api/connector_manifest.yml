@@ -67,7 +67,7 @@ schema_mappings:
       timestamp: xsd:string
 sync:
 - preset: archivebox-snapshots
-  server: archivebox-api
+  server: archivebox-mcp
   tool: archivebox_core
   action: get_snapshots
   records_path: items
@@ -79,7 +79,7 @@ sync:
   doc_type: web_snapshot
   tool_schema_sha256: de56ae93ee1ed8a0669f0eec9a4dde5483ad6adc2601c1abdf961fc7968212f1
   raw:
-    server: archivebox-api
+    server: archivebox-mcp
     tool: archivebox_core
     action: get_snapshots
     records_path: items
@@ -94,7 +94,7 @@ sync:
     doc_type: web_snapshot
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - archivebox_api/connectors/mcp_source_presets.json
   - archivebox_api/connectors/tool_schema_fingerprints.json
@@ -106,7 +106,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 0sLh--qXGgNAEswmd-ZmzdUNjCyTyYgXCFKDPKbj7HBh_FJKeDQFqBbvbTyeUqDJB0a0aMtc74-8bcRhAOjKCQ
+  signature: Ulrl7W7xxSoAUKAnv1eW8Dj0MdMjDmchslXFQm2HKY2KmM3vpavXGOmWf5IubOpoRAzHrbehbzc8Fh7XPJl8BQ
 policy:
   pii_fields: {}
   tenant_boundary: null

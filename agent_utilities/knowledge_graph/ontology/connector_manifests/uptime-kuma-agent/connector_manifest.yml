@@ -118,7 +118,7 @@ schema_mappings:
       uptimeKumaId: xsd:string
 sync:
 - preset: uptimekuma-monitors
-  server: uptime-kuma-agent
+  server: uptime-mcp
   tool: uptime_kuma_monitors
   action: get_monitors
   records_path: ''
@@ -130,7 +130,7 @@ sync:
   doc_type: uptimekuma
   tool_schema_sha256: 48a9ba14d62993c0544b0e97e4ce6ca638bc9338506d186c5b72fbfcc9e9c816
   raw:
-    server: uptime-kuma-agent
+    server: uptime-mcp
     tool: uptime_kuma_monitors
     action: get_monitors
     records_path: ''
@@ -141,7 +141,7 @@ sync:
     doc_type: uptimekuma
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - uptime_kuma_agent/connectors/mcp_source_presets.json
@@ -154,7 +154,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: Br_-iNwrgTjRlQ30jXfOyT5tFVTQWFDjvN4VvgOUCUY3MRz4WijoMLt8jR3fgI7izHMMxACGpMA173ymHkKvDg
+  signature: luRDkxjgwuWapVQVQjkImrtzwOWqtMf7rT5-Z6HC7NqKk5Mx4oTK_99AKaWmPUbO_dopK15XFqaIS-VPWocoDQ
 policy:
   pii_fields: {}
   tenant_boundary: null

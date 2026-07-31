@@ -300,7 +300,7 @@ schema_mappings:
       shares: xsd:integer
 sync:
 - preset: postiz-posts
-  server: postiz-agent
+  server: postiz-mcp
   tool: postiz_posts
   action: postiz_list_posts
   records_path: posts
@@ -312,7 +312,7 @@ sync:
   doc_type: social_post
   tool_schema_sha256: 048d1e66d493308c9a677baab9359ec0ec4e00da7351d25123e2547039dfbf49
   raw:
-    server: postiz-agent
+    server: postiz-mcp
     tool: postiz_posts
     action: postiz_list_posts
     records_path: posts
@@ -323,7 +323,7 @@ sync:
     doc_type: social_post
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - postiz_agent/connectors/mcp_source_presets.json
@@ -336,7 +336,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 95lFN047u7W2tPwBZQOBDi82bB7BnQfczYUao6sLicWdwno34CF7X-EC2Wpe8F_kLPe_XlpJ9kiNXXKOEPpRAg
+  signature: 11pGoLL50IOXSxS1DZCao40xfkzj5QyC1TN7niDNChq_RPmyZcKVLVxyqhak-ebv7xqrytYHnpFAIFsRee1QCg
 policy:
   pii_fields: {}
   tenant_boundary: null

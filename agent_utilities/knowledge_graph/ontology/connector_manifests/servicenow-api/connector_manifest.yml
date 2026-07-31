@@ -88,7 +88,7 @@ schema_mappings:
       state: xsd:string
 sync:
 - preset: servicenow-incidents
-  server: servicenow-api
+  server: servicenow-mcp
   tool: servicenow_incidents
   action: get_incidents
   records_path: result
@@ -100,7 +100,7 @@ sync:
   doc_type: incident
   tool_schema_sha256: 7842a48ec7ce91284a36b04dc8312156ac5bcf955d1326972bdc60ee88ceb806
   raw:
-    server: servicenow-api
+    server: servicenow-mcp
     tool: servicenow_incidents
     action: get_incidents
     records_path: result
@@ -114,7 +114,7 @@ sync:
     page_size_param: sysparm_limit
     doc_type: incident
 - preset: servicenow-knowledge
-  server: servicenow-api
+  server: servicenow-mcp
   tool: servicenow_knowledge_management
   action: get_knowledge_articles
   records_path: result
@@ -126,7 +126,7 @@ sync:
   doc_type: knowledge_article
   tool_schema_sha256: fb9a09fbd50366f0bcd3c72a02e7983ea1697cec295db28ac0b0fa7c43483f2c
   raw:
-    server: servicenow-api
+    server: servicenow-mcp
     tool: servicenow_knowledge_management
     action: get_knowledge_articles
     records_path: result
@@ -141,7 +141,7 @@ sync:
     doc_type: knowledge_article
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - servicenow_api/connectors/mcp_source_presets.json
@@ -154,7 +154,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: j3cvqPikLFj-7yRpWQG75JBxEA7sgfOf8IgQOyelSj4pAkABT8QJD-ql32Hgg48iBPRXBjhGeJPF8oWzVNX6CQ
+  signature: MMjhsh2Ns_pPRPKUQ2TjlTMXTnpU5mkUU-MV4UR4dV7OthT1FkXKK0PD1kjR7QiM6rD3hvt5_d5mNS2B4e89Bg
 policy:
   pii_fields: {}
   tenant_boundary: null

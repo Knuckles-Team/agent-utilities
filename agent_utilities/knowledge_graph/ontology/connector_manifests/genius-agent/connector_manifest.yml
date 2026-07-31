@@ -116,7 +116,7 @@ schema_mappings:
       sourceUrl: xsd:string
 sync:
 - preset: genius-search-results
-  server: genius-agent
+  server: genius-mcp
   tool: genius_ingest_search
   action: search
   records_path: ingested
@@ -128,7 +128,7 @@ sync:
   doc_type: SearchResult
   tool_schema_sha256: 19bd9308bd27c1b0d790ce82d571e0b3bdf257c4fd4b55e1f726ead06e52a982
   raw:
-    server: genius-agent
+    server: genius-mcp
     tool: genius_ingest_search
     action: search
     records_path: ingested
@@ -141,7 +141,7 @@ sync:
     domain: genius
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - genius_agent/connectors/mcp_source_presets.json
@@ -154,7 +154,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 0aC80Jc3toBRvmmWfyZuAsi5T0URAz1FlA4UukCyeCDauCmIwtwTKB4X5u-6hANfX9kFZTtFBZcAdmgov2FlAQ
+  signature: KyKi8abExv-5O16jLoXVHwtuOa-xrttKFD2YS84DegVFjp7fC-VDDFDCXtyI4oyE8emZztwiVQ2FXOXFJORaCw
 policy:
   pii_fields: {}
   tenant_boundary: null

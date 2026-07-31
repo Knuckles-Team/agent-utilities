@@ -399,7 +399,7 @@ schema_mappings:
       zScore: xsd:decimal
 sync:
 - preset: fan-sensors
-  server: fan-manager
+  server: fan-manager-mcp
   tool: fan_manager_sensors
   action: records
   records_path: records
@@ -411,7 +411,7 @@ sync:
   doc_type: sensor-telemetry
   tool_schema_sha256: c34bcd5fd7d52ebb8e8b10e298c894f2666c49447cb4d75eb6b4f655c0b4f719
   raw:
-    server: fan-manager
+    server: fan-manager-mcp
     tool: fan_manager_sensors
     action: records
     records_path: records
@@ -421,7 +421,7 @@ sync:
     doc_type: sensor-telemetry
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - fan_manager/connectors/mcp_source_presets.json
   - fan_manager/connectors/tool_schema_fingerprints.json
@@ -433,7 +433,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: CZneRBjPzemdnj_Am4zWaVG_PFaOQdb40D9hFRN79notbeY7gM44e2O4EVc9yvAHZtItSv7mM7S-2gQTKDm1AQ
+  signature: lJoCeNMBxMC9adWeNztga66YUxyujm-hqIhvFR35HSRoIkR431td3Rru3HlBqrwcfHEJ8IV5B6eZs1Yt58tIAQ
 policy:
   pii_fields: {}
   tenant_boundary: null

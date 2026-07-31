@@ -538,7 +538,7 @@ sync:
     doc_type: k8s-service
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - container_manager_mcp/connectors/mcp_source_presets.json
@@ -551,7 +551,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: xICrdlR6Gmobv1gRWtsm-Buo1srcZAFIFBajpQMJ24VJ0OmliTmeaJ0jbfjIm08HdrYzRYJRs1ydvu4EypG3BA
+  signature: mdt0AmY_JSJI4An9nc2EvbV0vJ2L9py9kilmtCEDyqcDgWZQofkEw54RtE8IemS6-bcJWlABsRDzwlMBFst6Dw
 policy:
   pii_fields: {}
   tenant_boundary: null

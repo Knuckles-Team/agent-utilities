@@ -188,7 +188,7 @@ sync:
     doc_type: game-system
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - rom_manager/connectors/mcp_source_presets.json
   - rom_manager/connectors/tool_schema_fingerprints.json
@@ -200,7 +200,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: z39Xn5WP7EXjKpcjgoHeM9GL0gy4nzTEE2mVUa_KaEcGdgs93WanRbz2w4zGSwCZwmXN3GnYsmmcXTDbB7dAAw
+  signature: pD6DXPKY3CKo80lIXJ14lPm2r9VqNxUgi2NVkPiwjHqpxYwscQWVHXucDbMICY-pREbozVbuuDIHsnXxxF4gCw
 policy:
   pii_fields: {}
   tenant_boundary: null

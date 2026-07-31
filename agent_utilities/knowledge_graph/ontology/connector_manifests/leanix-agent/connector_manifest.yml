@@ -143,7 +143,7 @@ schema_mappings:
       factsheetType: xsd:string
 sync:
 - preset: leanix-factsheets
-  server: leanix-agent
+  server: leanix-mcp
   tool: leanix_source_factsheets
   action: null
   records_path: data.data
@@ -155,7 +155,7 @@ sync:
   doc_type: factsheet
   tool_schema_sha256: 8b0e11b3245d5adbe4afed628922a4438f084fb6600f163d3bd12c61d32787cf
   raw:
-    server: leanix-agent
+    server: leanix-mcp
     tool: leanix_source_factsheets
     params_style: json
     records_path: data.data
@@ -170,7 +170,7 @@ sync:
     doc_type: factsheet
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - leanix_agent/connectors/mcp_source_presets.json
   - leanix_agent/connectors/tool_schema_fingerprints.json
@@ -182,7 +182,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: f3QmhK60uQ-Lz_ndidAQUVZ1sMMgGonkWR4bRDIBh0P1kOo62UtWlcAmhEEk_xd1pdV1NqkleoOWWQezw6u5CA
+  signature: oOHD5HGR4RJh4TloYyrdnSpWOfesP0s1peRk3wJSDlu0owcG-Ux0RwgrYb9yepy3X-1ebzuYDlv2DN99g7z3Cw
 policy:
   pii_fields: {}
   tenant_boundary: null

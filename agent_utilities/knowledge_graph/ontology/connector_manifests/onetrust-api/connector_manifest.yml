@@ -217,7 +217,7 @@ schema_mappings:
       thirdParty: xsd:boolean
 sync:
 - preset: onetrust-assessments
-  server: onetrust-api
+  server: onetrust-mcp
   tool: onetrust_assessments
   action: get_all_assessment_basic_details_using_get
   records_path: data
@@ -229,7 +229,7 @@ sync:
   doc_type: assessment
   tool_schema_sha256: 9551d768e3dad678a55328cd2594c83f58286f8246743eee21113b27487619bd
   raw:
-    server: onetrust-api
+    server: onetrust-mcp
     tool: onetrust_assessments
     action: get_all_assessment_basic_details_using_get
     records_path: data
@@ -243,7 +243,7 @@ sync:
     page_size_param: size
     doc_type: assessment
 - preset: onetrust-inventory
-  server: onetrust-api
+  server: onetrust-mcp
   tool: onetrust_data_mapping
   action: get_list_of_inventories_using_get
   records_path: data
@@ -255,7 +255,7 @@ sync:
   doc_type: inventory
   tool_schema_sha256: e20b4770c98fcab26dedff89b0b5a50cf5fc274959e97f76d118af235dee6833
   raw:
-    server: onetrust-api
+    server: onetrust-mcp
     tool: onetrust_data_mapping
     action: get_list_of_inventories_using_get
     records_path: data
@@ -270,7 +270,7 @@ sync:
     doc_type: inventory
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - onetrust_api/connectors/mcp_source_presets.json
@@ -283,7 +283,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 9y4_2ERV2rJcWVYUB2qZEl2x-hX4aGRgBwCbWRxlYeIodnv8McoPK3uvtIaDqNaPa0h93POJfYxfQS2rS2FFCA
+  signature: nfItgtb7eKGBE9gE5fF9tUXkz1Do5_OyVlFxYTSbDvyT3kpjJIW6je2kkdLg4EMaC3uM-Y21noc1LcC1TTZRDw
 policy:
   pii_fields: {}
   tenant_boundary: null
