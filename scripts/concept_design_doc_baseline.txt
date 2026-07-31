@@ -357,8 +357,6 @@ AU-KG.coordination.embedder-breaker
 AU-KG.coordination.engine-message-broker
 AU-KG.coordination.inductive-program-synthesis-search
 AU-KG.coordination.research-cohort-barrier
-AU-KG.demo.already-documented
-AU-KG.demo.covered
 AU-KG.domains.agent-calibration-reputation-tracking
 AU-KG.domains.company-intelligence-graph
 AU-KG.domains.company-operations

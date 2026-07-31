@@ -285,8 +285,13 @@ def audit_merged(
 
     baseline = read_baseline(baseline_path)
     new_undocumented = sorted(undocumented - baseline)
-    resolved = sorted(baseline - undocumented)
-    stale = sorted(baseline - set(all_ids))  # baselined id no longer even exists
+    all_ids_set = set(all_ids)
+    stale = sorted(baseline - all_ids_set)  # baselined id no longer even exists
+    # "Resolved" means genuinely fixed: still exists AND now has a doc — NOT
+    # merely absent from `undocumented`, which a retired (no-longer-existing)
+    # marker also satisfies. Without excluding `stale` here, a removed marker
+    # would double-report as both "now documented" and "no longer exists".
+    resolved = sorted((baseline - undocumented) & all_ids_set)
 
     print(
         f"Merged-concept audit: {len(all_ids)} live concept(s) discovered, "

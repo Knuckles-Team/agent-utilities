@@ -132,6 +132,36 @@ def test_audit_merged_does_not_relitigate_baselined_debt(tmp_path):
     assert rc == 0
 
 
+def test_audit_merged_distinguishes_retired_from_resolved_baseline_entries(tmp_path, capsys):
+    """A baselined id that was RETIRED (marker deleted entirely) must be
+    reported only as stale/no-longer-exists, never ALSO as "now documented" —
+    those are different, mutually exclusive outcomes. Regression: `resolved`
+    was computed as `baseline - undocumented`, which a retired id also
+    satisfies (it's vacuously "not undocumented" because it doesn't exist),
+    so a removed marker double-reported under both sections."""
+    scan_root = tmp_path / "repo"
+    design_dir = tmp_path / "design"
+    design_dir.mkdir()
+    baseline = tmp_path / "baseline.txt"
+
+    # Baseline remembers two ids; only "still-here" is still a live marker —
+    # "retired" has been removed from the tree entirely (no file references it).
+    write_baseline({"AU-KG.demo.still-here", "AU-KG.demo.retired"}, baseline)
+    _write_markers(scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.still-here"])
+    (design_dir / "feature.md").write_text(
+        "CONCEPT:" + "AU-KG.demo.still-here", encoding="utf-8"
+    )
+
+    rc = audit_merged(
+        update=False, scan_root=scan_root, design_dir=design_dir, baseline_path=baseline
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "AU-KG.demo.still-here" in out  # resolved: still exists, now documented
+    assert "AU-KG.demo.retired" not in out.split("no longer exist")[0]  # never "resolved"
+    assert "AU-KG.demo.retired" in out  # reported once, under stale only
+
+
 def test_audit_merged_still_fails_on_a_NEW_gap_alongside_baselined_debt(tmp_path):
     """The precise regression-recurrence case: one concept is already-accepted
     debt (baselined), a SECOND concept lands merged with no doc. The second one
