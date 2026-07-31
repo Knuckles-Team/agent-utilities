@@ -14,6 +14,7 @@ import time
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     # Rust-native graph compute — using GraphComputeEngine
@@ -1287,28 +1288,38 @@ class OWLBridge:
             g.parse(data=ntriples, format="nt")
             return g
 
-        # Promote nodes as typed individuals
+        # Promote nodes as typed individuals. Property-graph node ids/keys are
+        # arbitrary opaque strings (UUIDs, source-system ids, ...) with no
+        # guarantee of IRI-legal characters; percent-encode them the SAME way
+        # the ChangeEnvelope SHACL admission path does (``_shacl_iri`` in
+        # ``knowledge_graph/ingestion/envelope_ingest.py``) so a live property
+        # graph never round-trips through this rdflib fallback into malformed
+        # URIRefs that trip RDF ICV/SHACL evaluation on reasoning/activation
+        # (CONCEPT:AU-KG.ontology.rdf-materialization-iri-safe).
         for node_id, data in self.graph.nodes(data=True):
-            node_uri = AU[str(node_id).replace(" ", "_")]
-            node_type = data.get("node_type", "Thing")
+            node_uri = AU[quote(str(node_id), safe="")]
+            node_type = str(data.get("node_type", "Thing"))
             # Type assertion
-            type_class = AU[node_type.replace(" ", "_").title().replace("_", "")]
+            type_class = AU[
+                quote(node_type.replace(" ", "_").title().replace("_", ""), safe="")
+            ]
             g.add((node_uri, rdflib.RDF.type, type_class))
             # Add string properties as datatype properties
             for key, value in data.items():
                 if key in ("embedding", "ewc_fisher_diag"):
                     continue  # Skip large float arrays
+                prop = AU[quote(str(key), safe="")]
                 if isinstance(value, str) and value:
-                    g.add((node_uri, AU[key], rdflib.Literal(value)))
+                    g.add((node_uri, prop, rdflib.Literal(value)))
                 elif isinstance(value, int | float):
-                    g.add((node_uri, AU[key], rdflib.Literal(value)))
+                    g.add((node_uri, prop, rdflib.Literal(value)))
 
         # Promote edges as property assertions
         for src, tgt, data in self.graph.edges(data=True):
-            src_uri = AU[str(src).replace(" ", "_")]
-            tgt_uri = AU[str(tgt).replace(" ", "_")]
-            edge_type = data.get("relationship", "relatedTo")
-            prop = AU[edge_type]
+            src_uri = AU[quote(str(src), safe="")]
+            tgt_uri = AU[quote(str(tgt), safe="")]
+            edge_type = str(data.get("relationship", "relatedTo"))
+            prop = AU[quote(edge_type, safe="")]
             g.add((src_uri, prop, tgt_uri))
 
         return g
