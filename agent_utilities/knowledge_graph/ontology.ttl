@@ -498,6 +498,12 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:comment "Links a Correction to the node/output it corrects." ;
     rdfs:domain :Correction .
 
+:provides a owl:ObjectProperty ;
+    rdfs:label "provides" ;
+    rdfs:comment "An Agent offers/exposes a Tool as one of its callable capabilities." ;
+    rdfs:domain :Agent ;
+    rdfs:range :Tool .
+
 :dependencyOf a owl:ObjectProperty ;
     rdfs:label "dependency of" ;
     rdfs:comment "Reverse dependency — this entity is depended upon. Inverse of dependsOn." ;
