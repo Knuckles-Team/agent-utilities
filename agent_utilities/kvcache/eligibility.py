@@ -1027,8 +1027,7 @@ class SourceLabelResolver(Protocol):
 
     def resolve(
         self, source_refs: tuple[str, ...], *, tenant: str
-    ) -> tuple[ContributingSource, ...]:
-        ...  # pragma: no cover - protocol
+    ) -> tuple[ContributingSource, ...]: ...  # pragma: no cover - protocol
 
 
 class GraphSourceLabelResolver:

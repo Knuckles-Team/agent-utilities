@@ -175,15 +175,15 @@ things the platform already carries:
 
 ```mermaid
 flowchart TD
-    S[Verified GraphSession<br/>actor · tenant · scopes] --> A[Effective authority]
-    D[SpawnDelegation.ceiling<br/>ultimate principal's capabilities] -->|intersect,<br/>always| A
-    C1[source A labels] --> L[Composed label<br/>most restrictive]
-    C2[source B labels] --> L
-    C3[source N labels] --> L
-    A --> G{authority dominates<br/>composed label?<br/>same tenancy?}
+    S["Verified GraphSession — actor · tenant · scopes"] --> A["Effective authority"]
+    D["SpawnDelegation.ceiling — the ultimate principal's capabilities"] -->|"intersect, always"| A
+    C1["source A labels"] --> L["Composed label — most restrictive"]
+    C2["source B labels"] --> L
+    C3["source N labels"] --> L
+    A --> G{"authority dominates the composed label, in the same tenancy?"}
     L --> G
-    G -->|yes| P[write to the durable blob store]
-    G -->|no| R[refuse, naming the source<br/>or the missing label]
+    G -->|"yes"| P["write to the durable blob store"]
+    G -->|"no"| R["refuse, naming the source or the missing label"]
 ```
 
 * **Inheritance is restrictive; delegation is non-increasing.** Adding a source can only
