@@ -1,0 +1,88 @@
+# D-OB-18 — rebuild the unified graph-os image with the workspace dependency override
+# applied, so the runtime finally ships the fastmcp 4 / mcp 2 stack its own source
+# targets. Same Dockerfile as every other variant; what changes is that the build now
+# resolves through `overrides.txt` (the build-side mirror of the workspace root's
+# `[tool.uv] override-dependencies`) instead of a hand-copied `fastmcp==3.4.5` literal.
+#
+#   kubectl apply -f docker/graphos-unified-fastmcp4-kaniko-job.yaml
+#   kubectl logs -n image-build -f job/graphos-unified-fastmcp4-image-build
+#
+# The context is THIS LANE'S worktree rather than the main checkout, because the
+# Dockerfile + overrides.txt changes live on `fix/image-fastmcp4` and merging is the
+# orchestrator's call, not this lane's. Point `workspace` at
+# /home/apps/workspace/agent-packages/agent-utilities once the branch lands — the two
+# trees are otherwise identical.
+#
+# `--cache=false`, unlike every sibling job: kaniko keys a RUN layer on the command
+# string plus the preceding layers, and `overrides.txt` is a COPYed context file whose
+# CONTENT changed while nothing about the earlier apt/uv layers did. A warm
+# `graph-os-unified-cache` entry is therefore a live hazard here — it would replay the
+# old fastmcp-3 install and reproduce exactly the divergence this build exists to end.
+# Correctness over build time for the one build that has to be trusted.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: graphos-unified-fastmcp4-image-build
+  namespace: image-build
+  labels:
+    app: graphos-unified-fastmcp4-image-build
+    purpose: graphos-fastmcp4
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: graphos-unified-fastmcp4-image-build
+        purpose: graphos-fastmcp4
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: rw710
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - --context=dir:///workspace
+            - --dockerfile=/workspace/docker/graphos-unified.Dockerfile
+            - --destination=knucklessg1/graph-os-unified:fastmcp4
+            - --cache=false
+            - --verbosity=info
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+              ephemeral-storage: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              ephemeral-storage: 24Gi
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: eg-wheel
+              mountPath: /workspace/build-artifacts/eg-wheel
+            - name: langfuse-agent-src
+              mountPath: /workspace/build-artifacts/langfuse-agent-src
+            - name: docker-config
+              mountPath: /kaniko/.docker/config.json
+              subPath: config.json
+      volumes:
+        - name: workspace
+          hostPath:
+            path: /home/apps/worktrees/au-image-fastmcp4
+            type: Directory
+        - name: eg-wheel
+          hostPath:
+            path: /home/apps/eg-wheel
+            type: Directory
+        - name: langfuse-agent-src
+          hostPath:
+            path: /home/apps/workspace/agent-packages/agents/langfuse-agent
+            type: Directory
+        - name: docker-config
+          secret:
+            secretName: kaniko-dockerhub-config
+            items:
+              - key: config.json
+                path: config.json
