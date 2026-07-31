@@ -1,11 +1,15 @@
 """Server-side Skills-over-MCP wiring (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
 
 Covers ``_register_skill_providers`` (called from ``create_mcp_server``): it
-must degrade cleanly (never raise, never crash server construction) when the
-live ``fastmcp`` has no ``SkillProvider``/``add_provider`` (the default
-``[mcp]`` extra, fastmcp 3.x), and it must call ``mcp.add_provider(...)`` once
-per directory ``resolve_skill_provider_dirs`` resolves when the capability is
-present (the opt-in ``[mcp-v4]`` extra, fastmcp 4.x).
+must call ``mcp.add_provider(...)`` once per directory
+``resolve_skill_provider_dirs`` resolves, and must never crash server
+construction when a provider cannot be registered.
+
+These are ISOLATION tests — they stand a ``MagicMock`` in for the server and a
+fake module in for ``fastmcp.server.providers.skills``, so they say nothing
+about whether the registration works against the real fastmcp-4
+``SkillProvider``. That live proof is
+``tests/integration/mcp/test_skill_provider_live_path.py``; keep both.
 """
 
 from __future__ import annotations
@@ -19,19 +23,24 @@ from agent_utilities.mcp.server_factory import (
 )
 
 
-def test_register_skill_providers_noop_when_add_provider_absent(caplog) -> None:
-    """A fastmcp-3 FastMCP instance has no ``add_provider`` — degrade silently."""
+def test_register_skill_providers_never_breaks_server_construction(caplog) -> None:
+    """A server object that cannot take providers degrades to a log, not a raise.
+
+    The old ``hasattr(mcp, "add_provider")`` gate is gone with the fastmcp-3
+    default it guarded (the ``[mcp]`` extra now floors on ``fastmcp>=4.0.0b1``,
+    where ``add_provider`` always exists), so what still needs guarding is only
+    the never-raise contract.
+    """
     fake_mcp = MagicMock(spec=[])  # no attributes at all, incl. no add_provider
-    assert not hasattr(fake_mcp, "add_provider")
 
     with caplog.at_level("DEBUG", logger="agent_utilities.mcp.server_factory"):
-        _register_skill_providers(fake_mcp)
+        _register_skill_providers(fake_mcp)  # must not raise
 
-    assert "add_provider" in caplog.text or "fastmcp" in caplog.text.casefold()
+    assert "skill" in caplog.text.casefold()
 
 
-def test_create_mcp_server_construction_unaffected_without_mcp_v4() -> None:
-    """The live [mcp] (fastmcp 3.x) extra must still build a working server."""
+def test_create_mcp_server_construction_succeeds() -> None:
+    """``create_mcp_server`` builds a working server with providers wired in."""
     args, mcp, _middlewares = create_mcp_server("Skills Wiring Test", command_args=[])
     assert mcp is not None
     assert args is not None

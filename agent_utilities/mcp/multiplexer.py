@@ -48,6 +48,19 @@ from mcp import StdioServerParameters, stdio_client
 from mcp import types as mcp_types  # stable alias: the ``mcp`` param shadows the pkg
 from mcp.client.session import ClientSession
 
+# Remote transports. The MCP SDK v2 line (>=2.0.0, pulled in by the
+# `fastmcp>=4.0.0b1` floor of the `[mcp]` extra) renamed
+# `streamablehttp_client` -> `streamable_http_client` and replaced its
+# headers/auth/httpx_client_factory keywords with a single pre-configured
+# `http_client=` — see the call site below. Both names are hard imports: the
+# `[mcp]` extra can no longer resolve an SDK that lacks them, so the old
+# defensive `try/except ImportError` guards only hid a real breakage (they
+# turned the rename into a silent `RuntimeError: mcp SDK has no
+# streamablehttp_client` on EVERY remote child, which is the whole deployed
+# fleet — `deploy/mcp-fleet.registry.yml` defaults to `streamable-http`).
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamable_http_client
+
 from agent_utilities.core.capability_contract import Capability
 from agent_utilities.core.config import setting
 from agent_utilities.mcp.child_resilience import (
@@ -55,19 +68,6 @@ from agent_utilities.mcp.child_resilience import (
     MCPChildError,
 )
 from agent_utilities.security.error_surface import public_error_text
-
-streamablehttp_client: Any = None
-try:  # remote transports — present on modern mcp SDKs
-    from mcp.client.streamable_http import (  # type: ignore[no-redef]
-        streamablehttp_client,
-    )
-except ImportError:  # pragma: no cover - older mcp SDK without streamable-http
-    pass
-sse_client: Any = None
-try:
-    from mcp.client.sse import sse_client  # type: ignore[no-redef]
-except ImportError:  # pragma: no cover - older mcp SDK without sse
-    pass
 
 # Direct all logs to stderr so stdout remains perfectly clean for stdio JSON-RPC
 logging.basicConfig(
@@ -1356,8 +1356,6 @@ class MCPMultiplexer:
             _svc_auth = child_auth(headers)
             use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
             if use_sse:
-                if sse_client is None:
-                    raise RuntimeError("mcp SDK has no sse_client for SSE transport")
                 transport = sse_client(
                     url,
                     headers=headers,
@@ -1365,19 +1363,19 @@ class MCPMultiplexer:
                     httpx_client_factory=_secure_httpx_factory,
                 )
             else:
-                if streamablehttp_client is None:
-                    raise RuntimeError(
-                        "mcp SDK has no streamablehttp_client for "
-                        "streamable-http transport"
-                    )
-                transport = streamablehttp_client(
-                    url,
-                    headers=headers,
-                    auth=_svc_auth,
-                    httpx_client_factory=_secure_httpx_factory,
-                )
-            # streamable-http yields (read, write, get_session_id); sse yields
-            # (read, write). Take the first two streams either way.
+                # MCP SDK v2 takes the already-built client instead of
+                # headers/auth/httpx_client_factory, so the security-hardened
+                # client (pinned TLS trust, DNS-pinned egress, no ambient
+                # proxy, no redirects) is constructed here and handed over.
+                # It is entered on the stack BEFORE the transport so teardown
+                # closes the transport first and the client second; the SDK
+                # deliberately does not close a caller-provided client.
+                http_client = _secure_httpx_factory(headers=headers, auth=_svc_auth)
+                await stack.enter_async_context(http_client)
+                transport = streamable_http_client(url, http_client=http_client)
+            # streamable-http and sse both yield (read, write); SDK v2 dropped
+            # streamable-http's third `get_session_id` element. Take the first
+            # two streams either way.
             streams = await stack.enter_async_context(transport)
             read_stream, write_stream = streams[0], streams[1]
         else:

@@ -2086,32 +2086,22 @@ def _register_skill_providers(mcp: Any) -> None:
     a skill has one discovery path with two projections (in-loop execution vs
     wire distribution), not a second registry to keep in sync.
 
-    A fastmcp-4-server-built process gains ``skill://{name}/SKILL.md``,
+    Every server built here gains ``skill://{name}/SKILL.md``,
     ``skill://{name}/_manifest``, and ``skill://{name}/{path*}`` resources that
     an mcp/fastmcp-3 client can already read.
 
-    INERT ON THE CURRENT DEFAULT. The ``[mcp]`` extra pins fastmcp 3, which has
-    no ``SkillProvider``/``add_provider``, so in every supported install today
-    this function takes the degrade path and registers nothing — the server-side
-    half of Skills-over-MCP is built but not reachable. There is no opt-in extra
-    that turns it on either: the ``[mcp-v4]`` extra an earlier revision of this
-    docstring pointed at was never merged to ``main`` (the fastmcp-4-default
-    change it belonged to could not be locked by this repo's own workspace
-    locking entrypoint). Recorded as D-W15-7/D-W15-8 in
-    ``reports/deferred/waves1-5-gate.md``. The CLIENT-side half — ranking and
-    binding ``skill://`` resources discovered on OTHER servers over the wire —
-    works today on fastmcp 3 and is unaffected.
+    LIVE ON THE DEFAULT INSTALL. The ``[mcp]`` extra floors on
+    ``fastmcp>=4.0.0b1``, so ``SkillProvider``/``add_provider`` are always
+    present and this registration always runs — the earlier
+    ``hasattr(mcp, "add_provider")`` gate that made the whole server-side half
+    inert (D-W15-7/D-W15-8 in ``reports/deferred/waves1-5-gate.md``) is gone
+    with the fastmcp-3 default it guarded. Exercised end to end by
+    ``tests/integration/mcp/test_skill_provider_live_path.py``.
 
-    Degrades to a single debug-level log line and never raises.
+    Never raises: a single unreadable provider directory logs a ``WARNING`` and
+    is skipped, and any other failure degrades to one ``WARNING`` — serving
+    skills over the wire must never stop a server being built.
     """
-    if not hasattr(mcp, "add_provider"):
-        logger.debug(
-            "Skipping skill-over-MCP providers: this FastMCP build has no "
-            "add_provider (fastmcp < 4). Server-side skill:// resources stay "
-            "inert until au's fastmcp-4 upgrade lands (D-W15-7)."
-        )
-        return
-
     try:
         from fastmcp.server.providers.skills import SkillProvider
 

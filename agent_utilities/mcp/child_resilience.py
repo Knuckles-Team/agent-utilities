@@ -65,11 +65,14 @@ from typing import Any
 
 import anyio
 
-McpError: Any = ()
-try:  # MCP protocol error (e.g. a terminated streamable-http session)
-    from mcp.shared.exceptions import McpError  # type: ignore[no-redef]
-except ImportError:  # pragma: no cover - mcp always present for the multiplexer
-    pass
+# MCP protocol error (e.g. a terminated streamable-http session). SDK v2
+# (>=2.0.0, required by the `fastmcp>=4.0.0b1` floor of the `[mcp]` extra)
+# renamed `McpError` -> `MCPError`. This is a hard import on purpose: the old
+# `try/except ImportError` fallback left the name bound to the empty tuple `()`
+# after the rename, which made :func:`is_session_dead` return ``False`` for
+# every exception — silently disabling session-terminated recovery for the
+# whole child fleet instead of failing loudly.
+from mcp.shared.exceptions import MCPError
 
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
 from agent_utilities.observability.gateway_metrics import (
@@ -96,11 +99,11 @@ def is_session_dead(exc: BaseException) -> bool:
     """Whether ``exc`` means the child's streamable-http session is gone — e.g.
     the backend redeployed and no longer recognizes the session id.
 
-    The MCP client raises ``McpError(code=32600, "Session terminated")`` for a
+    The MCP client raises ``MCPError(code=32600, "Session terminated")`` for a
     server-terminated session; we also match session-not-found wording. Such an
     error is a *transport* failure (the connection must be rebuilt), not an
     application error — unlike a tool that simply answered with an error."""
-    if not McpError or not isinstance(exc, McpError):
+    if not isinstance(exc, MCPError):
         return False
     err = getattr(exc, "error", None)
     code = getattr(err, "code", None)

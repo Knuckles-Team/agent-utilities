@@ -44,21 +44,21 @@ discovery `pydantic-ai-skills`/`agent-utilities install` use, so a skill has
 one discovery path with two projections (in-loop execution vs wire
 distribution), never a second registry to keep in sync.
 
-Degradation is explicit and observable, never a crash: `hasattr(mcp,
-"add_provider")` gates the whole registration, so the default `[mcp]` extra
-(fastmcp 3.x, no `SkillProvider`) logs one `DEBUG` line and returns. A single
-bad provider directory logs a `WARNING` and is skipped — it does not sink the
-others.
+Degradation is explicit and observable, never a crash: a single bad provider
+directory logs a `WARNING` and is skipped — it does not sink the others.
 
-> **The server-side half is INERT on `main` today.** The `[mcp]` extra pins
-> fastmcp 3, which has no `add_provider`, and there is no opt-in extra that turns
-> it on: the `[mcp-v4]` extra an earlier draft of this page pointed at was never
-> merged (the fastmcp-4-default change it belonged to could not be locked by this
-> repo's own workspace locking entrypoint). So `_register_skill_providers`
-> currently registers nothing in every supported install. See D-W15-7/D-W15-8 in
-> `reports/deferred/waves1-5-gate.md`. The **client-side** half — probing,
-> ranking, and binding `skill://` resources served by OTHER servers — works today
-> on fastmcp 3 and is what the rest of this page describes.
+> **The server-side half is LIVE.** The `[mcp]` extra floors on
+> `fastmcp>=4.0.0b1` (fastmcp 4 is the ecosystem default — see
+> [`fastmcp4-default.md`](fastmcp4-default.md)), so `SkillProvider` /
+> `add_provider` are always present and `_register_skill_providers` registers on
+> every server it builds. The `hasattr(mcp, "add_provider")` gate that made this
+> permanently inert under the old fastmcp-3 default (D-W15-7/D-W15-8 in
+> `reports/deferred/waves1-5-gate.md`) is deleted along with that default. The
+> live proof is `tests/integration/mcp/test_skill_provider_live_path.py`, which
+> builds a real server through `create_mcp_server` and reads
+> `skill://{name}/SKILL.md` back off it — the isolation tests in
+> `tests/unit/mcp/test_skill_provider_wiring.py` use a `MagicMock` server and a
+> fake `SkillProvider`, so they alone could not tell a live path from a dead one.
 
 This is why the strategy works at all: a fastmcp-3 (or plain `mcp`) client can
 already read a fastmcp-4 server's `skill://` resources — so upgrading

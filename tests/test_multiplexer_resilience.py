@@ -12,7 +12,7 @@ from typing import Any
 
 import mcp.types
 import pytest
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
@@ -176,9 +176,11 @@ async def test_multiplexer_opens_pool_size_connections_for_http_child(
     connects: list[str] = []
 
     @contextlib.asynccontextmanager
-    async def fake_http(url, headers=None):
+    async def fake_http(url, *, http_client=None):
+        # MCP SDK v2 signature: (url, *, http_client, terminate_on_close), and
+        # it yields (read, write) — no third get_session_id element.
         connects.append(url)
-        yield ("r", "w", "sid")
+        yield ("r", "w")
 
     class FakeSessionCM:
         def __init__(self, *a, **k):
@@ -202,7 +204,7 @@ async def test_multiplexer_opens_pool_size_connections_for_http_child(
         async def __aexit__(self, *a):
             return False
 
-    monkeypatch.setattr(mod, "streamablehttp_client", fake_http)
+    monkeypatch.setattr(mod, "streamable_http_client", fake_http)
     monkeypatch.setattr(mod, "ClientSession", FakeSessionCM)
 
     mux = MCPMultiplexer(tmp_path / "c.json")
@@ -396,10 +398,10 @@ async def test_crash_triggers_restart_and_child_recovers():
 
 class SessionTerminatedSession:
     """Fake session whose call hits a server-terminated streamable-http session
-    (what a redeployed backend does): McpError(code=32600)."""
+    (what a redeployed backend does): MCPError(code=32600)."""
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        raise McpError(mcp.types.ErrorData(code=32600, message="Session terminated"))
+        raise MCPError(mcp.types.ErrorData(code=32600, message="Session terminated"))
 
 
 async def test_terminated_session_auto_reconnects_and_retries(monkeypatch):
@@ -439,7 +441,7 @@ async def test_terminated_session_surfaces_if_reconnect_also_dead():
         restart_backoff_cap=0.02,
     )
     await runtime.start()
-    with pytest.raises(McpError):
+    with pytest.raises(MCPError):
         await runtime.call_tool("t", {})
     await runtime.aclose()
 

@@ -59,10 +59,11 @@ def transports(monkeypatch):
     from agent_utilities.core.config import config
 
     rec = {"stdio": [], "http": [], "sse": []}
-    # streamable-http yields a 3-tuple (read, write, get_session_id); the others 2.
+    # MCP SDK v2 yields (read, write) for BOTH streamable-http and sse — the
+    # third `get_session_id` element streamable-http used to return is gone.
     monkeypatch.setattr(mod, "stdio_client", _fake_client(("r", "w"), rec["stdio"]))
     monkeypatch.setattr(
-        mod, "streamablehttp_client", _fake_client(("r", "w", "sid"), rec["http"])
+        mod, "streamable_http_client", _fake_client(("r", "w"), rec["http"])
     )
     monkeypatch.setattr(mod, "sse_client", _fake_client(("r", "w"), rec["sse"]))
     monkeypatch.setattr(mod, "ClientSession", _FakeSessionCM)
@@ -200,10 +201,9 @@ async def test_header_var_expansion(transports, tmp_path, monkeypatch):
             "headers": {"Authorization": "Bearer ${MY_TOKEN}"},
         },
     )
-    assert (
-        transports["http"][0]["kwargs"]["headers"]["Authorization"]
-        == "Bearer secret123"
-    )
+    # SDK v2 carries headers on the pre-configured client, not a transport kwarg.
+    http_client = transports["http"][0]["kwargs"]["http_client"]
+    assert http_client.headers["Authorization"] == "Bearer secret123"
 
 
 @pytest.mark.asyncio
@@ -236,10 +236,13 @@ async def test_remote_child_gets_per_request_service_auth(
     cc = _enable_service_auth(monkeypatch)
     mux = MCPMultiplexer(tmp_path / "c.json")
     await mux._start_child("egeria-mcp", {"url": "http://egeria-mcp.arpa/mcp"})
-    kwargs = transports["http"][0]["kwargs"]
-    assert isinstance(kwargs["auth"], cc.ClientCredentialsAuth)
+    # MCP SDK v2 takes a pre-configured client instead of headers/auth kwargs,
+    # so the auth+header contract is asserted on the client the multiplexer
+    # built and handed over — the object that actually signs each request.
+    http_client = transports["http"][0]["kwargs"]["http_client"]
+    assert isinstance(http_client.auth, cc.ClientCredentialsAuth)
     # No baked-in (freezable) bearer in the session headers.
-    assert "Authorization" not in (kwargs.get("headers") or {})
+    assert "Authorization" not in http_client.headers
 
 
 @pytest.mark.asyncio
@@ -257,6 +260,6 @@ async def test_child_own_authorization_not_overridden(
             "headers": {"Authorization": "Bearer child-own"},
         },
     )
-    kwargs = transports["http"][0]["kwargs"]
-    assert kwargs["auth"] is None
-    assert kwargs["headers"]["Authorization"] == "Bearer child-own"
+    http_client = transports["http"][0]["kwargs"]["http_client"]
+    assert http_client.auth is None
+    assert http_client.headers["Authorization"] == "Bearer child-own"

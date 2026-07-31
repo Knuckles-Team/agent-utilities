@@ -859,7 +859,7 @@ substrates** (the engine's own storage/queue backends).
 **Good example:**
 ```python
 from agent_utilities import create_mcp_server
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 mcp = create_mcp_server("my-agent")
 
