@@ -860,7 +860,7 @@ class PermissionsKernel:
                     logger.warning(
                         "Failed to register identity with Rust backend: %s", e
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the KG graph write is a durability/cross-process mirror only; verify_identity/authorize_tool/get_identity all read self._identities (already cached above in issue_identity), not this graph node
             logger.debug("Failed to persist identity: %s", e)
 
 

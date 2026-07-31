@@ -133,7 +133,7 @@ class BackgroundThrottle:
                     os.fsync(directory_fd)
                 finally:
                     os.close(directory_fd)
-            except OSError:  # pragma: no cover - directory fsync is platform-specific
+            except OSError:  # pragma: no cover - directory fsync is platform-specific  # noqa: BLE001 — durability best-effort for an advisory lease; the in-process Event flag remains authoritative for this process
                 pass
         except OSError:
             logger.debug("Cross-process foreground lease write failed")
@@ -142,7 +142,7 @@ class BackgroundThrottle:
                 os.close(descriptor)
             try:
                 temporary.unlink(missing_ok=True)
-            except OSError:
+            except OSError:  # noqa: BLE001 — best-effort tmp-file cleanup; a leftover `.tmp` file is inert and never read back
                 pass
 
     def _remove_lease(self) -> None:
@@ -153,7 +153,7 @@ class BackgroundThrottle:
             info = target.lstat()
             if stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid():
                 target.unlink()
-        except OSError:
+        except OSError:  # noqa: BLE001 — best-effort removal; a stale lease file self-expires via the TTL check in _lease_is_valid
             pass
 
     def _lease_is_valid(self, path: Path, now: float) -> bool:
@@ -217,7 +217,7 @@ class BackgroundThrottle:
                             ):
                                 active = True
                                 break
-                except OSError:
+                except OSError:  # noqa: BLE001 — best-effort scan; a missing/unreadable lease dir just means no external foreground is detected (fail-safe default)
                     pass
             self._lease_cache_active = active
             self._lease_cache_at = now

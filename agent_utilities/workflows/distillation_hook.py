@@ -137,7 +137,7 @@ class WorkflowDistillationHook:
             )
             if rows:
                 return int(rows[0].get("count", 1))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — worst case the promotion-threshold counter lags by one increment; the function's `return 1` default keeps callers correct either way
             logger.debug("[ORCH-1.8] DistillationTracker update failed: %s", e)
         return 1
 
@@ -182,7 +182,7 @@ class WorkflowDistillationHook:
                         team_config_id,
                         reward=quality_score,
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — reward-signal telemetry only; outcome["promoted"] is set unconditionally below regardless of this call's success
                 logger.debug("[ORCH-1.8] TeamConfig reward update failed: %s", e)
 
         outcome["promoted"] = True
@@ -298,7 +298,7 @@ metadata:
 
                     with open(refs_dir / "team.yaml", "w", encoding="utf-8") as f:
                         yaml.dump(team_data, f, sort_keys=False)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — team.yaml is a supplementary reference file inside the skill dir; SKILL.md itself is already written above and skill_dir is returned unconditionally
                 logger.debug("Failed to extract TeamConfig for scaffolded skill: %s", e)
 
         return skill_dir

@@ -76,7 +76,7 @@ class ZeroDayImmunity:
                         symbol_id = f"{kind}:{node.name}"
                         nodes.append(symbol_id)
                         edges.append((root_id, symbol_id))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — an unparseable prompt just yields fewer structural features for the anomaly heuristic below, it is never treated as a false "safe" verdict
                 logger.debug("Failed AST extraction on prompt: %s", e)
 
         # 3. Simple token/term structural extraction for NL prompts
