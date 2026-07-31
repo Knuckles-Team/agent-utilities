@@ -43,7 +43,7 @@ def _unconsumed_anomalies(engine: Any, limit: int) -> list[dict[str, Any]]:
             "MATCH (a:PerformanceAnomaly) WHERE a.consumed IS NULL "
             f"RETURN a LIMIT {int(limit)}"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — scan failure yields an empty batch this tick; nothing gets marked consumed, so the next daemon tick naturally retries the same anomalies (no data lost)
         logger.debug("anomaly scan failed: %s", e)
         return []
     out = []
@@ -60,7 +60,7 @@ def _already_evidencing(engine: Any) -> set[str]:
         rows = engine.query_cypher(
             "MATCH (a:PerformanceAnomaly)-[:EVIDENCES]->(c:Concept) RETURN a.id AS id"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — a failed lookup just yields an empty skip-set; the gap-topic id is deterministic (`failure_gap:<signature>`), so a spuriously-refiled topic MERGEs onto the same node rather than duplicating it
         logger.debug("anomaly evidence lookup failed: %s", e)
         return set()
     return {r["id"] for r in rows or [] if isinstance(r, dict) and r.get("id")}
@@ -74,7 +74,7 @@ def _mark_consumed(engine: Any, anomaly_id: str) -> bool:
             {"id": anomaly_id, "ts": _now_iso()},
         )
         return True
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — the stamp write failing safely leaves `consumed` NULL, which is the "unconsumed" state the WHERE clause in _unconsumed_anomalies scans for, so the anomaly is naturally retried next tick rather than silently dropped
         logger.debug("anomaly consume stamp failed: %s", e)
         return False
 
@@ -125,6 +125,14 @@ def consume_anomalies(
         cluster["anomaly_ids"].append(a["id"])
 
     gaps: list[str] = []
+    # CONCEPT:AU-AHE.evaluation.debug-swallow-justification (D-DST-1): anomalies whose cluster
+    # failed to file (file_gap_topic returned None — the Concept persist itself raised) must
+    # NOT be stamped `consumed` below. Marking them consumed regardless of write success was
+    # the exact write-then-mark-seen defect this triage was scoped to find (mirrors the
+    # sdd/watcher.py content-hash bug the gate lane fixed): a transient persist failure would
+    # otherwise permanently foreclose retry, since `_unconsumed_anomalies` only rescans rows
+    # where `a.consumed IS NULL`.
+    unfileable_ids: set[str] = set()
     for cluster in clusters.values():
         anomaly_ids = cluster["anomaly_ids"]
         gap = file_gap_topic(
@@ -134,6 +142,7 @@ def consume_anomalies(
             source="anomaly_consumer",
         )
         if gap is None:
+            unfileable_ids.update(anomaly_ids)
             continue
         gaps.append(gap["id"])
         # Provenance from every other anomaly in the cluster.
@@ -145,10 +154,14 @@ def consume_anomalies(
                     rel_type="EVIDENCES",
                     properties={"source": "anomaly_consumer"},
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — the gap Concept itself already persisted (this anomaly's cluster is remediated); a missing secondary EVIDENCES edge only weakens provenance completeness, it does not lose the remediation, so it stays consumed rather than being retried forever for a link that keeps failing
                 logger.debug("EVIDENCES edge failed: %s", e)
 
-    consumed = sum(1 for a in anomalies if _mark_consumed(engine, a["id"]))
+    consumed = sum(
+        1
+        for a in anomalies
+        if a["id"] not in unfileable_ids and _mark_consumed(engine, a["id"])
+    )
 
     report = {
         "scanned": len(anomalies),
