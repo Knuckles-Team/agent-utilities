@@ -70,9 +70,6 @@ from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa
 from agent_utilities.orchestration.fleet_reconciler import (  # noqa: E402
     registry_server_alias,
 )
-from scripts.enrich_fleet_a2a_epistemic import (  # noqa: E402
-    EPISTEMIC_CAPABILITY,
-)
 
 _XSD_NS = "http://www.w3.org/2001/XMLSchema#"
 _OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"
