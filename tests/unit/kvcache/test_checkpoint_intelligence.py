@@ -36,6 +36,8 @@ import logging
 
 import pytest
 
+from agent_utilities.core.contextual_model import use_grounding_policy
+
 from agent_utilities.kvcache.checkpoint import (
     CrossTenantCheckpointError,
     KVCheckpointError,
@@ -708,7 +710,13 @@ def test_advisory_reaches_the_model_through_create_agent(manager):
         enable_universal_tools=False,
     )
     manager.recommend(_strong_observation())
-    result = agent.run_sync("hello")
+    # ``grounding="none"``: a merged lane made the fail-closed grounding contract
+    # the DEFAULT for every governed model call (CONCEPT:AU-KG.retrieval.
+    # fail-closed-grounding-contract), so an unconfigured ContextCompiler now
+    # refuses the request. This test is about the PROMPT BYTES, not grounding, so
+    # it opts out explicitly rather than provisioning a compiler.
+    with use_grounding_policy("none"):
+        result = agent.run_sync("hello")
     instructions = result.all_messages()[0].instructions or ""
     assert "KV-CHECKPOINT ADVISORY" in instructions
     assert "checkpoint-worthy: score" in instructions
@@ -730,7 +738,13 @@ def test_an_untouched_run_gets_a_byte_identical_prompt():
         enable_skills=False,
         enable_universal_tools=False,
     )
-    result = agent.run_sync("hello")
+    # ``grounding="none"``: a merged lane made the fail-closed grounding contract
+    # the DEFAULT for every governed model call (CONCEPT:AU-KG.retrieval.
+    # fail-closed-grounding-contract), so an unconfigured ContextCompiler now
+    # refuses the request. This test is about the PROMPT BYTES, not grounding, so
+    # it opts out explicitly rather than provisioning a compiler.
+    with use_grounding_policy("none"):
+        result = agent.run_sync("hello")
     assert "KV-CHECKPOINT ADVISORY" not in (result.all_messages()[0].instructions or "")
 
 
