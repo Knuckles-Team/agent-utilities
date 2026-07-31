@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1089
+total_concepts: 1092
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4877,6 +4877,13 @@ concepts:
   - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/state_tools.py
   doc: a default runtime bound to the import-populated registry, so
+- id: AU-KG.ontology.derived-compatibility-band
+  name: the compatibility band an
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/integrations/connector_source_attestation.py
+  doc: the compatibility band an
 - id: AU-KG.ontology.derived-property-registry
   name: import-populated registry + a default engine bound to it and
   pillar: AU-KG
@@ -5242,6 +5249,20 @@ concepts:
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved
     from the ambient context — never from caller-supplied clearance
+- id: AU-KG.ontology.registry-derived-server-alias
+  name: AU-KG.ontology.registry-derived-server-alias
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/fleet_reconciler.py
+  doc: AU-KG.ontology.registry-derived-server-alias
+- id: AU-KG.ontology.release-key-rotation
+  name: the release trust anchor lives in
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/ontology_integrity.py
+  doc: the release trust anchor lives in
 - id: AU-KG.ontology.sampling-profile-coupling
   name: LLM inference sampling knobs temperature top_p top_k min_p repetition_penalty max_tokens and penalties
     as SHACL-bounded ontology value types plus the two-surface sampling-profile tool
