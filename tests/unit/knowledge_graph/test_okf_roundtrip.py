@@ -173,7 +173,13 @@ def test_openwiki_preset_stamps_okf_and_snapshot_delta(tmp_path):
 
     repo = tmp_path / "my-repo"
     _make_openwiki(repo, "2026-01-01")
-    conn = build_connector("filesystem", {"preset": "openwiki", "root": str(repo)})
+    # FilesystemConnector never inherits a local directory name as slug
+    # provenance implicitly (privacy hardening: only a hash-based
+    # ``source_namespace`` by default) — "a caller may supply domain
+    # provenance" explicitly instead, so pass the per-repo slug here.
+    conn = build_connector(
+        "filesystem", {"preset": "openwiki", "root": str(repo), "slug": "my-repo"}
+    )
 
     # First poll ingests both pages, OKF-stamped, with per-repo SLUG provenance.
     batch = conn.poll(None)

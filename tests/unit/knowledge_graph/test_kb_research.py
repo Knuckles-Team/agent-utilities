@@ -1,6 +1,6 @@
 """CONCEPT:AU-KG.research.research-pipeline-runner"""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, NonCallableMagicMock, patch
 
 import pytest
 
@@ -17,6 +17,20 @@ from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 @pytest.fixture(autouse=True)
 def mock_epistemic_graph_client():
     with patch("epistemic_graph.client.SyncEpistemicGraphClient") as mock_client:
+        # ``GraphComputeEngine.__init__`` connects via
+        # ``SyncEpistemicGraphClient.connect(...)`` and wraps the result in a
+        # ``BreakerClientProxy`` (engine_breaker.py), whose ``__getattr__``
+        # distinguishes a "namespace" attribute (wrapped recursively so
+        # ``.tenants.create(...)`` stays reachable) from a "leaf" attribute
+        # (guard-wrapped as a plain callable) purely via ``callable(attr)``. A
+        # bare ``MagicMock`` auto-vivifies ``.tenants`` as itself callable, so
+        # the proxy mis-treats it as a leaf and ``.tenants.create`` breaks with
+        # "'function' object has no attribute 'create'". Pin ``tenants`` to a
+        # non-callable mock so it round-trips as the namespace the real client
+        # exposes.
+        connected = mock_client.connect.return_value
+        connected.tenants = NonCallableMagicMock()
+        connected.tenants.list.return_value = []
         yield mock_client
 
 
@@ -31,7 +45,7 @@ async def test_kb_model_validation():
         doi="10.1234/nature.2026",
         authors=["Alice", "Bob"],
     )
-    assert src.id == "src:1"
+    assert src.node_id == "src:1"  # GraphNode.node_id has alias="id" (input-only)
     assert "Source" in src.labels
 
     # Concept
