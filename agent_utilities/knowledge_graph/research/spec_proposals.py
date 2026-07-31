@@ -266,7 +266,7 @@ def _set_status(engine: Any, spec_id: str, status: str, **extra: Any) -> bool:
             },
         )
         return True
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — the actual publish/develop/revert outcome (governed_publish's report, mark_gap_resolved) drives the D5 gap-close chokepoint, not this status stamp; a failed stamp only leaves the SpecProposal's own status field stale for dashboards
         logger.debug("_set_status(%s,%s) failed: %s", spec_id, status, e)
         return False
 

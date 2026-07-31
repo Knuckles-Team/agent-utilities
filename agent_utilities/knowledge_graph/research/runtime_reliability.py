@@ -347,7 +347,7 @@ def runtime_reliability_analyzer(engine: Any) -> dict[str, Any]:
     aggregates = _aggregate(recent)
     try:
         open_ids = {str(g.get("id")) for g in open_gaps(engine) if g.get("id")}
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — a failed dedupe read just yields an empty open_ids set, so a pattern that already has an open gap might get re-filed (gap_id is deterministic per signature, so it MERGEs rather than duplicating) — never a lost signal
         logger.debug("runtime-reliability: open_gaps read failed: %s", e)
         open_ids = set()
 

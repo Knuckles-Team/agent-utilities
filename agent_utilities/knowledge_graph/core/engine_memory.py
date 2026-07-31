@@ -579,7 +579,7 @@ class MemoryMixin(_Base):
                             "now": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                         },
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — access_count/last_accessed is an LRU-style usage metric, not the memory record itself; a failed bump just under-counts recency for this one read, it does not lose or duplicate the memory
                     logger.debug("Failed to update memory access count: %s", e)
 
         return memories[:top_k]

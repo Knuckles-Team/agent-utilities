@@ -291,7 +291,7 @@ class PostgreSQLBackend(GraphBackend):
                     try:
                         safe_ext = validate_sql_identifier(ext, kind="extension")
                         cur.execute(f"CREATE EXTENSION IF NOT EXISTS {safe_ext}")
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — feature-detection for an optional Postgres extension (vector/pg_trgm); paradedb_available() and friends already probe availability rather than assuming this succeeded
                         logger.debug("Extension %s not available: %s", ext, e)
                         conn.rollback()
 
@@ -302,7 +302,7 @@ class PostgreSQLBackend(GraphBackend):
                     ddl = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols})'
                     try:
                         cur.execute(ddl)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 — the comment/continue on the next line is the deliberate guard against the exact write-then-mark-seen shape: self._known_tables.add(table_name) is skipped on this path, so a failed CREATE is never mistaken for a ready table
                         logger.debug("Table %s DDL error: %s", table_def.name, e)
                         conn.rollback()
                         continue  # don't cache a table whose CREATE failed
