@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from agent_utilities.core.config import ChatModelConfig, config
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
@@ -18,6 +19,25 @@ def _create_engine():
     GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(db_path=":memory:")
     return engine
+
+
+def _standard_model() -> list[ChatModelConfig]:
+    """A single configured 'standard' (normal-intelligence) tier model.
+
+    ``run_agent`` resolves its model via ``_configured_model_for_class``, which
+    fails closed ("configured standard model class is unavailable") when
+    ``config.chat_models`` has no matching ``intelligence_level`` — the unit
+    suite runs hermetically with an empty ``chat_models`` by default (see
+    ``tests/unit/orchestration/test_model_class_evidence.py`` for the same
+    pattern), so any test exercising ``run_agent`` must configure one.
+    """
+    return [
+        ChatModelConfig(
+            id="synthetic-standard",
+            provider="openai",
+            intelligence_level="normal",
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -129,10 +149,11 @@ async def test_agent_runner_binds_provider_skill_to_authenticated_server():
 
 
 @pytest.mark.asyncio
-async def test_agent_runner_execution_failure():
+async def test_agent_runner_execution_failure(monkeypatch):
     """Test agent runner fallback on execution failure."""
     from agent_utilities.orchestration.agent_runner import run_agent
 
+    monkeypatch.setattr(config, "chat_models", _standard_model())
     engine = _create_engine()
 
     with patch(
@@ -147,17 +168,20 @@ async def test_agent_runner_execution_failure():
 
         # Verify trace node was added
         trace_nodes = [
-            n for n, d in engine.graph.nodes(data=True) if d.get("type") == "RunTrace"
+            n
+            for n, d in engine.graph.nodes(data=True)
+            if d.get("node_type") == "RunTrace"
         ]
         assert len(trace_nodes) == 1
         assert engine.graph.nodes[trace_nodes[0]]["status"] == "failed"
 
 
 @pytest.mark.asyncio
-async def test_agent_runner_success():
+async def test_agent_runner_success(monkeypatch):
     """Test agent runner success path and provenance."""
     from agent_utilities.orchestration.agent_runner import run_agent
 
+    monkeypatch.setattr(config, "chat_models", _standard_model())
     engine = _create_engine()
 
     with patch(
@@ -172,7 +196,9 @@ async def test_agent_runner_success():
 
         # Verify trace node was added
         trace_nodes = [
-            n for n, d in engine.graph.nodes(data=True) if d.get("type") == "RunTrace"
+            n
+            for n, d in engine.graph.nodes(data=True)
+            if d.get("node_type") == "RunTrace"
         ]
         assert len(trace_nodes) == 1
         assert engine.graph.nodes[trace_nodes[0]]["status"] == "completed"
