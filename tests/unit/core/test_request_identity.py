@@ -872,6 +872,33 @@ class TestStdioProcessIdentity:
         assert "Stdio" not in str(error.value)
         assert "private backend detail" not in str(error.value)
 
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    def test_mint_actor_from_token_sync_preserves_cause(self):
+        """``mint_actor_from_token_sync`` wraps every failure in a generic
+        ``RuntimeError`` (never echoing the underlying detail to a caller),
+        but must NOT discard the original exception as its ``__cause__`` —
+        that would be the same swallowed-error pattern this change fixes in
+        the JWT verification path (a dependency/config fault becoming an
+        opaque failure with no signal of why)."""
+        from agent_utilities.security.request_identity import (
+            mint_actor_from_token_sync,
+        )
+
+        underlying = RuntimeError(
+            "Cannot validate Bearer token: audience is not configured"
+        )
+        with (
+            mock.patch(
+                "agent_utilities.security.request_identity.actor_from_bearer_token",
+                new=mock.AsyncMock(side_effect=underlying),
+            ),
+            pytest.raises(RuntimeError) as error,
+        ):
+            mint_actor_from_token_sync("irrelevant.token.value")
+
+        assert str(error.value) == "Graph process identity token validation failed"
+        assert error.value.__cause__ is underlying
+
     @pytest.mark.parametrize(
         "cfg",
         [
