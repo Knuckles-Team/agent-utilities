@@ -140,23 +140,23 @@ def _build_mock_engine_with_templates() -> MockEngine:
     # Create prompt nodes
     g.add_node(
         "prompt:researcher",
-        type="prompt",
+        node_type="prompt",
         system_prompt="You are a research specialist.",
     )
     g.add_node(
         "prompt:coder",
-        type="prompt",
+        node_type="prompt",
         system_prompt="You are an expert Python programmer.",
     )
 
     # Create tool nodes
-    g.add_node("tool:web_search", type="tool", name="web_search")
-    g.add_node("tool:code_exec", type="tool", name="code_executor")
+    g.add_node("tool:web_search", node_type="tool", name="web_search")
+    g.add_node("tool:code_exec", node_type="tool", name="code_executor")
 
     # Create AgentTemplate nodes
     g.add_node(
         "at:researcher",
-        type="agent_template",
+        node_type="agent_template",
         name="Researcher",
         role="researcher",
         system_prompt_id="prompt:researcher",
@@ -171,7 +171,7 @@ def _build_mock_engine_with_templates() -> MockEngine:
 
     g.add_node(
         "at:coder",
-        type="agent_template",
+        node_type="agent_template",
         name="Coder",
         role="coder",
         system_prompt_id="prompt:coder",
@@ -186,7 +186,7 @@ def _build_mock_engine_with_templates() -> MockEngine:
 
     g.add_node(
         "at:reviewer",
-        type="agent_template",
+        node_type="agent_template",
         name="Reviewer",
         role="reviewer",
         system_prompt_id="",
@@ -200,8 +200,8 @@ def _build_mock_engine_with_templates() -> MockEngine:
     )
 
     # Create DEPENDS_ON edges (researcher → coder → reviewer)
-    g.add_edge("at:researcher", "at:coder", type="depends_on", weight=1.0)
-    g.add_edge("at:coder", "at:reviewer", type="depends_on", weight=1.0)
+    g.add_edge("at:researcher", "at:coder", relationship="depends_on", weight=1.0)
+    g.add_edge("at:coder", "at:reviewer", relationship="depends_on", weight=1.0)
 
     return engine
 
@@ -214,7 +214,7 @@ def _build_mock_engine_parallel() -> MockEngine:
     # Create parallel templates
     g.add_node(
         "at:web_researcher",
-        type="agent_template",
+        node_type="agent_template",
         name="Web Researcher",
         role="web_researcher",
         system_prompt_id="",
@@ -226,7 +226,7 @@ def _build_mock_engine_parallel() -> MockEngine:
     )
     g.add_node(
         "at:doc_researcher",
-        type="agent_template",
+        node_type="agent_template",
         name="Doc Researcher",
         role="doc_researcher",
         system_prompt_id="",
@@ -238,7 +238,7 @@ def _build_mock_engine_parallel() -> MockEngine:
     )
     g.add_node(
         "at:synthesizer",
-        type="agent_template",
+        node_type="agent_template",
         name="Synthesizer",
         role="synthesizer",
         system_prompt_id="",
@@ -250,8 +250,8 @@ def _build_mock_engine_parallel() -> MockEngine:
     )
 
     # DEPENDS_ON: both researchers → synthesizer
-    g.add_edge("at:web_researcher", "at:synthesizer", type="depends_on", weight=1.0)
-    g.add_edge("at:doc_researcher", "at:synthesizer", type="depends_on", weight=1.0)
+    g.add_edge("at:web_researcher", "at:synthesizer", relationship="depends_on", weight=1.0)
+    g.add_edge("at:doc_researcher", "at:synthesizer", relationship="depends_on", weight=1.0)
 
     return engine
 

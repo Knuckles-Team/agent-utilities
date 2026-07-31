@@ -36,10 +36,10 @@ class MockEngine:
         self.backend = None
 
     def _upsert_node(self, label: str, node_id: str, props: dict):
-        self.graph.add_node(node_id, type="event", **props)
+        self.graph.add_node(node_id, node_type="event", **props)
 
     def link_nodes(self, src: str, tgt: str, rel_type: str, props: dict | None = None):
-        self.graph.add_edge(src, tgt, type=rel_type.upper(), **(props or {}))
+        self.graph.add_edge(src, tgt, relationship=rel_type.upper(), **(props or {}))
 
     @classmethod
     def get_active(cls):

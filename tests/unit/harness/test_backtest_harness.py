@@ -206,9 +206,9 @@ class TestBacktestKGNodes:
         for n in [strat, bt, m1, m2]:
             g.add_node(n.id, **n.model_dump())
 
-        g.add_edge(bt.id, strat.id, type=RegistryEdgeType.EVALUATED_STRATEGY)
-        g.add_edge(bt.id, m1.id, type=RegistryEdgeType.HAS_METRIC)
-        g.add_edge(bt.id, m2.id, type=RegistryEdgeType.HAS_METRIC)
+        g.add_edge(bt.id, strat.id, relationship=RegistryEdgeType.EVALUATED_STRATEGY)
+        g.add_edge(bt.id, m1.id, relationship=RegistryEdgeType.HAS_METRIC)
+        g.add_edge(bt.id, m2.id, relationship=RegistryEdgeType.HAS_METRIC)
 
         assert g.out_degree(bt.id) == 3
         # Traverse from backtest to all metrics

@@ -86,7 +86,7 @@ class TestFunctionRegistryMixin:
         # Simulate mixin by calling on mock_engine directly
         mock_engine.graph.add_node(
             "fn:test1",
-            type="callable_resource",
+            node_type="callable_resource",
             resource_type="MCP_TOOL",
             name="test_tool",
             description="A test tool",
@@ -102,16 +102,16 @@ class TestFunctionRegistryMixin:
         assert data["input_schema"]["type"] == "object"
 
     def test_deregister_function(self, mock_engine):
-        mock_engine.graph.add_node("fn:rm1", type="callable_resource", name="to_remove")
+        mock_engine.graph.add_node("fn:rm1", node_type="callable_resource", name="to_remove")
         mock_engine.graph.remove_node("fn:rm1")
         assert "fn:rm1" not in mock_engine.graph
 
     def test_discover_functions_by_type(self, mock_engine):
         mock_engine.graph.add_node(
-            "fn:a", type="callable_resource", resource_type="MCP_TOOL", name="alpha"
+            "fn:a", node_type="callable_resource", resource_type="MCP_TOOL", name="alpha"
         )
         mock_engine.graph.add_node(
-            "fn:b", type="callable_resource", resource_type="A2A_AGENT", name="beta"
+            "fn:b", node_type="callable_resource", resource_type="A2A_AGENT", name="beta"
         )
 
         # Filter MCP_TOOL only
@@ -127,14 +127,14 @@ class TestFunctionRegistryMixin:
     def test_discover_by_trigger_type(self, mock_engine):
         mock_engine.graph.add_node(
             "fn:cron1",
-            type="callable_resource",
+            node_type="callable_resource",
             resource_type="INTERNAL_SKILL",
             name="scheduler",
             trigger_bindings=[{"trigger_type": "cron", "binding": "0 * * * *"}],
         )
         mock_engine.graph.add_node(
             "fn:http1",
-            type="callable_resource",
+            node_type="callable_resource",
             resource_type="MCP_TOOL",
             name="api",
             trigger_bindings=[{"trigger_type": "http", "binding": "/api"}],

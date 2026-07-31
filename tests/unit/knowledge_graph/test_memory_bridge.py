@@ -41,7 +41,7 @@ def engine():
     # Seed with test data
     g.add_node(
         "user_1",
-        type="user",
+        node_type="user",
         name="Test User",
         role="developer",
         communication_style="concise",
@@ -49,7 +49,7 @@ def engine():
     )
     g.add_node(
         "pref_1",
-        type="preference",
+        node_type="preference",
         name="Dark mode preference",
         value="Prefers dark mode in all tools",
         category="ui",
@@ -59,7 +59,7 @@ def engine():
     )
     g.add_node(
         "obs_1",
-        type="observation",
+        node_type="observation",
         name="Decision about KG",
         content="User decided to use KG-first architecture",
         description="KG-first architecture",
@@ -71,7 +71,7 @@ def engine():
     )
     g.add_node(
         "obs_2",
-        type="observation",
+        node_type="observation",
         name="CI fix session",
         content="Codex session focused on CI pipeline fixes",
         description="CI pipeline fixes",
@@ -83,7 +83,7 @@ def engine():
     )
     g.add_node(
         "ref_1",
-        type="reflection",
+        node_type="reflection",
         name="KG architecture pattern",
         content="Agent consistently prefers graph-native persistence",
         description="Graph-native persistence",
@@ -94,7 +94,7 @@ def engine():
     )
     g.add_node(
         "fact_1",
-        type="fact",
+        node_type="fact",
         name="Python version",
         content="Project uses Python 3.12",
         description="Python 3.12",
@@ -103,7 +103,7 @@ def engine():
     )
     g.add_node(
         "goal_1",
-        type="goal",
+        node_type="goal",
         name="Complete memory bridge",
         goal_text="Implement cross-agent memory bridge (KG-2.7)",
         description="Memory bridge",
@@ -113,7 +113,7 @@ def engine():
     )
     g.add_node(
         "ep_1",
-        type="episode",
+        node_type="episode",
         name="Morning session",
         summary="Refactored KG ingestion pipeline",
         source="claude",
@@ -123,7 +123,7 @@ def engine():
     )
     g.add_node(
         "thread_1",
-        type="thread",
+        node_type="thread",
         name="Memory Bridge Implementation",
         title="Memory Bridge Implementation",
         created_at="2026-05-17T10:00:00Z",

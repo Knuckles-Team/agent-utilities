@@ -60,8 +60,8 @@ class TestDataConnectorKGNodes:
             node = DataConnectorNode(id=f"dc:{name}", name=name, priority=priority)
             g.add_node(node.id, **node.model_dump())
 
-        g.add_edge("dc:yahoo", "dc:polygon", type=RegistryEdgeType.FALLS_BACK_TO)
-        g.add_edge("dc:polygon", "dc:alpha", type=RegistryEdgeType.FALLS_BACK_TO)
+        g.add_edge("dc:yahoo", "dc:polygon", relationship=RegistryEdgeType.FALLS_BACK_TO)
+        g.add_edge("dc:polygon", "dc:alpha", relationship=RegistryEdgeType.FALLS_BACK_TO)
 
         # Verify transitive fallback chain
         path = g.get_shortest_path("dc:yahoo", "dc:alpha")

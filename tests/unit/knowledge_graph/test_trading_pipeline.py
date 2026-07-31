@@ -206,11 +206,11 @@ class TestTradingPipelineIntegration:
             g.add_node(n.id, **n.model_dump())
 
         # Add pipeline edges
-        g.add_edge(strat.id, signal.id, type=RegistryEdgeType.GENERATED_SIGNAL)
-        g.add_edge(signal.id, order.id, type=RegistryEdgeType.PLACED_ORDER)
-        g.add_edge(order.id, pos.id, type=RegistryEdgeType.OPENED_POSITION)
-        g.add_edge(pos.id, port.id, type=RegistryEdgeType.BELONGS_TO_PORTFOLIO)
-        g.add_edge(port.id, strat.id, type=RegistryEdgeType.EXECUTES_STRATEGY)
+        g.add_edge(strat.id, signal.id, relationship=RegistryEdgeType.GENERATED_SIGNAL)
+        g.add_edge(signal.id, order.id, relationship=RegistryEdgeType.PLACED_ORDER)
+        g.add_edge(order.id, pos.id, relationship=RegistryEdgeType.OPENED_POSITION)
+        g.add_edge(pos.id, port.id, relationship=RegistryEdgeType.BELONGS_TO_PORTFOLIO)
+        g.add_edge(port.id, strat.id, relationship=RegistryEdgeType.EXECUTES_STRATEGY)
 
         # Verify graph structure
         assert g.number_of_nodes() == 5
@@ -233,6 +233,6 @@ class TestTradingPipelineIntegration:
         bt = BacktestRunNode(id="bt:001", name="Backtest V1", strategy_id="strat:v1")
         g.add_node(strat.id, **strat.model_dump())
         g.add_node(bt.id, **bt.model_dump())
-        g.add_edge(strat.id, bt.id, type=RegistryEdgeType.BACKTESTED_WITH)
+        g.add_edge(strat.id, bt.id, relationship=RegistryEdgeType.BACKTESTED_WITH)
 
         assert g.has_edge(strat.id, bt.id)

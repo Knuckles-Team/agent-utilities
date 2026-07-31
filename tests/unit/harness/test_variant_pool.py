@@ -37,7 +37,7 @@ class FakeEngine:  # type: ignore
             self.backend.store[node_id] = {**props, "id": node_id}
 
     def link_nodes(self, src, tgt, rel_type, props=None):
-        self.graph.add_edge(src, tgt, type=rel_type, **(props or {}))
+        self.graph.add_edge(src, tgt, relationship=rel_type, **(props or {}))
 
 
 class TestVariantRegistration:
@@ -147,12 +147,12 @@ class TestFitnessEvaluation:
         pool = VariantPool(engine)  # type: ignore
 
         # Set up graph: variant <- episode -> evaluation
-        engine.graph.add_node("var:1", type="system_prompt")
-        engine.graph.add_node("ep:1", type="episode")
-        engine.graph.add_node("eval:1", type="outcome_evaluation", reward=0.9)
+        engine.graph.add_node("var:1", node_type="system_prompt")
+        engine.graph.add_node("ep:1", node_type="episode")
+        engine.graph.add_node("eval:1", node_type="outcome_evaluation", reward=0.9)
 
-        engine.graph.add_edge("ep:1", "var:1", type="EXECUTED_BY")
-        engine.graph.add_edge("ep:1", "eval:1", type="PRODUCED_OUTCOME")
+        engine.graph.add_edge("ep:1", "var:1", relationship="EXECUTED_BY")
+        engine.graph.add_edge("ep:1", "eval:1", relationship="PRODUCED_OUTCOME")
 
         fitness = pool.evaluate_fitness("var:1")
         assert fitness == 0.9
@@ -175,7 +175,7 @@ class TestSelection:
         for i in range(5):
             vid = f"var:{i}"
             engine.graph.add_node(vid, name=f"Variant {i}", metadata={})
-            engine.graph.add_edge(vid, "base:1", type=RegistryEdgeType.VARIANT_OF)
+            engine.graph.add_edge(vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF)
 
         # Tournament select should return at most top_k
         winners = pool.tournament_select("base:1", top_k=3)
@@ -189,7 +189,7 @@ class TestSelection:
         for i in range(5):
             vid = f"var:{i}"
             engine.graph.add_node(vid, name=f"Variant {i}", metadata={})
-            engine.graph.add_edge(vid, "base:1", type=RegistryEdgeType.VARIANT_OF)
+            engine.graph.add_edge(vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF)
 
         pruned = pool.prune_losers("base:1", keep=3)
         assert pruned >= 0  # May be 0 if all have same fitness
