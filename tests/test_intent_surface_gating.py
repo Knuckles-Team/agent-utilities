@@ -182,26 +182,30 @@ async def test_manage_verb_lifecycle_action_loads_and_unloads(tmp_path):
     mux = _mux_with_local_gated(tmp_path, mcp, {"graph_query": {"query", "gated"}})
     mcp._fleet_mux = mux
 
+    intent = "load graph_query"
     load_hints = {"action": "load", "tools": ["graph_query"]}
-    load_preview = await intent_tools._manage_lifecycle(mcp, load_hints)
+    load_preview = await intent_tools._manage_lifecycle(mcp, intent, load_hints)
     assert load_preview["executed"] is False
     assert "graph_query" not in _loaded_tools(mux)
 
     loaded = await intent_tools._manage_lifecycle(
         mcp,
+        intent,
         {**load_hints, "plan_ref": load_preview["plan"]["plan_ref"]},
         execute=True,
     )
     assert "graph_query" in _loaded_tools(mux)
     assert "graph_query" in loaded["newly_exposed"]
 
+    unload_intent = "unload graph_query"
     unload_hints = {"action": "unload", "tools": ["graph_query"]}
-    unload_preview = await intent_tools._manage_lifecycle(mcp, unload_hints)
+    unload_preview = await intent_tools._manage_lifecycle(mcp, unload_intent, unload_hints)
     assert unload_preview["executed"] is False
     assert "graph_query" in _loaded_tools(mux)
 
     unloaded = await intent_tools._manage_lifecycle(
         mcp,
+        unload_intent,
         {**unload_hints, "plan_ref": unload_preview["plan"]["plan_ref"]},
         execute=True,
     )
@@ -210,4 +214,4 @@ async def test_manage_verb_lifecycle_action_loads_and_unloads(tmp_path):
 
     # Not a lifecycle action -> returns None so the caller falls through to the
     # normal capability resolver.
-    assert await intent_tools._manage_lifecycle(mcp, {}) is None
+    assert await intent_tools._manage_lifecycle(mcp, "noop", {}) is None

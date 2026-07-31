@@ -397,7 +397,7 @@ def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
     for tool in raw_tools:
         name = getattr(tool, "name", None)
         description = getattr(tool, "description", "") or ""
-        input_schema = getattr(tool, "inputSchema", None) or {}
+        input_schema = getattr(tool, "input_schema", None) or {}
         annotations = getattr(tool, "annotations", None)
         if annotations is not None and not isinstance(annotations, dict):
             model_dump = getattr(annotations, "model_dump", None)
@@ -1132,7 +1132,7 @@ class MCPMultiplexer:
         catalog = [
             {
                 "annotations": getattr(tool, "annotations", None),
-                "inputSchema": tool.inputSchema,
+                "inputSchema": tool.input_schema,
                 "name": tool.name,
             }
             for tool in tools
@@ -1937,7 +1937,7 @@ class MCPMultiplexer:
             prefixed_tool = mcp.types.Tool(
                 name=prefixed_name,
                 description=tool.description or "",
-                inputSchema=tool.inputSchema,
+                input_schema=tool.input_schema,
                 _meta=getattr(tool, "meta", None),
             )
             self.aggregated_tools.append(prefixed_tool)
@@ -2022,7 +2022,7 @@ class MCPMultiplexer:
                 {
                     "name": original,
                     "description": (tobj.description if tobj else "") or "",
-                    "inputSchema": (tobj.inputSchema if tobj else {}) or {},
+                    "inputSchema": (tobj.input_schema if tobj else {}) or {},
                 }
             )
         return out
@@ -2990,7 +2990,7 @@ def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
         else:
             with mux._authority_scope():
                 result = await mux.call_proxied_tool(prefixed_name, kwargs)
-        if bool(getattr(result, "isError", False)):
+        if bool(getattr(result, "is_error", False)):
             # ``ToolResult`` has no error bit. Returning one here silently
             # converts a child MCP failure into an outer success, so raise the
             # framework's typed error exactly as FastMCP's native proxy does.
@@ -2998,7 +2998,7 @@ def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
             raise ToolError("delegated_child_tool_failed")
         return ToolResult(
             content=list(getattr(result, "content", []) or []),
-            structured_content=getattr(result, "structuredContent", None),
+            structured_content=getattr(result, "structured_content", None),
         )
 
     return _forward
@@ -3026,7 +3026,7 @@ def _register_forwarder(mcp, mux: MCPMultiplexer, tool: mcp.types.Tool) -> bool:
     """
     if tool.name in mux._exposed:
         return False
-    schema = tool.inputSchema or {"type": "object", "properties": {}}
+    schema = tool.input_schema or {"type": "object", "properties": {}}
     mcp.add_tool(
         FunctionTool(
             name=tool.name,
@@ -3107,6 +3107,12 @@ def _session_key() -> str:
     On a shared streamable-http server every client gets its own
     ``Context.session_id``; with no session context (stdio / single-client) all
     requests fall back to one key so behaviour matches the pre-Phase-5 server.
+
+    The HTTP-context check MUST run before consulting ``Context.session_id``:
+    fastmcp 4's ``Context.session_id`` no longer raises when there is no real
+    (HTTP) session — for stdio/in-memory transports it silently mints a fresh
+    UUID on every single call (no stable ``connection`` to cache it on), which
+    would otherwise give every call in the same local session a different key.
     """
     try:
         from fastmcp.server.dependencies import (
@@ -3115,20 +3121,24 @@ def _session_key() -> str:
             get_http_request,
         )
 
+        get_http_request()
+    except RuntimeError:
+        return "__local_stdio__"
+    except Exception as exc:
+        logger.debug(
+            "No HTTP request context; trying next key source: %s",
+            exc,
+        )
+        return "__invalid_http_context__"
+    try:
         sid = get_context().session_id
         if sid:
             return str(sid)
     except Exception as exc:
         logger.debug(
-            "No session context (stdio/single-client); trying next key source: %s",
+            "HTTP context present but no session_id; falling back to token key: %s",
             exc,
         )
-    try:
-        get_http_request()
-    except RuntimeError:
-        return "__local_stdio__"
-    except Exception:
-        return "__invalid_http_context__"
     try:
         token = get_access_token()
     except Exception:
