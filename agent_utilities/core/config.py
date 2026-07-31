@@ -1311,7 +1311,7 @@ class ChatModelConfig(BaseModel):
     max_concurrent_requests: int | None = None
     """Hard ceiling on the **aggregate** in-flight requests this model's *server*
     can serve safely — its real vLLM ``--max-num-seqs`` / KV-cache + (for a
-    unified-memory accelerator host) the shared-memory headroom (CONCEPT:AU-KG.compute.same-semantics-as).
+    unified-memory accelerator host) the shared-memory headroom.
 
     This is the ONE number the model SERVER's capacity dictates, NOT the local
     host's CPU count. It varies across edge hosts, accelerator workstations, and
@@ -1388,7 +1388,7 @@ class EmbeddingModelConfig(BaseModel):
     sequential and is always safe. CONCEPT:AU-KG.compute.concurrency-controller-sizing."""
     max_concurrent_requests: int | None = None
     """Hard ceiling on the aggregate in-flight embedding requests this model's
-    *server* can serve safely (CONCEPT:AU-KG.compute.same-semantics-as). Same semantics as
+    *server* can serve safely. Same semantics as
     :pyattr:`ChatModelConfig.max_concurrent_requests`: the SERVER's real capacity,
     capping the embedding fan-out so bulk embedding can never oversubscribe the
     endpoint. On a unified-memory host the embedder shares accelerator memory with
@@ -2634,7 +2634,7 @@ class AgentConfig(BaseSettings):
     def model_max_concurrent_requests(self, model: str | None = None) -> int | None:
         """Resolve a model's explicit server-capacity ceiling, if configured.
 
-        CONCEPT:AU-KG.compute.same-semantics-as. Returns the model's ``max_concurrent_requests`` (the
+        Returns the model's ``max_concurrent_requests`` (the
         server's real ``--max-num-seqs`` / safe in-flight budget) by id or role,
         or ``None`` when unset/unknown so the caller applies the conservative
         default. A non-positive/garbage value resolves to ``None`` (no hard cap
@@ -6100,7 +6100,9 @@ def _fetch_prompt_agents(engine: Any) -> list[MCPAgent]:
         # of the process — a transient failure here silently produces a partial/empty
         # agent registry that then never self-heals. Raised to warning for visibility;
         # the cache-poisoning fix itself belongs to _RegistryCache (see D-DSTO follow-up).
-        logger.warning(f"Failed to fetch Prompt nodes (registry cache may go stale): {e}")
+        logger.warning(
+            f"Failed to fetch Prompt nodes (registry cache may go stale): {e}"
+        )
     return agents
 
 
@@ -6129,7 +6131,9 @@ def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
     except Exception as e:
         # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
         # raised to warning so a persistently-failing fetch is diagnosable.
-        logger.warning(f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}")
+        logger.warning(
+            f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}"
+        )
     return agents
 
 

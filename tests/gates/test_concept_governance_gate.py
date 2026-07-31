@@ -233,3 +233,191 @@ def test_update_baseline_without_audit_merged_is_rejected():
     )
     assert result.returncode == 2
     assert "only applies with --audit-merged" in result.stderr
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Parent-satisfied documentation (AU-OS.governance.concept-lineage-parent-doc)
+#
+# The mechanism's whole risk is that a pointer can HIDE a real decision, so the
+# tests below are weighted toward the ways it could lie: a parent with no doc, a
+# parent that does not exist, a chain, and a rationale that only restates the id.
+# ──────────────────────────────────────────────────────────────────────────────
+
+import pytest  # noqa: E402
+
+from agent_utilities.governance.concept_lineage import (  # noqa: E402
+    LineageError,
+    parse_lineage,
+)
+from scripts.check_concept_governance import (  # noqa: E402
+    reintroduced_retirements,
+    resolve_documentation,
+)
+
+_GOOD_RATIONALE = (
+    "one of nine per-connector entity-type declarations realising the single "
+    "declarative source mapping decision written up under the parent"
+)
+
+
+def _lineage(parents=None, retired=None):
+    return parse_lineage({"parents": parents or {}, "retired": retired or {}})
+
+
+def _design(tmp_path, **docs):
+    design_dir = tmp_path / "design"
+    design_dir.mkdir(exist_ok=True)
+    for name, ids in docs.items():
+        (design_dir / f"{name}.md").write_text(
+            "\n".join("CONCEPT:" + cid for cid in ids), encoding="utf-8"
+        )
+    return design_dir
+
+
+def test_a_declared_parent_makes_a_child_documented(tmp_path):
+    design_dir = _design(tmp_path, decision=["AU-KG.demo.the-decision"])
+    lineage = _lineage(
+        {"AU-KG.demo.a-marker": {"parent": "AU-KG.demo.the-decision", "rationale": _GOOD_RATIONALE}}
+    )
+    live = frozenset({"AU-KG.demo.a-marker", "AU-KG.demo.the-decision"})
+
+    documented, broken = resolve_documentation(
+        "AU-KG.demo.a-marker", lineage=lineage, design_dir=design_dir, live_ids=live
+    )
+    assert documented and broken is None
+
+
+def test_a_parent_without_its_own_doc_is_a_violation_not_a_pass(tmp_path):
+    """The failure mode that would make this feature harmful: pointing a child
+    at a parent nobody ever documented reads as coverage while covering
+    nothing. It must be reported BY NAME, never silently accepted."""
+    design_dir = _design(tmp_path)
+    lineage = _lineage(
+        {"AU-KG.demo.a-marker": {"parent": "AU-KG.demo.undocumented", "rationale": _GOOD_RATIONALE}}
+    )
+    live = frozenset({"AU-KG.demo.a-marker", "AU-KG.demo.undocumented"})
+
+    documented, broken = resolve_documentation(
+        "AU-KG.demo.a-marker", lineage=lineage, design_dir=design_dir, live_ids=live
+    )
+    assert not documented
+    assert broken and "NO design document" in broken
+
+
+def test_a_parent_that_is_not_a_live_concept_is_a_violation(tmp_path):
+    design_dir = _design(tmp_path, decision=["AU-KG.demo.ghost"])
+    lineage = _lineage(
+        {"AU-KG.demo.a-marker": {"parent": "AU-KG.demo.ghost", "rationale": _GOOD_RATIONALE}}
+    )
+    documented, broken = resolve_documentation(
+        "AU-KG.demo.a-marker",
+        lineage=lineage,
+        design_dir=design_dir,
+        live_ids=frozenset({"AU-KG.demo.a-marker"}),
+    )
+    assert not documented
+    assert broken and "not a live concept" in broken
+
+
+def test_parent_chains_are_rejected_at_load_time():
+    """A -> B -> C reads as documented at every step while only C is checked.
+    One hop keeps 'is this documented?' answerable without a traversal."""
+    with pytest.raises(LineageError, match="chains are not allowed"):
+        _lineage(
+            {
+                "AU-KG.demo.a": {"parent": "AU-KG.demo.b", "rationale": _GOOD_RATIONALE},
+                "AU-KG.demo.b": {"parent": "AU-KG.demo.c", "rationale": _GOOD_RATIONALE},
+            }
+        )
+
+
+def test_a_rationale_that_restates_the_id_is_rejected():
+    """The anti-filler rule, applied to pointers: a doc that restates its id is
+    already forbidden, and a pointer that restates its id is the same lie in one
+    line instead of one page."""
+    with pytest.raises(LineageError, match="restates the concept id"):
+        _lineage(
+            {
+                "AU-KG.demo.entropy-dedup": {
+                    "parent": "AU-KG.demo.the-decision",
+                    "rationale": "entropy dedup — the demo decision",
+                }
+            }
+        )
+
+
+def test_self_parent_is_rejected():
+    with pytest.raises(LineageError, match="cannot be its own parent"):
+        _lineage({"AU-KG.demo.a": {"parent": "AU-KG.demo.a", "rationale": _GOOD_RATIONALE}})
+
+
+def test_a_concept_cannot_be_both_retired_and_linked():
+    with pytest.raises(LineageError, match="both retired and used in a parent link"):
+        _lineage(
+            parents={"AU-KG.demo.a": {"parent": "AU-KG.demo.b", "rationale": _GOOD_RATIONALE}},
+            retired={"AU-KG.demo.b": {"reason": "never named a decision"}},
+        )
+
+
+def test_a_retirement_needs_a_reason():
+    with pytest.raises(LineageError, match="requires a reason"):
+        _lineage(retired={"AU-KG.demo.a": {}})
+
+
+def test_reintroducing_a_retired_id_is_detected():
+    """Retirement is a ratchet, not a deletion: the id coming back must fail."""
+    lineage = _lineage(retired={"AU-KG.demo.gone": {"reason": "a slugified prose fragment"}})
+    assert reintroduced_retirements(frozenset({"AU-KG.demo.gone"}), lineage) == [
+        ("AU-KG.demo.gone", "a slugified prose fragment")
+    ]
+    assert reintroduced_retirements(frozenset({"AU-KG.demo.other"}), lineage) == []
+
+
+def test_audit_merged_counts_a_parent_linked_concept_as_documented(tmp_path):
+    """End-to-end through the gate itself, not just the resolver: a marker with
+    no doc of its own and no baseline entry FAILS, and passes once — and only
+    once — a parent link to a documented decision is declared."""
+    scan_root = tmp_path / "repo"
+    baseline = tmp_path / "baseline.txt"
+    design_dir = _design(tmp_path, decision=["AU-KG.demo.the-decision"])
+    _write_markers(
+        scan_root,
+        path="agent_utilities/x.py",
+        ids=["AU-KG.demo.the-decision", "AU-KG.demo.a-marker"],
+    )
+    # Two distinct files, not one file rewritten: `load_lineage` is lru_cached
+    # by path (matching `load_domain_vocab`/`load_slug_registry`), and the gate
+    # is a one-shot process, so re-reading a mutated path is a scenario that
+    # never occurs in production and would only be testing the cache.
+    empty = tmp_path / "lineage-empty.yaml"
+    empty.write_text("parents: {}\nretired: {}\n", encoding="utf-8")
+    linked = tmp_path / "lineage-linked.yaml"
+    linked.write_text(
+        "parents:\n"
+        "  AU-KG.demo.a-marker:\n"
+        "    parent: AU-KG.demo.the-decision\n"
+        f"    rationale: {_GOOD_RATIONALE}\n"
+        "retired: {}\n",
+        encoding="utf-8",
+    )
+
+    assert (
+        audit_merged(
+            update=False,
+            scan_root=scan_root,
+            design_dir=design_dir,
+            baseline_path=baseline,
+            lineage_path=str(empty),
+        )
+        == 1
+    )
+    assert (
+        audit_merged(
+            update=False,
+            scan_root=scan_root,
+            design_dir=design_dir,
+            baseline_path=baseline,
+            lineage_path=str(linked),
+        )
+        == 0
+    )

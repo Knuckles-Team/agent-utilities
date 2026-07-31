@@ -1,7 +1,7 @@
 # LLM / Embedding Server-Capacity Guard
 
 > CONCEPT:AU-ORCH.dispatch.embedding-fanout (per-endpoint server-capacity ceiling) · CONCEPT:AU-ORCH.routing.load-shedding-backoff
-> (capacity-aware backpressure + circuit breaking) · CONCEPT:AU-KG.compute.same-semantics-as
+> (capacity-aware backpressure + circuit breaking) ·
 > (`max_concurrent_requests` config).
 > Composes with — does not replace — the Resource-Priority Edict
 > ([`resource-priority-edict.md`](resource-priority-edict.md), AU-ORCH.scheduling.resource-priority-edict/1.99),

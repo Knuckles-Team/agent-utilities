@@ -221,7 +221,7 @@ def test_shard_floor_respects_explicit_redb_shards_env(monkeypatch):
     assert worker_scheduler.durable_shard_writers() == 3
 
 
-# ── CONCEPT:AU-KG.compute.resolve — resolve the engine's REAL K (split-storage) ────────────
+# ── resolve the engine's REAL K (split-storage) ────────────
 
 
 class _FakeResharding:
@@ -255,7 +255,7 @@ class _FakeBackend:
 
 def test_resolve_engine_shard_writers_uses_engine_K(monkeypatch):
     """Split-storage: the host has 16 cpus (→ cpu estimate 8) but the REMOTE engine
-    only has K=4 writers. The floor must reflect the engine's actual K (CONCEPT:AU-KG.compute.resolve)."""
+    only has K=4 writers. The floor must reflect the engine's actual K."""
     from agent_utilities.knowledge_graph.core import worker_scheduler
 
     worker_scheduler.set_engine_shard_writers(None)

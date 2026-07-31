@@ -225,7 +225,7 @@ class HybridRetriever:
         corpus_doc_ids: set[str] | None = None,
         label: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Vector candidates from the engine's native ANN (CONCEPT:AU-KG.compute.kg-2).
+        """Vector candidates from the engine's native ANN.
 
         The vector neighbourhood is ALWAYS computed by the engine — never by an
         O(N) Python cosine scan.
@@ -233,7 +233,7 @@ class HybridRetriever:
         * **Composed (unified plan).** When the query is scoped to a node label, the
           arm builds ONE cross-modal unified plan — ``Scan(label) |> Rank(query) |>
           Limit`` — that the engine sequences over a single off-lock snapshot
-          (``query.unified``, CONCEPT:AU-KG.compute.vector): the vector ``Rank`` leg composes
+          (``query.unified``): the vector ``Rank`` leg composes
           with the relational ``Scan``/``Filter`` in one costed round-trip. (The
           engine's ``Rank`` is a kNN over the full store intersected with the seeded
           RowSet, so it *requires* a source op — a bare ``Rank`` has no candidate
@@ -304,7 +304,7 @@ class HybridRetriever:
         """Return ``(id, score)`` from the engine's vector index — ONE round-trip.
 
         When a ``label`` is given, the ranking is the unified plan
-        ``Scan(label) |> Rank(query) |> Limit`` (CONCEPT:AU-KG.compute.vector) — the engine
+        ``Scan(label) |> Rank(query) |> Limit`` — the engine
         composing the relational seed with the vector ``Rank`` in one costed plan.
         Otherwise it is the engine's native ``semantic_search`` ANN primitive (the
         unseeded full-store kNN). Both read the SAME engine vector index; on any
@@ -648,7 +648,7 @@ class HybridRetriever:
             except Exception as e:  # noqa: BLE001 — the relational-intent arm is explicitly a zero-LLM optional arm (comment above); relational_nodes stays at its initialized [] so the semantic/keyword arms below still run
                 logger.debug("Relational-intent arm failed: %s", e)
 
-        # 1. Semantic Search (Vector) — ONE engine unified plan (CONCEPT:AU-KG.compute.kg-2).
+        # 1. Semantic Search (Vector) — ONE engine unified plan.
         # The vector neighbourhood is computed by the engine's native ANN inside a
         # single costed cross-modal plan (filter + vector ``Rank``), NOT by an O(N)
         # Python cosine scan. There is no SQLite-style fallback: if the engine has
@@ -831,9 +831,7 @@ class HybridRetriever:
         # prefetch is pure round-trip amortization: it fetches exactly what the
         # loop would have fetched, so `visited` semantics and the assembled node
         # set are unchanged.
-        _base_ids = [
-            str(n.get("id") or "") for n in base_nodes if isinstance(n, dict)
-        ]
+        _base_ids = [str(n.get("id") or "") for n in base_nodes if isinstance(n, dict)]
         _base_ids = [nid for nid in _base_ids if nid]
         _exists = self._exists_batch(_base_ids) if _base_ids else {}
         _neighbors: dict[str, list[str]] = (

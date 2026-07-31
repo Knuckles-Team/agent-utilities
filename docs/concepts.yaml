@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1120
+total_concepts: 1112
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2508,14 +2508,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: Audiobookshelf libraries/books/authors →
-- id: AU-KG.compute.automates
-  name: AUTOMATES
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/owl_bridge.py
-  - agent_utilities/models/knowledge_graph.py
-  doc: AUTOMATES
 - id: AU-KG.compute.built-ast-extended
   name: engine built with ast-extended
   pillar: AU-KG
@@ -2638,13 +2630,6 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/kafka_graph_sync.py
   doc: Event-Driven Graph Synchronization
-- id: AU-KG.compute.executed-p2-p3-rollout
-  name: the executed P2/P3 rollout
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/numeric/__init__.py
-  doc: the executed P2/P3 rollout
 - id: AU-KG.compute.firefly-iii-accounts-transactions
   name: Firefly III accounts/transactions/budgets →
   pillar: AU-KG
@@ -2715,14 +2700,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: Home Assistant states →
-- id: AU-KG.compute.homelab-rss-reader-as
-  name: ───────
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/chunked_drain.py
-  - agent_utilities/knowledge_graph/core/source_sync.py
-  doc: ───────
 - id: AU-KG.compute.http-route-graph
   name: the HTTP route graph
   pillar: AU-KG
@@ -2759,16 +2736,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/hydration.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: Jira first-class delta connector
-- id: AU-KG.compute.kg-2
-  name: min-max normalized across the
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/graph_compute.py
-  - agent_utilities/knowledge_graph/retrieval/context_compiler.py
-  - agent_utilities/knowledge_graph/retrieval/engine_capability_search.py
-  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  doc: min-max normalized across the
 - id: AU-KG.compute.kg-3
   name: AU-KG.compute.kg-3
   pillar: AU-KG
@@ -2923,14 +2890,6 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: The per-batch foreground check above stays as a
-- id: AU-KG.compute.resolve
-  name: resolve the ENGINE
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/engine_tasks.py
-  - agent_utilities/knowledge_graph/core/worker_scheduler.py
-  doc: resolve the ENGINE
 - id: AU-KG.compute.reuse-model-latent
   name: the latent the model already computes
   pillar: AU-KG
@@ -2938,14 +2897,6 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/world_model.py
   doc: the latent the model already computes
-- id: AU-KG.compute.same-semantics-as
-  name: Same semantics as
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/core/config.py
-  - agent_utilities/core/model_concurrency.py
-  doc: Same semantics as
 - id: AU-KG.compute.single-dropped-connection
   name: A single dropped connection
   pillar: AU-KG
@@ -3076,30 +3027,6 @@ concepts:
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/messaging/bus.py
   doc: the user-override layer of the prompt library, mirroring
-- id: AU-KG.compute.vector
-  name: the vector
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/graph_compute.py
-  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  doc: the vector
-- id: AU-KG.compute.when-exposes
-  name: when the engine exposes the
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/graph_compute.py
-  - agent_utilities/knowledge_graph/enrichment/pipeline.py
-  doc: when the engine exposes the
-- id: AU-KG.compute.when-exposes-native
-  name: when the engine exposes the native
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/assimilation/dedup.py
-  - agent_utilities/knowledge_graph/core/graph_compute.py
-  doc: when the engine exposes the native
 - id: AU-KG.compute.workspace-attention-scoring
   name: WorkspaceAttention scoring for specialist priority
   pillar: AU-KG
@@ -8914,6 +8841,13 @@ concepts:
   code_paths:
   - agent_utilities/cli/__init__.py
   doc: validate and project a canonical OKF-CIS id
+- id: AU-OS.governance.concept-lineage-parent-doc
+  name: parent-satisfied documentation
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/concept_lineage.py
+  doc: parent-satisfied documentation
 - id: AU-OS.governance.fail-closed-claim-check
   name: AU-OS.governance.fail-closed-claim-check
   pillar: AU-OS

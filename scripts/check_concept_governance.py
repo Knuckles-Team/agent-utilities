@@ -86,6 +86,31 @@ Run ``--update-baseline`` to (re)freeze the current undocumented set — the
 correct move immediately after fixing/retiring a batch of concepts, or when
 deliberately accepting a new gap with a stated reason.
 
+Parent-satisfied documentation (CONCEPT:AU-OS.governance.concept-lineage-parent-doc)
+------------------------------------------------------------------------------------
+The rule above — "every marker needs a design doc" — silently assumes every
+marker names its own architectural decision. Auditing ``AU-KG.compute`` (79
+concepts) found that assumption false by roughly a factor of four: sixteen of
+those markers were per-connector declarations realising ONE decision, four were
+per-surface markers realising ONE decision to drop numpy/scipy, and eleven named
+no decision at all. Demanding 79 documents there demands ~58 restatements, and a
+restatement is *worse* than no document: it satisfies the gate, looks like
+documentation, and teaches nothing.
+
+So a concept may instead declare a **parent** in
+``agent_utilities/governance/concept_lineage.yaml`` — "the decision I realise is
+documented over there". ``has_design_doc(child) or has_design_doc(parent)``
+counts as documented, but only after the parent is verified to genuinely own a
+document and to be a live concept. A parent link into an undocumented or dead
+parent is reported as a **violation by name**, never as a silent pass — burying
+a real decision behind a wrong pointer is the one way this mechanism could do
+harm, so it is the one thing the gate refuses to be quiet about.
+
+The same registry records **retirements** (markers deleted because they never
+named a decision — e.g. an id auto-derived from a prose fragment). Re-introducing
+a retired id is a failure: that is what makes retirement a ratchet rather than a
+deletion someone silently undoes.
+
 Exit codes: 0 = governance OK (or no new concepts), 1 = violation(s).
 """
 
@@ -106,6 +131,10 @@ from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
     is_valid_domain,
     load_slug_registry,
     parse_okf_id,
+)
+from agent_utilities.governance.concept_lineage import (  # noqa: E402
+    Lineage,
+    load_lineage,
 )
 
 CONCEPT_RE = OKF_MARKER_RE
@@ -241,6 +270,50 @@ def all_registered_concepts(root: Path = ROOT) -> list[str]:
     return sorted(found)
 
 
+def resolve_documentation(
+    concept: str,
+    *,
+    lineage: Lineage,
+    design_dir: Path = DESIGN_DIR,
+    live_ids: frozenset[str] | None = None,
+) -> tuple[bool, str | None]:
+    """Is *concept* documented, and is its parent link (if any) sound?
+
+    Returns ``(documented, broken_link_reason)``. A broken link is reported
+    separately from "undocumented" because it is a *harder* failure: it is not
+    pre-existing debt the baseline may excuse, it is a pointer someone wrote
+    that leads nowhere, and its whole risk is that it reads like coverage.
+    """
+    if has_design_doc(concept, design_dir):
+        return True, None
+
+    parent = lineage.parent_of(concept)
+    if parent is None:
+        return False, None
+
+    if live_ids is not None and parent not in live_ids:
+        return False, (
+            f"{concept} declares parent {parent}, which is not a live concept "
+            "(no CONCEPT: marker anywhere in the tree) — the pointer leads nowhere"
+        )
+    if not has_design_doc(parent, design_dir):
+        return False, (
+            f"{concept} declares parent {parent}, which has NO design document — "
+            "a parent link may only point at a documented decision, otherwise it "
+            "buries the child instead of covering it"
+        )
+    return True, None
+
+
+def reintroduced_retirements(
+    live_ids: frozenset[str], lineage: Lineage
+) -> list[tuple[str, str]]:
+    """Retired concept ids that have a live marker again, with their reason."""
+    return sorted(
+        (cid, lineage.retired[cid].reason) for cid in lineage.retired if cid in live_ids
+    )
+
+
 def read_baseline(baseline: Path = MERGED_AUDIT_BASELINE) -> set[str]:
     if not baseline.exists():
         return set()
@@ -270,12 +343,43 @@ def audit_merged(
     scan_root: Path = ROOT,
     design_dir: Path = DESIGN_DIR,
     baseline_path: Path = MERGED_AUDIT_BASELINE,
+    lineage_path: str | None = None,
 ) -> int:
     """Base-less mode: audit every live concept id, regardless of merge status."""
     all_ids = all_registered_concepts(scan_root)
-    undocumented = {cid for cid in all_ids if not has_design_doc(cid, design_dir)}
+    live = frozenset(all_ids)
+    lineage = load_lineage(lineage_path)
+
+    undocumented: set[str] = set()
+    broken_links: list[str] = []
+    for cid in all_ids:
+        documented, broken = resolve_documentation(
+            cid, lineage=lineage, design_dir=design_dir, live_ids=live
+        )
+        if broken:
+            broken_links.append(broken)
+        if not documented:
+            undocumented.add(cid)
+
+    revived = reintroduced_retirements(live, lineage)
 
     if update:
+        # Refuse to freeze a baseline while a pointer is broken: --update-baseline
+        # is the "accept this as known debt" button, and a broken parent link is
+        # not debt, it is a claim of coverage that is false. Laundering it into
+        # the baseline is exactly the failure mode the id-keyed ratchet exists to
+        # prevent.
+        if broken_links or revived:
+            print(
+                "REFUSING to update the baseline while the lineage registry is "
+                "inconsistent — fix these first:",
+                file=sys.stderr,
+            )
+            for msg in broken_links:
+                print(f"  - {msg}", file=sys.stderr)
+            for cid, reason in revived:
+                print(f"  - {cid} was retired ({reason}) but has a live marker again", file=sys.stderr)
+            return 1
         write_baseline(undocumented, baseline_path)
         print(
             f"Baseline updated: {len(undocumented)} undocumented concept(s) frozen "
@@ -293,9 +397,15 @@ def audit_merged(
     # would double-report as both "now documented" and "no longer exists".
     resolved = sorted((baseline - undocumented) & all_ids_set)
 
+    covered_by_parent = sorted(
+        c for c in lineage.parents if c in all_ids_set and c not in undocumented
+    )
+
     print(
         f"Merged-concept audit: {len(all_ids)} live concept(s) discovered, "
-        f"{len(undocumented)} without a design doc, {len(baseline)} baselined."
+        f"{len(undocumented)} without a design doc, {len(baseline)} baselined, "
+        f"{len(covered_by_parent)} covered by a declared parent, "
+        f"{len(lineage.retired)} retired."
     )
 
     if resolved:
@@ -314,6 +424,33 @@ def audit_merged(
         for c in stale:
             print(f"  + {c}")
 
+    failed = False
+
+    # Broken pointers and revived retirements fail unconditionally — the baseline
+    # never excuses them, because neither is pre-existing debt: both are claims
+    # someone wrote in this registry that the tree contradicts.
+    if broken_links:
+        print(
+            f"\nFAIL: {len(broken_links)} broken parent link(s) in "
+            "agent_utilities/governance/concept_lineage.yaml:"
+        )
+        for msg in broken_links:
+            print(f"  - {msg}")
+        failed = True
+
+    if revived:
+        print(
+            f"\nFAIL: {len(revived)} deliberately-retired concept id(s) have a live "
+            "marker again:"
+        )
+        for cid, reason in revived:
+            print(f"  - {cid} — retired because: {reason}")
+        print(
+            "  Either delete the re-introduced marker, or (if the decision is real "
+            "now) drop the retirement entry and give the concept a design document."
+        )
+        failed = True
+
     if new_undocumented:
         print(
             f"\nFAIL: {len(new_undocumented)} concept(s) have NO design document "
@@ -322,11 +459,17 @@ def audit_merged(
         for c in new_undocumented:
             print(f"  - {c}")
         print(
-            "\nTo fix: create a design document in .specify/design/<feature>/ that "
-            "references each concept, OR — if it is a genuinely mechanical marker "
-            "with no design decision behind it — retire the marker instead. If this "
-            "is deliberately-accepted debt, run --update-baseline with a stated reason."
+            "\nTo fix, pick the one that is true:\n"
+            "  * it IS a decision  -> write a design document in .specify/design/<feature>/\n"
+            "  * it REALISES a decision documented elsewhere -> declare a parent in\n"
+            "    agent_utilities/governance/concept_lineage.yaml (one doc, N pointers)\n"
+            "  * it names NO decision -> retire the marker and record the retirement\n"
+            "  `scripts/concept_domain_triage.py propose <PILLAR>.<domain>` proposes\n"
+            "  which of the three each concept is, with evidence."
         )
+        failed = True
+
+    if failed:
         return 1
 
     print("\nNo new merged-but-undocumented concepts. Governance check passed.")
@@ -369,11 +512,21 @@ def main() -> int:
         return 0
 
     slugs = valid_slugs()
+    lineage = load_lineage()
+    live = frozenset(all_registered_concepts())
     violations: list[str] = []
     for concept in concepts:
         parsed = parse_okf_id(concept)
-        if not has_design_doc(concept):
-            violations.append(f"  {concept} - No design document references this concept")
+        documented, broken = resolve_documentation(
+            concept, lineage=lineage, live_ids=live
+        )
+        if broken:
+            violations.append(f"  {broken}")
+        elif not documented:
+            violations.append(
+                f"  {concept} - No design document references this concept, and it "
+                "declares no parent concept whose document covers it"
+            )
         if parsed.slug not in slugs:
             violations.append(
                 f"  {concept} - Unregistered repository slug: {parsed.slug}"
@@ -392,7 +545,10 @@ def main() -> int:
         print("\n".join(violations))
         print(
             "\nTo fix: create a design document in .specify/design/<feature>/ that "
-            "references each new CONCEPT tag (see .specify/design/_template.md)."
+            "references each new CONCEPT tag (see .specify/design/_template.md), or — "
+            "if the marker realises a decision that is already documented — declare "
+            "that decision as its parent in "
+            "agent_utilities/governance/concept_lineage.yaml."
         )
         return 1
 

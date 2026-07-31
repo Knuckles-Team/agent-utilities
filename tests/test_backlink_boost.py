@@ -41,7 +41,7 @@ class _NoCypherBackend:
 
 class _FakeVectorGraph:
     """Engine-graph double: the vector arm reads ``semantic_search`` (engine ANN)
-    and hydrates via ``_get_node_properties`` — the CONCEPT:AU-KG.compute.kg-2 contract."""
+    and hydrates via ``_get_node_properties`` — the contract."""
 
     def __init__(self, hits, props):  # type: ignore[no-untyped-def]
         self._hits = hits  # list[(id, score)]

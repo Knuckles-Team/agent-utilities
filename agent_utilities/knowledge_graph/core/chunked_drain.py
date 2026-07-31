@@ -464,7 +464,7 @@ def drain_status(engine: Any, drain_id: str) -> dict[str, Any]:
     return {"drain_id": drain_id, **state, "tasks": tasks}
 
 
-# ── FreshRSS page drainer (the flagship large corpus, CONCEPT:AU-KG.compute.homelab-rss-reader-as) ───────
+# ── FreshRSS page drainer (the flagship large corpus) ───────
 
 
 def _freshrss_build_connector(engine: Any, mode: str) -> Any:

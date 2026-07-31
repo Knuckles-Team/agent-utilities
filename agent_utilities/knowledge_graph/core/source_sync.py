@@ -462,10 +462,10 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                 "synonyms": synonyms,
                 "kind": "mcp_skill",
                 "disabled": _existing_disabled(engine, skill_node_id),
-                    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
-                    # fleet skill is (or is not) runnable, recorded on the node
-                    # so the execution path can name the unmet precondition
-                    # instead of failing with a generic "not found or runnable".
+                # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
+                # fleet skill is (or is not) runnable, recorded on the node
+                # so the execution path can name the unmet precondition
+                # instead of failing with a generic "not found or runnable".
                 "runnable_blocked_by": _privacy_safe(entry.get("harvest_error", "")),
             }
             # ``skill://<name>`` collides with the persistence-privacy policy's
@@ -540,6 +540,7 @@ def _write_fleet_slice(
     this exists for. A rejected row is returned (and logged at error) so it is
     never a silent omission.
     """
+
     def _attempt(rows: list[dict[str, Any]]) -> bool:
         by_id = {row["id"] for row in rows}
         edges = [
@@ -1419,7 +1420,7 @@ def _as_epoch(value: Any) -> int | None:
 def _sync_freshrss(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Relevance-gated ingestion of curated FreshRSS items (CONCEPT:AU-KG.compute.homelab-rss-reader-as).
+    """Relevance-gated ingestion of curated FreshRSS items.
 
     Enumerates items via the ``freshrss`` mcp_tool preset over the Google-Reader API
     (delta = ``newer_than`` → GReader ``ot`` **unix-seconds** watermark on
