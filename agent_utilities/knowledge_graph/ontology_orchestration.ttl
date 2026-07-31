@@ -78,6 +78,58 @@
     workflows resolves to its leaf atomic skills under reasoning.""" ;
     rdfs:range :Skill .
 
+:consentBasis a owl:DatatypeProperty ;
+    rdfs:label "consent basis" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — the legal/policy
+    basis under which a WorkItem's gated consent was granted, e.g. 'explicit' |
+    'contract' | 'legitimate_interest'. Empty when consentRequired is false.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:consentExpiresAt a owl:DatatypeProperty ;
+    rdfs:label "consent expires at" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — Unix timestamp
+    after which a granted consent LAPSES (the consent's explicit lifetime). Absent with
+    consentGrantedAt present = a perpetual grant, a deliberate choice by the granter.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:double .
+
+:consentGrantedAt a owl:DatatypeProperty ;
+    rdfs:label "consent granted at" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — Unix timestamp a
+    WorkItem's gated consent was granted. Absent (no triple) is the ABSENT consent
+    state, DISTINCT from a granted consent past consentExpiresAt (LAPSED) — the
+    claim/renewal gate (orchestration.work_item) denies both but reports them as
+    different states.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:double .
+
+:consentPurpose a owl:DatatypeProperty ;
+    rdfs:label "consent purpose" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — what the subject
+    consented to (purpose/scope), e.g. 'data_processing:analytics'. A distinct property
+    from :consentScope (domain :ConsentRecord, the medical-consent module) — the two are
+    unrelated domains and must not share one property IRI under RDFS domain semantics.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:consentRequired a owl:DatatypeProperty ;
+    rdfs:label "consent required" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — opt-in per
+    WorkItem: true when claim/renewal is gated on a recorded, unlapsed consent. False
+    (the default, and the state of every pre-existing WorkItem predating this field) for
+    ordinary operational/infra work — the D-25-3 migration decision.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:boolean .
+
+:consentSubject a owl:DatatypeProperty ;
+    rdfs:label "consent subject" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — opaque reference
+    to WHOM a WorkItem's gated consent pertains (the data subject) — distinct from
+    :tenant (the owning org) and the WorkItem's worker assignment.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
 :contextWindow a owl:DatatypeProperty ;
     rdfs:domain :Model ;
     rdfs:range xsd:integer .

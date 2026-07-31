@@ -29,10 +29,29 @@ def test_work_item_round_trip_carries_fencing_and_dependencies() -> None:
         lease_epoch=3,
         fencing_token=7,
         lease_expires_at=100.0,
+        consent_required=True,
+        consent_scope="data_processing:analytics",
+        consent_subject="subject:opaque",
+        consent_basis="explicit",
+        consent_granted_at=10.0,
+        consent_expires_at=200.0,
     )
     restored = WorkItemNode.model_validate_json(node.model_dump_json())
     assert restored == node
     assert restored.type == RegistryNodeType.WORK_ITEM
+    assert restored.consent_state(now=50.0) == "active"
+    assert restored.consent_state(now=250.0) == "lapsed"
+
+
+def test_work_item_consent_defaults_are_not_required_absent_fields() -> None:
+    """D-25-3 migration: a pre-existing/ordinary WorkItem (no consent kwargs
+    at all) deserializes as consent_required=False — 'not applicable', neither
+    'consented forever' nor 'unconsented' (see WorkItemNode's docstring)."""
+    node = WorkItemNode(id="workitem:legacy", name="WorkItem", tenant="t", kind="generic")
+    assert node.consent_required is False
+    assert node.consent_granted_at is None
+    assert node.consent_expires_at is None
+    assert node.consent_state() == "not_required"
 
 
 def test_checkpoint_references_work_item_and_engine_lease() -> None:

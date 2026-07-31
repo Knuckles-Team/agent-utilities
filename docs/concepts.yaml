@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1058
+total_concepts: 1062
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1526,6 +1526,13 @@ concepts:
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/observability/gateway_metrics.py
   doc: Profile differences from the engine-client breaker
+- id: AU-ECO.mcp.protocol-compat-bridge
+  name: AU-ECO.mcp.protocol-compat-bridge
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/protocol_compat.py
+  doc: AU-ECO.mcp.protocol-compat-bridge
 - id: AU-ECO.mcp.skills-over-mcp-provider
   name: absent/empty for
   pillar: AU-ECO
@@ -1549,6 +1556,16 @@ concepts:
   - agent_utilities/mcp/server_factory.py
   - agent_utilities/mcp_utilities.py
   doc: MCP Standardized Interfaces
+- id: AU-ECO.mcp.tasks-workitem-bridge
+  name: already exposes. The other five are
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/server_factory.py
+  - agent_utilities/mcp/tasks_extension.py
+  - agent_utilities/mcp/tools/mcp_apps.py
+  - agent_utilities/orchestration/work_item.py
+  doc: already exposes. The other five are
 - id: AU-ECO.mcp.tool-mode-standardization
   name: MCP tool-mode standardization
   pillar: AU-ECO
@@ -2100,6 +2117,14 @@ concepts:
   - agent_utilities/http/rate_limit.py
   - agent_utilities/http/redaction.py
   doc: Fleet HTTP Client Library
+- id: AU-ECO.ui.mcp-apps-host
+  name: the MCP Apps entry-point tool + its
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/mcp_apps.py
+  doc: the MCP Apps entry-point tool + its
 - id: AU-KG.audit.error-detail-resolution
   name: AU-KG.audit.error-detail-resolution
   pillar: AU-KG
@@ -6511,6 +6536,15 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: AU-ORCH.dispatch.worker-scheduling
+- id: AU-ORCH.dispatch.workitem-consent-gate
+  name: a WorkItem is bound only to
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/messaging/bus_inbox.py
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/orchestration/work_item.py
+  doc: a WorkItem is bound only to
 - id: AU-ORCH.execution.active-subagent-lifecycle
   name: Subagent Lifecycle Patterns
   pillar: AU-ORCH
