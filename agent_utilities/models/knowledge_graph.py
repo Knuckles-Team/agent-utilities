@@ -1003,6 +1003,22 @@ class RegistryEdgeType(StrEnum):
     # observed-usage one). See ops_causal_crosswalk / ops_causal_graph.
     USED_MODEL = "used_model"
 
+    # Entity-resolution candidates (CONCEPT:AU-KG.identity.entity-resolution-candidates,
+    # universal-ingestion program Track 5). POSSIBLE_SAME_AS is the ONLY edge an
+    # identity-resolution pass writes on its own — it preserves ambiguity
+    # ("these two records MIGHT be the same entity") rather than collapsing
+    # nodes, carrying its evidence/confidence as edge properties. SAME_AS is
+    # written ONLY by the explicit, human/governance-reviewed confirm step
+    # (knowledge_graph.assimilation.identity_candidates.confirm_merge) and is
+    # reversible: `reverted`/`reverted_at` properties mark it inactive without
+    # deleting it, so the decision stays inspectable and undoable with its
+    # originating evidence retained. Distinct from the existing SIMILAR_TO/
+    # SUPERSEDES pair (assimilation/dedup.py), which auto-applies for the
+    # narrower Feature/Article/SDDFeature research-corpus case; general entity
+    # identity must never auto-merge (a wrong merge is worse than no merge).
+    POSSIBLE_SAME_AS = "possible_same_as"
+    SAME_AS = "same_as"
+
 
 class RegistryNode(BaseModel):
     """Base class for all nodes in the registry graph."""

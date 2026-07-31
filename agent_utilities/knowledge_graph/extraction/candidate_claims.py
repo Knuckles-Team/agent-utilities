@@ -379,6 +379,10 @@ class CandidateClaimExtractor:
                         counts.accepted += 1
                     if evidence_unresolved:
                         unresolved_evidence += 1
+                    # `_classify_and_build` only returns `candidate=None` for
+                    # the rejected/quarantined buckets, both already handled
+                    # (and `continue`d past) above.
+                    assert candidate is not None
                     candidates.append(candidate)
 
         outcome = decide_outcome(counts)
