@@ -289,6 +289,13 @@ class TenancyManager:
         the first ``WHERE``/``RETURN`` is matched **case-insensitively** so a
         lowercase ``return`` can't silently bypass scoping. Queries with no
         ``RETURN`` (writes/DDL) are returned unchanged.
+
+        The injected condition binds to the query's OWN primary variable (the
+        first ``(var:Label ...)``/``(var {...})``/``(var)`` pattern), not a
+        hardcoded ``n`` — a query written as ``MATCH (r:CallableResource ...)
+        RETURN r.name`` has no ``n`` in scope, so a hardcoded ``n.tenant_id =
+        ...`` predicate is invalid Cypher and the read fails closed with a
+        binder error instead of being safely scoped.
         """
         import re
 
@@ -298,7 +305,9 @@ class TenancyManager:
             logger.warning("Refusing to scope with unsafe tenant id %r", tenant_id)
             # Fail closed: an unsafe tenant id yields an impossible predicate.
             tenant_id = "__no_such_tenant__"
-        cond = f"n.tenant_id = '{tenant_id}'"
+        var_match = re.search(r"\(\s*([A-Za-z_]\w*)\s*[:){]", query)
+        var_name = var_match.group(1) if var_match else "n"
+        cond = f"{var_name}.tenant_id = '{tenant_id}'"
 
         m = re.search(r"\bWHERE\b", query, flags=re.IGNORECASE)
         if m:
