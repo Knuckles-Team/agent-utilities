@@ -53,6 +53,7 @@ __all__ = [
     "content_hash",
     "classify_entity",
     "classify_claim",
+    "classify_relationship",
     "decide_outcome",
     "resolve_graph_epoch",
     "build_extraction_run",
@@ -126,9 +127,16 @@ class OutcomeCounts:
     needs_review: int = 0
     rejected: int = 0
     quarantined: int = 0
-    #: Non-exclusive: relationships are not individually classified (constraint
-    #: scope — see module docstring), just tallied for the run's provenance.
+    #: Non-exclusive: relationships don't drive the run's headline `outcome`
+    #: (parity with pre-classification behavior — see `decide_outcome`, which
+    #: never reads these two), just tallied for provenance. D-62-3:
+    #: individually confidence-classified via `classify_relationship` (a
+    #: relationship carries no free text to privacy-quarantine and an
+    #: unresolved edge type/endpoint is filtered before it becomes a candidate
+    #: at all, so `rejected`/`quarantined` have no analog here — only
+    #: accepted/needs_review apply).
     relationships: int = 0
+    relationships_needs_review: int = 0
 
     @property
     def total_candidates(self) -> int:
@@ -141,6 +149,7 @@ class OutcomeCounts:
             "rejected": self.rejected,
             "quarantined": self.quarantined,
             "relationships": self.relationships,
+            "relationships_needs_review": self.relationships_needs_review,
         }
 
 
@@ -211,6 +220,29 @@ def classify_claim(
     _, report = guard.sanitize_text(stripped)
     if report.changed:
         return "quarantined"
+    if confidence < review_threshold:
+        return "needs_review"
+    return "accepted"
+
+
+def classify_relationship(
+    confidence: float,
+    *,
+    review_threshold: float = NEEDS_REVIEW_CONFIDENCE_THRESHOLD,
+) -> str:
+    """Bucket one candidate relationship: ``accepted`` / ``needs_review`` (D-62-3).
+
+    Only these two buckets apply — unlike an entity/claim, a relationship
+    carries no free text to privacy-sanitize (``quarantined`` has no analog),
+    and an unresolved edge type or an endpoint that was never itself
+    persisted is filtered out BEFORE it becomes a classification candidate at
+    all (``rejected`` has no analog either — that filtering is structural,
+    not a confidence judgment). Persistence stays unconditional either way
+    (parity with pre-classification behavior: relationships were never
+    gated out before this) — classification makes "which relationships need
+    review" queryable via the persisted edge's ``review_state``, it does not
+    change what gets written.
+    """
     if confidence < review_threshold:
         return "needs_review"
     return "accepted"

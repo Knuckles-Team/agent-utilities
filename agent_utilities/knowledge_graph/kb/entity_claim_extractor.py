@@ -45,6 +45,7 @@ from .extraction_run import (
     build_extraction_run,
     classify_claim,
     classify_entity,
+    classify_relationship,
     content_hash,
     decide_outcome,
     link_generated_by,
@@ -452,13 +453,24 @@ class EntityClaimExtractor:
                 and source in self.engine.graph
                 and target in self.engine.graph
             ):
+                # D-62-3 — classified (not gated: persistence stays
+                # unconditional, matching pre-classification behavior), so
+                # "which relationships need review" is queryable via
+                # review_state rather than invisible.
+                review_state = classify_relationship(rel.confidence)
                 self.engine.link_nodes(
                     source,
                     target,
                     edge_type,
-                    {"confidence": rel.confidence, "inferred": False},
+                    {
+                        "confidence": rel.confidence,
+                        "inferred": False,
+                        "review_state": review_state,
+                    },
                 )
                 counts.relationships += 1
+                if review_state == "needs_review":
+                    counts.relationships_needs_review += 1
 
         # Bind every persisted entity/claim to the run that produced it
         # (CONCEPT:AU-KG.enrichment.extraction-run-provenance) — no fact without

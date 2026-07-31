@@ -26,10 +26,12 @@ from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
     EntityClaimExtractor,
 )
 from agent_utilities.knowledge_graph.kb.extraction_run import (
+    NEEDS_REVIEW_CONFIDENCE_THRESHOLD,
     ExtractionOutcome,
     OutcomeCounts,
     classify_claim,
     classify_entity,
+    classify_relationship,
     content_hash,
     decide_outcome,
 )
@@ -115,6 +117,24 @@ class TestClassifyClaim:
             guard=guard,
         )
         assert result == "quarantined"
+
+
+class TestClassifyRelationship:
+    """D-62-3 — relationships are individually confidence-classified (only
+    accepted/needs_review apply; see classify_relationship's docstring for
+    why rejected/quarantined have no analog for an edge)."""
+
+    def test_high_confidence_accepted(self):
+        assert classify_relationship(0.9) == "accepted"
+
+    def test_low_confidence_needs_review(self):
+        assert classify_relationship(0.5) == "needs_review"
+
+    def test_exactly_at_threshold_is_accepted(self):
+        assert classify_relationship(NEEDS_REVIEW_CONFIDENCE_THRESHOLD) == "accepted"
+
+    def test_custom_threshold_is_honoured(self):
+        assert classify_relationship(0.5, review_threshold=0.3) == "accepted"
 
 
 def test_content_hash_deterministic_and_sensitive_to_content():
