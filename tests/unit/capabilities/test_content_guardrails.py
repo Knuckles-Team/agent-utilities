@@ -2,11 +2,14 @@
 
 Covers: the live agent path for all three guardrails that replace the dead
 ``PolicyEngine`` (D-48) — a PII input/output actually gets redacted, a
-forbidden-content (secret-shaped) output actually gets blocked, and an
-output-schema violation actually gets caught — all exercised through a real
-``pydantic_ai.Agent`` run (``FunctionModel``), never by calling the guard
-helper directly. Also covers the composition seam (default-ON, opt-out,
-required-keys no-op) mirroring ``test_output_repair.py``'s pattern.
+secret-leak (forbidden-content) output actually gets redacted (D-OP-2: this
+used to ``block`` the whole output; changed to redact-in-place so a legitimate
+answer that happens to carry a credential-shaped substring — e.g. a k8s
+manifest — survives with only the secret removed, same posture as the PII
+guard), and an output-schema violation actually gets caught — all exercised
+through a real ``pydantic_ai.Agent`` run (``FunctionModel``), never by calling
+the guard helper directly. Also covers the composition seam (default-ON,
+opt-out, required-keys no-op) mirroring ``test_output_repair.py``'s pattern.
 """
 
 from __future__ import annotations
@@ -21,11 +24,11 @@ from pydantic_ai_harness import InputGuardrail, OutputGuardrail
 from pydantic_ai_harness.guardrails import OutputBlocked
 
 from agent_utilities.capabilities.content_guardrails import (
-    SECRET_LEAK_BLOCK_MESSAGE,
     output_schema_guardrail,
     pii_redaction_guardrails,
     secret_leak_guardrail,
 )
+from agent_utilities.http.redaction import REDACTED
 
 # ---------------------------------------------------------------------------
 # Live path: PII redaction (output)
@@ -83,12 +86,12 @@ async def test_pii_in_input_is_redacted_before_reaching_model_live_path():
 
 
 # ---------------------------------------------------------------------------
-# Live path: forbidden-content (secret-leak) blocking
+# Live path: secret-leak redaction (D-OP-2)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_secret_shaped_output_is_blocked_live_path():
+async def test_secret_shaped_output_is_redacted_not_blocked_live_path():
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(
             parts=[TextPart(content="here is the key: AKIAABCDEFGHIJKLMNOP")]
@@ -97,11 +100,44 @@ async def test_secret_shaped_output_is_blocked_live_path():
     agent = Agent(
         FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()]
     )
+    result = await agent.run("go")
 
-    with pytest.raises(OutputBlocked) as exc_info:
-        await agent.run("go")
+    assert "AKIAABCDEFGHIJKLMNOP" not in result.output
+    assert REDACTED in result.output
+    assert "here is the key:" in result.output
 
-    assert SECRET_LEAK_BLOCK_MESSAGE in str(exc_info.value)
+
+@pytest.mark.asyncio
+async def test_k8s_manifest_secret_is_redacted_and_content_survives_live_path():
+    """Regression for D-OP-2: a real k8s manifest (``ExternalSecret``/
+    ``stringData`` output) trips ``contains_secret`` as a TRUE positive on
+    content agents are legitimately asked to handle in this workspace. The old
+    ``block`` behaviour discarded the entire answer; the guard must now strip
+    only the credential value and let the rest of the manifest through."""
+    manifest = (
+        "apiVersion: v1\n"
+        "kind: Secret\n"
+        "metadata:\n"
+        "  name: graphos-env\n"
+        "type: Opaque\n"
+        "stringData:\n"
+        "  secret: hunter2\n"
+    )
+
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content=manifest)])
+
+    agent = Agent(
+        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()]
+    )
+    result = await agent.run("go")
+
+    assert "hunter2" not in result.output
+    assert REDACTED in result.output
+    # Surrounding manifest structure survives -- this is not a block.
+    assert "kind: Secret" in result.output
+    assert "name: graphos-env" in result.output
+    assert "stringData:" in result.output
 
 
 @pytest.mark.asyncio
@@ -115,6 +151,24 @@ async def test_clean_output_passes_secret_leak_guard_live_path():
     result = await agent.run("go")
 
     assert result.output == "The weather is sunny today."
+
+
+@pytest.mark.asyncio
+async def test_secret_leak_guard_does_not_trip_on_ordinary_prose_live_path():
+    """Measured non-triggers from the D-OP-2 investigation: prose mentioning
+    "secret"/"token" in a non-assignment shape, and an excluded scheme keyword
+    as the value, must pass through unchanged."""
+    prose = "The secret: this design is not finished yet. token: bearer semantics."
+
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content=prose)])
+
+    agent = Agent(
+        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()]
+    )
+    result = await agent.run("go")
+
+    assert result.output == prose
 
 
 # ---------------------------------------------------------------------------
