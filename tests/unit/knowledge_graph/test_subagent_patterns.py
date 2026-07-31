@@ -106,7 +106,7 @@ class TestDecisionPersistence:
         decision_nodes = [
             (nid, data)
             for nid, data in mock_engine.graph.nodes(data=True)
-            if data.get("type") == "subagent_pattern_decision"
+            if data.get("node_type") == "subagent_pattern_decision"
         ]
         assert len(decision_nodes) == 1
         assert decision_nodes[0][1]["pattern"] == SubagentPattern.INLINE_TOOL.value
@@ -128,7 +128,7 @@ class TestOutcomeRecording:
 
         # Verify outcome was recorded in graph
         for nid, data in mock_engine.graph.nodes(data=True):
-            if data.get("type") == "subagent_pattern_decision":
+            if data.get("node_type") == "subagent_pattern_decision":
                 assert data["outcome_success"] is True
                 assert data["outcome_duration_ms"] == 150.0
 
@@ -137,7 +137,7 @@ class TestOutcomeRecording:
         router.record_outcome(decision, success=False, duration_ms=5000.0)
 
         for nid, data in mock_engine.graph.nodes(data=True):
-            if data.get("type") == "subagent_pattern_decision":
+            if data.get("node_type") == "subagent_pattern_decision":
                 assert data["outcome_success"] is False
 
 

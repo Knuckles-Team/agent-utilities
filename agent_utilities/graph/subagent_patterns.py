@@ -321,7 +321,7 @@ class SubagentPatternRouter:
             total_count = 0
             for nid, data in self.engine.graph.nodes(data=True):
                 if (
-                    data.get("type") == "subagent_pattern_decision"
+                    data.get("node_type") == "subagent_pattern_decision"
                     and data.get("pattern") == pattern.value
                 ):
                     total_count += 1
@@ -362,7 +362,7 @@ class SubagentPatternRouter:
             node_id = f"spd:{uuid.uuid4().hex}"
             node_data = {
                 "id": node_id,
-                "type": "subagent_pattern_decision",
+                "node_type": "subagent_pattern_decision",
                 "pattern": decision.pattern.value,
                 "task_complexity": decision.task_complexity.value,
                 "parallelizable": decision.parallelizable,
@@ -407,7 +407,7 @@ class SubagentPatternRouter:
         try:
             for nid, data in self.engine.graph.nodes(data=True):
                 if (
-                    data.get("type") == "subagent_pattern_decision"
+                    data.get("node_type") == "subagent_pattern_decision"
                     and data.get("timestamp") == decision.timestamp
                     and data.get("pattern") == decision.pattern.value
                 ):

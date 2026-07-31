@@ -118,7 +118,7 @@ class TestFunctionRegistryMixin:
         results = [
             {"id": n, **d}
             for n, d in mock_engine.graph.nodes(data=True)
-            if d.get("type") == "callable_resource"
+            if d.get("node_type") == "callable_resource"
             and d.get("resource_type") == "MCP_TOOL"
         ]
         assert len(results) == 1
