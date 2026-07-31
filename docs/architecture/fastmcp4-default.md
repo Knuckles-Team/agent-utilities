@@ -65,6 +65,31 @@ flowchart TD
     I --> J
 ```
 
+## Guarding the declared floor: `check_mcp_sdk_floor()`
+
+The bridges above assume the *installed* `mcp`/`fastmcp` actually satisfy the `[mcp]`
+extra's declared floor (`fastmcp>=4.0.0b1`, transitively `mcp>=2.0.0,<3.0.0`). Nothing
+previously asserted that at runtime, so a deployment that resolved an older SDK line
+(observed live: a pod running `mcp` 1.29.0 / `fastmcp` 3.4.5 against v2-targeted source)
+only failed as a swallowed `ImportError` deep inside `mcp/child_resilience.py`'s hard
+`from mcp.shared.exceptions import MCPError` import — which made
+`agent_utilities.mcp.multiplexer` unimportable and silently dropped every fleet
+meta-tool (`find_tools`/`list_catalog`/`load_tools`/`unload_tools`/`multiplexer_status`).
+
+`agent_utilities.mcp.protocol_compat.check_mcp_sdk_floor()` closes that gap:
+
+- Reads the `fastmcp` floor from `agent-utilities`'s OWN installed metadata (the `[mcp]`
+  extra's PEP 508 marker via `importlib.metadata.requires()`), never a separately-parsed
+  `pyproject.toml` — accurate for both a dev checkout and a deployed wheel.
+- Derives the `mcp` floor transitively from `fastmcp-slim`'s own installed metadata
+  (fastmcp's real runtime dependency) instead of a second, hand-maintained constraint
+  that could drift from what fastmcp itself requires.
+- Wired into `agent-utilities doctor` as the `mcp_sdk_floor` check (fails with a concrete
+  remediation — reinstall/re-lock the `[mcp]` extra — instead of an opaque import crash
+  at serve time) and covered by a CI regression test
+  (`tests/unit/mcp/test_protocol_compat_sdk_floor.py`) that fails the moment this repo's
+  own lock resolves an `mcp`/`fastmcp` pair that no longer satisfies the declared floor.
+
 ## The dependency-graph fix: `[tool.uv] override-dependencies`
 
 `fastmcp==4.0.0b1` pins an exact `fastmcp-slim[client,server]==4.0.0b1`. Overriding

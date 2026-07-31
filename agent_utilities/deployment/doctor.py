@@ -94,6 +94,39 @@ def _check_python_env() -> dict[str, Any]:
     )
 
 
+def _check_mcp_sdk_floor() -> dict[str, Any]:
+    """The installed `mcp`/`fastmcp` SDK must satisfy the `[mcp]` extra's declared floor.
+
+    A runtime that resolved an older SDK line (`mcp` v1 while the extra declares
+    `fastmcp>=4.0.0b1` / SDK v2) previously only failed as a swallowed `ImportError`
+    deep inside `child_resilience.py` at serve time (D-ISR-2). This surfaces that
+    mismatch here instead — see `agent_utilities.mcp.protocol_compat.check_mcp_sdk_floor`.
+    """
+    try:
+        from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor
+    except ImportError as exc:
+        return _result(
+            "mcp_sdk_floor",
+            "skip",
+            f"protocol_compat unavailable ({type(exc).__name__})",
+        )
+    outcome = check_mcp_sdk_floor()
+    if outcome["ok"] is None:
+        return _result("mcp_sdk_floor", "skip", outcome["detail"])
+    if outcome["ok"]:
+        return _result("mcp_sdk_floor", "ok", outcome["detail"])
+    return _result(
+        "mcp_sdk_floor",
+        "fail",
+        outcome["detail"],
+        remediation=(
+            "reinstall/rebuild the runtime image so `mcp`/`fastmcp` resolve the "
+            "versions declared by the `[mcp]` extra in pyproject.toml (e.g. "
+            "`pip install -U 'agent-utilities[mcp]'` or re-lock and redeploy)"
+        ),
+    )
+
+
 def _check_config() -> dict[str, Any]:
     try:
         from agent_utilities.deployment.config_generator import config_doctor
@@ -4089,6 +4122,7 @@ def _check_a2a_persistence() -> dict[str, Any]:
 # Registry: name -> callable. Order is the report order.
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
+    "mcp_sdk_floor": _check_mcp_sdk_floor,
     "config": _check_config,
     "evolution_staging": _check_evolution_staging,
     "execution_security": _check_execution_security,
