@@ -157,6 +157,7 @@ class AgentRegistry:
         try:
             from ..default_catalog import get_default_catalog
 
+            written: list[str] = []
             for pkg in get_default_catalog():
                 if "os_subsystem" in pkg.tags:
                     target = os.path.join(installed_dir, f"{pkg.name}.json")
@@ -164,13 +165,25 @@ class AgentRegistry:
                     target = os.path.join(available_dir, f"{pkg.name}.json")
                 with open(target, "w") as f:
                     f.write(pkg.model_dump_json(indent=2))
+                written.append(target)
 
             logger.info(
                 "Seeded default catalog: %d packages",
                 len(get_default_catalog()),
             )
         except Exception as e:
-            logger.debug("Default catalog seeding skipped: %s", e)
+            # D-DST-6: the emptiness guard above ("already contains entries" -> skip)
+            # is not atomic with this write loop — if get_default_catalog() (or a
+            # single package's serialization/write) raises partway through, the
+            # partial files already on disk make this guard see "already seeded" on
+            # every future call and permanently block reseeding. Roll back the
+            # partial write so the guard's invariant holds for the next retry.
+            for path in written:
+                try:
+                    os.remove(path)
+                except OSError:  # noqa: BLE001 — best-effort rollback cleanup; if a partial file is already gone or unremovable, the seeding-failure warning above still fired and the operator is not blind to it
+                    pass
+            logger.warning("Default catalog seeding failed and was rolled back: %s", e)
 
     def reseed_defaults(self) -> str:
         """Re-seed the registry with the latest default catalog.
@@ -490,7 +503,7 @@ class AgentRegistry:
             )
             self.engine.graph.add_node(node.id, **node.model_dump())
             logger.debug("Registered package %s in KG", pkg.name)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — install()'s authoritative state is the installed/available JSON files (list_installed/list_available read disk directly, never the KG); no other code path reads this pkg:{name} SpecialistPackageNode, so a failed KG mirror write doesn't affect install correctness, only KG-based discovery of the package
             logger.debug("Failed to register package %s in KG: %s", pkg.name, e)
 
     def _unregister_from_kg(self, package_name: str) -> None:
@@ -503,5 +516,5 @@ class AgentRegistry:
             if node_id in self.engine.graph:
                 self.engine.graph.remove_node(node_id)
                 logger.debug("Removed package %s from KG", package_name)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — uninstall()'s authoritative state is the installed/available JSON files (same as _register_in_kg's KG mirror is not read anywhere else); a failed KG node removal only leaves a stale discovery-only mirror node, not a stale install
             logger.debug("Failed to remove package %s from KG: %s", package_name, e)

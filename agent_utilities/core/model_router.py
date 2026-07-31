@@ -85,7 +85,7 @@ def pick_adaptive(
             routing_percentile=routing_percentile,
             required_tags=spec.tags,
         )
-    except Exception as e:  # pragma: no cover - defensive
+    except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — documented never-raise contract: callers rely on None meaning "fall back to the factory default model" (see docstring); swallowing here IS the interface
         logger.debug("adaptive pick failed for role %r: %s", role, e)
         return None
 
@@ -125,6 +125,6 @@ def pick_adaptive_with_decision(
             route_key=key,
         )
         return model, decision
-    except Exception as e:  # pragma: no cover - defensive
+    except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — same never-raise contract as pick_adaptive; callers treat (None, None) as "adaptive routing has nothing to say"
         logger.debug("adaptive pick+decision failed for role %r: %s", role, e)
         return None, None

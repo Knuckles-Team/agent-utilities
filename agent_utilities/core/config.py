@@ -6066,7 +6066,12 @@ def _fetch_prompt_agents(engine: Any) -> list[MCPAgent]:
                 )
             )
     except Exception as e:
-        logger.debug(f"Failed to fetch Prompt nodes: {e}")
+        # D-DST-6: _RegistryCache.get_registry() (this function's caller, one frame up)
+        # has no TTL and caches whatever _fetch_registry_from_kg() returns for the life
+        # of the process — a transient failure here silently produces a partial/empty
+        # agent registry that then never self-heals. Raised to warning for visibility;
+        # the cache-poisoning fix itself belongs to _RegistryCache (see D-DSTO follow-up).
+        logger.warning(f"Failed to fetch Prompt nodes (registry cache may go stale): {e}")
     return agents
 
 
@@ -6093,7 +6098,9 @@ def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
                 )
             )
     except Exception as e:
-        logger.debug(f"Failed to fetch specialist agents from KG: {e}")
+        # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
+        # raised to warning so a persistently-failing fetch is diagnosable.
+        logger.warning(f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}")
     return agents
 
 
@@ -6116,7 +6123,10 @@ def _fetch_tools(engine: Any) -> list[MCPToolInfo]:
                 )
             )
     except Exception as e:
-        logger.debug(f"Failed to fetch Tool nodes: {e}")
+        # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
+        # a failure here additionally drops all dynamically-synthesized partition agents
+        # (they're derived from `tools`). Raised to warning for visibility.
+        logger.warning(f"Failed to fetch Tool nodes (registry cache may go stale): {e}")
     return tools
 
 
@@ -6606,7 +6616,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                                 _sc = create_secrets_client()
                                 _user_token = _sc.get("session_token")
-                            except Exception as exc:
+                            except Exception as exc:  # noqa: BLE001 — best-effort: on failure AGENT_USER_TOKEN is simply omitted from the subprocess env; any MCP subprocess call that actually needs delegated auth fails its own auth check visibly downstream rather than silently using a stale/wrong token
                                 logger.debug(
                                     "Optional session-token enrichment unavailable: %s",
                                     exc,

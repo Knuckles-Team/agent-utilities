@@ -708,7 +708,7 @@ class ServiceRegistry:
                     },
                 )
                 count += 1
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — count (line ~710) is only incremented after engine._upsert_node succeeds, so it accurately reports real registrations to the caller; per-capability failures are individually skipped rather than aborting the whole registration pass
                 logger.debug("Failed to register service '%s': %s", cap, e)
 
         logger.info(
