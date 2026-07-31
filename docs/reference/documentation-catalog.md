@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-362 publishable pages · 177 direct nav targets · 119 public capabilities · 770 action rows · 543 typed configuration fields · 348 runtime-only call-site inputs.
+363 publishable pages · 178 direct nav targets · 119 public capabilities · 770 action rows · 543 typed configuration fields · 348 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -179,6 +179,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Evidence-Spine Convergence (Seam 2)](../architecture/evidence_spine_convergence.md) — catalog
 - [The Evolvable Surface — Native Program Optimization](../architecture/evolvable_surface.md) — direct nav
 - [Failure-Driven Evolution (CONCEPT:AU-AHE.harness.failure-evolution)](../architecture/failure_driven_evolution.md) — direct nav
+- [fastmcp 4 as the default MCP stack (CONCEPT:AU-ECO.mcp.protocol-compat-bridge)](../architecture/fastmcp4-default.md) — direct nav
 - [Fleet Autonomy Control Plane (OS-5.24 — AU-OS.config.health-gated-deploy-rollback, OS-5.29)](../architecture/fleet_autonomy.md) — direct nav
 - [Gateway daemon — the one host process and everything it runs](../architecture/gateway_daemon.md) — direct nav
 - [Scaling the Gateway](../architecture/gateway_scaling.md) — direct nav

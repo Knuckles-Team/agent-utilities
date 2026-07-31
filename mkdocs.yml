@@ -230,6 +230,7 @@ nav:
       - MCP Fleet Authentication (JWT + Eunomia): architecture/mcp_auth.md
       - MCP v2 Stateless Gateway: architecture/mcp_v2_gateway.md
       - Skills-over-MCP (unified capability space): architecture/skills_over_mcp.md
+      - fastmcp 4 as the Default (MCP SDK v2 protocol bridge): architecture/fastmcp4-default.md
       - IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load: architecture/identity-inheritance.md
       - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
       - Capacity Model: scaling/capacity_model.md
