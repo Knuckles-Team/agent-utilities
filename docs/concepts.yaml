@@ -8809,6 +8809,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/deployment/venv_sync.py
+  - agent_utilities/ecosystem/hook_installer.py
   doc: AU-OS.deployment.workspace-venv-reconciler
 - id: AU-OS.governance.action-policy-decision-point
   name: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
