@@ -164,6 +164,7 @@ nav:
       - KV-Cache-Layering Policy (per-execution cache-worthiness): architecture/kv-cache-layering-policy.md
       - KV-Checkpoint Intelligence (when to freeze a context, RAM vs disk): architecture/kv-checkpoint-intelligence.md
       - Intelligent Ingestion (classify/commit-history/tail): architecture/intelligent-ingestion.md
+      - Evidence Spine (Artifact → addressable Fragment): architecture/evidence-spine.md
       - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
       - Orchestrator Migration & Cutover (Swarm→k8s hardening): architecture/orchestrator-migration-cutover.md

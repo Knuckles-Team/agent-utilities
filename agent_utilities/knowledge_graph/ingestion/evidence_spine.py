@@ -482,15 +482,23 @@ class Artifact:
         fragments: tuple[Fragment, ...] | list[Fragment] = (),
         title: str = "",
         fragmenter: str = "",
+        source_object_id: str = "",
     ) -> Artifact:
         """Build an artifact for the object *envelope* delivered.
 
         Governance, source identity, and revision are read off the envelope
         rather than re-derived — the envelope is the gate that already decided
         them, and re-deriving is how a payload gets to spoof its own ACL.
+
+        ``source_object_id`` overrides the envelope's own object id for the
+        SINGLE case where the envelope's id is content-derived (the
+        ``DocumentProcessor`` path hashes content into its ``doc_id``).  The
+        artifact must key to the stable *object* — the path/URL — or every edit
+        forks a new artifact and every citation to it is orphaned.
         """
+        object_id = source_object_id or envelope.source_object_id
         artifact_id = artifact_id_for(
-            envelope.connector, envelope.source_instance, envelope.source_object_id
+            envelope.connector, envelope.source_instance, object_id
         )
         raw = content.encode("utf-8") if isinstance(content, str) else content
         provenance = dict(envelope.provenance)
@@ -500,7 +508,7 @@ class Artifact:
             artifact_id=artifact_id,
             connector=envelope.connector,
             source_instance=envelope.source_instance,
-            source_object_id=envelope.source_object_id,
+            source_object_id=object_id,
             media_type=media_type or _media_type_for(envelope.payload_type),
             content_hash=content_digest(content),
             byte_length=len(raw),

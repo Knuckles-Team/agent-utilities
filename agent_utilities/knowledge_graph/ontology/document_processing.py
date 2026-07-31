@@ -592,8 +592,21 @@ class DocumentProcessor:
         # questions, so both are materialized from the one extracted text.
         from ..ingestion.evidence_spine import artifact_id_for, fragment_markdown
 
-        artifact_id = artifact_id_for(connector, source_instance, doc_id)
-        fragments = fragment_markdown(raw_text, artifact_id=artifact_id)
+        # The artifact is the SOURCE OBJECT, so it is keyed to the source label
+        # (the path/URL), NOT to ``doc_id`` — which is derived from the content
+        # hash and therefore forks a new identity on every edit.  Keying the
+        # artifact to the object is what lets HAS_FRAGMENT edges, and the
+        # citations that traverse them, survive a revision.
+        artifact_source_id = src_label or doc_id
+        artifact_id = artifact_id_for(connector, source_instance, artifact_source_id)
+        # ``raw_text`` is the EXTRACTOR's rendering — KBDocumentParser flattens a
+        # markdown file into whitespace-normalized chunks, which is fine for
+        # embedding-oriented chunks and useless for structural addressing (every
+        # heading, table and list is gone by then).  The spine fragments the
+        # verbatim source instead, so a citation addresses the document the
+        # author actually wrote.
+        verbatim = self._verbatim_source_text(document, text=text, fallback=raw_text)
+        fragments = fragment_markdown(verbatim, artifact_id=artifact_id)
 
         result = ProcessedDocument(
             document_node=document_node,
@@ -640,7 +653,8 @@ class DocumentProcessor:
                     source_instance=source_instance,
                     checkpoint=checkpoint,
                     access=access,
-                    text=raw_text,
+                    text=verbatim,
+                    source_object_id=artifact_source_id,
                 )
                 result.access_synced = result.persisted
             else:
@@ -754,6 +768,46 @@ class DocumentProcessor:
         except Exception as exc:  # noqa: BLE001
             logger.debug("read_document_text failed (%s)", type(exc).__name__)
             return ""
+
+    #: Extensions whose bytes ARE the document — reading them verbatim is
+    #: lossless.  Anything else (pdf/docx/epub) genuinely needs an extractor, so
+    #: the spine addresses the extractor's output for those.
+    _VERBATIM_SUFFIXES = frozenset({".md", ".markdown", ".mdx", ".txt", ".rst"})
+
+    @classmethod
+    def _verbatim_source_text(
+        cls, document: str | bytes | Path, *, text: str | None, fallback: str
+    ) -> str:
+        """Return the ORIGINAL source text the evidence spine should address.
+
+        CONCEPT:AU-KG.ingest.stable-fragment-address.  ``_read_file`` routes a
+        markdown file through ``KBDocumentParser``, which returns whitespace-
+        normalized chunks — good enough for embeddings, but it has already
+        destroyed every heading, table and list boundary a citation needs to be
+        addressable.  For formats whose bytes are the document, read them
+        verbatim; for formats that genuinely need extraction, fall back to the
+        extracted text rather than fragmenting binary noise.
+        """
+        if text is not None:
+            return text
+        if isinstance(document, bytes):
+            return document.decode("utf-8", errors="replace")
+        if isinstance(document, str | Path) and cls._looks_like_path(document):
+            path = Path(document)
+            if path.suffix.lower() in cls._VERBATIM_SUFFIXES:
+                try:
+                    return path.read_text(encoding="utf-8", errors="replace")
+                except OSError as exc:
+                    logger.warning(
+                        "verbatim read of %s failed (%s); the evidence spine will "
+                        "address the extracted text instead",
+                        path,
+                        exc,
+                    )
+            return fallback
+        if isinstance(document, str):
+            return document
+        return fallback
 
     @staticmethod
     def _looks_like_path(document: str | Path) -> bool:
@@ -1002,6 +1056,7 @@ class DocumentProcessor:
         checkpoint: str | None,
         access: Any,
         text: str = "",
+        source_object_id: str = "",
     ) -> bool:
         """Commit the complete document/chunk/section/evidence-spine slice atomically."""
         from dataclasses import replace as _replace
@@ -1042,6 +1097,7 @@ class DocumentProcessor:
             fragments=tuple(result.fragments),
             title=str(result.document_node.get("title") or ""),
             fragmenter="fragment_markdown",
+            source_object_id=source_object_id,
         )
         result.artifact = artifact
         spine_nodes, spine_links = artifact.to_graph_slice(
