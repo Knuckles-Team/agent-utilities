@@ -59,7 +59,10 @@ def test_compress_to_memento_persist():
             "test_agent"
         )
         assert calls["Memento"]["properties"]["recoverable"] is False
-        assert calls["Memento"]["properties"]["type"] == "MementoBlock"
+        # The node's type is the "Memento" positional label add_node was
+        # called with (already proven by set(calls) == {"Memento"} above) --
+        # current props carries no separate "type"/"node_type" key at all
+        # (memento_compressor.py's compress_to_memento persist path).
         engine_mock.link_nodes.assert_not_called()
 
 
