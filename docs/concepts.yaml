@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1072
+total_concepts: 1075
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4535,6 +4535,17 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/memory/rlm_memory.py
   doc: RLM Memory Extraction Signature
+- id: AU-KG.memory.semantic-response-cache
+  name: See module docstring for the full safety
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/caching/semantic_cache.py
+  - agent_utilities/harness/trace_backend.py
+  - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: See module docstring for the full safety
 - id: AU-KG.memory.targeted-add-update-delete
   name: targeted ADD/UPDATE/DELETE learner
   pillar: AU-KG
@@ -7337,6 +7348,19 @@ concepts:
   code_paths:
   - agent_utilities/rlm/gepa.py
   doc: the proposer is the STRONG model
+- id: AU-ORCH.optimization.provider-prompt-cache
+  name: an exhaustive audit of this repo found no
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/agent/sampling_profile.py
+  - agent_utilities/caching/prompt_cache.py
+  - agent_utilities/harness/trace_backend.py
+  - agent_utilities/harness/tracing.py
+  - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: an exhaustive audit of this repo found no
 - id: AU-ORCH.optimization.remote-concurrency-clamp
   name: so the adaptive ramp can NEVER push a fan-out
   pillar: AU-ORCH
@@ -9095,13 +9119,6 @@ concepts:
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/security/tool_guard.py
   doc: real-time argument analysis, unchanged
-- id: AU-OS.safety.policy-guardrails
-  name: every dispatched task now runs
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/orchestration/manager.py
-  doc: every dispatched task now runs
 - id: AU-OS.safety.prompt-injection-scanner
   name: Prompt Injection Scanner
   pillar: AU-OS
