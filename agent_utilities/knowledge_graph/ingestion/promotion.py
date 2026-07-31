@@ -83,6 +83,7 @@ __all__ = [
     "PromotionVerdict",
     "GovernedPromotionValidator",
     "resolve_confidence_threshold",
+    "envelope_from_dict",
     "propose_candidate_claim",
     "evaluate_and_advance",
     "materialize_on_claim_accepted",
@@ -469,11 +470,13 @@ def evaluate_and_advance(engine: Any, claim: CandidateClaim) -> dict[str, Any]:
     }
 
 
-def _envelope_from_metadata(data: dict[str, Any]) -> ChangeEnvelope:
+def envelope_from_dict(data: dict[str, Any]) -> ChangeEnvelope:
     """Reconstruct a :class:`ChangeEnvelope` from :meth:`ChangeEnvelope.as_dict`'s
     JSON-friendly rendering — the one-way round trip this module needs to
     persist a claim's proposed write across process boundaries (the steward's
-    ``accept`` may land in a different process than the original proposal)."""
+    ``accept`` may land in a different process than the original proposal),
+    and that a caller submitting a candidate claim over MCP/REST (JSON only)
+    needs too — see ``graph_claims(action="evaluate")``."""
     from ...protocols.source_connectors.base import ExternalAccess
 
     payload = dict(data)
@@ -548,7 +551,7 @@ def materialize_on_claim_accepted(engine: Any, claim_id: str) -> dict[str, Any] 
     if not envelope_data:
         return None
 
-    envelope = _envelope_from_metadata(envelope_data)
+    envelope = envelope_from_dict(envelope_data)
     result = ingest_envelope(engine, envelope)
     new_metadata = {
         **metadata,

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1120
+total_concepts: 1123
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3758,6 +3758,15 @@ concepts:
   - agent_utilities/knowledge_graph/core/postgres_queue_backend.py
   doc: Cross-host-safe KG task queue with atomic SKIP LOCKED claims and visibility-timeout recovery on
     the shared state store
+- id: AU-KG.ingest.dead-letter-drain
+  name: never a silent aggregate-only
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/dead_letter.py
+  - agent_utilities/mcp/tools/job_tools.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: never a silent aggregate-only
 - id: AU-KG.ingest.decoupled-kg-ingest-consumer
   name: Decoupled kg-ingest consumer group with idempotent at-least-once task claims
   pillar: AU-KG
@@ -3963,6 +3972,13 @@ concepts:
   code_paths:
   - agent_utilities/models/sdd.py
   doc: external tracker ids this spec is tracked by, e.g
+- id: AU-KG.ingest.fact-supersession
+  name: AU-KG.ingest.fact-supersession
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/supersession.py
+  doc: AU-KG.ingest.fact-supersession
 - id: AU-KG.ingest.fetch-only-requested-ids
   name: fetch only the requested ids per-id — avoids the
   pillar: AU-KG
@@ -4000,6 +4016,16 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/code_context.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: a
+- id: AU-KG.ingest.governed-claim-promotion
+  name: per-pack/per-domain
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+  - agent_utilities/knowledge_graph/ingestion/promotion.py
+  - agent_utilities/mcp/tools/claim_tools.py
+  doc: per-pack/per-domain
 - id: AU-KG.ingest.hardened-priority-scheduled-task
   name: Hardened priority and scheduled task queue with retry and dead-letter
   pillar: AU-KG
@@ -8809,6 +8835,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/deployment/venv_sync.py
+  - agent_utilities/ecosystem/hook_installer.py
   doc: AU-OS.deployment.workspace-venv-reconciler
 - id: AU-OS.governance.action-policy-decision-point
   name: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance

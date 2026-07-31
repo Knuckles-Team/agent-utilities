@@ -28,13 +28,19 @@ tool.
 
 **The universal-ingestion program's governed promotion** (CONCEPT:
 AU-KG.ingest.governed-claim-promotion, ``knowledge_graph/ingestion/
-promotion.py``) hooks into this SAME ``accept``/``retract`` dispatch rather
-than a separate tool: ``accept`` calls ``promotion.materialize_on_claim_accepted``
-(the ONLY place an ingestion candidate claim's proposed fact gets written —
-so the fail-closed ``ActionPolicy`` approval-queue hold on ``claim.accept``
-IS that program's steward-review hold, not a second gate), and ``retract``
-calls ``promotion.supersede_materialized_claim`` (tombstones an already-
-materialized fact rather than deleting it). Both hooks are no-ops for any
+promotion.py``) hooks into this SAME dispatch rather than a separate tool:
+an ``evaluate`` action runs ``promotion.evaluate_and_advance`` (propose a
+candidate claim carrying a proposed ``ChangeEnvelope`` + domain/statement/
+confidence, then run every governance gate and advance/hold/reject it —
+deliberately ungated, mirroring ``graph_ingest``'s ``sync_second_brain``,
+which already proposes claims into this SAME flywheel with no
+``action_policy`` check); ``accept`` calls
+``promotion.materialize_on_claim_accepted`` (the ONLY place an ingestion
+candidate claim's proposed fact gets written — so the fail-closed
+``ActionPolicy`` approval-queue hold on ``claim.accept`` IS that program's
+steward-review hold, not a second gate); and ``retract`` calls
+``promotion.retract_and_supersede`` (tombstones an already-materialized fact
+rather than deleting it). The ``accept``/``retract`` hooks are no-ops for any
 claim without a ``proposed_envelope`` (every non-ingestion claim family).
 """
 
@@ -96,21 +102,26 @@ def register_claim_tools(mcp):
             "and only then is routed through the SAME ClaimFlywheel the mining "
             "pipeline uses; this tool never reimplements the transition rules or "
             "recomputes governance validity itself. For an ingestion candidate "
-            "claim (knowledge_graph/ingestion/promotion.py) this IS the steward-"
-            "review hold: 'accept' is the only action that materializes the "
-            "claim's proposed fact (returned under `materialization`), and "
-            "'retract' supersedes an already-materialized fact rather than "
-            "deleting it (returned under `superseded_fact`) — both are no-ops "
-            "(null) for every other claim family. 'get' returns one claim's "
-            "current state + full transition history; 'list' enumerates claims "
-            "by their current state."
+            "claim (knowledge_graph/ingestion/promotion.py), 'evaluate' "
+            "(domain, statement, confidence, envelope_json) is the governed-"
+            "promotion entrypoint — proposes the claim and runs every "
+            "governance gate (classification/policy, PII, SHACL, dedup, "
+            "contradiction, per-pack confidence) in one call, UNGATED (no fact "
+            "is written here); 'accept' is the only action that materializes "
+            "the claim's proposed fact (returned under `materialization`, "
+            "fail-closed ActionPolicy-gated — the real steward-review hold), "
+            "and 'retract' supersedes an already-materialized fact rather than "
+            "deleting it (returned under `superseded_fact`) — all three are "
+            "no-ops for every other (non-ingestion) claim family. 'get' "
+            "returns one claim's current state + full transition history; "
+            "'list' enumerates claims by their current state."
         ),
         tags=["graph-os", "epistemic", "claims", "governance"],
     )
     async def graph_claims(
         action: str = Field(
             default="get",
-            description="propose|validate|accept|deprecate|retract|get|list",
+            description="propose|validate|accept|deprecate|retract|evaluate|get|list",
         ),
         claim_id: str = Field(
             default="", description="Target claim id (every action but 'list')."
@@ -137,9 +148,30 @@ def register_claim_tools(mcp):
             ),
         ),
         limit: int = Field(default=50, description="'list' only: max rows."),
+        domain: str = Field(
+            default="",
+            description=(
+                "'evaluate' only: the domain/pack name governing this candidate "
+                "claim's per-pack confidence threshold."
+            ),
+        ),
+        statement: str = Field(
+            default="", description="'evaluate' only: the candidate claim's text."
+        ),
+        confidence: float = Field(
+            default=1.0,
+            description="'evaluate' only: the candidate claim's confidence.",
+        ),
+        envelope_json: str = Field(
+            default="",
+            description=(
+                "'evaluate' only: JSON ChangeEnvelope.as_dict()-shaped payload — "
+                "the write this claim proposes if later accepted."
+            ),
+        ),
     ) -> str:
-        """Propose / validate / accept / deprecate / retract / get / list claims
-        through the governed ClaimFlywheel lifecycle, ActionPolicy-gated."""
+        """Propose / validate / accept / deprecate / retract / evaluate / get / list
+        claims through the governed ClaimFlywheel lifecycle, ActionPolicy-gated."""
 
         from agent_utilities.knowledge_graph.research.claim_flywheel import (
             ClaimFlywheel,
@@ -150,6 +182,50 @@ def register_claim_tools(mcp):
         try:
             engine = kg_server._get_engine()
             flywheel = ClaimFlywheel(engine)
+
+            if action == "evaluate":
+                # Governed candidate-claim promotion entrypoint
+                # (CONCEPT:AU-KG.ingest.governed-claim-promotion) — the ONE
+                # live MCP/REST caller into
+                # knowledge_graph.ingestion.promotion.evaluate_and_advance for
+                # a source WITHOUT its own extraction pipeline wired yet
+                # (e.g. a script, or an operator testing a domain's
+                # thresholds). Runs propose+validate/hold/reject in one call;
+                # deliberately UNGATED here (mirrors graph_ingest's
+                # sync_second_brain, which already proposes claims into this
+                # SAME flywheel with no action_policy check) — no fact is
+                # written until a SEPARATE, gated 'accept' call clears the
+                # ActionPolicy approval queue.
+                if not envelope_json:
+                    return json.dumps({"error": "evaluate requires envelope_json"})
+                from agent_utilities.knowledge_graph.ingestion.change_envelope import (
+                    ChangeEnvelope,
+                )
+                from agent_utilities.knowledge_graph.ingestion.promotion import (
+                    CandidateClaim,
+                    envelope_from_dict,
+                    evaluate_and_advance,
+                )
+
+                try:
+                    envelope_data = json.loads(envelope_json)
+                    if not isinstance(envelope_data, dict):
+                        raise ValueError("envelope_json must decode to a JSON object")
+                    envelope: ChangeEnvelope = envelope_from_dict(envelope_data)
+                except Exception as exc:  # noqa: BLE001 — a malformed envelope is a client error
+                    return json.dumps({"error": f"invalid envelope_json: {exc}"})
+                claim = CandidateClaim(
+                    domain=domain,
+                    statement=statement,
+                    confidence=confidence,
+                    envelope=envelope,
+                    claim_id=claim_id or "",
+                )
+                outcome = evaluate_and_advance(engine, claim)
+                return json.dumps(
+                    {"action": "evaluate", "claim_id": claim.claim_id, **outcome},
+                    default=str,
+                )
 
             if action == "get":
                 if not claim_id:
@@ -191,6 +267,7 @@ def register_claim_tools(mcp):
 
             materialization = None
             superseded_fact = None
+            transition_dict = None
             try:
                 if action == "propose":
                     transition = flywheel.propose(
@@ -222,16 +299,20 @@ def register_claim_tools(mcp):
                         claim_id, reason=reason or "superseded or drifted"
                     )
                 else:  # retract
-                    transition = flywheel.retract(
-                        claim_id, reason=reason or "retracted"
-                    )
+                    # Retraction ALSO supersedes an already-materialized fact
+                    # (Track B tie-in) rather than deleting it — one call into
+                    # promotion.retract_and_supersede so the two never drift
+                    # out of sync (it internally calls the SAME
+                    # ``flywheel.retract`` this branch used to call directly).
                     from agent_utilities.knowledge_graph.ingestion.promotion import (
-                        supersede_materialized_claim,
+                        retract_and_supersede,
                     )
 
-                    superseded_fact = supersede_materialized_claim(
+                    retract_result = retract_and_supersede(
                         engine, claim_id, reason=reason or "retracted"
                     )
+                    transition_dict = retract_result["transition"]
+                    superseded_fact = retract_result["superseded_fact"]
             except IllegalTransition as e:
                 return json.dumps(
                     {
@@ -243,12 +324,14 @@ def register_claim_tools(mcp):
                     }
                 )
 
+            if transition_dict is None:
+                transition_dict = transition.to_dict() if transition else None
             return json.dumps(
                 {
                     "action": action,
                     "claim_id": claim_id,
                     "policy": policy,
-                    "transition": transition.to_dict() if transition else None,
+                    "transition": transition_dict,
                     "materialization": materialization,
                     "superseded_fact": superseded_fact,
                 },
