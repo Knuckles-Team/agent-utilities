@@ -63,6 +63,28 @@ class _FakeForkServer:
             self.snapshots[sid] = pinned
             return httpx.Response(200, json={"snapshot": sid, "pages": len(pinned)})
 
+        # D-KVR-2: DELETE /kv/snapshot/<id> — release a live snapshot. 404 if
+        # unknown/already-released; 409 if a live branch still forks off it
+        # (mirrors the engine's `ReleaseOutcome::StillReferenced`).
+        if path.startswith("/kv/snapshot/") and method == "DELETE":
+            sid = int(path[len("/kv/snapshot/") :])
+            if sid not in self.snapshots:
+                return httpx.Response(404, json={"error": "NotFound"})
+            still_live = any(s == sid for s, _overlay in self.branches.values())
+            if still_live:
+                return httpx.Response(409, json={"error": "StillReferenced"})
+            del self.snapshots[sid]
+            return httpx.Response(204)
+
+        # D-KVR-2: DELETE /kv/branch/<bid> — drop a live branch (204), or 404 if
+        # unknown/already-dropped, unblocking that branch's parent snapshot.
+        if path.startswith("/kv/branch/") and method == "DELETE":
+            bid = int(path[len("/kv/branch/") :])
+            if bid not in self.branches:
+                return httpx.Response(404, json={"error": "NotFound"})
+            del self.branches[bid]
+            return httpx.Response(204)
+
         if (
             path.startswith("/kv/snapshot/")
             and path.endswith("/fork")
@@ -220,6 +242,52 @@ def test_branch_get_miss_returns_none_mock() -> None:
     snap = backend.snapshot(["fk1"])
     bid = backend.fork(snap)
     assert backend.branch_get(bid, "never-pinned") is None
+
+
+def test_drop_branch_then_release_snapshot_mock() -> None:
+    """D-KVR-2 — drop every branch, then release the parent snapshot: both succeed."""
+    server = _FakeForkServer()
+    backend = _backend(server)
+    backend.put("fk1", b"page")
+    snap = backend.snapshot(["fk1"])
+    bid = backend.fork(snap)
+
+    assert backend.drop_branch(bid) == "released"
+    assert backend.release_snapshot(snap) == "released"
+
+
+def test_release_snapshot_still_referenced_until_branch_dropped_mock() -> None:
+    """D-KVR-2 — releasing a snapshot with a live branch is refused (409 -> "still_referenced")."""
+    server = _FakeForkServer()
+    backend = _backend(server)
+    backend.put("fk1", b"page")
+    snap = backend.snapshot(["fk1"])
+    bid = backend.fork(snap)
+
+    assert backend.release_snapshot(snap) == "still_referenced"
+    # Drop the outstanding branch, THEN the release can succeed.
+    assert backend.drop_branch(bid) == "released"
+    assert backend.release_snapshot(snap) == "released"
+
+
+def test_release_and_drop_unknown_ids_are_not_found_mock() -> None:
+    """D-KVR-2 — an unknown/already-released id maps to "not_found", never an error."""
+    server = _FakeForkServer()
+    backend = _backend(server)
+    assert backend.release_snapshot(424242) == "not_found"
+    assert backend.drop_branch(424242) == "not_found"
+
+
+def test_release_and_drop_degrade_to_error_on_transport_failure_mock() -> None:
+    """D-KVR-2 — engine outage on a release/drop call degrades to "error", never raises."""
+
+    def boom(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("engine unreachable")
+
+    client = create_http_client(base_url=BASE, transport=httpx.MockTransport(boom))
+    backend = EpistemicGraphKVBackend(KvCacheConfig(base_url=BASE), client=client)
+    assert backend.release_snapshot(1) == "error"
+    assert backend.drop_branch(1) == "error"
 
 
 def test_supports_fork_true_when_fork_surface_reachable_mock() -> None:
