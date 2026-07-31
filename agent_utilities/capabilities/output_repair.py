@@ -405,9 +405,13 @@ class StructuredOutputRepair(AbstractCapability[Any]):
             # which is the one object that does survive out to the caller, so
             # the recording is real provenance and not a write to nowhere.
             try:
-                error.output_repair_attempts = [  # type: ignore[attr-defined]
-                    a.to_dict() for a in self.attempts
-                ]
+                # Widened to Any because the attribute is dynamic provenance on
+                # an arbitrary exception type -- BaseException declares no such
+                # field. Widening the target is the honest form; a
+                # `# type: ignore` here would silence the checker instead of
+                # telling it the truth.
+                carrier: Any = error
+                carrier.output_repair_attempts = [a.to_dict() for a in self.attempts]
             except AttributeError:  # noqa: BLE001 - an exception type with
                 # __slots__ (or a read-only attribute) cannot carry provenance;
                 # the ORIGINAL error must still propagate untouched, so this is
