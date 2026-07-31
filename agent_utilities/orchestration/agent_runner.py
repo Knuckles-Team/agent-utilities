@@ -3496,7 +3496,21 @@ def _record_execution_trace(
                     {"rid": rid, "tid": trace_id},
                 )
     except Exception as e:
-        logger.debug("Failed to record execution trace: %s", e)
+        # D-DG-7: this write is the ONLY persistence of this run's RunTrace/
+        # Outcome nodes — the run itself has already returned its result to the
+        # caller by the time this executes (every exit path of run_agent calls
+        # this after dispatch), so a failure here can never be surfaced to the
+        # caller and must not be silently invisible either. Logging this at
+        # `debug` (as before) meant a run that reports `status="ok"` with a
+        # `trace_ref` pointing at a node that was never written produced NO
+        # signal at a production log level — invisible to the reward/evolution
+        # flywheel and to anyone reading the trace back. `error`, with the
+        # run/trace ids, makes a failed provenance write as diagnosable as any
+        # other production failure while still never raising into the caller.
+        logger.error(
+            f"Failed to record execution trace (run_id={run_id!r}, "
+            f"trace_id={trace_id!r}): {e}"
+        )
 
 
 # ---------------------------------------------------------------------------
