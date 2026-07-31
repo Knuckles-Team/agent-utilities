@@ -351,3 +351,138 @@ def test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes() -> Non
         inference="none",
     )
     assert conforms, report
+
+
+# ── graph round-trip (CONCEPT:AU-KG.mining.ocel-lossless-roundtrip) ───────────
+# ``from_graph_slice`` reconstructs from the ACTUAL (entities, links) shape a
+# ChangeEnvelope commits — the thing a reader queries out of the graph — not
+# from the in-memory Python object. That is the real "OCEL -> graph -> OCEL"
+# proof: reimporting a re-exported JSON document only proves the JSON<->Python
+# boundary is lossless and never touches the graph representation.
+
+
+def _symbolic_slice_payload() -> dict:
+    """``_slice_payload`` minus the neural/entity-resolution collections.
+
+    Those collections are a separate governed lane's boundary
+    (EntityClaimExtractor/ExtractionRun + the neural layer) and are out of
+    scope for the OCEL/derivation/conformance lane —
+    :meth:`ObjectCentricGraphSlice.from_graph_slice` deliberately does not
+    reconstruct them (see its docstring), so this fixture excludes them
+    rather than asserting a false round trip.
+    """
+    payload = _slice_payload()
+    payload["neural_representations"] = []
+    payload["neural_predictions"] = []
+    payload["entity_resolution_proposals"] = []
+    return payload
+
+
+def test_graph_slice_round_trip_is_lossless_through_the_committed_node_shape() -> None:
+    """OCEL -> ``ObjectCentricGraphSlice`` -> committed (entities, links) shape
+    -> reconstructed ``ObjectCentricGraphSlice`` preserves every event/object
+    id, type, attribute, qualified E2O/O2O relation, and derived state — the
+    6.1 acceptance criterion, proven at the graph representation itself."""
+    original = ObjectCentricGraphSlice.model_validate(_symbolic_slice_payload())
+    entities, links = original.to_graph_slice()
+
+    reconstructed = ObjectCentricGraphSlice.from_graph_slice(entities, links)
+
+    assert reconstructed.canonical_digest() == original.canonical_digest()
+    assert reconstructed.to_graph_slice() == (entities, links)
+    assert {event.event_id for event in reconstructed.events} == {
+        event.event_id for event in original.events
+    }
+    assert {obj.object_id for obj in reconstructed.objects} == {
+        obj.object_id for obj in original.objects
+    }
+    assert reconstructed.object_states == original.object_states
+    assert reconstructed.object_relationships == original.object_relationships
+    # ``to_graph_slice`` already canonicalizes a perspective's declared
+    # object_types/qualifiers into sorted sets at the graph-commit boundary
+    # (the same normalization ``canonical_digest`` applies) — DECLARATION
+    # ORDER is not semantic, so compare as sets, not tuples.
+    assert len(reconstructed.perspectives) == len(original.perspectives)
+    for reconstructed_perspective, original_perspective in zip(
+        reconstructed.perspectives, original.perspectives, strict=True
+    ):
+        assert reconstructed_perspective.perspective_id == (
+            original_perspective.perspective_id
+        )
+        assert set(reconstructed_perspective.object_types) == set(
+            original_perspective.object_types
+        )
+        assert set(reconstructed_perspective.qualifiers) == set(
+            original_perspective.qualifiers
+        )
+        assert reconstructed_perspective.derivation_version == (
+            original_perspective.derivation_version
+        )
+    # The qualified E2O participation on the sole event survives with its
+    # qualifier AND object_type intact (not just the object id).
+    original_event = original.events[0]
+    reconstructed_event = next(
+        event
+        for event in reconstructed.events
+        if event.event_id == original_event.event_id
+    )
+    assert sorted(
+        (p.object_id, p.object_type, p.qualifier) for p in reconstructed_event.objects
+    ) == sorted(
+        (p.object_id, p.object_type, p.qualifier) for p in original_event.objects
+    )
+
+
+def test_graph_slice_round_trip_preserves_duplicate_qualified_participations() -> None:
+    """Two identical (object, qualifier) E2O participations on the same event
+    are legitimately distinct occurrences (CONCEPT:AU-KG.mining.ocel-lossless-roundtrip)
+    and must not collapse into one during a graph round trip."""
+    payload = _symbolic_slice_payload()
+    payload["events"][0]["objects"].append(dict(payload["events"][0]["objects"][0]))
+    original = ObjectCentricGraphSlice.model_validate(payload)
+    entities, links = original.to_graph_slice()
+
+    reconstructed = ObjectCentricGraphSlice.from_graph_slice(entities, links)
+
+    assert len(reconstructed.events[0].objects) == len(original.events[0].objects) == 3
+    assert reconstructed.canonical_digest() == original.canonical_digest()
+
+
+def test_graph_slice_round_trip_rejects_a_malformed_committed_shape() -> None:
+    """A committed shape missing its log node, or with a fan-out edge where
+    exactly one is expected, is a corrupt/foreign graph — refused loudly
+    rather than silently reconstructing a wrong or partial slice."""
+    original = ObjectCentricGraphSlice.model_validate(_symbolic_slice_payload())
+    entities, links = original.to_graph_slice()
+
+    without_log = [e for e in entities if e["node_type"] != "ObjectCentricEventLog"]
+    with pytest.raises(ValueError, match="ObjectCentricEventLog"):
+        ObjectCentricGraphSlice.from_graph_slice(without_log, links)
+
+    state_of_links = [link for link in links if link["relationship"] == "STATE_OF"]
+    assert state_of_links
+    duplicated_links = [
+        *links,
+        {**state_of_links[0], "target": "some-other-object-node"},
+    ]
+    with pytest.raises(ValueError, match="STATE_OF"):
+        ObjectCentricGraphSlice.from_graph_slice(entities, duplicated_links)
+
+
+def test_replaying_the_same_slice_yields_identical_graph_and_lineage_digests() -> None:
+    """Replaying from the same source truth twice (e.g. from durable envelopes
+    or a checkpoint) must yield byte-identical graph nodes/links and the same
+    canonical digest — the replay-determinism half of the round-trip proof."""
+    original = ObjectCentricGraphSlice.model_validate(_symbolic_slice_payload())
+
+    first_entities, first_links = original.to_graph_slice()
+    first_digest = original.canonical_digest()
+
+    # A second "replay" re-derived from the reconstructed slice (as a
+    # checkpoint restore would) must reproduce byte-identical output.
+    replayed = ObjectCentricGraphSlice.from_graph_slice(first_entities, first_links)
+    second_entities, second_links = replayed.to_graph_slice()
+
+    assert second_entities == first_entities
+    assert second_links == first_links
+    assert replayed.canonical_digest() == first_digest

@@ -4,6 +4,15 @@ CONCEPT:EG-KG.mining.process-mining — this module is the lossless-boundary
 adapter between provenance-rich event records and the engine's current
 case-trace mining kernel.  It performs no LLM calls and never represents the
 resulting trace projection as the source event truth.
+
+CONCEPT:AU-KG.mining.governed-perspective-flattening — classical single-case
+flattening (grouping events into per-object traces) is a real information loss
+(concurrent object participation collapses into one linear order) and MUST be
+an explicit, versioned analytical choice, never an implicit default. Both
+projection entry points below therefore take a required, keyword-only
+:class:`~.semantic_event_model.ProcessPerspective` instead of a bare object-type
+string — there is no code path that flattens without one, so "undisclosed
+flattening" is a structural (TypeError/ValueError), not a policy, impossibility.
 """
 
 from __future__ import annotations
@@ -19,16 +28,36 @@ from .semantic_event_model import (
     EventObjectParticipation,
     ObjectCentricGraphSlice,
     ProcessEvent,
+    ProcessPerspective,
 )
 
 EventObjectReference = EventObjectParticipation
 EventRecord = ProcessEvent
 
 
+def _case_notion(perspective: ProcessPerspective) -> str:
+    """The single object type a classical (per-object) flattening groups by.
+
+    A :class:`ProcessPerspective` may in principle declare more than one
+    object type (a future multi-type analytical selection), but classical
+    single-case flattening — one trace per object — is only well-defined for
+    exactly one case notion. Anything else is refused rather than guessing
+    which declared type is "the" case.
+    """
+    if len(perspective.object_types) != 1:
+        raise ValueError(
+            "classical single-case flattening requires a process perspective "
+            "declaring exactly one object type (case notion); got "
+            f"{perspective.object_types!r}"
+        )
+    return perspective.object_types[0]
+
+
 @dataclass(frozen=True, slots=True)
 class ProcessTraceProjection:
-    """A declared object-type perspective over source events."""
+    """A declared, versioned object-centric perspective over source events."""
 
+    perspective: ProcessPerspective
     object_type: str
     traces: tuple[tuple[str, ...], ...]
     object_ids: tuple[str, ...]
@@ -45,6 +74,8 @@ class ProcessTraceProjection:
         return {
             "mode": "object_type_projection",
             "object_type": self.object_type,
+            "perspective_id": self.perspective.perspective_id,
+            "derivation_version": self.perspective.derivation_version,
             "trace_count": len(self.traces),
             "event_count": self.event_count,
             "source_count": self.source_count,
@@ -109,17 +140,29 @@ def _parse_event(value: object) -> EventRecord:
 def project_object_centric_events(
     events: object,
     *,
-    object_type: str,
+    perspective: ProcessPerspective,
 ) -> ProcessTraceProjection:
-    """Project events into one explicitly named object-type perspective.
+    """Project events into one explicitly declared, versioned case perspective.
 
-    Each object of ``object_type`` becomes one trace. Events participating in
-    multiple objects legitimately appear in multiple traces. Ordering is stable
-    by event time, source tiebreaker, then immutable event id. The projection
-    digest binds the complete event/object/source lineage without returning raw
-    source records from the public tool surface.
+    Each object of the perspective's single declared case-notion object type
+    becomes one trace. Events participating in multiple objects legitimately
+    appear in multiple traces. Ordering is stable by event time, source
+    tiebreaker, then immutable event id. The projection digest binds the
+    complete event/object/source lineage without returning raw source records
+    from the public tool surface.
+
+    ``perspective`` is mandatory and keyword-only: there is no bare-string
+    ``object_type`` entry point left, so a caller cannot flatten a case notion
+    without first minting (and thereby disclosing) a versioned
+    :class:`ProcessPerspective` (CONCEPT:AU-KG.mining.governed-perspective-flattening).
     """
-    perspective = _required_text(object_type, "object_type")
+    if not isinstance(perspective, ProcessPerspective):
+        raise TypeError(
+            "project_object_centric_events requires an explicit, versioned "
+            "ProcessPerspective — classical single-case flattening is never "
+            "implicit"
+        )
+    case_notion = _case_notion(perspective)
     if not isinstance(events, Sequence) or isinstance(events, str | bytes | bytearray):
         raise ValueError("events must be an array")
     parsed = tuple(_parse_event(value) for value in events)
@@ -133,7 +176,7 @@ def project_object_centric_events(
     timelines: dict[str, list[EventRecord]] = {}
     lineage_rows: list[dict[str, Any]] = []
     for event in parsed:
-        matching = [ref for ref in event.objects if ref.object_type == perspective]
+        matching = [ref for ref in event.objects if ref.object_type == case_notion]
         for ref in matching:
             timelines.setdefault(ref.object_id, []).append(event)
             lineage_rows.append(
@@ -176,7 +219,8 @@ def project_object_centric_events(
         separators=(",", ":"),
     ).encode("utf-8")
     return ProcessTraceProjection(
-        object_type=perspective,
+        perspective=perspective,
+        object_type=case_notion,
         traces=tuple(traces),
         object_ids=object_ids,
         event_count=len(parsed),
@@ -188,7 +232,7 @@ def project_object_centric_events(
 def project_object_centric_slice(
     slice_: ObjectCentricGraphSlice,
     *,
-    object_type: str,
+    perspective: ProcessPerspective,
 ) -> ProcessTraceProjection:
     """Project validated OCEL/tEKG source truth without reparsing its records."""
     return project_object_centric_events(
@@ -210,5 +254,5 @@ def project_object_centric_slice(
             }
             for event in slice_.events
         ],
-        object_type=object_type,
+        perspective=perspective,
     )

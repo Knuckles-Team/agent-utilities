@@ -837,7 +837,14 @@ def test_graph_mine_projects_object_events_in_one_native_call(monkeypatch, tools
     out = json.loads(
         tools["graph_mine"](
             action="process",
-            params_json=json.dumps({"events": events, "object_type": "Order"}),
+            params_json=json.dumps(
+                {
+                    "events": events,
+                    "object_type": "Order",
+                    "perspective_id": "case:order-view",
+                    "derivation_version": "v1",
+                }
+            ),
             graph="",
         )
     )
@@ -846,12 +853,30 @@ def test_graph_mine_projects_object_events_in_one_native_call(monkeypatch, tools
     assert out["projection"] == {
         "mode": "object_type_projection",
         "object_type": "Order",
+        "perspective_id": "case:order-view",
+        "derivation_version": "v1",
         "trace_count": 1,
         "event_count": 2,
         "source_count": 2,
         "lineage_digest": out["projection"]["lineage_digest"],
     }
     assert len(out["projection"]["lineage_digest"]) == 64
+
+
+def test_graph_mine_event_projection_without_a_declared_perspective_is_refused(
+    tools,
+) -> None:
+    """CONCEPT:AU-KG.mining.governed-perspective-flattening — a bare 'object_type'
+    with no 'perspective_id'/'derivation_version' is an undisclosed flattening
+    attempt and is refused, not silently defaulted."""
+    out = json.loads(
+        tools["graph_mine"](
+            action="process",
+            params_json=json.dumps({"events": [], "object_type": "Order"}),
+            graph="",
+        )
+    )
+    assert out["error"]["code"] == "invalid_request"
 
 
 def test_graph_mine_event_projection_writeback_fails_closed(tools):
@@ -918,6 +943,116 @@ def test_graph_mine_ocel_validate_live_path_uses_the_registered_process_tool(too
     assert out["tekg"]["tenant"] == "tenant-a"
     assert len(out["tekg"]["idempotency_key"]) == 64
     assert kg_server.ACTION_TOOL_ROUTES.get("graph_mine") == "/mining/associate"
+
+
+_OCEL_MINE_FIXTURE = {
+    "eventTypes": [{"name": "create", "attributes": []}],
+    "objectTypes": [{"name": "Order", "attributes": []}],
+    "events": [
+        {
+            "id": "e1",
+            "type": "create",
+            "time": "2026-01-01T00:00:00Z",
+            "attributes": [],
+            "relationships": [{"objectId": "order-1", "qualifier": "order"}],
+        }
+    ],
+    "objects": [
+        {
+            "id": "order-1",
+            "type": "Order",
+            "attributes": [],
+            "relationships": [],
+        }
+    ],
+}
+
+
+def test_graph_mine_ocel_mine_mode_requires_a_declared_perspective(tools) -> None:
+    """CONCEPT:AU-KG.mining.governed-perspective-flattening — 'mine' mode
+    always derives traces, so it always requires the same disclosed
+    perspective triple 'events' mode does; there is no separate silent path."""
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {"ocel_json": _OCEL_MINE_FIXTURE, "tenant": "tenant-a"}
+                ),
+                graph="",
+            )
+        )
+    assert out["error"]["code"] == "invalid_request"
+
+
+def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
+    monkeypatch, tools
+) -> None:
+    """CONCEPT:AU-KG.mining.ocel-lossless-roundtrip — 'mine' mode (the
+    default) does not just plan a ChangeEnvelope, it COMMITS it via the same
+    ``ingest_envelope`` idiom every other connector uses, folding the
+    disclosed ProcessPerspective into the same committed slice."""
+    calls: list = []
+    mining = SimpleNamespace(process=_recording_method(calls, "process"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
+
+    committed: list = []
+
+    def _fake_ingest_envelope(engine, envelope):
+        assert engine == "fake-engine"
+        committed.append(envelope)
+        return {"status": "success"}
+
+    import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest_module
+
+    monkeypatch.setattr(
+        envelope_ingest_module, "ingest_envelope", _fake_ingest_envelope
+    )
+
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "ocel_json": _OCEL_MINE_FIXTURE,
+                        "tenant": "tenant-a",
+                        "object_type": "Order",
+                        "perspective_id": "case:order-view",
+                        "derivation_version": "v1",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    assert len(committed) == 1
+    envelope = committed[0]
+    assert envelope.connector == "ocel"
+    node_types = {node["node_type"] for node in envelope.typed_payload["entities"]}
+    assert "ProcessPerspective" in node_types
+    assert "ProcessEvent" in node_types
+    assert "BusinessObject" in node_types
+    assert out["tekg"]["commit_status"] == "success"
+    assert out["projection"]["perspective_id"] == "case:order-view"
+    assert calls == [("process", {"traces": [["create"]]})]
 
 
 def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):
