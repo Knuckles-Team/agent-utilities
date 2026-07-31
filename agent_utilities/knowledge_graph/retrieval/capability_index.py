@@ -520,6 +520,11 @@ class CapabilityIndex:
             if self._embedding_version is None:
                 self._embedding_version = embedding_version
             elif self._embedding_version != embedding_version:
+                from agent_utilities.observability.gateway_metrics import (
+                    EMBEDDING_VERSION_MISMATCHES,
+                )
+
+                EMBEDDING_VERSION_MISMATCHES.labels(site="capability_index_add").inc()
                 raise EmbeddingVersionMismatchError(
                     expected=self._embedding_version,
                     actual=embedding_version,
@@ -829,6 +834,11 @@ class CapabilityIndex:
             and self._embedding_version is not None
             and query_embedding_version != self._embedding_version
         ):
+            from agent_utilities.observability.gateway_metrics import (
+                EMBEDDING_VERSION_MISMATCHES,
+            )
+
+            EMBEDDING_VERSION_MISMATCHES.labels(site="capability_index_designate").inc()
             raise EmbeddingVersionMismatchError(
                 expected=self._embedding_version,
                 actual=query_embedding_version,

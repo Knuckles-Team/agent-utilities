@@ -792,6 +792,10 @@ class QueryMixin(_Base):
         from agent_utilities.knowledge_graph.core.session import resolve_session
 
         resolved = resolve_session(session, required_scope="kg:read")
+        from agent_utilities.observability.gateway_metrics import (
+            RETRIEVAL_ACL_ENFORCEMENT,
+        )
+
         try:
             from agent_utilities.knowledge_graph.core.secured_reads import (
                 audit_read,
@@ -802,8 +806,13 @@ class QueryMixin(_Base):
 
             governed = visible(filter_rows(results, resolved.actor), resolved.actor)
             audit_read(row_node_ids(governed), summary=summary, actor=resolved.actor)
+            RETRIEVAL_ACL_ENFORCEMENT.labels(outcome="admitted").inc(len(governed))
+            RETRIEVAL_ACL_ENFORCEMENT.labels(outcome="denied").inc(
+                len(results) - len(governed)
+            )
             return governed
         except Exception as exc:
+            RETRIEVAL_ACL_ENFORCEMENT.labels(outcome="enforcement_failed").inc()
             from agent_utilities.core.log_privacy import sanitize_log_text
 
             logger.error(
