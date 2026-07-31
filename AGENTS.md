@@ -1126,7 +1126,15 @@ everything, including pre-existing, no `--no-verify`):
    duplicate-symbol scan** across every candidate in flight, an import smoke and
    **targeted tests over changed paths — run against the tree AS MERGED**, never as
    it sat on your branch (`D-OB-17`: git merges two branches cleanly into a tree
-   that `ImportError`s). The **full suite stays outside** the queue, on `main`,
+   that `ImportError`s), plus every `scripts/security/check_*.py` **discovered in
+   the merged tree**. ⚠ **Zero conflicts is not a safety property** — it is the
+   *expected* signal for a whole defect class. Git answers "did two people edit the
+   same lines", about text, on your branch; that is never an answer about whether
+   the merged tree still upholds an invariant. A lane that forks *after* a fix and
+   reverts it merges perfectly cleanly and lands the revert. So never reason
+   "it merged clean, therefore it's safe" — and when you add an invariant, add it as
+   a contract script, which the gate then enforces on the merged tree for free. The
+   **full suite stays outside** the queue, on `main`,
    after landing: at 43 minutes it makes the queue diverge at any concurrency, and a
    gate too costly to run gets bypassed (`D-OP-4`, `D-KCI-6`). Candidates are
    **batched and bisected on failure**, so throughput scales and one bad candidate

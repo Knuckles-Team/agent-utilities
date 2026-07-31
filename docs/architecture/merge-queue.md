@@ -40,6 +40,7 @@ now a mechanical check rather than a human reading diffs:
 | an add/add duplicate where **git silently dropped one of two new node classes** | [cross-branch duplicate-symbol scan](#the-cross-branch-duplicate-symbol-scan) |
 | `D-OB-17`: two branches git **auto-merges cleanly into a tree that `ImportError`s** — no conflict markers, broken result | [testing the candidate **as merged**](#tested-as-merged-not-as-it-sat-on-the-branch) |
 | five collisions the gate **combined** rather than letting git pick a side | the same duplicate scan — a rejection names **both** call sites, which is the input needed to combine them |
+| a fix on `main` silently undone by a branch that merges without a conflict | [repo-invariant contract checks on the merged tree](#repo-invariant-contract-checks-on-the-merged-tree) — because [zero conflicts is not a safety property](#zero-conflicts-is-not-a-safety-property) |
 
 The scan is not merely a re-implementation of the human check: run against the
 branches in flight on the day it was written, it immediately reported `Fragment`,
@@ -60,7 +61,7 @@ flowchart TD
     R --> B["build a rolling trial commit<br/>merge-tree --write-tree → commit-tree<br/>(objects only, no working tree)"]
     B -->|conflicts| RJ1["reject that ONE candidate<br/>batch continues"]
     B --> M["materialize the merged commit<br/>in a throwaway detached worktree"]
-    M --> G["FAST GATE<br/>duplicate scan · import smoke · targeted tests"]
+    M --> G["FAST GATE<br/>duplicate scan · contract checks · import smoke · targeted tests"]
     G -->|fail, batch| BI["bisect the batch"]
     BI --> B
     G -->|fail, single| RJ2["reject with the failing checks"]
@@ -99,9 +100,10 @@ budget nobody can read is a budget nobody can hold the queue to.
 | merge-cleanliness (`merge-tree --write-tree`) | **~25 ms per candidate** — no checkout, no index, no ref | fast |
 | materialize the merged commit (`worktree add --detach`) | **0.5–0.8 s** | fast |
 | cross-branch duplicate-symbol scan | **0.3–2.3 s** for 40–70 changed files | fast |
+| repo-invariant contract checks (merged tree) | **0.72–0.81 s** for both live scripts | fast |
 | import smoke over changed modules | **1.9 s** (3 modules) → **14.3 s** (36 modules) | fast |
 | targeted tests over changed paths | **34 s** (36 test files) | fast |
-| **whole gate, 1 candidate** | **14.5 s** and **36.0 s** on two real branches | fast |
+| **whole gate, 1 candidate** | **14.6 s** and **36.4 s** on two real branches | fast |
 | **whole gate, 4-candidate batch, 43 changed files** | **58.3 s** | fast |
 | full unit suite, guardrail gates, backend-parity matrix | **~43 min** | **slow — outside the queue** |
 
@@ -188,6 +190,115 @@ ran under, resolved explicitly to the repo `.venv` rather than inherited from
 `PATH` — ambient-`python3` inheritance produced ~80 false "environment-blocked"
 verdicts here in a single day, and a green/red result is only ever a claim about
 the interpreter that produced it.
+
+## Zero conflicts is not a safety property
+
+**It is the *expected* signal for a whole defect class, not evidence against one.**
+Git's conflict answer is about *text*: "did two people edit the same lines". Nothing
+in that answer is about whether the resulting tree still upholds an invariant. A
+queue that treats "merged cleanly" as "merged safely" has confused the two.
+
+### What was claimed, and what the merged trees actually said
+
+The concern raised was concrete: `main` carries the D-WD-1 fix that removed an
+engine round-trip (`resolve_placement`) from the identity minter; **22 of 25
+unmerged branch tips still contain that line**, and most merge without conflict — so
+landing them would silently re-arm an engine dependency on the authentication path.
+
+Measured directly, by materialising **all 23 mergeable candidates** and reading the
+file off disk in each merged tree:
+
+| | count |
+|---|---|
+| branch **tips** carrying `placement = resolve_placement(` | **22** |
+| merged **trees** carrying it | **0 of 23** |
+| `check_tenant_identity_contract.py` verdict on the merged trees | **23 of 23 pass** |
+
+Not one branch modifies `request_identity.py` relative to **its own merge base**.
+`main` changed that hunk; every branch left it alone; three-way merge therefore takes
+`main`'s side, universally. **"The tip has the old line" is true of every branch that
+has not synced, and is not a revert.** The instrument was the mismatch: `git grep` on
+a *branch tip* cannot answer a question about a *merge result* — which is the same
+lesson as the ~80 false "environment-blocked" verdicts, one level up.
+
+### But the failure mode is real — it just has a different shape
+
+Reproduced in a controlled repository (`branchB`):
+
+1. `main` lands the fix.
+2. A lane forks **after** the fix — so its merge base already contains it.
+3. The lane puts the line back.
+4. `main` moves on elsewhere.
+
+→ **`git merge-tree` reports no conflict, and the merged tree carries the revert.**
+
+This is the honest version of the concern, and it is *invisible* to conflict
+detection by construction: the merge base has the fix, only one side changed it, so
+git applies that side. It is also invisible to the duplicate-symbol scan, which looks
+at what candidates *add*, not what they remove.
+
+So the gate now runs the invariant itself against the merged tree — see
+[contract checks](#repo-invariant-contract-checks-on-the-merged-tree).
+
+### Why the "removed line" heuristic was measured and then *not* built
+
+The proposal was to flag lines the merge removes that `main` has and the candidate's
+merge base did not. Both halves were measured rather than argued:
+
+| predicate | catches the real revert? | findings on 23 live candidates |
+|---|---|---|
+| in `main`, **not** in merge base, absent from merged | **No — misses it** | 0 (silent) |
+| in `main` **and** in merge base, absent from merged | Yes | **17 of 23 fire**; median **8** lines, max **667**, across up to 60 files |
+
+The first predicate **cannot** catch it: a lane can only cleanly revert a fix it
+already has, so the fix line is *at* the merge base — never "added since". Confirmed
+on `branchB` above: it reports nothing.
+
+The second predicate does catch it, but it is definitionally "every line this branch
+deletes". Firing on 17 of 23 real candidates with a 667-line worst case is a gate
+lanes would learn to scroll past inside a day — the exact `D-OP-4` / `D-KCI-6`
+failure this design is built to avoid. A file-deletion arm fared no better: its one
+finding across 23 candidates (`tests/test_backend_tiered_migration.py` on
+`fix/otr4-heterogeneous-tail`) was a **false positive** — a deliberate test-file move
+in a refactor.
+
+**So it was not built.** A line-diff heuristic cannot distinguish a lane doing its job
+from a lane undoing someone else's; a contract states the invariant once and stays
+silent until it is actually violated. Cost of being wrong differs too: a missed
+heuristic finding is a bug, a noisy one is a disabled gate.
+
+## Repo-invariant contract checks on the merged tree
+
+`scripts/security/check_tenant_identity_contract.py` already mutation-tests the exact
+reverted line (`"    placement = resolve_placement(graph, [], None)\n    return
+GraphSession("`) and passes on `main` with `{"ok": true, "selfCheck": true}` — but it
+was wired into **no pre-commit hook**, so nothing ran it at merge time. It does now.
+
+Two design choices make this generalize rather than special-case D-WD-1:
+
+* **Discovered, not enumerated.** The gate globs `scripts/security/check_*.py` **in
+  the merged tree**. A new invariant is a new script — no change to
+  `merge_queue.py`. A candidate that *adds* a contract has that contract enforced
+  against itself in the same gate run.
+* **Compared against the base.** A candidate whose merged tree has *fewer* contracts
+  than the base is refused: deleting the check that guards an invariant is not a way
+  to satisfy it. A repository that genuinely has none passes, and says so — "nothing
+  found" and "everything passed" must not share a value, but neither may an honest
+  absence be treated as a fault.
+
+**Measured cost: 0.72–0.81 s** for both live scripts together (`check_sbom_licenses`
+1.5 s cold, `check_tenant_identity_contract` ~0.15 s) — under 0.5 % of the 180 s
+budget, and comfortably under the ~2 s expectation. Proven end-to-end: injecting the
+reverted line into an otherwise-clean merged tree flips the check from
+`{"ok": true}` / exit 0 to `{"error": "TenantIdentityContractError"}` / exit 1 in
+146 ms.
+
+> **On the gate's interpreter.** The gate resolves and *reports* the repo `.venv`
+> explicitly and never invokes `uv run`. A bare `uv run pytest` falls back to the
+> system interpreter (pytest is not a base dependency), yielding fastmcp 3.3.1 and a
+> flood of phantom failures — and concurrent `uv` invocations re-sync a shared venv
+> underneath a running gate. Neither may happen inside a merge gate, whose entire
+> value is that its verdict is trustworthy.
 
 ## The cross-branch duplicate-symbol scan
 
