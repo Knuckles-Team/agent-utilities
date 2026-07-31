@@ -932,7 +932,10 @@ class CheckpointAdvisor:
         disk_rule: DiskPromotionRule | None = None,
         top_n: int | None = None,
     ) -> None:
-        self.registry = registry or default_scorer_registry()
+        # ``is None``, never truthiness: a registry an operator has emptied on purpose
+        # is falsy (it defines __len__), and silently swapping it for the default set
+        # would resurrect exactly the scorers they removed.
+        self.registry = default_scorer_registry() if registry is None else registry
         self.ram_threshold = (
             self.DEFAULT_RAM_THRESHOLD if ram_threshold is None else ram_threshold
         )
