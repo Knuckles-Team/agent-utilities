@@ -375,7 +375,14 @@ serving = [
     # messaging platforms: the serving plane runs the always-on messaging co-service; the
     # deployed platforms (Telegram + Mattermost) ship their drivers here so a served graph-os
     # can connect them without an ad-hoc install. Add a platform's extra here when it is wired.
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost]",
+    # D-OG-1: `otel` is now explicit, not merely transitive through `logfire`. The
+    # OTLP trace pipeline (TelemetryEngine._setup_otel / custom_observability.setup_otel)
+    # directly imports opentelemetry-sdk + opentelemetry-exporter-otlp-proto-http, and
+    # relying on a sibling extra's dependency tree to happen to provide them is a latent
+    # break the moment Logfire drops the OTLP/HTTP exporter or `serving` ships without
+    # `logfire`. This is a metadata-only change (the resolved versions are unchanged —
+    # both packages already satisfy `otel`'s `>=1.30.0,<2` range via `logfire`).
+    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
