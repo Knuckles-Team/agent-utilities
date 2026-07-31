@@ -235,6 +235,15 @@ def build_parser() -> argparse.ArgumentParser:
         "park", "clean this tree for a moment WITHOUT touching the shared refs/stash"
     )
     _lane_parser("unpark", "restore what `lane park` set aside")
+    bind_cargo_p = _lane_parser(
+        "bind-cargo",
+        "write .cargo/config.toml so cargo PARTITION binds with no export needed",
+    )
+    bind_cargo_p.add_argument(
+        "--force",
+        action="store_true",
+        help="append the partition block even if .cargo/config.toml already exists",
+    )
     lease_p = _lane_parser("lease", "hold a LEASE-class resource, or report its holder")
     lease_p.add_argument("--resource", default="", help="LEASE-class resource name")
     lease_p.add_argument("--operation", default="", help="why the lease is being taken")
@@ -509,6 +518,11 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
         return lanes.park_worktree(path)
     if action == "unpark":
         return lanes.unpark_worktree(path)
+    if action == "bind-cargo":
+        try:
+            return lanes.write_cargo_partition_config(path, force=args.force)
+        except lanes.LaneArbitrationError as exc:
+            return {"written": False, "refused": str(exc), "exit_code": 1}
     if action == "classify":
         rules = lanes.resource_rules()
         if args.resource:

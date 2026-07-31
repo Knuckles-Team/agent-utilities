@@ -101,6 +101,91 @@ Untracked files are deliberately *not* captured: `reset --hard` does not remove
 them, so nothing has to be captured to survive — and nothing can be lost by a bug
 in the capture.
 
+## PARTITION binds, not just exports — the cargo case (D-CP-4)
+
+`lane env` hands back this lane's private `cargo_target_dir`, but exporting a
+correct value and hoping is not enforcement — it is exactly the shape of the old
+`--target-dir ./target-isolated` convention that was written down, repeated in
+every brief, and still violated (the CARGO_TARGET_DIR export that used to sit in
+a shell rc file on this very host, pointed at ONE specific old worktree, and
+silently serialized/corrupted every other worktree's build — found and removed
+while closing this gap). Two different mechanisms are at work here, and they are
+not the same strength:
+
+* **Structural (binds, prevention).** `agent-utilities lane bind-cargo` writes
+  `.cargo/config.toml` with a **relative** `target-dir`:
+  ```toml
+  [build]
+  target-dir = "target-isolated"
+  ```
+  Cargo resolves a relative `build.target-dir` relative to the directory
+  *containing* `.cargo/config.toml` — the worktree root. So this **one committed
+  file** gives **every** worktree of the repo (present and future) its own
+  isolated target dir automatically, with **no per-lane content, no env var, no
+  action after checkout**. A bare `cargo build`/`check`/`test` run from inside any
+  worktree simply cannot land in a shared directory — the affordance from
+  *PARTITION — supply the affordance, don't just ban the verb* above, applied to
+  a build tool instead of a git verb. Never clobbers unrelated existing cargo
+  config (e.g. a repo's `target-cpu` notes) — refuses unless `--force`, which
+  appends rather than overwrites.
+* **Residual gap (detection only) — stated plainly, not recorded as solved.**
+  cargo's own precedence lets an **exported `CARGO_TARGET_DIR` env var win over
+  the config file**. That is not preventable from here — same shape as the LEASE
+  residual gap above ("a lease binds only actors that take it"). `lane-guard`
+  (`scripts/check_lane_guard.py`) therefore refuses a commit made with a
+  `CARGO_TARGET_DIR` exported to anything other than this lane's own partitioned
+  dir, in any repo that has a `Cargo.toml` — loud, not silent.
+
+## Reach — the mechanism beyond agent-utilities (D-CP-3)
+
+A protocol that protects only the repo that authored it protects the wrong repo:
+`epistemic-graph` is the actual `CARGO_TARGET_DIR` victim, and the ~62 `agents/*`
+packages plus the 3 frontends get the *classification* (this document) but not
+the *mechanism* unless it is wired into their own `.pre-commit-config.yaml`.
+
+**One script, reused unmodified, resolved from cwd — not vendored per repo.**
+`scripts/check_lane_guard.py` resolves the tree it guards from the process's
+working directory (`lanes.current_tree()`, no argument), and pre-commit always
+runs a hook with cwd at the root of the repo being committed. So the identical,
+single-source-of-truth script — never copy-pasted — guards any repo, reached
+from the sibling checkout on disk with the SAME idiom the fleet already uses for
+cross-repo gates (`check_stubs.py`, `check_sprawl.py`, the
+`guardrail-epistemic-operations-protocol`/`guardrail-no-pyo3` gates that already
+call in the other direction):
+
+```yaml
+- repo: local
+  hooks:
+  - id: lane-guard
+    name: Lane guard — canonical checkout read-only + stray CARGO_TARGET_DIR
+    entry: bash -c 'repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${AGENT_UTILITIES_ROOT:-"$(dirname "$repo")/agent-utilities"}; python3 "$root/scripts/check_lane_guard.py"'
+    language: system
+    pass_filenames: false
+    always_run: true
+```
+
+This needs **no new dependency** anywhere (no relock of any repo's `uv.lock` or
+`Cargo.lock`) — it shells out to a sibling checkout's script exactly like the
+existing hooks do, rather than depending on `agent_utilities` being pip-installed
+into the calling repo's own environment.
+
+**Per repo family:**
+
+* **`agent-utilities`** — the origin; unaffected (same script, same behavior,
+  cwd already equals `REPO` there).
+* **`epistemic-graph` (Rust — a Python-only answer would not fit it otherwise).**
+  Wired via the hook above (its `.pre-commit-config.yaml` already resolves
+  `AGENT_UTILITIES_ROOT` the same way for `check_stubs.py`/`check_sprawl.py`, so
+  this is not a new pattern for that repo) **plus** the cargo PARTITION binding
+  above — the two together are the actual fix for the repo the deferred item
+  names as the real `CARGO_TARGET_DIR` victim.
+* **`agents/*` (~62 packages) and the 3 frontends.** Every one of these already
+  declares `agent-utilities` as a runtime dependency (`agent-utilities>=2.0.0,<3.0.0`
+  in `pyproject.toml`), so the sibling-checkout hook above works identically —
+  and `agent-package-builder`'s scaffold template ships the same hook block in
+  every **future** package's generated `.pre-commit-config.yaml`, so new packages
+  get this by construction rather than by a follow-up sweep.
+
 ## APPEND-ONLY — fragments in, one generated view out
 
 ```mermaid
