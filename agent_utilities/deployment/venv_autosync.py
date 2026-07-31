@@ -237,9 +237,7 @@ def _clear(workspace: Workspace, intents: Sequence[Intent]) -> None:
     for intent in intents:
         path = directory / f"{intent.id}.json"
         try:
-            path.unlink()
-        except FileNotFoundError:
-            continue
+            path.unlink(missing_ok=True)
         except OSError as exc:
             logger.warning("could not drain intent %s: %s", path, exc)
 
@@ -252,7 +250,7 @@ def _record_run(workspace: Workspace, payload: dict[str, Any]) -> Path:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
     for stale in sorted(directory.glob("*.json"))[:-200]:
         try:
-            stale.unlink()
+            stale.unlink(missing_ok=True)
         except OSError as exc:
             logger.warning("could not prune run record %s: %s", stale, exc)
     return path

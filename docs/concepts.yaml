@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1075
+total_concepts: 1079
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -8477,6 +8477,13 @@ concepts:
   - agent_utilities/observability/runtime_health.py
   - agent_utilities/server/routers/core.py
   doc: see the callers
+- id: AU-OS.deployment.merge-triggered-venv-flip
+  name: AU-OS.deployment.merge-triggered-venv-flip
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/venv_autosync.py
+  doc: AU-OS.deployment.merge-triggered-venv-flip
 - id: AU-OS.deployment.os-2
   name: AU-OS.deployment.os-2
   pillar: AU-OS
@@ -8539,6 +8546,13 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: read-existing + seed a service
+- id: AU-OS.deployment.workspace-venv-reconciler
+  name: AU-OS.deployment.workspace-venv-reconciler
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/venv_sync.py
+  doc: AU-OS.deployment.workspace-venv-reconciler
 - id: AU-OS.governance.action-policy-decision-point
   name: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
     windows, and blast-radius caps consulted before any autonomous mutating fleet action
@@ -8753,6 +8767,14 @@ concepts:
   - agent_utilities/rlm/sandboxes/base.py
   - agent_utilities/runtime/warm_registry.py
   doc: so they are idle-reaped and counted alongside the sandbox warm parents
+- id: AU-OS.host.venv-drift-detector
+  name: AU-OS.host.venv-drift-detector
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  - agent_utilities/deployment/venv_sync.py
+  doc: AU-OS.host.venv-drift-detector
 - id: AU-OS.identity.ard-datapoint-signing
   name: ARD datapoint signing
   pillar: AU-OS
@@ -9063,6 +9085,13 @@ concepts:
   - agent_utilities/usage/schema.py
   - agent_utilities/usage/service.py
   doc: Usage analytics store. These pydantic models are the single
+- id: AU-OS.safety.destructive-sync-refusal
+  name: AU-OS.safety.destructive-sync-refusal
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/venv_sync.py
+  doc: AU-OS.safety.destructive-sync-refusal
 - id: AU-OS.safety.doom-loop-detection
   name: Doom Loop Detection at transition boundary
   pillar: AU-OS

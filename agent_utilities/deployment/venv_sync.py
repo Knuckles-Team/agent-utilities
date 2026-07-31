@@ -345,16 +345,21 @@ def _project_name(path: Path) -> str | None:
 
 
 def default_state_dir(root: Path) -> Path:
-    """Per-workspace state under XDG state, keyed by the root path.
+    """Per-workspace state under ``~/.local/state``, keyed by the root path.
 
-    State lives outside the workspace on purpose: the venv, the lock backups
-    and the pending-flip queue must survive ``rm -rf .venv`` and must not be
-    something a lane can accidentally include in a repository.
+    State lives outside the workspace on purpose: the lock backups and the
+    pending-flip queue must survive ``rm -rf .venv`` and must never be something
+    a lane can accidentally commit.
+
+    The location is deliberately **not** configurable and reads no environment
+    variable.  A git hook, a detached reconciler and an interactive shell run
+    with three different environments; if the path moved with ``XDG_STATE_HOME``
+    they would each see a different queue and a different backup set, and a
+    flip enqueued by the hook would be invisible to the drain.  One fixed
+    location is the property that makes the queue coherent.
     """
 
-    base = Path(
-        os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
-    ).expanduser()
+    base = Path.home() / ".local" / "state"
     digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:12]
     return base / "agent-utilities" / "venv-autosync" / f"{root.name}-{digest}"
 
@@ -1169,9 +1174,7 @@ def _atomic_write_text(path: Path, payload: str) -> None:
 
 def _unlink_quietly(path: Path) -> None:
     try:
-        path.unlink()
-    except FileNotFoundError:
-        return
+        path.unlink(missing_ok=True)
     except OSError as exc:
         logger.warning("could not remove %s: %s", path, exc)
 
