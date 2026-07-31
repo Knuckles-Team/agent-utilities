@@ -75,12 +75,20 @@ CONFIDENCE_FLOOR = 0.6
 #: fed through this SAME pipeline so an ops-causal finding becomes a
 #: queryable, reviewable ``Claim`` instead of a JSON blob returned once and
 #: discarded.
+#: "EvidenceSignal" (lane 7.1, CONCEPT:AU-KG.evolution.unified-evidence-resource) is
+#: the unified-Evidence-resource's finding kind (:mod:`.evidence`) — a
+#: claim-worthy (failure/degraded/anomalous) signal from ANY of the five
+#: evidence channels (execution trace, eg-native optimisation, graph health,
+#: research finding, process signal), fed through this SAME CandidateInsight
+#: -> Claim pipeline as every other mined finding family, never a sixth
+#: bespoke promotion path.
 _FINDING_TYPES = {
     "AssociationRule",
     "Anomaly",
     "PredictedEdge",
     "SequentialPattern",
     "OpsCausalFinding",
+    "EvidenceSignal",
 }
 
 

@@ -506,6 +506,16 @@ class RegistryNodeType(StrEnum):
     # kind. See agent_utilities.knowledge_graph.ontology.ops_causal_crosswalk.
     CHANGE_REQUEST = "change_request"
 
+    # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
+    # lane 7.1) — the ONE graph-addressable normalization of the five signal
+    # channels that feed the evolution/optimisation loop (execution traces,
+    # eg-native optimisation outcomes, graph-health heuristics, research/
+    # comparative-analysis findings, OCPM/EKG/neural process signals). Distinct
+    # from the pre-existing narrower ``EVIDENCE``/``EvidenceNode`` (a claim's
+    # source-document extraction, CONCEPT:AU-KG.ingest.engineering-rules) — that
+    # type is a different, already-wired concept and is not repurposed here.
+    EVOLUTION_EVIDENCE = "evolution_evidence"
+
 
 class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
@@ -1920,6 +1930,31 @@ class ClaimNode(RegistryNode):
     extracted_from: str | None = None  # source document/article ID
     domain: str | None = None  # business or knowledge domain
     is_verified: bool = False
+
+
+class EvolutionEvidenceNode(RegistryNode):
+    """One normalized unit of evidence feeding the evolution/optimisation loop.
+
+    CONCEPT:AU-KG.evolution.unified-evidence-resource (lane 7.1) — the graph-
+    addressable contract every signal channel (execution traces, eg-native
+    optimisation outcomes, graph-health heuristics, research/comparative-
+    analysis findings, OCPM/EKG/neural process signals) is normalised onto.
+    See :mod:`agent_utilities.knowledge_graph.research.evidence` for the
+    channel enum, adapters, and reader/writer functions — this class is
+    ONLY the persisted shape.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.EVOLUTION_EVIDENCE
+    channel: str = ""
+    outcome: str = ""
+    subject_id: str = ""
+    signal: float = 0.0
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    occurred_at: str = ""
+    source_node_id: str | None = None
+    source_node_type: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    lineage: dict[str, Any] = Field(default_factory=dict)
 
 
 class VirtualContextBlockNode(RegistryNode):

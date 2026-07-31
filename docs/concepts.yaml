@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1059
+total_concepts: 1060
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3446,6 +3446,17 @@ concepts:
   - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/orchestration/action_policy.py
   doc: AU-KG.evolution.placement-mining-canary-loop
+- id: AU-KG.evolution.unified-evidence-resource
+  name: normalizes the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/harness/program_optimization.py
+  - agent_utilities/knowledge_graph/research/candidate_insight.py
+  - agent_utilities/knowledge_graph/research/evidence.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: normalizes the
 - id: AU-KG.identity.asset-occurrence
   name: migrate_legacy_assets_bulk progress callback failed
   pillar: AU-KG
@@ -7888,6 +7899,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/resource_priority.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/kvcache/policy.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
