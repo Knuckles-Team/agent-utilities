@@ -455,11 +455,71 @@ def test_ontology_release_signing_doctor_verifies_stable_authority(monkeypatch):
         "agent_utilities.knowledge_graph.ontology.ontology_integrity.release_trusted_public_keys",
         lambda: ("stable-public-key",),
     )
+    monkeypatch.setattr(D, "_release_lock_pinned_public_keys", lambda: frozenset())
 
     result = D._check_ontology_release_signing()
 
     assert result["status"] == "ok"
     assert result["data"]["signing_authority_ready"] is True
+    assert result["data"]["signer_public_key_trusted"] is True
+
+
+def test_ontology_release_signing_doctor_fails_closed_on_untrusted_key(monkeypatch):
+    """D-35-4: a signing seed that derives a public key no pin trusts must fail
+    closed, not silently report "ready" -- this is the drift class (D-35-1) that let
+    a rotated seed swap the fleet's trust anchor unnoticed until every provider's
+    release signature verification failed."""
+
+    monkeypatch.setattr(
+        "agent_utilities.core.config.AgentConfig",
+        lambda: SimpleNamespace(
+            ontology_release_signing_private_key_ref="env://ONTOLOGY_RELEASE_KEY",
+            app_profile="dev",
+        ),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.ontology_integrity.ReleaseSigner.from_runtime",
+        lambda: SimpleNamespace(public_key="rotated-untrusted-key"),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.ontology_integrity.release_trusted_public_keys",
+        lambda: ("pinned-public-key",),
+    )
+    monkeypatch.setattr(D, "_release_lock_pinned_public_keys", lambda: frozenset())
+
+    result = D._check_ontology_release_signing()
+
+    assert result["status"] == "fail"
+    assert result["data"]["signer_public_key_trusted"] is False
+    assert "rotated-untrusted-key" in result["detail"]
+
+
+def test_ontology_release_signing_doctor_trusts_a_lock_pinned_key(monkeypatch):
+    """A key absent from ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS but present in a
+    provider's ontology.lock pin is still trusted (D-35-4's "or the lock pins")."""
+
+    monkeypatch.setattr(
+        "agent_utilities.core.config.AgentConfig",
+        lambda: SimpleNamespace(
+            ontology_release_signing_private_key_ref="env://ONTOLOGY_RELEASE_KEY",
+            app_profile="dev",
+        ),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.ontology_integrity.ReleaseSigner.from_runtime",
+        lambda: SimpleNamespace(public_key="lock-pinned-key"),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.ontology_integrity.release_trusted_public_keys",
+        lambda: (),
+    )
+    monkeypatch.setattr(
+        D, "_release_lock_pinned_public_keys", lambda: frozenset({"lock-pinned-key"})
+    )
+
+    result = D._check_ontology_release_signing()
+
+    assert result["status"] == "ok"
     assert result["data"]["signer_public_key_trusted"] is True
 
 

@@ -67,9 +67,6 @@ from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa
     compile_manifest,
     export_manifest_ttl,
 )
-from scripts.enrich_fleet_a2a_epistemic import (  # noqa: E402
-    EPISTEMIC_CAPABILITY,
-)
 
 _XSD_NS = "http://www.w3.org/2001/XMLSchema#"
 _OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"
@@ -104,12 +101,34 @@ def connector_project_name(connector_root: Path) -> str:
 #: (flagged via ``review_todos``), never a per-connector guess.
 _DEFAULT_A2A_ORG = "Knuckles-Team"
 
+#: The SAME capability content as the ``Skill(id="epistemic-answer", ...)``
+#: appended to every live AgentCard in ``agent_utilities/server/app.py``
+#: (CONCEPT:AU-KB-CURRENCY) — kept in lockstep by hand (both are short and
+#: reviewed together on change) rather than sharing a runtime import, so
+#: generation stays a pure, dependency-free projection.
+#:
+#: This used to live in the now-deleted ``scripts/enrich_fleet_a2a_epistemic.py``
+#: (a one-off backfill for providers whose ``a2a.json`` predated fleet-wide
+#: generation, D-A2A-3): once every provider's ``a2a.json`` is generator-owned
+#: (68/68, 2026-07-31 fleet re-certification), that standalone enrichment path
+#: was a strict subset of what full regeneration already does, so it was
+#: deleted rather than kept as a redundant parallel path (No-Legacy).
+EPISTEMIC_CAPABILITY: dict[str, Any] = {
+    "id": "epistemic-answer",
+    "name": "Epistemic Answer",
+    "description": (
+        "Answers epistemic_status/why/what_changed queries over the shared "
+        "knowledge graph: calibrated confidence, evidence/source citations, "
+        "belief justification trees, bitemporal valid/tx history, and "
+        "policy-redaction-aware provenance."
+    ),
+    "tags": ["epistemic", "provenance", "confidence", "kg"],
+}
+
 #: The ``a2a.json`` capability every agent-utilities-built connector ships
 #: (CONCEPT:AU-KG.ontology.a2a-card-generation): graph-flow execution, universal
 #: to the framework, plus the epistemic-answer capability every live AgentCard
-#: already advertises (``agent_utilities/server/app.py``,
-#: ``scripts/enrich_fleet_a2a_epistemic.py`` — reused here verbatim, single
-#: source of truth, rather than re-hardcoded).
+#: already advertises.
 DEFAULT_A2A_CAPABILITIES: tuple[dict[str, Any], ...] = (
     {
         "id": "run_graph_flow",
