@@ -1517,16 +1517,18 @@ def claim_agent_task_via_work_item(
 ) -> dict[str, Any] | None:
     """Claim one ``:AgentTask`` through the WorkItem state machine (MIGRATED path).
 
-    Same return contract as
-    :func:`agent_utilities.orchestration.agent_dispatch_worker.claim_agent_task`
+    Same legacy-shaped fields as the retired KG-``:AgentLease`` claim path
     (``task_id``/``lease_id``/``dag_id``/``checkpoint_id``/
-    ``depends_on_task_ids``/``fence_token``), so every existing downstream
-    consumer (``execute_agent_task_turn``, ``_fence_still_valid``) is
-    unchanged — plus an internal ``_work_item_id`` key so
-    ``_finalize_agent_task`` can additionally commit through
-    :func:`commit_result` (dependency release, DLQ, idempotent commit all
-    apply). Selected via ``AGENT_CLAIM_BACKEND=workitem``
-    (:mod:`~agent_utilities.orchestration.engine_claim`).
+    ``depends_on_task_ids``/``fence_token``), so a caller that only reads
+    those is unaffected — PLUS ``work_item_id`` and ``lease_owner``, which
+    :class:`~agent_utilities.orchestration.agent_dispatch_worker.WorkItemLeaseGuard`
+    / :func:`~agent_utilities.orchestration.agent_dispatch_worker._work_item_fence_still_valid`
+    / :func:`heartbeat` require to renew and verify authority against THIS
+    (WorkItem-native) fence, not the retired AgentLease one. Consumed by
+    :func:`~agent_utilities.orchestration.agent_dispatch_worker.execute_agent_task_turn`,
+    which also commits the outcome through :func:`commit_agent_task_work_item`
+    (dependency release, DLQ, idempotent commit all apply). Selected via
+    ``AGENT_CLAIM_BACKEND=workitem`` (:mod:`~agent_utilities.orchestration.engine_claim`).
     """
     token = token or _default_token()
     now = now if now is not None else _now()
@@ -1594,7 +1596,8 @@ def claim_agent_task_via_work_item(
         "checkpoint_id": checkpoint_id,
         "depends_on_task_ids": list(item.get("depends_on") or []),
         "fence_token": claim["fence_token"],
-        "_work_item_id": item_id,
+        "lease_owner": claim.get("lease_owner"),
+        "work_item_id": item_id,
     }
 
 
