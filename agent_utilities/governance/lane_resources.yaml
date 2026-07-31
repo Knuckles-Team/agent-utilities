@@ -43,6 +43,24 @@ resources:
       or `lane park` against the per-lane ref. Name the replacement or the rule
       loses.
 
+  - name: uv-project-environment
+    class: partition
+    mechanism: scripts/uv_workspace.py environment_path() — `.venv` per dependency selection
+    evidence: >-
+      One `<worktree>/.venv` served every dependency selection, and `uv run`
+      re-synchronises that environment on every invocation. The pre-commit
+      `pytest` hook asks for `--all-extras` while the documented
+      `uv_workspace.py run pytest` asks for none, so concurrent invocations
+      rewrote one environment underneath each other — a measured 44-distribution
+      environment where a 700-distribution one was expected. uv releases its
+      environment lock BEFORE exec'ing the child, so the window covers the whole
+      test run: `ModuleNotFoundError` was observed from inside the venv while a
+      different selection synchronised it. That produced 47 false
+      "environment-blocked" verdicts, the one disposition that ends inquiry
+      instead of inviting the next reader to re-check. Partitioning by selection
+      removes the contention; running the child under `--no-sync` removes the
+      remaining mutation-under-a-live-process window.
+
   - name: lane-scratch
     class: partition
     mechanism: partitioned_paths().scratch_dir

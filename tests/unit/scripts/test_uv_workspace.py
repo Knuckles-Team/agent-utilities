@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -110,11 +112,12 @@ def test_uv_invocation_selects_worktree_package_and_environment(
         shadow=shadow,
     )
 
-    assert command[:7] == [
+    assert command[:8] == [
         "/usr/bin/uv",
         "--project",
         str(shadow),
         "run",
+        "--no-sync",
         "--locked",
         "--package",
         "agent-utilities",
@@ -276,3 +279,146 @@ def test_sync_invocation_is_always_locked(
     )
 
     assert command[-4:] == ["sync", "--locked", "--package", "agent-utilities"]
+
+
+# ---------------------------------------------------------------------------
+# Environment partitioning (D-VI-1). One worktree serves many concurrent
+# invocations asking for DIFFERENT dependency selections; they used to share one
+# `.venv` and rewrite it underneath each other.
+# ---------------------------------------------------------------------------
+def test_distinct_selections_never_share_an_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The collision itself: two selections, one worktree, two environments."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+    worktree = tmp_path / "worktree"
+
+    directories = {
+        uv_workspace.uv_plan(
+            arguments,
+            worktree=worktree,
+            shadow=tmp_path / "shadow",
+        ).environment_path
+        for arguments in (
+            ["run", "--all-extras", "pytest"],
+            ["run", "pytest"],
+            ["run", "--extra", "graph", "pytest"],
+            ["run", "--extra", "graph", "--extra", "owl", "pytest"],
+        )
+    }
+
+    assert len(directories) == 4, "each dependency selection must own its environment"
+    assert all(path.parent == worktree for path in directories)
+
+
+def test_canonical_selection_keeps_the_conventional_venv_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """`.venv/bin` is on the PATH built by bootstrap.sh and both CI workflows."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+    worktree = tmp_path / "worktree"
+
+    plan = uv_workspace.uv_plan(
+        ["run", "--all-extras", "pytest"],
+        worktree=worktree,
+        shadow=tmp_path / "shadow",
+    )
+
+    assert plan.environment_path == worktree / ".venv"
+
+
+def test_selection_identity_ignores_order_and_repetition(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Equivalent requests must not fork the environment and double the disk."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+    worktree = tmp_path / "worktree"
+
+    directories = {
+        uv_workspace.uv_plan(
+            arguments,
+            worktree=worktree,
+            shadow=tmp_path / "shadow",
+        ).environment_path
+        for arguments in (
+            ["run", "--extra", "graph", "--extra", "owl", "pytest"],
+            ["run", "--extra", "owl", "--extra", "graph", "pytest"],
+            ["run", "--extra=owl", "--extra", "graph", "--extra", "owl", "pytest"],
+            ["run", "--locked", "--extra", "graph", "--extra", "owl", "pytest"],
+        )
+    }
+
+    assert len(directories) == 1
+
+
+def test_run_synchronises_before_exec_and_never_syncs_during_the_child(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """uv frees the environment lock BEFORE exec, so the child must not resync."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    plan = uv_workspace.uv_plan(
+        ["run", "--all-extras", "pytest", "tests", "-q"],
+        worktree=tmp_path / "worktree",
+        shadow=tmp_path / "shadow",
+    )
+
+    assert len(plan.prepare) == 1
+    assert "sync" in plan.prepare[0]
+    assert "--locked" in plan.prepare[0]
+    assert "--all-extras" in plan.prepare[0]
+    assert "--no-sync" in plan.execute, "the child must run against a frozen environment"
+
+
+def test_unrecognized_flag_degrades_instead_of_guessing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An identity we cannot derive falls back to uv's own behaviour, loudly."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    plan = uv_workspace.uv_plan(
+        ["run", "--some-future-uv-flag", "pytest"],
+        worktree=tmp_path / "worktree",
+        shadow=tmp_path / "shadow",
+    )
+
+    assert plan.selection_recognized is False
+    assert plan.prepare == ()
+    assert "--no-sync" not in plan.execute
+
+
+def test_failed_preparation_never_execs_the_child(tmp_path: Path) -> None:
+    """A half-built environment must not be handed to a test run."""
+    workspace = tmp_path / "workspace"
+    shadow = tmp_path / "shadow"
+    worktree = tmp_path / "worktree"
+    for directory in (workspace, shadow, worktree):
+        directory.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    returncode = uv_workspace.run_uv(
+        [sys.executable, "-c", "raise SystemExit('the child must never run')"],
+        worktree=worktree,
+        environment=dict(os.environ),
+        workspace=workspace,
+        shadow=shadow,
+        prepare=[[sys.executable, "-c", "raise SystemExit(3)"]],
+    )
+
+    assert returncode == 3
+
+
+def test_partitioned_environment_is_a_classified_resource() -> None:
+    """An unclassified shared resource is exactly how this defect survived."""
+    from agent_utilities.governance import lanes
+
+    assert (
+        lanes.resource_class("uv-project-environment") is lanes.ArbitrationClass.PARTITION
+    )

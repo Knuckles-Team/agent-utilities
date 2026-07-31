@@ -10,6 +10,29 @@ at that view.  No source is copied and the committed workspace manifest and lock
 remain authoritative.  Epistemic-graph native builds use one explicit per-user
 artifact cache outside those generated shadows so concurrent worktrees share the
 same content-addressed wheel.
+
+The virtualenv is PARTITIONED by dependency selection
+(CONCEPT:AU-OS.governance.lane-partitioned-resources).  One worktree serves many
+concurrent invocations that ask for *different* dependency sets — the pre-commit
+``pytest`` hook asks for ``--all-extras`` while the documented
+``uv_workspace.py run pytest`` asks for none — and ``uv run`` re-synchronises the
+environment named by ``UV_PROJECT_ENVIRONMENT`` on every invocation.  Pointing
+every selection at one ``<worktree>/.venv`` therefore let those invocations
+rewrite one environment underneath each other: a measured 44-package environment
+where a 700-package one was expected, and imports failing from inside a venv that
+was mid-installation.  Because uv releases the environment lock *before* it execs
+the child, the corrupted window covers the whole test run, and a test process that
+samples it reports a dependency that is present in the lock as absent from the
+world — a false "environment-blocked" verdict, the one disposition that ends
+inquiry rather than inviting the next reader to check.
+
+Two properties close that structurally, with no caller change:
+
+* **Partition.** Each distinct selection resolves to its own environment
+  directory, so two selections can no longer contend at all.
+* **Sync before exec.** The environment is synchronised by an explicit ``uv sync``
+  and the child is then run with ``uv run --no-sync``, so an invocation never
+  mutates an environment while another invocation's process is running in it.
 """
 
 from __future__ import annotations
@@ -22,12 +45,62 @@ import os
 import shutil
 import subprocess
 import tomllib
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 PROJECT_NAME = "agent-utilities"
 _SHADOW_MARKER = ".agent-utilities-worktree.json"
 _NATIVE_ARTIFACT_CACHE_ENV = "EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"
+_ENVIRONMENT_DIRNAME = ".venv"
+_ENVIRONMENT_MARKER = ".uv-workspace-selection.json"
+
+# uv flags that change WHICH distributions are resolved into the environment, and
+# therefore which environment an invocation may safely share.  ``True`` marks a
+# flag that consumes the following token as its value.
+_SELECTION_FLAGS: dict[str, bool] = {
+    "--extra": True,
+    "--no-extra": True,
+    "--all-extras": False,
+    "--no-all-extras": False,
+    "--group": True,
+    "--no-group": True,
+    "--only-group": True,
+    "--default-groups": True,
+    "--all-groups": False,
+    "--no-default-groups": False,
+    "--dev": False,
+    "--no-dev": False,
+    "--only-dev": False,
+    "--no-editable": False,
+    "--python": True,
+    "-p": True,
+}
+
+# Recognised uv flags that do NOT change the resolved distribution set, so two
+# invocations differing only in these may share one environment.
+_NEUTRAL_FLAGS: dict[str, bool] = {
+    "--locked": False,
+    "--frozen": False,
+    "--no-sync": False,
+    "--refresh": False,
+    "--no-cache": False,
+    "--offline": False,
+    "--native-tls": False,
+    "--quiet": False,
+    "-q": False,
+    "--verbose": False,
+    "-v": False,
+}
+
+# The one selection that keeps the conventional ``<worktree>/.venv`` path.
+# It is not privileged arbitrarily: it is the selection this repository's own
+# pre-commit ``pytest`` gate uses, every existing worktree environment is already
+# in that state (~700 distributions / ~6.3 GB each), and ``.venv/bin`` is on the
+# PATH built by ``scripts/bootstrap.sh`` and both CI workflows.  Keying it like
+# any other selection would have forced every worktree to rebuild the largest
+# environment it already owns.
+_CANONICAL_SELECTION: tuple[str, ...] = ("--all-extras",)
 
 
 def _git_output(repository: Path, *args: str) -> str:
@@ -228,6 +301,180 @@ def shadow_workspace(
     return shadow
 
 
+def split_selection(tail: Sequence[str]) -> tuple[list[str], bool]:
+    """Return the dependency-selecting flags leading *tail*, and whether the whole
+    leading flag run was recognised.
+
+    Recognition is the honest part.  Every uv flag understood here is classified
+    as either selecting (part of the environment identity) or neutral; the first
+    flag that is neither ends the scan and reports ``False``, so the caller can
+    fall back to uv's own behaviour instead of guessing at an environment
+    identity it cannot actually derive.
+    """
+    selection: list[str] = []
+    index = 0
+    while index < len(tail):
+        token = tail[index]
+        if token == "--" or not token.startswith("-"):
+            return selection, True
+        name, _, inline = token.partition("=")
+        if name in _SELECTION_FLAGS:
+            takes_value = _SELECTION_FLAGS[name]
+        elif name in _NEUTRAL_FLAGS:
+            takes_value = _NEUTRAL_FLAGS[name]
+        else:
+            return selection, False
+        value: str | None = None
+        if takes_value:
+            if inline:
+                value = inline
+            else:
+                index += 1
+                if index >= len(tail):
+                    return selection, False
+                value = tail[index]
+        if name in _SELECTION_FLAGS:
+            selection.append(name)
+            if value is not None:
+                selection.append(value)
+        index += 1
+    return selection, True
+
+
+def normalized_selection(selection: Sequence[str]) -> tuple[str, ...]:
+    """Return *selection* as an order- and duplicate-independent identity."""
+    pairs: list[str] = []
+    index = 0
+    while index < len(selection):
+        name = selection[index]
+        if _SELECTION_FLAGS.get(name) and index + 1 < len(selection):
+            pairs.append(f"{name}={selection[index + 1]}")
+            index += 2
+        else:
+            pairs.append(name)
+            index += 1
+    return tuple(sorted(set(pairs)))
+
+
+def environment_label(selection: Sequence[str]) -> str:
+    """Return the directory suffix that partitions *selection*'s environment."""
+    normalized = normalized_selection(selection)
+    if normalized == _CANONICAL_SELECTION:
+        return ""
+    if not normalized:
+        return "base"
+    digest = hashlib.sha256("\x00".join(normalized).encode()).hexdigest()[:12]
+    return f"x{digest}"
+
+
+def environment_path(worktree: Path, selection: Sequence[str]) -> Path:
+    """Return the environment directory this worktree owns for *selection*."""
+    label = environment_label(selection)
+    name = _ENVIRONMENT_DIRNAME if not label else f"{_ENVIRONMENT_DIRNAME}-{label}"
+    return worktree / name
+
+
+def _describe_environment(path: Path, selection: Sequence[str]) -> None:
+    """Record which selection owns *path*, so a keyed directory is self-describing."""
+    marker = path / _ENVIRONMENT_MARKER
+    payload = {
+        "selection": list(normalized_selection(selection)),
+        "label": environment_label(selection),
+    }
+    body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    try:
+        if marker.is_file() and marker.read_text(encoding="utf-8") == body:
+            return
+        path.mkdir(parents=True, exist_ok=True)
+        marker.write_text(body, encoding="utf-8")
+    except OSError:
+        # Evidence only; never fail an invocation because the note could not be
+        # written.
+        return
+
+
+class UvPlan(NamedTuple):
+    """The commands, environment and evidence for one launcher invocation.
+
+    A :class:`NamedTuple` rather than a dataclass because this module is also
+    loaded standalone by file path (``importlib.util.spec_from_file_location``),
+    where ``dataclasses`` cannot resolve ``cls.__module__`` back to a live module.
+    """
+
+    prepare: tuple[tuple[str, ...], ...]
+    execute: tuple[str, ...]
+    environment: dict[str, str]
+    environment_path: Path
+    selection: tuple[str, ...]
+    selection_recognized: bool
+
+
+def uv_plan(
+    arguments: list[str],
+    *,
+    worktree: Path,
+    shadow: Path,
+) -> UvPlan:
+    """Build the partitioned, sync-before-exec plan for this worktree."""
+    uv = shutil.which("uv")
+    if uv is None:
+        raise RuntimeError("uv is not installed or visible on PATH")
+    if not arguments:
+        raise RuntimeError("an uv subcommand is required")
+    subcommand = arguments[0]
+    tail = [argument for argument in arguments[1:] if argument != "--locked"]
+
+    selection: list[str] = []
+    recognized = True
+    if subcommand in {"run", "sync"}:
+        selection, recognized = split_selection(tail)
+
+    prepare: list[tuple[str, ...]] = []
+    base = [uv, "--project", str(shadow)]
+    if subcommand == "run":
+        if recognized:
+            # Synchronise explicitly, then exec without syncing, so this
+            # invocation cannot mutate the environment a sibling process is
+            # already running in.  ``--inexact`` keeps the pruning behaviour uv
+            # run has always had; partitioning, not pruning, is what makes the
+            # selection correct.
+            prepare.append(
+                (
+                    *base,
+                    "sync",
+                    "--locked",
+                    "--inexact",
+                    "--package",
+                    PROJECT_NAME,
+                    *selection,
+                )
+            )
+            command = [*base, "run", "--no-sync", "--locked", "--package", PROJECT_NAME]
+        else:
+            command = [*base, "run", "--locked", "--package", PROJECT_NAME]
+        command.extend(tail)
+    elif subcommand == "sync":
+        command = [*base, "sync", "--locked", "--package", PROJECT_NAME, *tail]
+    elif subcommand == "lock":
+        command = [*base, "lock", "--locked", *tail]
+    else:
+        command = [*base, *arguments]
+
+    directory = environment_path(worktree, selection)
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment["UV_PROJECT_ENVIRONMENT"] = str(directory)
+    environment[_NATIVE_ARTIFACT_CACHE_ENV] = str(_native_artifact_cache_root())
+    return UvPlan(
+        prepare=tuple(prepare),
+        execute=tuple(command),
+        environment=environment,
+        environment_path=directory,
+        selection=normalized_selection(selection),
+        selection_recognized=recognized,
+    )
+
+
 def uv_invocation(
     arguments: list[str],
     *,
@@ -235,24 +482,41 @@ def uv_invocation(
     shadow: Path,
 ) -> tuple[list[str], dict[str, str]]:
     """Build the uv command and isolated environment for this worktree."""
-    uv = shutil.which("uv")
-    if uv is None:
-        raise RuntimeError("uv is not installed or visible on PATH")
-    if not arguments:
-        raise RuntimeError("an uv subcommand is required")
-    command = [uv, "--project", str(shadow)]
-    tail = [argument for argument in arguments[1:] if argument != "--locked"]
-    if arguments[0] in {"run", "sync"}:
-        command.extend([arguments[0], "--locked", "--package", PROJECT_NAME, *tail])
-    elif arguments[0] == "lock":
-        command.extend(["lock", "--locked", *tail])
-    else:
-        command.extend(arguments)
-    environment = os.environ.copy()
-    environment.pop("PYTHONPATH", None)
-    environment["UV_PROJECT_ENVIRONMENT"] = str(worktree / ".venv")
-    environment[_NATIVE_ARTIFACT_CACHE_ENV] = str(_native_artifact_cache_root())
-    return command, environment
+    plan = uv_plan(arguments, worktree=worktree, shadow=shadow)
+    return list(plan.execute), plan.environment
+
+
+def _environment_evidence(worktree: Path) -> list[dict[str, Any]]:
+    """Report every partitioned environment this worktree owns, and its selection."""
+    evidence: list[dict[str, Any]] = []
+    for directory in sorted(worktree.glob(f"{_ENVIRONMENT_DIRNAME}*")):
+        if not directory.is_dir():
+            continue
+        marker = directory / _ENVIRONMENT_MARKER
+        selection: list[str] | None = None
+        if marker.is_file():
+            try:
+                loaded = json.loads(marker.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                loaded = None
+            if isinstance(loaded, dict) and isinstance(loaded.get("selection"), list):
+                selection = [str(item) for item in loaded["selection"]]
+        distributions = len(
+            [
+                path
+                for pattern in ("lib/python*/site-packages", "Lib/site-packages")
+                for parent in directory.glob(pattern)
+                for path in parent.glob("*.dist-info")
+            ]
+        )
+        evidence.append(
+            {
+                "path": str(directory),
+                "selection": selection,
+                "distributions": distributions,
+            }
+        )
+    return evidence
 
 
 def doctor_payload(
@@ -271,6 +535,7 @@ def doctor_payload(
         "canonical_repository": str(canonical),
         "workspace_root": str(workspace),
         "shadow_workspace": str(shadow),
+        "environments": _environment_evidence(worktree),
         "member_resolves_to_worktree": member.resolve() == worktree,
         "manifest_is_generated_copy": not manifest.is_symlink(),
         "manifest_matches_canonical": manifest.read_bytes()
@@ -291,8 +556,14 @@ def run_uv(
     environment: dict[str, str],
     workspace: Path,
     shadow: Path,
+    prepare: Sequence[Sequence[str]] = (),
 ) -> int:
-    """Execute uv and prove neither authoritative nor generated inputs changed."""
+    """Execute uv and prove neither authoritative nor generated inputs changed.
+
+    ``prepare`` runs first and short-circuits on failure: it is the environment
+    synchronisation that must complete before the child may be exec'd against an
+    environment nobody is allowed to mutate afterwards.
+    """
     protected = (
         workspace / "pyproject.toml",
         workspace / "uv.lock",
@@ -300,17 +571,31 @@ def run_uv(
         shadow / "uv.lock",
     )
     before = {path: _digest(path) for path in protected}
+
+    def _assert_unchanged() -> None:
+        changed = [str(path) for path in protected if _digest(path) != before[path]]
+        if changed:
+            raise RuntimeError(
+                "uv changed a lock-governed workspace input: " + ", ".join(changed)
+            )
+
+    for step in prepare:
+        step_result = subprocess.run(
+            list(step),
+            cwd=worktree,
+            env=environment,
+            check=False,
+        )
+        _assert_unchanged()
+        if step_result.returncode != 0:
+            return step_result.returncode
     result = subprocess.run(
         command,
         cwd=worktree,
         env=environment,
         check=False,
     )
-    changed = [str(path) for path in protected if _digest(path) != before[path]]
-    if changed:
-        raise RuntimeError(
-            "uv changed a lock-governed workspace input: " + ", ".join(changed)
-        )
+    _assert_unchanged()
     return result.returncode
 
 
@@ -348,17 +633,19 @@ def main(argv: list[str] | None = None) -> int:
             else 1
         )
 
-    command, environment = uv_invocation(
+    plan = uv_plan(
         namespace.uv_arguments,
         worktree=worktree,
         shadow=shadow,
     )
+    _describe_environment(plan.environment_path, plan.selection)
     return run_uv(
-        command,
+        list(plan.execute),
         worktree=worktree,
-        environment=environment,
+        environment=plan.environment,
         workspace=workspace,
         shadow=shadow,
+        prepare=plan.prepare,
     )
 
 
