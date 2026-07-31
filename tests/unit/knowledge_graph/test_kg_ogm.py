@@ -3,6 +3,7 @@ from __future__ import annotations
 
 """Tests for CONCEPT:AU-KG.query.object-graph-mapper — KG Object-Graph Mapper (OGM)."""
 
+import json
 
 from agent_utilities.knowledge_graph.core.ogm import KGMapper, kg_label, resolve_label
 from agent_utilities.models.knowledge_graph import (
@@ -125,7 +126,10 @@ class TestKGMapperUpsert:
         assert "sm:001" in engine.graph
         nx_data = engine.graph.nodes["sm:001"]
         assert nx_data["version"] == 1
-        assert nx_data["domain_success_rates"] == {"gitlab": 0.85}
+        # Dict-valued properties are JSON-encoded for KG storage by
+        # KGMapper._serialize; a raw graph-compute read sees that string, not
+        # the original dict (round-trips back to a dict via KGMapper._deserialize).
+        assert json.loads(nx_data["domain_success_rates"]) == {"gitlab": 0.85}
 
 
 class TestKGMapperLoad:

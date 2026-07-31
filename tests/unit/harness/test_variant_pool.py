@@ -3,6 +3,7 @@ from __future__ import annotations
 
 """Tests for CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Variant Selection."""
 
+import json
 
 from agent_utilities.harness.variant_pool import VariantPool
 from agent_utilities.models.knowledge_graph import (
@@ -84,8 +85,11 @@ class TestVariantRegistration:
             "prompt:base", variant, generation=2, strategy="parametric"
         )
 
+        # KGMapper._serialize JSON-encodes dict-valued properties for KG storage
+        # (CONCEPT:AU-KG.query.object-graph-mapper) — a raw graph-compute read sees
+        # that encoded string, not the original dict.
         node_data = engine.graph.nodes["prompt:var2"]
-        meta = node_data.get("metadata", {})
+        meta = json.loads(node_data.get("metadata", "{}"))
         assert meta.get("generation") == 2
         assert meta.get("strategy") == "parametric"
 

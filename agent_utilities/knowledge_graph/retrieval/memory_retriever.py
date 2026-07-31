@@ -94,7 +94,7 @@ class MemoryRetriever:
                 edge_data = self.engine.graph.get_edge_data(SELF_MODEL_ANCHOR, succ)
                 if edge_data:
                     for _, edata in edge_data.items():
-                        if edata.get("type") == RegistryEdgeType.CURRENT_SELF_MODEL:
+                        if edata.get("relationship") == RegistryEdgeType.CURRENT_SELF_MODEL:
                             ndata = dict(self.engine.graph.nodes[succ])
                             return self.ogm._deserialize(ndata, MemoryRetrieverNode)
 
@@ -194,7 +194,7 @@ class MemoryRetriever:
                 edge_data = self.engine.graph.get_edge_data(SELF_MODEL_ANCHOR, succ)
                 if edge_data:
                     for key, edata in edge_data.items():
-                        if edata.get("type") == RegistryEdgeType.CURRENT_SELF_MODEL:
+                        if edata.get("relationship") == RegistryEdgeType.CURRENT_SELF_MODEL:
                             edges_to_remove.append((SELF_MODEL_ANCHOR, succ, key))
         for src, tgt, key in edges_to_remove:
             self.engine.graph.remove_edge(src, tgt, key)
@@ -416,7 +416,7 @@ class MemoryRetriever:
                     edge_data = self.engine.graph.get_edge_data(node.id, succ)
                     if edge_data:
                         for _, edata in edge_data.items():
-                            if edata.get("type") == RegistryEdgeType.SUPERSEDES:
+                            if edata.get("relationship") == RegistryEdgeType.SUPERSEDES:
                                 ndata = dict(self.engine.graph.nodes[succ])
                                 prev = self.ogm._deserialize(ndata, MemoryRetrieverNode)
                                 break

@@ -48,7 +48,7 @@ class MockEngine:
         """Hybrid search stub — returns nodes from the NX graph."""
         results = []
         for nid, data in self.graph.nodes(data=True):
-            if node_types and data.get("type") not in [
+            if node_types and data.get("node_type") not in [
                 nt.lower().replace(" ", "_") for nt in node_types
             ]:
                 continue
@@ -81,7 +81,7 @@ class MockBackend:
         # Handle AgentTemplate queries
         if "AgentTemplate" in query and "RETURN" in query:
             for nid, data in self._graph.nodes(data=True):
-                if data.get("type") == "agent_template":
+                if data.get("node_type") == "agent_template":
                     if "WHERE" in query and "IN $ids" in query:
                         if nid not in params.get("ids", []):
                             continue
@@ -119,14 +119,14 @@ class MockBackend:
         elif "DEPENDS_ON" in query:
             ids = params.get("ids", [])
             for src, tgt, edata in self._graph.edges(data=True):
-                if edata.get("type") == "depends_on" and src in ids and tgt in ids:
+                if edata.get("relationship") == "depends_on" and src in ids and tgt in ids:
                     results.append({"source": src, "target": tgt})
 
         # Handle Tool queries
         elif "Tool" in query and "$ids" in query:
             ids = params.get("ids", [])
             for nid, data in self._graph.nodes(data=True):
-                if data.get("type") == "tool" and nid in ids:
+                if data.get("node_type") == "tool" and nid in ids:
                     results.append({"name": data.get("name", ""), "server": ""})
 
         return results
