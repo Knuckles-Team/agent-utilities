@@ -1218,8 +1218,10 @@ def resolve_permission_context(
         )
     except PermissionBootstrapError:
         raise
-    except Exception:
-        raise PermissionBootstrapError("permission context bootstrap failed") from None
+    except Exception as exc:
+        raise PermissionBootstrapError(
+            "permission context bootstrap failed"
+        ) from exc
     if not kernel.verify_identity(identity):
         raise PermissionBootstrapError("permission context verification failed")
     return PermissionContext(kernel, identity)
