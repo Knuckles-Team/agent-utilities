@@ -6768,8 +6768,10 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/core/model_factory.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/execution_profile.py
+  - tests/unit/test_model_factory_base_url.py
   doc: the FOCUSED-TOOLS altitude is one agent loop that calls the
 - id: AU-ORCH.execution.focused-tools-fail-closed
   name: this branch is entered ONLY
