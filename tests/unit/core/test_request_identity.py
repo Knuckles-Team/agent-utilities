@@ -9,7 +9,6 @@ Covers:
 from __future__ import annotations
 
 import time
-from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -55,21 +54,14 @@ def _make_config(**overrides):
 
 
 def _mint(actor: ActorContext):
-    placement = SimpleNamespace(endpoint="unix://engine", group=0, epoch=1)
-    with (
-        mock.patch("agent_utilities.core.config.config", _make_config()),
-        mock.patch(
-            "agent_utilities.knowledge_graph.core.shard_topology.resolve_endpoints",
-            return_value=["unix://engine"],
-        ),
-        mock.patch(
-            "agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEngine.get_or_create"
-        ),
-        mock.patch(
-            "agent_utilities.knowledge_graph.core.placement_catalog.resolve_placement",
-            return_value=placement,
-        ),
-    ):
+    """Mint exactly as a served request does — with nothing about the engine mocked.
+
+    Deliberately no ``resolve_placement`` / ``GraphComputeEngine`` patches: this
+    helper used to install them, which is precisely why the whole suite stayed
+    green while every non-cluster-admin principal 500'd in production (D-SP-1).
+    Minting must not reach the engine at all, so an unmocked mint is the test.
+    """
+    with mock.patch("agent_utilities.core.config.config", _make_config()):
         return mint_graph_session(actor)
 
 
@@ -272,7 +264,24 @@ class TestActorFromClaims:
             ):
                 mint_graph_session(actor)
 
-    def test_placement_lookup_uses_the_verified_unrouted_session(self):
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
+    def test_minting_never_resolves_engine_placement(self):
+        """Authentication establishes identity, never topology (D-SP-1).
+
+        Placement is an ``admin:cluster-read`` engine read
+        (``eg-capabilities/src/lib.rs:2274``) enforced against the engine's own
+        ``IsolationLayer``, which no JWT claim can satisfy. Resolving it while
+        minting made cluster-admin authority a precondition for authenticating
+        ANY request on EVERY served surface. This observes the real
+        ``resolve_placement`` and the real transport provisioner — pass-through,
+        not replacement — and asserts the mint path never reaches either.
+        """
+        from agent_utilities.knowledge_graph.core import (
+            graph_compute,
+            placement_catalog,
+        )
+        from tests.wiring import observe
+
         actor = actor_from_claims(
             {
                 "sub": "principal:verified",
@@ -280,46 +289,57 @@ class TestActorFromClaims:
                 "tenant_id": "tenant-a",
             }
         )
-        observed: dict[str, object] = {}
-
-        def resolve_placement(graph, endpoints, _config):
-            from agent_utilities.knowledge_graph.core.session import current_session
-
-            session = current_session()
-            assert session is not None
-            observed["graph"] = graph
-            observed["endpoint"] = session.endpoint
-            observed["context"] = session.engine_verified_context()
-            return type(
-                "Placement",
-                (),
-                {"endpoint": endpoints[0], "group": 7, "epoch": 11},
-            )()
-
-        config = _make_config()
         with (
-            mock.patch("agent_utilities.core.config.config", config),
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.shard_topology.resolve_endpoints",
-                return_value=["unix://engine"],
-            ),
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEngine.get_or_create"
-            ) as bootstrap,
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.placement_catalog.resolve_placement",
-                side_effect=resolve_placement,
-            ),
+            observe(placement_catalog, "resolve_placement") as resolved,
+            observe(
+                graph_compute.GraphComputeEngine, "get_or_create"
+            ) as provisioned,
         ):
-            session = mint_graph_session(actor)
+            session = _mint(actor)
 
-        assert observed["graph"] == session.graph
-        assert observed["endpoint"] is None
-        assert observed["context"] == session.engine_verified_context()
-        bootstrap.assert_called_once_with(graph_name=session.graph)
-        assert session.endpoint == "unix://engine"
-        assert session.placement_group == 7
-        assert session.catalog_epoch == 11
+        resolved.assert_not_called(
+            why="authenticating a request must never perform the engine's "
+            "admin:cluster-read PlacementRoute call"
+        )
+        provisioned.assert_not_called(
+            why="authenticating a request must never provision an engine transport"
+        )
+        # `endpoint=None` is GraphSession's documented "resolve normally" value;
+        # the data plane binds the authoritative route per call.
+        assert session.endpoint is None
+        assert session.placement_group is None
+        assert session.catalog_epoch is None
+        # Everything that constitutes authority is still bound.
+        assert session.actor is actor
+        assert session.tenant == "tenant-a"
+        assert session.graph
+        assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
+        assert session.policy_version == "policy-v1"
+        assert session.audience == "agent-services"
+        assert session.trace_context
+
+    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
+    def test_non_admin_principal_mints_a_full_session(self):
+        """The case that 500'd today: a principal with no cluster authority.
+
+        ``kg:read`` alone carries neither ``kg:admin`` nor ``admin:cluster-read``,
+        so the pre-D-SP-1 minter's ``PlacementRoute`` call was rejected by the
+        engine and the resulting ``PlacementAuthorityError`` (a ``RuntimeError``,
+        so it matched none of the middleware's 401/403 arms) surfaced as a blanket
+        HTTP 500 on every authenticated route.
+        """
+        actor = actor_from_claims(
+            {
+                "sub": "principal:agent-webui",
+                "scope": "kg:read",
+                "tenant_id": "tenant-a",
+            }
+        )
+        session = _mint(actor)
+        assert session.scopes == frozenset({"kg:read"})
+        assert "kg:admin" not in session.scopes
+        assert session.tenant == "tenant-a"
+        assert session.actor.actor_id == "principal:agent-webui"
 
 
 # ---------------------------------------------------------------------------
@@ -343,19 +363,6 @@ class TestActorIdentityMiddleware:
         with (
             mock.patch("agent_utilities.core.config.config", cfg),
             mock.patch("agent_utilities.security.auth._fetch_jwks", fake_jwks),
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.shard_topology.resolve_endpoints",
-                return_value=["unix://engine"],
-            ),
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEngine.get_or_create"
-            ),
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.placement_catalog.resolve_placement",
-                return_value=SimpleNamespace(
-                    endpoint="unix://engine", group=0, epoch=1
-                ),
-            ),
         ):
             sent = await _call(
                 mw, headers=[(b"authorization", f"Bearer {token}".encode())]
@@ -759,21 +766,9 @@ class TestStdioProcessIdentity:
         )
 
         cfg = _make_config(auth_jwt_audience=None, kg_policy_version=None)
-        placement = SimpleNamespace(endpoint="unix://engine", group=0, epoch=1)
-        with (
-            mock.patch("agent_utilities.core.config.config", cfg),
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.shard_topology.resolve_endpoints",
-                return_value=["unix://engine"],
-            ),
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEngine.get_or_create"
-            ),
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.placement_catalog.resolve_placement",
-                return_value=placement,
-            ),
-        ):
+        # No placement/transport patches: the stdio bootstrap goes through the
+        # same minter, which no longer contacts the engine (D-SP-1).
+        with mock.patch("agent_utilities.core.config.config", cfg):
             session = mint_local_process_session()
 
         assert session.actor.actor_id == "graph-os:local-process"
