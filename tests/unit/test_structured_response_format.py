@@ -253,6 +253,11 @@ async def test_json_synthesizer_emits_one_raw_compact_object() -> None:
     kwargs = create_agent.call_args.kwargs
     assert get_origin(kwargs["output_type"]) is dict
     assert get_args(kwargs["output_type"]) == (str, Any)
+    # D-54c-4 — this call builds its own explicit model_settings and never runs
+    # through attach_profile_resolver, so the provider-native prompt-cache
+    # directive (CONCEPT:AU-ORCH.optimization.provider-prompt-cache) must be folded
+    # in here directly.
+    assert dict(kwargs["model_settings"]).get("anthropic_cache") is True
 
 
 @pytest.mark.asyncio
