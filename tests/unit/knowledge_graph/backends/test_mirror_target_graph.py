@@ -660,3 +660,95 @@ def test_dedicated_graph_iri_is_predictable():
     target = MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_GRAPH)
     assert graph_iri_for_target(target) == "urn:mirror:kg_mirror"
     assert graph_iri_for_target(MirrorTarget(mode=MODE_DEFAULT)) is None
+
+
+# ── End-to-end plumbing: kg_connections spec → create_backend → the backend ───
+
+
+def test_create_backend_threads_a_declared_target_into_the_neo4j_mirror(fake_neo4j):
+    """The operator-facing path: ``mirror_target`` in a connection spec must
+    survive ``create_backend`` and actually select the session database."""
+    from agent_utilities.knowledge_graph import backends as B
+
+    backend = B.create_backend(
+        "neo4j",
+        uri="bolt://neo:7687",
+        user="u",
+        password="p",
+        mirror_target={"mode": "dedicated", "name": "kg_mirror"},
+    )
+    assert backend.mirror_target.mode == MODE_DEDICATED
+    assert backend.database == "kg_mirror"
+    # create_schema() ran during construction — and landed in kg_mirror, not home.
+    assert {db for db, _q, _p in fake_neo4j.runs} == {"kg_mirror"}
+
+
+def test_create_backend_rejects_a_contradictory_declaration(fake_neo4j):
+    from agent_utilities.knowledge_graph import backends as B
+
+    with pytest.raises(MirrorTargetError, match="disagree"):
+        B.create_backend(
+            "neo4j",
+            uri="bolt://neo:7687",
+            user="u",
+            password="p",
+            db_name="prod_kg",
+            mirror_target="default",
+        )
+
+
+def test_build_mirror_set_records_a_refusal_and_attaches_nothing(monkeypatch):
+    """A refused mirror is isolated like any other failed mirror — the authority
+    stays up — but it is reported distinctly so a health check says "fix the
+    config", not "retry"."""
+    from agent_utilities.core.config import config as cfg
+    from agent_utilities.knowledge_graph import backends as B
+
+    monkeypatch.delenv("GRAPH_MIRROR_TARGETS", raising=False)
+    monkeypatch.setattr(cfg, "graph_mirror_targets", ["prod-neo4j"], raising=False)
+    monkeypatch.setattr(
+        cfg,
+        "kg_connections",
+        [{"name": "prod-neo4j", "backend": "neo4j", "mirror_target": "default"}],
+        raising=False,
+    )
+    monkeypatch.setattr(cfg, "continuous_stardog_mirror", False, raising=False)
+    monkeypatch.setattr(
+        B,
+        "_build_member",
+        lambda spec: _Probe(MirrorTarget(mode=MODE_DEFAULT), occupied=True),
+    )
+    B._MIRROR_BUILD_STATUS.clear()
+    try:
+        mirrors = B._build_mirror_set()
+        assert mirrors == {}  # nothing attached → nothing can be written
+        status = B.get_mirror_build_status()["prod-neo4j"]
+        assert status["ok"] is False
+        assert status["refused"] is True
+        assert "ALREADY CONTAINS DATA" in status["reason"]
+    finally:
+        B._MIRROR_BUILD_STATUS.clear()
+
+
+def test_build_mirror_set_attaches_a_dedicated_mirror(monkeypatch):
+    from agent_utilities.core.config import config as cfg
+    from agent_utilities.knowledge_graph import backends as B
+
+    monkeypatch.delenv("GRAPH_MIRROR_TARGETS", raising=False)
+    monkeypatch.setattr(cfg, "graph_mirror_targets", ["prod-neo4j"], raising=False)
+    monkeypatch.setattr(
+        cfg,
+        "kg_connections",
+        [{"name": "prod-neo4j", "backend": "neo4j", "mirror_target": "dedicated"}],
+        raising=False,
+    )
+    monkeypatch.setattr(cfg, "continuous_stardog_mirror", False, raising=False)
+    probe = _Probe(MirrorTarget(mode=MODE_DEDICATED, name=DEDICATED_MIRROR_NAME))
+    monkeypatch.setattr(B, "_build_member", lambda spec: probe)
+    B._MIRROR_BUILD_STATUS.clear()
+    try:
+        assert B._build_mirror_set() == {"prod-neo4j": probe}
+        assert B.get_mirror_build_status()["prod-neo4j"]["ok"] is True
+        assert probe.ensured == 1  # created idempotently on the way in
+    finally:
+        B._MIRROR_BUILD_STATUS.clear()
