@@ -311,6 +311,18 @@ case itself next time. The goal is orchestrating completely off the harness.
 
 ## Dependency discipline — NO heavy ML/native deps in core (READ before adding a dependency)
 
+> **NEVER run a bare `uv sync` in the shared workspace.** The workspace root declares no
+> dependencies, so a bare sync prunes the whole environment — measured: **557 uninstalls
+> including all 75 editable members**. The only sanctioned form is
+> `uv sync --locked --all-packages --inexact`, and the only sanctioned way to invoke it is
+> **`agent-utilities-venv` / `scripts/venvctl`**, which constructs that argv itself, plans with
+> `--dry-run` first, and refuses any plan that would net-remove a member. Same tool for
+> upgrading (`venvctl upgrade --package X` — backed up, verified, auto-rolled-back),
+> rolling back (`venvctl rollback`), and flipping a local merge to `main` live
+> (`venvctl autosync on`). Check the environment with `venvctl status` or
+> `agent-utilities doctor --only venv_drift`.
+> **→ `docs/architecture/shared-venv-lifecycle.md`.**
+
 agent-utilities core is the **serving plane**: the KG, retrieval, MCP server (`kg_server`),
 the gateway/host daemon, and messaging. **It must install and run with zero heavy ML/native
 dependencies** — specifically **never** add `torch`, `transformers`, `sentence-transformers`,
