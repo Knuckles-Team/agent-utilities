@@ -37,6 +37,7 @@ from agent_utilities.kvcache.policy import (
 from agent_utilities.kvcache.remote_backend import (
     EpistemicGraphKVBackend,
     KvCacheStats,
+    ReleaseOutcome,
 )
 
 __all__ = [
@@ -52,6 +53,7 @@ __all__ = [
     "KVCheckpointStore",
     "KvCacheConfig",
     "KvCacheStats",
+    "ReleaseOutcome",
     "RestoreResult",
     "StaleCheckpointError",
     "fold_kv_hint",

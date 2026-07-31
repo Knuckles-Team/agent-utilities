@@ -52,7 +52,7 @@ from __future__ import annotations
 import json
 import logging
 from types import TracebackType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote
 
 import httpx
@@ -100,6 +100,29 @@ def _record_kvcache_client_outcome(outcome: str) -> None:
         KVCACHE_CLIENT_REQUESTS.labels(outcome=outcome).inc()
     except Exception as exc:  # noqa: BLE001 — metrics must never break the connector
         logger.debug("kvcache client metric recording failed: %s", exc)
+
+
+#: Client-side mirror of the engine's ``eg_kvcache::ReleaseOutcome`` (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork),
+#: as surfaced by ``DELETE /kv/snapshot/<id>`` / ``DELETE /kv/branch/<bid>``
+#: (``epistemic-graph`` ``src/server/kvcache_http/mod.rs::release_outcome_response``).
+#: ``"error"`` is this connector's own addition for the graceful-degradation
+#: contract every other method already follows (transport/protocol failure, never
+#: a raise).
+ReleaseOutcome = Literal["released", "not_found", "still_referenced", "error"]
+
+
+def _release_outcome_from_status(
+    status_code: int, op: str, resource_id: int
+) -> ReleaseOutcome:
+    """Map a ``DELETE /kv/{snapshot,branch}/<id>`` HTTP status to a :data:`ReleaseOutcome`."""
+    if status_code == 204:
+        return "released"
+    if status_code == 404:
+        return "not_found"
+    if status_code == 409:
+        return "still_referenced"
+    logger.warning("kvcache %s(%s) unexpected status %s", op, resource_id, status_code)
+    return "error"
 
 
 class KvCacheStats(BaseModel):
@@ -428,6 +451,50 @@ class EpistemicGraphKVBackend:
             resp.status_code,
         )
         return False
+
+    def release_snapshot(self, snapshot_id: int) -> ReleaseOutcome:
+        """Release a live snapshot via ``DELETE /kv/snapshot/<id>`` (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork).
+
+        Frees the snapshot's pinned pages (they were resident-forever otherwise —
+        this is the D-KVR-2 fix: the fork/snapshot leak the engine-side
+        ``release_snapshot``/``drop_branch`` routes exist to close is only actually
+        closed once a caller here issues the DELETE). Maps the engine's typed
+        ``ReleaseOutcome`` onto this connector's own graceful-degradation contract:
+
+        - ``"released"`` — ``204``, the snapshot was live and is now freed.
+        - ``"not_found"`` — ``404``, unknown id or already released (double-release
+          is rejected engine-side, not idempotent — callers should treat this the
+          same as success for cleanup purposes, since the resource is gone either way).
+        - ``"still_referenced"`` — ``409``, at least one forked branch is still live;
+          call :meth:`drop_branch` for every outstanding branch id first.
+        - ``"error"`` — any transport/protocol error or unexpected status; never
+          raises, matching every other method on this connector.
+        """
+        try:
+            resp = self._client.delete(f"/kv/snapshot/{int(snapshot_id)}")
+        except httpx.HTTPError as exc:
+            logger.warning("kvcache release_snapshot(%s) failed: %s", snapshot_id, exc)
+            return "error"
+        return _release_outcome_from_status(
+            resp.status_code, "release_snapshot", snapshot_id
+        )
+
+    def drop_branch(self, branch_id: int) -> ReleaseOutcome:
+        """Drop a live copy-on-write branch via ``DELETE /kv/branch/<bid>`` (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork).
+
+        Unblocks the parent snapshot's own :meth:`release_snapshot` once every branch
+        forked off it has been dropped. Same outcome mapping as
+        :meth:`release_snapshot`: ``"released"`` (``204``), ``"not_found"`` (``404``,
+        unknown/already-dropped), ``"still_referenced"`` (``409`` — not expected for a
+        branch today, but mapped for forward compatibility with the engine's shared
+        ``ReleaseOutcome`` type), or ``"error"`` on any transport/protocol failure.
+        """
+        try:
+            resp = self._client.delete(f"/kv/branch/{int(branch_id)}")
+        except httpx.HTTPError as exc:
+            logger.warning("kvcache drop_branch(%s) failed: %s", branch_id, exc)
+            return "error"
+        return _release_outcome_from_status(resp.status_code, "drop_branch", branch_id)
 
     def supports_fork(self) -> bool:
         """Whether this engine build/instance advertises the zero-copy fork surface.

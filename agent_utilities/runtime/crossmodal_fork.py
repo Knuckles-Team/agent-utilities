@@ -419,6 +419,48 @@ class CrossModalForkFanout:
         )
         return snap_id, branch_ids, stats
 
+    def _release_kv_fork_resources(
+        self, kv_snapshot_id: int, kv_branch_ids: list[int | None]
+    ) -> None:
+        """Drop every forked branch, then release the parent snapshot (D-KVR-2).
+
+        Engine-side ``release_snapshot`` refuses a snapshot with any still-live
+        branch (``StillReferenced``, ``409``) — so branches must be dropped FIRST,
+        in the same order they were forked, before the snapshot release can
+        succeed. Called from :meth:`fan_out`'s ``finally`` once the cohort
+        completes (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork), so a caller that
+        never explicitly releases no longer leaks: the pinned pages free as soon
+        as their fan-out is done, not only when/if something else calls
+        ``release_snapshot``/``drop_branch`` directly. Every outcome is logged at
+        debug (not warning) — a `"not_found"`/`"still_referenced"` here is
+        unexpected but not actionable by this caller, and neither method ever
+        raises (same graceful-degradation contract as the rest of the connector).
+        """
+        backend = self._resolve_kv_backend()
+        if backend is None:
+            return
+        drop_branch = getattr(backend, "drop_branch", None)
+        if callable(drop_branch):
+            for branch_id in kv_branch_ids:
+                if branch_id is None:
+                    continue
+                outcome = drop_branch(branch_id)
+                if outcome not in ("released", "not_found"):
+                    logger.debug(
+                        "kv-fork cohort cleanup: drop_branch(%s) -> %s",
+                        branch_id,
+                        outcome,
+                    )
+        release_snapshot = getattr(backend, "release_snapshot", None)
+        if callable(release_snapshot):
+            outcome = release_snapshot(kv_snapshot_id)
+            if outcome not in ("released", "not_found"):
+                logger.debug(
+                    "kv-fork cohort cleanup: release_snapshot(%s) -> %s",
+                    kv_snapshot_id,
+                    outcome,
+                )
+
     async def fan_out(
         self,
         query: str,
@@ -577,9 +619,21 @@ class CrossModalForkFanout:
             async with sem:
                 return await _run_branch(idx, snippet)
 
-        results = await asyncio.gather(
-            *(_guarded(i, s) for i, s in enumerate(branch_list))
-        )
+        try:
+            results = await asyncio.gather(
+                *(_guarded(i, s) for i, s in enumerate(branch_list))
+            )
+        finally:
+            # D-KVR-2 (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork): the engine's
+            # DELETE /kv/snapshot/<id> + DELETE /kv/branch/<bid> routes only close the
+            # fork/snapshot leak if a caller actually issues them once the cohort is
+            # done with the shared pages. Runs even if a branch's own execution raised
+            # past `_run_branch`'s own catch-all (defense in depth) — never on the
+            # engine's happy path only. Best-effort: `release_snapshot`/`drop_branch`
+            # already never raise (same graceful-degradation contract as the rest of
+            # this connector), so no try/except is needed around the calls themselves.
+            if kv_snapshot_id is not None:
+                self._release_kv_fork_resources(kv_snapshot_id, kv_branch_ids)
 
         return CrossModalForkResult(
             query=query,
