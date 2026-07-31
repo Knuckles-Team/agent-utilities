@@ -258,6 +258,15 @@ def _fold(repo_root: Path) -> list[dict[str, Any]]:
     return [_validate(r) for r in _store(repo_root).fold(_resolve_record)]
 
 
+def render_view_for(repo_root: Path | None = None) -> str:
+    """The exact text the generated view should hold, without writing it.
+
+    Lets a gate prove a staged view really is the fold of the fragments rather
+    than a hand edit of the shared file.
+    """
+    return render_view(_fold(_root(repo_root)), header=_VIEW_HEADER)
+
+
 def regenerate_view(repo_root: Path | None = None) -> list[dict[str, Any]]:
     """Fold the fragments and rewrite the generated view. Returns the records."""
     root = _root(repo_root)
