@@ -19,6 +19,7 @@ from typing import Any
 
 from agent_utilities.core.config import setting
 from agent_utilities.core.task_cancellation import raise_if_task_cancelled
+from agent_utilities.security.log_redaction import redact_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -779,7 +780,7 @@ def process_watched_file(
     try:
         mtime = file_path.stat().st_mtime
     except Exception as exc:  # noqa: BLE001 — mtime is an optional delta optimization
-        logger.debug("Could not stat watched document %s: %s", file_path, exc)
+        logger.debug("Could not stat watched document %s: %s", redact_for_log(file_path), exc)
         mtime = 0.0
     if _SEEN_MTIMES.get(file_key) == mtime:
         return
@@ -822,12 +823,14 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as exc:  # noqa: BLE001 — binary files fall back to mtime
-        logger.debug("Could not read KG ingest location %s: %s", file_path, exc)
+        logger.debug("Could not read KG ingest location %s: %s", redact_for_log(file_path), exc)
         try:
             content = str(file_path.stat().st_mtime)
         except Exception as stat_exc:  # noqa: BLE001 — vanished files are skipped
             logger.debug(
-                "Could not stat KG ingest location %s: %s", file_path, stat_exc
+                "Could not stat KG ingest location %s: %s",
+                redact_for_log(file_path),
+                stat_exc,
             )
             return
 
