@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1092
+total_concepts: 1102
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3545,9 +3545,11 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/harness/program_optimization.py
+  - agent_utilities/knowledge_graph/orchestration/research_orchestrator.py
   - agent_utilities/knowledge_graph/research/candidate_insight.py
   - agent_utilities/knowledge_graph/research/evidence.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
   - agent_utilities/models/knowledge_graph.py
   doc: normalizes the
 - id: AU-KG.identity.asset-occurrence
@@ -4748,6 +4750,20 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/process_conformance.py
   - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: the graph-writeback
+- id: AU-KG.ontology.activation-fails-closed
+  name: an
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
+  doc: an
+- id: AU-KG.ontology.activation-icv-fallback
+  name: AU-KG.ontology.activation-icv-fallback
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
+  doc: AU-KG.ontology.activation-icv-fallback
 - id: AU-KG.ontology.authoritative-tbox
   name: the authoritative TBox the platform ships
   pillar: AU-KG
@@ -4809,6 +4825,13 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/lifecycle.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: Ontology-Playground coverage row
+- id: AU-KG.ontology.competency-query-regression
+  name: Intentionally
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/evolution.py
+  doc: Intentionally
 - id: AU-KG.ontology.conformance-check
   name: the function the A3 functions runtime / object queries call
   pillar: AU-KG
@@ -4863,6 +4886,15 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ontology/interfaces.py
   doc: connector→skill synthesis proposal shapes
+- id: AU-KG.ontology.dedicated-tbox-graph
+  name: see the module docstring for why mixing TBox
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/evolution.py
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: see the module docstring for why mixing TBox
 - id: AU-KG.ontology.default-runtime-bound-import
   name: a default runtime bound to the import-populated registry, so
   pillar: AU-KG
@@ -4877,6 +4909,13 @@ concepts:
   - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/state_tools.py
   doc: a default runtime bound to the import-populated registry, so
+- id: AU-KG.ontology.deprecation-workflow
+  name: D-75-5
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
+  doc: D-75-5
 - id: AU-KG.ontology.derived-compatibility-band
   name: the compatibility band an
   pillar: AU-KG
@@ -4905,13 +4944,15 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/models.py
   doc: the descriptive process world gains step-level shape
 - id: AU-KG.ontology.do-not-auto-merge
-  name: a human-reviewed proposal only
+  name: is the recommended upstream step
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/extraction/schema_discovery.py
+  - agent_utilities/knowledge_graph/ontology/evolution.py
   - agent_utilities/mcp/tools/ontology_tools.py
-  doc: a human-reviewed proposal only
+  - agent_utilities/orchestration/action_policy.py
+  doc: is the recommended upstream step
 - id: AU-KG.ontology.edit-ledger-writeback
   name: the write-back leg of the edit ledger. Sinks are registered
   pillar: AU-KG
@@ -4949,6 +4990,15 @@ concepts:
   - agent_utilities/knowledge_graph/core/ontology_loader.py
   - agent_utilities/knowledge_graph/core/ontology_publisher.py
   doc: Enterprise Ontology Distribution
+- id: AU-KG.ontology.evolution-governed-loop
+  name: ontology change as a
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/evolution.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: ontology change as a
 - id: AU-KG.ontology.external-graph-profiling
   name: Profile / imprint / ontology-map a registered external graph
   pillar: AU-KG
@@ -5078,6 +5128,13 @@ concepts:
   - agent_utilities/models/model_profile.py
   - agent_utilities/models/model_registry.py
   doc: only fields the ModelDefinition actually
+- id: AU-KG.ontology.negative-results-queryable
+  name: AU-KG.ontology.negative-results-queryable
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/evolution.py
+  doc: AU-KG.ontology.negative-results-queryable
 - id: AU-KG.ontology.object-path-finder
   name: finds the shortest path between two specific object ids and returns the hop-by-hop relationship
     chain — the object-agnostic generalization of the existing
@@ -5236,6 +5293,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   doc: a derived fact inherits
+- id: AU-KG.ontology.rdf-materialization-iri-safe
+  name: AU-KG.ontology.rdf-materialization-iri-safe
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  doc: AU-KG.ontology.rdf-materialization-iri-safe
 - id: AU-KG.ontology.redact-object-materialize-restricted
   name: redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved
     from the ambient context — never from caller-supplied clearance
@@ -5262,6 +5326,8 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ontology/ontology_integrity.py
+  - agent_utilities/security/cli_secrets.py
+  - agent_utilities/security/secrets_client.py
   doc: the release trust anchor lives in
 - id: AU-KG.ontology.sampling-profile-coupling
   name: LLM inference sampling knobs temperature top_p top_k min_p repetition_penalty max_tokens and penalties
@@ -5313,6 +5379,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ontology/lifecycle.py
   doc: AU-KG.ontology.shacl-report-passthrough
+- id: AU-KG.ontology.shadow-graph-gc
+  name: AU-KG.ontology.shadow-graph-gc
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/evolution.py
+  doc: AU-KG.ontology.shadow-graph-gc
 - id: AU-KG.ontology.single-source-full-drain
   name: a single-source FULL drain of a LARGE corpus must NOT run inline
   pillar: AU-KG
@@ -5419,6 +5492,14 @@ concepts:
   - agent_utilities/knowledge_graph/research/ara/service.py
   - agent_utilities/models/knowledge_graph.py
   doc: verified_by/implemented_by/contains/
+- id: AU-KG.ontology.workspace-provider-discovery
+  name: and call the EXISTING
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/ontology_federation.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: and call the EXISTING
 - id: AU-KG.query.adore-concept-expansion
   name: ADORE, with CONCEPT
   pillar: AU-KG

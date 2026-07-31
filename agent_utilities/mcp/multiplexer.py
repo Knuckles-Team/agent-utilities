@@ -3272,7 +3272,7 @@ def _session_key() -> str:
         get_http_request()
     except RuntimeError:
         return "__local_stdio__"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: this is a per-request CONTROL-FLOW probe ("is there an HTTP request context?"), not an error path. Every stdio/local call takes it, so WARNING here would emit one line per request. The cause is preserved (interpolated) and the outcome is encoded in the returned key.
         logger.debug(
             "No HTTP request context; trying next key source: %s",
             exc,
@@ -3282,7 +3282,7 @@ def _session_key() -> str:
         sid = get_context().session_id
         if sid:
             return str(sid)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: same per-request probe as above, one rung down the key-source cascade (session_id -> token -> unauthenticated). Absence is the NORMAL case for an unauthenticated caller, not a failure; the cause is preserved and the cascade continues below.
         logger.debug(
             "HTTP context present but no session_id; falling back to token key: %s",
             exc,

@@ -522,7 +522,7 @@ def _changed_paths(repo: Path) -> tuple[tuple[str, ...], str, str, bool]:
         try:
             previous = _git(repo, "rev-parse", previous_ref)
             names = _git(repo, "diff", "--name-only", f"{previous}..{head}")
-        except VenvSyncError as exc:
+        except VenvSyncError as exc:  # noqa: BLE001 — deliberate DEBUG: this is a CASCADE probe over candidate refs (ORIG_HEAD, then HEAD@{1}); a fresh clone or a repo with no reflog legitimately has neither, so absence is the normal case, not a failure. The loop continues to the next candidate and the final `return` reports the genuine outcome. The cause is preserved (interpolated).
             logger.debug("%s unavailable in %s: %s", previous_ref, repo, exc)
             continue
         return tuple(n for n in names.splitlines() if n), head, previous, True

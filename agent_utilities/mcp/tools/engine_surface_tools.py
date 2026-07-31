@@ -46,6 +46,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import uuid
 from datetime import datetime
 from typing import Any
@@ -53,6 +54,8 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+logger = logging.getLogger(__name__)
 
 # CONCEPT:AU-KG.mining.dsm-forecast-delegation — the fleet write-side connector (call
 # a named MCP server's tool once, synchronously, decoded) is the SAME primitive the
@@ -1772,6 +1775,32 @@ def register_engine_surface_tools(mcp) -> None:
                 if ocel_mode not in {"mine", "validate"}:
                     raise ValueError("ocel_mode must be 'mine' or 'validate'")
                 exported = export_ocel_json(slice_)
+                evidence = {
+                    "mode": "ocel_2.0",
+                    "tenant": tenant,
+                    "content_hash": slice_.canonical_digest(),
+                    "idempotency_key": envelope.idempotency_key,
+                    "mapping_version": slice_.mapping_version,
+                    "node_count": len(envelope.typed_payload["entities"]),
+                    "relationship_count": len(envelope.typed_payload["relationships"]),
+                }
+                # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
+                # D-71-1) — the process_signal channel: recorded HERE, at the one place
+                # this import's real outcome is computed, never re-derived by a second
+                # query. Best-effort audit overlay; never gates the import.
+                try:
+                    from agent_utilities.knowledge_graph.research.evidence import (
+                        from_process_signal,
+                        record_evidence,
+                    )
+
+                    record_evidence(kg_server._get_engine(), from_process_signal(evidence))
+                except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: this Evidence write is a pure observability side-channel over an import that has ALREADY succeeded, and the comment above states it "never gates the import". Failing it must not fail the caller's OCEL import. The cause is preserved (the exception is interpolated), at DEBUG because the authoritative import outcome is already reported through the normal return path.
+                    logger.debug(
+                        "OCEL process_signal evidence record failed for %s: %s",
+                        evidence.get("idempotency_key"),
+                        exc,
+                    )
                 if ocel_mode == "validate":
                     envelope = slice_.to_change_envelope(
                         tenant=tenant,

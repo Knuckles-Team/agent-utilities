@@ -327,6 +327,13 @@ def _load_distillation_config() -> tuple[int, float]:
             int(config.distillation_promotion_threshold),
             float(config.distillation_quality_score_minimum),
         )
-    except Exception as exc:
-        logger.debug("distillation config load failed, using defaults: %s", exc)
+    except Exception as exc:  # noqa: BLE001 — must stay best-effort: AgentConfig() is genuinely unbuildable in some deployments (e.g. a k8s service-link env var shadowing a typed field), and distillation must not hard-fail on that. But this is logged at WARNING, not DEBUG, deliberately: a bare swallow here is exactly what hid D-32(b) — a nonexistent import made EVERY call fall through to the hardcoded defaults, so the documented config.json/env override silently never took effect. Falling back to defaults is a real behaviour change and must be visible.
+        logger.warning(
+            "distillation config load failed — falling back to the hardcoded "
+            "defaults (promotion_threshold=%s, quality_minimum=%s); the "
+            "configured values are NOT in effect: %s",
+            DEFAULT_PROMOTION_THRESHOLD,
+            DEFAULT_QUALITY_MINIMUM,
+            exc,
+        )
         return DEFAULT_PROMOTION_THRESHOLD, DEFAULT_QUALITY_MINIMUM

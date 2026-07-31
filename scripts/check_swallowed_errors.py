@@ -251,18 +251,30 @@ def _shape(
         if isinstance(n, ast.Call) and _is_log_call(n)[0]
     ]
     if log_calls and bound_name:
-        any_type_only = False
+        type_name_expr = re.compile(
+            rf"type\(\s*{re.escape(bound_name)}\s*\)\.__name__|"
+            rf"{re.escape(bound_name)}\.__class__\.__name__"
+        )
+        bare_exc = re.compile(rf"(?<![\w.]){re.escape(bound_name)}(?![\w(])")
+        type_only_calls = 0
         for call in log_calls:
             args_src = [_expr_src(source_lines, a) for a in call.args]
             kw_src = [_expr_src(source_lines, kw.value) for kw in call.keywords]
             joined = " ".join(args_src + kw_src)
-            if re.search(
-                rf"type\(\s*{re.escape(bound_name)}\s*\)\.__name__|"
-                rf"{re.escape(bound_name)}\.__class__\.__name__",
-                joined,
-            ):
-                any_type_only = True
-        if any_type_only:
+            if not type_name_expr.search(joined):
+                continue
+            # A call that logs the type name AND the exception itself is
+            # cause-preserving — "failed (%s: %s)", type(e).__name__, e carries
+            # the real message. Only a call that reduces the exception to its
+            # CLASS NAME drops the cause, so the bare binding must be absent
+            # once the type-name expressions themselves are removed.
+            if bare_exc.search(type_name_expr.sub("", joined)):
+                continue
+            type_only_calls += 1
+        # Matches this branch's documented intent ("all of them only reference
+        # type(bound_name).__name__"): if even one log call carries the real
+        # cause, the handler is not cause-dropping.
+        if type_only_calls and type_only_calls == len(log_calls):
             return "log_type_name_only"
     return None
 

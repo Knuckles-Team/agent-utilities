@@ -50,6 +50,7 @@ from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import 
 from agent_utilities.models.knowledge_graph import (
     RegistryEdge,
     RegistryNode,
+    RegistryNodeType,
     ResearchSessionNode,
 )
 
@@ -371,6 +372,28 @@ class ResearchOrchestrator:
                 self.engine.graph.add_node(node.id, **node.model_dump())
             except Exception as e:  # noqa: BLE001 — one node's persist inside the per-node loop over subagent.get_all_nodes(); a failed write just omits that node from the graph, the loop continues persisting the rest
                 logger.debug("Failed to persist node %s: %s", node.id, e)
+
+        # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
+        # D-71-3) — the research_finding channel for THIS separate pipeline's own
+        # EvidenceNode family: recorded HERE, the one place this session's findings
+        # are actually persisted, never re-derived by a second query. Best-effort
+        # audit overlay; never gates persistence.
+        from agent_utilities.knowledge_graph.research.evidence import (
+            from_research_evidence_node,
+            record_evidence,
+        )
+
+        for finding in subagent.get_all_nodes():
+            if getattr(finding, "type", None) != RegistryNodeType.EVIDENCE:
+                continue
+            try:
+                record_evidence(self.engine, from_research_evidence_node(finding))
+            except Exception as e:
+                logger.debug(
+                    "Failed to record unified evidence for finding %s: %s",
+                    finding.id,
+                    e,
+                )
 
         # Persist provenance edges
         for edge in subagent.get_provenance_edges():

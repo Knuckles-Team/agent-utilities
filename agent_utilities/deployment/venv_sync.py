@@ -272,7 +272,7 @@ class Workspace:
                 continue
             try:
                 document = tomllib.loads(manifest.read_text(encoding="utf-8"))
-            except (OSError, tomllib.TOMLDecodeError) as exc:
+            except (OSError, tomllib.TOMLDecodeError) as exc:  # noqa: BLE001 — deliberate DEBUG: workspace discovery walks EVERY ancestor directory, and an unreadable or non-uv pyproject.toml along that path is expected, not exceptional; it simply is not the workspace root. Warning here would fire on ordinary trees. The cause is preserved (interpolated) and the walk continues.
                 logger.debug("skipping unreadable manifest %s: %s", manifest, exc)
                 continue
             workspace = document.get("tool", {}).get("uv", {}).get("workspace")

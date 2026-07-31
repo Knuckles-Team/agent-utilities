@@ -79,6 +79,51 @@ def test_gate_trips_on_type_name_only_logging(tmp_path):
     assert "[log_type_name_only]" in result.stdout
 
 
+def test_type_name_only_does_not_fire_when_the_cause_is_ALSO_logged(tmp_path):
+    """Regression (reconciliation gate 2): logging ``type(exc).__name__`` NEXT TO
+    the exception itself is cause-preserving and must not be flagged.
+
+    The classifier used to set its ``type_only`` flag on any log call that merely
+    *mentioned* ``type(exc).__name__``, without checking whether the exception was
+    also passed — contradicting its own docstring ("all of them only reference
+    type(bound_name).__name__"). That false positive fired on the real
+    ``HybridRetriever._neighbors_batch`` handler, which logs at WARNING with BOTH
+    the class name and the message, and would have forced a pointless ``# noqa``
+    onto correct code — training exactly the habit this gate exists to prevent.
+    """
+    (tmp_path / "cause_preserved.py").write_text(
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n\n"
+        "def f():\n"
+        "    try:\n"
+        "        do_thing()\n"
+        "    except Exception as e:\n"
+        '        logger.warning("failed (%s: %s)", type(e).__name__, e)\n'
+    )
+    result = _run(str(tmp_path))
+    assert result.returncode == 0, result.stdout
+    assert "[log_type_name_only]" not in result.stdout
+
+
+def test_type_name_only_still_fires_when_only_one_of_two_logs_carries_the_cause(
+    tmp_path,
+):
+    """The flip side: the shape is reported only when EVERY log call drops the
+    cause, so a handler with one cause-preserving line stays green."""
+    (tmp_path / "mixed_logs.py").write_text(
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n\n"
+        "def f():\n"
+        "    try:\n"
+        "        do_thing()\n"
+        "    except Exception as exc:\n"
+        '        logger.error("failed (%s)", type(exc).__name__)\n'
+        '        logger.error("detail: %s", exc)\n'
+    )
+    result = _run(str(tmp_path))
+    assert result.returncode == 0, result.stdout
+
+
 def test_gate_passes_on_justified_noqa_with_reason(tmp_path):
     (tmp_path / "fine_noqa.py").write_text(
         "def f():\n"
