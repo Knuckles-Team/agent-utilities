@@ -9,6 +9,7 @@ import pytest
 from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
     export_ocel_json,
     import_ocel_json,
+    predict_object_co_occurrence_relations,
 )
 
 
@@ -341,3 +342,105 @@ def test_rejects_malformed_schema_types_duplicates_and_refs(
     mutate(body)
     with pytest.raises(ValueError, match=message):
         _import(body)
+
+
+# --- D-OB-11: structural NeuralRelationPrediction producer -------------------
+def _co_occurrence_document() -> dict:
+    """Two events; ``order-1``/``item-2`` co-occur only in ``e2`` and carry NO
+    prior O2O relation — the one genuine, un-labeled candidate this fixture
+    should surface. ``order-1``/``item-1`` co-occur in BOTH events but are
+    already a known O2O relation, so they must be excluded as a "prediction"."""
+    return {
+        "eventTypes": [{"name": "touch", "attributes": []}],
+        "objectTypes": [
+            {"name": "order", "attributes": []},
+            {"name": "item", "attributes": []},
+        ],
+        "events": [
+            {
+                "id": "e1",
+                "type": "touch",
+                "time": "2026-01-01T00:00:00Z",
+                "attributes": [],
+                "relationships": [
+                    {"objectId": "order-1", "qualifier": "order"},
+                    {"objectId": "item-1", "qualifier": "line-item"},
+                ],
+            },
+            {
+                "id": "e2",
+                "type": "touch",
+                "time": "2026-01-02T00:00:00Z",
+                "attributes": [],
+                "relationships": [
+                    {"objectId": "order-1", "qualifier": "order"},
+                    {"objectId": "item-1", "qualifier": "line-item"},
+                    {"objectId": "item-2", "qualifier": "line-item"},
+                ],
+            },
+        ],
+        "objects": [
+            {
+                "id": "order-1",
+                "type": "order",
+                "attributes": [],
+                "relationships": [{"objectId": "item-1", "qualifier": "contains"}],
+            },
+            {"id": "item-1", "type": "item", "attributes": [], "relationships": []},
+            {"id": "item-2", "type": "item", "attributes": [], "relationships": []},
+        ],
+    }
+
+
+def test_co_occurrence_predictions_exclude_known_relations_and_cite_real_evidence() -> (
+    None
+):
+    slice_, _ = _import(_co_occurrence_document())
+    predictions = slice_.neural_predictions
+    # Two genuinely NEW candidate pairs surface: order-1~item-2 and
+    # item-1~item-2 (each co-occurs with item-2 only in e2, against a 2-event
+    # union -> Jaccard = 1/2). order-1~item-1 co-occurs in BOTH events but is
+    # ALREADY a known O2O relation ("contains") -> never restated.
+    pair_ids = {
+        frozenset((p.subject.source_id, p.object.source_id)) for p in predictions
+    }
+    assert pair_ids == {
+        frozenset({"order-1", "item-2"}),
+        frozenset({"item-1", "item-2"}),
+    }
+    for prediction in predictions:
+        assert prediction.score == pytest.approx(0.5)
+        assert prediction.uncertainty == pytest.approx(0.5)
+        assert prediction.evidence_refs == ("e2",)
+        assert prediction.decision_status == "proposed"
+        assert prediction.candidate_set_ref
+        assert prediction.predicate == "co_occurrence_candidate"
+
+
+def test_co_occurrence_producer_is_deterministic_and_bounded_standalone() -> None:
+    slice_, _ = _import(_co_occurrence_document())
+    again = predict_object_co_occurrence_relations(
+        slice_.events,
+        slice_.object_relationships,
+        source_ref=slice_.source_ref,
+        candidate_set_ref="fixed-candidate-set",
+    )
+    assert again == predict_object_co_occurrence_relations(
+        slice_.events,
+        slice_.object_relationships,
+        source_ref=slice_.source_ref,
+        candidate_set_ref="fixed-candidate-set",
+    )
+    assert all(p.decision_status == "proposed" for p in again)
+
+
+def test_no_co_occurrence_candidates_below_min_score_is_empty_not_fabricated() -> None:
+    slice_, _ = _import(_co_occurrence_document())
+    predictions = predict_object_co_occurrence_relations(
+        slice_.events,
+        slice_.object_relationships,
+        source_ref=slice_.source_ref,
+        candidate_set_ref="unreachable-threshold",
+        min_score=1.1,
+    )
+    assert predictions == ()
