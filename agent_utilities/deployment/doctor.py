@@ -3926,6 +3926,66 @@ def _check_unified_install() -> dict[str, Any]:
     )
 
 
+def _check_venv_drift() -> dict[str, Any]:
+    """Is the shared uv-workspace venv still what its lock says it should be?
+
+    CONCEPT:AU-OS.host.venv-drift-detector
+
+    This check exists because the shared development environment silently sat
+    ten days behind its own lock: one import failed, an entire test module
+    stopped collecting, and thirteen real defects were invisible until somebody
+    happened to look.  Nothing was checking, so nothing was known.  Running it
+    here means every ``agent-utilities doctor`` answers the question.
+
+    Deployments have no uv workspace above them (the runtime image installs
+    wheels), so an absent workspace is a ``skip``, not a failure.
+    """
+
+    try:
+        from agent_utilities.deployment.venv_sync import (
+            Workspace,
+            WorkspaceNotFoundError,
+            detect_drift,
+        )
+    except ImportError as exc:
+        return _result(
+            "venv_drift", "error", f"venv_sync is not importable: {exc}"
+        )
+
+    try:
+        workspace = Workspace.discover()
+    except WorkspaceNotFoundError:
+        return _result(
+            "venv_drift",
+            "skip",
+            "no uv workspace above this checkout (normal for a deployed runtime)",
+        )
+    except Exception as exc:  # noqa: BLE001 - a probe must never crash the doctor
+        return _result("venv_drift", "error", f"workspace discovery failed: {exc}")
+
+    try:
+        report = detect_drift(workspace)
+    except Exception as exc:  # noqa: BLE001 - a probe must never crash the doctor
+        return _result("venv_drift", "error", f"drift detection failed: {exc}")
+
+    status = {"ok": "ok", "warn": "warn", "fail": "fail"}[report.status]
+    return _result(
+        "venv_drift",
+        status,
+        report.summary,
+        remediation=(
+            None
+            if status == "ok"
+            else (
+                "`agent-utilities-venv status` for detail, then "
+                "`agent-utilities-venv sync` (safe form, guardrailed) or "
+                "`agent-utilities-venv relock` when a manifest moved."
+            )
+        ),
+        data=report.as_dict(),
+    )
+
+
 def _check_warm_fork() -> dict[str, Any]:
     """Report available confined sandbox rungs and pooled VM parents."""
     rungs: dict[str, dict[str, Any]] = {}
@@ -4133,6 +4193,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "bus": _check_bus,
     "skills": _check_skills,
     "unified_install": _check_unified_install,
+    "venv_drift": _check_venv_drift,
     "warm_fork": _check_warm_fork,
 }
 

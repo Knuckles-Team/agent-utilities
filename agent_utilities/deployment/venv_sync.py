@@ -384,7 +384,7 @@ _HEADER_RE = re.compile(
 )
 _ENTRY_RE = re.compile(
     r"^\s*(?P<sign>[-+~])\s+(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)"
-    r"==(?P<version>[^\s(]+)(?:\s+\((?P<source>[^)]*)\))?\s*$"
+    r"==(?P<version>[^\s(]+)(?:\s+\((?:from\s+)?(?P<source>[^)]*)\))?\s*$"
 )
 _NO_CHANGES_RE = re.compile(r"^Would make no changes$")
 
@@ -479,19 +479,43 @@ class ActivityProbe(Protocol):
         """Return evidence of in-flight work (empty when idle)."""
 
 
-_TEST_MARKERS = (
-    "pytest",
-    "unittest",
-    "tox",
-    "nox",
-    "pre-commit",
-    "maturin",
-    "cargo",
-    "uv run",
-    "uv sync",
-    "uv lock",
-    "uv pip",
+#: Program names that mean "a build or test is running here".
+#:
+#: Matched against argv *tokens*, never against the joined command line: a
+#: ``bash -c '…pytest…'`` wrapper carries the whole script in a single token, so
+#: substring matching flagged every shell that merely mentioned a test command.
+#: The real ``pytest`` child is still detected on its own, so nothing is lost.
+_TEST_MARKERS = frozenset(
+    {
+        "pytest",
+        "py.test",
+        "unittest",
+        "tox",
+        "nox",
+        "pre-commit",
+        "maturin",
+        "cargo",
+        "rustc",
+        "meson",
+        "ninja",
+    }
 )
+#: ``uv`` subcommands that mutate or depend on a stable environment.
+_UV_SUBCOMMANDS = frozenset({"run", "sync", "lock", "pip", "build", "venv"})
+
+
+def _build_or_test_command(cmdline: Sequence[str]) -> str | None:
+    """Name the build/test tool this argv runs, or ``None``."""
+
+    tokens = [Path(token).name for token in cmdline]
+    if not tokens:
+        return None
+    if tokens[0] in ("uv", "uvx") and len(tokens) > 1 and tokens[1] in _UV_SUBCOMMANDS:
+        return f"uv {tokens[1]}"
+    for token in tokens:
+        if token in _TEST_MARKERS:
+            return token
+    return None
 
 
 class ProcessActivityProbe:
@@ -533,23 +557,24 @@ class ProcessActivityProbe:
             cmdline = _read_proc_list(entry / "cmdline")
             if not cmdline:
                 continue
-            joined = " ".join(cmdline)
             reason: str | None = None
             if cmdline[0].startswith(venv_bin):
                 reason = "executing from the shared venv"
             elif _proc_environ_virtualenv(entry) == str(workspace.venv):
                 reason = "VIRTUAL_ENV points at the shared venv"
-            elif any(marker in joined for marker in _TEST_MARKERS):
-                cwd = _read_proc_link(entry / "cwd")
-                if cwd is not None and any(_is_within(cwd, root) for root in roots):
-                    reason = f"build/test command running in {cwd}"
+            else:
+                tool = _build_or_test_command(cmdline)
+                if tool is not None:
+                    cwd = _read_proc_link(entry / "cwd")
+                    if cwd is not None and any(_is_within(cwd, root) for root in roots):
+                        reason = f"{tool} running in {cwd}"
             if reason is None:
                 continue
             found.append(
                 ActivityRecord(
                     probe=self.name,
                     identifier=f"pid {pid}",
-                    detail=f"{reason}: {joined[:160]}",
+                    detail=f"{reason}: {' '.join(cmdline)[:160]}",
                 )
             )
         return tuple(found)
