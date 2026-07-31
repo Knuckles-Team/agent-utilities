@@ -597,14 +597,34 @@ async def synthesizer_step(
             "\nThe response contract requires exactly one JSON object. Use the "
             "structured output schema; never emit markdown fences or surrounding prose."
         )
+        _synth_model_settings: Any = ModelSettings(
+            max_tokens=_STRUCTURED_RESPONSE_MAX_TOKENS,
+            temperature=0.0,
+        )
+        try:
+            # D-54c-4 — the verifier's structured-synthesis agent is built with an
+            # explicit model_settings and never runs through attach_profile_resolver,
+            # so fold the provider-native prompt-cache directive here too
+            # (CONCEPT:AU-ORCH.optimization.provider-prompt-cache).
+            from agent_utilities.caching.prompt_cache import fold_prompt_cache_hint
+
+            _agent_model_identity = getattr(
+                ctx.deps.agent_model, "model_name", None
+            ) or (
+                ctx.deps.agent_model if isinstance(ctx.deps.agent_model, str) else None
+            )
+            _synth_model_settings = fold_prompt_cache_hint(
+                _synth_model_settings,
+                system_prompt=final_system_prompt,
+                model_identity=_agent_model_identity,
+            )
+        except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
+            pass
         synthesizer = create_context_agent(
             model=ctx.deps.agent_model,
             system_prompt=final_system_prompt,
             output_type=dict[str, Any],
-            model_settings=ModelSettings(
-                max_tokens=_STRUCTURED_RESPONSE_MAX_TOKENS,
-                temperature=0.0,
-            ),
+            model_settings=_synth_model_settings,
             retries=2,
         )
     else:

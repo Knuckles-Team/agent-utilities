@@ -649,9 +649,10 @@ class RLMEnvironment:
 
         # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — family-aware system prompt (the paper's "one prompt fails across
         # model families" failure mode); 'auto' infers the family from the root model id.
+        repl_system_prompt = build_system_prompt(self.config.prompt_family, model_id)
         agent = create_context_agent(
             model=model_id,
-            system_prompt=build_system_prompt(self.config.prompt_family, model_id),
+            system_prompt=repl_system_prompt,
         )
 
         # CONCEPT:AU-ORCH.routing.depth-tiered-sampling — depth-tiered sampling. The root is the strong reasoner
@@ -663,6 +664,21 @@ class RLMEnvironment:
         _profile_settings = resolve_sampling_profile(
             role=_profile_role
         ).to_model_settings({})
+        try:
+            # D-54c-4 — the RLM REPL loop calls agent.run() directly with an explicit
+            # model_settings, bypassing attach_profile_resolver's prompt-cache fold
+            # (CONCEPT:AU-ORCH.optimization.provider-prompt-cache). Fold it here too — the
+            # system prompt is stable per (depth, prompt_family, model_id), which is exactly
+            # the repeated-prefix shape prompt caching benefits from across turns/recursion.
+            from agent_utilities.caching.prompt_cache import fold_prompt_cache_hint
+
+            _profile_settings = fold_prompt_cache_hint(
+                _profile_settings,
+                system_prompt=repl_system_prompt,
+                model_identity=model_id,
+            )
+        except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
+            pass
 
         history: list[Any] = []
         max_turns = self.max_turns

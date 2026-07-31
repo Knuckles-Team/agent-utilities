@@ -3275,15 +3275,34 @@ async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
     _extra_body = merge_extra_body(
         dict(DEFAULT_EXTRA_BODY or {}), reasoning_wire_directives(_reason_effort)
     )
+    _direct_system_prompt = (
+        "You are a helpful assistant. Respond naturally and concisely."
+    )
+    _direct_model_settings: Any = ModelSettings(
+        thinking=reason_on,
+        extra_body=_extra_body or None,
+        max_tokens=1024,
+        timeout=budget or 30.0,
+    )
+    try:
+        # D-54c-4 — the direct-completion fast path builds its own agent + explicit
+        # model_settings and never runs through attach_profile_resolver, so fold the
+        # provider-native prompt-cache directive here too
+        # (CONCEPT:AU-ORCH.optimization.provider-prompt-cache). The system prompt is a
+        # fixed constant, so this is the highest-hit-rate site in the whole fleet.
+        from agent_utilities.caching.prompt_cache import fold_prompt_cache_hint
+
+        _direct_model_settings = fold_prompt_cache_hint(
+            _direct_model_settings,
+            system_prompt=_direct_system_prompt,
+            model_identity=model_id,
+        )
+    except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
+        pass
     agent = create_context_agent(
         model=create_model(model_id=model_id, reasoning_effort=_reason_effort),
-        system_prompt="You are a helpful assistant. Respond naturally and concisely.",
-        model_settings=ModelSettings(
-            thinking=reason_on,
-            extra_body=_extra_body or None,
-            max_tokens=1024,
-            timeout=budget or 30.0,
-        ),
+        system_prompt=_direct_system_prompt,
+        model_settings=_direct_model_settings,
     )
     res = await agent.run(query)
     return {
