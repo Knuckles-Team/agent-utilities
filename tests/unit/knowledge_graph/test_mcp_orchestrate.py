@@ -14,9 +14,26 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 
 
 def _create_engine():
-    """Create a minimal IntelligenceGraphEngine for testing."""
-    GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    """Create a minimal IntelligenceGraphEngine for testing.
+
+    ``IntelligenceGraphEngine(db_path=":memory:")`` builds its own backend via
+    ``create_backend()``, which constructs a bare ``EpistemicGraphBackend()``.
+    That backend resolves its OWN routing graph via ``resolve_routing_graph(None)``
+    *before* asking ``GraphComputeEngine`` for one -- so under the (autouse,
+    test-suite-wide) ``isolate_graph_compute_engine`` fixture it lands on the
+    ambient tenant's graph rather than this test's isolated graph. Binding the
+    backend directly to the already-isolated ``compute`` object sidesteps that
+    divergent second resolution entirely.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    compute = GraphComputeEngine(backend_type="rust")
+    backend = object.__new__(EpistemicGraphBackend)
+    backend._graph = compute
+    backend.graph_name = compute.graph_name
+    engine = IntelligenceGraphEngine(backend=backend)
     return engine
 
 
@@ -128,11 +145,36 @@ async def test_agent_runner_binds_provider_skill_to_authenticated_server():
     assert instructions in meta["system_prompt"]
 
 
+def _ensure_standard_model_class(monkeypatch) -> None:
+    """Configure a 'normal'-tier chat model so run_agent's default
+    ``model_class="standard"`` resolves (_configured_model_for_class maps
+    "standard" -> intelligence_level "normal"). This test environment carries
+    no configured chat models at all, so without this every run_agent() call
+    fails before ever reaching the mocked ``_execute_graph`` this test is
+    actually exercising.
+    """
+    from agent_utilities.core.config import ChatModelConfig
+    from agent_utilities.core.config import config as agent_config
+
+    monkeypatch.setattr(
+        agent_config,
+        "chat_models",
+        [
+            ChatModelConfig(
+                id="test-standard-model",
+                provider="openai",
+                intelligence_level="normal",
+            )
+        ],
+    )
+
+
 @pytest.mark.asyncio
-async def test_agent_runner_execution_failure():
+async def test_agent_runner_execution_failure(monkeypatch):
     """Test agent runner fallback on execution failure."""
     from agent_utilities.orchestration.agent_runner import run_agent
 
+    _ensure_standard_model_class(monkeypatch)
     engine = _create_engine()
 
     with patch(
@@ -145,19 +187,23 @@ async def test_agent_runner_execution_failure():
 
         assert "Simulated execution failure" in result
 
-        # Verify trace node was added
+        # Verify trace node was added. 'type' is the retired node property;
+        # the canonical name is 'node_type'.
         trace_nodes = [
-            n for n, d in engine.graph.nodes(data=True) if d.get("type") == "RunTrace"
+            n
+            for n, d in engine.graph.nodes(data=True)
+            if d.get("node_type") == "RunTrace"
         ]
         assert len(trace_nodes) == 1
         assert engine.graph.nodes[trace_nodes[0]]["status"] == "failed"
 
 
 @pytest.mark.asyncio
-async def test_agent_runner_success():
+async def test_agent_runner_success(monkeypatch):
     """Test agent runner success path and provenance."""
     from agent_utilities.orchestration.agent_runner import run_agent
 
+    _ensure_standard_model_class(monkeypatch)
     engine = _create_engine()
 
     with patch(
@@ -170,9 +216,12 @@ async def test_agent_runner_success():
 
         assert result == "Success response"
 
-        # Verify trace node was added
+        # Verify trace node was added. 'type' is the retired node property;
+        # the canonical name is 'node_type'.
         trace_nodes = [
-            n for n, d in engine.graph.nodes(data=True) if d.get("type") == "RunTrace"
+            n
+            for n, d in engine.graph.nodes(data=True)
+            if d.get("node_type") == "RunTrace"
         ]
         assert len(trace_nodes) == 1
         assert engine.graph.nodes[trace_nodes[0]]["status"] == "completed"
