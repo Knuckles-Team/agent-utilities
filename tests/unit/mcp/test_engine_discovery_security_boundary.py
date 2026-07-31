@@ -316,7 +316,7 @@ def test_tool_catalog_enforces_count_size_and_depth_bounds() -> None:
     tool = SimpleNamespace(
         name="inspect",
         description="safe",
-        inputSchema={"type": "object"},
+        input_schema={"type": "object"},
         annotations=None,
     )
     with pytest.raises(RuntimeError, match="exceeded"):
@@ -325,7 +325,7 @@ def test_tool_catalog_enforces_count_size_and_depth_bounds() -> None:
     oversized = SimpleNamespace(
         name="inspect",
         description="x" * (4 * 1024 * 1024),
-        inputSchema={},
+        input_schema={},
         annotations=None,
     )
     with pytest.raises(RuntimeError, match="exceeded"):
@@ -340,7 +340,7 @@ def test_tool_catalog_enforces_count_size_and_depth_bounds() -> None:
     too_deep = SimpleNamespace(
         name="inspect",
         description="safe",
-        inputSchema=schema,
+        input_schema=schema,
         annotations=None,
     )
     with pytest.raises(RuntimeError, match="exceeded"):

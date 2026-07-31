@@ -252,12 +252,17 @@ async def test_child_own_authorization_not_overridden(
     """A child that declares its own Authorization keeps it; the service auth
     flow is not attached (auth=None)."""
     _enable_service_auth(monkeypatch)
+    # A raw literal credential is rejected by the fail-closed
+    # "MCP child credentials must use runtime references" gate
+    # (_resolve_runtime_value) — same as any other sensitive catalog value,
+    # this child's own bearer must be a runtime reference or ${VAR} template.
+    monkeypatch.setenv("CHILD_OWN_TOKEN", "child-own")
     mux = MCPMultiplexer(tmp_path / "c.json")
     await mux._start_child(
         "auth-mcp",
         {
             "url": "http://auth.arpa/mcp",
-            "headers": {"Authorization": "Bearer child-own"},
+            "headers": {"Authorization": "Bearer ${CHILD_OWN_TOKEN}"},
         },
     )
     http_client = transports["http"][0]["kwargs"]["http_client"]
