@@ -233,7 +233,7 @@ class CompositeFleetObserver:
         for observer in self.observers:
             try:
                 snapshot = observer.observe()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — class docstring: "Merge several observers; positive evidence beats silence"; a failed observer is skipped via `continue` and the merge proceeds with the remaining observers, exactly the documented degradation
                 logger.debug(
                     "observer %s failed: %s", getattr(observer, "name", "?"), e
                 )

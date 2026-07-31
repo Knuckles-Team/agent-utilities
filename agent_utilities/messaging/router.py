@@ -696,7 +696,7 @@ async def _react_in_background(
                 reaction.target_message_id or message_id,
                 reaction.emote,
             )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — this function's own docstring: "Best-effort and bounded... a slow or failing reaction never delays (or blocks) the user getting an answer"; the reply itself is generated/sent on an independent path
         logger.debug(
             "[CONCEPT:AU-ECO.messaging.messaging-as-renderer] reaction render skipped: %s",
             e,

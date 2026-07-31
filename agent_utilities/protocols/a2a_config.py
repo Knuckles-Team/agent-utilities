@@ -234,7 +234,7 @@ async def sync_a2a_agents(
                             f"A2A sync: Ingested full card for '{name}' "
                             f"({len(card.get('capabilities', []))} capabilities)"
                         )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — the agent registration itself (`result = ...` above, logged "A2A sync: {result}") already succeeded before this nested block runs; this only attempts a RICHER metadata enrichment (skills/embeddings) on top of an already-registered agent, so stats["registered"] correctly increments regardless
                     logger.debug(f"A2A sync: Card ingestion for '{name}' skipped: {e}")
 
             stats["registered"] += 1
