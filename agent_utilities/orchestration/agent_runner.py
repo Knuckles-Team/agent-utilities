@@ -3525,13 +3525,31 @@ def _record_execution_trace(
                     {"rid": rid, "tid": trace_id},
                 )
     except Exception as e:
-        # D-DST-6: this failure must be surfaced to the caller via the bool
-        # return, not swallowed -- run_agent's progress_sink checkpoint
-        # unconditionally reported "run trace recorded" regardless of whether
-        # this write actually succeeded (write-then-mark-seen on the harness's
-        # own provenance layer). Raised to warning: a persistently-failing
-        # trace write should be diagnosable, not invisible.
-        logger.warning("Failed to record execution trace: %s", e)
+        # D-DST-6 + D-DG-7 (reconciliation-gate-2 resolution of two lanes that
+        # edited this handler concurrently).
+        #
+        # D-DG-7 argued this failure "can never be surfaced to the caller", so
+        # only the log level mattered. That was true when it was written and is
+        # NOT true now: D-DST-6 gave this function a bool return that run_agent
+        # actually consumes (`_trace_recorded`, ~line 1561) to gate its
+        # progress_sink "run trace recorded" checkpoint — previously reported
+        # unconditionally, i.e. write-then-mark-seen on the harness's own
+        # provenance layer. So the bool contract is kept.
+        #
+        # D-DG-7's other two points stand on their own and are kept as well:
+        # this write is the ONLY persistence of the run's RunTrace/Outcome
+        # nodes, and a run reporting status="ok" with a trace_ref pointing at a
+        # node that was never written is a production failure — invisible to
+        # the reward/evolution flywheel and to anyone reading the trace back.
+        # Hence `error` (not `warning`) and the run/trace ids in the message.
+        # %-style, not an f-string, so the args stay lazy and pass through
+        # core/log_privacy.py's sanitizer.
+        logger.error(
+            "Failed to record execution trace (run_id=%r, trace_id=%r): %s",
+            run_id,
+            trace_id,
+            e,
+        )
         return False
 
     return True
