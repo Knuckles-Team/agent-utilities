@@ -329,6 +329,50 @@ class TestResearchOrchestrator:
         assert runner is not None
         assert runner.config.max_papers_per_run == 50
 
+    def test_persist_session_records_unified_evidence_for_findings(self):
+        """(D-71-3) persisting a session's EvidenceNode findings also records
+        them on the unified Evidence resource's research_finding channel --
+        the separate research_subagent.py pipeline this module drives is not
+        the mining-flywheel's CandidateInsight family."""
+        from agent_utilities.knowledge_graph.orchestration.research_orchestrator import (
+            ResearchOrchestrator,
+        )
+        from agent_utilities.knowledge_graph.orchestration.research_subagent import (
+            ResearchSubagent,
+        )
+
+        class _Graph:
+            def add_node(self, node_id, **props):
+                pass
+
+            def add_edge(self, source, target, **props):
+                pass
+
+        class _FakeEngine:
+            def __init__(self):
+                self.graph = _Graph()
+                self.evidence_calls: list[tuple[str, dict]] = []
+
+            def add_node(self, node_id, node_type, properties=None, **_kw):
+                if node_type == "EvolutionEvidence":
+                    self.evidence_calls.append((node_id, properties or {}))
+
+            def add_edge(self, source, target, rel_type, **_kw):
+                pass
+
+        engine = _FakeEngine()
+        orch = ResearchOrchestrator(engine=engine)
+        subagent = ResearchSubagent(query="spectral clustering for agents")
+        subagent.add_finding("Eigengap heuristic selects k automatically", confidence=0.9)
+
+        orch._persist_session(subagent)
+
+        assert len(engine.evidence_calls) == 1
+        _node_id, props = engine.evidence_calls[0]
+        assert props["channel"] == "research_finding"
+        assert props["confidence"] == 0.9
+        assert "Eigengap heuristic" in props["payload"]["claim"]
+
 
 # =====================================================================
 # CONCEPT:AU-KG.research.research-pipeline-runner — GraphDistillationMigrator Tests

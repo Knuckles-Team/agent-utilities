@@ -64,6 +64,7 @@ __all__ = [
     "from_health_anomaly",
     "from_candidate_insight",
     "from_process_signal",
+    "from_research_evidence_node",
 ]
 
 #: Finding type routed through the SAME CandidateInsight -> ClaimNode ->
@@ -391,6 +392,43 @@ def from_process_signal(evidence_dict: dict[str, Any]) -> Evidence:
             if k in {"mode", "content_hash", "mapping_version", "node_count", "relationship_count"}
         },
         lineage={"tenant": tenant} if tenant else {},
+    )
+
+
+def from_research_evidence_node(node: Any) -> Evidence:
+    """(d) research_finding — the SEPARATE ``research_subagent.py`` pipeline's
+    own ``EvidenceNode`` (D-71-3).
+
+    ``candidates_from_evidence``'s (d) channel already covers the mining-
+    flywheel's ``CandidateInsight`` family via :func:`from_candidate_insight`.
+    A second, pre-existing research pipeline — ``knowledge_graph.orchestration.
+    research_subagent.ResearchSubagent`` — persists its own findings as
+    ``models.knowledge_graph.EvidenceNode`` (``RegistryNodeType.EVIDENCE``, a
+    narrower "claim/finding extracted from a source document" type this
+    module deliberately did not repurpose — see
+    :class:`EvolutionEvidenceNode`'s docstring for why). This adapter maps
+    THAT node's real fields onto the same unified contract without collapsing
+    the two distinct node types into one.
+
+    Always PROPOSED (never SUCCESS/FAILURE): an extracted research finding is
+    a candidate observation, not a pass/fail judgement — mirrors
+    :func:`from_process_signal`'s same reasoning. ``confidence`` is the node's
+    own real ``confidence_score``, never fabricated; ``subject_id`` is the
+    node's content-addressed ``evidence_id`` so re-recording the same claim
+    text upserts rather than duplicates.
+    """
+    evidence_node_id = str(getattr(node, "evidence_id", "") or "")
+    node_id = str(getattr(node, "id", "") or "")
+    subject = evidence_node_id or node_id or "unknown-finding"
+    return Evidence(
+        channel=EvidenceChannel.RESEARCH_FINDING,
+        subject_id=subject,
+        outcome=EvidenceOutcome.PROPOSED,
+        signal=0.0,
+        confidence=_clamp01(getattr(node, "confidence_score", 1.0)),
+        source_node_id=node_id or None,
+        source_node_type="EvidenceNode",
+        payload={"claim": str(getattr(node, "claim", "") or "")},
     )
 
 
