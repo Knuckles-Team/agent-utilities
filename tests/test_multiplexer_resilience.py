@@ -8,11 +8,11 @@ exercised with in-process fake child sessions (no subprocesses, no network).
 from __future__ import annotations
 
 import asyncio
+import inspect
 from typing import Any
 
 import mcp.types
 import pytest
-from mcp.shared.exceptions import MCPError
 
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
@@ -20,6 +20,7 @@ from agent_utilities.mcp.child_resilience import (
     MCPChildCallTimeoutError,
     MCPChildCircuitOpenError,
     MCPChildUnavailableError,
+    MCPError,
 )
 from agent_utilities.mcp.multiplexer import MCPMultiplexer
 
@@ -396,14 +397,26 @@ async def test_crash_triggers_restart_and_child_recovers():
     await runtime.aclose()
 
 
+def _session_terminated_error() -> BaseException:
+    """The MCP protocol error a redeployed backend raises, on EITHER SDK line.
+
+    SDK v1's ``McpError.__init__`` takes a pre-built ``ErrorData``; SDK v2
+    renamed the class to ``MCPError`` and changed the signature to
+    ``(code, message, data=None)``, building its own ``.error``. Both populate
+    ``exc.error.code``/``.message``, which is all ``is_session_dead`` reads —
+    so branch on the actual signature rather than pinning one SDK line.
+    """
+    if "code" in inspect.signature(MCPError.__init__).parameters:
+        return MCPError(code=32600, message="Session terminated")
+    return MCPError(mcp.types.ErrorData(code=32600, message="Session terminated"))
+
+
 class SessionTerminatedSession:
     """Fake session whose call hits a server-terminated streamable-http session
-    (what a redeployed backend does): MCPError(code=32600)."""
+    (what a redeployed backend does): MCP protocol error with code=32600."""
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        # SDK v2 constructor takes (code, message, data) directly — it builds
-        # its own `.error` ErrorData; it no longer accepts a pre-built one.
-        raise MCPError(code=32600, message="Session terminated")
+        raise _session_terminated_error()
 
 
 async def test_terminated_session_auto_reconnects_and_retries(monkeypatch):

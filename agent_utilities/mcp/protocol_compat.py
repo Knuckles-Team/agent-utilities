@@ -57,6 +57,40 @@ from typing import Any
 
 _installed = False
 
+#: Names `mcp.shared.exceptions` uses for the MCP protocol error, newest first.
+#: SDK v2 (`mcp>=2.0.0`) renamed `McpError` -> `MCPError`; SDK v1 still ships the
+#: old spelling. Both are the SAME protocol error, so code that catches it must
+#: bind whichever one the INSTALLED SDK actually exposes.
+_PROTOCOL_ERROR_NAMES = ("MCPError", "McpError")
+
+
+def mcp_protocol_error() -> type[BaseException]:
+    """Return the MCP protocol-error class for the *installed* MCP SDK line.
+
+    `mcp.shared.exceptions.McpError` (SDK v1) was renamed `MCPError` in SDK v2.
+    A hard `from mcp.shared.exceptions import MCPError` therefore raises
+    `ImportError` on every SDK v1 install — and because the multiplexer imports
+    the child-resilience layer at module scope, that ImportError takes the whole
+    fleet loader down with it (CONCEPT:AU-ECO.mcp.protocol-compat-bridge).
+
+    This resolves the class by name instead. It is deliberately NOT a
+    `try/except ImportError` that falls back to a benign default: binding the
+    name to `()` or `Exception` would silently break session-death detection for
+    the entire child fleet. If neither spelling exists the SDK is unusable here,
+    so this raises loudly.
+    """
+    from mcp.shared import exceptions as mcp_exceptions
+
+    for name in _PROTOCOL_ERROR_NAMES:
+        candidate = getattr(mcp_exceptions, name, None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            return candidate
+    raise ImportError(
+        "mcp.shared.exceptions exposes neither 'MCPError' (MCP SDK v2) nor "
+        "'McpError' (MCP SDK v1); the MCP child-resilience layer cannot detect a "
+        "terminated child session without it."
+    )
+
 
 def install_mcp_v2_bridge() -> None:
     """Bridge the MCP SDK v2 attribute renames that `fastmcp._compat` doesn't cover.
