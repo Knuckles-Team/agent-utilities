@@ -611,8 +611,6 @@ def uv_plan(
     )
 
 
-
-
 def _environment_evidence(worktree: Path) -> list[dict[str, Any]]:
     """Report every partitioned environment this worktree owns, and its selection."""
     evidence: list[dict[str, Any]] = []

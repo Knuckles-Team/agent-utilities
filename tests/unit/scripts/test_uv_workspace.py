@@ -374,7 +374,9 @@ def test_run_synchronises_before_exec_and_never_syncs_during_the_child(
     assert "sync" in plan.prepare[0]
     assert "--locked" in plan.prepare[0]
     assert "--all-extras" in plan.prepare[0]
-    assert "--no-sync" in plan.execute, "the child must run against a frozen environment"
+    assert "--no-sync" in plan.execute, (
+        "the child must run against a frozen environment"
+    )
 
 
 def test_unrecognized_flag_degrades_instead_of_guessing(
@@ -423,7 +425,8 @@ def test_partitioned_environment_is_a_classified_resource() -> None:
     from agent_utilities.governance import lanes
 
     assert (
-        lanes.resource_class("uv-project-environment") is lanes.ArbitrationClass.PARTITION
+        lanes.resource_class("uv-project-environment")
+        is lanes.ArbitrationClass.PARTITION
     )
 
 
@@ -549,12 +552,12 @@ def test_run_refuses_the_foreign_interpreter_before_executing_anything(
     environment = worktree / ".venv-base"
     (environment / "bin").mkdir(parents=True)
     executed: list[list[str]] = []
-    monkeypatch.setattr(
-        uv_workspace.subprocess,
-        "run",
-        lambda command, **_kwargs: executed.append(list(command))
-        or SimpleNamespace(returncode=0),
-    )
+
+    def record(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        executed.append(list(command))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(uv_workspace.subprocess, "run", record)
 
     with pytest.raises(RuntimeError, match="refusing to run 'pytest'"):
         uv_workspace.run_uv(
