@@ -203,6 +203,60 @@ def test_review_unknown_proposal_errors():
     assert "error" in result
 
 
+# ── shadow-graph GC on rejection (CONCEPT:AU-KG.ontology.shadow-graph-gc, D-75-7) ──
+
+
+def test_reject_discards_the_shadow_graph():
+    """A rejected proposal is never coming back for promotion (promote() reads
+    the stored `turtle`, never the shadow graph) -- rejecting it tears down its
+    scratch shadow graph immediately rather than leaking it until an engine
+    idle-sweep eventually reclaims it."""
+    with patch(
+        "agent_utilities.knowledge_graph.ontology.evolution.materialize_shadow",
+        return_value=("ontology:tenant__shadow__proposal-1", {"loaded_to_engine": True}),
+    ):
+        result = evolution.propose_ontology_change(
+            None, None, PETS_TTL, iri="http://example.org/pets", source_type="text"
+        )
+    proposal_id = result["proposal"]["proposal_id"]
+    assert result["proposal"]["shadow_graph"] == "ontology:tenant__shadow__proposal-1"
+
+    with patch(
+        "agent_utilities.knowledge_graph.ontology.evolution.discard_shadow",
+        return_value={"dropped": True},
+    ) as mock_discard:
+        reviewed = evolution.review_ontology_proposal(
+            None, None, proposal_id, approve=False, reviewer="bob"
+        )
+
+    mock_discard.assert_called_once_with(None, "ontology:tenant__shadow__proposal-1")
+    assert reviewed["proposal"]["shadow_discard"] == {"dropped": True}
+
+
+def test_approve_does_not_discard_the_shadow_graph():
+    """An APPROVED (not yet promoted) proposal keeps its shadow -- only
+    rejection (a dead end) or promotion (which discards it on success, see
+    promote_ontology_proposal) tears it down."""
+    with patch(
+        "agent_utilities.knowledge_graph.ontology.evolution.materialize_shadow",
+        return_value=("ontology:tenant__shadow__proposal-2", {"loaded_to_engine": True}),
+    ):
+        result = evolution.propose_ontology_change(
+            None, None, PETS_TTL, iri="http://example.org/pets", source_type="text"
+        )
+    proposal_id = result["proposal"]["proposal_id"]
+
+    with patch(
+        "agent_utilities.knowledge_graph.ontology.evolution.discard_shadow"
+    ) as mock_discard:
+        reviewed = evolution.review_ontology_proposal(
+            None, None, proposal_id, approve=True, reviewer="alice"
+        )
+
+    mock_discard.assert_not_called()
+    assert "shadow_discard" not in reviewed["proposal"]
+
+
 # ── promote — gated by the SAME action_policy decision point as every other
 # evolution proposal; nothing auto-merges ──────────────────────────────────
 

@@ -435,7 +435,15 @@ def review_ontology_proposal(
     """Record a human/policy review decision on a filed proposal. This is
     ADVISORY input to :func:`promote_ontology_proposal`'s own
     ``action_policy`` gate — approving here does not bypass that gate; it
-    simply lets a caller pre-clear a proposal before attempting promotion."""
+    simply lets a caller pre-clear a proposal before attempting promotion.
+
+    A REJECTED proposal's shadow graph (CONCEPT:AU-KG.ontology.shadow-graph-gc,
+    D-75-7) is torn down here, the same best-effort :func:`discard_shadow`
+    :func:`promote_ontology_proposal` already calls on success — a rejected
+    proposal is never coming back for promotion, so there is nothing left to
+    replay competency queries against; leaving it materialized would only
+    accumulate scratch graphs under review churn.
+    """
     store = _proposal_store(engine, tenant)
     record = store.get(proposal_id)
     if record is None:
@@ -447,6 +455,8 @@ def review_ontology_proposal(
         "notes": notes,
         "decided_at": _now(),
     }
+    if not approve and record.get("shadow_graph"):
+        record["shadow_discard"] = discard_shadow(engine, record["shadow_graph"])
     store.set(proposal_id, record)
     return {"status": "ok", "proposal": record}
 
