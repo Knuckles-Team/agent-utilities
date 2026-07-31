@@ -7,7 +7,7 @@ from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location(
     "validate_mcp_config",
-    Path(__file__).resolve().parents[1] / "scripts" / "validate_mcp_config.py",
+    Path(__file__).resolve().parents[3] / "scripts" / "validate_mcp_config.py",
 )
 vmc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(vmc)

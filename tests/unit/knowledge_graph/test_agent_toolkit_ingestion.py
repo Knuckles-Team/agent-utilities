@@ -22,7 +22,7 @@ import pytest
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # -- Test fixtures paths (real configs from agent-packages) ---
-AGENTS_DIR = Path(__file__).resolve().parents[1] / ".." / "agents"
+AGENTS_DIR = Path(__file__).resolve().parents[3] / ".." / "agents"
 
 # Known config paths for agent-packages
 _MCP_CONFIGS = {
