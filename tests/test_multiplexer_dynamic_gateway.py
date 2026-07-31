@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import mcp.types
@@ -381,9 +382,145 @@ async def test_probe_catalog_returns_partial_results_within_budget(tmp_path):
     mux.probe_server = AsyncMock(side_effect=slow_probe)  # type: ignore[method-assign]
     result = await mux.probe_catalog(budget=0.01)
 
-    assert (
-        result["slow-mcp"]["error"] == "catalog discovery budget exceeded after 0.01s"
-    )
+    # Honest, per-server "still working" -- NOT the old fixed "budget
+    # exceeded" claim stamped identically on every straggler regardless of
+    # its real state (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+    assert result["slow-mcp"]["pending"] is True
+    assert "still probing" in result["slow-mcp"]["error"]
+    await mux.aclose()  # let the still-running background probe be cancelled cleanly
+
+
+async def test_slow_server_degrades_alone_fast_servers_unaffected(tmp_path):
+    """Requirement: one slow server must not blank the other 60 -- each
+    reports its own state with its own reason (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "c")], "slow-mcp": []})
+
+    async def mixed_probe(server, **_kwargs):
+        if server == CNT:
+            info = {
+                "tools": [{"name": CNT_TOOL, "description": "containers"}],
+                "error": None,
+            }
+            mux._probe_cache[server] = info
+            return info
+        await asyncio.sleep(1)
+        info = {"tools": [], "error": None}
+        mux._probe_cache[server] = info
+        return info
+
+    mux.probe_server = AsyncMock(side_effect=mixed_probe)  # type: ignore[method-assign]
+    result = await mux.probe_catalog(budget=0.05)
+
+    assert result[CNT]["error"] is None
+    assert result[CNT]["tools"][0]["name"] == CNT_TOOL
+    assert result["slow-mcp"]["pending"] is True
+    await mux.aclose()
+
+
+async def test_discovery_succeeds_for_a_previously_timed_out_server(tmp_path):
+    """The core regression this lane fixes: a server that misses the
+    interactive budget must become available on a LATER call once its
+    background probe finishes, via cache -- not be re-probed (and time out
+    again) from scratch on every subsequent call forever
+    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+    mux = _mux_with_children(tmp_path, {"slow-mcp": []})
+    release = asyncio.Event()
+    calls = 0
+
+    async def eventually_probe(server, **_kwargs):
+        nonlocal calls
+        calls += 1
+        await release.wait()
+        info = {
+            "tools": [{"name": "slow_op", "description": "eventually works"}],
+            "error": None,
+        }
+        mux._probe_cache[server] = info
+        return info
+
+    mux.probe_server = AsyncMock(side_effect=eventually_probe)  # type: ignore[method-assign]
+
+    first = await mux.probe_catalog(budget=0.01)
+    assert first["slow-mcp"]["pending"] is True
+    assert "slow-mcp" not in mux._probe_cache
+
+    # The background probe from the FIRST call is still running (it was
+    # never cancelled) -- let it finish now.
+    release.set()
+    await asyncio.sleep(0.05)
+
+    second = await mux.probe_catalog(budget=0.01)
+    assert second["slow-mcp"]["error"] is None
+    assert second["slow-mcp"]["tools"][0]["name"] == "slow_op"
+    # Probed exactly once: the second call joined the SAME in-flight probe
+    # rather than starting a duplicate.
+    assert calls == 1
+
+
+async def test_cached_results_are_labelled_with_age(tmp_path, monkeypatch):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage docker containers")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    fixed_now = 1_000_000.0
+    mux._probe_cache[CNT] = {
+        "tools": [
+            {
+                "name": CNT_TOOL,
+                "description": "manage docker containers",
+                "inputSchema": {},
+            }
+        ],
+        "error": None,
+        "probed_at": fixed_now,
+    }
+
+    monkeypatch.setattr(time, "time", lambda: fixed_now + 42.0)
+    discovery = await mux.discover_tools("manage docker containers", top_k=5)
+    top = discovery["results"][0]
+    assert top["tool"] == CNT_TOOL
+    assert top["age_s"] == 42.0
+    assert top["stale"] is False
+
+    cat = await mux.list_catalog(server=CNT)
+    assert cat["age_s"] == 42.0
+
+
+async def test_concurrent_probes_honor_their_own_per_server_deadline(tmp_path):
+    """Two servers probed concurrently must each fail/succeed on THEIR OWN
+    configured timeout, not a shared ceiling -- and truly concurrently, not
+    serialized (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+    servers = {
+        "quick-timeout-mcp": {
+            "command": "python",
+            "args": ["-m", "x"],
+            "probe_timeout": 0.05,
+        },
+        "slow-answer-mcp": {
+            "command": "python",
+            "args": ["-m", "y"],
+            "probe_timeout": 5.0,
+        },
+    }
+    mux = MCPMultiplexer(_write_config(tmp_path, servers))
+
+    async def _open(server, cfg, stack):
+        if server == "quick-timeout-mcp":
+            await asyncio.sleep(10)  # always exceeds its OWN 0.05s deadline
+        else:
+            await asyncio.sleep(0.1)  # comfortably inside its OWN 5s deadline
+        return _fake_session([("op", "does a thing")])
+
+    mux._open_one_session = AsyncMock(side_effect=_open)  # type: ignore[method-assign]
+
+    t0 = asyncio.get_running_loop().time()
+    result = await mux.probe_catalog()  # no shared budget: purely per-server
+    elapsed = asyncio.get_running_loop().time() - t0
+
+    assert result["quick-timeout-mcp"]["error"] == "timeout after 0.05s"
+    assert result["slow-answer-mcp"]["error"] is None
+    # Ran concurrently: total elapsed tracks the SLOWER server (~0.1s), not
+    # the sum of both (which would be > 10s if serialized).
+    assert elapsed < 2.0
+    await mux.aclose()
 
 
 @pytest.mark.parametrize(

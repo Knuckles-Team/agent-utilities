@@ -34,6 +34,7 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 import weakref
 from collections.abc import Mapping
 from pathlib import Path
@@ -50,6 +51,7 @@ from mcp.client.session import ClientSession
 
 from agent_utilities.core.capability_contract import Capability
 from agent_utilities.core.config import setting
+from agent_utilities.core.resource_priority import PriorityClass, priority_scope
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
     MCPChildError,
@@ -93,6 +95,17 @@ _MAX_CATALOG_NODES = 131_072
 _MAX_DISCOVERED_SKILLS = 2_048
 _SKILL_RESOURCE_RE = re.compile(r"^skill://(?P<name>[^/]+)/SKILL\.md$")
 _SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "service"})
+# Fleet-wide concurrent-probe ceiling (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog), shared
+# across overlapping ``probe_catalog`` calls via ``MCPMultiplexer._probe_semaphore``
+# (one instance per multiplexer, NOT re-created per call — a per-call semaphore
+# would give every new call its own fresh 16 slots regardless of how many probes
+# an EARLIER call already left running, defeating the point of a shared cap).
+# Measured (see docs/architecture/fleet-catalog-discovery-budget.md): a cold
+# stdio child's own connect+handshake already costs ~2.7-2.9s on this hardware
+# before any real work, so a 61-server fleet queued 16-wide needed 4 full waves
+# to even ATTEMPT every server once — comfortably exceeding any interactive
+# budget on its own, before counting genuinely slow/unreachable servers.
+_PROBE_CONCURRENCY = 32
 _RUNTIME_CHILD_POLICY_GROUP = "agent_utilities.mcp_child_policies"
 _RUNTIME_CHILD_POLICY_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS = frozenset(
@@ -979,8 +992,27 @@ class MCPMultiplexer:
         # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — self-catalog: per-server {"tools": [...], "error": str|None}
         # learned by probing each child (connect → list_tools → release), cached so
         # find_tools ranks real fleet-wide tools without holding connections and
-        # without depending on the (separately-flaky) KG live discovery.
+        # without depending on the (separately-flaky) KG live discovery. Every
+        # entry carries ``probed_at`` (epoch seconds of the probe that produced
+        # it) so a caller can compute truthful staleness instead of a fleet-wide
+        # figure silently being served as if it were live (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
         self._probe_cache: dict[str, dict] = {}
+        # A server probe that hasn't finished when an interactive caller's
+        # budget expires is NEVER cancelled — cancelling it would also cancel
+        # the ``self._probe_cache`` write at the end of :meth:`probe_server`,
+        # which is exactly why an unreachable/slow server used to be re-probed
+        # from scratch on EVERY subsequent call (the timed-out result was
+        # discarded, not cached). Instead the task keeps running in the
+        # background at its own per-server deadline; this map lets a LATER
+        # call join the SAME in-flight probe instead of starting a duplicate,
+        # and lets :meth:`aclose` await outstanding probes on shutdown.
+        self._probe_inflight: dict[str, asyncio.Task] = {}
+        # ONE semaphore for the whole instance's lifetime (not re-created per
+        # ``probe_catalog`` call) so a probe still running from an earlier
+        # (possibly already-returned) call continues to count against the same
+        # concurrency cap as a newer call's probes, instead of every call
+        # getting its own fresh set of slots.
+        self._probe_semaphore = asyncio.Semaphore(_PROBE_CONCURRENCY)
         # Optional in-process embedder for SEMANTIC find_tools ranking (injected by
         # graph-os via attach_fleet_loader). ``_embed_fn(texts)->list[vector]`` (sync,
         # called off-thread); per-tool embeddings are cached by ``server::tool`` so only
@@ -1724,6 +1756,11 @@ class MCPMultiplexer:
         self.tool_to_server.clear()
         self.aggregated_tools.clear()
         self._probe_cache.clear()
+        # Not cancelled (a hot-reload should not visibly break an in-flight
+        # discovery call) — just untracked, so a NEW probe_catalog call for
+        # the same server starts fresh against the reloaded config rather
+        # than joining a probe that may be running against stale credentials.
+        self._probe_inflight.clear()
         self._tool_embeddings.clear()
         self._prefix_map = None
         self._prefix_reverse.clear()
@@ -1985,15 +2022,26 @@ class MCPMultiplexer:
             )
         return out
 
+    def _cache_probe(self, server_name: str, info: dict) -> dict:
+        """Stamp ``probed_at`` (epoch seconds) and store ONE probe result.
+
+        Every write to ``self._probe_cache`` goes through here so age/staleness
+        can always be computed truthfully later — ``time.time() - probed_at`` —
+        instead of a caller having to guess whether a served result is fresh
+        (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+        info["probed_at"] = time.time()
+        self._probe_cache[server_name] = info
+        return info
+
     async def probe_server(
         self, server_name: str, force: bool = False, timeout: float | None = None
     ) -> dict:
         """Probe ONE catalog server for its tool list: connect → list_tools →
         release (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Returns (and caches) ``{"tools": [...],
-        "error": str|None}``. An already-mounted child reuses its live tools
-        instead of reconnecting; an unreachable server records its error string
-        (so find_tools/load_tools can report *why* it is unavailable) rather
-        than raising."""
+        "error": str|None, "probed_at": float}``. An already-mounted child reuses
+        its live tools instead of reconnecting; an unreachable server records its
+        error string (so find_tools/load_tools can report *why* it is
+        unavailable) rather than raising."""
         if not force and server_name in self._probe_cache:
             return self._probe_cache[server_name]
 
@@ -2002,14 +2050,12 @@ class MCPMultiplexer:
                 "tools": self._live_tools_for_server(server_name),
                 "error": None,
             }
-            self._probe_cache[server_name] = info
-            return info
+            return self._cache_probe(server_name, info)
 
         cfg = self.load_catalog().get(server_name)
         if cfg is None:
             info = {"tools": [], "error": "not in catalog"}
-            self._probe_cache[server_name] = info
-            return info
+            return self._cache_probe(server_name, info)
 
         try:
             probe_to = float(
@@ -2021,8 +2067,7 @@ class MCPMultiplexer:
             probe_to = 0.0
         if not 0.001 <= probe_to <= 300.0:
             info = {"tools": [], "error": "invalid probe timeout"}
-            self._probe_cache[server_name] = info
-            return info
+            return self._cache_probe(server_name, info)
 
         async def _probe() -> tuple[list[dict], list[dict]]:
             # Enter AND exit the transports within this single coroutine so the
@@ -2060,8 +2105,7 @@ class MCPMultiplexer:
             info = {"tools": [], "skills": [], "error": f"timeout after {probe_to:g}s"}
         except Exception as e:
             info = {"tools": [], "skills": [], "error": _format_probe_error(e)}
-        self._probe_cache[server_name] = info
-        return info
+        return self._cache_probe(server_name, info)
 
     async def _probe_skills(self, server_name: str, session: Any) -> list[dict]:
         """Best-effort ``skill://`` resource enumeration for one probed session
@@ -2135,18 +2179,95 @@ class MCPMultiplexer:
         finally:
             await multiplexer.aclose()
 
+    def _settle_probe_task(self, server: str, task: asyncio.Task) -> None:
+        """``add_done_callback`` for a background probe: release its in-flight
+        slot. ``probe_server`` itself catches every failure mode it knows about
+        and always caches a result, so an exception surfacing here is a
+        genuinely unexpected bug, not a child's fault — it is logged with its
+        cause, never swallowed, rather than left to asyncio's "exception was
+        never retrieved" warning."""
+        self._probe_inflight.pop(server, None)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "Unexpected exception from background probe of %s: %s",
+                server,
+                exc,
+                exc_info=exc,
+            )
+
+    def _ensure_probing(
+        self, server: str, *, force: bool, timeout: float | None
+    ) -> asyncio.Task:
+        """Return the in-flight probe task for ``server``, joining one an
+        overlapping call already started instead of spawning a duplicate.
+
+        A forced probe (explicit re-probe, e.g. boot ingestion) always starts
+        fresh and is not shared or tracked — ``force`` means "I specifically
+        want a new answer now," which a stale in-flight task cannot give."""
+        if not force:
+            existing = self._probe_inflight.get(server)
+            if existing is not None and not existing.done():
+                return existing
+
+        async def _run() -> None:
+            async with self._probe_semaphore:
+                await self.probe_server(server, force=force, timeout=timeout)
+
+        task = asyncio.create_task(_run())
+        if not force:
+            self._probe_inflight[server] = task
+        task.add_done_callback(lambda t, _s=server: self._settle_probe_task(_s, t))
+        return task
+
     async def probe_catalog(
         self,
         force: bool = False,
         timeout: float | None = None,
         budget: float | None = None,
         servers: list[str] | tuple[str, ...] | None = None,
+        priority: PriorityClass | None = None,
     ) -> dict[str, dict]:
         """Probe every catalog server concurrently (bounded) and cache the
-        result, so find_tools can rank the whole fleet's real tools. Cached, so
-        only the first call pays the cost; unreachable servers fail fast and are
-        recorded, never blocking the reachable ones. ``servers`` narrows a
-        latency-sensitive first stage without creating a second probe path."""
+        result, so find_tools can rank the whole fleet's real tools.
+
+        ``budget`` bounds how long THIS CALL waits for an answer. It does
+        **not** bound how long an individual probe is allowed to run — that
+        is each server's own ``probe_timeout``/``timeout``, honored
+        independently by :meth:`probe_server`. A server still probing when
+        the budget expires is NEVER cancelled: cancelling it would also
+        cancel its own ``self._probe_cache`` write, which is exactly what
+        used to make an unreachable server pay its full connect cost again
+        on every subsequent call, forever, instead of the cache the tool's
+        own contract promises ("the first call probes the fleet; later
+        calls are cached"). It keeps running toward its own deadline in the
+        background — ``_probe_inflight`` lets a later call join that SAME
+        probe instead of duplicating it — and each pending server gets an
+        honest, individual answer here: a prior (possibly ``stale``,
+        age-labelled) result if one exists, or an explicit ``pending``
+        marker on its first-ever attempt. Reachable servers are never
+        blocked by an unreachable one (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+        A long-lived multiplexer (graph-os's fleet loader) relies on
+        :meth:`aclose` to cancel whatever is still in-flight at real
+        shutdown. A short-lived caller wrapped in ``asyncio.run(...)``
+        (e.g. ``source_sync._sync_fleet`` via ``_run_async``) gets the same
+        guarantee for free — ``asyncio.run`` cancels every task still on its
+        loop when the coroutine it ran returns, this multiplexer's included
+        — so no caller needs to await these background probes itself.
+
+        ``priority`` tags this call's probe tasks with a
+        :class:`PriorityClass` (ORCH-1.98) for their whole background
+        lifetime — pass ``PriorityClass.BACKGROUND_INGESTION`` for a broad
+        catalog sweep so it yields shared-resource contention to
+        interactive/orchestration work; leave unset to inherit the
+        caller's ambient priority (the default — appropriate for a small,
+        caller-named set of servers on the interactive path).
+
+        ``servers`` narrows a latency-sensitive first stage without
+        creating a second probe path."""
         catalog = self.load_catalog()
         candidates = (
             catalog if servers is None else (s for s in servers if s in catalog)
@@ -2160,13 +2281,17 @@ class MCPMultiplexer:
         if budget is not None and not 0.001 <= budget <= 300.0:
             raise ValueError("catalog probe budget is outside the safety boundary")
 
-        sem = asyncio.Semaphore(16)
+        scope = (
+            priority_scope(priority)
+            if priority is not None
+            else contextlib.nullcontext()
+        )
+        with scope:
+            tasks = {
+                self._ensure_probing(server, force=force, timeout=timeout): server
+                for server in targets
+            }
 
-        async def _guarded(s: str) -> None:
-            async with sem:
-                await self.probe_server(s, force=force, timeout=timeout)
-
-        tasks = {asyncio.create_task(_guarded(server)): server for server in targets}
         if budget is None:
             await asyncio.gather(*tasks, return_exceptions=True)
             return self._probe_cache
@@ -2175,19 +2300,29 @@ class MCPMultiplexer:
         if not pending:
             return self._probe_cache
 
-        # Interactive capability discovery is latency-sensitive.  Do not make a
-        # caller wait for the slowest of a large fleet: cancel outstanding probes
-        # and return a truthful per-server availability result.  The next explicit
-        # force probe (for example boot ingestion) is allowed to retry them.
+        now = time.time()
         result = dict(self._probe_cache)
         for task in pending:
             server = tasks[task]
-            task.cancel()
-            result[server] = {
-                "tools": [],
-                "error": f"catalog discovery budget exceeded after {budget:g}s",
-            }
-        await asyncio.gather(*pending, return_exceptions=True)
+            prior = self._probe_cache.get(server)
+            if prior is not None:
+                # Only reachable via an explicit force re-probe (a non-forced
+                # target is by definition not yet cached) — serve the last
+                # known answer rather than a bare "unavailable", labelled so
+                # the caller knows it is not this round's live result.
+                stale = dict(prior)
+                stale["stale"] = True
+                stale["age_s"] = round(now - prior.get("probed_at", now), 3)
+                result[server] = stale
+            else:
+                result[server] = {
+                    "tools": [],
+                    "error": (
+                        f"still probing after {budget:g}s (no result yet) — "
+                        "the probe continues in the background; call again shortly"
+                    ),
+                    "pending": True,
+                }
         return result
 
     @staticmethod
@@ -2333,7 +2468,16 @@ class MCPMultiplexer:
             probe = {}
         remaining = deadline - loop.time()
         if remaining >= 0.001:
-            probe = await self.probe_catalog(budget=remaining)
+            # The broad fleet-wide sweep (every server, not just the
+            # query-relevant ones already probed above) is a background
+            # warm-up, not itself the interactive answer — tag it
+            # BACKGROUND_INGESTION (ORCH-1.98) so it yields shared-resource
+            # contention to interactive/orchestration work instead of
+            # competing with it, reusing the ONE existing priority gate
+            # rather than inventing a second (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+            probe = await self.probe_catalog(
+                budget=remaining, priority=PriorityClass.BACKGROUND_INGESTION
+            )
 
         # Semantic scores keyed by bare tool name. When graph-os injects an in-process
         # embedder (attach_fleet_loader), rank every probed tool by query↔description
@@ -2360,10 +2504,17 @@ class MCPMultiplexer:
         # in advance whether the winning candidate is a tool or a skill.
         ranked: list[dict] = []
         unavailable: dict[str, str] = {}
+        now = time.time()
         for server, info in probe.items():
             if info.get("error"):
                 unavailable[server] = info["error"]
                 continue
+            # Truthful freshness for every surfaced tool/skill (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+            # a result served from a probe that ran seconds/minutes ago is
+            # still labelled with its real age, not presented as if it were
+            # just measured live.
+            probe_age = round(now - info.get("probed_at", now), 3)
+            is_stale = bool(info.get("stale"))
             for entry in info.get("tools", []):
                 tool = entry["name"]
                 # find_tools surfaces only loadable (enabled) tools, so the
@@ -2399,6 +2550,8 @@ class MCPMultiplexer:
                         "mounted": prefixed
                         in (loaded if loaded is not None else self._exposed),
                         "bind": capability.to_binding(),
+                        "age_s": probe_age,
+                        "stale": is_stale,
                     }
                 )
             for entry in info.get("skills", []) or []:
@@ -2431,6 +2584,8 @@ class MCPMultiplexer:
                         "mountable": server in catalog,
                         "mounted": False,
                         "bind": capability.to_binding(),
+                        "age_s": probe_age,
+                        "stale": is_stale,
                     }
                 )
 
@@ -2468,6 +2623,7 @@ class MCPMultiplexer:
                 "probed": True,
                 "available": info.get("error") is None,
                 "error": info.get("error"),
+                "age_s": round(time.time() - info.get("probed_at", time.time()), 3),
             }
             if include_tools:
                 result["tools"] = [
@@ -2481,8 +2637,22 @@ class MCPMultiplexer:
                 ]
             return result
 
-        probe = await self.probe_catalog() if include_tools else dict(self._probe_cache)
+        if include_tools:
+            from agent_utilities.core.config import config as agent_config
 
+            # A whole-fleet browse is a background sweep, not a targeted
+            # interactive lookup: bound it by the same interactive discovery
+            # budget as find_tools (a server that never answers must not hang
+            # this call indefinitely) and tag it BACKGROUND_INGESTION so it
+            # yields to interactive/orchestration work (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+            probe = await self.probe_catalog(
+                budget=agent_config.mcp_dynamic_discovery_timeout,
+                priority=PriorityClass.BACKGROUND_INGESTION,
+            )
+        else:
+            probe = dict(self._probe_cache)
+
+        now = time.time()
         servers: list[dict] = []
         for name in catalog:
             probed = name in probe
@@ -2508,6 +2678,11 @@ class MCPMultiplexer:
                 "probed": probed,
                 "available": info.get("error") is None if probed else None,
             }
+            if probed:
+                entry["pending"] = bool(info.get("pending"))
+                entry["stale"] = bool(info.get("stale"))
+                if "probed_at" in info:
+                    entry["age_s"] = round(now - info["probed_at"], 3)
             if info.get("error"):
                 entry["error"] = info["error"]
             if include_tools:
@@ -2643,6 +2818,18 @@ class MCPMultiplexer:
 
     async def aclose(self) -> None:
         """Shut down every child runtime and direct stack registration."""
+        # Background catalog probes (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) are
+        # deliberately left running past an interactive call's own budget so a
+        # later call can benefit from their result — but they must not outlive
+        # the multiplexer itself. Cancel them here; each already carries its
+        # own try/except around the connect, so cancellation is a clean abort,
+        # not a leaked subprocess/session.
+        inflight = tuple(self._probe_inflight.values())
+        for task in inflight:
+            task.cancel()
+        if inflight:
+            await asyncio.gather(*inflight, return_exceptions=True)
+        self._probe_inflight.clear()
         policies = tuple(self._child_runtime_policies.values())
         try:
             for runtime in self.children.values():
