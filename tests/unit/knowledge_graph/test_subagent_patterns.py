@@ -106,7 +106,7 @@ class TestDecisionPersistence:
         decision_nodes = [
             (nid, data)
             for nid, data in mock_engine.graph.nodes(data=True)
-            if data.get("type") == "subagent_pattern_decision"
+            if data.get("node_type") == "subagent_pattern_decision"
         ]
         assert len(decision_nodes) == 1
         assert decision_nodes[0][1]["pattern"] == SubagentPattern.INLINE_TOOL.value
