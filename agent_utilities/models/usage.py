@@ -6,6 +6,13 @@ class UsageStatistics(BaseModel):
     output_tokens: int = 0
     total_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    # CONCEPT:AU-OS.observability.usage-analytics-store (D-54c-1) — provider prompt-cache +
+    # reasoning token counts, accumulated the same way as input/output above. Without these,
+    # the cost plane (``usage/recorder.py``) and cache-savings telemetry cannot see prompt
+    # caching's effect at all, even where the provider reports it.
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    reasoning_tokens: int = 0
 
 
 class CostModel(BaseModel):

@@ -22,14 +22,23 @@ from agent_utilities.models.knowledge_graph import (
 
 
 class _FakeKG:
-    """Duck-typed KG facade: records add_node / link_nodes calls."""
+    """Duck-typed KG facade: records add_node / link_nodes calls.
+
+    Mirrors the REAL ``IntelligenceGraphEngine.add_node(node_id, node_type,
+    properties)`` contract (positional ``node_type`` + a single ``properties``
+    dict, no ``**kwargs``) — not a looser shape, so this fake catches the
+    exact signature mismatch that silently swallowed every KG-backed trace
+    write in production (D-5.1-5).
+    """
 
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}
         self.edges: list[tuple[str, str, str]] = []
 
-    def add_node(self, node_id: str, **props) -> None:
-        self.nodes[node_id] = props
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict | None = None
+    ) -> None:
+        self.nodes[node_id] = {"node_type": node_type, **(properties or {})}
 
     def link_nodes(self, src: str, dst: str, rel, **_kw) -> None:
         self.edges.append((src, dst, str(rel)))
@@ -56,9 +65,9 @@ def test_emit_persists_trace_subgraph_and_rolls_up_cost():
     be.emit_trace(trace, spans=[span], generations=[gen])
 
     # All three nodes persisted with their types.
-    assert kg.nodes["trace:1"]["type"] == "trace"
-    assert kg.nodes["span:1"]["type"] == "span"
-    assert kg.nodes["gen:1"]["type"] == "generation"
+    assert kg.nodes["trace:1"]["node_type"] == "trace"
+    assert kg.nodes["span:1"]["node_type"] == "span"
+    assert kg.nodes["gen:1"]["node_type"] == "generation"
     # Subgraph edges: trace HAS_SPAN span; span HAS_GENERATION gen.
     assert ("trace:1", "span:1", str(RegistryEdgeType.HAS_SPAN)) in kg.edges
     assert ("span:1", "gen:1", str(RegistryEdgeType.HAS_GENERATION)) in kg.edges
