@@ -103,7 +103,7 @@ class FinanceEngineMixin(_Base):
         )
         # Sample size travels with the priors: a Sharpe measured over 5 trades
         # must not carry the same weight as one measured over 5000.
-        props = {**node.model_dump(), "n_trades": n_trades}
+        props = {**node.to_graph_properties(), "n_trades": n_trades}
         self.graph.add_node(node.id, **props)
 
         if self.backend:

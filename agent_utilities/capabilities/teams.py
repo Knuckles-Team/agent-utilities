@@ -212,7 +212,7 @@ class TeamCapability(AbstractCapability[Any]):
                 engine.add_node(
                     node.id,
                     str(node.type),
-                    properties=node.model_dump(exclude={"id", "type"}),
+                    properties=node.to_graph_properties(exclude={"id"}),
                 )
                 for member in persisted_members:
                     # Link members to team

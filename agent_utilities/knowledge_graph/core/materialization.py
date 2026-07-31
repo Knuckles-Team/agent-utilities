@@ -26,6 +26,11 @@ import re
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -214,20 +219,15 @@ def write_entities(
     rels = relationships or []
     for index, row in enumerate(entities):
         if "type" in row:
-            raise ValueError(
-                f"entity[{index}] uses retired 'type'; canonical 'node_type' is required"
-            )
+            raise retired_node_type_property_error(context=f"entity[{index}]")
         if not row.get("id") or not row.get("node_type"):
             raise ValueError(f"entity[{index}] requires id and node_type")
         stamp_source(row, domain)
-    edge_aliases = {"type", "rel_type", "relationship_type", "relation"}
     for index, row in enumerate(rels):
-        aliases = edge_aliases.intersection(row)
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)
         if aliases:
-            names = ", ".join(sorted(aliases))
-            raise ValueError(
-                f"relationship[{index}] uses retired aliases ({names}); "
-                "canonical 'relationship' is required"
+            raise retired_edge_relationship_property_error(
+                aliases, context=f"relationship[{index}]"
             )
         if (
             not row.get("source")

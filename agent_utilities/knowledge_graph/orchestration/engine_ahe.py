@@ -175,7 +175,7 @@ class AHEMixin(_Base):
             self.graph.add_edge(
                 actor_id,
                 optimization_goal_id,
-                type="optimizesFor",
+                relationship="optimizesFor",
                 reward_score=reward,
                 timestamp=ts,
                 trace_id=trace_ref,

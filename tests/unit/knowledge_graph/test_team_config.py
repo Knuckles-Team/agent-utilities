@@ -92,7 +92,7 @@ class TestTeamConfigLookup:
             specialist_ids=["security_analyst"],
             success_rate=0.9,
         )
-        engine.graph.add_node(tc.id, **tc.model_dump())
+        engine.graph.add_node(tc.id, **tc.to_graph_properties())
 
         results = engine.find_matching_team_config("audit the repository")
         assert len(results) >= 1
@@ -112,7 +112,7 @@ class TestTeamConfigLookup:
                 task_pattern=f"deploy service number {i}",
                 success_rate=0.5 + i * 0.1,
             )
-            engine.graph.add_node(tc.id, **tc.model_dump())
+            engine.graph.add_node(tc.id, **tc.to_graph_properties())
 
         results = engine.find_matching_team_config("deploy service", top_k=2)
         assert len(results) <= 2
@@ -131,7 +131,7 @@ class TestPromoteCoalition:
             agents_spawned=3,
             task_description="Analyze repository",
         )
-        engine.graph.add_node(coalition.id, **coalition.model_dump())
+        engine.graph.add_node(coalition.id, **coalition.to_graph_properties())
 
         result = engine.promote_coalition_to_template(
             coalition_id=coalition.id,
@@ -149,7 +149,7 @@ class TestPromoteCoalition:
             name="Edge Test Coalition",
             agents_spawned=2,
         )
-        engine.graph.add_node(coalition.id, **coalition.model_dump())
+        engine.graph.add_node(coalition.id, **coalition.to_graph_properties())
 
         result = engine.promote_coalition_to_template(
             coalition_id=coalition.id,
@@ -173,7 +173,7 @@ class TestRecordTeamOutcome:
             task_pattern="test outcome",
             success_rate=0.5,
         )
-        engine.graph.add_node(tc.id, **tc.model_dump())
+        engine.graph.add_node(tc.id, **tc.to_graph_properties())
 
         engine.record_team_outcome("tc:outcome", reward=1.0)
 
@@ -189,7 +189,7 @@ class TestRecordTeamOutcome:
             task_pattern="test count",
             usage_count=5,
         )
-        engine.graph.add_node(tc.id, **tc.model_dump())
+        engine.graph.add_node(tc.id, **tc.to_graph_properties())
 
         engine.record_team_outcome("tc:count", reward=0.8)
 

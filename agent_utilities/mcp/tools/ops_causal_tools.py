@@ -167,7 +167,7 @@ def _materialize_root_cause_claims(
                 claim.id,
                 "Claim",
                 properties={
-                    **claim.model_dump(mode="json", exclude={"type"}),
+                    **claim.to_graph_properties(),
                     "status": "proposal",
                     "evidence_bundle_json": bundle.model_dump_json(),
                 },
@@ -431,7 +431,7 @@ def _propose_ops_causal_claim(
             claim.id,
             "Claim",
             properties={
-                **claim.model_dump(mode="json", exclude={"type"}),
+                **claim.to_graph_properties(),
                 "status": "proposal",
             },
         )

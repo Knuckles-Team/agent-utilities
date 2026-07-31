@@ -446,7 +446,7 @@ class RuleIngestor:
             except Exception as e:  # noqa: BLE001 — this module (despite living under knowledge_graph/security/) ingests engineering-convention rule books, not authz/ACL rules; the RuleBookNode is still created and persisted unconditionally right below regardless of embedding success, only its semantic-similarity retrievability is reduced (it remains reachable by direct id/graph traversal)
                 logger.debug("Failed to embed book %s: %s", book_id, e)
 
-        self.engine.graph.add_node(node.id, **node.model_dump())
+        self.engine.graph.add_node(node.id, **node.to_graph_properties())
         if self.engine.backend:
             data = self.engine._serialize_node(node, label="RuleBook")
             self.engine._upsert_node("RuleBook", book_id, data)
@@ -574,7 +574,7 @@ class RuleIngestor:
                 logger.debug("Failed to embed rule %s: %s", rule_id, e)
 
         # Persist
-        self.engine.graph.add_node(node.id, **node.model_dump())
+        self.engine.graph.add_node(node.id, **node.to_graph_properties())
         if self.engine.backend:
             data = self.engine._serialize_node(node, label="EngineeringRule")
             self.engine._upsert_node("EngineeringRule", rule_id, data)

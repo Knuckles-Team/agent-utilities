@@ -204,7 +204,7 @@ class TestBacktestKGNodes:
         )
 
         for n in [strat, bt, m1, m2]:
-            g.add_node(n.id, **n.model_dump())
+            g.add_node(n.id, **n.to_graph_properties())
 
         g.add_edge(bt.id, strat.id, relationship=RegistryEdgeType.EVALUATED_STRATEGY)
         g.add_edge(bt.id, m1.id, relationship=RegistryEdgeType.HAS_METRIC)
@@ -215,6 +215,6 @@ class TestBacktestKGNodes:
         metric_ids = [
             t
             for _, t, d in g.out_edges(bt.id, data=True)
-            if d.get("type") == RegistryEdgeType.HAS_METRIC
+            if d.get("relationship") == RegistryEdgeType.HAS_METRIC
         ]
         assert len(metric_ids) == 2

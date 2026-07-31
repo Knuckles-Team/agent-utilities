@@ -203,7 +203,7 @@ class TestTradingPipelineIntegration:
 
         # Add nodes
         for n in [strat, signal, order, pos, port]:
-            g.add_node(n.id, **n.model_dump())
+            g.add_node(n.id, **n.to_graph_properties())
 
         # Add pipeline edges
         g.add_edge(strat.id, signal.id, relationship=RegistryEdgeType.GENERATED_SIGNAL)
@@ -231,8 +231,8 @@ class TestTradingPipelineIntegration:
         g = GraphComputeEngine(backend_type="rust")
         strat = StrategyNode(id="strat:v1", name="V1")
         bt = BacktestRunNode(id="bt:001", name="Backtest V1", strategy_id="strat:v1")
-        g.add_node(strat.id, **strat.model_dump())
-        g.add_node(bt.id, **bt.model_dump())
+        g.add_node(strat.id, **strat.to_graph_properties())
+        g.add_node(bt.id, **bt.to_graph_properties())
         g.add_edge(strat.id, bt.id, relationship=RegistryEdgeType.BACKTESTED_WITH)
 
         assert g.has_edge(strat.id, bt.id)

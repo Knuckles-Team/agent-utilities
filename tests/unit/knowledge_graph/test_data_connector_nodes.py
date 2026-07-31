@@ -58,10 +58,14 @@ class TestDataConnectorKGNodes:
         g = GraphComputeEngine(backend_type="rust")
         for name, priority in [("yahoo", 0), ("polygon", 1), ("alpha", 2)]:
             node = DataConnectorNode(id=f"dc:{name}", name=name, priority=priority)
-            g.add_node(node.id, **node.model_dump())
+            g.add_node(node.id, **node.to_graph_properties())
 
-        g.add_edge("dc:yahoo", "dc:polygon", relationship=RegistryEdgeType.FALLS_BACK_TO)
-        g.add_edge("dc:polygon", "dc:alpha", relationship=RegistryEdgeType.FALLS_BACK_TO)
+        g.add_edge(
+            "dc:yahoo", "dc:polygon", relationship=RegistryEdgeType.FALLS_BACK_TO
+        )
+        g.add_edge(
+            "dc:polygon", "dc:alpha", relationship=RegistryEdgeType.FALLS_BACK_TO
+        )
 
         # Verify transitive fallback chain
         path = g.get_shortest_path("dc:yahoo", "dc:alpha")

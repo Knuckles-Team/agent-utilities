@@ -79,12 +79,12 @@ def test_voi_budget_controller():
 def test_cognitive_trap_defense(mock_engine):
     defense = CognitiveTrapDefense(mock_engine)
     # Inject a sybil cluster trap into the graph
-    mock_engine.graph.add_edge("C", "F1", type="VALIDATES")
-    mock_engine.graph.add_edge("C", "F2", type="VALIDATES")
-    mock_engine.graph.add_edge("C", "F3", type="VALIDATES")
-    mock_engine.graph.add_edge("F1", "F2", type="AGREES_WITH")
-    mock_engine.graph.add_edge("F2", "F3", type="AGREES_WITH")
-    mock_engine.graph.add_edge("F3", "F1", type="AGREES_WITH")
+    mock_engine.graph.add_edge("C", "F1", relationship="VALIDATES")
+    mock_engine.graph.add_edge("C", "F2", relationship="VALIDATES")
+    mock_engine.graph.add_edge("C", "F3", relationship="VALIDATES")
+    mock_engine.graph.add_edge("F1", "F2", relationship="AGREES_WITH")
+    mock_engine.graph.add_edge("F2", "F3", relationship="AGREES_WITH")
+    mock_engine.graph.add_edge("F3", "F1", relationship="AGREES_WITH")
 
     traps = defense.scan_for_traps()
     assert len(traps) > 0
@@ -111,7 +111,7 @@ def test_experience_alignment(mock_engine):
     alignment = ExperienceAlignmentEngine(mock_engine)
     alignment.ingest_experience(exp)
     mock_engine.add_node.assert_called_once_with(
-        node_id=exp.id, node_type="Experience", properties=exp.model_dump()
+        node_id=exp.id, node_type="Experience", properties=exp.to_graph_properties()
     )
 
     # Test retrieval

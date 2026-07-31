@@ -123,7 +123,7 @@ class TestRiskPropagationGraph:
         )
 
         for n in [ra_a, ra_b, rf, rm]:
-            g.add_node(n.id, **n.model_dump())
+            g.add_node(n.id, **n.to_graph_properties())
 
         # Build risk chain
         g.add_edge(ra_a.id, rf.id, relationship=RegistryEdgeType.HAS_RISK_FACTOR)
@@ -164,9 +164,9 @@ class TestRiskPropagationGraph:
             ),
         ]
 
-        g.add_node(ra.id, **ra.model_dump())
+        g.add_node(ra.id, **ra.to_graph_properties())
         for f in factors:
-            g.add_node(f.id, **f.model_dump())
+            g.add_node(f.id, **f.to_graph_properties())
             g.add_edge(ra.id, f.id, relationship=RegistryEdgeType.HAS_RISK_FACTOR)
 
         # Verify all factors linked

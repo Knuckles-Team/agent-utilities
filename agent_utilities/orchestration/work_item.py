@@ -414,7 +414,9 @@ def _delegation_still_live(*, now: float | None = None) -> bool:
     return True
 
 
-def _consent_still_live(item: dict[str, Any] | None, *, now: float | None = None) -> bool:
+def _consent_still_live(
+    item: dict[str, Any] | None, *, now: float | None = None
+) -> bool:
     """False when a WorkItem's consent gate denies a claim/lease-renewal.
 
     CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — mirrors
@@ -793,7 +795,7 @@ def submit_work_item(
         consent_expires_at=consent_expires_at,
     )
     _authority(engine).add_node(
-        item_id, _NODE_LABEL, properties=node.model_dump(exclude={"id", "type"})
+        item_id, _NODE_LABEL, properties=node.to_graph_properties(exclude={"id"})
     )
 
     edge_type = _task_depends_on_edge_type()

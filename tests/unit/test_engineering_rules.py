@@ -380,10 +380,10 @@ class MockEngine:
         self.hybrid_retriever = MockHybridRetriever()
 
     def link_nodes(self, src, tgt, edge_type, metadata=None):
-        self.graph.add_edge(src, tgt, type=edge_type, **(metadata or {}))
+        self.graph.add_edge(src, tgt, relationship=edge_type, **(metadata or {}))
 
     def _serialize_node(self, node, label=None):
-        return node.model_dump()
+        return node.to_graph_properties()
 
     def _upsert_node(self, label, node_id, data):
         return None
@@ -410,7 +410,7 @@ class TestRuleIngestor:
             author="Robert C. Martin",
             domain_tags=["architecture"],
         )
-        engine.graph.add_node(book_node.id, **book_node.model_dump())
+        engine.graph.add_node(book_node.id, **book_node.to_graph_properties())
 
         count = ingestor._ingest_rules_from_parsed(
             parsed,
@@ -427,7 +427,7 @@ class TestRuleIngestor:
         rule_nodes = [
             n
             for n, d in engine.graph.nodes(data=True)
-            if d.get("type") == "engineering_rule"
+            if d.get("node_type") == "engineering_rule"
         ]
         assert len(rule_nodes) == 8
 
@@ -435,7 +435,7 @@ class TestRuleIngestor:
         derived_edges = [
             (u, v)
             for u, v, d in engine.graph.edges(data=True)
-            if d.get("type") == RegistryEdgeType.WAS_DERIVED_FROM
+            if d.get("relationship") == RegistryEdgeType.WAS_DERIVED_FROM
         ]
         assert len(derived_edges) == 8
 
@@ -447,7 +447,7 @@ class TestRuleIngestor:
             name="Clean Architecture",
             book_id="clean-architecture",
         )
-        engine.graph.add_node(book_node.id, **book_node.model_dump())
+        engine.graph.add_node(book_node.id, **book_node.to_graph_properties())
 
         ingestor._ingest_rules_from_parsed(
             parsed,
@@ -473,7 +473,7 @@ class TestRuleIngestor:
             name="Clean Architecture",
             book_id="clean-architecture",
         )
-        engine.graph.add_node(book_node.id, **book_node.model_dump())
+        engine.graph.add_node(book_node.id, **book_node.to_graph_properties())
 
         ingestor._ingest_rules_from_parsed(
             parsed,
@@ -511,8 +511,8 @@ class TestRuleIngestor:
             task_relevance_tags=["code-quality"],
         )
 
-        engine.graph.add_node(node_a.id, **node_a.model_dump())
-        engine.graph.add_node(node_b.id, **node_b.model_dump())
+        engine.graph.add_node(node_a.id, **node_a.to_graph_properties())
+        engine.graph.add_node(node_b.id, **node_b.to_graph_properties())
 
         # Wire conflict edge
         engine.link_nodes(

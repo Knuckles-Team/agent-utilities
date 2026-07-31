@@ -52,7 +52,7 @@ class TestVariantRegistration:
             version="1.0",
             source="MANUAL",
         )
-        engine.graph.add_node(base.id, **base.model_dump())
+        engine.graph.add_node(base.id, **base.to_graph_properties())
 
         variant = SystemPromptNode(
             id="prompt:var1",
@@ -175,7 +175,9 @@ class TestSelection:
         for i in range(5):
             vid = f"var:{i}"
             engine.graph.add_node(vid, name=f"Variant {i}", metadata={})
-            engine.graph.add_edge(vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF)
+            engine.graph.add_edge(
+                vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF
+            )
 
         # Tournament select should return at most top_k
         winners = pool.tournament_select("base:1", top_k=3)
@@ -189,7 +191,9 @@ class TestSelection:
         for i in range(5):
             vid = f"var:{i}"
             engine.graph.add_node(vid, name=f"Variant {i}", metadata={})
-            engine.graph.add_edge(vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF)
+            engine.graph.add_edge(
+                vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF
+            )
 
         pruned = pool.prune_losers("base:1", keep=3)
         assert pruned >= 0  # May be 0 if all have same fitness
