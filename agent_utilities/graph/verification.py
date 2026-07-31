@@ -415,7 +415,14 @@ async def verifier_step(
                             adversarial_result.severity,
                         )
             except Exception as e:
-                logger.debug(f"Adversarial verification skipped: {e}")
+                # D-DST-5 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): adversarial
+                # verification is a security-adjacent "hacker agent" stress-test (AU-AHE.evaluation.
+                # adversarial-verification), not best-effort telemetry — a runtime failure here
+                # silently lets the step proceed to synthesis WITHOUT the adversarial pass ever
+                # having actually run, indistinguishable in the logs from "ran clean". Raised to
+                # warning so a persistently-erroring adversarial check is diagnosable rather than
+                # silently degrading to "quality gate only" coverage.
+                logger.warning(f"Adversarial verification failed to run (step NOT adversarially checked): {e}")
 
         except Exception as e:
             logger.warning(

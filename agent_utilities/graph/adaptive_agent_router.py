@@ -697,7 +697,7 @@ class TopologicalRoutingPolicy(RoutingPolicy):
                     self._centrality_cache = {nid: score for nid, score in pr}
                 except Exception:
                     self._centrality_cache = {}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — self._centrality_cache is a routing-priority optimization; a failed rebuild just leaves it at its prior value (or {} on the pagerank-only sub-failure two lines above), degrading routing scoring quality rather than breaking routing itself
             logger.debug("Centrality computation failed: %s", e)
 
     def _get_historical_success(self, candidate: RoutingCandidate) -> float | None:

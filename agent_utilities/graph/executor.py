@@ -1001,7 +1001,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 logger.info(
                     f"[GWT] Specialist '{agent_name}' attention score: {attention_score:.2f}"
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — attention_score is a best-effort priority signal (stays None on failure); the specialist dispatch below does not gate on it
             logger.debug(f"WorkspaceAttention scoring failed for '{agent_name}': {e}")
 
     agent = create_context_agent(
@@ -1258,7 +1258,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 # Cache message history for potential re-dispatch
                 try:
                     ctx.deps.message_history_cache[cache_key] = res.all_messages()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — message_history_cache is a best-effort re-dispatch optimization; a failed write just means a future re-dispatch re-fetches/regenerates history instead of reusing a cached copy, it does not lose the run's actual result (already handled above)
                     logger.debug(f"Failed to update cache for '{cache_key}': {e}")
                     pass
 
@@ -1943,7 +1943,7 @@ async def _execute_specialized_step(
             if asyncio.iscoroutine(history):
                 history = await history
             ctx.deps.message_history_cache[prompt_name] = history
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — same best-effort re-dispatch cache as the expert-dispatch path above; result_str is already stored in ctx.state.results_registry unconditionally above this block, so the step's actual output is unaffected
             logger.debug(f"Unable to cache: {e}")
 
         # HSM: Exit action (success)

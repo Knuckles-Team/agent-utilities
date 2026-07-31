@@ -6246,7 +6246,7 @@ def get_relevant_specialists(
 
         if relevant:
             return relevant[:top_n]
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — explicit fallback returned right below (all_agents[:top_n]); a search failure degrades relevance ranking, it does not lose any agent from consideration
         logger.debug(f"Hybrid search for adaptive_agent_router failed: {e}")
 
     # Fallback: return all agents (capped)
