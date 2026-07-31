@@ -308,15 +308,25 @@ class TestKBDocumentParser:
         assert h1 == h2
         assert h1 != h3
 
-    @patch("httpx.get")
-    def test_parse_url(self, mock_get):
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.text = "<html><body><p>Hello from the web</p></body></html>"
-        mock_get.return_value = mock_resp
+    def test_parse_url(self):
+        # `KBDocumentParser.parse_url` fetches through the SSRF-safe
+        # `safe_get_text` wrapper (protocols/source_connectors/http_safety.py),
+        # imported locally at call time — not a raw `httpx.get` — so mocking
+        # the raw client never intercepted the call and the request always
+        # fell into `parse_url`'s `except Exception`, silently returning None.
+        # Mirrors the established pattern in
+        # tests/test_skill_graph_pipeline.py (`monkeypatch.setattr(http_safety,
+        # "safe_get_text", ...)`), which patches the module attribute the
+        # local import resolves at call time.
+        from agent_utilities.protocols.source_connectors import http_safety
 
-        parser = KBDocumentParser()
-        source = parser.parse_url("https://example.com/article", "web")
+        with patch.object(
+            http_safety,
+            "safe_get_text",
+            return_value="<html><body><p>Hello from the web</p></body></html>",
+        ):
+            parser = KBDocumentParser()
+            source = parser.parse_url("https://example.com/article", "web")
         assert source is not None
         assert source.source_type == "url"
         assert len(source.chunks) >= 1
@@ -398,7 +408,7 @@ class TestKBIngestionEngine:
 
         assert kb_id in kb_engine.graph.nodes
         kb_data = kb_engine.graph.nodes[kb_id]
-        assert kb_data.get("type") == RegistryNodeType.KNOWLEDGE_BASE
+        assert kb_data.get("node_type") == RegistryNodeType.KNOWLEDGE_BASE
         assert kb_data.get("status") == "ready"
 
     @pytest.mark.asyncio
@@ -409,7 +419,7 @@ class TestKBIngestionEngine:
         articles = [
             n
             for n in kb_engine.graph.predecessors(kb_id)
-            if kb_engine.graph.nodes[n].get("type") == RegistryNodeType.ARTICLE
+            if kb_engine.graph.nodes[n].get("node_type") == RegistryNodeType.ARTICLE
         ]
         assert len(articles) >= 1
 
@@ -429,7 +439,7 @@ class TestKBIngestionEngine:
             else [
                 n
                 for n in kb_engine.graph.predecessors(kb_id)
-                if kb_engine.graph.nodes[n].get("type") == RegistryNodeType.RAW_SOURCE
+                if kb_engine.graph.nodes[n].get("node_type") == RegistryNodeType.RAW_SOURCE
             ]
         )
         assert len(raw_sources) >= 1
@@ -442,7 +452,7 @@ class TestKBIngestionEngine:
 
         assert index_id in kb_engine.graph.nodes
         idx_data = kb_engine.graph.nodes[index_id]
-        assert idx_data.get("type") == RegistryNodeType.KB_INDEX
+        assert idx_data.get("node_type") == RegistryNodeType.KB_INDEX
 
     @pytest.mark.asyncio
     async def test_deduplication_same_hash(self, kb_engine, sample_skill_graph):
@@ -511,7 +521,7 @@ class TestKBIngestionEngine:
 
         # Set low importance on articles to trigger compression
         for n in kb_engine.graph.predecessors(kb_id):
-            if kb_engine.graph.nodes[n].get("type") == RegistryNodeType.ARTICLE:
+            if kb_engine.graph.nodes[n].get("node_type") == RegistryNodeType.ARTICLE:
                 kb_engine.graph.nodes[n]["importance_score"] = 0.1
                 kb_engine.graph.nodes[n]["content"] = "Some full content"
 
