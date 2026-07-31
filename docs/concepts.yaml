@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1122
+total_concepts: 1125
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -8936,6 +8936,13 @@ concepts:
   code_paths:
   - agent_utilities/cli/__init__.py
   doc: validate and project a canonical OKF-CIS id
+- id: AU-OS.governance.cross-branch-duplicate-symbol
+  name: AU-OS.governance.cross-branch-duplicate-symbol
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/merge_queue.py
+  doc: AU-OS.governance.cross-branch-duplicate-symbol
 - id: AU-OS.governance.fail-closed-claim-check
   name: AU-OS.governance.fail-closed-claim-check
   pillar: AU-OS
@@ -8980,6 +8987,20 @@ concepts:
   code_paths:
   - agent_utilities/ecosystem/lint_enforcement_hook.py
   doc: Deterministic Lint Enforcement Hook
+- id: AU-OS.governance.merge-deploy-decoupling
+  name: see
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/merge_queue.py
+  doc: see
+- id: AU-OS.governance.merged-tree-verification
+  name: the whole merge is computed as
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/merge_queue.py
+  doc: the whole merge is computed as
 - id: AU-OS.governance.okf-cis-standard
   name: matches both the legacy numeric id
   pillar: AU-OS
@@ -9015,6 +9036,14 @@ concepts:
   code_paths:
   - agent_utilities/graph/reactive/budget.py
   doc: Reactive Multi-Axis Budget Guardrails
+- id: AU-OS.governance.serialized-merge-queue
+  name: continuous merge into main
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/cli/__init__.py
+  - agent_utilities/governance/merge_queue.py
+  doc: continuous merge into main
 - id: AU-OS.governance.shared-scope-lease
   name: AU-OS.governance.shared-scope-lease
   pillar: AU-OS
@@ -9022,6 +9051,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/lanes.py
   doc: AU-OS.governance.shared-scope-lease
+- id: AU-OS.governance.tiered-merge-gate
+  name: AU-OS.governance.tiered-merge-gate
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/merge_queue.py
+  doc: AU-OS.governance.tiered-merge-gate
 - id: AU-OS.governance.wasm-micro-agent-sandbox
   name: WASM Micro-Agent Sandbox & Runner
   pillar: AU-OS
