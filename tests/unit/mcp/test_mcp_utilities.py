@@ -41,12 +41,22 @@ def test_create_mcp_server_basic(mock_fastmcp):
 
         assert args == mock_args
         # ``create_mcp_server`` now always stamps the package version onto
-        # the FastMCP instance (``version: str = __version__`` default).
+        # the FastMCP instance (``version: str = __version__`` default), wires
+        # the fleet self-registration ``lifespan`` (CONCEPT:EG-KG.sharding.server-registry),
+        # and pins ``tasks=False`` (FastMCP 3.4.5 implements the superseded
+        # 2025-11-25 task protocol, not the 2026-07-28 tasks extension — see
+        # ``mcp/server_factory.py``'s ``create_mcp_server``). ``lifespan`` is a
+        # fresh closure per call, so it's asserted for shape, not identity.
         from agent_utilities._version import __version__
 
-        mock_fastmcp.assert_called_once_with(
-            "TestServer", version=__version__, auth=None, instructions=""
-        )
+        mock_fastmcp.assert_called_once()
+        call_args, call_kwargs = mock_fastmcp.call_args
+        assert call_args == ("TestServer",)
+        assert call_kwargs["version"] == __version__
+        assert call_kwargs["auth"] is None
+        assert call_kwargs["instructions"] == ""
+        assert call_kwargs["tasks"] is False
+        assert callable(call_kwargs["lifespan"])
         assert len(middlewares) >= 2  # Default middlewares
 
 
