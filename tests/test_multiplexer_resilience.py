@@ -401,7 +401,9 @@ class SessionTerminatedSession:
     (what a redeployed backend does): MCPError(code=32600)."""
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        raise MCPError(mcp.types.ErrorData(code=32600, message="Session terminated"))
+        # SDK v2 constructor takes (code, message, data) directly — it builds
+        # its own `.error` ErrorData; it no longer accepts a pre-built one.
+        raise MCPError(code=32600, message="Session terminated")
 
 
 async def test_terminated_session_auto_reconnects_and_retries(monkeypatch):
