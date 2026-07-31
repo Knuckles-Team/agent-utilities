@@ -793,24 +793,37 @@ class DocumentProcessor:
         return "", label, "document", label
 
     def _read_file(self, path: Path) -> str:
-        """Extract text from a file, reusing the KB parser, then enrichment reader.
+        """Extract text from a file, reusing the KB parser's format readers.
 
-        ``KBDocumentParser`` handles md/txt/html/pdf/docx/epub (pypdf/pdfminer for
-        PDF via its ``_read_pdf``); the enrichment ``read_document_text`` is a
-        second, lighter reader. Either returning empty text leads to the explicit
-        :class:`DocumentExtractionError` in :meth:`process`.
+        CONCEPT:AU-KG.ingest.verbatim-extraction-before-fragmenting (D-ES-1 fix).
+        Calls ``KBDocumentParser._read_file`` directly instead of its
+        ``parse_file()``: ``parse_file`` additionally runs the extracted text
+        through ``_chunk_text`` — a WORD-COUNT splitter (``text.split()`` then
+        ``" ".join(...)``) meant for KBDocumentParser's own retrieval use, which
+        collapses every whitespace boundary (blank lines between paragraphs,
+        heading/list/table line breaks) before this method ever sees the text.
+        Both this processor's OWN chunker (``chunk_text``) and the evidence-spine
+        fragmenter (``fragment_markdown``) then ran on that already-flattened
+        text, so a markdown file's headings/paragraphs/tables were invisible to
+        BOTH — fragments degraded to whole-document granularity, defeating the
+        structural addressing evidence_spine exists for. Reading the format
+        reader's OUTPUT (still md/txt/html verbatim, or genuinely-extracted
+        pdf/docx/epub text — those formats have no "verbatim" original to
+        preserve) instead of its post-processed chunks fixes this with strictly
+        MORE information, never less: nothing upstream of ``_chunk_text`` is
+        skipped, only the mangling step is.
         """
-        from ..enrichment.extractors.document import read_document_text
-        from ..kb.parser import KBDocumentParser
+        from ..kb.parser import SUPPORTED_EXTENSIONS, KBDocumentParser
 
+        source_type = SUPPORTED_EXTENSIONS.get(path.suffix.lower(), "txt")
         try:
-            parsed = KBDocumentParser(chunk_size=10_000).parse_file(path)
-            if parsed and parsed.chunks:
-                joined = "\n".join(c.content for c in parsed.chunks).strip()
-                if joined:
-                    return joined
+            extracted = KBDocumentParser()._read_file(path, source_type)  # noqa: SLF001 — the verbatim-per-format reader; parse_file()'s own post-chunking is what this bypasses
+            if extracted and extracted.strip():
+                return extracted
         except Exception as exc:  # noqa: BLE001 — fall through to lighter reader
-            logger.debug("KBDocumentParser failed (%s)", type(exc).__name__)
+            logger.debug("KBDocumentParser._read_file failed (%s)", type(exc).__name__)
+
+        from ..enrichment.extractors.document import read_document_text
 
         try:
             return read_document_text(str(path))

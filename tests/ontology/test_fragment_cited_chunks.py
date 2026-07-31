@@ -23,6 +23,16 @@ from agent_utilities.knowledge_graph.ontology.document_processing import (
     _fragment_ids_for_span,
 )
 
+_FILE_DOC_TEXT = (
+    "# Title Heading\n\n"
+    "Paragraph one has some words in it for testing purposes here and more words.\n\n"
+    "## Sub Heading\n\n"
+    "Paragraph two continues with more words to fill out the chunk nicely here.\n\n"
+    "| Col A | Col B |\n"
+    "|-------|-------|\n"
+    "| 1 | 2 |\n"
+)
+
 # A short markdown document with multiple structural units (heading +
 # several paragraphs) so fragment_markdown produces more than one Fragment,
 # and chunk_size is small enough to force multiple chunks.
@@ -145,3 +155,56 @@ def test_chunk_embedding_version_empty_when_unresolvable():
     for chunk_node in result.chunk_nodes:
         assert "embedding" in chunk_node
         assert chunk_node.get("embedding_version") in (None, "")
+
+
+# --- D-ES-1 regression: file-sourced markdown must NOT be structure-flattened
+# before fragmenting --------------------------------------------------------
+
+
+def test_file_sourced_markdown_preserves_structure_for_fragmenting(tmp_path):
+    """Regression for D-ES-1 (found during the evidence-spine lane's own work):
+    ``DocumentProcessor._read_file`` used to route a real file through
+    ``KBDocumentParser.parse_file()``, which additionally ran the extracted
+    text through ``_chunk_text`` — a word-count splitter (``text.split()``
+    then ``" ".join(...)``) that collapses EVERY whitespace boundary (blank
+    lines between paragraphs, heading/list/table line breaks) before
+    ``DocumentProcessor`` ever saw the text. Both this processor's own
+    chunker AND the evidence-spine fragmenter then ran on that already-
+    flattened text, so a real markdown FILE's headings/paragraphs/table
+    degraded to a single fragment for the whole document — citations still
+    "resolved", but at garbage granularity, defeating the structural
+    addressing evidence_spine exists for.
+
+    The fix reads the KB parser's per-format reader directly (still verbatim
+    for md/txt/html — genuinely-extracted text for pdf/docx/epub, which have
+    no "verbatim" original to preserve) instead of its post-chunked output.
+    """
+    doc_path = tmp_path / "doc.md"
+    doc_path.write_text(_FILE_DOC_TEXT, encoding="utf-8")
+
+    proc = DocumentProcessor(
+        graph=None,
+        embed_fn=_fake_embed,
+        chunking=ChunkingConfig(chunk_size=80, overlap=10),
+    )
+    result = proc.process(str(doc_path), persist=False)
+
+    kinds = {f.kind for f in result.fragments}
+    # A structure-flattened extraction would yield ONE fragment (kind
+    # "paragraph" or "document"), with no distinguishable heading/table units.
+    assert "heading" in kinds, (
+        f"headings were not preserved through file extraction — got kinds {kinds}"
+    )
+    assert "table" in kinds or "table_row" in kinds, (
+        f"the markdown table was not preserved through file extraction — got kinds {kinds}"
+    )
+    assert len(result.fragments) > 2, (
+        "file-sourced markdown degraded to whole-document granularity "
+        f"({len(result.fragments)} fragment(s))"
+    )
+    # And every chunk still cites real fragments post-fix.
+    real_ids = {f.fragment_id for f in result.fragments}
+    for chunk_node in result.chunk_nodes:
+        assert chunk_node["fragment_ids"]
+        for fid in chunk_node["fragment_ids"]:
+            assert fid in real_ids
