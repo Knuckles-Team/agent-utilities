@@ -2,18 +2,21 @@
 
 monty (Pydantic's pure-Rust Python-subset interpreter) is the keystone of the tiering: it is
 the only *isolating* backend that can still serve the RLM host helpers, because async external
-functions suspend the VM and let the host fulfil ``await rlm_query(...)``. It starts in ~0.06ms
-(vs Docker's 100-500ms), needs no daemon or root, and enforces memory/time/recursion limits.
+functions suspend the VM and let the host fulfil ``await rlm_query(...)``. It needs no daemon or
+root and enforces memory/time/recursion limits.
 
-A fresh ``Monty`` is created per call, so a snippet's plain locals do not persist across turns;
-only seeded inputs and values written through ``FINAL_VAR`` cross the boundary. Fresh-per-call
-is also faster than a reused ``MontyRepl`` for the small snippets RLM emits (the REPL offloads
-each resume to a thread).
+``pydantic_monty``'s ``AsyncMonty`` is a worker-*pool* context manager (it owns one or more
+``monty`` subprocess workers), not a per-snippet compiled program — ``AsyncMonty().checkout()``
+hands out a ``MontySession`` bound to one worker, and ``session.feed_run(code, ...)`` executes a
+snippet in it. A fresh pool + session is opened per call here (rather than kept warm across
+calls), so a snippet's plain locals do not persist across turns; only seeded inputs and values
+written through ``FINAL_VAR`` cross the boundary.
 
 Rejection safety: monty rejects unsupported features (``class``, ``@dataclass``, unsupported
-syntax) at *construction* time — before any host helper fires — so escalating to Docker has no
-side effects. A runtime error that surfaces *after* a helper has fired is reported as an
-in-sandbox error (not escalated), to avoid re-invoking side-effecting helpers on the next tier.
+syntax) while *parsing* a fed snippet, which always happens before that snippet's own host
+helpers can fire — so escalating to Docker has no side effects. A runtime error that surfaces
+*after* a helper has fired is reported as an in-sandbox error (not escalated), to avoid
+re-invoking side-effecting helpers on the next tier.
 """
 
 from __future__ import annotations
@@ -72,8 +75,8 @@ class MontySandbox(Sandbox):
 
     async def execute(self, code: str, env: SandboxEnv) -> SandboxResult:
         from pydantic_monty import (
+            AsyncMonty,
             CollectString,
-            Monty,
             MontyError,
             MontySyntaxError,
             ResourceLimits,
@@ -83,25 +86,28 @@ class MontySandbox(Sandbox):
         inputs = {k: v for k, v in env.vars.items() if isinstance(v, _MONTYABLE)}
         full_code = self._with_tool_sources(code, env.tool_sources)
 
-        # 1) Parse/compile — rejections here fire BEFORE any helper, so escalation is safe.
-        try:
-            m = Monty(full_code, inputs=list(inputs))
-        except MontyError as e:
-            raise SandboxRejected("monty", self._reject_reason(e)) from e
-
-        # 2) Run, tracking whether a (side-effecting) helper fired, so a late runtime error
-        #    is reported rather than escalated.
+        # Track whether a (side-effecting) helper fired, so a late runtime error is reported
+        # rather than escalated. Parsing (and any resulting MontySyntaxError) always happens
+        # before this snippet's own helpers can run, so a syntax rejection is always safe to
+        # escalate regardless of what fired on a *previous* call.
         fired = _FireCounter()
         wrapped_helpers = {n: fired.wrap(fn) for n, fn in env.helpers.items()}
         collected = CollectString()
+
+        # Fresh pool + session per call (see module docstring): matches the previous
+        # fresh-per-snippet ``Monty()`` semantics under the current worker-pool API.
         try:
-            await m.run_async(
-                inputs=inputs,
-                external_functions=wrapped_helpers,
-                limits=ResourceLimits(max_duration_secs=self._max_duration_secs),
-                print_callback=collected,
-            )
-        except MontySyntaxError as e:  # pragma: no cover - construction already parsed
+            async with AsyncMonty() as pool:
+                async with pool.checkout(
+                    limits=ResourceLimits(max_duration_secs=self._max_duration_secs)
+                ) as session:
+                    await session.feed_run(
+                        full_code,
+                        inputs=inputs,
+                        external_lookup=wrapped_helpers,
+                        print_callback=collected,
+                    )
+        except MontySyntaxError as e:
             raise SandboxRejected("monty", self._reject_reason(e)) from e
         except MontyError as e:
             return self._handle_runtime_error(e, fired, collected.output)
