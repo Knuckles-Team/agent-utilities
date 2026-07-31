@@ -72,6 +72,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "failure_ingest",
             "optimize_component",
             "publish_proposal",
+            "evidence_lineage",
         },
         "graph_governance": {
             "grant_approval",
@@ -94,7 +95,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    assert sum(map(len, expected_actions.values())) == 34
+    assert sum(map(len, expected_actions.values())) == 35
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 
@@ -378,3 +379,33 @@ def test_budget_domain_action_uses_composed_engine_capability(monkeypatch) -> No
     assert result["business_unit_id"] == "business-unit:test"
     assert result["amount"] == 2500.0
     assert result["budget_id"] in engine.graph.nodes
+
+
+def test_graph_evolution_evidence_lineage_action_reaches_the_shared_core(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """(D-71-4) ``evidence_lineage`` was import-only; this proves the MCP action
+    dispatches into the SAME ``evidence.evidence_lineage()`` core."""
+    from agent_utilities.knowledge_graph.research import evidence as evidence_module
+
+    calls: list[tuple[Any, str]] = []
+
+    def _fake_lineage(engine: Any, evidence_id: str) -> dict[str, Any]:
+        calls.append((engine, evidence_id))
+        return {"evidence_id": evidence_id, "found": True, "chain": [{"stage": "evidence"}]}
+
+    engine = object()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(evidence_module, "evidence_lineage", _fake_lineage)
+
+    tool = _register_all().tools["graph_evolution"]
+    payload = json.loads(
+        tool(action="evidence_lineage", target="evolution_evidence:abc")
+    )
+
+    assert calls == [(engine, "evolution_evidence:abc")]
+    assert payload == {
+        "evidence_id": "evolution_evidence:abc",
+        "found": True,
+        "chain": [{"stage": "evidence"}],
+    }

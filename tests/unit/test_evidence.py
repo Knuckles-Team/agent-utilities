@@ -50,10 +50,15 @@ class _RecordingEngine:
             return self._rows.get("graph_health", [])
         if "EvolutionEvidence" in query and "Claim" not in query:
             return self._rows.get("evidence_lookup", [])
-        if "Claim" in query and "DERIVED_FROM" in query:
-            return self._rows.get("claims", [])
+        # Checked BEFORE the plain "Claim"+"DERIVED_FROM" claims-query match below:
+        # "DERIVED_FROM_RESEARCH" also contains the substring "DERIVED_FROM", so the
+        # more specific proposals-query markers must win first.
         if "DERIVED_FROM_RESEARCH" in query or "SATISFIED_BY" in query:
             return self._rows.get("proposals", [])
+        if "Claim" in query and "DERIVED_FROM" in query:
+            return self._rows.get("claims", [])
+        if "CapabilityRatchetResult" in query:
+            return self._rows.get("capability_ratchet", [])
         return []
 
 
@@ -485,6 +490,52 @@ def test_evidence_lineage_walks_evidence_to_claim_to_proposal():
     assert result["found"] is True
     stages = [row["stage"] for row in result["chain"]]
     assert stages == ["evidence", "claim_proposal", "proposal"]
+
+
+def test_evidence_lineage_walks_one_more_hop_to_the_capability_ratchet_verdict():
+    """(D-71-5) the chain now also surfaces a recorded ``CapabilityRatchetResult``
+    for a proposal — the test/rollout half of trace -> evaluation -> proposal ->
+    test -> rollout, not just the pre-promotion proposal status."""
+    engine = _RecordingEngine(
+        rows={
+            "evidence_lookup": [
+                {
+                    "id": "evolution_evidence:abc",
+                    "channel": "graph_health",
+                    "outcome": "anomalous",
+                    "signal": 0.8,
+                    "subject_id": "capability:foo",
+                    "occurred_at": "t",
+                }
+            ],
+            "claims": [
+                {
+                    "id": "claim:insight:xyz",
+                    "claim_text": "capability foo is anomalous",
+                    "status": "proposal",
+                    "confidence": 0.8,
+                    "is_verified": False,
+                }
+            ],
+            "proposals": [
+                {"id": "sdd_feature:foo", "status": "implemented"},
+            ],
+            "capability_ratchet": [
+                {
+                    "id": "capability_ratchet:1",
+                    "result": "pass",
+                    "recommendation": "promote",
+                    "recorded_at": "t2",
+                },
+            ],
+        }
+    )
+    result = evidence_lineage(engine, "evolution_evidence:abc")
+    stages = [row["stage"] for row in result["chain"]]
+    assert stages == ["evidence", "claim_proposal", "proposal", "capability_ratchet"]
+    ratchet_row = result["chain"][-1]
+    assert ratchet_row["proposal_id"] == "sdd_feature:foo"
+    assert ratchet_row["result"] == "pass"
 
 
 def test_evidence_lineage_preserves_rejected_claims_not_deleted():

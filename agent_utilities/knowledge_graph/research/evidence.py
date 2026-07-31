@@ -590,5 +590,29 @@ def evidence_lineage(engine: Any, evidence_id: str) -> dict[str, Any]:
         )
         for proposal in proposal_rows:
             chain.append({"stage": "proposal", "claim_id": claim_id, **proposal})
+            proposal_id = proposal.get("id")
+            if not proposal_id:
+                continue
+            # (7.6 follow-up, D-71-5) one more hop: any recorded capability-ratchet
+            # verdict (AHE-3.24, ``capability_ratchet._record``) for this proposal —
+            # the test/rollout half of trace -> evaluation -> proposal -> test ->
+            # rollout. ``proposal_id`` is a plain matched property (not a graph
+            # edge), the SAME lookup ``latest_ratchet_result`` uses, so this hop
+            # never re-derives the verdict, just surfaces it in the chain.
+            ratchet_rows = _rows(
+                "MATCH (r:CapabilityRatchetResult) WHERE r.proposal_id = $pid "
+                "RETURN r.id AS id, r.result AS result, r.recommendation AS recommendation, "
+                "r.recorded_at AS recorded_at "
+                f"LIMIT {10}",
+                {"pid": proposal_id},
+            )
+            for ratchet in ratchet_rows:
+                chain.append(
+                    {
+                        "stage": "capability_ratchet",
+                        "proposal_id": proposal_id,
+                        **ratchet,
+                    }
+                )
 
     return {"evidence_id": evidence_id, "found": True, "chain": chain}
