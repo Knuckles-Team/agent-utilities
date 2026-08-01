@@ -368,6 +368,90 @@ def test_privacy_gate_preserves_24_hex_truncated_digest_identity(
     assert sanitized.typed_payload["id"] == doc_id
 
 
+def test_privacy_gate_preserves_40_hex_fragment_version_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-GM-4/D-GS856-6/D-MW-1/D-MW-2 regression: a Fragment's 40-hex
+    ``fragment_id`` plus its ``#<16-hex>`` content-pinned ``version_id`` suffix
+    must both be exempt from the full privacy-pattern scan.
+
+    ``evidence_spine.py``'s ``artifact_id_for``/``fragment_id_for`` compute
+    ``sha256(...).hexdigest()[:40]``, and ``Fragment.version_id`` appends
+    ``f"#{content_hash[7:23]}"`` — a 16-hex content pin. Before this fix,
+    neither the 40-hex length nor the trailing pin was recognised, so this id
+    fell through to the full scan and its case-insensitive IBAN check
+    (``[A-Z]{2}\\d{2}(?:[A-Z0-9]){11,30}``) could reject it whenever the
+    digest happened to start with two letters then two digits, exactly the
+    D-GM-3 false-positive class -- for EVERY document with fragments, since
+    every Fragment node carries a ``version_id`` property.
+
+    The separator is ``#``, not the original ``@``: the engine's native
+    ``ApplyChangeEnvelope`` commit (``change_envelope.rs``'s
+    ``validate_safe_text``) rejects any ``@`` in inline text outright as an
+    email/host-leak privacy guard, independent of this Python-side gate (see
+    ``evidence_spine.py``'s ``Fragment.version_id`` docstring).
+    """
+
+    monkeypatch.setattr(
+        "agent_utilities.security.persistence_privacy._runtime_deny_terms",
+        lambda: (),
+    )
+    # Deliberately shaped like the IBAN false-positive: two letters, two
+    # digits, then hex.
+    digest_40 = "ba00" + ("7" * 36)
+    assert len(digest_40) == 40
+    fragment_id = f"fragment:{digest_40}"
+    version_id = f"{fragment_id}#{'a' * 16}"
+
+    sanitized = module._privacy_gate(
+        _envelope(
+            source_object_id=fragment_id,
+            typed_payload={
+                "id": "doc-1",
+                "type": "Document",
+                "_nodes": [
+                    {
+                        "id": fragment_id,
+                        "type": "Fragment",
+                        "version_id": version_id,
+                    }
+                ],
+            },
+        )
+    )
+
+    assert sanitized.source_object_id == fragment_id
+    assert sanitized.typed_payload is not None
+    fragment_row = sanitized.typed_payload["_nodes"][0]
+    assert fragment_row["id"] == fragment_id
+    assert fragment_row["version_id"] == version_id
+
+
+def test_privacy_gate_still_rejects_a_real_iban_shaped_identifier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The widened opaque-digest exemption must not swallow a genuine IBAN.
+
+    Companion to the 40-hex/version-pin exemption above: proves the widening
+    is scoped to digest-shaped material and does not become a blanket
+    exemption that would mask real PII (a bare IBAN, and a namespaced one).
+    """
+
+    monkeypatch.setattr(
+        "agent_utilities.security.persistence_privacy._runtime_deny_terms",
+        lambda: (),
+    )
+    real_iban = "GB82WEST12345698765432"
+
+    with pytest.raises(ValueError, match="unsafe envelope identity"):
+        module._privacy_gate(_envelope(source_object_id=real_iban))
+
+    with pytest.raises(ValueError, match="unsafe envelope identity"):
+        module._privacy_gate(
+            _envelope(source_object_id=f"account:{real_iban}")
+        )
+
+
 def test_native_cursor_read_uses_the_same_hashed_source_partition() -> None:
     compute = _Compute("graph-cursor")
     partition = module._cursor_partition("instance-a")

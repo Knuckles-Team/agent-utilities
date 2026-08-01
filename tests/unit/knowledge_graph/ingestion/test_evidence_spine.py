@@ -354,7 +354,10 @@ def test_fragment_renders_an_engine_artifact_locus() -> None:
 
 def test_version_id_pins_a_citation_to_one_revision() -> None:
     fragment = next(f for f in spine() if f.kind == "paragraph")
-    assert fragment.version_id.startswith(f"{fragment.fragment_id}@")
+    # '#', not '@' -- the engine's validate_safe_text privacy guard rejects
+    # any '@' in inline text outright (D-GM-4 / D-GS856-6 / D-MW-1 / D-MW-2).
+    assert fragment.version_id.startswith(f"{fragment.fragment_id}#")
+    assert "@" not in fragment.version_id
     edited = next(
         f
         for f in spine(DOC.replace("settles card and ACH", "settles card + ACH"))
