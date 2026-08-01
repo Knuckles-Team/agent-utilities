@@ -87,11 +87,29 @@ resources:
 
   - name: reconciliation-merge
     class: lease
-    mechanism: hold_lease("reconciliation-merge")
+    mechanism: hold_lease("reconciliation-merge") — held by merge_queue.run_queue()
     evidence: >-
       A reconciliation gate accumulated 26 commits on a DETACHED HEAD with no
       ref, having already orphaned an earlier correct merge resolution the same
-      way. Concurrent merges into the shared base are the cause.
+      way. Concurrent merges into the shared base are the cause. This is now the
+      lease the SERIALIZED MERGE QUEUE holds (merge_queue.py) — deliberately the
+      same resource, not a second one, so a queue runner and any residual bulk
+      reconciliation can never run at once. The queue also removes the detached
+      HEAD entirely: the merge is built as objects (merge-tree -> commit-tree)
+      and main only ever fast-forwards, so there is no state for a crash to
+      strand.
+
+  - name: merge-queue
+    class: append-only
+    mechanism: FragmentStore(<git-common-dir>/agent-lanes/merge-queue) folded by merge_queue.queued()
+    evidence: >-
+      Hundreds of lanes offer candidates concurrently; a single mutable queue
+      file would be the shared ledger this workspace has already had to repair
+      once (docs/concept_reservations.yaml). One fragment per lane, appended
+      never rewritten, and a terminal record supersedes rather than edits — so
+      enqueue is lock-free and no lane can drop another's candidate. It lives in
+      the shared git dir, so it is identical from every worktree and no
+      checkout, reset, or merge can touch it.
 
   - name: canonical-checkout
     class: read-only

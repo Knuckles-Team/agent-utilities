@@ -46,11 +46,12 @@ class EnterpriseEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="PaymentBudget")
             self._upsert_node("PaymentBudget", budget_id, data)
-            self.backend.execute(
-                "MATCH (b:BusinessUnit {id: $bid}), (p:PaymentBudget {id: $pid}) "
-                "MERGE (b)-[:HAS_ALLOCATION]->(p)",
-                {"bid": business_unit_id, "pid": budget_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # ``link_nodes`` dispatches through the typed engine API.
+            self.link_nodes(business_unit_id, budget_id, "HAS_ALLOCATION")
         return budget_id
 
     def assess_risk(
@@ -73,11 +74,9 @@ class EnterpriseEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="RiskProfile")
             self._upsert_node("RiskProfile", risk_id, data)
-            self.backend.execute(
-                "MATCH (t {id: $tid}), (r:RiskProfile {id: $rid}) "
-                "MERGE (t)-[:ASSESSED_RISK]->(r)",
-                {"tid": target_id, "rid": risk_id},
-            )
+            # See allocate_budget above for why this is a typed link, not a
+            # comma-pattern MATCH + edge MERGE.
+            self.link_nodes(target_id, risk_id, "ASSESSED_RISK")
         return risk_id
 
     def grant_security_clearance(
@@ -100,9 +99,7 @@ class EnterpriseEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="SecurityClearance")
             self._upsert_node("SecurityClearance", clearance_id, data)
-            self.backend.execute(
-                "MATCH (a {id: $aid}), (c:SecurityClearance {id: $cid}) "
-                "MERGE (a)-[:HAS_CLEARANCE]->(c)",
-                {"aid": agent_id, "cid": clearance_id},
-            )
+            # See allocate_budget above for why this is a typed link, not a
+            # comma-pattern MATCH + edge MERGE.
+            self.link_nodes(agent_id, clearance_id, "HAS_CLEARANCE")
         return clearance_id

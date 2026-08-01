@@ -1405,8 +1405,18 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_document_tree",
+        "action": "cite",
+        "name": "graph_document_tree_cite",
+    },
+    {
+        "tool": "graph_document_tree",
         "action": "content",
         "name": "graph_document_tree_content",
+    },
+    {
+        "tool": "graph_document_tree",
+        "action": "fragments",
+        "name": "graph_document_tree_fragments",
     },
     {
         "tool": "graph_document_tree",
