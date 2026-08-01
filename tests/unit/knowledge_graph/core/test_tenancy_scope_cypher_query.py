@@ -39,20 +39,57 @@ def test_scopes_a_where_less_aggregate_query_by_its_own_variable():
 
     assert "w.tenant_id = 'acme'" in scoped
     assert "n.tenant_id" not in scoped
-    # Injected before RETURN, same discipline as the n-variable case.
+    # Injected before RETURN, same discipline as the n-variable case. D-ACL-3:
+    # the predicate also admits untagged/commons rows (IS NULL / '').
     assert scoped == (
-        "MATCH (w:WorkItem) WHERE w.tenant_id = 'acme' RETURN count(w) AS c"
+        "MATCH (w:WorkItem) WHERE (w.tenant_id = 'acme' OR w.tenant_id IS NULL "
+        "OR w.tenant_id = '') RETURN count(w) AS c"
     )
 
 
 def test_still_scopes_the_conventional_n_variable_case_unchanged():
     """Backward-compatible: the common `MATCH (n:...)` convention this
-    function's own docstring example uses keeps working byte-for-byte."""
+    function's own docstring example uses keeps working byte-for-byte
+    (module the D-ACL-3 commons fallback added to the predicate itself)."""
     tm = TenancyManager()
 
     scoped = tm.scope_cypher_query("MATCH (n:Entity) RETURN n", tenant_id="acme")
 
-    assert scoped == "MATCH (n:Entity) WHERE n.tenant_id = 'acme' RETURN n"
+    assert scoped == (
+        "MATCH (n:Entity) WHERE (n.tenant_id = 'acme' OR n.tenant_id IS NULL "
+        "OR n.tenant_id = '') RETURN n"
+    )
+
+
+def test_cypher_scope_and_sql_rls_commons_fallback_agree():
+    """D-ACL-3: the Cypher-level tenant scope and the SQL RLS layer must
+    agree on whether an untagged ('commons') row is visible.
+
+    ``PostgreSQLBackend.rls_statements`` has always documented and enforced a
+    three-way admit condition: ``tenant_id = <session tenant> OR tenant_id IS
+    NULL OR tenant_id = ''`` (its own docstring: "that org's rows + commons
+    (tenant_id '' / NULL)"). Before this fix, ``TenancyManager
+    .scope_cypher_query`` injected a strict equality with no fallback, so a
+    read running through the Cypher-scoping chokepoint silently denied
+    commons rows that the exact same actor would see via a raw RLS-enforced
+    SQL read — two different security mechanisms disagreeing about who can
+    see what. This test fails if either side drifts from the other again.
+    """
+    from agent_utilities.knowledge_graph.backends.postgresql_backend import (
+        PostgreSQLBackend,
+    )
+
+    rls_cond = " ".join(PostgreSQLBackend.rls_statements("Agent"))
+    # Pin the SQL contract this test converges against so a change to RLS's
+    # own commons fallback is caught here too, not just on the Cypher side.
+    assert "tenant_id IS NULL OR tenant_id = ''" in rls_cond
+
+    tm = TenancyManager()
+    scoped = tm.scope_cypher_query("MATCH (n:Entity) RETURN n", tenant_id="acme")
+
+    assert "n.tenant_id = 'acme'" in scoped
+    assert "n.tenant_id IS NULL" in scoped
+    assert "n.tenant_id = ''" in scoped
 
 
 def test_multi_variable_join_scopes_by_the_first_matchs_variable():

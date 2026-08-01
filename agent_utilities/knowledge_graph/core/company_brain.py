@@ -310,6 +310,30 @@ class TenancyManager:
         predicate entirely. Real callers hit exactly this shape (``WHERE
         p.name CONTAINS $q OR p.description CONTAINS $q``).
 
+        D-ACL-3 (commons-fallback convergence): the injected predicate admits
+        a row when ``<var>.tenant_id`` equals the actor's tenant **or is
+        untagged** (``IS NULL`` or ``''``) — the same three-way fallback
+        :meth:`~agent_utilities.knowledge_graph.backends.postgresql_backend
+        .PostgreSQLBackend.rls_statements` has always documented and enforced
+        at the SQL layer (*"that org's rows + commons (tenant_id '' /
+        NULL)"*). Before this fix the two enforcement layers disagreed: SQL
+        RLS treated untagged/commons rows as visible to every tenant, while
+        this Cypher-side predicate silently denied them (a strict equality
+        with no fallback) — the exact "wave-2 tenant-predicate lane" gap
+        flagged in :mod:`.cypher_scoping`'s convergence note (that lane
+        deliberately did not adopt ``fix/green-slice-7``'s commons fallback,
+        leaving it as an open policy question). This resolves it in favor of
+        the SQL layer's contract, which is the older, deliberately-documented
+        one and is consistent with the codebase-wide ``__commons__``/
+        untagged-data-is-shared convention (``shard_topology.DEFAULT_GRAPH``,
+        ``tenant_sharing``'s own ``_owner_id IS NULL`` → visible-to-all
+        fallback at the finer KG-2.60 layer). A backend that runs this
+        Cypher-derived predicate now agrees with a backend enforcing RLS
+        directly on the same rows — see
+        ``test_cypher_scope_and_sql_rls_commons_fallback_agree`` in
+        ``tests/unit/knowledge_graph/core/test_tenancy_scope_cypher_query.py``,
+        which fails if the two drift apart again.
+
         Raises:
             UnscopableQueryError: the query has a ``WHERE``/``RETURN`` clause to
                 inject into but no derivable ``MATCH (<var>...`` node variable.
@@ -331,7 +355,13 @@ class TenancyManager:
             return query
 
         var = first_bound_node_variable(query)
-        cond = f"{var}.tenant_id = '{tenant_id}'"
+        # D-ACL-3: match PostgreSQLBackend.rls_statements' commons fallback —
+        # a row belongs to the actor's own tenant OR carries no tenant tag at
+        # all (untagged/commons data, shared across every tenant).
+        cond = (
+            f"({var}.tenant_id = '{tenant_id}' "
+            f"OR {var}.tenant_id IS NULL OR {var}.tenant_id = '')"
+        )
         return inject_and_predicate(query, cond)
 
     def is_member(self, actor_id: str, tenant_id: str) -> bool:

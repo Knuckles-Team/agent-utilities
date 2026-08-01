@@ -119,10 +119,14 @@ def test_scope_cypher_query_scopes_find_relevant_processes_by_its_own_variable()
 
 
 def test_scope_cypher_query_conventional_n_variable_unchanged():
-    """Backward-compatible: the common `MATCH (n:...)` shape keeps working."""
+    """Backward-compatible: the common `MATCH (n:...)` shape keeps working
+    (module the D-ACL-3 commons fallback added to the predicate itself)."""
     tm = TenancyManager()
     scoped = tm.scope_cypher_query("MATCH (n:Entity) RETURN n", tenant_id="tenant-a")
-    assert scoped == "MATCH (n:Entity) WHERE n.tenant_id = 'tenant-a' RETURN n"
+    assert scoped == (
+        "MATCH (n:Entity) WHERE (n.tenant_id = 'tenant-a' OR n.tenant_id IS NULL "
+        "OR n.tenant_id = '') RETURN n"
+    )
 
 
 def test_scope_cypher_query_fails_closed_for_an_unscopable_query():
@@ -177,9 +181,11 @@ def test_scope_cypher_query_closes_the_or_bypass_for_find_relevant_policies():
     # The injected tenant predicate and the pre-existing OR body must each be
     # their own parenthesized unit -- NOT `p.tenant_id = 'tenant-a' AND
     # p.name CONTAINS $q OR p.description CONTAINS $q`, which would let any
-    # row matching the description clause alone bypass tenant scoping.
+    # row matching the description clause alone bypass tenant scoping. The
+    # tenant predicate itself is the D-ACL-3 three-way commons-fallback OR.
     assert (
-        "(p.tenant_id = 'tenant-a') AND (p.name CONTAINS $q OR p.description CONTAINS $q)"
+        "(p.tenant_id = 'tenant-a' OR p.tenant_id IS NULL OR p.tenant_id = '') "
+        "AND (p.name CONTAINS $q OR p.description CONTAINS $q)"
         in scoped
     )
 
@@ -191,11 +197,15 @@ def test_scope_cypher_query_closes_the_or_bypass_for_find_relevant_policies():
 
 def _eval_predicate(predicate: str, row: dict) -> bool:
     """Closed-form evaluator for the tiny WHERE-predicate subset this module
-    emits (`var.prop = 'val'`, `var.prop CONTAINS 'val'`, composed with
-    AND/OR/parens) -- proves whether a GIVEN ROW is actually matched by the
-    predicate text this module generated, not just that the text looks right.
+    emits (`var.prop = 'val'`, `var.prop IS NULL`, `var.prop CONTAINS 'val'`,
+    composed with AND/OR/parens) -- proves whether a GIVEN ROW is actually
+    matched by the predicate text this module generated, not just that the
+    text looks right. `IS NULL` (D-ACL-3's commons fallback) must be
+    substituted BEFORE the `=` rule below -- it has no trailing quoted
+    literal for that regex to match.
     """
     expr = predicate
+    expr = re.sub(r"\w+\.(\w+)\s+IS\s+NULL", r"(row.get('\1') is None)", expr)
     expr = re.sub(r"\w+\.(\w+)\s*=\s*'([^']*)'", r"(row.get('\1') == '\2')", expr)
     expr = re.sub(
         r"\w+\.(\w+)\s+CONTAINS\s+'([^']*)'",
@@ -228,6 +238,27 @@ def test_tenant_a_read_does_not_match_tenant_bs_row_via_the_or_clause():
     tenant_b_row = {"tenant_id": "tenant-b", "name": "refund policy", "description": ""}
 
     assert _eval_predicate(predicate, tenant_a_row) is True
+    assert _eval_predicate(predicate, tenant_b_row) is False
+
+
+def test_commons_untagged_row_is_visible_to_every_tenant():
+    """D-ACL-3: an untagged/commons row (no `tenant_id`, or `tenant_id == ''`)
+    must be visible through the Cypher-scoped read path, matching
+    ``PostgreSQLBackend.rls_statements``'s documented SQL-layer contract
+    (``tenant_id IS NULL OR tenant_id = ''``). Before this fix the Cypher
+    predicate was a strict equality with no fallback, so this same row would
+    have been visible via a raw RLS-enforced SQL read but silently denied via
+    this Cypher-scoping chokepoint -- the exact divergence D-ACL-3 tracks."""
+    tm = TenancyManager()
+    scoped = tm.scope_cypher_query("MATCH (n:Entity) RETURN n", tenant_id="tenant-a")
+    predicate = re.search(r"WHERE (.*) RETURN", scoped).group(1)
+
+    untagged_row = {"name": "shared reference data"}  # no tenant_id key at all
+    empty_tagged_row = {"tenant_id": "", "name": "legacy unstamped row"}
+    tenant_b_row = {"tenant_id": "tenant-b", "name": "another tenant's row"}
+
+    assert _eval_predicate(predicate, untagged_row) is True
+    assert _eval_predicate(predicate, empty_tagged_row) is True
     assert _eval_predicate(predicate, tenant_b_row) is False
 
 
