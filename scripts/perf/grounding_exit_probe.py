@@ -48,4 +48,5 @@ async def main():
     for ep, br in eb._breakers.items():
         print(f"  {ep!r}: state={br._state} failures={br._failures}", flush=True)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

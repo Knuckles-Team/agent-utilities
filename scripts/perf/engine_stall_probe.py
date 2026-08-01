@@ -64,4 +64,5 @@ async def main():
     print(f"\n  WRITE-op seconds in window: {wtime:.1f}s over {el:.1f}s wall = "
           f"{100*wtime/el:.0f}% of wall time had a write in flight", flush=True)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

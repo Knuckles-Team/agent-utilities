@@ -74,4 +74,5 @@ async def main():
             print(f"    SLOW(>=50ms): {len(slow)} calls, mean {statistics.mean(slow):.2f}s, total {sum(slow):.1f}s" if slow else "    SLOW: none", flush=True)
             print(f"    => {100*len(slow)/len(lat):.0f}% of calls stalled; stalls are {sum(slow)/sum(lat)*100:.0f}% of all time", flush=True)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

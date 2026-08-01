@@ -52,4 +52,5 @@ async def main():
     tw=sum(w for _,w,_ in buckets); el=time.time()-t_start
     print(f"  write-op seconds over window: {tw:.1f}s / {el:.0f}s wall = {100*tw/el:.0f}% write-in-flight duty cycle", flush=True)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
