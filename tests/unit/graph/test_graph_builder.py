@@ -66,6 +66,22 @@ def test_initialize_graph_from_workspace(
             "agent_utilities.graph.builder.DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
             False,
         ),
+        # RegistryPipeline is already mocked above, but builder.py's registry-graph
+        # init block resolves its `backend=` kwarg through a bare
+        # require_engine_authority_backend(...) call BEFORE constructing
+        # RegistryPipeline — a real (if unused, since RegistryPipeline is a
+        # MagicMock) engine-authority resolution that reaches for the shared
+        # tenant-derived operational graph. In a full-batch run alongside other
+        # engine-backed tests that collide on that same fixed graph identity,
+        # this raises STALE_FENCE instead of the clean "no engine reachable"
+        # error a fully isolated run gets — either way it's a real backend
+        # resolution this otherwise fully-mocked unit test never intends to
+        # exercise (imported locally in builder.py, so patching the source
+        # module's attribute is what takes effect on the next call).
+        patch(
+            "agent_utilities.knowledge_graph.backends.base.require_engine_authority_backend",
+            return_value=object(),
+        ),
     ):
         graph, config = builder.initialize_graph_from_workspace()
 

@@ -586,6 +586,15 @@ class OntologySystem:
             self._graph, "store", None
         )
         engine = IngestionEngine(backend=backend)
+        # NOTE: connector_config deliberately keeps LIVE object references
+        # some connectors require (e.g. mcp_tool's injected fastmcp
+        # ``client``) — engine.ingest's CONTENT_TYPE.CONNECTOR adaptor reads
+        # this exact dict (manifest.metadata["connector_config"]) to
+        # actually construct the connector, so it cannot be stripped down to
+        # JSON-safe data here. The resulting IngestionResult's own
+        # provenance snapshotting (_privacy_safe_result/_record_result in
+        # ingestion/engine.py) is responsible for sanitizing metadata before
+        # it deep-copies the result for history/persistence.
         metadata: dict[str, Any] = {
             "connector_config": dict(config or {}),
             "contextual": contextual,

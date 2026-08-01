@@ -210,7 +210,7 @@ def test_kg_2_316_default_submit_enqueues_training_job(tmp_path, monkeypatch) ->
     # The hand-off carries the concrete train_model workflow + spec.
     hoff = job.handoff
     assert hoff["contract"] == "AU-KG.memory.memory-weights-distillation-export"
-    assert hoff["workflow"]["name"] == "train_model"
+    assert hoff["workflow"]["workflow"] == "train_model"
     assert hoff["workflow"]["task"]["spec"]["adapter_rank"] == 8
     assert hoff["tools"][1]["tool"] == "train_sft"
     # Poll reports the durable enqueued state.
@@ -278,7 +278,7 @@ def test_kg_2_316_action_core_export_only() -> None:
     assert res["corpus"]["format"] == "sft"
     # Export-only: a hand-off preview is offered but no job is submitted.
     assert "job" not in res
-    assert res["handoff"]["workflow"]["name"] == "train_model"
+    assert res["handoff"]["workflow"]["workflow"] == "train_model"
 
 
 # ── LIVE PATH: the graph_analyze MCP tool (+ REST twin) dispatch ───────────────
@@ -333,7 +333,14 @@ def test_kg_2_316_live_graph_analyze_action(tmp_path, monkeypatch) -> None:
     out = asyncio.run(
         kg_server._execute_tool("graph_analyze", action="distill_memory", query=params)
     )
-    payload = json.loads(out)
+    # graph_analyze is typed to return the sole public EvidenceBundle (every
+    # allowed action does, via execute_focused_analysis) — not a raw JSON
+    # string. EvidenceBundle.from_payload(raw_json_str, ...) json.loads()s the
+    # action core's dict payload back and carries it as the sole claim.
+    from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+    assert isinstance(out, EvidenceBundle)
+    payload = out.claims[0]
 
     assert payload["status"] == "ok"
     assert payload["concept"] == "AU-KG.memory.memory-weights-distillation-export"
@@ -341,7 +348,7 @@ def test_kg_2_316_live_graph_analyze_action(tmp_path, monkeypatch) -> None:
     assert payload["corpus"]["spec"]["adapter_rank"] == 8
     # Submitted live: a job with the data-science-mcp hand-off came back.
     assert payload["job"]["status"] == "enqueued"
-    assert payload["job"]["handoff"]["workflow"]["name"] == "train_model"
+    assert payload["job"]["handoff"]["workflow"]["workflow"] == "train_model"
     assert engine.nodes[payload["job"]["job_id"]]["label"] == "TrainingJob"
 
 
@@ -368,7 +375,7 @@ def test_kg_2_318_submit_invokes_live_dispatch_and_marks_running(
         spec: DistillationTargetSpec,
     ) -> dict[str, Any]:
         # Assert the concrete data-science-mcp hand-off reaches the client.
-        seen["workflow"] = handoff["workflow"]["name"]
+        seen["workflow"] = handoff["workflow"]["workflow"]
         seen["base_model"] = spec.base_model
         seen["examples"] = len(corpus.examples)
         return {

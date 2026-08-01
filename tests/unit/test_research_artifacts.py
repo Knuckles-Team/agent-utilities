@@ -84,7 +84,7 @@ class TestArtifactGeneratorWithEngine:
         self.graph.add_node(
             article_id,
             **{
-                "type": RegistryNodeType.ARTICLE,
+                "node_type": RegistryNodeType.ARTICLE,
                 "name": title,
                 "description": content[:200],
                 "content": content,

@@ -89,50 +89,21 @@ def test_sweep_all_sources_enqueues_laned_connector_tasks():
     assert all(p == {"sync_mode": "delta"} for (_, _, p) in calls)
 
 
-def test_select_pending_task_is_type_fair_within_lane():
-    """ORCH-1.76 — within a lane, claiming rotates across its task TYPES, so a fast type
-    (diff/document) isn't stuck behind a slow one (a big codebase batch) sharing the lane."""
-    from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
-    from agent_utilities.knowledge_graph.core.task_lanes import lane_task_types
-
-    tks: list[str] = []
-
-    def fake_query(cypher, params=None):
-        if params and "tk" in params:
-            tks.append(params["tk"])
-        return []
-
-    stub = SimpleNamespace(query_cypher=fake_query, _control_cypher=fake_query)
-    ing = set(lane_task_types("ingestion"))
-    TaskManagerMixin._select_pending_task(stub)
-    assert ing.issubset(set(tks))  # every ingestion type was tried
-    first_ing_a = next(t for t in tks if t in ing)
-    tks.clear()
-    TaskManagerMixin._select_pending_task(stub)
-    first_ing_b = next(t for t in tks if t in ing)
-    assert first_ing_a != first_ing_b  # type cursor advanced → per-type fairness
-
-
-def test_select_pending_task_is_lane_fair():
-    """Each claim rotates which lane gets first dibs, so no lane head-of-line-blocks another."""
-    from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
-    from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES
-
-    seen: list[str] = []
-
-    def fake_query(cypher, params=None):
-        if params and "lane" in params:
-            seen.append(params["lane"])
-        return []  # nothing pending → exercises the full rotation + legacy fallthrough
-
-    stub = SimpleNamespace(query_cypher=fake_query, _control_cypher=fake_query)
-    TaskManagerMixin._select_pending_task(stub)
-    first_lane_a = seen[0]
-    assert set(seen) == set(LANE_NAMES)  # every lane was tried
-    seen.clear()
-    TaskManagerMixin._select_pending_task(stub)
-    first_lane_b = seen[0]
-    assert first_lane_a != first_lane_b  # cursor advanced → fairness
+# NOTE: `TaskManagerMixin._select_pending_task` (the Python-side cypher-based
+# lane/type rotation cursor these two tests exercised) was retired by the
+# AU-P1-CL / ORCH-1.8x WorkItem-queue migration (see
+# `tests/unit/knowledge_graph/test_task_claim_cas.py`'s module docstring):
+# `_claim_next_task` now claims exclusively through the native
+# `agent_utilities.orchestration.work_item.claim_next` queue
+# (`engine_tasks.py::_claim_next_task`), whose own docstring states "native
+# selection owns ordering, quota, dependency release, and lease recovery"
+# (`work_item.py::claim_next`). There is no Python-level rotation cursor left
+# to unit test the way these two tests did — `TaskManagerMixin` has no
+# `_select_pending_task` attribute at all (confirmed via
+# `hasattr(TaskManagerMixin, "_select_pending_task") is False`) — and the
+# lane/type fairness they cared about is now exercised end-to-end against a
+# real WorkItem queue by `test_task_claim_cas.py`. Stale test, removed with
+# this justification rather than silently deleted (green-the-base slice 1).
 
 
 def test_record_lane_metrics_is_a_safe_noop_without_prometheus():
@@ -185,16 +156,27 @@ def test_record_lane_metrics_calls_gateway_metrics_gauges(monkeypatch):
 
 
 def test_lane_metrics_reports_per_lane_congestion():
+    """CONCEPT:AU-ORCH.execution.two-level-fair-rotation — ``lane_metrics`` now reads the
+    native WorkItem queue via ``_ingest_work_item_index()`` (AU-P1-CL migration), not raw
+    cypher lane-count queries, so the stub is seeded at that layer: 4 ``ready`` (=pending)
+    WorkItems per lane, keyed by ``resource_class``."""
     from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
     from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES
 
-    def fake_query(cypher, params=None):
-        # pending lane queries → 4; everything else → 0
-        if params and params.get("l") and "pending" in cypher:
-            return [{"c": 4}]
-        return [{"c": 0}]
+    work_items: dict[str, dict] = {}
+    for lane in LANE_NAMES:
+        for i in range(4):
+            wid = f"wi:{lane}:{i}"
+            work_items[wid] = {
+                "id": wid,
+                "kind": "ingest_task",
+                "payload_ref": f"job:{lane}:{i}",
+                "status": "ready",  # -> "pending" via _task_status_from_work_item
+                "resource_class": lane,
+                "fairness_group": lane,
+            }
 
-    stub = SimpleNamespace(query_cypher=fake_query, _control_cypher=fake_query)
+    stub = SimpleNamespace(_ingest_work_item_index=lambda: work_items)
     m = TaskManagerMixin.lane_metrics(stub)
     for lane in LANE_NAMES:
         assert m[lane]["pending"] == 4

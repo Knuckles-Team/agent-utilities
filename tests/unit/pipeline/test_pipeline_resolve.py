@@ -36,19 +36,22 @@ def _make_ctx(
     backend: Any | None = None,
     **config_kwargs: Any,
 ) -> PipelineContext:
-    import uuid
-
     """Build a PipelineContext with a given graph and backend."""
     cfg = PipelineConfig(workspace_path=workspace_path, **config_kwargs)
     if graph is None:
-        name = f"test_{uuid.uuid4().hex[:8]}"
-        g = GraphComputeEngine(backend_type="rust", graph_name=name)
-        if g._client:
-            try:
-                g._client.create_graph(name)
-            except Exception:
-                pass
-            g._client.clear()
+        # Deliberately do NOT pass an explicit graph_name: the autouse
+        # ``isolate_graph_compute_engine`` fixture (tests/conftest.py) only
+        # redirects ``graph_name in (None, "__commons__", "__secrets__")`` to
+        # its own per-test isolated tenant, which is also the tenant the
+        # fixture's ambient GraphSession is scoped to. Read operations (e.g.
+        # ``.nodes()``) route through that ambient session, not through the
+        # engine instance's own ``graph_name`` label — so an engine built
+        # with a locally invented name here would create a second, distinct
+        # tenant that ambient reads can never see (and the fixture's own
+        # tenant, still targeted by every read, was never created), giving a
+        # "Graph not found" error. Passing no graph_name keeps engine
+        # identity and ambient session identity pointed at the same tenant.
+        g = GraphComputeEngine(backend_type="rust")
     else:
         g = graph
     ctx = PipelineContext(config=cfg, graph=g, backend=backend)
@@ -75,34 +78,27 @@ async def test_resolve_empty_graph() -> None:
 @pytest.mark.asyncio
 async def test_resolve_absolute_import_match() -> None:
     """depends_on_raw gets rewritten to depends_on via name_map."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.resolve import (
         execute_resolve,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "src",
-        type="file",
+        node_type="file",
         name="src.py",
         file_path="/a/src.py",
     )
     g.add_node(
         "tgt",
-        type="file",
+        node_type="file",
         name="target.py",
         file_path="/a/target.py",
     )
     g.add_edge(
         "src",
         "raw",
-        type="depends_on_raw",
+        relationship="depends_on_raw",
         raw="target",
     )
     ctx = _make_ctx(graph=g)
@@ -113,31 +109,24 @@ async def test_resolve_absolute_import_match() -> None:
 @pytest.mark.asyncio
 async def test_resolve_relative_import() -> None:
     """Relative import '.models' is resolved via resolve_relative_import."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.resolve import (
         execute_resolve,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "src",
-        type="file",
+        node_type="file",
         name="src.py",
         file_path="/a/src.py",
     )
     g.add_node(
         "tgt",
-        type="file",
+        node_type="file",
         name="models.py",
         file_path="/a/models.py",
     )
-    g.add_edge("src", "raw", type="depends_on_raw", raw=".models")
+    g.add_edge("src", "raw", relationship="depends_on_raw", raw=".models")
     ctx = _make_ctx(graph=g)
     result = await execute_resolve(ctx, {})
     assert result["resolved_dependencies"] == 1
@@ -223,17 +212,10 @@ async def test_sync_happy_path() -> None:
     )
 
     backend = _fake_backend()
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
-    g.add_node("n1", type="tool", name="t1")
-    g.add_node("n2", type="agent", name="a1")
-    g.add_edge("n1", "n2", type="uses")
+    g = GraphComputeEngine(backend_type="rust")
+    g.add_node("n1", node_type="tool", name="t1")
+    g.add_node("n2", node_type="agent", name="a1")
+    g.add_edge("n1", "n2", relationship="uses")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     assert result["nodes_synced"] == 2
@@ -248,15 +230,8 @@ async def test_sync_unknown_type_fallback() -> None:
     )
 
     backend = _fake_backend()
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
-    g.add_node("n1", type="some_custom_type", name="x")
+    g = GraphComputeEngine(backend_type="rust")
+    g.add_node("n1", node_type="some_custom_type", name="x")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     assert result["nodes_synced"] == 1
@@ -270,14 +245,7 @@ async def test_sync_node_without_type_skipped() -> None:
     )
 
     backend = _fake_backend()
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("n1")  # No type attr
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
@@ -293,17 +261,10 @@ async def test_sync_edge_type_filtered_to_alnum() -> None:
     )
 
     backend = _fake_backend()
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
-    g.add_node("n1", type="tool", name="t")
-    g.add_node("n2", type="tool", name="t2")
-    g.add_edge("n1", "n2", type="has-child!@#")
+    g = GraphComputeEngine(backend_type="rust")
+    g.add_node("n1", node_type="tool", name="t")
+    g.add_node("n2", node_type="tool", name="t2")
+    g.add_edge("n1", "n2", relationship="has-child!@#")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     assert result["edges_synced"] == 1
@@ -317,17 +278,10 @@ async def test_sync_edge_type_all_filtered_empty_skipped() -> None:
     )
 
     backend = _fake_backend()
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
-    g.add_node("n1", type="tool", name="t")
-    g.add_node("n2", type="tool", name="t2")
-    g.add_edge("n1", "n2", type="!@#$%")  # All non-alnum
+    g = GraphComputeEngine(backend_type="rust")
+    g.add_node("n1", node_type="tool", name="t")
+    g.add_node("n2", node_type="tool", name="t2")
+    g.add_edge("n1", "n2", relationship="!@#$%")  # All non-alnum
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     assert result["edges_synced"] == 0
@@ -348,15 +302,8 @@ async def test_sync_node_execute_raises() -> None:
         raise RuntimeError("db error")
 
     backend.execute_batch.side_effect = boom
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
-    g.add_node("n1", type="tool", name="t")
+    g = GraphComputeEngine(backend_type="rust")
+    g.add_node("n1", node_type="tool", name="t")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     # Failed, but no exception raised
@@ -530,18 +477,11 @@ async def test_embedding_disabled() -> None:
 @pytest.mark.asyncio
 async def test_embedding_no_candidate_nodes() -> None:
     """Graph with no embeddable text -> 0 generated, reason 'no nodes to embed'."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.embedding import (
         execute_embedding,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = GraphComputeEngine(backend_type="rust")
     # Nodes without any text fields
     g.add_node("n1")
     g.add_node("n2", name="a")  # Too short
@@ -554,18 +494,11 @@ async def test_embedding_no_candidate_nodes() -> None:
 @pytest.mark.asyncio
 async def test_embedding_already_embedded_nodes_skipped() -> None:
     """Nodes with existing embedding are skipped."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.embedding import (
         execute_embedding,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "n1",
         name="already embedded",
@@ -588,14 +521,7 @@ async def test_embedding_with_http_success(
 
     monkeypatch.setattr(embedding, "_generate_embedding_batch", fake_batch)
 
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "n1",
         name="long enough name string for embedding",
@@ -619,14 +545,7 @@ async def test_embedding_http_fails_fallback_used(
         return [[0.4, 0.5] for _ in texts]
 
     monkeypatch.setattr(embedding, "_generate_embedding_llamaindex", fake_llama)
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "n1",
         name="long enough name string for embedding",
@@ -646,14 +565,7 @@ async def test_embedding_both_fail_error_count(
 
     monkeypatch.setattr(embedding, "_generate_embedding_batch", lambda t: None)
     monkeypatch.setattr(embedding, "_generate_embedding_llamaindex", lambda t: None)
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "n1",
         name="long enough name string for embedding",
@@ -675,14 +587,7 @@ async def test_embedding_with_content_field(
         return [[0.1] for _ in texts]
 
     monkeypatch.setattr(embedding, "_generate_embedding_batch", fake_batch)
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("n1", content="this is long enough content text")
     ctx = _make_ctx(graph=g)
     result = await embedding.execute_embedding(ctx, {})

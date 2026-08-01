@@ -904,12 +904,16 @@ def test_every_new_edge_has_rel_definition() -> None:
 def test_new_table_definitions_include_registry_node_columns() -> None:
     """Each new V2 table includes the base RegistryNode columns.
 
-    This guards against forgetting ``id`` / ``type`` / ``importance_score``
-    etc. on future additions.
+    This guards against forgetting ``id`` / ``node_type`` / ``importance_score``
+    etc. on future additions. ``node_type`` (not a bare ``type``, which the
+    schema retired) is the actual column ``schema_definition.py`` declares and
+    ``_serialize_node``/``add_node`` write to — see
+    ``GENERIC_NODE_COLUMNS``/``TableDefinition.columns`` and
+    ``IntelligenceGraphEngine._serialize_node``.
     """
     base_cols = {
         "id",
-        "type",
+        "node_type",
         "name",
         "description",
         "importance_score",
