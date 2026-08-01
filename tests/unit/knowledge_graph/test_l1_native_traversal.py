@@ -1,59 +1,39 @@
 """L1 native traversal (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1).
 
-Exercises EpistemicGraphBackend's relationship interpreters against an injected
-fake compute graph (no running engine needed): single-hop outbound/inbound,
-bounded variable-length BFS, and the critical guard that an unhandled
-relationship read returns [] rather than the whole graph.
+Exercises EpistemicGraphBackend's relationship reads: single-hop
+outbound/inbound, bounded variable-length BFS, and an anchor-less match.
+
+These used to run against an injected fake compute graph simulating a
+Python-side "relationship interpreter" with its own silent-narrowing guard
+(a read with no ``{id: ...}`` anchor returned ``[]`` rather than the whole
+graph). That interpreter no longer exists: ``EpistemicGraphBackend.execute_read``
+now always delegates the literal Cypher text to the engine's own native
+Cypher executor (``GraphComputeEngine.query_cypher``, whose docstring is
+explicit: "no Python-side regex interpretation... there is NO client-side
+fallback that silently narrows or drops the query"). A ``FakeGraph`` lacking
+a ``query_cypher`` method just raised ``AttributeError`` on every read here.
+These tests now run against a real, isolated engine graph instead, and the
+anchor-less-read assertion reflects the new (correct, fail-loud, no silent
+narrowing) contract: a real, non-empty match result rather than [].
 """
 
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
-class FakeGraph:
-    """Tiny directed graph: A-[REL]->B-[REL]->C-[REL]->D, all type=Thing."""
-
-    def __init__(self):
-        self.nodes = {n: {"type": "Thing", "name": n} for n in "ABCD"}
-        self.succ = {"A": ["B"], "B": ["C"], "C": ["D"], "D": []}
-        self.pred = {"A": [], "B": ["A"], "C": ["B"], "D": ["C"]}
-
-    def has_node(self, nid):
-        return nid in self.nodes
-
-    def get_successors(self, nid):
-        return list(self.succ.get(nid, []))
-
-    def get_predecessors(self, nid):
-        return list(self.pred.get(nid, []))
-
-    def get_neighbors(self, nid):
-        return list(
-            dict.fromkeys(self.get_successors(nid) + self.get_predecessors(nid))
-        )
-
-    def _get_node_properties(self, nid):
-        return dict(self.nodes.get(nid, {}))
-
-    def _get_edge_properties(self, src, tgt):
-        # Every edge in this fixture is a REL edge.
-        if tgt in self.succ.get(src, []):
-            return {"rel_type": "REL"}
-        return {}
-
-    def _get_all_nodes(self):
-        return list(self.nodes)
-
-    def _get_all_nodes_with_properties(self):
-        return [(n, dict(p)) for n, p in self.nodes.items()]
-
-
-def _backend():
-    b = EpistemicGraphBackend.__new__(EpistemicGraphBackend)
-    b._graph = FakeGraph()
-    b._embeddings = {}
-    b._node_counter = 0
+def _backend() -> EpistemicGraphBackend:
+    """A real, isolated backend seeded with A-[REL]->B-[REL]->C-[REL]->D."""
+    compute = GraphComputeEngine(backend_type="rust")
+    b = object.__new__(EpistemicGraphBackend)
+    b._graph = compute
+    b.graph_name = compute.graph_name
+    b.create_schema()
+    for n in "ABCD":
+        b.add_node(n, node_type="Thing", name=n)
+    for src, dst in [("A", "B"), ("B", "C"), ("C", "D")]:
+        b.add_edge(src, dst, relationship="REL")
     return b
 
 
@@ -98,7 +78,10 @@ def test_var_length_directed_inbound():
 
 
 def test_unhandled_relationship_read_returns_empty_not_all_nodes():
-    # No {id:...} anchor → L1 can't traverse → must return [], NOT every node.
+    # A match with no {id:...} anchor is now a perfectly ordinary native
+    # Cypher query (no Python-side interpreter, no silent narrowing/fallback
+    # -- see the module docstring) -- it returns every node with an incoming
+    # :REL edge, not [] and not a silently-dropped/narrowed result.
     b = _backend()
     rows = b.execute("MATCH (a)-[:REL]->(b) RETURN b")
-    assert rows == []
+    assert set(_ids(rows, "b")) == {"B", "C", "D"}

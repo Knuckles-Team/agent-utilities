@@ -995,10 +995,27 @@ class QueryMixin(_Base):
 
         return results[:top_k]
 
-    def search_memories(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
-        """Search specifically for memory nodes."""
-        results = self.search_hybrid(query, top_k=50)
-        return [r for r in results if r.get("type") == RegistryNodeType.MEMORY][:top_k]
+    def search_memories(
+        self, query: str, top_k: int = 5, skip_quality_gate: bool = False
+    ) -> list[dict[str, Any]]:
+        """Search specifically for memory nodes.
+
+        ``skip_quality_gate`` forwards to :meth:`search_hybrid`: the retrieval
+        quality gate scores relevance from embeddings, so without an embedding
+        model configured every result scores as low-relevance and gets
+        dropped even for an exact content match. Defaults to ``False`` to
+        preserve existing behavior for callers that rely on the gate.
+        """
+        results = self.search_hybrid(
+            query, top_k=50, skip_quality_gate=skip_quality_gate
+        )
+        # 'type' is the retired node property (see engine.py::_serialize_node,
+        # which folds it into 'node_type' before every write) -- reading
+        # 'type' here silently matched nothing, so search_memories() always
+        # returned empty regardless of what was actually found.
+        return [
+            r for r in results if r.get("node_type") == RegistryNodeType.MEMORY
+        ][:top_k]
 
     def query_impact(self, symbol_or_file: str) -> list[dict[str, Any]]:
         """Calculate the topological impact set for a code entity."""
@@ -1234,7 +1251,9 @@ class QueryMixin(_Base):
         # (CONCEPT:AU-KG.retrieval.batch-hydrate) instead of one
         # `_get_node_properties` point-read per node.
         for n, data in self.graph._get_all_nodes_with_properties():
-            if data.get("type") == RegistryNodeType.CALLABLE_RESOURCE:
+            # 'type' is the retired node property; the canonical name is
+            # 'node_type' (see engine.py::_serialize_node).
+            if data.get("node_type") == RegistryNodeType.CALLABLE_RESOURCE:
                 resources.append({"id": n, **data})
         return resources
 

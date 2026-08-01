@@ -992,7 +992,7 @@ async def run_goal_loop(
             sleep_s=2.0,
         )
     except Exception as e:  # noqa: BLE001 — never let a goal crash the worker
-        logger.error(f"Goal {goal_id} run_loop failed: {e}")
+        logger.error(f"Goal {goal_id} run_loop failed: {e}", exc_info=True)
         result = {"status": "failed", "iterations": 0}
 
         if engine is not None:
