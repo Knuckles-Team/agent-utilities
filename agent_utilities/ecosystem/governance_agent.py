@@ -97,17 +97,32 @@ class GraphGovernanceAgent:
             await self._evaluate_proposal(proposal)
 
         # 3. Trigger Semantic Consolidation
-        # Call the SynthesisEngine if available (from Phase 2)
+        # D-EMB/D-PERF-5: this was a dead stub (import + bare `pass`) — the
+        # governance cycle never actually ran any GraphMaintainer operation.
+        # A small, bounded entity-embedding backfill batch each cycle is the
+        # SAFE (ANN-index-only, see backfill_entity_embeddings' docstring for
+        # why it never touches the governed ChangeEnvelope write path), self-
+        # healing catch-up for legacy under-embedded nodes — this governance
+        # loop already runs continuously in production
+        # (`agent_utilities/server/app.py` starts `GraphGovernanceAgent`), so
+        # this is a real reachable path, not another orphaned capability.
+        # Deliberately small per cycle (never the whole ~26k-node backlog at
+        # once): a full backfill is the operator-run
+        # `scripts/backfill_embeddings.py` / GraphMaintainer.trigger_operation
+        # path instead.
         try:
-            from agent_utilities.knowledge_graph.core.maintainer import (  # noqa: F401
+            from agent_utilities.knowledge_graph.core.maintainer import (
                 GraphMaintainer,
             )
 
-            # Or whichever class handles synthesis
-            # E.g. trigger compaction
-            pass
+            maintainer = GraphMaintainer(self.engine)
+            report = maintainer.backfill_entity_embeddings(limit=64, batch_size=64)
+            if report.get("embedded"):
+                logger.info("GovernanceAgent embedding backfill: %s", report)
         except ImportError:
             pass
+        except Exception as e:  # noqa: BLE001 — best-effort background maintenance step; must never break the governance cycle's proposal review above
+            logger.debug("GovernanceAgent embedding backfill skipped: %s", e)
 
     async def _evaluate_proposal(self, proposal: ChangeProposal) -> None:
         """Autonomously evaluate a pending proposal."""

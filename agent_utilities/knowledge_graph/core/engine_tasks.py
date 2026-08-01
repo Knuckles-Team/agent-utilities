@@ -391,6 +391,14 @@ _PACKAGE_INSTALL_INGEST_INTERVAL = 300.0
 _EMBED_BACKFILL_IDLE_INTERVAL = 30.0
 _EMBED_BACKFILL_BUSY_SLEEP = 1.0
 
+# D-EMB: how often the non-pgvector fallback tick re-scans for `embedding`
+# PROPERTY rows not yet in the ANN index. Deliberately much coarser than the
+# pgvector path's 1s/30s cadence -- `hydrate_engine_embeddings` has no
+# incremental cursor (it walks every node's properties each call), so running
+# it on the tight cadence would add a full-graph scan to an already-contended
+# engine every cycle (D-PERF-2).
+_EMBED_BACKFILL_GENERIC_INTERVAL_S = 600.0
+
 # Embedder circuit-breaker (CONCEPT:AU-KG.coordination.embedder-breaker): when the embedding endpoint is down
 # (e.g. the GPU host power-cycles → vLLM 502s), the backfill tick must NOT keep
 # calling it every 30s across N tables (each with client-side retries) — that
@@ -2169,6 +2177,59 @@ class TaskManagerMixin(GraphEngineProtocol):
                 items.extend(rows)
             return items[:take]
 
+    def _tick_embedding_backfill_generic(self) -> int:
+        """Non-pgvector fallback for :meth:`_tick_embedding_backfill` (D-EMB).
+
+        This "dedicated vector-embedding backfill drain" thread has been
+        running in production the whole time — but ``_tick_embedding_backfill``
+        below returns 0 immediately on any backend that isn't
+        ``PostgreSQLBackend`` (checks ``pgvector_available``/``_conn``/
+        ``_get_embedding_tables``, all pgvector-only attributes), so on the
+        native-engine (Ladybug/redb, ``BrainGuardedBackend``) topology this
+        production actually runs on, the daemon has been a silent, permanent
+        no-op since it started. That is the primary mechanism behind the
+        measured 0.5% embedding coverage (136/26,680 nodes, D-PERF-5): a
+        backfill daemon that LOOKS like it's running (thread alive, ticking
+        every 30s) but never does anything on this deployment's backend.
+
+        This reconciles nodes that already carry an ``embedding`` PROPERTY
+        (written by the ingest-time chokepoint in ``ingestion/envelope_ingest.py``,
+        or by any other writer) into the engine's ANN/HNSW index — a SEPARATE
+        store the property write alone does not populate (see
+        ``epistemic_graph_backend.add_embedding``'s docstring: "distinct from
+        storing an embedding node property"; ``semantic_search`` reads the ANN
+        index, not the property). Rate-limited to
+        :data:`_EMBED_BACKFILL_GENERIC_INTERVAL_S` — see that constant's
+        comment for why.
+
+        Deliberately does NOT generate new embeddings for the many legacy
+        nodes that have no ``embedding`` property at all: that needs an
+        embedding-endpoint call per node, touches classification/ACL policy if
+        done through the governed ChangeEnvelope write path, and is an
+        explicit, operator-approved backfill (``scripts/backfill_embeddings.py``),
+        never a silent background daemon.
+        """
+        target = self.backend
+        hydrate = getattr(target, "hydrate_engine_embeddings", None)
+        if not callable(hydrate):
+            return 0
+        now = time.monotonic()
+        last = getattr(self, "_last_generic_embed_hydrate", 0.0)
+        if now - last < _EMBED_BACKFILL_GENERIC_INTERVAL_S:
+            return 0
+        self._last_generic_embed_hydrate = now
+        try:
+            count = int(hydrate())
+        except Exception as e:  # noqa: BLE001 — best-effort reconciliation tick; a failure here must never kill the daemon loop, only skip this pass
+            logger.debug("generic embedding-index hydrate failed: %s", e)
+            return 0
+        if count:
+            logger.info(
+                "KG embedding-index hydrate: indexed %d node(s) into the ANN store",
+                count,
+            )
+        return count
+
     def _tick_embedding_backfill(self) -> int:
         """Backfill vector embeddings onto configured pgvector nodes that lack them.
 
@@ -2187,7 +2248,11 @@ class TaskManagerMixin(GraphEngineProtocol):
             or not callable(get_tables)
             or not getattr(target, "pgvector_available", False)
         ):
-            return 0  # not a pgvector backend
+            # D-EMB: not a pgvector backend — try the native-engine fallback
+            # instead of unconditionally returning 0 (see
+            # `_tick_embedding_backfill_generic`'s docstring for why this
+            # branch was previously a silent permanent no-op in production).
+            return self._tick_embedding_backfill_generic()
 
         budget = _EMBED_BACKFILL_BUDGET
 
