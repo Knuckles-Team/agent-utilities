@@ -187,7 +187,7 @@ def ingest_jpeg_via_sidecar(
     if isinstance(thumbnail_b64, str) and thumbnail_b64:
         try:
             thumbnail_bytes = base64.b64decode(thumbnail_b64)
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError) as exc:  # noqa: BLE001 — narrow thumbnail decode fallback, degrades to no-thumbnail
             logger.debug(
                 "ingest_jpeg_via_sidecar: bad thumbnail_png_b64 for %s: %s",
                 image_id,

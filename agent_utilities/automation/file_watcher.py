@@ -222,7 +222,7 @@ class FileWatcher:
                 logger.info(
                     f"[CONCEPT:AU-OS.host.file-watcher-trigger] Found {len(result['outdated'])} outdated packages"
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — dev-tooling pip audit, not a production data path
             logger.debug(
                 f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip outdated check failed: {e}"
             )
@@ -244,7 +244,7 @@ class FileWatcher:
             logger.debug(
                 "[CONCEPT:AU-OS.host.file-watcher-trigger] pip-audit not installed — skipping vuln scan"
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — dev-tooling pip-audit check, not a production data path
             logger.debug(
                 f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip-audit check failed: {e}"
             )
@@ -267,7 +267,7 @@ class FileWatcher:
             )
             if proc.returncode == 0 and proc.stdout.strip():
                 return json.loads(proc.stdout)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — dev-tooling pip list, not a production data path
             logger.debug(
                 f"[CONCEPT:AU-OS.host.file-watcher-trigger] pip list failed: {e}"
             )
