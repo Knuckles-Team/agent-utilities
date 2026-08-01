@@ -90,7 +90,7 @@ def _safe_str(value: Any) -> str:
         return "<unrepresentable>"
 
 
-def _parse_timestamp(value: Any) -> datetime:
+def parse_timestamp(value: Any) -> datetime:
     """Parse the ``trace_ontology`` ``%Y-%m-%dT%H:%M:%SZ`` timestamp back to a ``datetime``."""
     if isinstance(value, str) and value:
         try:
@@ -166,6 +166,68 @@ class AuditSink(Protocol):
     async def get_run(
         self, *, run_id: str
     ) -> RunAuditRecord | None: ...  # pragma: no cover
+
+
+def tool_call_rows_by_trace_node_id(
+    engine: Any, trace_node_id: str
+) -> list[dict[str, Any]]:
+    """Read a run's ``:ToolCall`` rows given its already-canonical ``:RunTrace`` node id.
+
+    Extracted from :meth:`KgAuditSink.list_tool_calls` so a second reader that already
+    holds the canonical id (e.g. a scope-bound history source that computed it once
+    while building a visibility set) can reuse the exact same query without re-deriving
+    it from a raw ``run_id`` a second time — ``trace_ontology.trace_id`` is not
+    idempotent on an already-canonical value, so re-hashing it would look up the wrong
+    node (CONCEPT:AU-KG.trace.canonical-id-non-idempotence).
+    """
+    from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
+    from agent_utilities.observability.trace_ontology import TRACE_USED_TOOL_EDGE
+
+    return read_rows(
+        engine,
+        f"MATCH (:RunTrace {{id: $tid}})-[:{TRACE_USED_TOOL_EDGE}]->(t:ToolCall) "
+        "RETURN t.tool_call_id AS tool_call_id, t.tool_name AS tool_name, "
+        "t.audit_arguments AS audit_arguments, t.audit_result AS audit_result, "
+        "t.audit_error AS audit_error, t.timestamp AS timestamp, "
+        "t.agent_name AS agent_name, t.conversation_id AS conversation_id, "
+        "t.parent_run_id AS parent_run_id, t.sequence AS sequence "
+        "ORDER BY t.sequence ASC",
+        {"tid": trace_node_id},
+    )
+
+
+def tool_call_records_from_rows(
+    rows: list[dict[str, Any]], *, run_id: str
+) -> list[ToolCallRecord]:
+    """Map raw ``:ToolCall`` rows to :class:`ToolCallRecord`\\ s, tagged with ``run_id``.
+
+    ``run_id`` is stamped as given (display/identity value only) — callers that already
+    hold a canonical trace id pass it straight through rather than the raw run identifier,
+    since the raw identifier is never recoverable from the graph (CONCEPT:AU-KG opacity —
+    ``trace_id``'s docstring: "run identifiers are always opaque refs").
+    """
+    records: list[ToolCallRecord] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        error = row.get("audit_error") or None
+        ts = parse_timestamp(row.get("timestamp"))
+        records.append(
+            ToolCallRecord(
+                run_id=run_id,
+                tool_call_id=str(row.get("tool_call_id") or ""),
+                tool_name=str(row.get("tool_name") or ""),
+                arguments=str(row.get("audit_arguments") or ""),
+                result=(row.get("audit_result") or None) if error is None else None,
+                error=error,
+                started_at=ts,
+                ended_at=ts,
+                conversation_id=row.get("conversation_id") or None,
+                parent_run_id=row.get("parent_run_id") or None,
+                agent_name=row.get("agent_name") or None,
+            )
+        )
+    return records
 
 
 class KgAuditSink:
@@ -300,48 +362,13 @@ class KgAuditSink:
         """Return ``run_id``'s tool calls in recorded (sequence) order."""
         if self._engine is None:
             return []
-        from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
-        from agent_utilities.observability.trace_ontology import (
-            TRACE_USED_TOOL_EDGE,
-        )
         from agent_utilities.observability.trace_ontology import (
             trace_id as canonical_trace_id,
         )
 
         trace_node_id = canonical_trace_id(run_id)
-        rows = read_rows(
-            self._engine,
-            f"MATCH (:RunTrace {{id: $tid}})-[:{TRACE_USED_TOOL_EDGE}]->(t:ToolCall) "
-            "RETURN t.tool_call_id AS tool_call_id, t.tool_name AS tool_name, "
-            "t.audit_arguments AS audit_arguments, t.audit_result AS audit_result, "
-            "t.audit_error AS audit_error, t.timestamp AS timestamp, "
-            "t.agent_name AS agent_name, t.conversation_id AS conversation_id, "
-            "t.parent_run_id AS parent_run_id, t.sequence AS sequence "
-            "ORDER BY t.sequence ASC",
-            {"tid": trace_node_id},
-        )
-        records: list[ToolCallRecord] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            error = row.get("audit_error") or None
-            ts = _parse_timestamp(row.get("timestamp"))
-            records.append(
-                ToolCallRecord(
-                    run_id=run_id,
-                    tool_call_id=str(row.get("tool_call_id") or ""),
-                    tool_name=str(row.get("tool_name") or ""),
-                    arguments=str(row.get("audit_arguments") or ""),
-                    result=(row.get("audit_result") or None) if error is None else None,
-                    error=error,
-                    started_at=ts,
-                    ended_at=ts,
-                    conversation_id=row.get("conversation_id") or None,
-                    parent_run_id=row.get("parent_run_id") or None,
-                    agent_name=row.get("agent_name") or None,
-                )
-            )
-        return records
+        rows = tool_call_rows_by_trace_node_id(self._engine, trace_node_id)
+        return tool_call_records_from_rows(rows, run_id=run_id)
 
     async def get_run(self, *, run_id: str) -> RunAuditRecord | None:
         """Return ``run_id``'s latest ``RunAuditRecord``, or ``None`` when absent."""
@@ -367,7 +394,7 @@ class KgAuditSink:
         row = rows[0]
         status = str(row.get("status") or "").lower()
         outcome: RunOutcome = "failed" if status in ("failed", "error") else "completed"
-        ts = _parse_timestamp(row.get("timestamp"))
+        ts = parse_timestamp(row.get("timestamp"))
         return RunAuditRecord(
             run_id=run_id,
             outcome=outcome,
@@ -575,4 +602,7 @@ __all__ = [
     "RunOutcome",
     "ToolCallRecord",
     "identity_redactor",
+    "parse_timestamp",
+    "tool_call_records_from_rows",
+    "tool_call_rows_by_trace_node_id",
 ]
