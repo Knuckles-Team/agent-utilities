@@ -1,0 +1,29 @@
+# Frozen baseline of pre-existing raw-exception log violations this
+# lane (D-W2-5, log-redaction sweep) found in
+# agent_utilities/mcp/multiplexer.py (logger "mcp_multiplexer", OUTSIDE
+# the agent_utilities.* privacy boundary installed by
+# agent_utilities/core/log_privacy.py — see this script's module
+# docstring) but could not fix without colliding with the concurrent
+# MCP-session-isolation lane that owns that file. Registered as D-LR-1
+# in the deferred registry — a ratchet, not a permanent exemption:
+# burn down toward zero once that lane lands. TAB-separated:
+# path\tline\t# comment (comment is not parsed and will drift as the
+# codebase changes -- expected). A NEW entry (not here) fails
+# check_log_exception_redaction.py. Fixing a baselined site shrinks
+# this file on the next --update-baseline; never hand-add an entry to
+# make a real violation disappear.
+agent_utilities/mcp/multiplexer.py	167	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	1187	# logger=logger e
+agent_utilities/mcp/multiplexer.py	1695	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	1727	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	1736	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	1760	# logger=logger exc.category
+agent_utilities/mcp/multiplexer.py	1808	# logger=logger exc.category
+agent_utilities/mcp/multiplexer.py	2224	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	2235	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	2388	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	2625	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	3145	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	3318	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	3351	# logger=logger exc
+agent_utilities/mcp/multiplexer.py	3361	# logger=logger exc
