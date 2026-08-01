@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1133
+total_concepts: 1135
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -5747,6 +5747,13 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/query_tools.py
   doc: read-only SQL over the KG via the engine
+- id: AU-KG.query.register-each-user-table
+  name: does the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/chat_persistence.py
+  doc: does the
 - id: AU-KG.query.skip-assimilated-papers
   name: Skip assimilated papers
   pillar: AU-KG
@@ -7032,6 +7039,14 @@ concepts:
   - agent_utilities/graph/verification.py
   - agent_utilities/orchestration/agent_runner.py
   doc: / AU-AHE.evaluation.action-outcome-feedback
+- id: AU-ORCH.execution.delegation-hot-path-authority
+  name: keep a long delegation authorized for its whole run, on every entrypoint, not just MCP dispatch
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/orchestration/manager.py
+  doc: keep a long delegation authorized for its whole run, on every entrypoint, not just MCP dispatch
 - id: AU-ORCH.execution.delegation-reasoning-off
   name: reasoning is an OPT-IN capability
   pillar: AU-ORCH

@@ -51,6 +51,7 @@ GraphResearchAction = Literal[
     "track_citations",
     "spawn_background",
     "night_shift",
+    "contradictions",
 ]
 GraphEvaluateAction = Literal[
     "evaluate",
@@ -144,7 +145,9 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "'evolve_variants' (evolve solution variants), 'track_citations' (citation graph), "
             "'spawn_background' (spawn a background analysis job), 'night_shift' (run one "
             "autonomous overnight second-brain research cycle over a local markdown vault — "
-            "scout/catalog/cartograph/critique/edit; target=vault root, propose-only). "
+            "scout/catalog/cartograph/critique/edit; target=vault root, propose-only), "
+            "'contradictions' (the night-shift Critic — flag existing nodes that OPPOSE a "
+            "new claim in `query`; propose-only, KG-2.83). "
             "query=source/topic; jobs return a job_id to poll with graph_ingest(action='status')."
         ),
         tags=["graph-os", "research"],
@@ -152,7 +155,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
     async def graph_research(
         action: GraphResearchAction = Field(
             default="synthesize",
-            description="synthesize | deep_extract | background_research | relevance_sweep | research_ingest | evolve_variants | track_citations | spawn_background | night_shift",
+            description="synthesize | deep_extract | background_research | relevance_sweep | research_ingest | evolve_variants | track_citations | spawn_background | night_shift | contradictions",
         ),
         query: str = Field(default="", description="Source / topic / artifact."),
         top_k: int = Field(default=10, description="Complexity budget / result count."),
