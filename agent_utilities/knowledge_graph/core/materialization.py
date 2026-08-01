@@ -26,6 +26,11 @@ import re
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +126,25 @@ def normalize_label(label: str) -> str:
     return label
 
 
+# Cross-cutting tenant/owner/ACL governance properties every write path may
+# carry (``tenant_sharing.stamp_ownership``: ``tenant_id``, ``_owner_id``,
+# ``_shared_scope``; the write-time ACL classification stamp:
+# ``tenant_sharing.stamp_classification`` -> ``classification``) but that no
+# individual ``TableDefinition`` in schema_definition.py declares as a column.
+# Without this, a schema-backed backend (LadybugDB) treats them as undeclared
+# and folds them into the ``metadata`` JSON catch-all instead of the real
+# column ladybug_backend.py's schema creation provisions for them generically
+# — so a stamped write never actually landed a queryable ``tenant_id``/
+# ``classification``, and both the mandatory tenant-scoped read (query_cypher)
+# and the ACL-hydration read (secured_reads._durable_access_rows) then matched
+# zero/ungoverned rows for data the caller had just written. Declared once
+# here (the single source of truth both write-shaping paths consult) rather
+# than duplicated across ~40 TableDefinitions.
+_GOVERNANCE_COLUMNS = frozenset(
+    {"tenant_id", "_owner_id", "_shared_scope", "classification", "external_access"}
+)
+
+
 def schema_valid_keys(backend: Any, label: str | None) -> set[str] | None:
     """Declared columns for ``label`` on a schema-backed backend, else None (free
     default mirror of the engine's ``_schema_valid_keys``)."""
@@ -130,9 +154,9 @@ def schema_valid_keys(backend: Any, label: str | None) -> set[str] | None:
 
     for node in SCHEMA.nodes:
         if node.name == label:
-            return set(node.columns.keys())
+            return set(node.columns.keys()) | _GOVERNANCE_COLUMNS
     if backend.__class__.__name__ == "LadybugBackend":
-        return set(GENERIC_NODE_COLUMNS)
+        return set(GENERIC_NODE_COLUMNS) | _GOVERNANCE_COLUMNS
     return None
 
 
@@ -147,13 +171,22 @@ def set_clause(
     if alias == "r" and backend and backend.__class__.__name__ == "LadybugBackend":
         return ""
     valid_keys = schema_valid_keys(backend, label)
+    # The native epistemic_graph Cypher parser does not support backtick-quoted
+    # identifiers at all -- it fails outright with "unexpected character: '`'"
+    # on every SET clause this built, regardless of the property name. Property
+    # keys reaching this helper are already identifier-safe (dict/**kwargs
+    # keys), so a bare identifier is safe here; only quote for other backends
+    # whose (Neo4j-flavored) dialect expects/tolerates it.
+    backtick = not (
+        backend and backend.__class__.__name__ == "EpistemicGraphBackend"
+    )
     sets = []
     for k in data:
         if k == "id":
             continue
         if valid_keys is not None and k not in valid_keys:
             continue
-        sets.append(f"{alias}.`{k}` = ${k}")
+        sets.append(f"{alias}.`{k}` = ${k}" if backtick else f"{alias}.{k} = ${k}")
     return " SET " + ", ".join(sets) if sets else ""
 
 
@@ -214,20 +247,15 @@ def write_entities(
     rels = relationships or []
     for index, row in enumerate(entities):
         if "type" in row:
-            raise ValueError(
-                f"entity[{index}] uses retired 'type'; canonical 'node_type' is required"
-            )
+            raise retired_node_type_property_error(context=f"entity[{index}]")
         if not row.get("id") or not row.get("node_type"):
             raise ValueError(f"entity[{index}] requires id and node_type")
         stamp_source(row, domain)
-    edge_aliases = {"type", "rel_type", "relationship_type", "relation"}
     for index, row in enumerate(rels):
-        aliases = edge_aliases.intersection(row)
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)
         if aliases:
-            names = ", ".join(sorted(aliases))
-            raise ValueError(
-                f"relationship[{index}] uses retired aliases ({names}); "
-                "canonical 'relationship' is required"
+            raise retired_edge_relationship_property_error(
+                aliases, context=f"relationship[{index}]"
             )
         if (
             not row.get("source")

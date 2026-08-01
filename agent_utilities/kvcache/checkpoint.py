@@ -375,7 +375,7 @@ class KVCheckpointStore:
         node_id = self._node_id(checkpoint_id)
 
         node_props: dict[str, Any] = {
-            "type": "KVCheckpoint",
+            "node_type": "KVCheckpoint",
             "checkpoint_id": checkpoint_id,
             "model_identity": key.model_identity,
             "quantization": key.quantization,
@@ -397,7 +397,7 @@ class KVCheckpointStore:
             node_props["trace_context"] = session.trace_context
 
         blob_props = {
-            "type": "Blob",
+            "node_type": "Blob",
             "content_digest": digest,
             "file_size_bytes": len(data),
             "created_at": now,
@@ -417,7 +417,7 @@ class KVCheckpointStore:
             return None
 
         try:
-            client.edges.add(node_id, blob_id, {"type": "hasBlob"})
+            client.edges.add(node_id, blob_id, {"relationship": "hasBlob"})
         except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above (the node's own `blob_id` property, which get_checkpoint reads directly); this edge is purely "for graph navigability" per the docstring, so its loss doesn't affect get_checkpoint/restore_conversation
             logger.debug(
                 "[CONCEPT:AU-KG.memory.kv-checkpoint-resource] checkpoint→blob edge link skipped: %s",
@@ -573,14 +573,16 @@ class KVCheckpointStore:
                     txn,
                     run_node_id,
                     {
-                        "type": "AgentRun",
+                        "node_type": "AgentRun",
                         "run_id": new_run_id,
                         "created_at": self._now(),
                     },
                 )
             client.txn.commit(txn)
             client.edges.add(
-                run_node_id, self._node_id(checkpoint_id), {"type": "initializedFrom"}
+                run_node_id,
+                self._node_id(checkpoint_id),
+                {"relationship": "initializedFrom"},
             )
         except Exception as e:  # noqa: BLE001 — lineage edge is best-effort
             logger.warning(
@@ -636,7 +638,7 @@ class KVCheckpointStore:
             self._client.edges.add(
                 f"conversation:{conversation_id}",
                 self._node_id(checkpoint_id),
-                {"type": "restoredFrom"},
+                {"relationship": "restoredFrom"},
             )
         except Exception as e:  # noqa: BLE001 — lineage edge is best-effort
             logger.debug(

@@ -84,7 +84,8 @@ class TestMemoryCRUD:
         assert mem_id.startswith("mem:")
         # Verify in backend
         res = engine.query_cypher(
-            "MATCH (m:Memory {id: $id}) RETURN m.name as name", {"id": mem_id}
+            "MATCH (m:Memory {id: $id}) RETURN m.id as id, m.name as name",
+            {"id": mem_id},
         )
         assert len(res) > 0
         assert res[0]["name"] == "Test"
@@ -116,7 +117,13 @@ class TestMemoryCRUD:
     def test_search_memories(self, engine):
         engine.add_memory("Python development tips", name="PythonMem", category="dev")
         engine.add_memory("Cooking recipes", name="CookMem", category="hobby")
-        results = engine.search_memories("python")
+        # The retrieval relevance quality gate (LOW_RELEVANCE_TOPK) needs a
+        # real embedding model, which the test environment doesn't configure
+        # -- the established convention elsewhere in the suite (e.g.
+        # tests/integration/graph/test_kg_lifecycle.py's
+        # test_archived_node_excluded_from_graph_search) is
+        # skip_quality_gate=True for exactly this case (D-GS3-4).
+        results = engine.search_memories("python", skip_quality_gate=True)
         assert len(results) > 0
         assert any("Python" in str(r.get("name", "")) for r in results)
 
@@ -133,7 +140,8 @@ class TestIngestion:
         ep_id = engine.ingest_episode("User asked about deployment", source="chat")
         assert ep_id.startswith("ep:")
         res = engine.query_cypher(
-            "MATCH (e:Episode {id: $id}) RETURN e.source as src", {"id": ep_id}
+            "MATCH (e:Episode {id: $id}) RETURN e.id as id, e.source as src",
+            {"id": ep_id},
         )
         assert res[0]["src"] == "chat"
 
@@ -146,7 +154,7 @@ class TestIngestion:
 
         # Verify server node
         res = engine.query_cypher(
-            "MATCH (s:Server {id: 'srv:filesystem'}) RETURN s.url as url"
+            "MATCH (s:Server {id: 'srv:filesystem'}) RETURN s.id as id, s.url as url"
         )
         assert len(res) > 0
         assert res[0]["url"] == "http://localhost:3000"
@@ -166,7 +174,7 @@ class TestIngestion:
         engine.ingest_a2a_agent_card("http://reviewer.io", card)
 
         res = engine.query_cypher(
-            "MATCH (r:CallableResource {resource_type: 'A2A_AGENT'}) RETURN r.name as name"
+            "MATCH (r:CallableResource {resource_type: 'A2A_AGENT'}) RETURN r.id as id, r.name as name"
         )
         assert len(res) > 0
         assert res[0]["name"] == "CodeReviewer"
@@ -180,7 +188,7 @@ class TestIngestion:
         engine.ingest_agent_skill(frontmatter, "skill body...", provider="synthetic")
 
         res = engine.query_cypher(
-            "MATCH (r:CallableResource {resource_type: 'AGENT_SKILL'}) RETURN r.name as name"
+            "MATCH (r:CallableResource {resource_type: 'AGENT_SKILL'}) RETURN r.id as id, r.name as name"
         )
         assert len(res) > 0
         assert res[0]["name"] == "code-analyzer"
@@ -192,7 +200,7 @@ class TestIngestion:
         )
         res = engine.query_cypher(
             "MATCH (r:CallableResource)-[:HAS_METADATA]->(m:ToolMetadata) "
-            "WHERE r.name = 'LinkedAgent' RETURN m.source as source"
+            "WHERE r.name = 'LinkedAgent' RETURN m.id as id, m.source as source"
         )
         assert len(res) > 0
         assert res[0]["source"] == "A2A"
@@ -253,7 +261,7 @@ class TestAgentSpawning:
         assert agent_id.startswith("spawn:")
 
         res = engine.query_cypher(
-            "MATCH (a:SpawnedAgent {id: $id}) RETURN a.system_prompt as prompt",
+            "MATCH (a:SpawnedAgent {id: $id}) RETURN a.id as id, a.system_prompt as prompt",
             {"id": agent_id},
         )
         assert "Write unit tests" in res[0]["prompt"]
@@ -292,7 +300,7 @@ class TestSelfImprovement:
 
         res = engine.query_cypher(
             "MATCH (r:RunTrace)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) "
-            "WHERE r.id = $id RETURN o.reward as reward",
+            "WHERE r.id = $id RETURN o.id as id, o.reward as reward",
             {"id": tid},
         )
         assert len(res) > 0
@@ -304,7 +312,7 @@ class TestSelfImprovement:
         assert crit_id.startswith("crit:")
 
         res = engine.query_cypher(
-            "MATCH (c:Critique {id: $id}) RETURN c.textual_gradient as grad",
+            "MATCH (c:Critique {id: $id}) RETURN c.id as id, c.textual_gradient as grad",
             {"id": crit_id},
         )
         assert "broader context" in res[0]["grad"]
@@ -352,10 +360,15 @@ class TestSelfImprovement:
         # Spawn agent and link to episode and prompt
         agent_id = engine.spawn_specialized_agent("review code", [])
 
+        # cypher-write-subset-allow: this module's `engine` fixture constructs
+        # IntelligenceGraphEngine(backend=LadybugBackend(temp_db)); `.execute()`
+        # here goes straight to Kuzu's full openCypher engine, never the
+        # native subset parser.
         engine.backend.execute(
             "MATCH (r:RunTrace), (a:SpawnedAgent) WHERE r.id = $rid AND a.id = $aid MERGE (r)-[:EXECUTED_ON]->(a)",
             {"rid": trace_id(ep_id), "aid": agent_id},
         )
+        # cypher-write-subset-allow: same LadybugBackend `engine` fixture as above.
         engine.backend.execute(
             "MATCH (a:SpawnedAgent), (p:SystemPrompt) WHERE a.id = $aid AND p.id = $pid MERGE (a)-[:USES]->(p)",
             {"aid": agent_id, "pid": base_id},
@@ -384,6 +397,8 @@ class TestMaintenance:
         engine.add_memory("Node B", name="B")
 
         # We must add edge to the backend since memory nodes go there, not NX
+        # cypher-write-subset-allow: same LadybugBackend `engine` fixture as
+        # TestSelfImprovement above.
         engine.backend.execute(
             "MATCH (a:Memory {name: 'A'}), (b:Memory {name: 'B'}) MERGE (a)-[:RELATED_TO]->(b)"
         )
@@ -403,7 +418,8 @@ class TestMaintenance:
         maintainer.apply_temporal_decay()
 
         res = engine.query_cypher(
-            "MATCH (n {id: $id}) RETURN n.importance_score as score", {"id": mem_id}
+            "MATCH (n {id: $id}) RETURN n.id as id, n.importance_score as score",
+            {"id": mem_id},
         )
         assert float(res[0]["score"]) < 1.0
 

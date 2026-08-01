@@ -17,12 +17,85 @@ from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
+def _bind_isolated_engine(compute: GraphComputeEngine) -> IntelligenceGraphEngine:
+    """Build an ``IntelligenceGraphEngine`` bound to an already-isolated ``compute``.
+
+    ``IntelligenceGraphEngine(db_path=...)`` builds its own backend via
+    ``create_backend()``, which constructs a bare ``EpistemicGraphBackend()``.
+    That backend resolves its OWN routing graph via ``resolve_routing_graph(None)``
+    *before* asking ``GraphComputeEngine`` for one — so under the (autouse,
+    test-suite-wide) ``isolate_graph_compute_engine`` fixture it lands on the
+    ambient tenant's graph rather than this test's isolated graph (the
+    fixture's redirect only catches a literal
+    ``graph_name in (None, "__commons__", "__secrets__")``, and
+    ``resolve_routing_graph`` has already turned ``None`` into a concrete
+    tenant-scoped name by the time the fixture's patched ``__init__`` sees it).
+    The result is two divergent graph identities in the same test: writes
+    through the raw ``GraphComputeEngine`` are invisible to the engine, and
+    reads through the engine can be rejected outright with a cross-graph
+    ``PermissionError``. Binding the backend directly to the already-isolated
+    ``compute`` object sidesteps the second, divergent resolution entirely.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    backend = object.__new__(EpistemicGraphBackend)
+    backend._graph = compute
+    backend.graph_name = compute.graph_name
+    return IntelligenceGraphEngine(backend=backend)
+
+
+def _seed_domain_roster(
+    compute: GraphComputeEngine, domain: str, agent_ids: list[str]
+) -> None:
+    """Seed a minimal ``domain:<domain>`` -> ``Agent`` roster.
+
+    ``AgentOrchestrationEngine.synthesize_team`` scopes candidates via
+    ``get_blast_radius(f"domain:{domain}", max_depth=2)`` (a BFS over
+    OUTGOING edges — see ``eg-compute::algorithms::get_blast_radius``) and then
+    matches ``Agent`` nodes whose ``agent_id`` falls in that candidate set AND
+    whose ``domain`` property equals the requested domain. This test module's
+    isolated graph starts empty, so without this seed every ``compose_team()``
+    call legitimately finds no authorized agents and raises ``LookupError`` —
+    previously masked because the module's engine construction bug (see
+    ``_bind_isolated_engine``) accidentally landed reads on an ambient/shared
+    graph that some other test had already populated.
+    """
+    domain_node = f"domain:{domain}"
+    compute.add_node(domain_node, node_type="domain", name=domain)
+    for i, agent_id in enumerate(agent_ids):
+        compute.add_node(
+            agent_id,
+            node_type="Agent",
+            agent_id=agent_id,
+            role=f"specialist-{i}",
+            name=agent_id,
+            domain=domain,
+        )
+        compute.add_edge(domain_node, agent_id, relationship="SCOPES")
+
+
 @pytest.fixture(autouse=True)
 def setup_engine():
-    """Ensure IntelligenceGraphEngine is globally active for orchestration tests."""
-    if IntelligenceGraphEngine._ACTIVE_ENGINE is None:
-        compute = GraphComputeEngine(backend_type="rust")
-        IntelligenceGraphEngine(db_path=":memory:", graph=compute)
+    """Make a freshly-isolated, minimally-seeded IntelligenceGraphEngine active
+    for each test.
+
+    ``IntelligenceGraphEngine._ACTIVE_ENGINE`` is a process-wide singleton that
+    otherwise survives across tests (the suite's ``isolate_graph_compute_engine``
+    fixture only resets ``GraphComputeEngine._PROCESS_ENGINE``, not this class's
+    own singleton) — so without an explicit per-test reset, only the very FIRST
+    test in this module ever provisions the engine, and every later test (in
+    this module, and in every module that runs after it in the same session)
+    silently reuses whichever graph that first test happened to isolate onto.
+    """
+    IntelligenceGraphEngine._ACTIVE_ENGINE = None
+    compute = GraphComputeEngine(backend_type="rust")
+    _bind_isolated_engine(compute)
+    _seed_domain_roster(compute, "general", ["agent:router", "agent:expert"])
+    _seed_domain_roster(compute, "finance", ["agent:finance-analyst"])
+    yield
+    IntelligenceGraphEngine._ACTIVE_ENGINE = None
 
 
 # --- Gap 1: Team Composer ---
@@ -133,8 +206,7 @@ class TestStateCheckpointer:
         from agent_utilities.core.checkpoint.manager import KGBackend
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(db_path=":memory:")
+        engine = IntelligenceGraphEngine.get_or_create()
         cp = KGBackend(engine=engine)
         state = self._make_mock_state()
         ckpt_id = cp.checkpoint(state, session_id="nx-sess")
@@ -144,8 +216,7 @@ class TestStateCheckpointer:
         from agent_utilities.core.checkpoint.manager import KGBackend
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(db_path=":memory:")
+        engine = IntelligenceGraphEngine.get_or_create()
         cp = KGBackend(engine=engine)
         state = self._make_mock_state()
         cp.checkpoint(state, session_id="restore-test")
@@ -302,11 +373,11 @@ class TestTopologicalRoutingPolicy:
         )
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = GraphComputeEngine(backend_type="rust")
-        g.add_node("gpt-4", type="agent", name="GPT-4")
-        g.add_node("tool1", type="tool", name="search")
-        g.add_edge("gpt-4", "tool1", type="provides")
-        engine = IntelligenceGraphEngine(db_path=":memory:")
+        engine = IntelligenceGraphEngine.get_or_create()
+        g = engine.graph_compute
+        g.add_node("gpt-4", node_type="agent", name="GPT-4")
+        g.add_node("tool1", node_type="tool", name="search")
+        g.add_edge("gpt-4", "tool1", relationship="provides")
         policy = TopologicalRoutingPolicy(engine=engine)
         candidates = [
             RoutingCandidate(model_id="gpt-4", confidence=0.8),
@@ -401,16 +472,16 @@ class TestShareableTeamConfigs:
     def test_export_from_nx(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = GraphComputeEngine(backend_type="rust")
+        engine = IntelligenceGraphEngine.get_or_create()
+        g = engine.graph_compute
         g.add_node(
             "tc:test",
-            type="team_config",
+            node_type="team_config",
             name="Test Team",
             success_rate=0.85,
             usage_count=5,
             origin="local",
         )
-        engine = IntelligenceGraphEngine(db_path=":memory:")
         bundle = engine.export_team_config("tc:test")
         assert bundle is not None
         assert bundle["version"] == "1.0"
@@ -419,8 +490,7 @@ class TestShareableTeamConfigs:
     def test_import_to_nx(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(db_path=":memory:")
+        engine = IntelligenceGraphEngine.get_or_create()
         bundle = {
             "version": "1.0",
             "type": "team_config",
@@ -434,14 +504,14 @@ class TestShareableTeamConfigs:
     def test_export_missing_returns_none(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(db_path=":memory:")
+        engine = IntelligenceGraphEngine.get_or_create()
         assert engine.export_team_config("nonexistent") is None
 
     def test_list_team_configs(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = GraphComputeEngine(backend_type="rust")
+        engine = IntelligenceGraphEngine.get_or_create()
+        g = engine.graph_compute
         # Isolate on this engine's own connection: wipe team_config nodes leaked
         # by other tests into the shared __commons__ graph before asserting counts.
         try:
@@ -450,7 +520,7 @@ class TestShareableTeamConfigs:
             pass
         g.add_node(
             "tc:a",
-            type="team_config",
+            node_type="team_config",
             name="A",
             success_rate=0.9,
             usage_count=3,
@@ -458,13 +528,12 @@ class TestShareableTeamConfigs:
         )
         g.add_node(
             "tc:b",
-            type="team_config",
+            node_type="team_config",
             name="B",
             success_rate=0.5,
             usage_count=1,
             origin="local",
         )
-        engine = IntelligenceGraphEngine(db_path=":memory:")
         all_configs = engine.list_team_configs()
         assert len(all_configs) == 2
         high_rate = engine.list_team_configs(min_success_rate=0.7)
@@ -585,8 +654,7 @@ class TestEndToEndOrchestration:
         from agent_utilities.graph.team_composer import KGTeamComposer
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(db_path=":memory:")
+        engine = IntelligenceGraphEngine.get_or_create()
         composer = KGTeamComposer(engine=engine)
         composer.compose_team("Analyze data", complexity=3)
 

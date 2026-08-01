@@ -7,6 +7,7 @@ modules without changing tool behavior or names.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from pydantic import Field
@@ -18,6 +19,8 @@ from agent_utilities.knowledge_graph.orchestration.engine_query import (
 from agent_utilities.mcp import kg_server
 from agent_utilities.models.evidence_bundle import EvidenceBundle
 from agent_utilities.security.error_surface import public_error_json, public_error_text
+
+logger = logging.getLogger(__name__)
 
 # CONCEPT:AU-KG.query.query-aggregation — `is_aggregation_cypher` (imported above)
 # is re-exported here so `from agent_utilities.mcp.tools.query_tools import
@@ -454,12 +457,22 @@ def register_query_tools(mcp):
         if _union_read and is_aggregation_cypher(cypher):
             engine = kg_server._get_engine()
             try:
-                results = engine.query_cypher(
-                    cypher,
-                    parsed_params,
-                    as_of=as_of or None,
-                    include_epistemic=include_epistemic_flag,
-                )
+                # Same defensive kwarg omission as the single-connection and
+                # fan-out branches below: only pass `include_epistemic` when
+                # actually requested, so a `query_cypher` implementation (real
+                # or test double) that predates this parameter and doesn't
+                # accept it keeps working.
+                if include_epistemic_flag:
+                    results = engine.query_cypher(
+                        cypher,
+                        parsed_params,
+                        as_of=as_of or None,
+                        include_epistemic=True,
+                    )
+                else:
+                    results = engine.query_cypher(
+                        cypher, parsed_params, as_of=as_of or None
+                    )
                 return json.dumps({"rows": results}, default=str)
             except Exception as e:
                 return public_error_json(e)
@@ -521,7 +534,62 @@ def register_query_tools(mcp):
                 )
             return engine.query_cypher(cypher, parsed_params, as_of=as_of or None)
 
-        results, fan_errors = kg_server.fanout_execute(entries, _fanout_query)
+        if _union_read:
+            # CONCEPT:AU-KG.ingest.unified-query-routing — mirror `graph_search`'s
+            # primary/supplementary split (see the `graph_search` implementation
+            # above). Before this, an implicit-default `graph_query` shared ONE
+            # `DEFAULT_FANOUT_TIMEOUT_S` (30s) budget across every resolved
+            # content-graph entry, including the `default` connection. Under a
+            # wide implicit fan-out (dozens of idle/unreachable `code:*`/`src:*`
+            # graphs) the primary was queued behind the hung ones on the same
+            # 8-worker pool and timed out too — a plain Cypher read against the
+            # live default graph could take minutes even though the engine
+            # itself (`engine_query action=cypher`, which bypasses this router)
+            # answers instantly. The primary/`default` connection now always
+            # grounds at the full budget, run separately and first; only the
+            # SUPPLEMENTARY content connections take the short
+            # `DEFAULT_CONTENT_FANOUT_TIMEOUT_S` skip-budget. An explicit
+            # `target='all'`/list is a deliberate cross-repo request and is
+            # NEVER `_union_read` (see its definition above), so it is
+            # unaffected and keeps the full per-target budget below.
+            primary = [(n, e) for n, e in entries if n == "default"]
+            supplementary = [(n, e) for n, e in entries if n != "default"]
+            # Robustness: if the resolver produced no `default` entry, treat the
+            # first as primary so SOMETHING always grounds at the full budget.
+            if not primary and entries:
+                primary, supplementary = [entries[0]], entries[1:]
+            results = {}
+            fan_errors = {}
+            for name, engine in primary:
+                # Same partial-success contract `fanout_execute` gives every
+                # target below (and the ACL/tenant denial path relies on): a
+                # backend that legitimately REJECTS this query (e.g. a
+                # permission/ACL denial from `engine.query_cypher`'s own
+                # enforcement) must land in `fan_errors`, not crash the whole
+                # tool call — the primary is queried directly (not through
+                # `fanout_execute`) only to skip its concurrency/timeout
+                # machinery, not its error handling.
+                try:
+                    results[name] = _fanout_query(name, engine)
+                except Exception as exc:  # noqa: BLE001 — mirrors fanout_execute's per-target catch below (same generic, non-leaking label): a denied/failed primary must surface as a labeled error, never propagate raw or silently vanish
+                    logger.warning(
+                        "Graph fan-out primary target failed (exception_type=%s)",
+                        type(exc).__name__,
+                    )
+                    fan_errors[name] = "target_operation_failed"
+            if supplementary:
+                sup_results, sup_errors = kg_server.fanout_execute(
+                    supplementary,
+                    _fanout_query,
+                    timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
+                )
+                results.update(sup_results)
+                fan_errors.update(sup_errors)
+        else:
+            # Explicit cross-repo fan-out (`target='all'`/list) — per-target
+            # timeout at the full budget so one slow backend can't stall the set.
+            results, fan_errors = kg_server.fanout_execute(entries, _fanout_query)
+
         if _union_read:
             # Merge the per-graph row lists into one id-deduped canonical row set.
             merged: list[Any] = []
@@ -1153,9 +1221,27 @@ def register_query_tools(mcp):
                     return public_error_text(e)
 
             def _search_with_engine(engine: Any) -> str:
+                # CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval — every served
+                # `graph_search` call already runs inside the middleware-minted
+                # ambient GraphSession (`verified_tool_session_scope`). Passing it
+                # explicitly opts THIS served path into `search_hybrid`'s per-node
+                # ACL + owner/scope + audit enforcement (a no-op for internal
+                # callers that pass no session — see `search_hybrid`'s docstring),
+                # closing the gap where vector/hybrid results reached an external
+                # caller completely unfiltered, unlike the guarded `graph_query`
+                # Cypher path.
+                from agent_utilities.knowledge_graph.core.session import (
+                    current_session,
+                )
+
+                _session = current_session()
                 if mode in ("hyde", "deep"):
                     results = engine.search_hybrid(
-                        query=query, top_k=top_k, mode=mode, self_correct=self_correct
+                        query=query,
+                        top_k=top_k,
+                        mode=mode,
+                        self_correct=self_correct,
+                        session=_session,
                     )
                 elif mode == "hybrid":
                     results = engine.search_hybrid(
@@ -1163,11 +1249,16 @@ def register_query_tools(mcp):
                         top_k=top_k,
                         self_correct=self_correct,
                         as_of=as_of or None,
+                        session=_session,
                     )
                 elif mode == "concept":
-                    results = engine.search_hybrid(query=query, top_k=top_k)
+                    results = engine.search_hybrid(
+                        query=query, top_k=top_k, session=_session
+                    )
                 elif mode == "analogy":
-                    results = engine.search_hybrid(query=query, top_k=top_k)
+                    results = engine.search_hybrid(
+                        query=query, top_k=top_k, session=_session
+                    )
                 elif mode == "adore":
                     results = engine.search_adore(query=query, top_k=top_k)
                 elif mode == "chrono_ids":
@@ -1204,7 +1295,10 @@ def register_query_tools(mcp):
                         SingleShotSIRA,
                     )
 
-                    base = engine.search_hybrid(query=query, top_k=top_k) or []
+                    base = (
+                        engine.search_hybrid(query=query, top_k=top_k, session=_session)
+                        or []
+                    )
                     results = SingleShotSIRA(engine).align_context(base)
                 elif mode == "hard_negatives":
                     # KG-2.3 — mine hard negatives via the engine's hybrid retriever.
@@ -1227,7 +1321,10 @@ def register_query_tools(mcp):
                         HybridSearchScorer,
                     )
 
-                    base = engine.search_hybrid(query=query, top_k=top_k) or []
+                    base = (
+                        engine.search_hybrid(query=query, top_k=top_k, session=_session)
+                        or []
+                    )
                     docs = [
                         {
                             "id": (r.get("node", r) or {}).get("id", ""),
@@ -1567,14 +1664,18 @@ def register_query_tools(mcp):
             "text-free table-of-contents map = get_document_structure), 'content' "
             "(fetch section bodies for cited char ranges like '96..208,300..420' = "
             "get_page_content), 'retrieve' (walk the tree by relevance and return "
-            "sections with cited start..end ranges). Complements graph_search for "
+            "sections with cited start..end ranges), 'fragments' (the addressable "
+            "evidence spine — every citable Fragment of an artifact/document with "
+            "its stable address + content hash; CONCEPT:AU-KG.ingest.stable-fragment-address), "
+            "'cite' (resolve a stored citation against the current artifact and "
+            "report current | stale | moved | lost). Complements graph_search for "
             "long single documents where similar != relevant."
         ),
         tags=["graph-os", "retrieval", "document", "tree"],
     )
     def graph_document_tree(
         action: str = Field(
-            description="build | structure | content | retrieve",
+            description="build | structure | content | retrieve | fragments | cite",
         ),
         document_id: str = Field(
             default="",
@@ -1610,6 +1711,22 @@ def register_query_tools(mcp):
         use_llm: bool = Field(
             default=False,
             description="action=retrieve — try LLM tree navigation before the lexical walk.",
+        ),
+        artifact_id: str = Field(
+            default="",
+            description="action=fragments/cite — the source Artifact to read the evidence spine of (alternative to document_id).",
+        ),
+        fragment_id: str = Field(
+            default="",
+            description="action=cite — the stable fragment address the citation stored.",
+        ),
+        content_hash: str = Field(
+            default="",
+            description="action=cite — the 'sha256:<hex>' content hash the citation stored, used to detect staleness and to relocate a moved fragment.",
+        ),
+        kinds: str = Field(
+            default="",
+            description="action=fragments — comma-separated fragment kinds to keep (heading,paragraph,table,table_row,list_item,code_block,quote).",
         ),
     ) -> str:
         """Map-then-fetch + tree-navigation retrieval over a document section tree."""
@@ -1717,10 +1834,92 @@ def register_query_tools(mcp):
                 default=str,
             )
 
+        # ── evidence spine (CONCEPT:AU-KG.ingest.stable-fragment-address) ─────
+        # The citation surface: 'fragments' lists what can be cited, 'cite'
+        # answers whether an existing citation still holds.  Both reach the same
+        # core the ingest path writes, so the REST twin (/graph/document-tree)
+        # gets them with no second implementation.
+        if action in {"fragments", "cite"}:
+            from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
+                artifact_id_for,
+                citation_status,
+                fragment_markdown,
+                load_fragments,
+            )
+
+            if text:
+                # Inline text is fragmented deterministically — the same call the
+                # ingest path makes, so an inline preview and a stored spine
+                # agree on every address.
+                resolved_artifact = artifact_id or artifact_id_for(
+                    "inline", "", document_id or "inline-document"
+                )
+                fragments = fragment_markdown(text, artifact_id=resolved_artifact)
+            elif artifact_id or document_id:
+                fragments = load_fragments(
+                    engine, artifact_id=artifact_id, document_id=document_id
+                )
+                resolved_artifact = artifact_id or (
+                    fragments[0].artifact_id if fragments else ""
+                )
+            else:
+                return json.dumps(
+                    {
+                        "error": f"{action} requires 'text', 'artifact_id' or 'document_id'"
+                    }
+                )
+
+            if action == "cite":
+                if not (fragment_id or content_hash):
+                    return json.dumps(
+                        {"error": "cite requires 'fragment_id' and/or 'content_hash'"}
+                    )
+                return json.dumps(
+                    {
+                        "action": "cite",
+                        "artifact_id": resolved_artifact,
+                        **citation_status(
+                            fragments,
+                            fragment_id=fragment_id,
+                            content_hash=content_hash,
+                        ),
+                    },
+                    default=str,
+                )
+
+            wanted = {k.strip() for k in kinds.split(",") if k.strip()}
+            selected = [f for f in fragments if not wanted or f.kind in wanted]
+            return json.dumps(
+                {
+                    "action": "fragments",
+                    "artifact_id": resolved_artifact,
+                    "document_id": document_id,
+                    "fragment_count": len(selected),
+                    "fragments": [
+                        {
+                            "fragment_id": f.fragment_id,
+                            "address": f.address,
+                            "kind": f.kind,
+                            "content_hash": f.content_hash,
+                            "version_id": f.version_id,
+                            "sequence": f.sequence,
+                            "ordinal": f.ordinal,
+                            "depth": f.depth,
+                            "parent_fragment_id": f.parent_fragment_id,
+                            "char_start": f.char_start,
+                            "char_end": f.char_end,
+                            "text": f.text,
+                        }
+                        for f in selected
+                    ],
+                },
+                default=str,
+            )
+
         return json.dumps(
             {
                 "error": f"unknown action '{action}' "
-                "(expected build|structure|content|retrieve)"
+                "(expected build|structure|content|retrieve|fragments|cite)"
             }
         )
 

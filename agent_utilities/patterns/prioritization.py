@@ -69,6 +69,18 @@ class PrioritizedTask(BaseModel):
     blocking_ids: list[str] = Field(default_factory=list)
     blocked_by_ids: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    context_keys: frozenset[str] = Field(
+        default_factory=frozenset,
+        description="CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring (D-KCI-2). "
+        "Content-addressed identifiers (KV page keys, retrieved KG node ids, evidence-"
+        "span ids -- whatever the caller's context view cheaply exposes) for the "
+        "context THIS task actually touched. Empty means 'not measured', never "
+        "'touches nothing' -- a caller that never populates this gets exactly the "
+        "prior abstain-don't-guess behaviour from PredictedReuseScorer. Populating it "
+        "honestly is what turns dependency ADJACENCY (blocking_ids/blocked_by_ids, "
+        "TASK_DEPENDS_ON) into a genuine reuse signal: see "
+        "PrioritizationEngine.predicted_reuse_from_context_overlap.",
+    )
 
 
 class PrioritizationEngine:
@@ -181,6 +193,66 @@ class PrioritizationEngine:
             raise KeyError(f"Task '{task_id}' not found")
         task.status = "completed"
         return task
+
+    def predicted_reuse_from_context_overlap(
+        self,
+        task_id: str,
+        context_keys: frozenset[str] | None = None,
+    ) -> tuple[int | None, int | None]:
+        """The honest context-*overlap* signal missing per D-KCI-2.
+
+        CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring. The dependency graph
+        (``blocking_ids``/``blocked_by_ids``, the in-process mirror of the KG's
+        ``TASK_DEPENDS_ON`` edge) tells you which tasks are *related*; it does not tell
+        you which of them would actually hit this task's warm context — "B depends on
+        A" is not "B reuses A's context". This method answers the narrower, groundable
+        question instead: of the tasks dependency-adjacent to ``task_id`` (the
+        candidate "siblings"), and of the other still-``pending`` ("queued") tasks, how
+        many have THEMSELVES recorded a ``context_keys`` fingerprint that genuinely
+        intersects ``context_keys`` (or ``task_id``'s own, if not given)?
+
+        Returns ``(None, None)`` — never ``(0, 0)`` — when there is nothing to compare
+        against (no context keys supplied and none recorded on the task), so a caller
+        wiring this straight into
+        :meth:`~agent_utilities.kvcache.worthiness.CheckpointObservation.from_prioritization`
+        preserves :class:`~agent_utilities.kvcache.worthiness.PredictedReuseScorer`'s
+        abstain-don't-guess behaviour exactly. A real ``(0, 0)`` — computed because keys
+        WERE available but nothing overlapped — is a genuine measurement, not an
+        abstention, and is returned as such: an empty context-overlap set is evidence
+        of low reuse, not missing evidence.
+
+        This is deliberately a set-intersection over caller-supplied identifiers, not a
+        semantic/embedding similarity — it can undercount genuine near-duplicate
+        contexts that share no identifier, but it never invents an overlap that was not
+        actually recorded, which is the property this scorer's abstention exists to
+        protect.
+        """
+        task = self._tasks.get(task_id)
+        if task is None:
+            raise KeyError(f"Task '{task_id}' not found")
+        keys = context_keys if context_keys is not None else task.context_keys
+        if not keys:
+            return None, None
+
+        sibling_ids = set(task.blocking_ids) | set(task.blocked_by_ids)
+
+        def _overlaps(other: PrioritizedTask) -> bool:
+            return bool(other.context_keys) and bool(other.context_keys & keys)
+
+        sibling_overlap = sum(
+            1
+            for tid in sibling_ids
+            if (other := self._tasks.get(tid)) is not None and _overlaps(other)
+        )
+        queued_overlap = sum(
+            1
+            for other in self._tasks.values()
+            if other.id != task_id
+            and other.id not in sibling_ids
+            and other.status == "pending"
+            and _overlaps(other)
+        )
+        return sibling_overlap, queued_overlap
 
     def get_execution_order(self) -> list[PrioritizedTask]:
         """Get optimal execution order respecting dependencies and priority."""

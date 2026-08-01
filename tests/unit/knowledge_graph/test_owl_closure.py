@@ -61,10 +61,13 @@ def patched_backend(monkeypatch):
 def _transitive_graph() -> nx.MultiDiGraph:
     g = nx.MultiDiGraph()
     for n in ("symbol:A", "symbol:B", "symbol:C"):
-        g.add_node(n, type="symbol", importance_score=0.9)
+        g.add_node(n, node_type="symbol", importance_score=0.9)
     # depends_on is a transitive property → A->B->C should imply A->C.
-    g.add_edge("symbol:A", "symbol:B", type="depends_on")
-    g.add_edge("symbol:B", "symbol:C", type="depends_on")
+    # owl_bridge._python_reasoning reads the canonical "relationship" edge
+    # property (not "type" -- that's the retired key _downfeed_inferences
+    # also never writes).
+    g.add_edge("symbol:A", "symbol:B", relationship="depends_on")
+    g.add_edge("symbol:B", "symbol:C", relationship="depends_on")
     return g
 
 
@@ -83,7 +86,7 @@ def test_run_closure_materializes_inferred_edges():
     inferred = [
         d
         for _, _, d in g.edges(data=True)
-        if d.get("type") == "depends_on" and d.get("inferred")
+        if d.get("relationship") == "depends_on" and d.get("inferred")
     ]
     assert inferred, "expected an inferred=True depends_on edge"
 

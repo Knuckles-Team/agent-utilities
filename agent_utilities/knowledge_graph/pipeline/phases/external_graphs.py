@@ -35,7 +35,7 @@ async def execute_external_graphs(
                 endpoint_url=endpoint,
                 graph_type="sparql",
             )
-            ctx.graph.add_node(node_id, **node.model_dump())
+            ctx.graph.add_node(node_id, **node.to_graph_properties())
             nodes_added += 1
 
     # Register LPG endpoints
@@ -49,7 +49,7 @@ async def execute_external_graphs(
                 graph_type="lpg",
                 properties={"lpg_name": name},
             )
-            ctx.graph.add_node(node_id, **node.model_dump())
+            ctx.graph.add_node(node_id, **node.to_graph_properties())
             nodes_added += 1
 
     return {

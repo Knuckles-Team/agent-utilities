@@ -34,7 +34,7 @@ Migration (executed) is mechanical — the old ``numpy as np`` import line becom
 
     from agent_utilities.numeric import xp as np    # kernel-backed drop-in for `np`
 
-CONCEPT:AU-KG.compute.executed-p2-p3-rollout — the executed P2/P3 rollout: the agent-utilities numpy call sites were
+the executed P2/P3 rollout: the agent-utilities numpy call sites were
 swapped to this ``xp`` surface, keeping the ``np`` alias so bodies are unchanged.
 
 CONCEPT:AU-KG.compute.ufunc-method-surface — the ufunc-method surface. ``xp.maximum`` / ``xp.minimum`` are small

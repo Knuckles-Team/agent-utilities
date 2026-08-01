@@ -42,16 +42,32 @@ def test_embedding_per_model_headers_and_tls_reach_http_client(monkeypatch):
         captured.update(kwargs)
         return real_create(**kwargs)
 
+    # ChatModelConfig/embedding-model config carries headers ONLY as
+    # ``headers_ref`` (core/config.py: "Runtime reference resolving to a
+    # bounded JSON header object ... never serialized back into
+    # AgentConfig") -- there is no plain ``headers`` dict field to set on a
+    # real config object. Stand in a reference string and stub the
+    # resolver embedding_utilities calls (resolve_model_headers) rather
+    # than exercising the real secret backend, matching this test's own
+    # purpose (headers reaching the HTTP client, not reference resolution).
     embed_cfg = SimpleNamespace(
         provider="openai",
         id="internal-embed",
         base_url="https://embed.internal/v1",
         api_key="ek",
+        api_key_ref=None,
         oauth2=None,
-        headers={"X-Client-Id": "svc-embed"},
+        headers_ref="ref:embed-headers",
     )
     monkeypatch.setattr(embedding_utilities, "config", _stub_config(embed_cfg))
     monkeypatch.setattr(embedding_utilities, "create_http_client", spy)
+    monkeypatch.setattr(
+        embedding_utilities,
+        "resolve_model_headers",
+        lambda *, value=None, reference=None: (
+            {"X-Client-Id": "svc-embed"} if reference == "ref:embed-headers" else {}
+        ),
+    )
     embedding_utilities.clear_embedding_model_cache()
 
     _real_create_embedding_model(

@@ -15,6 +15,45 @@ from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
+def _real_engine() -> tuple[GraphComputeEngine, IntelligenceGraphEngine]:
+    """A real, fixture-isolated (graph, engine) pair, actually bound together.
+
+    A ``MagicMock()`` backend can't satisfy engine_query.query_cypher's
+    governance layer (tenant scope + row ACL, including ACL
+    *hydration* against the durable store via
+    ``active.graph_compute.._client.nodes.properties_batch`` when a node's
+    ACL isn't already cached) — a mocked ``properties_batch`` call returns a
+    MagicMock, not a dict, which secured_reads._durable_access_rows
+    correctly rejects ("Durable ACL hydration response is invalid"), so
+    every governed read through a mock backend fails closed. Use a real
+    isolated backend instead.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    graph = GraphComputeEngine(backend_type="rust")
+    backend = EpistemicGraphBackend()
+    backend._graph = graph
+    engine = IntelligenceGraphEngine(backend=backend)
+    IntelligenceGraphEngine.set_active(engine)
+    return graph, engine
+
+
+def _grant_read(node_id: str) -> None:
+    """Grant this suite's ambient test actor read access to ``node_id``.
+
+    engine_query.query_cypher's row-level ACL check denies any node with no
+    explicit ACL outright, privileged or not (secured_reads.permit: "Nodes
+    without an ACL are denied").
+    """
+    from _test_engine import TEST_AGENT_ID
+
+    from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
+
+    build_acl(node_id, data_owner=TEST_AGENT_ID)
+
+
 def test_policy_model_validation():
     """Test that Policy model validates correctly."""
     policy = Policy(
@@ -45,10 +84,7 @@ def test_process_flow_model_validation():
 @pytest.mark.asyncio
 async def test_create_or_merge_node_idempotency():
     """Test that create_or_merge_node adds nodes to the graph."""
-    graph = GraphComputeEngine(backend_type="rust")
-    mock_backend = MagicMock()
-    engine = IntelligenceGraphEngine(backend=mock_backend)
-    IntelligenceGraphEngine.set_active(engine)
+    graph, _engine = _real_engine()
 
     policy = Policy(
         id="pol:safety_01",
@@ -75,18 +111,15 @@ async def test_process_step_sequence():
         id="step:exec", name="Execute", step_id="step:exec", step_type="tool_call"
     )
 
-    graph = GraphComputeEngine(backend_type="rust")
-    mock_backend = MagicMock()
-    engine = IntelligenceGraphEngine(backend=mock_backend)
-    IntelligenceGraphEngine.set_active(engine)
+    graph, _engine = _real_engine()
 
     await create_or_merge_node(step1)
     await create_or_merge_node(step2)
 
-    graph.add_edge(step1.step_id, step2.step_id, type="NEXT")
+    graph.add_edge(step1.step_id, step2.step_id, relationship="NEXT")
 
     assert "NEXT" in [
-        d.get("type") for u, v, d in graph.out_edges(step1.step_id, data=True)
+        d.get("relationship") for u, v, d in graph.out_edges(step1.step_id, data=True)
     ]
 
 
@@ -95,36 +128,45 @@ from unittest.mock import MagicMock, patch
 
 def test_engine_policy_discovery():
     """Test that the engine can discover policies via Cypher."""
-    GraphComputeEngine(backend_type="rust")
-    mock_backend = MagicMock()
-    # Mocking Cypher return for Policy
-    mock_backend.execute.return_value = [
-        {
-            "p": {
-                "name": "TDD Policy",
-                "description": "Always write tests",
-                "id": "pol:01",
-            }
-        }
-    ]
+    from _test_engine import TEST_TENANT
 
-    engine = IntelligenceGraphEngine(backend=mock_backend)
+    _graph, engine = _real_engine()
+    engine.add_node(
+        "pol:01",
+        "Policy",
+        {
+            "name": "TDD Policy",
+            "description": "Always write tests",
+            # query_cypher's mandatory tenant scope (KG-2.6) filters on this;
+            # a plain EpistemicGraphBackend (unlike BrainGuardedBackend) does
+            # not stamp it automatically.
+            "tenant_id": TEST_TENANT,
+        },
+    )
+    _grant_read("pol:01")
+
     policies = engine.find_relevant_policies("TDD")
 
     assert len(policies) == 1
     assert policies[0]["name"] == "TDD Policy"
-    assert mock_backend.execute.call_count >= 1
 
 
 def test_engine_process_discovery():
     """Test that the engine can discover process flows via Cypher."""
-    GraphComputeEngine(backend_type="rust")
-    mock_backend = MagicMock()
-    mock_backend.execute.return_value = [
-        {"f": {"name": "Feature Flow", "goal": "Implement feature", "id": "flow:01"}}
-    ]
+    from _test_engine import TEST_TENANT
 
-    engine = IntelligenceGraphEngine(backend=mock_backend)
+    _graph, engine = _real_engine()
+    engine.add_node(
+        "flow:01",
+        "ProcessFlow",
+        {
+            "name": "Feature Flow",
+            "goal": "Implement feature",
+            "tenant_id": TEST_TENANT,
+        },
+    )
+    _grant_read("flow:01")
+
     processes = engine.find_relevant_processes("feature")
 
     assert len(processes) == 1

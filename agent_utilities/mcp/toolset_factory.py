@@ -20,6 +20,7 @@ path for remote MCP clients; boolean verification controls are not supported.
 
 from typing import Any
 
+from agent_utilities.mcp.httpx_boundary import coerce_httpx2_auth
 from agent_utilities.mcp.protocol_compat import (
     force_legacy_protocol_mode,
     install_mcp_v2_bridge,
@@ -28,6 +29,56 @@ from agent_utilities.mcp.protocol_compat import (
 install_mcp_v2_bridge()
 
 DEFAULT_MCP_TIMEOUT = 60.0
+
+
+def _coerce_httpx_timeout(value: Any, default_timeout: float) -> Any:
+    """Normalize any timeout-like ``value`` into a real :class:`httpx.Timeout`
+    built from *this process's* ``httpx`` package (D-SNI-3).
+
+    fastmcp's SDK v2 client (``fastmcp.client.transports.http``) is built
+    against a separate, differently-versioned vendored copy of httpx —
+    imported there as ``httpx2`` — and constructs its OWN ``httpx2.Timeout``
+    (e.g. ``httpx2.Timeout(30.0, read=read_timeout_seconds)``) before calling
+    the ``httpx_client_factory`` callback this module hands it. That foreign
+    ``httpx2.Timeout`` instance is structurally identical to ``httpx.Timeout``
+    (same ``connect``/``read``/``write``/``pool`` attributes) but is NOT an
+    instance of it.
+
+    ``httpx.Timeout.__init__`` only special-cases
+    ``isinstance(timeout, httpx.Timeout)``; a same-shaped-but-foreign
+    ``Timeout`` fails that check and falls through to the "explicit values"
+    branch, which then assigns the *whole foreign object* — not a float — to
+    ``self.connect``/``self.read``/``self.write``/``self.pool``. httpx's own
+    connection-establishment code later computes a wall-clock deadline as
+    ``time.monotonic() + self.connect`` (a float + that corrupted attribute)
+    and raises ``TypeError: unsupported operand type(s) for +: 'float' and
+    'Timeout'`` deep inside the connect path, surfaced by fastmcp as
+    ``RuntimeError: Client failed to connect: ...``.
+
+    Fix this at the boundary where a foreign type crosses into our own
+    httpx-based client construction: duck-type any timeout-shaped object by
+    its ``.connect``/``.read``/``.write``/``.pool`` attributes rather than
+    trusting ``isinstance``, and rebuild a genuine local ``httpx.Timeout``
+    from those (float | None) values.
+    """
+    import httpx
+
+    if value is None:
+        return httpx.Timeout(default_timeout)
+    if isinstance(value, httpx.Timeout):
+        return value
+    if isinstance(value, int | float):
+        return httpx.Timeout(float(value))
+    if isinstance(value, tuple):
+        return httpx.Timeout(value)
+    timeout_attrs = ("connect", "read", "write", "pool")
+    if all(hasattr(value, attr) for attr in timeout_attrs):
+        return httpx.Timeout(**{attr: getattr(value, attr) for attr in timeout_attrs})
+    raise TypeError(
+        f"unsupported MCP client timeout type: {type(value)!r} (expected None, "
+        "a number, a tuple, an httpx.Timeout, or a Timeout-shaped object "
+        "exposing .connect/.read/.write/.pool)"
+    )
 
 
 def _httpx_client_factory(tls_profile: Any, default_timeout: float) -> Any:
@@ -45,8 +96,6 @@ def _httpx_client_factory(tls_profile: Any, default_timeout: float) -> Any:
     never break the connect path. We honor the transport-supplied timeout when present
     and fall back to our default.
     """
-    import httpx
-
     from agent_utilities.core.http_client import create_async_http_client
 
     def factory(
@@ -59,7 +108,7 @@ def _httpx_client_factory(tls_profile: Any, default_timeout: float) -> Any:
         return create_async_http_client(
             headers=headers,
             auth=auth,
-            timeout=timeout if timeout is not None else httpx.Timeout(default_timeout),
+            timeout=_coerce_httpx_timeout(timeout, default_timeout),
             follow_redirects=follow_redirects,
             **tls_profile.httpx_kwargs(),
         )
@@ -102,10 +151,26 @@ def build_http_toolset(
             if str(url).rstrip("/").lower().endswith("/sse")
             else StreamableHttpTransport
         )
+        # D-MTT-1: `auth` may be a local `httpx.Auth` built by
+        # `client_credentials.child_auth()` (3 real call sites route through
+        # here: skill_validation_assets.py, runtime_validation.py, and
+        # agent_runner.py's `_spawn_auth()`, all reused per that function's
+        # docstring). `SSETransport.__init__` stores it as `self.auth:
+        # httpx2.Auth | None` and hands it straight to `mcp.client.sse.
+        # sse_client(auth=self.auth, ...)` — the exact same crossing fixed at
+        # multiplexer.py:1475 (see httpx_boundary.py's docstring), so it must
+        # be coerced here. `StreamableHttpTransport` must NOT be coerced the
+        # same way: it re-derives its own client via `_httpx_client_factory`
+        # below, which builds a LOCAL `httpx.AsyncClient(auth=auth, ...)` —
+        # `httpx.AsyncClient._build_auth` requires `isinstance(auth,
+        # httpx.Auth)`, so handing it the httpx2-wrapped adapter instead
+        # would swap a working case for a new, self-inflicted crossing
+        # failure in the *other* direction. Branch on the transport actually
+        # selected, not a blanket coercion.
         transport = transport_cls(
             url,
             headers=headers or None,
-            auth=auth,
+            auth=coerce_httpx2_auth(auth) if transport_cls is SSETransport else auth,
             httpx_client_factory=_httpx_client_factory(trust, timeout),
         )
         return force_legacy_protocol_mode(

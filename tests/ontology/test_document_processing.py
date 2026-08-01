@@ -64,6 +64,40 @@ class _FakeFacade:
         self.store = writer
 
 
+class _FakeMarkingStore:
+    """Minimal durable-store double for the mandatory marking authority.
+
+    ``process()``'s write path always calls ``sync_access`` ->
+    ``apply_marking``, which requires a resolved marking store
+    (agent_utilities/knowledge_graph/ontology/permissioning.py) --
+    process-wide and cached-once, so an unavailable store fails every test in
+    the process, not just the first. ``use_marking_authority`` is the
+    sanctioned DI/test seam (see tests/ontology/test_permissioning.py's
+    ``clean_permissioning`` autouse fixture for the established pattern).
+    """
+
+    def __init__(self) -> None:
+        self.persisted: dict[str, dict] = {}
+
+    def execute(self, query, params):
+        if query.startswith("MATCH"):
+            return list(self.persisted.values())
+        self.persisted[params["id"]] = {
+            "node_id": params["n"],
+            "tenant_id": params["tenant"],
+            "markings": params["marks"],
+        }
+        return []
+
+
+@pytest.fixture(autouse=True)
+def _isolated_marking_authority():
+    from agent_utilities.knowledge_graph.ontology import permissioning as p
+
+    with p.use_marking_authority(_FakeMarkingStore()):
+        yield
+
+
 def test_chunking_overlap_and_monotonic_positions():
     cfg = ChunkingConfig(chunk_size=200, overlap=50)
     spans = chunk_text(DOC_TEXT, cfg)
@@ -111,7 +145,7 @@ def test_process_materializes_document_and_linked_chunks():
     assert len(result.chunk_nodes) == result.chunk_count
 
     doc_id = result.document_id
-    assert result.document_node["type"] == DOCUMENT_NODE_TYPE
+    assert result.document_node["node_type"] == DOCUMENT_NODE_TYPE
     assert result.document_node["chunk_count"] == result.chunk_count
     assert result.document_node["external_access"] == access.model_dump()
 
@@ -120,15 +154,15 @@ def test_process_materializes_document_and_linked_chunks():
     positions = [c["position"] for c in result.chunk_nodes]
     assert positions == list(range(len(result.chunk_nodes)))
     for c in result.chunk_nodes:
-        assert c["type"] == CHUNK_NODE_TYPE
+        assert c["node_type"] == CHUNK_NODE_TYPE
         assert c["document_id"] == doc_id
         assert len(c["embedding"]) == EMBED_DIM
         assert c["embedding_dim"] == EMBED_DIM
         assert c["external_access"] == access.model_dump()
 
     # HAS_CHUNK (doc->chunk) and CHUNK_OF (chunk->doc) for every chunk.
-    has_chunk = [e for e in result.edges if e["type"] == HAS_CHUNK_EDGE]
-    chunk_of = [e for e in result.edges if e["type"] == CHUNK_OF_EDGE]
+    has_chunk = [e for e in result.edges if e["relationship"] == HAS_CHUNK_EDGE]
+    chunk_of = [e for e in result.edges if e["relationship"] == CHUNK_OF_EDGE]
     assert len(has_chunk) == result.chunk_count
     assert len(chunk_of) == result.chunk_count
     for e in has_chunk:
@@ -149,13 +183,17 @@ def test_live_write_path_persists_through_backend_integration():
     )
     result = proc.process(DOC_TEXT, source="memory://doc2")
 
-    # Document + one node per chunk written to the backend.
+    # Document + one node per chunk written to the backend. _write_node strips
+    # "node_type" out of the persisted props and passes it as the backend's
+    # own "label" kwarg instead (agent_utilities/knowledge_graph/ontology/
+    # document_processing.py's _write_node), matching _FakeWriter's
+    # add_node(node_id, label=..., **properties) contract.
     assert result.document_id in writer.nodes
-    assert writer.nodes[result.document_id]["type"] == DOCUMENT_NODE_TYPE
+    assert writer.nodes[result.document_id]["label"] == DOCUMENT_NODE_TYPE
     chunk_node_ids = [c["id"] for c in result.chunk_nodes]
     for cid in chunk_node_ids:
         assert cid in writer.nodes
-        assert writer.nodes[cid]["type"] == CHUNK_NODE_TYPE
+        assert writer.nodes[cid]["label"] == CHUNK_NODE_TYPE
     # Two edges (HAS_CHUNK + CHUNK_OF) per chunk hit the backend.
     assert len(writer.edges) == 2 * result.chunk_count
     rel_types = {rel for _s, _t, rel, _p in writer.edges}
@@ -219,7 +257,7 @@ def test_bytes_input_is_decoded_and_processed():
     proc = DocumentProcessor(embed_fn=_fake_embed)
     result = proc.process(DOC_TEXT.encode("utf-8"), source="memory://bytes")
     assert result.chunk_count >= 1
-    assert result.document_node["type"] == DOCUMENT_NODE_TYPE
+    assert result.document_node["node_type"] == DOCUMENT_NODE_TYPE
 
 
 def test_persist_uses_engine_bulk_path_when_available():

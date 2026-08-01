@@ -5,8 +5,8 @@ from __future__ import annotations
 
 The engine-native capability index. Capability/tenant/policy-restricted candidate
 selection is now performed by the engine's own vector index — the SAME
-``query.unified`` cross-modal plan (``Scan``/``Filter``/``Rank``/``Limit``,
-CONCEPT:AU-KG.compute.kg-2) and native ``semantic_search`` ANN primitive that
+``query.unified`` cross-modal plan (``Scan``/``Filter``/``Rank``/``Limit``)
+and native ``semantic_search`` ANN primitive that
 :mod:`agent_utilities.knowledge_graph.retrieval.hybrid_retriever` already uses for
 general retrieval — instead of the in-process hnswlib/numpy scan in
 :mod:`.capability_index`. That module is now a *bounded, non-authoritative cache*;

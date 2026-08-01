@@ -12,7 +12,6 @@ zero evidence), and custom ``on_fail`` injection.
 
 from __future__ import annotations
 
-import json
 import time
 
 import pytest
@@ -78,7 +77,10 @@ def test_watch_deploy_queues_durable_task_with_spec(engine):
     assert job_id is not None
     task = engine.submitted[0]
     assert task["task_type"] == "deploy_watch"
-    spec = json.loads(engine.nodes[job_id][dw.WATCH_PROP])
+    # FakeEngine.submit_task nests extra_meta under the WorkItem's "metadata"
+    # key as a raw dict (mirroring get_task_status's real contract, which
+    # _load_spec depends on via `isinstance(spec, dict)` -- never a JSON string).
+    spec = engine.nodes[job_id]["metadata"][dw.WATCH_PROP]
     assert spec["service"] == "caddy-mcp"
     assert spec["version"] == "1.2.3"
     assert spec["window_s"] == 120
@@ -173,9 +175,11 @@ def test_resumed_watch_keeps_original_deadline(engine):
     set_fleet_observer(FakeObserver({"caddy-mcp": obs("caddy-mcp", "up")}))
     job_id = dw.watch_deploy(engine, "caddy-mcp", window_s=600)
     # Simulate the original deadline having already passed before resume.
-    spec = json.loads(engine.nodes[job_id][dw.WATCH_PROP])
+    # _load_spec's real contract requires a raw dict at metadata[WATCH_PROP]
+    # (isinstance(spec, dict)), same shape as test_watch_deploy_queues_durable_task_with_spec.
+    spec = engine.nodes[job_id]["metadata"][dw.WATCH_PROP]
     spec["deadline_unix"] = time.time() - 1
-    engine.nodes[job_id][dw.WATCH_PROP] = json.dumps(spec)
+    engine.nodes[job_id]["metadata"][dw.WATCH_PROP] = spec
     start = time.time()
     result = _run(engine, "caddy-mcp", job_id)
     assert time.time() - start < 5  # did NOT wait a fresh 600s window

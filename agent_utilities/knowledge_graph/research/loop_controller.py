@@ -1453,7 +1453,7 @@ class LoopController:
                     claim.id,
                     "Claim",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": "proposal",
                         "evidence_bundle_json": bundle.model_dump_json(),
                     },
@@ -1672,7 +1672,7 @@ class LoopController:
                     claim.id,
                     "Claim",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": "active",
                         "is_verified": True,
                         "evidence_bundle_json": bundle.model_dump_json(),
@@ -1818,7 +1818,7 @@ class LoopController:
                     claim.id,
                     "Claim",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": "proposal",
                         "evidence_bundle_json": bundle.model_dump_json(),
                     },

@@ -179,7 +179,7 @@ def test_maintenance_logic(engine):
     # Add nodes and link them
     engine.add_memory("Important node", name="Node1")
     engine.add_memory("Linked node", name="Node2")
-    engine.graph.add_edge("mem:Node1", "mem:Node2", type="RELATED_TO")
+    engine.graph.add_edge("mem:Node1", "mem:Node2", relationship="RELATED_TO")
 
     # Update importance
     maintainer.update_importance_scores()

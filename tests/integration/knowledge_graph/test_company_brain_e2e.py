@@ -42,6 +42,58 @@ def enforced(monkeypatch):
     reset_company_brain()
 
 
+def _create_operational_backend() -> GraphBackend:
+    """Build the same backend ``create_backend()`` would, bound to THIS test's
+    isolated graph instead of a tenant graph the test never provisioned.
+
+    ``create_backend()``'s bare ``EpistemicGraphBackend()`` resolves its own
+    routing graph via ``resolve_routing_graph(None)`` from the ambient actor's
+    ``tenant_id`` *before* ``GraphComputeEngine`` is ever asked for one, then
+    hands that already-resolved name to ``GraphComputeEngine.get_or_create()``.
+    Under the suite-wide ``isolate_graph_compute_engine`` fixture two things
+    go wrong under a tenant-bearing ambient actor (the fixture's default):
+
+    1. The resolved name is a tenant graph this test never provisioned --
+       bypassing the fixture's redirect, which only catches a literal
+       ``graph_name in (None, "__commons__", "__secrets__")``.
+    2. Even clearing the tenant so resolution lands on the "__commons__"
+       sentinel doesn't fully fix it: ``get_or_create()`` compares its
+       *pre-redirect* ``graph_name`` argument ("__commons__") against the
+       *post-redirect* ``root.graph_name`` (this test's real isolated name),
+       finds them unequal, and builds a graph-scoped view PINNED to the
+       literal string "__commons__" -- which then fails every call with
+       "A graph-scoped view cannot retarget the verified GraphSession"
+       because the ambient GraphSession is scoped to the real isolated graph.
+
+    Constructing ``GraphComputeEngine`` directly (as the isolate fixture's own
+    engines do) sidesteps both: the redirect applies to this exact call, and
+    there is no second, mismatched ``get_or_create()`` comparison afterward.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    compute = GraphComputeEngine(backend_type="rust")
+    backend: GraphBackend = object.__new__(EpistemicGraphBackend)
+    backend._graph = compute
+    backend.graph_name = compute.graph_name
+    backend.create_schema()
+
+    from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+        brain_enforcement_enabled,
+        get_company_brain,
+    )
+
+    if brain_enforcement_enabled():
+        from agent_utilities.knowledge_graph.backends.brain_guarded_backend import (
+            BrainGuardedBackend,
+        )
+
+        backend = BrainGuardedBackend(backend, get_company_brain())
+    return backend
+
+
 class FakeDesig:
     def __init__(self, id, score):
         self.id = id
@@ -50,15 +102,19 @@ class FakeDesig:
 
 
 def test_write_path_trust_arbitration_via_create_backend(enforced):
-    backend = create_backend("memory")
+    # create_backend()'s explicit backend_type strings (e.g. "memory") are
+    # reserved for focused backend tests and connection-registry adapters and
+    # do NOT alter GraphOS authority -- only the omitted-type "operational
+    # authority" path installs the Company Brain write-path guard.
+    backend = _create_operational_backend()
     # WS-1 wiring: enforcement installs the guard.
     assert isinstance(backend, GraphBackend)
     assert type(backend).__name__ == "BrainGuardedBackend"
 
     with use_source("servicenow"):
-        backend.add_node("incident:42", type="Incident", state="open")
+        backend.add_node("incident:42", node_type="Incident", state="open")
     with use_source("document"):  # lower authority → suppressed
-        backend.add_node("incident:42", type="Incident", state="stale")
+        backend.add_node("incident:42", node_type="Incident", state="stale")
 
     brain = get_company_brain()
     assert brain.conflicts.all_conflicts  # conflict was detected + logged
@@ -74,14 +130,45 @@ def test_read_path_permissions(enforced):
             read_roles=["hr"],
         )
     )
-    with use_actor(ActorContext("a:mk", ActorType.AI_AGENT, roles=("marketing",))):
+    # secured_reads.permit() now default-denies nodes with no ACL at all
+    # ("Nodes without an ACL are denied" -- a fail-closed tightening this test
+    # predates, when an absent ACL implicitly meant "public"). Give "pub:1" an
+    # explicit PUBLIC-classification ACL instead of relying on the old
+    # implicit-allow default.
+    brain.permissions.set_acl(
+        NodeACL(node_id="pub:1", classification=DataClassification.PUBLIC)
+    )
+    # secured_reads.permit() requires a verified tenant authority (actor_id +
+    # tenant_id + authenticated=True) before it even reaches role-based ACL
+    # filtering -- an unauthenticated caller-supplied identity is rejected
+    # fail-closed regardless of roles. Construct properly authenticated test
+    # actors (the same pattern used elsewhere, e.g.
+    # tests/unit/knowledge_graph/test_engine_sharding.py) instead of the bare,
+    # unauthenticated ActorContext this test predates.
+    with use_actor(
+        ActorContext(
+            "a:mk",
+            ActorType.AI_AGENT,
+            roles=("marketing",),
+            tenant_id="t:company-brain-e2e",
+            authenticated=True,
+        )
+    ):
         assert sr.permit(["hr:comp", "pub:1"]) == ["pub:1"]
-    with use_actor(ActorContext("a:hr", ActorType.AI_AGENT, roles=("hr",))):
+    with use_actor(
+        ActorContext(
+            "a:hr",
+            ActorType.AI_AGENT,
+            roles=("hr",),
+            tenant_id="t:company-brain-e2e",
+            authenticated=True,
+        )
+    ):
         assert set(sr.permit(["hr:comp", "pub:1"])) == {"hr:comp", "pub:1"}
 
 
 def test_correction_becomes_rule_that_changes_retrieval(enforced):
-    backend = create_backend("memory")
+    backend = _create_operational_backend()
     svc = FeedbackService(backend=backend)
     res = svc.record_correction(
         "rule",

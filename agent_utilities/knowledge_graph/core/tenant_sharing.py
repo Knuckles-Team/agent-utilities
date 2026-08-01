@@ -34,6 +34,7 @@ import logging
 import re
 from typing import Any
 
+from ...models.company_brain import DataClassification
 from ...security.brain_context import ActorContext, current_actor
 from .shard_topology import default_graph_name, tenant_graph_name
 
@@ -41,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "OWNER_KEY",
+    "PUBLIC_CATALOG_LABELS",
     "SCOPE_COMMONS",
     "SCOPE_KEY",
     "SCOPE_ORG",
@@ -57,6 +59,7 @@ __all__ = [
     "read_union",
     "share",
     "share_with_org",
+    "stamp_classification",
     "stamp_ownership",
     "visibility_predicate",
 ]
@@ -193,6 +196,76 @@ def stamp_ownership(
         return
     properties.setdefault(OWNER_KEY, actor.actor_id)
     properties.setdefault(SCOPE_KEY, SCOPE_PRIVATE)
+
+
+# ---------------------------------------------------------------------------
+# ACL classification stamping (write path) — private-by-default, label-aware
+# ---------------------------------------------------------------------------
+
+#: Node labels that are deliberately broadly discoverable platform/fleet
+#: capability catalog data, not private user data. Both are the self-describing
+#: tool registry (CONCEPT:AU-ECO.toolkit.self-describing-registry): MCP tool
+#: metadata (``engine_ingestion.ingest_mcp_server``) and callable-resource /
+#: function registrations (``core.registry.kg_adapter.register_callable_resource``,
+#: whose own docstring says "discoverable through the same graph query") exist
+#: specifically so any authenticated actor can discover what capabilities the
+#: fleet exposes. PUBLIC here mirrors ``DataClassification.PUBLIC``'s documented
+#: meaning ("visible to all authenticated actors") and
+#: ``company_brain.DataLevelPermissions.check_permission``'s read-allow special
+#: case for it. Deliberately a SHORT, evidence-backed list, not a default —
+#: everything not named here gets the conservative private-by-default fallback
+#: below.
+PUBLIC_CATALOG_LABELS: frozenset[str] = frozenset({"ToolMetadata", "CallableResource"})
+
+
+def stamp_classification(
+    properties: dict[str, Any],
+    label: str | None,
+) -> None:
+    """Stamp a durable ``classification`` ACL property onto node props in place.
+
+    CONCEPT:AU-KG.backend.company-brain-write-guard — the write-time half of
+    defence-in-depth ACL registration. ``secured_reads.permit()``'s governed
+    read path is default-deny for any node with no registered ACL
+    (``company_brain.DataLevelPermissions.check_permission``: "No ACL defined
+    — default deny") and, before this, nothing on the generic
+    ``add_node``/``_upsert_node``/``GraphComputeEngine.add_node`` write seams
+    ever registered one — data was writable but permanently unreadable, even
+    by its own creator (secured_reads._hydrate_missing_acls reads this durable
+    property back at query time to reconstruct the actual ACL).
+
+    Policy (deliberate, not a blanket assignment):
+
+    * ``label`` in :data:`PUBLIC_CATALOG_LABELS` -> ``PUBLIC``.
+    * Everything else -> ``CONFIDENTIAL`` (private-by-default): the safe,
+      conservative default that fixes the "unreadable by its own creator"
+      defect without over-exposing to any OTHER actor — read access still
+      requires the node's stamped ``_owner_id`` (:func:`stamp_ownership`) to
+      match the reading actor, or an explicit grant. Mirrors this module's own
+      "data is private, its owner" default for the sibling tenant/owner stamp,
+      and is intentionally the MOST conservative non-PUBLIC classification
+      choice available (over-restrictive is a data-availability bug fixable
+      later; over-permissive is a data-exposure vulnerability).
+
+    Individual call sites with better first-hand knowledge than a bare label
+    (e.g. ``core.sessions._persist_goal``, which knows a ``Concept`` node here
+    is specifically a user's goal) may still call
+    ``DataLevelPermissions.classify_node`` explicitly afterwards to refine the
+    classification (e.g. to ``INTERNAL``) — that does not change *whether* the
+    node is readable (this stamp already guarantees the owner can read it),
+    only the label used for entailment-propagation strictness ordering
+    (``secured_reads.inherit_inferred_acl``) and audit posture.
+
+    Existing ``classification`` markers are never overwritten (a re-write is
+    not silently reclassified).
+    """
+    if properties.get("classification"):
+        return
+    normalized = str(label or "").strip()
+    if normalized in PUBLIC_CATALOG_LABELS:
+        properties["classification"] = DataClassification.PUBLIC.value
+    else:
+        properties["classification"] = DataClassification.CONFIDENTIAL.value
 
 
 # ---------------------------------------------------------------------------
@@ -550,10 +623,19 @@ def promote_to_commons(
     if hasattr(dst, "add_node"):
         dst.add_node(node_id, **{k: v for k, v in props.items() if k != "id"})
     else:
-        dst.execute(
-            "MERGE (n {id: $id}) SET n += $props",
-            {"id": node_id, "props": props},
-        )
+        # ``SET n += $props`` is a map-merge assignment, outside the native
+        # write subset (SET values must be literals;
+        # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+        # ``materialization.set_clause`` is the one SET-clause builder used
+        # everywhere else in this codebase for the portable per-property
+        # equivalent (``IntelligenceGraphEngine._get_set_clause`` delegates
+        # to the same function); params are the flattened props themselves
+        # so each generated ``$key`` placeholder resolves.
+        from .materialization import set_clause
+
+        merge_props = {**props, "id": node_id}
+        query = f"MERGE (n {{id: $id}}) {set_clause(merge_props, dst)}".rstrip()
+        dst.execute(query, merge_props)
     # Reflect the promotion on the org-local copy too, so it reads as shared.
     try:
         _set_scope(node_id, SCOPE_COMMONS, src)

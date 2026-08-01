@@ -104,6 +104,22 @@ For trivial tasks, use judgment; the bias here is correctness over speed.
   before and after". For multi-step work, state the short plan and the check for each
   step, then loop until the checks pass. **"Done" means a live path actually invokes it**
   (see *Wire-First*) **and the unit suite is green** — not merely that the code compiles.
+- **Stand your evidence up before you act on it.** Four ways this failed for real, all in
+  one day: **(a) premises rot.** A deferred item records the world as it was *when
+  written*; ~8 items were worked whose stated blocker had since become false ("the engine
+  has no endpoint" — it had been in `main` all along; "36 repos drifted" — 33; "the
+  generator deletes 2,367 lines" — it reformats; "pinned to fastmcp 3.3.1" — already
+  4.0.0b1). **Re-verify the premise of any item you did not just write**; if it is false,
+  closing it with that finding *is* the work. **(b) Measure with the instrument you are
+  making a claim about** — a verdict is only ever about the interpreter, checkout and
+  branch you actually ran. The ambient `python3` instead of the repo `.venv` produced **47
+  false "environment-blocked" verdicts**; the wrong checkout read a green release gate as
+  red. **(c) A refuted hypothesis is a successful investigation** — report "I looked, it is
+  not happening" and stop; do not keep digging until something finding-shaped appears.
+  **(d) Never manufacture a closure** — *done* (point at it), *`ACCEPTED-RISK`* (with the
+  reasoning), or *open with a named blocker* are all fine; a fabricated "done" is not, and
+  costs more than ten honest "open"s because it makes every other entry unverifiable. Full
+  incidents: [`docs/architecture/empirical-development-standards.md`](docs/architecture/empirical-development-standards.md).
 
 ## Query the code KG before you grep (READ BEFORE exploring code)
 
@@ -305,7 +321,8 @@ case itself next time. The goal is orchestrating completely off the harness.
   `scripts/build_concepts_yaml.py`; README/AGENTS counts come from it).
 - **Guardrail gates (CI + pre-commit, `guardrails.yml`):** `scripts/check_no_stub.py`,
   `check_sprawl.py`, `check_concepts.py`, `check_coupling.py`,
-  `check_retrieval_quality.py`, `check_no_env_sprawl.py`, with meta-tests in `tests/gates/`.
+  `check_retrieval_quality.py`, `check_citation_lineage.py`, `check_no_env_sprawl.py`,
+  with meta-tests in `tests/gates/`.
 - **Cardinal rules:** no stubs (`raise NotImplementedError` only with `# ABSTRACT-OK`);
   strangler-then-delete (never "v2 beside old"); keep the unit suite green.
 
@@ -532,6 +549,11 @@ All four are required; none substitutes for another. Name them `*_wiring`/`*_con
    test flag deleting the production branch** — `AGENT_UTILITIES_TESTING=true` makes `create_agent`
    skip its MCP-toolset governance block entirely, so restore production conditions first.
 7. **No silent storage.** A value set in `__init__`/a setter and read nowhere is a bug.
+8. **Measure with the instrument you are claiming about.** The same confusion one level
+   up: a green/red verdict is a statement about the interpreter, checkout and profile you
+   actually ran. Use the repo `.venv`, in *your* worktree, before attributing a failure to
+   the environment — "environment-blocked" needs the same evidence as any other conclusion
+   (*Working Discipline*; 47 false verdicts came from the ambient `python3`).
 
 ### Writing one costs four lines
 ```python
@@ -551,6 +573,45 @@ the existing suite mocks).
 and serialisation are only proven by running the thing. `scripts/check_wiring.py
 --wire-first-report` answers "does anything import or call this?" statically: a *finder of
 suspects*, not a gate (blind to decorator/entry-point registration and out-of-repo callers).
+
+## Fail closed — a degraded read must never grant permission (READ BEFORE writing a gate, a reader, or a status flag)
+
+Nearly every defect found in the last sweep belongs to **one family: a component that
+cannot do its job returns a value its caller reads as "all clear."** The component is
+usually well written and defensively coded — that *is* the problem, because tolerance at
+the boundary of a safety decision is permission. Incidents + code shapes:
+[`docs/architecture/empirical-development-standards.md`](docs/architecture/empirical-development-standards.md).
+
+1. **Return `None` on failure, never an empty success.** A reader that swallows its
+   exception and returns `[]`/`0`/`False` is **indistinguishable at the call site** from a
+   healthy "nothing found". Five safety gates were found doing this against the same KG —
+   rate limiter (no recent calls → allow), blast-radius (affects nothing → allow),
+   autoscaler cooldown (`0` → scale), CI retry cap (`0` prior attempts → retry),
+   prompt-scanner preflight (no policies → pass) — so **all five stand down together at
+   exactly the moment the KG is degraded**, the moment they exist for. Make failure a
+   distinct value (`None`, or raise) and make every caller **deny, defer, or escalate** on
+   it; `[]` must be free to mean "empty". Test: for each `except: return []`, ask "if this
+   dependency were down, what would each caller do?" — any "proceed" means the *reader* is
+   the bug. CONCEPT:AU-OS.governance.fail-closed-degraded-read
+2. **Never advance state on an unverified write** ("write-then-mark-seen"). A
+   `consumed`/`processed`/cursor/status flag set *regardless of whether the operation it
+   guards succeeded* forecloses the retry **permanently** — the record is now invisible to
+   every future run, which is strictly worse than crashing, since a crash retries. Several
+   live instances (queue drains, ingestion cursors, reconciliation). The advance must be
+   **derived from the write's confirmed result** and ordered after it: `record.consumed =
+   result.ok`, never unconditional. Cannot confirm → do not advance.
+   CONCEPT:AU-OS.governance.verified-write-state-advance
+3. **One rule, one message.** The same violation reported by three checks in three
+   wordings reads as three problems, gets three half-fixes, and still fires twice after one
+   is fixed. Emit it from the single check that owns it; the others defer.
+4. **A tool whose cost makes people avoid it is broken.** Avoidance and breakage are
+   indistinguishable in the outcome, so "it works, people just don't run it" is a bug
+   report, not a defence. Two live examples: a manifest generator whose *faithful* output
+   looked like a 2,367-line deletion (costly to disprove, so it stopped being run and the
+   manifests drifted), and a pre-commit chain too slow to run per-commit. Fix the cost —
+   stage gates by price (`stages:` already exists), split the expensive check out of the
+   hot path, and make scary-but-correct output legible instead of leaving it to be
+   disproved by hand.
 
 ## Native by default — every enhancement is always-on and woven into the flow (READ BEFORE gating a feature)
 
@@ -766,7 +827,7 @@ So the default for any non-trivial change is:
    Do all edits, builds, and tests under that path. (`${XDG_STATE_HOME}/repository-worktrees/` is the convention.)
    Because this location is intentionally outside the ecosystem's uv workspace,
    run dependency-aware commands through `python3 scripts/uv_workspace.py`
-   (for example, `python3 scripts/uv_workspace.py run pytest -q`). The launcher
+   (for example, `python3 scripts/uv_workspace.py run --all-extras pytest -q`). The launcher
    creates a generated workspace view in XDG state, symlinks source members,
    substitutes this worktree for the canonical `agent-utilities` member, and
    uses generated copies of the canonical manifest and lock with forced
@@ -970,31 +1031,21 @@ pre-commit run --all-files
 ```
 
 > ⚠ **`--all-files` can DESTROY your own or another session's unstaged work
-> (D-OB-12) — read this before running it.** Under the hood, `--all-files`
-> `git stash`es every UNSTAGED change before running hooks and restores it
-> after. When a **file-rewriting hook** (`ruff-format`, `turtle-format`,
-> `guardrail-docs-contract --write`, …) touches a path that also had unstaged
-> edits, the restore can **silently drop those edits instead of merging
-> them** — this repo lost a full round of regenerated docs to exactly this
-> during the fastmcp-4 migration. It is acutely dangerous here because
-> **`docs/concept_reservations.yaml` is a shared, cross-session coordination
-> ledger deliberately left unstaged** (concurrent sessions append to it
-> without staging/committing) — one careless `--all-files` run can destroy
-> another session's in-flight concept reservations.
+> (D-OB-12).** It `git stash`es every UNSTAGED change around the run, and a
+> file-rewriting hook (`ruff-format`, `turtle-format`, `guardrail-docs-contract
+> --write`, …) touching the same path can make the restore **silently drop those
+> edits** — it once ate a full round of regenerated docs, and it can destroy
+> another session's in-flight `docs/concept_reservations.yaml` entries (a shared
+> cross-session ledger deliberately left unstaged).
 >
 > **Always run it through the safe wrapper, never bare:**
 > ```bash
 > python3 scripts/safe_precommit_all_files.py
 > ```
-> It backs up your full unstaged diff before the run (so nothing is
-> unrecoverable), prints an explicit warning if `docs/concept_reservations.yaml`
-> (or another known shared-ledger file) is unstaged going in, and verifies
-> afterward that your unstaged changes still apply — pointing at the backup
-> and the exact `git apply --3way` recovery command if a hook silently
-> altered or dropped them. If you must invoke bare `pre-commit` directly
-> (e.g. a **targeted** run against specific files/hooks, which does not carry
-> this risk the same way), prefer that narrower form over `--all-files`
-> whenever you don't need every hook re-run.
+> It backs up your unstaged diff, warns on an unstaged shared ledger, and verifies
+> afterward that your changes still apply. Mechanism, recovery command and the
+> targeted-run carve-out:
+> [`docs/architecture/lane-concurrency.md`](docs/architecture/lane-concurrency.md).
 
 Resolve **every** issue it reports — failures, lint errors, type errors, and
 warnings — **including problems that pre-date your change and were not caused by
@@ -1005,12 +1056,23 @@ file as a known, unavoidable limitation. Only commit once `pre-commit run
 --all-files` (via the safe wrapper above) passes cleanly; if a check legitimately
 cannot pass, stop and explain why rather than bypassing it.
 
+**And never silence a *failure*.** Silencing a check and silencing a red test are
+different moves with the same effect, and only the first was written down here before.
+Do not `xfail`, `skip`/`skipif`, delete, or loosen an assertion (`== 4` → `>= 0`) to turn
+a failing test green. The reasoning that produces all four is "this failure isn't mine
+and it's in my way" — wrong at the second clause: **a newly-visible failure is
+information the project did not have five minutes ago**, most often a suite that has
+started collecting a previously-excluded test against code that was broken all along.
+Attribute it to its cause and fix it, or stop and report it with the attribution you
+have. Both are acceptable; a suite that went green by narrowing what it checks is not.
+
 **ALL gates, always green — pre-commit AND CI.** "Green" means more than the
 pre-commit hooks: **every CI gate must pass and stay passing — never knowingly merge
 a regression.** Before merging to `main`, the full gate suite must be green:
 - **Every guardrail gate** (`guardrails.yml`): `check_no_stub`, `check_concepts`,
   `check_prompt_schema --strict`, `check_genesis_manifest`, `check_ontology`,
   `check_retrieval_quality`, `check_eval_corpus`, `check_reliability_corpus`,
+  `check_citation_lineage`,
   `check_sprawl`, `check_no_env_sprawl`, `check_surface_parity`, the
   `tests/gates` meta-tests, and `test_prod_profile_guard` — run the ones your change
   could touch locally; **a gate red on `main` is a release-blocker, fix it (even if a
@@ -1053,6 +1115,17 @@ agent-utilities lane env      # your private cargo target / pytest basetemp / sc
 In an agent-utilities worktree use `python3 scripts/uv_workspace.py run <cmd>` instead
 of bare `uv run`, and `... lock --locked` instead of bare `uv lock`.
 
+**Name the extras that provide your tool** — `run --all-extras pytest`, not `run pytest`.
+The launcher partitions the virtualenv by dependency selection, so each selection gets its
+own `.venv-<label>` and concurrent lanes can no longer rewrite one environment underneath
+each other (`uv-project-environment`, PARTITION). The base selection is 42 distributions and
+does **not** contain `pytest`; a bare `run pytest` used to fall through to the *system*
+pytest and run the suite under `/usr/bin/python` against system site-packages, reporting
+`fastmcp 3.3.1` and "environment-blocked" with total conviction (D-SP-4). The launcher now
+**refuses** that instead of doing it, and names the fix in the refusal — but you save a
+round trip by requesting the extras up front. `python -m <tool>` is always safe: it can only
+resolve inside the environment.
+
 **The rules, and what enforces them:**
 1. **Never edit the canonical checkout** (`agent-packages/<repo>`). The `lane-guard`
    pre-commit hook **refuses** a non-merge commit authored there. Carve-outs are
@@ -1087,7 +1160,19 @@ of bare `uv run`, and `... lock --locked` instead of bare `uv lock`.
    through `lanes.guarded_tree_mutation(path, operation=…, owner=…)`, or
    `agent-utilities lane guard --reset <path> --owner <you>`. It refuses any tree
    holding uncommitted work you do not own. **Skip that tree. Never force.**
-7. **One document for readers, one fragment per writer.** Read `reports/PROGRAM.md`
+7. **Assume you will be interrupted — commit early and often.** At this concurrency
+   interruption is the norm, not the exception: **six lanes died mid-run in one day.**
+   Commit after each meaningful **batch**, not when the task is finished — a commit is the
+   only artifact a reset, a sibling's global tree mutation, or a dead harness cannot take
+   (cf. rule 2) — and **report your branch head SHA** so your work is recoverable by
+   someone who is not you. Two corollaries: **start a multi-minute gate once** — never
+   re-launch `pre-commit` in a retry loop (one lane restarted it three times, discarding
+   three near-complete runs, and ended with less information than one uninterrupted run);
+   if it stalls, commit and report which hooks completed. And **`ps -p <pid>` is ground
+   truth** for "is it still running" — a harness "no live background children" signal is
+   bookkeeping, not the OS, and goes **stale while the process is still working**; trusting
+   it wrongly declared four lanes' work dead.
+8. **One document for readers, one fragment per writer.** Read `reports/PROGRAM.md`
    (generated charter + register). Write only your own
    `reports/deferred/<lane>.md` (`scripts/deferred_registry.py open`) or your own
    charter fragment.
@@ -1100,14 +1185,10 @@ everything, including pre-existing, no `--no-verify`):
    agent-utilities lane lease --resource precommit-all-files --operation gate -- \
      python3 scripts/safe_precommit_all_files.py
    ```
-   The **lease** stops two lanes running `--all-files` at once. The **wrapper**
-   (D-OB-12, CONCEPT:AU-OS.governance.precommit-all-files-safety) exists because
-   `pre-commit run --all-files` internally `git stash`es every UNSTAGED change and
-   can silently DROP it on restore when a file-rewriting hook touches the same
-   path — which is how a full round of regenerated docs was once eaten, and which
-   would destroy another session's in-flight `docs/concept_reservations.yaml`
-   entries (a shared cross-session ledger deliberately left unstaged). Never call
-   bare `pre-commit run --all-files` here.
+   The **lease** stops two lanes running `--all-files` at once; the **wrapper**
+   (D-OB-12, CONCEPT:AU-OS.governance.precommit-all-files-safety) protects unstaged
+   work from the hooks themselves — rationale in *Quality Bar* above, which owns that
+   rule. Never call bare `pre-commit run --all-files` here.
 
 2. **Commit** in the worktree.
 3. **Enqueue — do not merge by hand, and do not save work up for the end.**
@@ -1181,15 +1262,15 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 1125 concepts across 9 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1144 concepts across 9 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
-| **AU-AHE** | 117 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
-| **AU-ECO** | 127 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
-| **AU-KG** | 482 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
-| **AU-ORCH** | 212 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
-| **AU-OS** | 155 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
+| **AU-AHE** | 118 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
+| **AU-ECO** | 128 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
+| **AU-KG** | 493 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, trace, txn |
+| **AU-ORCH** | 214 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
+| **AU-OS** | 159 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
 | **EG-KG** | 29 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
 | **EG-ORCH** | 1 | routing |

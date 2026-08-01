@@ -113,10 +113,42 @@ configuration is:
 SECRETS_BACKEND=vault
 SECRETS_VAULT_URL=<openbao url>
 SECRETS_VAULT_MOUNT=apps
-ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF=vault://agent-utilities#ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY
+ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF=vault://agent-utilities#ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY@2
 ```
 
 (the `vault` extra — `hvac` — must be installed on the release host).
+
+**Which token authenticates this read (D-AR-4).** `VaultBackend` (`security/secrets_client.py`)
+authenticates with whatever static token is on `VAULT_TOKEN` (or `token=` passed explicitly) when
+no OIDC/AppRole/Kubernetes auth is configured. That token **must carry the `agent-apps-rw`
+policy** — the same policy every service's own `OPENBAO_TOKEN` carries, scoped to `create/read/
+update/delete` on `apps/data/*` and `list/read/delete` on `apps/metadata/*`. Two credentials look
+plausible here and only one is correct:
+
+- ✅ **`OPENBAO_TOKEN`** (`apps/<service>`, e.g. `apps/openbao-mcp`, policy `agent-apps-rw`) — reads
+  `apps/data/agent-utilities` and `apps/metadata/agent-utilities` directly. This is what
+  `VAULT_TOKEN` should resolve to for release signing. A freshly-minted short-TTL `agent-apps-rw`
+  token (see below) also works and is the more auditable choice for a one-shot release run.
+- ❌ **`OPENBAO_ADMIN_TOKEN`** (`apps/openbao-mcp`, policy `agent-apps-token-minter`) — **do not**
+  set `VAULT_TOKEN` to this value. Despite the name, this token is deliberately scoped to
+  `create`/`update`/`sudo` on `auth/token/create` **only** (minting fresh `agent-apps-rw` tokens
+  for others to use) and holds zero capability on `apps/data/*` or `apps/metadata/*` — it 403s on
+  both `apps/data/agent-utilities` and `apps/metadata/agent-utilities` by design, not by bug (see
+  `services/openbao/k8s/bootstrap-policies.sh` and the openbao-mcp `secret-vault-manager` skill's
+  `rotation-operational-facts.md` fact 8). If you need a fresh scoped credential instead of the
+  shared `OPENBAO_TOKEN`, mint one FROM `OPENBAO_ADMIN_TOKEN` first
+  (`POST auth/token/create {"policies":"agent-apps-rw","ttl":"..."}` — `policies` must be a plain
+  string, not a JSON list) and use *that* minted token as `VAULT_TOKEN`; never grant
+  `OPENBAO_ADMIN_TOKEN` itself direct data-plane access.
+
+**Pin the KV version (D-AR-5).** The bare form above (no `@<version>`) resolves whatever KV
+v2 version is *current* at signing time — reproducible only as long as nobody else writes to
+`apps/agent-utilities` in the meantime. `resolve_ref()` (`security/secrets_client.py`) supports
+an explicit `#field@<version>` pin (CONCEPT:AU-KG.ontology.release-key-rotation, D-OC-1) so the
+reference names an immutable version instead of "latest"; the release host's actual
+`ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF` should always carry an explicit `@<version>` suffix
+(bump it deliberately, as a recorded step, whenever `deploy/release/signing-key-rotation.yml`
+gains a new entry) rather than track "latest" implicitly.
 
 **Agreement.** The mismatch was only discovered at *admission* time, long after artifacts
 had been produced. `assert_signing_key_matches_locks()` performs the same comparison at

@@ -79,6 +79,24 @@ from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
+
+def redact_path_for_log(path: object) -> str:
+    """Short, deterministic, non-reversible tag for a path in a log line.
+
+    CONCEPT:AU-OS.observability.log-location-privacy — a raw filesystem path in
+    a log line leaks host layout to anyone with log read access. Stdlib-only
+    (this module's own "must not import anything the venv provides" constraint
+    rules out the shared ``agent_utilities.security.log_redaction`` helper);
+    the same input always hashes to the same tag within a process, so repeated
+    log lines about the same path can still be correlated without the literal
+    value ever appearing.
+    """
+    if not path:
+        return "<empty>"
+    digest = hashlib.sha256(str(path).encode("utf-8", errors="replace")).hexdigest()
+    return f"<redacted:{digest[:12]}>"
+
+
 __all__ = [
     "ActivityProbe",
     "ActivityRecord",
@@ -119,6 +137,7 @@ __all__ = [
     "plan_prune",
     "plan_sync",
     "prune",
+    "redact_path_for_log",
     "register_activity_probe",
     "register_guardrail",
     "register_verify_probe",
@@ -344,7 +363,11 @@ def _project_name(path: Path) -> str | None:
     try:
         document = tomllib.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        logger.warning("workspace member %s has an unreadable manifest: %s", path, exc)
+        logger.warning(
+            "workspace member %s has an unreadable manifest: %s",
+            redact_path_for_log(path),
+            exc,
+        )
         return None
     name = document.get("project", {}).get("name")
     return name if isinstance(name, str) and name else None
@@ -672,7 +695,9 @@ class LeaseActivityProbe:
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
-                logger.warning("ignoring unreadable lease %s: %s", path, exc)
+                logger.warning(
+                    "ignoring unreadable lease %s: %s", redact_path_for_log(path), exc
+                )
                 continue
             expires = float(payload.get("expires_at", 0.0))
             if expires <= now:
@@ -1245,7 +1270,7 @@ def _unlink_quietly(path: Path) -> None:
     try:
         path.unlink(missing_ok=True)
     except OSError as exc:
-        logger.warning("could not remove %s: %s", path, exc)
+        logger.warning("could not remove %s: %s", redact_path_for_log(path), exc)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2083,7 +2108,7 @@ def _read_entry_points(path: Path) -> tuple[str, ...]:
     except FileNotFoundError:
         return ()
     except OSError as exc:
-        logger.warning("unreadable entry points %s: %s", path, exc)
+        logger.warning("unreadable entry points %s: %s", redact_path_for_log(path), exc)
         return ()
     scripts: list[str] = []
     section = ""
@@ -2829,15 +2854,15 @@ def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
         return 0 if verdict.allowed else 3
 
     if args.command == "sync":
-        outcome = sync(
+        sync_outcome = sync(
             workspace,
             reason=args.reason,
             apply=not args.dry_run,
             ignore_activity=args.ignore_activity,
             allow_uninstalls=args.allow_uninstalls,
         )
-        emit(outcome.as_dict(), as_json=as_json)
-        return 0 if outcome.verdict.allowed else 3
+        emit(sync_outcome.as_dict(), as_json=as_json)
+        return 0 if sync_outcome.verdict.allowed else 3
 
     if args.command == "prune":
         prune_outcome = prune(
