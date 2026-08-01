@@ -217,7 +217,7 @@ def test_sink_install_failure_logs_the_real_cause_not_just_its_type(
     Falsifying guard for the reconciliation-gate-2 fix: these handlers used to
     log only ``type(exc).__name__`` ("RuntimeError"), which told an operator a
     sink was missing but never *why* — the exact cause-dropping shape
-    ``scripts/check_swallowed_errors.py`` classifies as ``log_type_name_only``.
+    ``scripts/security/check_swallowed_errors.py`` classifies as ``log_type_name_only``.
     The distinctive message below is absent from the old formatting, so this
     test fails against it and passes against a cause-preserving log.
     """
@@ -243,6 +243,6 @@ def test_sink_install_failure_logs_the_real_cause_not_just_its_type(
     # record factory unconditionally nulls ``exc_info``/``exc_text``/``stack_info``
     # on every ``agent_utilities.*`` record (tracebacks embed host filesystem
     # paths), so ``exc_info=exc`` is a no-op in this package — as
-    # ``scripts/check_swallowed_errors.py`` itself documents. The interpolated
+    # ``scripts/security/check_swallowed_errors.py`` itself documents. The interpolated
     # message is therefore the ONLY channel that carries the cause, which is
     # exactly what is asserted above.

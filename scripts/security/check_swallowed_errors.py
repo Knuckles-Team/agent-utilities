@@ -113,9 +113,9 @@ heavier (e.g. hashing handler body text, which would itself break on
 harmless reformatting).
 
 Usage:
-  python3 scripts/check_swallowed_errors.py                  # check (exit 1 on new)
-  python3 scripts/check_swallowed_errors.py --update-baseline # freeze current set
-  python3 scripts/check_swallowed_errors.py ROOT              # scan ROOT, no baseline
+  python3 scripts/security/check_swallowed_errors.py                  # check (exit 1 on new)
+  python3 scripts/security/check_swallowed_errors.py --update-baseline # freeze current set
+  python3 scripts/security/check_swallowed_errors.py ROOT              # scan ROOT, no baseline
                                                                # (e.g. a test fixture dir)
 
 Exit 0 = no new cause-dropping handler, 1 = at least one found.
@@ -129,7 +129,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 PKG = ROOT / "agent_utilities"
 BASELINE = ROOT / "scripts" / "swallowed_error_baseline.txt"
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "build", "dist"}
@@ -433,7 +433,7 @@ def _write_baseline(entries: dict[HandlerKey, tuple[int, str, str]]) -> None:
         "# '# ...') is a\n"
         "# human-readable comment (current file:line + source text) and is NOT parsed —\n"
         "# it will drift as the codebase changes; that's expected and harmless.\n"
-        "# New entries fail scripts/check_swallowed_errors.py — either (a) add cause-\n"
+        "# New entries fail scripts/security/check_swallowed_errors.py — either (a) add cause-\n"
         "# preserving logging at a level someone actually watches (pass the exception\n"
         "# itself, not type(exc).__name__, and not ONLY at logger.debug) while staying\n"
         "# best-effort, (b) re-raise where swallowing hides a genuine failure, or\n"

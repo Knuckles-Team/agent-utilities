@@ -7,7 +7,7 @@ from pathlib import Path
 def _module():
     path = (
         Path(__file__).resolve().parents[3]
-        / "scripts/check_native_change_envelope_boundary.py"
+        / "scripts/security/check_native_change_envelope_boundary.py"
     )
     spec = importlib.util.spec_from_file_location("native_change_gate", path)
     assert spec is not None and spec.loader is not None

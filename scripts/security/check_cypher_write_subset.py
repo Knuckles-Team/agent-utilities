@@ -386,7 +386,7 @@ def scan(root: Path) -> list[Violation]:
 #: larger lane. Landing this gate with zero tolerance for the pre-existing
 #: surface would fail the merge queue for every candidate, not just a
 #: regression, which gets the gate reverted rather than a defect fixed. So:
-#: a ratchet baseline, the SAME pattern ``scripts/check_swallowed_errors.py``
+#: a ratchet baseline, the SAME pattern ``scripts/security/check_swallowed_errors.py``
 #: already established for an analogous "large pre-existing surface, fix
 #: incrementally" situation. New sites --- not in this file --- fail the
 #: gate immediately; a baselined site burns down whenever a future lane

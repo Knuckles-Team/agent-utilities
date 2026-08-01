@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.check_public_graph_boundary import check
+from scripts.security.check_public_graph_boundary import check
 
 
 def _write(root: Path, relative: str, source: str) -> None:

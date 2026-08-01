@@ -68,7 +68,7 @@ def check(root: Path) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     args = argv or sys.argv[1:]
-    root = Path(args[0]).resolve() if args else Path(__file__).resolve().parents[1]
+    root = Path(args[0]).resolve() if args else Path(__file__).resolve().parents[2]
     findings = check(root)
     if findings:
         print("Public graph-boundary gate failed:")

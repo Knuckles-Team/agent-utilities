@@ -7,7 +7,7 @@ import ast
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "agent_utilities"
 SCAN_ROOTS = (PACKAGE, ROOT / "scripts", ROOT / "tests", ROOT / "examples")
 CANONICAL_AGENT_BOUNDARY = "agent_utilities/core/contextual_model.py"

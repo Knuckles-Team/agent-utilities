@@ -96,6 +96,7 @@ import os
 import shutil
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -192,6 +193,16 @@ BASELINE_CACHE_DIRNAME = "test-baseline-cache"
 #: arbitration dir, same per-(base_sha, script) file-level granularity as the
 #: test baseline above (D-MW-9).
 CONTRACT_BASELINE_CACHE_DIRNAME = "contract-baseline-cache"
+
+#: D-MW-9: contract checks are independent, read-only scripts run against the
+#: SAME tree — measured SEQUENTIAL cost for the discovered set after moving the
+#: 6 boundary/contract gates into scripts/security/ (11 scripts total, several
+#: AST-walking all of agent_utilities/ or tests/) is ~73s, on its own ~40% of
+#: FAST_GATE_BUDGET_SECONDS. Run concurrently instead — subprocess.run releases
+#: the GIL while waiting on the child — so wall time tracks the SLOWEST single
+#: script (~30s measured) rather than the sum. Not a tuning knob so much as
+#: "more than the discovered set will realistically ever be at once."
+CONTRACT_CHECK_MAX_WORKERS = 8
 
 #: Candidates merged into one trial commit and gated together. Failure bisects, so
 #: a bad candidate costs ceil(log2(N)) extra gate runs, not N.
@@ -709,6 +720,29 @@ def _timed_run(argv: list[str], cwd: Path, *, timeout: int, env: dict) -> tuple:
     return proc, time.monotonic() - start
 
 
+def _timed_run_parallel(
+    jobs: dict[str, tuple[list[str], Path, int]], *, env: dict
+) -> dict[str, tuple]:
+    """:func:`_timed_run` for several independent, read-only jobs at once.
+
+    D-MW-9: contract checks never share state (each is a fresh subprocess
+    reading the same tree) so there is no correctness reason to serialize them
+    — only the historical accident that the loop was written with one. Threads
+    are sufficient (not multiprocessing) because ``subprocess.run`` blocks on
+    the child process, releasing the GIL for the wait.
+    """
+    if not jobs:
+        return {}
+    with ThreadPoolExecutor(
+        max_workers=min(CONTRACT_CHECK_MAX_WORKERS, len(jobs))
+    ) as pool:
+        futures = {
+            key: pool.submit(_timed_run, argv, cwd, timeout=timeout, env=env)
+            for key, (argv, cwd, timeout) in jobs.items()
+        }
+        return {key: fut.result() for key, fut in futures.items()}
+
+
 def contract_scripts(tree: Path) -> list[Path]:
     """Repo-invariant contract checks present **in the merged tree**.
 
@@ -912,18 +946,28 @@ def compute_contract_baseline(
     contract_dir = Path(CONTRACT_CHECK_GLOB).parent
     new_entries: dict[str, ScriptBaseline] = {}
     with materialized(repo, base_sha, scope=scope) as base_tree:
+        present: dict[str, Path] = {}
         for name in unknown:
             script = base_tree / contract_dir / name
             if not script.is_file():
                 new_entries[name] = ScriptBaseline(ok=True)
-                continue
-            rel = script.relative_to(base_tree)
-            argv = _contract_check_argv(
-                script, rel, interpreter=interpreter, tree=base_tree
+            else:
+                present[name] = script
+
+        # D-MW-9: run the (usually empty, since this is cached) not-yet-known
+        # scripts concurrently too — same reasoning as run_contract_checks.
+        jobs = {
+            name: (
+                _contract_check_argv(
+                    script, script.relative_to(base_tree), interpreter=interpreter, tree=base_tree
+                ),
+                base_tree,
+                CONTRACT_BASELINE_BUDGET_SECONDS,
             )
-            proc, secs = _timed_run(
-                argv, base_tree, timeout=CONTRACT_BASELINE_BUDGET_SECONDS, env=env
-            )
+            for name, script in present.items()
+        }
+        results = _timed_run_parallel(jobs, env=env)
+        for name, (proc, secs) in results.items():
             if proc is None:
                 return ContractBaselineResult(
                     readable=False,
@@ -1022,10 +1066,20 @@ def run_contract_checks(
                 "the merged tree — a genuine empty, not a degraded read"
             ),
         )
+    jobs = {
+        script.name: (
+            _contract_check_argv(
+                script, script.relative_to(tree), interpreter=interpreter, tree=tree
+            ),
+            tree,
+            CONTRACT_CHECK_BUDGET_SECONDS,
+        )
+        for script in scripts
+    }
+    results = _timed_run_parallel(jobs, env=env)
     for script in scripts:
         rel = script.relative_to(tree)
-        argv = _contract_check_argv(script, rel, interpreter=interpreter, tree=tree)
-        proc, _ = _timed_run(argv, tree, timeout=CONTRACT_CHECK_BUDGET_SECONDS, env=env)
+        proc, _ = results[script.name]
         if proc is None:
             failures.append(
                 f"{rel}: exceeded {CONTRACT_CHECK_BUDGET_SECONDS}s — a contract "

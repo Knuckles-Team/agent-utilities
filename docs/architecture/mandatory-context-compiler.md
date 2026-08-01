@@ -68,7 +68,7 @@ configuration; it is never disabled or hardcoded here.
 
 ## Architecture gate
 
-`python scripts/check_context_compiler_boundary.py` rejects provider calls or
+`python scripts/security/check_context_compiler_boundary.py` rejects provider calls or
 provider constructors outside the two approved transport/factory modules,
 rejects every direct Pydantic AI `Agent` import, alias, module-qualified
 constructor, and re-export outside `contextual_model.py`, and verifies that both

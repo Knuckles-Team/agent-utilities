@@ -130,16 +130,16 @@ jobs:
         run: python3 scripts/release/check_compatibility.py --matrix-only
 
       - name: Public graph-boundary contract
-        run: python3 scripts/check_public_graph_boundary.py
+        run: python3 scripts/security/check_public_graph_boundary.py
 
       - name: Engine-native ChangeEnvelope boundary
-        run: python3 scripts/check_native_change_envelope_boundary.py
+        run: python3 scripts/security/check_native_change_envelope_boundary.py
 
       - name: Universal external-graph connector contract
-        run: python3 scripts/check_external_graph_contract.py
+        run: python3 scripts/security/check_external_graph_contract.py
 
       - name: Current-only API and configuration contract
-        run: python3 scripts/check_current_only_contract.py
+        run: python3 scripts/security/check_current_only_contract.py
 
       - name: Connector live-certification source contract
         run: python3 scripts/check_connector_live_certification.py --self-check
@@ -154,10 +154,10 @@ jobs:
         run: python3 -m pytest tests/unit/scripts/test_run_guardrails_lean.py tests/unit/scripts/test_check_fleet_supply_chain.py -q -p no:cacheprovider -o addopts=""
 
       - name: Mandatory ContextCompiler boundary
-        run: python3 scripts/check_context_compiler_boundary.py
+        run: python3 scripts/security/check_context_compiler_boundary.py
 
       - name: Governed HTTP egress boundary
-        run: python3 scripts/check_http_egress_boundary.py
+        run: python3 scripts/security/check_http_egress_boundary.py
 
       - name: Consolidated pre-bundled skill contract
         run: python3 scripts/check_prebundled_skills.py
