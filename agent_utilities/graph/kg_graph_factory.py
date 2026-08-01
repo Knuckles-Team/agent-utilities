@@ -505,26 +505,55 @@ def build_pydantic_graph_from_kg(
                 "Falling back to KGTeamComposer."
             )
             composer = KGTeamComposer(engine=engine)
-            team_composition = composer.compose_team(query=query)
+            try:
+                team_composition = composer.compose_team(query=query)
+            except LookupError:
+                # No proven team AND no domain-authorized agents in the KG (an
+                # empty/minimal engine, e.g. in tests, or a genuinely
+                # under-populated graph). This factory's contract is to
+                # always materialize A graph — degrade the same way the
+                # engine-is-None branch above does rather than let team
+                # composition's hard failure propagate out of a "best
+                # effort" fallback path.
+                logger.info(
+                    "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KGTeamComposer found no "
+                    "authorized agents; falling back to a generic executor."
+                )
+                team_composition = None
 
-            # Convert TeamComposition specialists to pseudo-templates
-            for spec in team_composition.adaptive_agent_router:
+            if team_composition is None:
                 templates.append(
                     {
-                        "id": spec.get(
-                            "agent_id",
-                            spec.get("role", f"agent:{uuid.uuid4().hex}"),
-                        ),
-                        "role": spec.get("role", "executor"),
+                        "id": f"agent:{uuid.uuid4().hex}",
+                        "role": "executor",
                         "system_prompt_id": "",
-                        "toolset_ids": spec.get("tools", []),
-                        "model_preference": spec.get("model_id", ""),
+                        "toolset_ids": [],
+                        "model_preference": "",
                         "step_order": 0,
                         "is_parallel": False,
-                        "system_prompt": spec.get("system_prompt", ""),
-                        "description": f"Fallback specialist: {spec.get('role', 'executor')}",
+                        "system_prompt": "Fallback generic executor",
+                        "description": "Fallback generic executor",
                     }
                 )
+            else:
+                # Convert TeamComposition specialists to pseudo-templates
+                for spec in team_composition.adaptive_agent_router:
+                    templates.append(
+                        {
+                            "id": spec.get(
+                                "agent_id",
+                                spec.get("role", f"agent:{uuid.uuid4().hex}"),
+                            ),
+                            "role": spec.get("role", "executor"),
+                            "system_prompt_id": "",
+                            "toolset_ids": spec.get("tools", []),
+                            "model_preference": spec.get("model_id", ""),
+                            "step_order": 0,
+                            "is_parallel": False,
+                            "system_prompt": spec.get("system_prompt", ""),
+                            "description": f"Fallback specialist: {spec.get('role', 'executor')}",
+                        }
+                    )
 
     _emit(
         "kg_query_complete",

@@ -2873,9 +2873,15 @@ class TaskManagerMixin(GraphEngineProtocol):
                         # Filter valid properties
                         valid_keys = schema_cache.get(label)
                         props = {k: v for k, v in node.items() if v is not None}
-                        # Preserve original semantic type for Code nodes (file/symbol/module)
+                        # Preserve original semantic type for Code nodes (file/symbol/module).
+                        # The Code table declares ``symbol_type`` (not a bare ``type``, which
+                        # the schema retired in favor of ``node_type``) for exactly this — the
+                        # same column parse.py/graph_compute.py/blast_radius.py already read
+                        # and write. Writing "type" here used to alias the schema's generic
+                        # column; now it would be silently dropped by the valid_keys filter
+                        # below, so route it to the dedicated column instead.
                         if label == "Code" and raw_type and raw_type != "code":
-                            props["type"] = raw_type
+                            props["symbol_type"] = raw_type
 
                         # Collect extra properties into metadata dict, mirroring sync.py logic
                         if valid_keys is not None and "metadata" in valid_keys:
@@ -2927,7 +2933,18 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                         self.backend.execute(query, params)
 
-                # Execute all edges sequentially
+                # Execute all edges sequentially. A comma-pattern MATCH plus an
+                # edge MERGE both exceed the engine's native Cypher write
+                # subset (one leading MATCH, MERGE on a single bare node only;
+                # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+                # ``link_nodes`` dispatches through the typed engine API for a
+                # native authority (which requires both endpoints to already
+                # exist, unlike the portable Cypher fallback used for a
+                # non-native store) and per-edge best effort (matching the
+                # original MATCH's silent no-op for a dangling reference): the
+                # staged item is retried wholesale on failure (below), so one
+                # edge referencing a node outside this batch must not doom the
+                # whole item to an infinite retry loop.
                 for edge in edges:
                     if "source" in edge and "target" in edge and "type" in edge:
                         src = edge.pop("source")
@@ -2937,11 +2954,16 @@ class TaskManagerMixin(GraphEngineProtocol):
                         if not etype:
                             continue
 
-                        u_label = node_type_map.get(src, "Code")
-                        v_label = node_type_map.get(tgt, "Code")
-
-                        query = f"MATCH (a:{u_label} {{id: $uid}}), (b:{v_label} {{id: $vid}}) MERGE (a)-[r:{etype}]->(b)"
-                        self.backend.execute(query, {"uid": src, "vid": tgt})
+                        try:
+                            self.link_nodes(src, tgt, etype)
+                        except Exception as exc:  # noqa: BLE001 — dangling edge reference against a native authority; logged and skipped so it can't wedge this staged item in an infinite retry loop
+                            logger.debug(
+                                "Skipped staged edge %s -[%s]-> %s: %s",
+                                src,
+                                etype,
+                                tgt,
+                                exc,
+                            )
 
                 # Only acknowledge and remove from staging if successful
                 self._submission_queue.ack_staged_graph(item_id)
@@ -3858,6 +3880,19 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # reservation. The exception itself is always re-raised.
                 self._active_work_item_claim(job_id, pop=True)
             raise
+        # Stamp the winning claim's own lease identity onto the returned
+        # metadata — ``claim`` (from ``_wi.claim_next``/``claim_specific``)
+        # already carries the authoritative ``lease_owner``/``lease_epoch``
+        # native WorkItem fields; nothing downstream previously surfaced them,
+        # so a caller/log line had no way to say WHO holds this task or WHICH
+        # fencing generation it's running under. This is an in-memory
+        # enrichment of the dict handed back to the caller ONLY — it is never
+        # persisted onto another node's durable metadata (that would create a
+        # second writable ownership authority; the native WorkItem lease
+        # remains the sole source of truth, per ``_remember_work_item_claim``).
+        meta["claimed_by"] = claim.get("lease_owner")
+        meta["work_item_epoch"] = claim.get("lease_epoch")
+        meta["work_item_id"] = claim.get("work_item_id")
         tkind = str(meta.get("type") or "document")
         if worker_id is not None:
             from agent_utilities.knowledge_graph.core.task_lanes import (
