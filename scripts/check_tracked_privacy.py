@@ -223,33 +223,38 @@ def classify_line(
     return frozenset(categories)
 
 
-def classify_changed_source_line(
+def classify_runtime_source_line(
     line: str, *, identifiers: frozenset[str]
 ) -> frozenset[str]:
-    """Classify changed source without applying public-doc path heuristics.
+    """Classify runtime/deployment source without applying public-doc path heuristics.
 
     Source code legitimately manipulates path-shaped values, so the generic
     ``source_path = ...`` rule would be noisy here. Concrete account paths,
     environment endpoints, credential-bearing URLs, and local identities are
-    never legitimate package defaults and are checked for every changed source,
-    skill, script, and test instead.
+    never legitimate package defaults and are checked for every shipped runtime
+    and deployment file instead.
+
+    D-CIP-10: the categories below used to be suffixed ``in changed source``,
+    from when :func:`_runtime_source_artifacts` only looked at ``git diff``.
+    That scope was the bug; the label is now ``in runtime source`` so the gate's
+    own output cannot imply a narrower guarantee than it actually gives.
     """
 
     categories: set[str] = set()
     if _HOME_PATH_RE.search(line):
-        categories.add("machine-specific home path in changed source")
+        categories.add("machine-specific home path in runtime source")
     folded = line.casefold()
     if any(
         re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", folded)
         for value in identifiers
     ):
-        categories.add("local account or host identifier in changed source")
+        categories.add("local account or host identifier in runtime source")
     if _SOURCE_INTERNAL_URL_RE.search(line):
-        categories.add("hard-coded internal endpoint in changed source")
+        categories.add("hard-coded internal endpoint in runtime source")
     if _CREDENTIAL_URI_RE.search(line):
-        categories.add("credential-bearing URI in changed source")
+        categories.add("credential-bearing URI in runtime source")
     if _PRIVATE_KEY_LINE_RE.fullmatch(line):
-        categories.add("private key material in changed source")
+        categories.add("private key material in runtime source")
     return frozenset(categories)
 
 
@@ -326,23 +331,36 @@ def _tracked_artifacts(root: Path) -> list[Path]:
     ]
 
 
-def _changed_source_artifacts(root: Path) -> list[Path]:
-    """Return changed/untracked source paths for the source privacy boundary."""
+def _runtime_source_artifacts(root: Path) -> list[Path]:
+    """Every **tracked** runtime/deployment source path, not merely the changed ones.
 
-    names: set[str] = set()
-    for command in (
-        ["git", "diff", "--name-only", "--diff-filter=ACMR"],
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-        ["git", "ls-files", "--others", "--exclude-standard"],
-    ):
-        values = _git_file_names(root, command)
-        if values is None:
-            names.clear()
-            candidates = _filesystem_files(root)
-            break
-        names.update(values)
-    else:
-        candidates = [root / name for name in names]
+    D-CIP-10. This pass used to be scoped to ``git diff``/untracked files, which
+    made the gate structurally blind to its own back-catalogue: a machine path
+    that landed in an earlier commit was never re-examined, so it stayed public
+    forever. Combined with :func:`_is_public_artifact`'s *location* filter — which
+    admits only ``docs/``, ``.github/``, top-level and ``*.toml`` — the two passes
+    left a hole exactly where the real leaks live. ``docker/*.yaml`` passes the
+    suffix test and fails the location test, so nothing scanned it; the gate
+    reported 7 lines in 2 ``docs/`` files while 11 tracked files carried machine
+    paths, two of them a **personal** account name (D-PCC-1).
+
+    Scanning the whole tracked tree here closes that hole without inventing a
+    heuristic: the classification (:func:`classify_changed_source_line`) and the
+    scope (:func:`_is_runtime_source_path`, which already lists ``docker``) were
+    both already correct and already noise-tuned. Only the *diff* restriction was
+    wrong.
+
+    A public GitHub repository publishes its history, not just its tip, so
+    "changed in this commit" was never the right boundary for a privacy gate.
+    """
+
+    names = _git_file_names(
+        root,
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+    )
+    candidates = (
+        _filesystem_files(root) if names is None else [root / name for name in names]
+    )
     return sorted(
         (
             path
@@ -441,7 +459,7 @@ def scan(root: Path = ROOT) -> list[Violation]:
                 violations.append(
                     Violation(relative.as_posix(), number, category)
                 )
-    for path in _changed_source_artifacts(root):
+    for path in _runtime_source_artifacts(root):
         if not path.is_file():
             continue
         relative = path.relative_to(root)
@@ -455,7 +473,7 @@ def scan(root: Path = ROOT) -> list[Violation]:
             )
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         for number, line in enumerate(lines, 1):
-            for category in classify_changed_source_line(
+            for category in classify_runtime_source_line(
                 line, identifiers=identifiers
             ):
                 violations.append(
