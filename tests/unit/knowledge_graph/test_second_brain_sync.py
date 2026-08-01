@@ -136,6 +136,32 @@ class _SecondBrainStubEngine:
     ) -> None:
         self.edges.append((source, target, rel_type, properties))
 
+    def _serialize_node(
+        self, node: Any, label: str | None = None
+    ) -> dict[str, Any]:
+        """Mirror ``core/engine.py``'s ``IntelligenceGraphEngine._serialize_node``
+        closely enough for ``EntityClaimExtractor`` (part of the ``_EngineProtocol``
+        contract, see ``knowledge_graph/_engine_protocol.py``): dump the Pydantic
+        node, fold its ``type`` field into ``node_type`` (the engine retired the
+        'type' node property), and JSON-encode dict/list values."""
+        data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
+        if "type" in data:
+            node_type_value = data.pop("type")
+            data.setdefault(
+                "node_type", getattr(node_type_value, "value", node_type_value)
+            )
+        clean: dict[str, Any] = {}
+        for k, v in data.items():
+            if v is None:
+                continue
+            if hasattr(v, "value") and not isinstance(v, str | int | float | bool | list | dict):
+                clean[k] = v.value
+            elif isinstance(v, dict | list):
+                clean[k] = json.dumps(v)
+            else:
+                clean[k] = v
+        return clean
+
     def link_nodes(
         self, source: str, target: str, edge_type: Any, metadata: dict | None = None
     ) -> None:
@@ -351,7 +377,7 @@ async def test_sync_proposes_claims_into_governed_flywheel_not_silently_accepted
     claim_nodes = [
         n
         for _, n in engine.graph.nodes(data=True)
-        if str(n.get("type", "")).lower() == "claim"
+        if str(n.get("node_type", "")).lower() == "claim"
     ]
     assert len(claim_nodes) == result.claims
 
@@ -404,7 +430,7 @@ async def test_resync_is_idempotent_no_duplicate_claims_facts_or_proposals(
     claims_after_first = sum(
         1
         for _, n in engine.graph.nodes(data=True)
-        if str(n.get("type", "")).lower() == "claim"
+        if str(n.get("node_type", "")).lower() == "claim"
     )
     proposals_after_first = sum(
         1 for n in engine.nodes.values() if n.get("type") == "BeliefRevisionProposal"
@@ -427,7 +453,7 @@ async def test_resync_is_idempotent_no_duplicate_claims_facts_or_proposals(
     claims_after_second = sum(
         1
         for _, n in engine.graph.nodes(data=True)
-        if str(n.get("type", "")).lower() == "claim"
+        if str(n.get("node_type", "")).lower() == "claim"
     )
     proposals_after_second = sum(
         1 for n in engine.nodes.values() if n.get("type") == "BeliefRevisionProposal"

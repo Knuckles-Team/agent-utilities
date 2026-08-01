@@ -369,7 +369,7 @@ class ResearchOrchestrator:
         # Persist all nodes
         for node in subagent.get_all_nodes():
             try:
-                self.engine.graph.add_node(node.id, **node.model_dump())
+                self.engine.graph.add_node(node.id, **node.to_graph_properties())
             except Exception as e:  # noqa: BLE001 — one node's persist inside the per-node loop over subagent.get_all_nodes(); a failed write just omits that node from the graph, the loop continues persisting the rest
                 logger.debug("Failed to persist node %s: %s", node.id, e)
 
@@ -408,7 +408,7 @@ class ResearchOrchestrator:
             self.engine.graph.add_edge(
                 edge.source,
                 edge.target,
-                type=edge.type,
+                relationship=edge.type,
                 weight=edge.weight,
                 **(edge.metadata or {}),
             )

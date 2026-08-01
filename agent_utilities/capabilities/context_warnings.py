@@ -82,7 +82,7 @@ class ContextLimitWarner(AbstractCapability[Any]):
                     engine.add_node(
                         eval_node.id,
                         str(eval_node.type),
-                        properties=eval_node.model_dump(exclude={"id", "type"}),
+                        properties=eval_node.to_graph_properties(exclude={"id"}),
                     )
 
         elif ratio >= self.warn_at and not self._has_warned:

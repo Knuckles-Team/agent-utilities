@@ -38,6 +38,29 @@ logger = logging.getLogger(__name__)
 # kg# namespace — matches the ontology + shapes files and the pipeline gate.
 KG_NS = "http://knuckles.team/kg#"
 
+
+class WorkflowGateDeniedError(PermissionError):
+    """Raised when :func:`gate_workflow_execution` refuses dispatch (D-WS-8).
+
+    Carries the structured ``violations``/``workflow_id`` payload the MCP
+    ``graph_workflows`` handler already surfaces via :func:`_gate_denial`, so a
+    caller that wants the detail can read ``.gate`` instead of parsing the
+    message.
+    """
+
+    def __init__(self, workflow_name: str, gate: dict[str, Any]) -> None:
+        self.workflow_name = workflow_name
+        self.gate = gate
+        violations = gate.get("violations") or []
+        summary = (
+            "; ".join(
+                str(v.get("message") or v.get("code") or v) for v in violations[:3]
+            )
+            or "denied by the ontology/ACL gate"
+        )
+        super().__init__(f"Workflow {workflow_name!r} execution refused: {summary}")
+
+
 _GOVERNANCE_SHAPES = Path(__file__).parent.parent / "shapes" / "governance.shapes.ttl"
 
 

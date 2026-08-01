@@ -634,7 +634,7 @@ class MemoryMaterializer:
     def _query_identity(self) -> dict[str, Any]:
         if not self.engine.backend:
             for _, a in self.engine.graph.nodes(data=True):
-                if a.get("type") == "user":
+                if a.get("node_type") == "user":
                     return {
                         k: v
                         for k, v in a.items()
@@ -659,7 +659,7 @@ class MemoryMaterializer:
             return [
                 dict(a)
                 for _, a in self.engine.graph.nodes(data=True)
-                if a.get("type") == "goal" and a.get("status") == "active"
+                if a.get("node_type") == "goal" and a.get("status") == "active"
             ][:10]
         try:
             res = self.engine.backend.execute(
@@ -672,7 +672,7 @@ class MemoryMaterializer:
     def _query_nx(self, node_type: str, limit: int) -> list[dict[str, Any]]:
         results = []
         for _, a in self.engine.graph.nodes(data=True):
-            if a.get("type") == node_type:
+            if a.get("node_type") == node_type:
                 results.append(dict(a))
                 if len(results) >= limit:
                     break

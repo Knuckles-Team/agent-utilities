@@ -1,9 +1,9 @@
 """Regression tests for the messaging KG-ingestion retired `type` node property.
 
 The engine retired the `type` node PROPERTY in favor of `node_type`
-(`EpistemicGraphBackend.add_node` / `GraphComputeEngine.add_node` both raise
-``ValueError("node property 'type' is retired; use node_type")``/``"...is not
-supported; use canonical 'node_type'"`` on a stray `type` key). Messaging KG
+(`EpistemicGraphBackend.add_node` / `GraphComputeEngine.add_node` both raise the
+one canonical ``retired_node_type_property_error()`` on a stray `type` key).
+Messaging KG
 ingestion (`agent_utilities.messaging.kg_ingest.ingest_message_to_kg`) calls
 `engine.store_memory(...)` -- the shared node-builder/helper defined in
 `agent_utilities.knowledge_graph.core.engine_memory.MemoryMixin` -- which built
@@ -22,6 +22,7 @@ import pytest
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.messaging import kg_ingest
 from agent_utilities.messaging.models import EventType, InboundEvent, Message
+from agent_utilities.models.knowledge_graph import retired_node_type_property_error
 
 
 class _RecordingNativeBackend:
@@ -43,7 +44,7 @@ class _RecordingNativeBackend:
             # Mirrors EpistemicGraphBackend.add_node / GraphComputeEngine.add_node's
             # own fail-closed guard -- a regression here must fail this test the
             # same way it fails against the real engine, not just get recorded.
-            raise ValueError("node property 'type' is retired; use node_type")
+            raise retired_node_type_property_error()
         self.nodes.append((node_id, dict(properties)))
 
 
@@ -112,7 +113,9 @@ async def test_ingest_message_to_kg_delegates_to_store_memory(
         message=Message(id="m1", author_id="u1", channel_id="C1", content="hi there"),
     )
 
-    memory_id = await kg_ingest.ingest_message_to_kg(event, knowledge_engine=_StubEngine())
+    memory_id = await kg_ingest.ingest_message_to_kg(
+        event, knowledge_engine=_StubEngine()
+    )
 
     assert memory_id == "mem:stub"
     assert len(calls) == 1

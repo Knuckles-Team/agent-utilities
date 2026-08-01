@@ -201,11 +201,31 @@ class QueryMixin(_Base):
                 # rows the actor's owner/scope would have kept anyway. This is a
                 # no-op (returns the query unchanged) for a privileged actor, exactly
                 # mirroring `secured_reads.visible`'s own privileged bypass.
+                #
+                # D-SH-4 (reports/deferred/lane-skill-harvest.md): `apply_visibility`
+                # defaults to writing its predicate against a hardcoded `n` variable.
+                # Detect THIS query's own primary bound variable (the same detector
+                # `scope()`/`scope_cypher_query` now uses) and pass it explicitly —
+                # a query aliased as e.g. `MATCH (w:WorkItem) RETURN count(w) AS c`
+                # otherwise gets a visibility predicate referencing a variable that
+                # doesn't exist, which Cypher treats as never matching (a silent
+                # zero-row/zero-count aggregate instead of the real answer). A fully
+                # anonymous first pattern has no variable to scope by; skip the
+                # injection rather than reference a fabricated name (mirrors
+                # `scope_cypher_query`'s own fail-open-to-unscoped decision for the
+                # same case).
+                from agent_utilities.knowledge_graph.core.cypher_scope_vars import (
+                    primary_bound_variable,
+                )
                 from agent_utilities.knowledge_graph.core.tenant_sharing import (
                     apply_visibility,
                 )
 
-                scoped_query = apply_visibility(scoped_query, session.actor)
+                agg_var = primary_bound_variable(query)
+                if agg_var is not None:
+                    scoped_query = apply_visibility(
+                        scoped_query, session.actor, var=agg_var
+                    )
         except Exception as exc:
             raise PermissionError("Graph query scoping failed") from exc
 
@@ -543,6 +563,16 @@ class QueryMixin(_Base):
                     node_id = str(item["id"])
                     data = hydrated.get(node_id) or dict(item)
                     data["id"] = node_id
+                    # ``discover`` server-side ranks each hit under "score";
+                    # hydration replaces ``data`` with the raw node-property
+                    # dict, which drops it. Carry it forward as "_score" (the
+                    # convention every other retrieval arm in
+                    # ``HybridRetriever.retrieve_hybrid`` uses) so a caller that
+                    # runs quality-gated retrieval over this keyword-only path
+                    # (no embedder configured/reachable) doesn't read every hit
+                    # as an un-scored 0.0 and always fail LOW_RELEVANCE_TOPK.
+                    if "_score" not in data and "score" in item:
+                        data["_score"] = item["score"]
                     req_class = data.get("requiresClassification", 0)
                     if isinstance(req_class, int) and req_class > clearance_level:
                         continue
@@ -666,6 +696,7 @@ class QueryMixin(_Base):
         self_correct: bool = False,
         corpus_id: str | None = None,
         as_of: str | None = None,
+        session: GraphSession | None = None,
     ) -> list[dict[str, Any]]:
         """Perform a multi-faceted search using Hybrid GraphRAG.
 
@@ -676,6 +707,21 @@ class QueryMixin(_Base):
 
         ``as_of`` (ISO-8601) sets the reference time for pack-driven recency decay,
         enabling knowledge-state-as-of-date-D retrieval (CONCEPT:EG-KG.compute.rust-native-training-loss).
+
+        ``session`` (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval): optional
+        explicit :class:`~..core.session.GraphSession` this read runs under.
+        ``None`` (the default) is a **no-op** — exactly the prior, unfiltered
+        behavior, for the many existing internal/test callers with no backing
+        ACL infrastructure. Passing a session applies the SAME per-node ACL +
+        owner/scope + audit boundary :meth:`query_cypher` already applies to
+        raw Cypher reads: the vector/hybrid path previously returned every
+        ranked node completely unfiltered even when the caller held a verified
+        session, unlike the guarded Cypher path. The served ``graph_search``
+        MCP tool passes its ambient session explicitly, so the actual
+        externally-reachable surface is governed by default with no operator
+        configuration; enforcement never silently no-ops once a session IS
+        supplied — an infrastructure failure raises ``PermissionError`` rather
+        than falling back to unfiltered results.
         """
         # Lazy-ensure the retriever (CONCEPT:AU-KG.retrieval.memory-first-retrieval): the background-task host and
         # some engine-construction paths can reach search before ``__init__`` wired
@@ -738,7 +784,77 @@ class QueryMixin(_Base):
         for r in results:
             if isinstance(r, dict) and r.get("score") is None and "_score" in r:
                 r["score"] = r["_score"]
-        return results
+        return self._enforce_acl_on_results(
+            results, session=session, summary="hybrid-search"
+        )
+
+    def _enforce_acl_on_results(
+        self,
+        results: list[dict[str, Any]],
+        *,
+        session: GraphSession | None,
+        summary: str,
+    ) -> list[dict[str, Any]]:
+        """Apply the SAME per-node ACL + owner/scope + audit boundary as
+        :meth:`query_cypher` to a vector/hybrid retrieval result set
+        (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval).
+
+        Deliberately opt-in on the EXPLICIT ``session`` argument only — it does
+        NOT fall back to the ambient :func:`~..core.session.current_session`.
+        Unlike the raw Cypher path (every ``query_cypher`` caller already goes
+        through a governed KG with real per-node ACLs), ``search_hybrid`` has
+        ~20 existing internal/test callers that build ad-hoc result dicts with
+        no backing ACL infrastructure at all — auto-enforcing on any ambient
+        session (which the unit-test harness sets for unrelated reasons on
+        EVERY test) would default-deny every one of them, since
+        ``secured_reads.permit`` denies any node lacking a registered ACL. The
+        MCP-served ``graph_search`` tool — the actual externally-reachable
+        surface this closes — opts in explicitly by passing the ambient
+        session it already has (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval),
+        so real served reads are governed by default with **no operator
+        configuration**, while every other in-process caller keeps its exact
+        prior behavior until it is deliberately updated to pass one. A
+        ``session`` that IS supplied always gets full enforcement — an
+        infrastructure failure raises ``PermissionError`` rather than
+        silently degrading to the unfiltered ``results`` (the fail-open shape
+        this closes).
+        """
+        if session is None:
+            return results
+        from agent_utilities.knowledge_graph.core.session import resolve_session
+
+        resolved = resolve_session(session, required_scope="kg:read")
+        from agent_utilities.observability.gateway_metrics import (
+            RETRIEVAL_ACL_ENFORCEMENT,
+        )
+
+        try:
+            from agent_utilities.knowledge_graph.core.secured_reads import (
+                audit_read,
+                filter_rows,
+                row_node_ids,
+                visible,
+            )
+
+            governed = visible(filter_rows(results, resolved.actor), resolved.actor)
+            audit_read(row_node_ids(governed), summary=summary, actor=resolved.actor)
+            RETRIEVAL_ACL_ENFORCEMENT.labels(outcome="admitted").inc(len(governed))
+            RETRIEVAL_ACL_ENFORCEMENT.labels(outcome="denied").inc(
+                len(results) - len(governed)
+            )
+            return governed
+        except Exception as exc:
+            RETRIEVAL_ACL_ENFORCEMENT.labels(outcome="enforcement_failed").inc()
+            from agent_utilities.core.log_privacy import sanitize_log_text
+
+            logger.error(
+                "Graph %s ACL/audit enforcement failed: %s",
+                summary,
+                sanitize_log_text(_describe_secured_read_failure(exc)),
+            )
+            raise PermissionError(
+                f"Graph {summary} row-policy or audit enforcement failed"
+            ) from exc
 
     # ------------------------------------------------------------------
     # Temporal semantic IDs (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization — ChronoID)

@@ -491,7 +491,7 @@ async def test_list_team_tasks_with_tasks() -> None:
         (
             "task1",
             {
-                "type": "task",
+                "node_type": "task",
                 "status": "pending",
                 "assigned_to": "agent_x",
                 "content": "Do thing",
@@ -588,7 +588,7 @@ async def test_list_output_styles_with_kb() -> None:
     engine.graph.nodes.return_value = [
         (
             "art:1",
-            {"type": "article", "name": "sassy", "tags": ["style"]},
+            {"node_type": "article", "name": "sassy", "tags": ["style"]},
         )
     ]
     ctx = MagicMock()
