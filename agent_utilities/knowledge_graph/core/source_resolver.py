@@ -207,7 +207,7 @@ class KGSourceResolver:
         results: list[dict[str, Any]] = []
 
         for node_id, data in self.engine.graph.nodes(data=True):
-            if data.get("type") != node_type:
+            if data.get("node_type") != node_type:
                 continue
 
             if extra_filter and not extra_filter(data):
@@ -249,7 +249,7 @@ class KGSourceResolver:
                     )
                     if hr_id and hr_id not in {r["id"] for r in results}:
                         hr_data = self.engine.graph.nodes.get(hr_id, {})
-                        if hr_data.get("type") == node_type:
+                        if hr_data.get("node_type") == node_type:
                             hr_score = (
                                 hr.get("score", 0.5) if isinstance(hr, dict) else 0.5
                             )

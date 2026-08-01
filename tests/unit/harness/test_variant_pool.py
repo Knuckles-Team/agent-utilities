@@ -53,7 +53,9 @@ class TestVariantRegistration:
             version="1.0",
             source="MANUAL",
         )
-        engine.graph.add_node(base.id, **base.model_dump())
+        base_props = base.model_dump()
+        base_props["node_type"] = base_props.pop("type")
+        engine.graph.add_node(base.id, **base_props)
 
         variant = SystemPromptNode(
             id="prompt:var1",

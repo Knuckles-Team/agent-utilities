@@ -172,13 +172,13 @@ def test_store_document_page_evidence_writes_the_full_identity_chain():
     # -- :SourceObject ---------------------------------------------------
     source_props = client.nodes.properties(result.source_object_id)
     assert source_props is not None
-    assert source_props["type"] == "SourceObject"
+    assert source_props["node_type"] == "SourceObject"
     assert source_props["document_id"] == "doc-quarterly-report"
 
     # -- :Evidence — the exact shape `BeliefGraph::from_graph_view` decodes --
     ev_props = client.nodes.properties(result.evidence_id)
     assert ev_props is not None
-    assert ev_props["type"] == "Evidence"
+    assert ev_props["node_type"] == "Evidence"
     assert ev_props["confidence"] == 1.0
     assert ev_props["occurrence_id"] == result.occurrence_id
     assert ev_props["blob_ref"] == result.blob_id
@@ -208,36 +208,38 @@ def test_store_document_page_evidence_writes_the_full_identity_chain():
     # -- :AssetOccurrence -> :Blob (unchanged AU-P1-4 write) --------------
     occ_props = client.nodes.properties(result.occurrence_id)
     assert occ_props is not None
-    assert occ_props["type"] == "AssetOccurrence"
+    assert occ_props["node_type"] == "AssetOccurrence"
     assert occ_props["blob_id"] == result.blob_id
 
-    # -- structural (non-epistemic) edges: `{"type": ...}`, never
-    # `relationship_type` — so `BeliefGraph` correctly ignores them. ------
+    # -- structural (non-epistemic) edges: canonical ``relationship`` property
+    # (same key as every edge, epistemic or not — see mining.rs's own
+    # ``supports_edge``), but a VALUE outside ``classify_relationship``'s
+    # SUPPORTS/CONTRADICTS/ATTACKS whitelist, so ``BeliefGraph`` correctly
+    # ignores them. ------------------------------------------------------
     assert (
         result.source_object_id,
         result.occurrence_id,
-        {"type": "hasOccurrence"},
+        {"relationship": "hasOccurrence"},
     ) in client.edges.edges
     assert (
         result.evidence_id,
         result.occurrence_id,
-        {"type": "extractedFrom"},
+        {"relationship": "extractedFrom"},
     ) in client.edges.edges
     assert (
         result.occurrence_id,
         result.blob_id,
-        {"type": "hasBlob"},
+        {"relationship": "hasBlob"},
     ) in client.edges.edges
 
     # No claim given -> no SUPPORTS edge written.
     assert not any(
-        props.get("relationship_type") == "SUPPORTS"
-        for _s, _t, props in client.edges.edges
+        props.get("relationship") == "SUPPORTS" for _s, _t, props in client.edges.edges
     )
 
 
 def test_store_document_page_evidence_links_supports_edge_when_claim_given():
-    """When ``claim_id`` is given, the SAME `relationship_type: "SUPPORTS"`
+    """When ``claim_id`` is given, the SAME `relationship: "SUPPORTS"`
     convention `eg_epistemic`'s own claim materialization
     (`src/server/handlers/mining.rs::materialize_claim`) writes is used — no
     engine-side change needed for `evidence_citations`'s support-walk to see it.
@@ -261,7 +263,7 @@ def test_store_document_page_evidence_links_supports_edge_when_claim_given():
     assert (
         result.evidence_id,
         "claim:revenue-q3",
-        {"relationship_type": "SUPPORTS"},
+        {"relationship": "SUPPORTS"},
     ) in client.edges.edges
 
 
@@ -494,12 +496,12 @@ def test_store_locus_evidence_writes_the_full_identity_chain(
 
     source_props = client.nodes.properties(result.source_object_id)
     assert source_props is not None
-    assert source_props["type"] == "SourceObject"
+    assert source_props["node_type"] == "SourceObject"
     assert source_props["object_id"] == about_id
 
     ev_props = client.nodes.properties(result.evidence_id)
     assert ev_props is not None
-    assert ev_props["type"] == "Evidence"
+    assert ev_props["node_type"] == "Evidence"
     assert ev_props["confidence"] == 1.0
     assert ev_props["occurrence_id"] == result.occurrence_id
     assert ev_props["blob_ref"] == result.blob_id
@@ -518,27 +520,26 @@ def test_store_locus_evidence_writes_the_full_identity_chain(
 
     occ_props = client.nodes.properties(result.occurrence_id)
     assert occ_props is not None
-    assert occ_props["type"] == "AssetOccurrence"
+    assert occ_props["node_type"] == "AssetOccurrence"
     assert occ_props["blob_id"] == result.blob_id
 
     assert (
         result.source_object_id,
         result.occurrence_id,
-        {"type": "hasOccurrence"},
+        {"relationship": "hasOccurrence"},
     ) in client.edges.edges
     assert (
         result.evidence_id,
         result.occurrence_id,
-        {"type": "extractedFrom"},
+        {"relationship": "extractedFrom"},
     ) in client.edges.edges
     assert (
         result.occurrence_id,
         result.blob_id,
-        {"type": "hasBlob"},
+        {"relationship": "hasBlob"},
     ) in client.edges.edges
     assert not any(
-        props.get("relationship_type") == "SUPPORTS"
-        for _s, _t, props in client.edges.edges
+        props.get("relationship") == "SUPPORTS" for _s, _t, props in client.edges.edges
     )
 
 
@@ -550,7 +551,7 @@ def test_store_locus_evidence_writes_the_full_identity_chain(
 def test_store_locus_evidence_links_supports_edge_when_claim_given(
     method_name, kwargs, about_id, locus_kind, address
 ):
-    """Same `relationship_type: "SUPPORTS"` convention as the PageRegion seam,
+    """Same `relationship: "SUPPORTS"` convention as the PageRegion seam,
     for every other locus kind."""
     client = _FakeClient()
     store = MediaStore(_FakeCompute(client))
@@ -565,7 +566,7 @@ def test_store_locus_evidence_links_supports_edge_when_claim_given(
     assert (
         result.evidence_id,
         "claim:evidence-1",
-        {"relationship_type": "SUPPORTS"},
+        {"relationship": "SUPPORTS"},
     ) in client.edges.edges
 
 

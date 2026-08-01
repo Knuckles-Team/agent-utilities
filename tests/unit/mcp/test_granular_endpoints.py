@@ -329,7 +329,11 @@ async def test_granular_query_endpoints(mock_execute_tool, client):
 async def test_granular_search_endpoints(mock_execute_tool, client):
     mock_execute_tool.return_value = [{"id": "node-1"}]
 
-    modes = ["hybrid", "concept", "analogy", "memory", "discover", "dci"]
+    # "hybrid" has no dedicated granular /graph/search/hybrid route — it is
+    # graph_search's own default mode, reachable (and covered separately) via
+    # the base /graph/search endpoint (see the bilateral base endpoint test),
+    # not through this per-mode split.
+    modes = ["concept", "analogy", "memory", "discover", "dci"]
     for mode in modes:
         res = client.post(
             f"/graph/search/{mode}", json={"query": "agentic workflow", "top_k": 5}
@@ -451,11 +455,16 @@ async def test_granular_analyze_endpoints(mock_execute_tool, client):
     mock_execute_tool.return_value = {"analysis": "complete"}
 
     # 1. POST /graph/analyze/synthesize
+    # graph_analyze's suite split (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox
+    # unrelated; see D-OTR-4) moved dispatch onto the focused graph_code /
+    # graph_research / graph_evaluate / graph_explain tools — the granular
+    # HTTP route/endpoint function names stayed "graph_analyze_*" for URL
+    # backward compat, but the underlying MCP tool call moved with it.
     res = client.post("/graph/analyze/synthesize", json={"query": "security anomalies"})
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"analysis": "complete"}}
     mock_execute_tool.assert_called_with(
-        "graph_analyze", action="synthesize", query="security anomalies", top_k=10
+        "graph_research", action="synthesize", query="security anomalies", top_k=10
     )
 
     # 2. GET /graph/analyze/blast-radius
@@ -463,7 +472,7 @@ async def test_granular_analyze_endpoints(mock_execute_tool, client):
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"analysis": "complete"}}
     mock_execute_tool.assert_called_with(
-        "graph_analyze", action="blast_radius", id="agent-1", depth=3
+        "graph_code", action="blast_radius", node_id="agent-1", depth=3
     )
 
 

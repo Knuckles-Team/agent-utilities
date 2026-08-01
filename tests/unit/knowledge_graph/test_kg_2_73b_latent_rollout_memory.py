@@ -9,8 +9,6 @@ while reproducing the legacy memoryless rollout exactly when memory is off.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from agent_utilities.knowledge_graph.core.world_model import (
@@ -109,7 +107,13 @@ class _WMEngine:
 
 @pytest.mark.asyncio
 async def test_world_model_rollout_live_path(monkeypatch):
-    """graph_analyze action='world_model_rollout' rolls out + persists with drift."""
+    """graph_evaluate action='world_model_rollout' rolls out + persists with drift.
+
+    ``world_model_rollout`` is one of ``graph_evaluate``'s focused actions (see
+    ``analyze_suite.py``'s tool description); the generic ``graph_analyze`` only
+    accepts its own narrower action set and redirects everything else with
+    ``{"error": "action belongs to a focused graph tool"}`` (analysis_tools.py).
+    """
     transitions = []
     for _ in range(4):
         for i, s in enumerate(CYCLE):
@@ -124,9 +128,10 @@ async def test_world_model_rollout_live_path(monkeypatch):
         query="room_alpha",
         top_k=6,
     )
-    # graph_evaluate returns the sole typed EvidenceBundle response (not a JSON
-    # string) — world_model_rollout's payload has no "rows"/"results" key, so
-    # EvidenceBundle.from_payload wraps the whole dict as the sole claim.
+    # graph_evaluate returns the typed EvidenceBundle directly (per its
+    # ``-> EvidenceBundle`` return annotation), not a JSON string; the action's
+    # payload dict lands in claims[0] (analysis_tools.py's world_model_rollout
+    # branch returns {"status", "horizon", "steps", "total_drift", "rollout_id", ...}).
     report = res.claims[0]
     assert report["status"] == "ok"
     assert report["horizon"] == 6

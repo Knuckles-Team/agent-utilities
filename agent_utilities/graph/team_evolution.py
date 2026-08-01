@@ -58,21 +58,29 @@ class TeamEvolutionEngine:
                     )
                     logger.debug(f"[AHE-3.18] Proposed mutation: {mutations[-1]}")
 
-                    # Store the mutation proposal back into the graph
-                    self.engine.backend.execute(
-                        """
-                        MATCH (t:Team {id: $team_id})
-                        MERGE (m:MutationProposal {id: $mut_id})
-                        SET m.reason = $reason, m.type = $type, m.status = 'proposed'
-                        MERGE (t)-[:PROPOSED_MUTATION]->(m)
-                        """,
+                    # Store the mutation proposal back into the graph. A single
+                    # "MATCH ... MERGE ... SET ... MERGE" statement exceeds the
+                    # engine's native Cypher write subset (MERGE supports only a
+                    # single bare node, never an edge pattern;
+                    # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184)
+                    # -- split into a typed node upsert + ``link_nodes`` (typed
+                    # dispatch for a native authority, portable multi-clause
+                    # Cypher -- tolerant of the team having been retired
+                    # between the read above and this write, matching the
+                    # prior MATCH's silent no-op -- for a non-native store).
+                    mut_id = f"mut:{team_id}:{len(mutations)}"
+                    self.engine.add_node(
+                        mut_id,
+                        "MutationProposal",
                         {
-                            "team_id": team_id,
-                            "mut_id": f"mut:{team_id}:{len(mutations)}",
                             "reason": mutations[-1]["reason"],
-                            "type": mutations[-1]["type"],
+                            # "type" is a reserved node-property name on the
+                            # typed engine API; persisted as mutation_type.
+                            "mutation_type": mutations[-1]["type"],
+                            "status": "proposed",
                         },
                     )
+                    self.engine.link_nodes(team_id, mut_id, "PROPOSED_MUTATION")
             except Exception as e:
                 logger.error(f"[AHE-3.18] Failed to evaluate team {team_id}: {e}")
 

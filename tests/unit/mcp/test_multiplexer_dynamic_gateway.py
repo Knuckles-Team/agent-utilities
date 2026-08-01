@@ -1354,3 +1354,54 @@ async def test_aclose_cancels_a_forced_probe_too(tmp_path):
     await mux.aclose()
     assert forced.cancelled()
     assert not mux._probe_tasks
+
+
+async def test_load_tools_changes_the_wire_tool_list_a_live_client_observes(tmp_path):
+    """Track 9 of the pydantic-ai native-adoption program (provider prompt-cache
+    discipline, CONCEPT:AU-ORCH.optimization.provider-prompt-cache — see
+    ``reports/program/pydantic-ai-native-adoption.md``): proves that ``load_tools``
+    changes the ACTUAL tool list an already-connected MCP client's ``list_tools()``
+    returns, not just an internal bookkeeping flag.
+
+    Why this matters for prompt-cache discipline: ``agent_utilities.caching.
+    prompt_cache.fold_prompt_cache_hint`` sets Anthropic's
+    ``anthropic_cache_tool_definitions=True`` by DEFAULT on every agent call —
+    a cache breakpoint at the end of the tools block, banking on that block
+    staying byte-identical across a run. A downstream client's toolset
+    (e.g. ``pydantic_ai.mcp.MCPToolset``, whose own docs state its cached tool
+    list "is cached and invalidated by `notifications/tools/list_changed`")
+    rebuilds ``ModelRequestParameters.function_tools`` from a FRESH
+    ``list_tools()`` the moment it is notified — and ``_notify_tools_changed``
+    (proven elsewhere in this file to fire on every ``load_tools``/``unload_tools``)
+    is exactly that notification. This test proves the tool list the notification
+    refers to is genuinely different, not merely re-sent unchanged: the cache
+    breakpoint at the tools block is invalidated on every dynamic load/unload
+    mid-run, for any client honoring the notification as designed. Pydantic-ai's
+    native `Capability`/`ToolSearch` deferred-disclosure model (Track 1/2 of the
+    same program) does NOT have this cost — the full tool set is registered from
+    turn one and only a message-history-appended exchange changes, which is
+    prompt-cache-safe by the framework's own design (see
+    ``pydantic_ai.capabilities.ToolSearch``'s docstring).
+    """
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    async with Client(mcp) as client:
+        before = {t.name for t in await client.list_tools()}
+        assert CNT_PREFIXED not in before
+
+        result = await client.call_tool("load_tools", {"servers": [CNT]})
+        assert result.structured_content["notified"] is True
+
+        after = {t.name for t in await client.list_tools()}
+
+    # The exact wire-visible tool set changed mid-session — a client's next
+    # model request carries a DIFFERENT tools array than its first, which is
+    # precisely what invalidates a provider's cache breakpoint set at the end
+    # of that array.
+    assert after != before
+    assert CNT_PREFIXED in after

@@ -509,14 +509,18 @@ def build_pydantic_graph_from_kg(
                 team_composition = composer.compose_team(query=query)
             except LookupError as exc:
                 # The KG has no AgentTemplate nodes AND no authorized Agent roster for
-                # the domain (e.g. a fresh/empty graph) — degrade to the same generic
-                # placeholder used for `engine is None` rather than letting the whole
-                # factory call crash on an otherwise-recoverable empty roster.
+                # the domain (e.g. a fresh/empty graph, or a genuinely
+                # under-populated one) — degrade to the same generic placeholder
+                # used for `engine is None` rather than letting the whole factory
+                # call crash on an otherwise-recoverable empty roster.
                 logger.warning(
                     "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KGTeamComposer "
                     "found no authorized agents (%s). Falling back to a generic executor.",
                     exc,
                 )
+                team_composition = None
+
+            if team_composition is None:
                 templates.append(
                     {
                         "id": f"agent:{uuid.uuid4().hex}",

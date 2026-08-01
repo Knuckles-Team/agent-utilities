@@ -25,6 +25,11 @@ from .content_guardrails import (
 )
 from .context_warnings import ContextLimitWarner
 from .eviction import ToolOutputEviction
+from .fleet_tool_search import (
+    FleetToolset,
+    fleet_relevance_search,
+    fleet_tool_search_capability,
+)
 from .governed_dynamic_workflow import (
     ChildRunEvidence,
     DelegationStep,
@@ -50,6 +55,7 @@ from .output_repair import (
 )
 from .stuck_loop import StuckLoopDetection, StuckLoopError
 from .teams import TeamCapability
+from .telemetry_instrumentation import build_fleet_instrumentation
 
 __all__ = [
     "StuckLoopDetection",
@@ -88,6 +94,10 @@ __all__ = [
     "ToolCallRecord",
     "default_runtime_capabilities",
     "merge_capabilities",
+    "build_fleet_instrumentation",
+    "FleetToolset",
+    "fleet_relevance_search",
+    "fleet_tool_search_capability",
     "PROMPT_INJECTION_BLOCK_PREFIX",
     "output_schema_guardrail",
     "pii_redaction_guardrails",
