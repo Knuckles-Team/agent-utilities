@@ -362,7 +362,7 @@ class SubagentPatternRouter:
             node_id = f"spd:{uuid.uuid4().hex}"
             node_data = {
                 "id": node_id,
-                "type": "subagent_pattern_decision",
+                "node_type": "subagent_pattern_decision",
                 "pattern": decision.pattern.value,
                 "task_complexity": decision.task_complexity.value,
                 "parallelizable": decision.parallelizable,

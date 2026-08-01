@@ -223,7 +223,15 @@ def _default_gate_checker(engine: Any, step: Any) -> str | None:
     if graph is not None:
         try:
             for _src, _tgt, edata in graph.out_edges(step_id, data=True):
-                rel = str((edata or {}).get("relationship") or "")
+                # "relationship" is the canonical GraphComputeEngine edge property
+                # (engine.link_nodes writes it); "type"/"rel_type" are kept as a
+                # fallback for callers that hand this a raw/foreign edge dict.
+                rel = str(
+                    (edata or {}).get("relationship")
+                    or (edata or {}).get("type")
+                    or (edata or {}).get("rel_type")
+                    or ""
+                )
                 if rel == "satisfiedBy":
                     return _decision(edata or {})
         except Exception as exc:  # noqa: BLE001 — read is best-effort
@@ -530,13 +538,24 @@ class WorkflowRunner:
         if graph is not None:
             try:
                 for nid, data in graph.nodes(data=True):
-                    if (
-                        data.get("node_type") != "WorkflowDefinition"
-                        or data.get("name") != workflow_name
-                    ):
+                    # "node_type" is the canonical GraphComputeEngine node
+                    # property; "type" is kept as a fallback for callers that
+                    # hand this a raw/foreign node dict.
+                    node_label = data.get("node_type") or data.get("type")
+                    if node_label != "WorkflowDefinition" or data.get(
+                        "name"
+                    ) != workflow_name:
                         continue
                     for _src, tgt, edata in graph.out_edges(nid, data=True):
-                        rel = str((edata or {}).get("relationship") or "").upper()
+                        # "relationship" is the canonical GraphComputeEngine edge
+                        # property; "type"/"rel_type" are kept as a fallback for
+                        # callers that hand this a raw/foreign edge dict.
+                        rel = str(
+                            (edata or {}).get("relationship")
+                            or (edata or {}).get("type")
+                            or (edata or {}).get("rel_type")
+                            or ""
+                        ).upper()
                         if rel == "REALIZES":
                             try:
                                 props = dict(graph.nodes[tgt])

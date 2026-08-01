@@ -241,6 +241,19 @@ class MemoryMixin(_Base):
         # Update graph compute cache
         self.graph.add_node(node.id, **data)
 
+        # Storing ``embedding`` as a node property (above) does not make the
+        # memory semantically searchable: search_hybrid's vector arm queries
+        # the engine's native HNSW SemanticStore, which is populated only via
+        # add_embedding() (see its docstring: "Distinct from storing an
+        # 'embedding' node property"). Without this, every memory silently
+        # became invisible to semantic search regardless of embedding model
+        # availability.
+        if node.embedding:
+            try:
+                self.graph.add_embedding(node.id, node.embedding)
+            except Exception as e:
+                logger.warning("Failed to index memory embedding: %s", e)
+
         return memory_id
 
     def delete_memory(self, memory_id: str):
@@ -249,7 +262,8 @@ class MemoryMixin(_Base):
             self.graph.remove_node(memory_id)
         if self.backend:
             self.backend.execute(
-                "MATCH (n {id: $id}) SET n.status = 'ARCHIVED'", {"id": memory_id}
+                "MATCH (n:Memory {id: $id}) SET n.status = 'ARCHIVED'",
+                {"id": memory_id},
             )
 
     def get_memory(self, memory_id: str) -> dict[str, Any] | None:
@@ -273,7 +287,7 @@ class MemoryMixin(_Base):
         if self.backend:
             set_clause = self._get_set_clause(kwargs, "n", label="Memory")
             self.backend.execute(
-                f"MATCH (n {{id: $id}}){set_clause}",
+                f"MATCH (n:Memory {{id: $id}}){set_clause}",
                 {"id": memory_id, **kwargs},
             )
 

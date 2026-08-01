@@ -2,10 +2,11 @@
 
 Unit + live-path: each latent-native mechanism (rollout latent memory KG-2.73b,
 ontology-prior retrieval KG-2.44b) beats its round-tripped/flat baseline under a
-fixed seed, and the measured lift is reachable through the graph_analyze surface.
+fixed seed, and the measured lift is reachable through the graph_evaluate surface
+(the graph_analyze catch-all was split into focused suite tools;
+'latent_efficiency_benchmark' lives on 'graph_evaluate' with the rest of the AHE
+empirical-benchmark actions).
 """
-
-import json
 
 import pytest
 
@@ -31,14 +32,22 @@ async def test_latent_efficiency_benchmark_live_path(monkeypatch):
     monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
     kg_server.ensure_tools_registered()
     res = await kg_server._execute_tool(
-        "graph_analyze", action="latent_efficiency_benchmark", top_k=0
+        "graph_evaluate", action="latent_efficiency_benchmark", top_k=0
     )
-    report = json.loads(res)
+    # graph_evaluate returns the sole typed EvidenceBundle response (not a JSON
+    # string). The payload's "results" list steals EvidenceBundle.from_payload's
+    # claims slot (candidate_rows), so "total"/"reproduced"/"markdown" are only
+    # recoverable from the losslessly-retained original payload in
+    # reasoning_trace[0]["payload"].
+    report = res.reasoning_trace[0]["payload"]
     assert report["total"] >= 2
     assert report["reproduced"] == report["total"]
+    # agent_utilities/harness/latent_efficiency_benchmark.py names its two
+    # mechanisms with human-readable strings tagged by CONCEPT number, not the
+    # CONCEPT:ID slug itself.
     names = {r["name"] for r in report["results"]}
-    assert any("AU-KG.compute.reuse-model-latent" in n for n in names)
-    assert any("AU-KG.ontology.optional-populated-from" in n for n in names)
+    assert any("KG-2.73b" in n for n in names)
+    assert any("KG-2.44b" in n for n in names)
     for r in report["results"]:
         assert "baseline" in r and "ours" in r and "lift" in r
     assert "markdown" in report and "claims reproduced" in report["markdown"]

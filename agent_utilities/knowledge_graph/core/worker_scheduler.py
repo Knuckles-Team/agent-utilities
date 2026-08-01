@@ -63,7 +63,7 @@ __all__ = [
 # The heavy task type that must never be allowed to occupy the whole pool.
 HEAVY_TYPE = "codebase"
 
-# CONCEPT:AU-KG.compute.resolve — the ENGINE's real shard-writer width, resolved once from the
+# the ENGINE's real shard-writer width, resolved once from the
 # live engine and cached. In split-storage the engine may expose K=4 from eight
 # CPUs while the independent scheduling host exposes 16 CPUs. A scheduler-local
 # estimate would then say eight and over-admit against four engine shard writers.
@@ -75,7 +75,7 @@ _ENGINE_SHARD_LOCK = threading.Lock()
 
 
 def set_engine_shard_writers(k: int | None) -> None:
-    """Seed/override the cached engine shard-writer width (CONCEPT:AU-KG.compute.resolve).
+    """Seed/override the cached engine shard-writer width.
 
     Callers that already know the engine's K (e.g. a daemon that just queried it)
     use this so :func:`durable_shard_writers` returns the authoritative value with
@@ -92,7 +92,7 @@ def resolve_engine_shard_writers(engine: Any) -> int | None:
     The engine's rebalance planner reports one entry per shard ("all K shards
     represented incl. empties"), so ``len(rebalance_plan()["shards"]) == K`` — the
     authoritative width straight from the process that owns the redb backend
-    (CONCEPT:AU-KG.compute.resolve). Accepts a ``GraphComputeEngine``, a backend wrapping one
+    Accepts a ``GraphComputeEngine``, a backend wrapping one
     (``._graph``/``.graph``), or a raw sync client. Cached on success; returns the
     cached value on later calls and ``None`` when the engine can't answer (non-redb
     build, unreachable, older engine) so the caller degrades to the cpu/env estimate.
@@ -143,7 +143,7 @@ def durable_shard_writers() -> int:
 
     Resolution order, most-authoritative first:
 
-    1. The width resolved from the live ENGINE and cached (CONCEPT:AU-KG.compute.resolve) — the
+    1. The width resolved from the live ENGINE and cached — the
        ground truth in split-storage, where the engine is a remote box with a
        different cpu count than this scheduling host. Seeded via
        :func:`set_engine_shard_writers` / :func:`resolve_engine_shard_writers`.

@@ -1,4 +1,4 @@
-"""FreshRSS world-model source + relevance gate — CONCEPT:AU-KG.compute.homelab-rss-reader-as/116/117."""
+"""FreshRSS world-model source + relevance gate — /116/117."""
 
 from __future__ import annotations
 

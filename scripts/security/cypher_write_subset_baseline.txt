@@ -8,12 +8,11 @@
 # file on the next --update-baseline; never hand-add an entry to make
 # a real violation disappear.
 agent_utilities/graph/reasoning/topology.py	158	set_function_call_value	# MATCH (t:ReasoningTopologyVersion) WHERE t.id = $tid SET t.reward = coalesce(t.reward, 0.5) * (1 - $alpha) + $alpha * $score, t.task_count = coalesce(t.task_cou
-agent_utilities/knowledge_graph/core/engine.py	855	multiple_match_clauses	# MATCH (s) WHERE toLower(s.name) CONTAINS toLower($source) OR toLower($source) CONTAINS toLower(s.name) MATCH (t) WHERE toLower(t.name) CONTAINS toLower($target)
-agent_utilities/knowledge_graph/core/graph_compute.py	3311	comma_pattern_match	# MATCH (a {id: $src}), (b {id: $tgt}) MERGE (a)-[r:X]->(b) SET r.metadata = $meta
+agent_utilities/knowledge_graph/core/engine.py	904	multiple_match_clauses	# MATCH (s) WHERE toLower(s.name) CONTAINS toLower($source) OR toLower($source) CONTAINS toLower(s.name) MATCH (t) WHERE toLower(t.name) CONTAINS toLower($target)
 agent_utilities/knowledge_graph/core/inference_engine.py	76	merge_on_edge_pattern	# MATCH (a)-[:DEPENDS_ON]->(b)-[:DEPENDS_ON]->(c) WHERE NOT (a)-[:DEPENDS_ON_INDIRECT]->(c) AND a.id <> c.id MERGE (a)-[r:DEPENDS_ON_INDIRECT]->(c) SET r.inferred
 agent_utilities/knowledge_graph/core/inference_engine.py	80	merge_on_edge_pattern	# MATCH (sub)-[:INHERITS_FROM]->(sup)-[:HAS_METHOD]->(m) WHERE NOT (sub)-[:INHERITS_METHOD]->(m) MERGE (sub)-[r:INHERITS_METHOD]->(m) SET r.inferred = true, r.inf
 agent_utilities/knowledge_graph/core/inference_engine.py	84	merge_on_edge_pattern	# MATCH (a1:Agent)-[:USES]->(t:CallableResource)<-[:USES]-(a2:Agent) WHERE a1.id <> a2.id AND NOT (a1)-[:POTENTIAL_COLLABORATOR]->(a2) MERGE (a1)-[r:POTENTIAL_COL
-agent_utilities/knowledge_graph/core/materialization.py	305	multiple_match_clauses	# MATCH (s {id: $source}) MATCH (t {id: $target}) MERGE (s)-[r:X]->(t)X
+agent_utilities/knowledge_graph/core/materialization.py	314	multiple_match_clauses	# MATCH (s {id: $source}) MATCH (t {id: $target}) MERGE (s)-[r:X]->(t)X
 agent_utilities/knowledge_graph/core/ogm.py	312	comma_pattern_match	# MATCH (a {id: $src}), (b {id: $tgt}) MERGE (a)-[r:X]->(b) X
 agent_utilities/knowledge_graph/core/owl_bridge.py	1176	comma_pattern_match	# MATCH (s {id: $sid}), (t {id: $tid}) MERGE (s)-[r:X]->(t) SET r.inferred = true, r.inferred_from = 'owl_reasoner'
 agent_utilities/knowledge_graph/core/subgraph_checkout.py	249	comma_pattern_match	# MATCH (a {id: $source_id}), (b {id: $target_id}) MERGE (a)-[r:X]->(b)
@@ -25,18 +24,3 @@ agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py	70	comma_pattern_
 agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py	99	comma_pattern_match	# MATCH (p1:ParetoFrontierEntry {id: $pid1}), (p2:ParetoFrontierEntry {id: $pid2}) MERGE (p1)-[:PARETO_DOMINATES]->(p2) SET p2.is_dominated = true
 agent_utilities/knowledge_graph/pipeline/phases/sync.py	268	with_in_write_statement	# MATCH (n:Code) WHERE n.file_path STARTS WITH $workspace_path AND (n.last_seen_timestamp < $ts OR n.last_seen_timestamp IS NULL) DETACH DELETE n
 agent_utilities/knowledge_graph/workflow_store.py	621	set_function_call_value	# MATCH (w:WorkflowDefinition {id: $wid}) SET w.use_count = COALESCE(w.use_count, 0) + 1, w.last_used = $ts
-agent_utilities/sdd/__init__.py	387	set_function_call_value	# MERGE (a:SDDArtifact {id: $id}) SET a.node_type = $node_type, a.name = $name, a.last_updated = timestamp() RETURN a.id
-agent_utilities/sdd/__init__.py	389	multiple_match_clauses	# MATCH (p:Project) WHERE p.name = 'current' MATCH (a:SDDArtifact {id: $id}) MERGE (p)-[:HAS_ARTIFACT]->(a)
-agent_utilities/sdd/watcher.py	151	multiple_match_clauses	# MATCH (old:ImplementationPlan {id: $prev_plan_id}) MATCH (new:ImplementationPlan {id: $plan_id}) MERGE (new)-[:SUPERSEDES]->(old)
-agent_utilities/sdd/watcher.py	166	merge_on_edge_pattern	# MERGE (f:SoftwareFeature {id: $feature_id}) ON CREATE SET f.title = $feature_title WITH f MATCH (p:ImplementationPlan {id: $plan_id}) MERGE (p)-[:PLAN_FOR_FEATU
-agent_utilities/sdd/watcher.py	182	multiple_match_clauses	# MATCH (proj:Project) WHERE proj.name = 'current' MATCH (p:ImplementationPlan {id: $plan_id}) MERGE (proj)-[:HAS_ARTIFACT]->(p)
-agent_utilities/sdd/watcher.py	195	merge_on_edge_pattern	# MERGE (sess:Session {id: $session_id}) WITH sess MATCH (p:ImplementationPlan {id: $plan_id}) MERGE (sess)-[:HAS_ARTIFACT]->(p)
-agent_utilities/sdd/watcher.py	254	multiple_match_clauses	# MATCH (old:Tasks {id: $prev_tasks_id}) MATCH (new:Tasks {id: $tasks_id}) MERGE (new)-[:SUPERSEDES]->(old)
-agent_utilities/sdd/watcher.py	268	merge_on_edge_pattern	# MERGE (f:SoftwareFeature {id: $feature_id}) WITH f MATCH (t:Tasks {id: $tasks_id}) MERGE (t)-[:TASKS_FOR_FEATURE]->(f)
-agent_utilities/sdd/watcher.py	745	multiple_match_clauses	# MATCH (proj:Project) WHERE proj.name = 'current' MATCH (s:Skill {id: $node_id}) MERGE (proj)-[:HAS_ARTIFACT]->(s)
-tests/integration/knowledge_graph/test_knowledge_graph_integration.py	355	comma_pattern_match	# MATCH (r:RunTrace), (a:SpawnedAgent) WHERE r.id = $rid AND a.id = $aid MERGE (r)-[:EXECUTED_ON]->(a)
-tests/integration/knowledge_graph/test_knowledge_graph_integration.py	359	comma_pattern_match	# MATCH (a:SpawnedAgent), (p:SystemPrompt) WHERE a.id = $aid AND p.id = $pid MERGE (a)-[:USES]->(p)
-tests/integration/knowledge_graph/test_knowledge_graph_integration.py	387	comma_pattern_match	# MATCH (a:Memory {name: 'A'}), (b:Memory {name: 'B'}) MERGE (a)-[:RELATED_TO]->(b)
-tests/unit/knowledge_graph/test_fanout_backend.py	445	multiple_match_clauses	# MATCH (s {id: $sid}) MATCH (t {id: $tid}) MERGE (s)-[r:DEPENDS_ON]->(t) SET r.`confidence` = $confidence
-tests/unit/knowledge_graph/test_ladybug_edge_binding.py	35	multiple_match_clauses	# MATCH (s {id:$source}) MATCH (t {id:$target}) MERGE (s)-[r:calls]->(t)
-tests/unit/knowledge_graph/test_stardog_data_backend.py	90	comma_pattern_match	# MATCH (s:Application {id: $sid}), (t:Capability {id: $tid}) MERGE (s)-[r:SUPPORTS]->(t)

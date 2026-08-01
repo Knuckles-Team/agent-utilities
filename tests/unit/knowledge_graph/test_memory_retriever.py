@@ -27,10 +27,16 @@ class FakeEngine:  # type: ignore
         self.backend = None
 
     def _upsert_node(self, label, node_id, props):
-        self.graph.add_node(node_id, label=label, **props)
+        # 'node_type' is the canonical property (the retired 'type'/'label'
+        # kwarg raises); keep the caller-supplied node label under that name.
+        props = dict(props)
+        props.setdefault("node_type", label)
+        self.graph.add_node(node_id, **props)
 
     def link_nodes(self, src, tgt, rel_type, props=None):
-        self.graph.add_edge(src, tgt, type=rel_type, **(props or {}))
+        # 'relationship' is the canonical edge property (the retired 'type'
+        # alias raises).
+        self.graph.add_edge(src, tgt, relationship=rel_type, **(props or {}))
 
 
 @dataclass

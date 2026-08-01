@@ -43,11 +43,42 @@ def sink(monkeypatch, tiny_engine):
     # ``tiny_engine`` (CONCEPT:AU-KG.memory.provides-real-ephemeral-one) ensures the REAL ephemeral engine is up so
     # the engine-only ProposalQueue (no JSON fallback) has an authority to persist
     # :WritebackProposal nodes on.
+    #
+    # ProposalQueue(backend=None) -- the production path run_writeback() uses --
+    # resolves its authority via require_engine_authority_backend(), which falls
+    # back to a bare EpistemicGraphBackend() when no active backend is set. That
+    # bare construction resolves its OWN routing graph via
+    # resolve_routing_graph(None) *before* asking GraphComputeEngine for one, so
+    # under the isolate_graph_compute_engine fixture (a tenant-bearing ambient
+    # actor) it lands on a tenant graph this test never provisioned -- the same
+    # isolation bug root-caused for test_kg_native_orchestration.py. Explicitly
+    # setting the active backend to one bound to an already-isolated
+    # GraphComputeEngine (constructed the same way the isolate fixture's own
+    # engines are) makes require_engine_authority_backend() reuse it instead of
+    # falling back to the divergent bare construction.
+    from agent_utilities.knowledge_graph.backends import (
+        get_active_backend,
+        set_active_backend,
+    )
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    compute = GraphComputeEngine(backend_type="rust")
+    isolated_backend = object.__new__(EpistemicGraphBackend)
+    isolated_backend._graph = compute
+    isolated_backend.graph_name = compute.graph_name
+    isolated_backend.create_schema()
+    previous_backend = get_active_backend()
+    set_active_backend(isolated_backend)
+
     s = _HighStakesSink()
     core.register_sink(s)
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)  # enabled
     yield s
     core._SINKS.pop("tesths", None)
+    set_active_backend(previous_backend)
 
 
 def test_high_stakes_live_request_is_queued_not_executed(sink):

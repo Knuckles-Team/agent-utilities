@@ -16,6 +16,7 @@ DSTDD Lifecycle:
 
 import contextlib
 import re
+import time
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -371,27 +372,33 @@ class SDDManager:
 
         artifact_type = type(model).__name__
         name = feature_id if feature_id else "Global"
+        artifact_id = f"sdd:{artifact_type}:{name}"
 
-        query = (
-            "MERGE (a:SDDArtifact {id: $id}) "
-            "SET a.node_type = $node_type, a.name = $name, "
-            "a.last_updated = timestamp() "
-            "RETURN a.id"
-        )
-        props = {
-            "id": f"sdd:{artifact_type}:{name}",
-            "node_type": artifact_type,
-            "name": name,
-        }
+        # D-W2C-3: a MERGE-then-SET(function-call-value) plus a two-MATCH
+        # edge-MERGE both exceed the native engine's write subset (ONE
+        # leading MATCH, MERGE on a single bare node only --
+        # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+        # Dispatched through the typed engine API instead (same pattern
+        # already established for sdd/watcher.py's identical shape).
         with contextlib.suppress(Exception):
-            engine.backend.execute(query, props)
-            # Link to workspace/project node if it exists
-            engine.backend.execute(
-                "MATCH (p:Project) WHERE p.name = 'current' "
-                "MATCH (a:SDDArtifact {id: $id}) "
-                "MERGE (p)-[:HAS_ARTIFACT]->(a)",
-                {"id": props["id"]},
+            engine.add_node(
+                artifact_id,
+                node_type=artifact_type,
+                properties={
+                    "name": name,
+                    "last_updated": int(time.time() * 1000),
+                },
             )
+            # Link to workspace/project node if it exists. Project is
+            # looked up by `name`, not `id`, so this is a single-MATCH
+            # read (unrestricted MATCH count) to resolve the id, then a
+            # typed link_nodes call for the edge.
+            proj_rows = engine.backend.execute(
+                "MATCH (p:Project) WHERE p.name = 'current' RETURN p.id AS id"
+            )
+            project_id = proj_rows[0].get("id") if proj_rows else None
+            if project_id:
+                engine.link_nodes(project_id, artifact_id, "HAS_ARTIFACT")
 
     def get_parallel_opportunities(self, task_list: Tasks) -> list[list[str]]:
         """Identify ordered waves of tasks that can be safely run in parallel.

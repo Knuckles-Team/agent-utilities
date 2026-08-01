@@ -977,7 +977,7 @@ class RegistryEdgeType(StrEnum):
     REACHED_DEAD_END = "reached_dead_end"
     CERTIFIES = "certifies"  # seal_certificate --certifies--> research_artifact
 
-    # Connector → Skill synthesis edges (CONCEPT:AU-KG.compute.automates). AUTOMATES: a proposed
+    # Connector → Skill synthesis edges. AUTOMATES: a proposed
     # Skill/Workflow automates a BusinessProcess/Capability. DERIVED_FROM:
     # provenance from a proposal back to the source system node it was distilled
     # from. COMPOSES: a SkillWorkflowProposal composes its atomic Skill steps.
@@ -4023,6 +4023,9 @@ class TeamComposition(BaseModel):
             metadata={"source": "team_composition_dag", "team_id": self.team_id},
         )
 
+        def _task_id(step_id: str) -> str:
+            return f"{dag_id}:task:{step_id}"
+
         for step in plan.steps:
             from agent_utilities.orchestration.work_item import (
                 execution_work_item_id,
@@ -4042,6 +4045,28 @@ class TeamComposition(BaseModel):
                 work_item_id=work_item_id,
                 idempotency_key=work_item_id,
             )
+
+            # Legacy ':AgentTask' mirror (CONCEPT:AU-OS.state.cognitive-scheduler-preemption):
+            # WorkItem is the write/claim authority above, but
+            # fleet_reconciler.fire_ready_agent_tasks' discovery scan still
+            # matches on ":AgentTask {status: 'blocked'}" graph nodes, not
+            # WorkItems -- so this mirror must exist for that sweep (and any
+            # other unmigrated :AgentTask reader) to find candidates at all.
+            task_id = _task_id(str(step.id))
+            depends_on_task_ids = [_task_id(str(dep)) for dep in step.depends_on]
+            store.engine.add_node(
+                task_id,
+                "AgentTask",
+                properties={
+                    "dag_id": dag_id,
+                    "depends_on_task_ids": depends_on_task_ids,
+                    "status": "pending" if not depends_on_task_ids else "blocked",
+                },
+            )
+            for dep_task_id in depends_on_task_ids:
+                store.engine.link_nodes(
+                    task_id, dep_task_id, RegistryEdgeType.TASK_DEPENDS_ON
+                )
 
         return dag_id
 

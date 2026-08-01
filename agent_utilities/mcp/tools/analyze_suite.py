@@ -65,6 +65,7 @@ GraphEvaluateAction = Literal[
     "latent_efficiency_benchmark",
     "assimilation_benchmark",
     "evolve_model",
+    "evolve_code",
     "forecast",
     "causal",
     "invariant",
@@ -75,7 +76,7 @@ GraphEvaluateAction = Literal[
     "quant_regime",
     "quant_insider",
 ]
-GraphExplainAction = Literal["explain", "context", "executable_rag"]
+GraphExplainAction = Literal["explain", "context", "executable_rag", "recommend"]
 
 
 def register_analyze_suite_tools(mcp: Any) -> None:
@@ -177,7 +178,10 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "'world_model_rollout' (forward-simulate the world model — KG-2.73b), "
             "'latent_efficiency_benchmark' (AHE-3.48), 'assimilation_benchmark' "
             "(measured empirical-parity evidence for assimilated paper mechanisms "
-            "vs baseline — AHE-3.39), 'evolve_model', 'forecast', 'causal', "
+            "vs baseline — AHE-3.39), 'evolve_model', 'evolve_code' "
+            "(Monte-Carlo GRAPH search code evolution driven by an LLM coder, falling "
+            "back deterministically offline — KG-2.92/MLEvolve; query=task description), "
+            "'forecast', 'causal', "
             "'invariant', plus the finance evaluation actions 'quant_crypto', "
             "'quant_exchange', 'quant_microstructure', 'quant_strategy', "
             "'quant_regime', and 'quant_insider'."
@@ -187,7 +191,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
     async def graph_evaluate(
         action: GraphEvaluateAction = Field(
             default="evaluate",
-            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
+            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
         ),
         query: str = Field(
             default="",
@@ -214,13 +218,17 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "entity/tickets/deploys/process (KG-2.139), capability (Capability Power "
             "Descriptor for a graph-os tool by id, e.g. 'capability:graph_query', or "
             "'capability:list' for the browsable index — Seam 8 Phase 1, "
-            "CONCEPT:AU-KG.retrieval.capability-power-descriptor)."
+            "CONCEPT:AU-KG.retrieval.capability-power-descriptor). "
+            "action='recommend' shares this tool's hybrid-retrieval substrate but returns "
+            "RANKED items (not a single cited answer): a PauseRec implicit-reasoning "
+            "generative recommender over query=intent/history — KG-2.93."
         ),
         tags=["graph-os", "explain"],
     )
     async def graph_explain(
         action: GraphExplainAction = Field(
-            default="explain", description="explain | context | executable_rag"
+            default="explain",
+            description="explain | context | executable_rag | recommend",
         ),
         query: str = Field(default="", description="The question."),
         top_k: int = Field(default=10, description="Result count."),

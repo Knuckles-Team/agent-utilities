@@ -1,4 +1,4 @@
-"""Native request-pipelining adoption (CONCEPT:AU-KG.compute.when-exposes).
+"""Native request-pipelining adoption.
 
 Independent engine operations share the one process-owned authenticated transport
 and remain concurrently in flight. The generated client demultiplexes responses by

@@ -3580,7 +3580,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             reg = WorkerRegistry()
             self._worker_reg = reg
             self._sched_config = scheduler_config_from_env(wc)
-            # CONCEPT:AU-KG.compute.resolve — resolve the ENGINE's real durable shard-writer
+            # resolve the ENGINE's real durable shard-writer
             # width K once, from the engine that owns the redb backend (it may be a
             # remote box with a different cpu count than this scheduling host in
             # split-storage). Cached inside worker_scheduler so the codebase
@@ -4563,7 +4563,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                                 IngestionEngine as _IngestionEngine,
                             )
 
-                            await _IngestionEngine(kg_engine=self)._enrich_text(
+                            await _IngestionEngine(kg_engine=self).enrich_text(
                                 fd["document_id"],
                                 fd.get("text", "") or "",
                                 fd.get("doc_type", "news_article"),

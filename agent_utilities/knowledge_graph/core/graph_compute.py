@@ -314,6 +314,7 @@ _CLIENT_NAMESPACES: tuple[str, ...] = (
     "rbac",
     "admin",
     "jobs",
+    "statechart",
 )
 
 
@@ -1255,6 +1256,32 @@ def connect_external_read_transport(
     else:
         raise ValueError("external engine endpoint must use tls://, tcp://, or unix://")
     return SyncEpistemicGraphClient.connect(**connect)
+
+
+@functools.lru_cache(maxsize=8)
+def _query_unified_accepts_reorder_kwarg(unified_method: Any) -> bool:
+    """Whether the installed ``epistemic_graph`` client's ``query.unified`` accepts
+    ``reorder_filter_selectivity`` (D-W2X-4).
+
+    ``GraphComputeEngine.query_unified`` assumes a client signature newer than
+    what the frozen ``au 2.0.0`` / ``eg 2.23.1`` pin currently installs;
+    passing the kwarg unconditionally against an older client raises
+    ``TypeError: unified() got an unexpected keyword argument``. Cached (keyed
+    on the bound method itself — hashable, and stable for the client
+    instance's lifetime) so this introspection runs once per client, not once
+    per call.
+    """
+    import inspect
+
+    try:
+        return (
+            "reorder_filter_selectivity" in inspect.signature(unified_method).parameters
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):  # pragma: no cover - defensive: unintrospectable callable
+        return False
 
 
 class GraphComputeEngine:
@@ -2532,7 +2559,7 @@ class GraphComputeEngine:
         reorder_filter_selectivity: float | None = None,
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:AU-KG.compute.kg-2).
+        """Run ONE cross-modal unified plan in a single costed round-trip.
 
         ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
         ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
@@ -2541,7 +2568,7 @@ class GraphComputeEngine:
         traverse via petgraph BFS, rank via the native ANN, RRF fusion in-plan).
         This is the engine doing filter+traverse+vector+rerank itself instead of
         the old hand-orchestrated Python pipeline of siloed round-trips
-        (CONCEPT:AU-KG.compute.vector/214/215). Returns ``[{"id": str, "score": float|None}]``
+        Returns ``[{"id": str, "score": float|None}]``
         in the plan's final (post-``Rank``) order.
 
         Requires an engine built with the ``query`` feature; on a build without it
@@ -2559,12 +2586,26 @@ class GraphComputeEngine:
                 policy labels — never fabricated, resolved server-side. See
                 ``docs/architecture/epistemic-columns-currency.md``.
         """
-        rows = (
-            self._client.query.unified(
-                plan, reorder_filter_selectivity=reorder_filter_selectivity
+        # D-W2X-4: the installed epistemic_graph client's query.unified() may
+        # predate reorder_filter_selectivity (a version skew under the
+        # au 2.0.0/eg 2.23.1 freeze) -- only pass it when the client's own
+        # signature accepts it, rather than assuming the newest wire contract.
+        unified_fn = self._client.query.unified
+        if _query_unified_accepts_reorder_kwarg(unified_fn):
+            rows = (
+                unified_fn(plan, reorder_filter_selectivity=reorder_filter_selectivity)
+                or []
             )
-            or []
-        )
+        else:
+            if reorder_filter_selectivity is not None:
+                logger.warning(
+                    "query_unified: installed epistemic_graph client's "
+                    "query.unified() does not accept reorder_filter_selectivity "
+                    "(version skew under the au/eg freeze) -- calling without it "
+                    "instead of raising; the caller's requested reordering hint "
+                    "is dropped, not silently honored."
+                )
+            rows = unified_fn(plan) or []
         if include_epistemic:
             from .epistemic_row import attach_epistemic_rows
 
@@ -3743,7 +3784,7 @@ class GraphComputeEngine:
         merge_threshold: float = 0.92,
         node_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Native entity-resolution candidate generation (CONCEPT:AU-KG.compute.when-exposes-native).
+        """Native entity-resolution candidate generation.
 
         Returns merge proposals (``{canonical, members, score, kind}``;
         ``kind`` = ``same_as`` | ``extends``) — the server-side escalation tier the
@@ -3860,7 +3901,7 @@ class GraphComputeEngine:
         """
         return self._client.lifecycle.evict_lru(max_nodes)
 
-    # ── Native multiplexed engine transport (CONCEPT:AU-KG.compute.when-exposes) ────────────
+    # ── Native multiplexed engine transport ────────────
     # The current client demultiplexes many in-flight requests by request id on
     # the ONE authenticated process transport. An auxiliary connection pool is
     # redundant and would pin one caller's authority into long-lived clients.

@@ -122,7 +122,7 @@ def test_feedback_service_exports_pairs_from_live_backend():
     # 2) a distilled preference node (as EpisodeToPreferenceRule would write)
     backend.add_node(
         "pref-1",
-        type="preference",
+        node_type="preference",
         prompt="best sort?",
         chosen="quicksort",
         rejected="bogosort",
@@ -130,14 +130,14 @@ def test_feedback_service_exports_pairs_from_live_backend():
     # 3) a human correction carrying the original (rejected) value
     backend.add_node(
         "corr-1",
-        type="correction",
+        node_type="correction",
         target="capital?",
         corrected_value="Paris",
         original="Berlin",
     )
     # 4) a degenerate pair that RAPPO must drop
     backend.add_node(
-        "pref-2", type="preference", prompt="noop", chosen="same", rejected="same"
+        "pref-2", node_type="preference", prompt="noop", chosen="same", rejected="same"
     )
 
     svc = FeedbackService(backend=backend)

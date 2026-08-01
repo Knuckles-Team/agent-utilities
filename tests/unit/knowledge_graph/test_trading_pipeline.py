@@ -201,15 +201,22 @@ class TestTradingPipelineIntegration:
         )
         port = PortfolioNode(id="port:main", name="Main", position_count=1)
 
-        # Add nodes
+        # Add nodes. The pydantic models' own "type" field (RegistryNodeType) is
+        # a domain concept distinct from the engine's canonical "node_type"
+        # storage key, which fail-closed rejects a literal "type" property —
+        # translate on the way in.
         for n in [strat, signal, order, pos, port]:
             g.add_node(n.id, **n.to_graph_properties())
 
-        # Add pipeline edges
-        g.add_edge(strat.id, signal.id, relationship=RegistryEdgeType.GENERATED_SIGNAL)
+        # Add pipeline edges — canonical kwarg is "relationship", not "type".
+        g.add_edge(
+            strat.id, signal.id, relationship=RegistryEdgeType.GENERATED_SIGNAL
+        )
         g.add_edge(signal.id, order.id, relationship=RegistryEdgeType.PLACED_ORDER)
         g.add_edge(order.id, pos.id, relationship=RegistryEdgeType.OPENED_POSITION)
-        g.add_edge(pos.id, port.id, relationship=RegistryEdgeType.BELONGS_TO_PORTFOLIO)
+        g.add_edge(
+            pos.id, port.id, relationship=RegistryEdgeType.BELONGS_TO_PORTFOLIO
+        )
         g.add_edge(port.id, strat.id, relationship=RegistryEdgeType.EXECUTES_STRATEGY)
 
         # Verify graph structure

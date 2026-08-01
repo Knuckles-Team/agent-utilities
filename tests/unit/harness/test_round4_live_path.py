@@ -1,6 +1,5 @@
 """Live-path tests for the round-4 assimilation: PauseRec + LLM-coder + FST trainer + neural reranker."""
 
-import json
 import time
 from unittest.mock import MagicMock
 
@@ -85,13 +84,21 @@ def test_fst_substrate_trainer_wired_and_records_jobs():
 
 @pytest.mark.asyncio
 async def test_recommend_action_pauserec(engine, monkeypatch):
-    """KG-2.93 — graph_analyze action='recommend' returns ranked recommendations."""
+    """KG-2.93 — graph_explain action='recommend' returns ranked recommendations.
+
+    The old ``graph_analyze`` catch-all was split into focused suite tools
+    (analyze_suite.py); 'recommend' shares graph_explain's hybrid-retrieval
+    substrate (same as its 'context'/'executable_rag' actions) and lives there.
+    """
     monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
     kg_server.ensure_tools_registered()
     res = await kg_server._execute_tool(
-        "graph_analyze", action="recommend", query="python", top_k=3
+        "graph_explain", action="recommend", query="python", top_k=3
     )
-    recs = json.loads(res)
+    # graph_explain returns the sole typed EvidenceBundle response (not a JSON
+    # string) — the recommendation list has no "rows"/"results" key, so
+    # EvidenceBundle.from_payload wraps each item dict as its own claim.
+    recs = res.claims
     assert isinstance(recs, list) and recs
     for r in recs:
         assert "item_id" in r and "semantic_id" in r and "score" in r
@@ -99,11 +106,20 @@ async def test_recommend_action_pauserec(engine, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_evolve_code_action_offline_fallback(engine, monkeypatch):
-    """KG-2.92 — evolve_code runs end-to-end (LLM coder falls back deterministically offline)."""
+    """KG-2.92 — evolve_code runs end-to-end (LLM coder falls back deterministically offline).
+
+    The old ``graph_analyze`` catch-all was split into focused suite tools
+    (analyze_suite.py); 'evolve_code' lives on 'graph_evaluate' alongside the
+    rest of the harness-evolution family ('evolve_model', 'specialize',
+    'world_model_rollout').
+    """
     monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
     kg_server.ensure_tools_registered()
     res = await kg_server._execute_tool(
-        "graph_analyze", action="evolve_code", query="sort a list efficiently", top_k=4
+        "graph_evaluate", action="evolve_code", query="sort a list efficiently", top_k=4
     )
-    out = json.loads(res)
+    # graph_evaluate returns the sole typed EvidenceBundle response (not a
+    # JSON string) — the result dict has no "rows"/"results" key, so
+    # EvidenceBundle.from_payload wraps the whole dict as the sole claim.
+    out = res.claims[0]
     assert "best_metric" in out and "branch_id" in out
