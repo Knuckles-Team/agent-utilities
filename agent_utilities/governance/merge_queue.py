@@ -289,6 +289,16 @@ class Candidate:
     enqueued_at: str = ""
     state: str = QUEUED
     reason: str = ""
+    #: D-F6-1: WHEN this specific record was appended — distinct from
+    #: ``enqueued_at``, which is the original enqueue time and stays fixed
+    #: across every later state transition (see ``_record_state``). Used by
+    #: :func:`_resolve_latest_candidate_record` to pick the chronologically
+    #: LATEST record for an id across every lane's fragment, instead of
+    #: :meth:`FragmentStore.fold`'s default "last in lane-name-sorted
+    #: iteration order" — which silently prefers whichever lane's name
+    #: sorts alphabetically last, not whichever record was actually written
+    #: most recently.
+    recorded_at: str = ""
 
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> Candidate:
@@ -300,6 +310,7 @@ class Candidate:
             enqueued_at=str(record.get("enqueued_at", "")),
             state=str(record.get("state", QUEUED)),
             reason=str(record.get("reason", "")),
+            recorded_at=str(record.get("recorded_at", "")),
         )
 
     def to_record(self) -> dict[str, Any]:
@@ -311,6 +322,7 @@ class Candidate:
             "enqueued_at": self.enqueued_at,
             "state": self.state,
             "reason": self.reason,
+            "recorded_at": self.recorded_at,
         }
 
 
@@ -347,13 +359,15 @@ def enqueue(
             f"refusing to enqueue {branch!r}: a candidate must be a named branch "
             f"that is not {base!r} (detached HEAD or the base itself is never one)"
         )
+    now = _now()
     candidate = Candidate(
         branch=branch,
         lane=scope.lane,
         base=base,
         worktree=str(Path(worktree).resolve()) if worktree else str(scope.tree),
-        enqueued_at=_now(),
+        enqueued_at=now,
         state=QUEUED,
+        recorded_at=now,
     )
     store = queue_store(scope.tree)
     store.append(candidate.to_record(), lane=scope.lane)
@@ -366,8 +380,18 @@ def _record_state(
     """Supersede a candidate's record with its terminal state.
 
     A *new* append, never an edit: the fold collapses records sharing an ``id`` to
-    the last one written, so a landed/rejected record supersedes the queued one
-    without any writer ever rewriting a file another lane also writes.
+    the CHRONOLOGICALLY LATEST one written (D-F6-1 — see
+    :func:`_resolve_latest_candidate_record`), so a landed/rejected record
+    supersedes the queued one without any writer ever rewriting a file another
+    lane also writes — including when the terminal state is recorded from a
+    DIFFERENT lane's fragment than the one that originally enqueued it (the
+    common shape: enqueue from a candidate's own worktree, land from the
+    canonical checkout).
+
+    ``recorded_at`` is stamped FRESH here — unlike ``enqueued_at``, which is
+    preserved from the original record so the candidate's true enqueue time
+    survives every later transition — because it is specifically WHEN THIS
+    record was written, the field the fold resolves ties on.
     """
     scope = lane_scope(path)
     store = queue_store(scope.tree)
@@ -379,6 +403,7 @@ def _record_state(
         enqueued_at=candidate.enqueued_at,
         state=state,
         reason=reason,
+        recorded_at=_now(),
     )
     store.append(updated.to_record(), lane=scope.lane)
 
@@ -393,8 +418,43 @@ def withdraw(branch: str, *, reason: str = "", path: Path | str | None = None) -
     raise MergeQueueError(f"{branch!r} is not in the queue")
 
 
+def _resolve_latest_candidate_record(
+    group: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Pick the chronologically LATEST record in *group* by ``recorded_at``
+    (D-F6-1), not :meth:`FragmentStore.fold`'s default ``group[-1]``.
+
+    ``fold()`` groups every lane's record for one id together in
+    ``self.lanes()``'s (alphabetically SORTED) iteration order, then hands
+    the whole group here. ``group[-1]`` alone would therefore silently
+    prefer whichever LANE NAME sorts alphabetically last among every lane
+    that ever wrote a record for this id — completely unrelated to which
+    record was actually written most recently. That is exactly backwards
+    when a candidate is enqueued from its own worktree (lane e.g.
+    ``lane-foo``) and its terminal state is later recorded from the
+    canonical checkout (lane ``canonical``): ``"canonical" < "lane-foo"``
+    alphabetically, so the OLDER queued record from ``lane-foo`` would win
+    over the newer terminal one from ``canonical`` — reproduced live as a
+    candidate that had genuinely landed still reporting ``queued`` forever.
+
+    ISO-8601 ``recorded_at`` timestamps sort correctly as plain strings, so
+    ``max(..., key=...)`` is enough. Falls back to ``group[-1]`` — the OLD
+    behavior — only when every candidate in a tie is missing/blank
+    ``recorded_at`` (a record written before this field existed), so
+    existing fragment files degrade gracefully rather than needing a
+    migration.
+    """
+    with_timestamp = [r for r in group if str(r.get("recorded_at", "")).strip()]
+    if not with_timestamp:
+        return group[-1]
+    return max(with_timestamp, key=lambda r: str(r.get("recorded_at", "")))
+
+
 def _all_candidates(path: Path | str | None = None) -> list[Candidate]:
-    return [Candidate.from_record(r) for r in queue_store(path).fold()]
+    return [
+        Candidate.from_record(r)
+        for r in queue_store(path).fold(resolve=_resolve_latest_candidate_record)
+    ]
 
 
 def queued(path: Path | str | None = None) -> list[Candidate]:

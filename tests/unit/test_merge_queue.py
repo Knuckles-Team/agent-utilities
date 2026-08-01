@@ -97,6 +97,31 @@ def test_terminal_state_supersedes_rather_than_edits(canonical: Path) -> None:
     assert everything["lane-a"].state == mq.WITHDRAWN
 
 
+def test_fold_resolves_cross_lane_state_by_recorded_time_not_lane_name_sort(
+    canonical: Path,
+) -> None:
+    """D-F6-1: a candidate enqueued from a lane whose name sorts AFTER
+    "canonical" alphabetically ('z' > 'c'), then landed via a state
+    transition recorded from the canonical lane (the real shape: enqueue
+    from a candidate's own worktree, land from the canonical checkout),
+    must resolve to its terminal state -- not get stuck reporting "queued"
+    forever because FragmentStore.fold()'s default `group[-1]` picked
+    whichever lane's NAME sorted alphabetically last ('zzz-late-lane'),
+    which happened to hold the OLDER queued record, over the canonical
+    lane's newer terminal one."""
+    lane = _branch(canonical, "zzz-late-lane", {"pkg/z.py": "Z = 1\n"})
+    mq.enqueue(path=lane)
+    candidate = mq.queued(canonical)[0]
+    # The terminal write is recorded from `canonical`, a DIFFERENT lane than
+    # the one that enqueued it -- exactly what `land()`'s callers do.
+    mq._record_state(candidate, mq.LANDED, "", canonical)
+    store = mq.queue_store(canonical)
+    assert {"zzz-late-lane", "canonical"} <= set(store.lanes())  # premise: 2 fragments
+    resolved = {c.branch: c for c in mq._all_candidates(canonical)}
+    assert resolved["zzz-late-lane"].state == mq.LANDED
+    assert mq.queued(canonical) == []  # not stuck reporting queued forever
+
+
 def test_enqueue_refuses_the_base_itself(canonical: Path) -> None:
     with pytest.raises(mq.MergeQueueError, match="named branch"):
         mq.enqueue("main", path=canonical)
