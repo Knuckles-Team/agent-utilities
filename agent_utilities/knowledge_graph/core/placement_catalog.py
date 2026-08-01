@@ -324,6 +324,7 @@ def _query_catalog(
         auth_secret, verified_context = _request_authority(config)
 
     failures = 0
+    last_error: Exception | None = None
     for contact in contacts:
         client = None
         owns_client = client_factory is None
@@ -361,6 +362,7 @@ def _query_catalog(
                 str(exc),
             )
             failures += 1
+            last_error = exc
         finally:
             if client is not None and owns_client:
                 try:
@@ -369,7 +371,7 @@ def _query_catalog(
                     pass
     raise PlacementAuthorityError(
         f"no configured engine returned an authoritative route ({failures} failed)"
-    )
+    ) from last_error
 
 
 def discovery_reachable(
