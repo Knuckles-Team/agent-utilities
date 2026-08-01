@@ -273,7 +273,7 @@ async def sync_feature_to_memory(ctx: RunContext[AgentDeps], feature_id: str) ->
     existing_mem_id = None
     for node_id in engine.graph.node_ids():
         data = engine.graph._get_node_properties(node_id)
-        if data.get("type") == "memory" and data.get("name") == mem_name:
+        if data.get("node_type") == "memory" and data.get("name") == mem_name:
             existing_mem_id = node_id
             break
 
