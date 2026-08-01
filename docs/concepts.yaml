@@ -1573,6 +1573,7 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/mcp/httpx_boundary.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/protocol_compat.py
   doc: closes D-OB-18
@@ -6191,14 +6192,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/entity_context.py
   doc: assimilated from MRAgent
 - id: AU-KG.retrieval.batch-hydrate
-  name: instead of one point-read per
+  name: cross-base-node hydration batching
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/graph_engineering.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  doc: instead of one point-read per
+  doc: cross-base-node hydration batching
 - id: AU-KG.retrieval.batched-neighborhood-prefetch
   name: hard ceiling on how many
   pillar: AU-KG
