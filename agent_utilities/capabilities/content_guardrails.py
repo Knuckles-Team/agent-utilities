@@ -139,14 +139,28 @@ def secret_leak_guardrail() -> OutputGuardrail[Any]:
 
 
 def output_schema_guardrail(required_keys: Sequence[str]) -> OutputGuardrail[Any]:
-    """Build an output-schema guardrail blocking output missing required keys.
+    """Build an output-schema guardrail that sends a violation back to the model.
 
     A pure no-op when ``required_keys`` is empty — safe to attach unconditionally.
     Handles the three output shapes ``PolicyEngine``'s ``OutputSchemaPolicy`` covered:
     a Pydantic ``BaseModel`` (``model_dump()`` normalizes it to a dict first), a plain
-    ``dict``, and a JSON-text ``str`` output (parsed before the key check; non-JSON
-    text blocks outright when keys are required). Any other output type is passed
-    through unchanged, since a required-keys contract does not apply to it.
+    ``dict``, and a JSON-text ``str`` output (parsed before the key check). Any other
+    output type is passed through unchanged, since a required-keys contract does not
+    apply to it.
+
+    CONCEPT:AU-AHE.harness.loop-exit-conditions (the harness output-guardrail ``retry`` verdict,
+    reconciled against this guard): both the "missing keys" and the "not valid JSON"
+    violations are RECOVERABLE — the model can add the key or reformat as JSON on the
+    next turn — so this uses ``GuardrailResult.retry()`` (hands the output back to the
+    model with the specific fix needed, via pydantic-ai's own output-retry machinery)
+    rather than ``GuardrailResult.block()`` (which used to discard the entire output on
+    what is usually a one-line fix). This mirrors the D-OP-2 rationale already applied
+    to :func:`secret_leak_guardrail`/:func:`pii_redaction_guardrails` in this module —
+    don't throw away a salvageable answer — but reaches for ``retry`` instead of
+    ``replace`` here because there is no safe *automatic* substitute value for a
+    missing business key (unlike redacting a known secret span in place). ``block``
+    remains reserved for guards whose violation the model cannot fix by retrying (see
+    ``_prompt_injection_guard``: a detected attack is refused outright, never retried).
     """
     keys = tuple(required_keys)
 
@@ -162,14 +176,18 @@ def output_schema_guardrail(required_keys: Sequence[str]) -> OutputGuardrail[Any
             try:
                 data = json.loads(data)
             except (TypeError, ValueError):
-                return GuardrailResult.block(
-                    "Output is not valid JSON but schema validation was required"
+                return GuardrailResult.retry(
+                    f"Your output was not valid JSON. Respond with a JSON object "
+                    f"containing these required keys: {list(keys)}."
                 )
         if not isinstance(data, dict):
             return GuardrailResult.allow()
         missing = [key for key in keys if key not in data]
         if missing:
-            return GuardrailResult.block(f"Output missing required keys: {missing}")
+            return GuardrailResult.retry(
+                f"Your output is missing required keys: {missing}. "
+                f"Respond again with all required keys present: {list(keys)}."
+            )
         return GuardrailResult.allow()
 
     return OutputGuardrail(guard=_schema_guard)
