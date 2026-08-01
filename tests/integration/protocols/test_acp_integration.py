@@ -9,7 +9,10 @@ import pytest
 from acp import RequestError, schema
 from pydantic_ai.models.test import TestModel
 
-from agent_utilities.core.contextual_model import create_context_agent
+from agent_utilities.core.contextual_model import (
+    create_context_agent,
+    use_grounding_policy,
+)
 from agent_utilities.protocols.acp_adapter import (
     _ACP_INSTALLED,
     build_acp_config,
@@ -65,10 +68,20 @@ async def test_graph_adapter_dispatches_through_graph_authority(tmp_path) -> Non
         "agent_utilities.graph.protocol_agnostic_execution.execute_graph",
         execute,
     ):
-        response = await adapter.prompt(
-            session_id=session.session_id,
-            prompt=[acp.text_block("delegate this")],
-        )
+        # The fail-closed grounding contract (CONCEPT:AU-KG.retrieval.
+        # fail-closed-grounding-contract) is default-ON for every governed
+        # model call; an unconfigured ContextCompiler then refuses a
+        # streaming request outright ("could not establish compiled
+        # evidence"). This test is about dispatch through the graph
+        # authority via TestModel's deterministic tool call, not grounding,
+        # so it opts out explicitly rather than provisioning a compiler —
+        # the same established pattern as
+        # test_checkpoint_intelligence.py's kv-advisory probes.
+        with use_grounding_policy("none"):
+            response = await adapter.prompt(
+                session_id=session.session_id,
+                prompt=[acp.text_block("delegate this")],
+            )
 
     assert response.stop_reason == "end_turn"
     execute.assert_awaited_once()

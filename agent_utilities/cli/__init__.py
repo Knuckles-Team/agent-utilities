@@ -256,6 +256,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="`-- <command>` to run while holding the lease (omit to just report)",
     )
 
+    # CONCEPT:AU-OS.governance.serialized-merge-queue — continuous merge into main.
+    # A sibling of `lane` and deliberately the same shape: this is the lane
+    # *arbitration* surface for the one operation lanes cannot do independently.
+    mq = sub.add_parser(
+        "merge-queue", help="continuous merge into main through one serialized queue"
+    )
+    mq_sub = mq.add_subparsers(dest="mq_action", required=True)
+
+    def _mq_parser(name: str, help_text: str) -> argparse.ArgumentParser:
+        parser = mq_sub.add_parser(name, help=help_text)
+        parser.add_argument("--path", default="", help="working tree (default: cwd)")
+        return parser
+
+    enqueue_p = _mq_parser("enqueue", "offer this lane's branch for landing on main")
+    enqueue_p.add_argument("--branch", default="", help="branch (default: this HEAD)")
+    enqueue_p.add_argument("--base", default="main", help="branch to land onto")
+    _mq_parser("status", "queue depth, order, recent outcomes, and the latency budget")
+    withdraw_p = _mq_parser("withdraw", "pull a candidate back out of the queue")
+    withdraw_p.add_argument("--branch", required=True, help="candidate to withdraw")
+    withdraw_p.add_argument("--reason", default="", help="why it was withdrawn")
+    run_p = _mq_parser("run", "drain a batch under the reconciliation-merge lease")
+    run_p.add_argument("--base", default="main", help="branch to land onto")
+    run_p.add_argument(
+        "--batch-size", type=int, default=0, help="candidates per gate (0 = default)"
+    )
+    run_p.add_argument(
+        "--no-prune", action="store_true", help="land but keep worktrees and branches"
+    )
+    _mq_parser("promotion", "how far the deployed ref lags main (merge != deploy)")
+
     # Self-composing graph-os entrypoint (`uvx agent-utilities graph-os`): runs the
     # SAME ``graph-os`` MCP server as the standalone console script, plus whatever
     # co-services the loaded AgentConfig says are configured (messaging, the KG
@@ -600,6 +630,42 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
         return {"deferred": True, "holder": exc.holder, "exit_code": 75}
 
 
+def _merge_queue(args: argparse.Namespace) -> dict[str, Any]:
+    """The merge queue — the one path a lane's work takes into ``main``.
+
+    Same contract as ``lane lease``: an unavailable lease is **exit 75**, so a
+    shell or hook that chains with ``&&`` stops instead of proceeding. A rejected
+    candidate is exit 1 with the failing checks, because a rejection is a result
+    the lane must act on, not an error in the queue.
+    """
+    from agent_utilities.governance import lanes, merge_queue
+
+    path = args.path or None
+    action = args.mq_action
+    try:
+        if action == "enqueue":
+            return merge_queue.enqueue(args.branch, base=args.base, path=path)
+        if action == "status":
+            return merge_queue.queue_report(path)
+        if action == "withdraw":
+            return merge_queue.withdraw(args.branch, reason=args.reason, path=path)
+        if action == "promotion":
+            return merge_queue.promotion_state(path)
+        result = merge_queue.run_queue(
+            base=args.base,
+            batch_size=args.batch_size or merge_queue.DEFAULT_BATCH_SIZE,
+            prune=not args.no_prune,
+            path=path,
+        )
+        if result.get("rejected"):
+            result["exit_code"] = 1
+        return result
+    except lanes.LeaseUnavailable as exc:
+        return {"deferred": True, "holder": exc.holder, "exit_code": 75}
+    except lanes.LaneArbitrationError as exc:
+        return {"refused": str(exc), "exit_code": 1}
+
+
 def _deploy_plan(args: argparse.Namespace) -> dict[str, Any]:
     """Render a :class:`DeploymentPlan` for the chosen backend and print it.
 
@@ -679,6 +745,8 @@ def main(argv: list[str] | None = None) -> int:
         out = _concept(args)
     elif args.command == "lane":
         out = _lane(args)
+    elif args.command == "merge-queue":
+        out = _merge_queue(args)
     elif args.command == "deploy-plan":
         out = _deploy_plan(args)
     else:

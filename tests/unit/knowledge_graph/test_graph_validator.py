@@ -30,28 +30,28 @@ def populated_engine(mock_engine):
     g = mock_engine.graph
     g.add_node(
         "agent:genius",
-        type="agent",
+        node_type="agent",
         name="genius-agent",
         description="Primary orchestrator",
         importance_score=0.9,
     )
     g.add_node(
         "tool:search",
-        type="tool",
+        node_type="tool",
         name="search-tool",
         description="Web search tool",
         importance_score=0.7,
     )
     g.add_node(
         "skill:browser",
-        type="skill",
+        node_type="skill",
         name="browser-skill",
         description="Browser automation",
         importance_score=0.5,
     )
-    g.add_edge("agent:genius", "tool:search", type="provides", weight=1.0)
-    g.add_edge("agent:genius", "skill:browser", type="has_skill", weight=0.8)
-    g.add_edge("tool:search", "skill:browser", type="related_to", weight=0.5)
+    g.add_edge("agent:genius", "tool:search", relationship="provides", weight=1.0)
+    g.add_edge("agent:genius", "skill:browser", relationship="has_skill", weight=0.8)
+    g.add_edge("tool:search", "skill:browser", relationship="related_to", weight=0.5)
     return mock_engine
 
 
@@ -60,20 +60,24 @@ class TestTier1AutoFix:
 
     def test_normalizes_node_type_aliases(self, mock_engine):
         """LLM type aliases should be normalized to canonical types."""
-        mock_engine.graph.add_node("n1", type="func", name="my_func")
-        mock_engine.graph.add_node("n2", type="service", name="my_service")
+        mock_engine.graph.add_node("n1", node_type="func", name="my_func")
+        mock_engine.graph.add_node("n2", node_type="service", name="my_service")
 
         validator = GraphValidator(mock_engine)
         report = validator.validate()
 
-        assert mock_engine.graph.nodes["n1"]["type"] == "symbol"
-        assert mock_engine.graph.nodes["n2"]["type"] == "agent"
+        assert mock_engine.graph.nodes["n1"]["node_type"] == "symbol"
+        assert mock_engine.graph.nodes["n2"]["node_type"] == "agent"
         assert len([f for f in report.tier1_fixes if f.category == "type_alias"]) == 2
 
     def test_clamps_importance_score(self, mock_engine):
         """Scores outside [0, 1] should be clamped."""
-        mock_engine.graph.add_node("n1", type="agent", name="a", importance_score=1.5)
-        mock_engine.graph.add_node("n2", type="tool", name="b", importance_score=-0.3)
+        mock_engine.graph.add_node(
+            "n1", node_type="agent", name="a", importance_score=1.5
+        )
+        mock_engine.graph.add_node(
+            "n2", node_type="tool", name="b", importance_score=-0.3
+        )
 
         validator = GraphValidator(mock_engine)
         report = validator.validate()
@@ -84,7 +88,7 @@ class TestTier1AutoFix:
 
     def test_sets_missing_name(self, mock_engine):
         """Nodes without names should get their ID as name."""
-        mock_engine.graph.add_node("node-xyz", type="file", name="")
+        mock_engine.graph.add_node("node-xyz", node_type="file", name="")
 
         validator = GraphValidator(mock_engine)
         report = validator.validate()
@@ -94,21 +98,21 @@ class TestTier1AutoFix:
 
     def test_normalizes_edge_aliases(self, mock_engine):
         """LLM edge type aliases should be normalized."""
-        mock_engine.graph.add_node("a", type="agent", name="a")
-        mock_engine.graph.add_node("b", type="agent", name="b")
-        mock_engine.graph.add_edge("a", "b", type="extends")
+        mock_engine.graph.add_node("a", node_type="agent", name="a")
+        mock_engine.graph.add_node("b", node_type="agent", name="b")
+        mock_engine.graph.add_edge("a", "b", relationship="extends")
 
         validator = GraphValidator(mock_engine)
         validator.validate()
 
         edge_data = mock_engine.graph.edges["a", "b", 0]
-        assert edge_data["type"] == "inherits_from"
+        assert edge_data["relationship"] == "inherits_from"
 
     def test_clamps_edge_weight(self, mock_engine):
         """Edge weights outside [0, 10] should be clamped."""
-        mock_engine.graph.add_node("a", type="agent", name="a")
-        mock_engine.graph.add_node("b", type="tool", name="b")
-        mock_engine.graph.add_edge("a", "b", type="provides", weight=15.0)
+        mock_engine.graph.add_node("a", node_type="agent", name="a")
+        mock_engine.graph.add_node("b", node_type="tool", name="b")
+        mock_engine.graph.add_edge("a", "b", relationship="provides", weight=15.0)
 
         validator = GraphValidator(mock_engine)
         validator.validate()
@@ -130,9 +134,14 @@ class TestTier2Integrity:
 
     def test_detects_untyped_edges(self, mock_engine):
         """Edges without type should be flagged."""
-        mock_engine.graph.add_node("a", type="agent", name="a")
-        mock_engine.graph.add_node("b", type="tool", name="b")
-        mock_engine.graph.add_edge("a", "b")  # No type
+        mock_engine.graph.add_node("a", node_type="agent", name="a")
+        mock_engine.graph.add_node("b", node_type="tool", name="b")
+        # add_edge's public API now hard-requires a non-empty 'relationship' at
+        # write time (ValueError otherwise) -- this Tier2 check is defensive
+        # for data that reached the graph some other way (import, migration,
+        # direct client write), so simulate that by writing through the raw
+        # client, bypassing the guarded wrapper.
+        mock_engine.graph._client.edges.add("a", "b", {})
 
         validator = GraphValidator(mock_engine)
         report = validator.validate()
@@ -146,7 +155,7 @@ class TestTier3Quality:
     def test_detects_orphan_nodes(self, mock_engine):
         """Nodes with no edges should be flagged as orphans."""
         mock_engine.graph.add_node(
-            "lonely", type="file", name="lonely.py", description="A lonely file"
+            "lonely", node_type="file", name="lonely.py", description="A lonely file"
         )
 
         validator = GraphValidator(mock_engine)
@@ -156,8 +165,8 @@ class TestTier3Quality:
 
     def test_detects_self_referencing_edges(self, mock_engine):
         """Self-referencing edges should be flagged."""
-        mock_engine.graph.add_node("loop", type="agent", name="loop")
-        mock_engine.graph.add_edge("loop", "loop", type="depends_on")
+        mock_engine.graph.add_node("loop", node_type="agent", name="loop")
+        mock_engine.graph.add_edge("loop", "loop", relationship="depends_on")
 
         validator = GraphValidator(mock_engine)
         report = validator.validate()
@@ -167,10 +176,10 @@ class TestTier3Quality:
     def test_detects_generic_descriptions(self, mock_engine):
         """Generic placeholder descriptions should be flagged."""
         mock_engine.graph.add_node(
-            "generic", type="tool", name="tool", description="TODO"
+            "generic", node_type="tool", name="tool", description="TODO"
         )
         mock_engine.graph.add_node(
-            "generic2", type="tool", name="tool2", description="placeholder"
+            "generic2", node_type="tool", name="tool2", description="placeholder"
         )
 
         validator = GraphValidator(mock_engine)

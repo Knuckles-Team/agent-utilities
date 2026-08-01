@@ -68,6 +68,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from agent_utilities.core._env import setting
 from agent_utilities.core.config import config
+from agent_utilities.security.log_redaction import redact_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -363,6 +364,14 @@ class ProcessedDocument(BaseModel):
     section_roots: list[SectionNode] = Field(default_factory=list)
     section_nodes: list[dict[str, Any]] = Field(default_factory=list)
     section_edges: list[dict[str, Any]] = Field(default_factory=list)
+    # Evidence spine (CONCEPT:AU-KG.ingest.evidence-spine-artifact) — the
+    # citation units, always computed (never behind a flag) so every processed
+    # document is citable.  ``artifact`` is populated once the slice has been
+    # bound to its ChangeEnvelope in ``_persist_native``; ``fragments`` is
+    # available even when persistence is off.
+    artifact_id: str = ""
+    fragments: list[Any] = Field(default_factory=list)
+    artifact: Any = None
 
     def as_dict(self) -> dict[str, Any]:
         """Return the ``{document_node, chunk_nodes, edges}`` mapping."""
@@ -577,6 +586,29 @@ class DocumentProcessor:
         if extra_edges:
             edges.extend(dict(edge) for edge in extra_edges)
 
+        # CONCEPT:AU-KG.ingest.evidence-spine-artifact — the addressable evidence
+        # spine rides the SAME extraction, always on.  Chunks are the retrieval
+        # unit (fixed-size, overlapping, embedded); fragments are the *citation*
+        # unit (structural, stably addressed, hashed).  They answer different
+        # questions, so both are materialized from the one extracted text.
+        from ..ingestion.evidence_spine import artifact_id_for, fragment_markdown
+
+        # The artifact is the SOURCE OBJECT, so it is keyed to the source label
+        # (the path/URL), NOT to ``doc_id`` — which is derived from the content
+        # hash and therefore forks a new identity on every edit.  Keying the
+        # artifact to the object is what lets HAS_FRAGMENT edges, and the
+        # citations that traverse them, survive a revision.
+        artifact_source_id = src_label or doc_id
+        artifact_id = artifact_id_for(connector, source_instance, artifact_source_id)
+        # ``raw_text`` is the EXTRACTOR's rendering — KBDocumentParser flattens a
+        # markdown file into whitespace-normalized chunks, which is fine for
+        # embedding-oriented chunks and useless for structural addressing (every
+        # heading, table and list is gone by then).  The spine fragments the
+        # verbatim source instead, so a citation addresses the document the
+        # author actually wrote.
+        verbatim = self._verbatim_source_text(document, text=text, fallback=raw_text)
+        fragments = fragment_markdown(verbatim, artifact_id=artifact_id)
+
         result = ProcessedDocument(
             document_node=document_node,
             chunk_nodes=chunk_nodes,
@@ -584,6 +616,8 @@ class DocumentProcessor:
             link_nodes=link_nodes,
             document_id=doc_id,
             chunk_count=len(chunks),
+            artifact_id=artifact_id,
+            fragments=list(fragments),
         )
 
         # CONCEPT:AU-KG.retrieval.section-tree — optionally build the per-document
@@ -620,19 +654,38 @@ class DocumentProcessor:
                     source_instance=source_instance,
                     checkpoint=checkpoint,
                     access=access,
+                    text=verbatim,
+                    source_object_id=artifact_source_id,
                 )
                 result.access_synced = result.persisted
             else:
-                from ...protocols.source_connectors.permission_sync import sync_access
-
+                # No graph configured at all (``self.graph is None``): per this
+                # class's own contract ("the processor runs offline ... but
+                # performs no graph writes"), ``sync_access`` — which WRITES
+                # through ``apply_marking``'s mandatory-marking persistence —
+                # must be skipped the same way ``_persist`` below already
+                # no-ops via ``_resolve_writer() is None``, not attempted and
+                # left to hard-fail the whole chunking pass. Enforcement is
+                # unaffected: whenever a real writer IS configured, this
+                # branch is not taken at all (the ``self.engine is not None``
+                # branch above applies the ACL/markings natively), so no
+                # document that is actually persisted anywhere ever skips its
+                # mandatory marking.
                 access_edges = [
                     (edge["source"], edge["target"])
                     for edge in [*edges, *result.section_edges]
                     if edge.get("relationship")
                     in {HAS_CHUNK_EDGE, HAS_SECTION_EDGE, HAS_SUBSECTION_EDGE}
                 ]
-                sync_access(doc_id, access, access_edges)
-                result.access_synced = True
+                if self._resolve_writer() is not None:
+                    from ...protocols.source_connectors.permission_sync import (
+                        sync_access,
+                    )
+
+                    sync_access(doc_id, access, access_edges)
+                    result.access_synced = True
+                else:
+                    result.access_synced = False
                 result.persisted = self._persist(
                     document_node, chunk_nodes + link_nodes, edges
                 )
@@ -733,6 +786,46 @@ class DocumentProcessor:
         except Exception as exc:  # noqa: BLE001
             logger.debug("read_document_text failed (%s)", type(exc).__name__)
             return ""
+
+    #: Extensions whose bytes ARE the document — reading them verbatim is
+    #: lossless.  Anything else (pdf/docx/epub) genuinely needs an extractor, so
+    #: the spine addresses the extractor's output for those.
+    _VERBATIM_SUFFIXES = frozenset({".md", ".markdown", ".mdx", ".txt", ".rst"})
+
+    @classmethod
+    def _verbatim_source_text(
+        cls, document: str | bytes | Path, *, text: str | None, fallback: str
+    ) -> str:
+        """Return the ORIGINAL source text the evidence spine should address.
+
+        CONCEPT:AU-KG.ingest.stable-fragment-address.  ``_read_file`` routes a
+        markdown file through ``KBDocumentParser``, which returns whitespace-
+        normalized chunks — good enough for embeddings, but it has already
+        destroyed every heading, table and list boundary a citation needs to be
+        addressable.  For formats whose bytes are the document, read them
+        verbatim; for formats that genuinely need extraction, fall back to the
+        extracted text rather than fragmenting binary noise.
+        """
+        if text is not None:
+            return text
+        if isinstance(document, bytes):
+            return document.decode("utf-8", errors="replace")
+        if isinstance(document, str | Path) and cls._looks_like_path(document):
+            path = Path(document)
+            if path.suffix.lower() in cls._VERBATIM_SUFFIXES:
+                try:
+                    return path.read_text(encoding="utf-8", errors="replace")
+                except OSError as exc:
+                    logger.warning(
+                        "verbatim read of %s failed (%s); the evidence spine will "
+                        "address the extracted text instead",
+                        redact_for_log(path),
+                        exc,
+                    )
+            return fallback
+        if isinstance(document, str):
+            return document
+        return fallback
 
     @staticmethod
     def _looks_like_path(document: str | Path) -> bool:
@@ -980,10 +1073,15 @@ class DocumentProcessor:
         source_instance: str,
         checkpoint: str | None,
         access: Any,
+        text: str = "",
+        source_object_id: str = "",
     ) -> bool:
-        """Commit the complete document/chunk/section slice atomically."""
+        """Commit the complete document/chunk/section/evidence-spine slice atomically."""
+        from dataclasses import replace as _replace
+
         from ..ingestion.change_envelope import ChangeEnvelope
         from ..ingestion.envelope_ingest import ingest_envelope
+        from ..ingestion.evidence_spine import Artifact
 
         record = dict(result.document_node)
         auxiliary = [
@@ -1005,6 +1103,34 @@ class DocumentProcessor:
             checkpoint=checkpoint,
             source_acl=access,
         )
+        # CONCEPT:AU-KG.ingest.evidence-spine-artifact — the artifact reads its
+        # governance and revision OFF the envelope that gated them (never
+        # re-derived from the payload, which is how a source record gets to spoof
+        # its own ACL), then joins the SAME envelope so the document, its chunks,
+        # its sections, and its citation units all commit or all fail together.
+        artifact = Artifact.from_envelope(
+            env,
+            content=text,
+            media_type="text/markdown",
+            fragments=tuple(result.fragments),
+            title=str(result.document_node.get("title") or ""),
+            fragmenter="fragment_markdown",
+            source_object_id=source_object_id,
+        )
+        result.artifact = artifact
+        spine_nodes, spine_links = artifact.to_graph_slice(
+            document_id=result.document_id
+        )
+        spine_governance = {
+            "external_access": access.model_dump(),
+            "classification": env.classification.value,
+        }
+        for spine_node in spine_nodes:
+            spine_node.update(spine_governance)
+        payload = dict(env.typed_payload or record)
+        payload["_nodes"] = [*payload.get("_nodes", []), *spine_nodes]
+        payload["_links"] = [*payload.get("_links", []), *spine_links]
+        env = _replace(env, typed_payload=payload)
         applied = ingest_envelope(self.engine, env)
         if applied.get("status") not in {"success", "skipped"}:
             raise RuntimeError(
