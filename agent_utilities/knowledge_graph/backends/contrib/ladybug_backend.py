@@ -1054,7 +1054,9 @@ class LadybugBackend(GraphBackend):
                     for name, dtype in node.columns.items()
                 }
                 for gname, gtype in _GOVERNANCE_COLUMNS.items():
-                    col_names.setdefault(validate_identifier(gname, kind="column"), gtype)
+                    col_names.setdefault(
+                        validate_identifier(gname, kind="column"), gtype
+                    )
             except InvalidIdentifierError:
                 logger.warning("skipping node table with an invalid schema name")
                 continue

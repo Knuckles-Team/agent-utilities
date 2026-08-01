@@ -12,10 +12,13 @@ agent runner via ``use_actor``); callers may override per-call.
 """
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...security.brain_context import ActorContext, current_actor
 from .company_brain_runtime import get_company_brain
+
+if TYPE_CHECKING:
+    from ...models.company_brain import DataClassification
 
 
 def _verified_actor(actor: ActorContext | None) -> ActorContext:
@@ -121,7 +124,7 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _parse_classification(raw: Any) -> Any | None:
+def _parse_classification(raw: Any) -> DataClassification | None:
     """Best-effort ``DataClassification`` parse; ``None`` for anything unrecognized."""
     from ...models.company_brain import DataClassification
 
@@ -186,16 +189,16 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
 
         # No connector descriptor: synthesize from the first-party write-time
         # stamp instead of leaving the node permanently unclassified.
-        classification = _parse_classification(properties.get("classification"))
+        parsed_classification = _parse_classification(properties.get("classification"))
         owner_id = str(properties.get("owner_id") or "").strip()
-        if classification is DataClassification.PUBLIC:
+        if parsed_classification is DataClassification.PUBLIC:
             get_company_brain().permissions.classify_node(
                 node_id, DataClassification.PUBLIC
             )
         elif owner_id:
             get_company_brain().permissions.classify_node(
                 node_id,
-                classification or DataClassification.CONFIDENTIAL,
+                parsed_classification or DataClassification.CONFIDENTIAL,
                 data_owner=owner_id,
             )
         # else: no owner and not PUBLIC -> nothing to synthesize; the node

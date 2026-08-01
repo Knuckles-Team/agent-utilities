@@ -135,7 +135,9 @@ def normalize_label(label: str) -> str:
 # zero/ungoverned rows for data the caller had just written. Declared once
 # here (the single source of truth both write-shaping paths consult) rather
 # than duplicated across ~40 TableDefinitions.
-_GOVERNANCE_COLUMNS = frozenset({"tenant_id", "_owner_id", "_shared_scope", "classification"})
+_GOVERNANCE_COLUMNS = frozenset(
+    {"tenant_id", "_owner_id", "_shared_scope", "classification"}
+)
 
 
 def schema_valid_keys(backend: Any, label: str | None) -> set[str] | None:

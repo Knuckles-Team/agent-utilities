@@ -105,9 +105,7 @@ def test_apply_visibility_parenthesizes_existing_or_predicate():
         "MATCH (p:Policy) WHERE p.name CONTAINS 'x' OR p.description CONTAINS 'x' RETURN p",
         _user("alice"),
     )
-    assert (
-        "AND (p.name CONTAINS 'x' OR p.description CONTAINS 'x')" in out
-    ), out
+    assert "AND (p.name CONTAINS 'x' OR p.description CONTAINS 'x')" in out, out
 
 
 def test_apply_visibility_injects_before_return():
