@@ -81,6 +81,39 @@ CORPUS: tuple[AccuracyCase, ...] = (
     AccuracyCase("act", "run the loop engine cycle", "graph_loops"),
     AccuracyCase("act", "schedule a recurring goal", "graph_goals"),
     AccuracyCase("act", "execute code inside the sandbox", "graph_sandbox"),
+    # --- Skill-delegation cases (D-ORC-19) -------------------------------
+    # The ONE pre-existing "act" delegation case above only ever passed
+    # because its wording happens to contain the target tool's own name
+    # ("orchestrate"/"graph_orchestrate") — it never exercised the actual
+    # operator workflow, which is naming an ingested SKILL, not the word
+    # "orchestrate". These four name real ingested fleet skills (see the
+    # platform's skill catalog) in the "delegate to the <skill> skill"
+    # shape and deliberately avoid the token "orchestrate" entirely, so a
+    # regression in delegation-shape routing (D-INT-4) is now measurable
+    # here instead of hiding behind a corpus that could never detect it.
+    AccuracyCase(
+        "act",
+        "Delegate to the servicenow-incident-management skill: retrieve and "
+        "summarise 2 incidents",
+        "graph_orchestrate",
+    ),
+    AccuracyCase(
+        "act",
+        "Hand this off to the github-pull-request-review skill to review "
+        "the latest diff",
+        "graph_orchestrate",
+    ),
+    AccuracyCase(
+        "act",
+        "Use the atlassian-triage-issue skill to triage this new bug report",
+        "graph_orchestrate",
+    ),
+    AccuracyCase(
+        "act",
+        "Delegate this task to the container-manager-kubernetes-operations "
+        "skill so it can check pod health across the cluster",
+        "graph_orchestrate",
+    ),
     AccuracyCase("manage", "configure a backend connection", "graph_configure"),
     AccuracyCase("manage", "manage a secret credential", "graph_secret"),
     AccuracyCase("manage", "manage the kv cache layering policy", "graph_kvcache"),
