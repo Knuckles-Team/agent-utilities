@@ -15,7 +15,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel, ValidationError
-from pydantic_ai import Agent
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
@@ -27,6 +26,10 @@ from agent_utilities.capabilities.output_repair import (
     classify_raw_output,
     classify_validation_error,
     output_repair_retries,
+)
+from agent_utilities.core.contextual_model import (
+    create_context_agent,
+    use_grounding_policy,
 )
 
 
@@ -135,14 +138,16 @@ async def test_repair_succeeds_after_malformed_json_and_is_visible_on_result():
             return ModelResponse(parts=[TextPart(content="not json at all")])
         return ModelResponse(parts=[TextPart(content='{"value": 42}')])
 
-    agent = Agent(
+    agent = create_context_agent(
         FunctionModel(func),
         output_type=Out,
         capabilities=[StructuredOutputRepair()],
         retries={"output": DEFAULT_MAX_OUTPUT_REPAIRS},
+        default_capabilities=False,
     )
 
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert result.output == Out(value=42)
     # Wire-First / truthfulness: a repaired run must be visible, never
@@ -159,13 +164,15 @@ async def test_repair_succeeds_with_no_attempts_when_first_try_is_valid():
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content='{"value": 1}')])
 
-    agent = Agent(
+    agent = create_context_agent(
         FunctionModel(func),
         output_type=Out,
         capabilities=[StructuredOutputRepair()],
+        default_capabilities=False,
     )
 
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert result.output == Out(value=1)
     assert not hasattr(result, "output_repair_attempts")
@@ -181,15 +188,17 @@ async def test_repair_exhausts_and_fails_closed_with_typed_error():
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content="still not json")])
 
-    agent = Agent(
+    agent = create_context_agent(
         FunctionModel(func),
         output_type=Out,
         capabilities=[StructuredOutputRepair(max_repairs=2)],
         retries={"output": 2},
+        default_capabilities=False,
     )
 
     with pytest.raises(StructuredOutputRepairExhausted) as exc_info:
-        await agent.run("go")
+        with use_grounding_policy("none"):
+            await agent.run("go")
 
     exc = exc_info.value
     assert len(exc.attempts) == 3  # 2 retried + 1 exhausted
@@ -209,14 +218,16 @@ async def test_repair_schema_invalid_retries_then_succeeds():
             )
         return ModelResponse(parts=[TextPart(content='{"value": 7}')])
 
-    agent = Agent(
+    agent = create_context_agent(
         FunctionModel(func),
         output_type=Out,
         capabilities=[StructuredOutputRepair()],
         retries={"output": DEFAULT_MAX_OUTPUT_REPAIRS},
+        default_capabilities=False,
     )
 
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert result.output == Out(value=7)
     assert result.output_repair_attempts[0]["classification"] == "wrong_type"
@@ -240,10 +251,16 @@ async def test_budget_exceeded_mid_output_is_recorded_and_not_retried():
     from pydantic_ai.usage import UsageLimits
 
     cap = StructuredOutputRepair()
-    agent = Agent(FunctionModel(func), output_type=Out, capabilities=[cap])
+    agent = create_context_agent(
+        FunctionModel(func),
+        output_type=Out,
+        capabilities=[cap],
+        default_capabilities=False,
+    )
 
     with pytest.raises(UsageLimitExceeded):
-        await agent.run("go", usage_limits=UsageLimits(request_limit=0))
+        with use_grounding_policy("none"):
+            await agent.run("go", usage_limits=UsageLimits(request_limit=0))
 
 
 # ---------------------------------------------------------------------------

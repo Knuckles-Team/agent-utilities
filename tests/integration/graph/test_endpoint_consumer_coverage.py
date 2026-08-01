@@ -334,13 +334,25 @@ class TestRouteExtraction:
 class TestConsumerDetection:
     """Smoke checks on the consumer scan against hand-picked routes."""
 
-    def test_graph_stats_has_consumer(self) -> None:
-        """``/graph/stats`` is consumed by both UIs."""
+    def test_graph_stats_has_consumer(self, api_source: str) -> None:
+        """``/graph/stats`` is consumed by both UIs.
+
+        Depends on the ``api_source`` fixture purely to inherit
+        ``_load_api_extensions_text``'s skip when the ``agent-webui`` sibling
+        repo isn't checked out alongside this one (e.g. an isolated worktree)
+        — unlike ``_has_web_consumer``/``_has_terminal_consumer`` themselves,
+        which have no such guard and would otherwise assert False against an
+        empty source blob instead of skipping this cross-repository check.
+        """
         assert _has_web_consumer("/graph/stats")
         assert _has_terminal_consumer("/graph/stats")
 
-    def test_graph_memory_param_route_has_consumer(self) -> None:
-        """Parameterised ``/graph/memory/{memory_id}`` path matches."""
+    def test_graph_memory_param_route_has_consumer(self, api_source: str) -> None:
+        """Parameterised ``/graph/memory/{memory_id}`` path matches.
+
+        See ``test_graph_stats_has_consumer`` for why this depends on
+        ``api_source``.
+        """
         assert _has_web_consumer("/graph/memory/{memory_id}")
         assert _has_terminal_consumer("/graph/memory/{memory_id}")
 

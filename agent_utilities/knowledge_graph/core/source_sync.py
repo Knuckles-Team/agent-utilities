@@ -462,10 +462,10 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                 "synonyms": synonyms,
                 "kind": "mcp_skill",
                 "disabled": _existing_disabled(engine, skill_node_id),
-                    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
-                    # fleet skill is (or is not) runnable, recorded on the node
-                    # so the execution path can name the unmet precondition
-                    # instead of failing with a generic "not found or runnable".
+                # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
+                # fleet skill is (or is not) runnable, recorded on the node
+                # so the execution path can name the unmet precondition
+                # instead of failing with a generic "not found or runnable".
                 "runnable_blocked_by": _privacy_safe(entry.get("harvest_error", "")),
             }
             # ``skill://<name>`` collides with the persistence-privacy policy's
@@ -520,6 +520,50 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     }
 
 
+_REJECTED_ROW_CACHE_FILE = "fleet_sync_rejected_rows.json"
+
+
+def _row_content_hash(row: dict[str, Any]) -> str:
+    """Stable content fingerprint for one catalog row (order-independent)."""
+    payload = json.dumps(row, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _rejected_row_cache_path():
+    from ...core.paths import cache_dir
+
+    return cache_dir() / _REJECTED_ROW_CACHE_FILE
+
+
+def _load_rejected_row_cache() -> dict[str, str]:
+    """Return ``{row_id: content_hash}`` for rows known-bad from a prior sync.
+
+    CONCEPT:AU-KG.ingest.fleet-sync-rejected-row-cache — best-effort local
+    cache, never authoritative: a missing/corrupt/unreadable file degrades to
+    "nothing known bad yet", never an error.
+    """
+    try:
+        path = _rejected_row_cache_path()
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): str(v) for k, v in data.items() if isinstance(v, str)}
+    except Exception as e:  # noqa: BLE001 — cache is a pure optimization; any read failure just means every row is re-attempted this sync, same as before this cache existed
+        logger.debug("fleet_sync: rejected-row cache read failed: %s", e)
+        return {}
+
+
+def _save_rejected_row_cache(cache: dict[str, str]) -> None:
+    try:
+        path = _rejected_row_cache_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(cache, sort_keys=True), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001 — cache is a pure optimization; a write failure only costs a repeat bisection next sync, never a correctness issue
+        logger.debug("fleet_sync: rejected-row cache write failed: %s", e)
+
+
 def _write_fleet_slice(
     engine: Any, entities: list[dict[str, Any]], relationships: list[dict[str, Any]]
 ) -> list[str]:
@@ -534,12 +578,34 @@ def _write_fleet_slice(
     ``PersistencePrivacyGuard``, which leaves that description unchanged), so
     the offender can only be identified by bisection.
 
+    D-SH-2 (``reports/deferred/lane-skill-harvest.md``): bisection alone repeats
+    the SAME O(k log n) discovery cost on every sync, because the offending
+    row is re-derived from scratch each time. A row previously confirmed
+    rejected (by its id AND an exact content hash — so an edited row is never
+    stuck on a stale verdict) is pre-excluded from THIS attempt entirely: the
+    common steady-state case (no NEW offenders since last sync) then commits
+    the whole remaining slice in one shot, no bisection at all. Bisection
+    still runs (only) over rows not already known-bad, so it discovers a truly
+    NEW offender at the same O(k log n) cost this always had — just no longer
+    PAID every sync for offenders already known about.
+
     On rejection this halves the slice and retries, isolating each offending
-    row, dropping ONLY those, and returning their ids. Cost is O(k log n)
-    commits for k offenders — negligible when k is small, which is the case
-    this exists for. A rejected row is returned (and logged at error) so it is
-    never a silent omission.
+    row, dropping ONLY those, and returning their ids (known-bad rows from the
+    cache are included in the return value too, so callers see the full
+    current exclusion set). Cost is O(k log n) commits for k *newly*
+    discovered offenders. A rejected row is logged at error so it is never a
+    silent omission.
     """
+    cache = _load_rejected_row_cache()
+    known_bad: list[dict[str, Any]] = []
+    to_attempt: list[dict[str, Any]] = []
+    for row in entities:
+        row_id = str(row.get("id"))
+        if cache.get(row_id) == _row_content_hash(row):
+            known_bad.append(row)
+        else:
+            to_attempt.append(row)
+
     def _attempt(rows: list[dict[str, Any]]) -> bool:
         by_id = {row["id"] for row in rows}
         edges = [
@@ -562,20 +628,39 @@ def _write_fleet_slice(
             return False
         return True
 
-    def _bisect(rows: list[dict[str, Any]]) -> list[str]:
+    newly_rejected: list[str] = []
+
+    def _bisect(rows: list[dict[str, Any]]) -> None:
         if not rows or _attempt(rows):
-            return []
+            return
         if len(rows) == 1:
+            row_id = str(rows[0].get("id"))
             logger.error(
                 "fleet catalog row %s was REJECTED by the engine and is omitted "
                 "from the catalog; every other row was still written",
-                rows[0].get("id"),
+                row_id,
             )
-            return [str(rows[0].get("id"))]
+            newly_rejected.append(row_id)
+            cache[row_id] = _row_content_hash(rows[0])
+            return
         middle = len(rows) // 2
-        return _bisect(rows[:middle]) + _bisect(rows[middle:])
+        _bisect(rows[:middle])
+        _bisect(rows[middle:])
 
-    return _bisect(entities)
+    if known_bad:
+        logger.debug(
+            "fleet catalog: pre-excluding %d row(s) already known-bad from a "
+            "prior sync (unchanged content) — attempting %d row(s)",
+            len(known_bad),
+            len(to_attempt),
+        )
+    _bisect(to_attempt)
+
+    if newly_rejected:
+        _save_rejected_row_cache(cache)
+
+    known_bad_ids = [str(row.get("id")) for row in known_bad]
+    return known_bad_ids + newly_rejected
 
 
 def _promote_fleet_skills(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:

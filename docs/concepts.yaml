@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1139
+total_concepts: 1152
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1255,6 +1255,13 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
   - agent_utilities/protocols/source_connectors/registry.py
   doc: the discovery half of the self-registering pattern. Called
+- id: AU-ECO.connector.git-markdown-revision-connector
+  name: Git-Markdown Revision Connector
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
+  doc: Git-Markdown Revision Connector
 - id: AU-ECO.connector.git-task-resolver
   name: git issue/PR -> SWE task resolver + webhook ingress
   pillar: AU-ECO
@@ -1573,6 +1580,7 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/mcp/httpx_boundary.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/protocol_compat.py
   doc: closes D-OB-18
@@ -2452,6 +2460,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
   - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: One uniform mirror *target* concept resolved once in the fan-out layer and mapped by each external
     backend onto its native isolation unit
 - id: AU-KG.backend.multi-connection-registry
@@ -3393,6 +3402,7 @@ concepts:
   - agent_utilities/core/model_capacity_autoscale.py
   - agent_utilities/core/model_circuit_breaker.py
   - agent_utilities/knowledge_graph/enrichment/semantic.py
+  - agent_utilities/knowledge_graph/retrieval/embedding_versioning.py
   doc: '** Each call resolves the ACTIVE'
 - id: AU-KG.enrichment.entity-claim-extraction
   name: Entity-Claim Extraction for MAGMA Epistemic View
@@ -3741,15 +3751,17 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   doc: build the capability writeback callable
 - id: AU-KG.ingest.change-envelope
-  name: the SAME
+  name: boundary gate
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/automation/worldmodel_pipeline.py
   - agent_utilities/knowledge_graph/argumentation/aif.py
   - agent_utilities/knowledge_graph/ingestion/change_envelope.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/external_graph.py
   - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
-  doc: the SAME
+  doc: boundary gate
 - id: AU-KG.ingest.chunk-overlap-stage
   name: the one-call form the ingestion engine / MCP wrapper invokes
   pillar: AU-KG
@@ -3995,6 +4007,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
   doc: one retrieved source object
 - id: AU-KG.ingest.external-graph-federation
   name: External Graph Federation
@@ -4049,6 +4062,13 @@ concepts:
   - agent_utilities/knowledge_graph/research/cohort.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: fetch only the requested ids per-id — avoids the
+- id: AU-KG.ingest.fleet-sync-rejected-row-cache
+  name: best-effort local
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: best-effort local
 - id: AU-KG.ingest.floor-codebase-admission-cap
   name: Floor the codebase admission cap at the engine
   pillar: AU-KG
@@ -4367,6 +4387,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
   doc: Returns fragments in document
 - id: AU-KG.ingest.staged
   name: staged
@@ -4433,6 +4454,13 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/graphql_document.py
   - agent_utilities/protocols/universal_connector.py
   doc: Universal DataConnector
+- id: AU-KG.ingest.verbatim-extraction-before-fragmenting
+  name: AU-KG.ingest.verbatim-extraction-before-fragmenting
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  doc: AU-KG.ingest.verbatim-extraction-before-fragmenting
 - id: AU-KG.ingest.web-fetch-front-door
   name: Pluggable web fetching. One front door that both the ingestion
   pillar: AU-KG
@@ -4581,6 +4609,7 @@ concepts:
   - agent_utilities/kvcache/worthiness.py
   - agent_utilities/mcp/tools/engine_surface_tools.py
   - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/patterns/prioritization.py
   doc: Construct-then-evaluate is cheap
 - id: AU-KG.memory.decay-scanner-merge
   name: decay scanner + semantic merge
@@ -5701,6 +5730,13 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/temporal_semantic_id.py
   - agent_utilities/mcp/tools/query_tools.py
   doc: ChronoID. Fits a residual-quantization codebook on the
+- id: AU-KG.query.cypher-scope-variable-detection
+  name: AU-KG.query.cypher-scope-variable-detection
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/cypher_scope_vars.py
+  doc: AU-KG.query.cypher-scope-variable-detection
 - id: AU-KG.query.data-gateway-rest-twin
   name: answer a DATA question over the Knowledge Graph with a
   pillar: AU-KG
@@ -6163,6 +6199,16 @@ concepts:
   - agent_utilities/models/schema_pack.py
   - agent_utilities/models/schema_packs/research.py
   doc: Zero-LLM Pack-Driven Link Inference
+- id: AU-KG.retrieval.acl-aware-vector-retrieval
+  name: search_hybrid
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: search_hybrid
 - id: AU-KG.retrieval.adaptive-stopping-iterative-retrieval
   name: Adaptive Stopping for Iterative Retrieval
   pillar: AU-KG
@@ -6189,14 +6235,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/entity_context.py
   doc: assimilated from MRAgent
 - id: AU-KG.retrieval.batch-hydrate
-  name: instead of one point-read per
+  name: cross-base-node hydration batching
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/graph_engineering.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  doc: instead of one point-read per
+  doc: cross-base-node hydration batching
 - id: AU-KG.retrieval.batched-neighborhood-prefetch
   name: hard ceiling on how many
   pillar: AU-KG
@@ -6270,6 +6316,16 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/observability/runtime_health.py
   doc: raised internally so the query-time
+- id: AU-KG.retrieval.embedding-version-identity
+  name: the embedding version
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/knowledge_graph/retrieval/capability_index.py
+  - agent_utilities/knowledge_graph/retrieval/embedding_versioning.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: the embedding version
 - id: AU-KG.retrieval.every-usage-published-symbol
   name: every usage of a published symbol across the
   pillar: AU-KG
@@ -6333,6 +6389,13 @@ concepts:
   - agent_utilities/knowledge_graph/search_synthesis/__init__.py
   - agent_utilities/knowledge_graph/search_synthesis/shortcut_risks.py
   doc: and formulate + adversarially refine a
+- id: AU-KG.retrieval.fragment-cited-chunk
+  name: mandatory evidence citation
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  doc: mandatory evidence citation
 - id: AU-KG.retrieval.god-nodes-communities
   name: god nodes, communities and
   pillar: AU-KG
@@ -6414,6 +6477,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/troubleshoot_context.py
   doc: AU-KG.retrieval.kg-4
+- id: AU-KG.retrieval.mandatory-evidence-citation
+  name: means an unresolvable
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/lineage.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: means an unresolvable
 - id: AU-KG.retrieval.memory-first-retrieval
   name: Memory-First Retrieval ──────────────────────────────────
   pillar: AU-KG
@@ -6535,6 +6606,15 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/query_tools.py
   doc: run a self-correcting second retrieval pass at the deep threshold when the quality gate fails
+- id: AU-KG.retrieval.source-to-claim-lineage
+  name: AU-KG.retrieval.source-to-claim-lineage
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/knowledge_graph/retrieval/lineage.py
+  - agent_utilities/mcp/tools/audit_tools.py
+  doc: AU-KG.retrieval.source-to-claim-lineage
 - id: AU-KG.retrieval.structural-analytics
   name: Graphify-style structural analytics over the
   pillar: AU-KG
@@ -7353,6 +7433,13 @@ concepts:
   code_paths:
   - agent_utilities/orchestration/agent_runner.py
   doc: returned INSTEAD of falling through to the
+- id: AU-ORCH.execution.no-silent-success-on-empty-workflow
+  name: AU-ORCH.execution.no-silent-success-on-empty-workflow
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/workflows/runner.py
+  doc: AU-ORCH.execution.no-silent-success-on-empty-workflow
 - id: AU-ORCH.execution.node-direct-end
   name: a node may END the run directly with End[GraphResponse
   pillar: AU-ORCH

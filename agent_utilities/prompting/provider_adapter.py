@@ -252,7 +252,7 @@ class KGRuleBackend(ProviderBackend):
 
         for nid, data in self.engine.graph.nodes(data=True):
             if (
-                data.get("type") == "provider_prompt_rule"
+                data.get("node_type") == "provider_prompt_rule"
                 and data.get("provider", "").lower() == provider_lower
             ):
                 try:
@@ -304,7 +304,7 @@ class KGRuleBackend(ProviderBackend):
     def list_providers(self) -> list[str]:
         providers: set[str] = set()
         for _, data in self.engine.graph.nodes(data=True):
-            if data.get("type") == "provider_prompt_rule":
+            if data.get("node_type") == "provider_prompt_rule":
                 providers.add(data.get("provider", "unknown"))
         return sorted(providers)
 

@@ -64,4 +64,5 @@ def test_mutating_action_mapping():
         "workspace.write",
         "workspace.edit",
         "workspace.browse",
+        "workspace.computer_use",
     }

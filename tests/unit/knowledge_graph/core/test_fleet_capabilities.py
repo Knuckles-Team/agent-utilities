@@ -8,19 +8,24 @@ spawning any MCP servers (the catalog is injected).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.source_sync import (
     _reconcile_declared_fleet,
     _sync_fleet,
     _write_fleet_nodes,
+    _write_fleet_slice,
     derive_capability_synonyms,
     sync_source,
 )
 
 
 @pytest.fixture(autouse=True)
-def _capture_native_graph_slice(monkeypatch: pytest.MonkeyPatch) -> None:
+def _capture_native_graph_slice(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     def capture(engine, connector, entities, relationships=None, **_kwargs):
         engine.ingest_external_batch(connector, entities, relationships)
         return {
@@ -36,6 +41,10 @@ def _capture_native_graph_slice(monkeypatch: pytest.MonkeyPatch) -> None:
         "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
         lambda _source: {"checked": True, "ok": True},
     )
+    # D-SH-2's rejected-row cache (source_sync._write_fleet_slice) persists to
+    # the XDG cache dir — isolate it to a tmp dir so these tests never read or
+    # write the developer's real ~/.cache/agent-utilities/.
+    monkeypatch.setenv("AGENT_UTILITIES_CACHE_DIR", str(tmp_path / "cache"))
 
 
 class FakeEngine:
@@ -379,3 +388,92 @@ def test_sync_fleet_merges_declared_reconcile_info(tmp_path, monkeypatch):
     assert res["servers_seen"] == 3
     assert res["declared_total"] == 2
     assert res["declared_uncovered"] == ["never-probed-mcp"]
+
+
+# ---------------------------------------------------------------------------
+# D-SH-2 (reports/deferred/lane-skill-harvest.md): the fleet catalog's ONE
+# atomic ChangeEnvelope commit rejects the whole slice when a single row trips
+# the engine's persistence-privacy policy; _write_fleet_slice bisects to
+# isolate and drop only the offender. Without a cache, that bisection cost is
+# paid again on EVERY sync for the SAME already-known offender. These tests
+# exercise the cache directly (bypassing the autouse fixture's always-succeeds
+# ingest_graph_slice patch) so a specific row can be made to fail.
+# ---------------------------------------------------------------------------
+
+
+def _patch_ingest_graph_slice(monkeypatch: pytest.MonkeyPatch, bad_ids: set[str]):
+    """Make ``ingest_graph_slice`` raise iff the slice contains a row in ``bad_ids``."""
+
+    def maybe_fail(engine, connector, entities, relationships=None, **_kwargs):
+        if any(e["id"] in bad_ids for e in entities):
+            raise RuntimeError("persistence privacy policy rejected inline text")
+        engine.ingest_external_batch(connector, entities, relationships)
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        maybe_fail,
+    )
+
+
+def test_write_fleet_slice_caches_a_rejected_row_and_skips_bisection_next_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entities = [
+        {"id": "row-good", "type": "Tool", "name": "good"},
+        {"id": "row-bad", "type": "Tool", "name": "bad"},
+    ]
+
+    # --- First sync: row-bad is genuinely rejected, discovered by bisection.
+    calls: list[int] = []
+
+    def counting_maybe_fail(engine, connector, entities, relationships=None, **kw):
+        calls.append(len(entities))
+        if any(e["id"] == "row-bad" for e in entities):
+            raise RuntimeError("persistence privacy policy rejected inline text")
+        engine.ingest_external_batch(connector, entities, relationships)
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        counting_maybe_fail,
+    )
+    engine = FakeEngine()
+    rejected = _write_fleet_slice(engine, entities, [])
+    assert rejected == ["row-bad"]
+    assert len(calls) >= 2  # the full slice failed, then bisection ran
+
+    # --- Second sync, SAME content: row-bad is pre-excluded entirely -- the
+    # remaining (clean) rows commit in ONE shot, no bisection re-discovery.
+    calls.clear()
+    engine2 = FakeEngine()
+    rejected2 = _write_fleet_slice(engine2, entities, [])
+    assert rejected2 == ["row-bad"]
+    assert calls == [1]  # exactly one attempt: the single clean remaining row
+    assert "row-good" in engine2.nodes  # the clean row still landed
+
+
+def test_write_fleet_slice_re_attempts_a_known_bad_row_once_its_content_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entities = [{"id": "row-bad", "type": "Tool", "name": "bad", "v": 1}]
+    _patch_ingest_graph_slice(monkeypatch, {"row-bad"})
+    engine = FakeEngine()
+    assert _write_fleet_slice(engine, entities, []) == ["row-bad"]
+
+    # Content changed (e.g. the offending description was edited) -- and this
+    # edit happens to have fixed it. Re-attempted rather than blindly reusing
+    # the stale verdict, because the content hash no longer matches.
+    fixed_entities = [{"id": "row-bad", "type": "Tool", "name": "bad", "v": 2}]
+
+    def always_succeeds(engine, connector, entities, relationships=None, **kw):
+        engine.ingest_external_batch(connector, entities, relationships)
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        always_succeeds,
+    )
+    engine2 = FakeEngine()
+    assert _write_fleet_slice(engine2, fixed_entities, []) == []
+    assert "row-bad" in engine2.nodes

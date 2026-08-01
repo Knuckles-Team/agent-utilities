@@ -66,6 +66,14 @@ _GOVERNANCE_COLUMNS: dict[str, str] = {
     "_owner_id": "STRING",
     "_shared_scope": "STRING",
     "classification": "STRING",
+    # D-ACL-6: secured_reads._durable_access_rows unconditionally SELECTs
+    # ``n.external_access`` for ACL hydration (a JSON-encoded connector
+    # access descriptor). Same undeclared-column story as the other four —
+    # every non-connector node type (e.g. CallableResource) had no such
+    # column, so the ACL-hydration read itself failed with a Kuzu Binder
+    # exception ("Cannot find property external_access for n") instead of
+    # simply finding none, for EVERY node write on this backend.
+    "external_access": "STRING",
 }
 
 import threading
@@ -1060,6 +1068,18 @@ class LadybugBackend(GraphBackend):
             except InvalidIdentifierError:
                 logger.warning("skipping node table with an invalid schema name")
                 continue
+            # Every node table carries `tenant_id`, mirroring PostgreSQLBackend's
+            # `ensure_label_table` (backends/postgresql_backend.py, the RLS_GUC /
+            # "app.tenant_id" tenant isolation) — CONCEPT:AU-KG.query.object-graph-mapper.
+            # None of ladybug's schema_definition.py TableDefinitions declare it
+            # (it's engine-injected, not hand-authored per table), but the mandatory
+            # tenant-scoping chokepoint (company_brain.scope_cypher_query,
+            # KG-2.6 "the primary boundary") unconditionally injects a
+            # `<var>.tenant_id = '<tenant>'` predicate into EVERY Cypher read this
+            # backend serves, regardless of label — a table missing the column made
+            # that a hard `Binder exception: Cannot find property tenant_id`
+            # instead of the intended tenant filter.
+            col_names.setdefault("tenant_id", "STRING")
             cols = ", ".join(f"`{name}` {dtype}" for name, dtype in col_names.items())
             stmt = f"CREATE NODE TABLE IF NOT EXISTS {node_name} ({cols});"
             try:

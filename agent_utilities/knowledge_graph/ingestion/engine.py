@@ -1665,6 +1665,45 @@ class IngestionEngine:
         }
         return summary
 
+    async def enrich_text(
+        self,
+        source_id: str,
+        text: str,
+        source_type: str,
+        title: str = "",
+        *,
+        enrich_concepts: bool = True,
+        enrich_facts: bool = True,
+        enrich_entities: bool = True,
+    ) -> dict[str, int]:
+        """Public entry point for the unified intelligence layer (:meth:`_enrich_text`).
+
+        ``_enrich_text`` is the SAME native-writing seam ``ingest()`` drains
+        internally via ``_run_inline_enrich``/``_enrich_payload`` — it already
+        commits through :func:`ingest_graph_slice`, never a direct backend
+        write. It stayed private because every *in-repo* adaptor reaches it
+        through that drain path. Two call sites outside this class
+        (``worldmodel_pipeline._ingest_full`` and the ``feed_ingest`` task in
+        ``engine_tasks.py``) legitimately need the SAME best-effort enrichment
+        pass for text a native ``DocumentProcessor.process()`` call already
+        wrote structurally — they aren't handed an ``IngestionManifest`` to
+        run through the adaptor dispatch, just already-fetched article text —
+        so they were reaching past the class boundary and calling the
+        underscore-prefixed method directly (CONCEPT:AU-KG.ingest.change-envelope
+        boundary gate). This thin wrapper is the supported public surface for
+        that pattern: same signature, same native write path, no encapsulation
+        violation.
+        """
+        return await self._enrich_text(
+            source_id,
+            text,
+            source_type,
+            title,
+            enrich_concepts=enrich_concepts,
+            enrich_facts=enrich_facts,
+            enrich_entities=enrich_entities,
+        )
+
     def _enrichment_windows(self, text: str) -> list[str]:
         """Bounded LLM windows over ``text``.
 
