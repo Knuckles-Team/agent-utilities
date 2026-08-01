@@ -640,6 +640,16 @@ class NodeACL(BaseModel):
         tenant_id: Tenant scope.
         inherit_from_parent: Whether to inherit ACLs from parent nodes.
         audit_on_access: Whether to log every read to the audit trail.
+        data_residency_regions: Regions this node's data may come to rest in.
+            ``["*"]`` explicitly declares "no residency restriction". An EMPTY
+            list means the residency label is **undeclared**, which fails closed
+            in every derived-eligibility decision (see
+            ``CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility``)
+            rather than reading as "unrestricted".
+        retention_days: Maximum days this node's material may be retained at
+            rest. ``-1`` declares "no limit"; ``0`` declares "must not be
+            retained". ``None`` means **undeclared**, which likewise fails
+            closed.
     """
 
     node_id: str
@@ -654,6 +664,11 @@ class NodeACL(BaseModel):
     tenant_id: str = ""
     inherit_from_parent: bool = True
     audit_on_access: bool = False
+    # Residency / retention governance labels. Both default to UNDECLARED so no
+    # pre-existing ACL silently becomes permissive when a derived-eligibility
+    # gate starts reading them.
+    data_residency_regions: list[str] = Field(default_factory=list)
+    retention_days: int | None = None
 
 
 class PermissionCheckResult(BaseModel):

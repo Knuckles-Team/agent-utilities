@@ -251,23 +251,21 @@ class IngestionMixin(_Base):
                 else:
                     self.graph.add_node(resource.id, **self._serialize_node(resource))
 
-                # Linkage. Use inline-map MATCH (one pattern per bound node) rather
-                # than a comma-separated cross-product with a WHERE filter: the
-                # epistemic_graph backend defers the multi-pattern WHERE shape to a
-                # legacy path that silently creates no edge at fleet scale (53×534),
-                # so PROVIDES/HAS_METADATA never materialized. The inline-map form
-                # binds each endpoint by id directly and persists reliably.
+                # Linkage. A prior fix moved this off a comma-separated
+                # cross-product MATCH (which the epistemic_graph backend
+                # silently dropped at fleet scale), landing on two sequential
+                # MATCH clauses -- but the engine's native Cypher write subset
+                # allows only ONE leading MATCH per write statement and MERGE
+                # on a single bare node only, never an edge
+                # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184),
+                # so that shape parses as a write statement with an unexpected
+                # trailing MATCH and also fails. ``link_nodes`` dispatches
+                # through the typed engine API instead; both endpoints were
+                # just upserted above (or the server was reconciled just
+                # before this loop), so they are guaranteed to exist.
                 if self.backend:
-                    self.backend.execute(
-                        "MATCH (s:Server {id: $sid}) MATCH (r:CallableResource {id: $rid}) "
-                        "MERGE (s)-[:PROVIDES]->(r)",
-                        {"sid": server_id, "rid": res_id},
-                    )
-                    self.backend.execute(
-                        "MATCH (r:CallableResource {id: $rid}) MATCH (m:ToolMetadata {id: $mid}) "
-                        "MERGE (r)-[:HAS_METADATA]->(m)",
-                        {"rid": res_id, "mid": meta_id},
-                    )
+                    self.link_nodes(server_id, res_id, "PROVIDES")
+                    self.link_nodes(res_id, meta_id, "HAS_METADATA")
 
     def _reconcile_server_registration(
         self,
@@ -389,10 +387,11 @@ class IngestionMixin(_Base):
             self.graph.add_node(resource.id, **self._serialize_node(resource))
 
         if self.backend:
-            self.backend.execute(
-                "MATCH (r:CallableResource), (m:ToolMetadata) WHERE r.id = $rid AND m.id = $mid MERGE (r)-[:HAS_METADATA]->(m)",
-                {"rid": agent_id, "mid": meta_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the engine's
+            # native Cypher write subset (one leading MATCH, MERGE on a single
+            # bare node only; epistemic-graph/crates/eg-query/src/cypher/
+            # parser.rs:1184); both endpoints were just upserted above.
+            self.link_nodes(agent_id, meta_id, "HAS_METADATA")
 
     def ingest_agent_skill(
         self,
@@ -624,11 +623,26 @@ class IngestionMixin(_Base):
 
         for job in jobs:
             try:
-                self.backend.execute(
-                    "MERGE (j:Job {id: $id}) "
-                    "SET j.name = $name, j.schedule = $schedule, j.command = $command, "
-                    "j.last_run = coalesce(j.last_run, '—'), j.next_approx = coalesce(j.next_approx, '—')",
-                    job,
+                # ``coalesce(...)`` as a SET value is a function call, not a
+                # literal -- the engine's native Cypher write subset only
+                # accepts literal SET values
+                # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184
+                # restricts writes generally; SET specifically parses only
+                # str/num/bool literals). The typed node upsert already has
+                # coalesce-on-missing semantics: an existing node keeps any
+                # field omitted from this call, so simply not setting
+                # last_run/next_approx here preserves them if already present
+                # -- and a brand-new Job has no last_run/next_approx at all,
+                # which every reader (get_cron_tasks) already defaults to
+                # '—' for.
+                self.add_node(
+                    str(job["id"]),
+                    "Job",
+                    {
+                        "name": job["name"],
+                        "schedule": job["schedule"],
+                        "command": job["command"],
+                    },
                 )
                 bootstrapped.append(job["id"])
             except Exception as e:

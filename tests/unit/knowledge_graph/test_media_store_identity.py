@@ -239,7 +239,7 @@ def test_occurrence_carries_full_provenance_bundle():
     )
     assert res is not None
     props = client.txn.nodes[res.occurrence_id]
-    assert props["type"] == "AssetOccurrence"
+    assert props["node_type"] == "AssetOccurrence"
     assert props["tenant"] == "acme"
     assert props["owner"] == "user:carol"
     assert props["acl"] == {"read": ["acme"], "write": ["acme:admin"]}
@@ -249,7 +249,11 @@ def test_occurrence_carries_full_provenance_bundle():
     assert props["provenance"] == {"platform": "slack", "channel_id": "C1"}
 
     # hasBlob edge is present.
-    assert (res.occurrence_id, res.blob_id, {"type": "hasBlob"}) in client.edges.edges
+    assert (
+        res.occurrence_id,
+        res.blob_id,
+        {"relationship": "hasBlob"},
+    ) in client.edges.edges
 
 
 def test_tenant_isolated_blob_salts_the_blob_node_id():
@@ -343,10 +347,10 @@ def test_store_rendition_dedups_bytes_but_mints_distinct_ids():
     assert props1["derived_from_digest"] == occ.digest
 
     # occurrence -> rendition edges recorded for both.
-    assert (occ.occurrence_id, r1.rendition_id, {"type": "hasRendition"}) in (
+    assert (occ.occurrence_id, r1.rendition_id, {"relationship": "hasRendition"}) in (
         client.edges.edges
     )
-    assert (occ.occurrence_id, r2.rendition_id, {"type": "hasRendition"}) in (
+    assert (occ.occurrence_id, r2.rendition_id, {"relationship": "hasRendition"}) in (
         client.edges.edges
     )
 
@@ -423,7 +427,7 @@ def test_migrate_legacy_asset_creates_distinct_occurrence_without_mutating_legac
     assert client.txn.nodes[legacy_id] == legacy_snapshot
 
     new_props = client.txn.nodes[res.occurrence_id]
-    assert new_props["type"] == "AssetOccurrence"
+    assert new_props["node_type"] == "AssetOccurrence"
     assert new_props["legacy_asset_id"] == legacy_id
     assert new_props["provenance"]["migrated_from"] == legacy_id
     assert new_props["source"] == "legacy-platform"
@@ -432,7 +436,7 @@ def test_migrate_legacy_asset_creates_distinct_occurrence_without_mutating_legac
     assert (
         res.occurrence_id,
         legacy_id,
-        {"type": "migratedFrom"},
+        {"relationship": "migratedFrom"},
     ) in client.edges.edges
 
 
@@ -496,7 +500,7 @@ def test_migrate_legacy_assets_bulk_migrates_all_and_rerun_is_noop():
     occurrences = {
         nid: data
         for nid, data in client.txn.nodes.items()
-        if data.get("type") == "AssetOccurrence"
+        if data.get("node_type") == "AssetOccurrence"
     }
     assert len(occurrences) == 2
     legacy_ids_seen = {props["legacy_asset_id"] for props in occurrences.values()}
@@ -518,7 +522,7 @@ def test_migrate_legacy_assets_bulk_migrates_all_and_rerun_is_noop():
     occurrences_after = [
         data
         for _nid, data in client.txn.nodes.items()
-        if data.get("type") == "AssetOccurrence"
+        if data.get("node_type") == "AssetOccurrence"
     ]
     assert len(occurrences_after) == 2  # unchanged by the re-run
 
@@ -558,7 +562,7 @@ def test_migrate_legacy_assets_bulk_counts_failures_without_aborting():
     occurrences = [
         data
         for _nid, data in client.txn.nodes.items()
-        if data.get("type") == "AssetOccurrence"
+        if data.get("node_type") == "AssetOccurrence"
     ]
     assert len(occurrences) == 1
     assert occurrences[0]["legacy_asset_id"] == legacy_ok

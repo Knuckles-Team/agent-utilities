@@ -100,13 +100,17 @@ def secure_client(mock_agent):
 
 def test_health_probe_no_bearer(secure_client):
     """``/health`` stays unauthenticated liveness even with auth enforced
-    elsewhere — always 200, body is the real shared health report.
+    elsewhere — always 200, minimal dependency-free status-only body
+    (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split). The full
+    healthy/unhealthy component report this test previously expected inline
+    now lives behind ``GET /health/ready`` (bounded readiness) and the
+    authenticated dashboard/``graph_configure(action="health")`` surfaces --
+    ``/health`` itself deliberately never touches a dependency so kubelet's
+    liveness probe can never be starved by a downstream outage.
     """
     response = secure_client.get("/health")
     assert response.status_code == 200
-    body = response.json()
-    assert body["status"] in ("healthy", "unhealthy")
-    assert isinstance(body["checks"], list)
+    assert response.json() == {"status": "ok"}
 
 
 def test_secure_endpoint_no_bearer(secure_client):

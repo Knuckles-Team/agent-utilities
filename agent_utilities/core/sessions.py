@@ -376,16 +376,18 @@ def _persist_goal(goal_id: str) -> None:
     except Exception as e:  # noqa: BLE001 — best-effort persist
         logger.error(f"Error persisting goal {goal_id} to KG: {e}")
         return
-    # Register the node's ACL (CONCEPT:AU-KG.research.these-properties-carry): secured_reads.permit()'s
-    # governed read path is default-deny for any node with no registered ACL
-    # ("No ACL defined — default deny", company_brain.py's check_permission) —
-    # nothing on the generic add_node path stamps one (only tenant_id/ownership
-    # markers via BrainGuardedBackend's write-time stamp_ownership). Without
-    # this, a goal Concept node was writable but permanently unreadable via
-    # query_cypher (the read path _load_goal_entry/_list_goal_entries use) even
-    # by the actor who just created it. INTERNAL + this actor as data_owner
-    # mirrors CompanyBrain.classify_node's own documented usage and grants
-    # exactly the creating actor read access without loosening anything else.
+    # Deliberate classification refinement (CONCEPT:AU-KG.research.these-properties-carry):
+    # the write-time chokepoint (IntelligenceGraphEngine._upsert_node /
+    # tenant_sharing.stamp_classification) already stamps every node —
+    # including this one — CONFIDENTIAL + owner as a safe default, which
+    # already makes this goal readable by its own creator. But "Concept" is an
+    # overloaded label used for more than goals, so the bare label alone can't
+    # tell the generic chokepoint that THIS Concept is specifically a user's
+    # goal record. This call site knows that and refines the classification to
+    # INTERNAL accordingly (matches CompanyBrain.classify_node's own documented
+    # usage) — it does not change whether the actor can read it (already
+    # true), only the label used for entailment-propagation strictness
+    # ordering (secured_reads.inherit_inferred_acl) and audit posture.
     try:
         from agent_utilities.knowledge_graph.core.company_brain_runtime import (
             get_company_brain,
@@ -399,8 +401,8 @@ def _persist_goal(goal_id: str) -> None:
             DataClassification.INTERNAL,
             data_owner=actor.actor_id,
         )
-    except Exception as e:  # noqa: BLE001 — best-effort; a missing ACL degrades to "not found" reads, not a crash
-        logger.debug(f"Goal {goal_id} ACL classification failed: {e}")
+    except Exception as e:  # noqa: BLE001 — best-effort; the chokepoint default already covers correctness, this only refines the label
+        logger.debug(f"Goal {goal_id} ACL classification refinement failed: {e}")
 
 
 def _goal_row_to_entry(row: dict[str, Any]) -> dict[str, Any]:

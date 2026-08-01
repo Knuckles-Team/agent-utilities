@@ -31,6 +31,7 @@ def _maint_specs():
 
     inst = _bare_mixin()
     inst.backend = EpistemicGraphBackend()
+    inst.control_backend = inst.backend
     inst._register_maintenance_schedules()
     return {s.name: s for s in _se._load_all(inst)}
 

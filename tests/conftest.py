@@ -353,18 +353,45 @@ def isolate_graph_compute_engine(monkeypatch):
     )
 
     _original_init = graph_compute.GraphComputeEngine.__init__
+    _original_get_or_create = graph_compute.GraphComputeEngine.get_or_create.__func__
     _test_graph_name = f"test_{uuid.uuid4().hex[:12]}"
     _created_engines: list = []
     _created_graph_names: set = set()
+
+    # A bare ``EpistemicGraphBackend()``/``IntelligenceGraphEngine(db_path=...)``
+    # resolves its OWN routing graph before ``GraphComputeEngine.__init__`` ever
+    # sees ``None`` — ``resolve_routing_graph(None)`` maps it through this
+    # fixture's own ambient actor (``tenant_id=TEST_TENANT`` below) to
+    # ``tenant_graph_name(TEST_TENANT, base="__commons__")`` (shard_topology.py),
+    # e.g. ``"tenant__tenant_test____commons__"`` — never the literal
+    # ``None``/``"__commons__"`` sentinel this redirect originally matched on.
+    # Recognize that resolved form too, so those bare-construction callers still
+    # land on the isolated per-test graph instead of a real shared tenant/commons
+    # graph (where concurrent test runs collide with STALE_FENCE lifecycle
+    # errors on ``CreateGraph``, or later a "Graph not found"/cross-tenant
+    # PermissionError once one test's write lands on another's read).
+    from agent_utilities.knowledge_graph.core.shard_topology import (
+        default_graph_name as _default_graph_name,
+        tenant_graph_name as _tenant_graph_name,
+    )
+
+    _default_graph = _default_graph_name()
+    _default_graph_sentinels = {
+        None,
+        "__commons__",
+        "__secrets__",
+        _default_graph,
+        _tenant_graph_name(TEST_TENANT, base="__commons__"),
+        _tenant_graph_name(TEST_TENANT, base="__secrets__"),
+        _tenant_graph_name(TEST_TENANT, base=_default_graph),
+    }
 
     def _isolated_init(self, graph_name: str | None = None, **kwargs):
         # Use the fixture's unique name when the caller targets a process-global
         # default graph. Reusing ``__secrets__`` across tests races its durable
         # delete/recreate lifecycle fence and defeats test isolation.
         effective_name = (
-            _test_graph_name
-            if graph_name in (None, "__commons__", "__secrets__")
-            else graph_name
+            _test_graph_name if graph_name in _default_graph_sentinels else graph_name
         )
         _original_init(self, graph_name=effective_name, **kwargs)
         if effective_name not in _created_graph_names:
@@ -407,13 +434,30 @@ def isolate_graph_compute_engine(monkeypatch):
     def _isolated_egb_init(self, graph_name: str | None = None, **kwargs):
         effective_name = (
             _test_graph_name
-            if graph_name in (None, "__commons__", "__secrets__")
+            if graph_name in _default_graph_sentinels
             else graph_name
         )
         _original_egb_init(self, graph_name=effective_name, **kwargs)
 
     monkeypatch.setattr(
         epistemic_graph_backend.EpistemicGraphBackend, "__init__", _isolated_egb_init
+    )
+
+    def _isolated_get_or_create(cls, graph_name: str | None = None, **kwargs):
+        # ``get_or_create`` re-derives its own "does this retarget the root?"
+        # decision straight from the caller's raw ``graph_name`` — once a root
+        # transport already exists (e.g. this test's own ``engine`` fixture),
+        # ``_isolated_init`` above is never invoked for a second bare
+        # construction, so the SAME sentinel redirect must be applied here too.
+        effective_name = (
+            _test_graph_name if graph_name in _default_graph_sentinels else graph_name
+        )
+        return _original_get_or_create(cls, graph_name=effective_name, **kwargs)
+
+    monkeypatch.setattr(
+        graph_compute.GraphComputeEngine,
+        "get_or_create",
+        classmethod(_isolated_get_or_create),
     )
 
     # Reset the CLASS-LEVEL process-engine singleton for the duration of this

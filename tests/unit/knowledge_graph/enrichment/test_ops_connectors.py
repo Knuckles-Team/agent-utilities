@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import uuid
+
+import pytest
+
 from agent_utilities.knowledge_graph.enrichment.extractors import kafka as kafka_ext
 from agent_utilities.knowledge_graph.enrichment.extractors import lgtm as lgtm_ext
 from agent_utilities.knowledge_graph.enrichment.extractors import portainer as pf_ext
@@ -12,6 +17,65 @@ from agent_utilities.knowledge_graph.enrichment.writeback import (
     core,
     run_writeback,
 )
+
+
+@pytest.fixture()
+def wb_backend(tiny_engine):
+    """An explicit, isolated ``EpistemicGraphBackend`` for the write-back approval queue.
+
+    A bare ``EpistemicGraphBackend()`` (what ``require_engine_authority_backend``
+    falls back to when the test supplies no ``backend=``) resolves its target via
+    ``shard_topology.resolve_routing_graph(None)`` -> the ambient actor's
+    *tenant-derived* graph (e.g. ``tenant__tenant_test____commons__``) — a
+    DIFFERENT identity than the per-test unique graph the autouse
+    ``isolate_graph_compute_engine`` fixture actually binds the ambient
+    ``GraphSession.graph`` to. Two ``ProposalQueue`` writes in the same session
+    that both fall back to that fixed tenant graph can also collide with each
+    other's lifecycle-batch fencing token (``STALE_FENCE``), since they are not
+    actually isolated per test. Mirrors the ``engine_graph`` fixture's own
+    explicit-``graph_name`` pattern (tests/conftest.py) but yields an
+    ``EpistemicGraphBackend`` specifically — the one type
+    ``is_engine_authority_backend`` accepts (it requires ``.execute()``, which
+    ``GraphComputeEngine`` does not have) — so it can be passed straight to
+    ``run_writeback(..., backend=wb_backend)``.
+    """
+    from _test_engine import (
+        TEST_AGENT_ID,
+        TEST_AUDIENCE,
+        TEST_AUTH_SECRET,
+        TEST_POLICY_VERSION,
+        TEST_TENANT,
+    )
+
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    if isinstance(tiny_engine, str):
+        os.environ["GRAPH_SERVICE_ENDPOINTS"] = f"unix://{tiny_engine}"
+        os.environ["GRAPH_SERVICE_AUTH_SECRET"] = TEST_AUTH_SECRET
+
+    graph_name = f"wbtest_{uuid.uuid4().hex[:16]}"
+    actor = ActorContext(
+        actor_id=TEST_AGENT_ID,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=TEST_TENANT,
+        scopes=frozenset({"kg:read", "kg:write", "kg:admin", "*"}),
+        graph=graph_name,
+        policy_version=TEST_POLICY_VERSION,
+        audience=TEST_AUDIENCE,
+    )
+    with use_session(session):
+        yield EpistemicGraphBackend(graph_name=graph_name)
 
 
 # ── Extractors ───────────────────────────────────────────────────────────────
@@ -119,9 +183,10 @@ def test_dns_sink_standard_live(monkeypatch):
     assert client.added == [("example.com", "api", "A", "10.0.0.2")]
 
 
-def test_kafka_high_stakes_is_queued(monkeypatch, tiny_engine):
-    # tiny_engine (KG-2.238): the engine-only approval queue persists on the REAL
-    # ephemeral engine — no JSON fallback (CONCEPT:AU-KG.enrichment.proposals-live-as).
+def test_kafka_high_stakes_is_queued(monkeypatch, wb_backend):
+    # wb_backend (KG-2.238): the engine-only approval queue persists on the REAL
+    # ephemeral engine, on an explicit isolated graph — no JSON fallback
+    # (CONCEPT:AU-KG.enrichment.proposals-live-as).
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
 
     class FakeKafkaW:
@@ -137,14 +202,19 @@ def test_kafka_high_stakes_is_queued(monkeypatch, tiny_engine):
         client=client,
         creations=[{"topic": "orders", "value": "x"}],
         dry_run=False,
+        backend=wb_backend,
     )
     assert out["status"] == "queued"  # high_stakes never auto-executes
     assert client.produced == []
 
 
-def test_portainer_high_stakes_is_queued(monkeypatch, tiny_engine):
+def test_portainer_high_stakes_is_queued(monkeypatch, wb_backend):
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
     out = run_writeback(
-        "portainer", client=object(), creations=[{"name": "newstack"}], dry_run=False
+        "portainer",
+        client=object(),
+        creations=[{"name": "newstack"}],
+        dry_run=False,
+        backend=wb_backend,
     )
     assert out["status"] == "queued"

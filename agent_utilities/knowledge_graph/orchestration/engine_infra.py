@@ -79,11 +79,12 @@ class InfrastructureEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="PullRequest")
             self._upsert_node("PullRequest", pr_id, data)
-            # The engine's Cypher write subset supports MERGE of a single plain
-            # node only (never a relationship pattern, and never more than one
-            # MATCH before a write clause) — use the canonical typed edge write
-            # instead of an unsupported "MATCH ... MATCH ... MERGE (a)-[:R]->(b)".
-            self.backend.add_edge(repo_id, pr_id, relationship="has_pr")
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # ``link_nodes`` dispatches through the typed engine API.
+            self.link_nodes(repo_id, pr_id, "HAS_PR")
         return pr_id
 
     def share_cross_tenant_insight(self, source_tenant: str, insight_id: str) -> str:
@@ -106,12 +107,9 @@ class InfrastructureEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="CrossTenantInsight")
             self._upsert_node("CrossTenantInsight", cross_id, data)
-            # See record_pull_request's comment: the engine's Cypher write
-            # subset cannot MERGE a relationship pattern — use the typed edge
-            # write directly.
-            self.backend.add_edge(
-                insight_id, cross_id, relationship="mapped_to_external"
-            )
+            # See register_mcp_package/record_pull_request above for why this
+            # is a typed link, not a comma-pattern MATCH + edge MERGE.
+            self.link_nodes(insight_id, cross_id, "MAPPED_TO_EXTERNAL")
         return cross_id
 
     def ingest_hosts_from_inventory(
@@ -297,13 +295,12 @@ class InfrastructureEngineMixin(_Base):
                 # Add edge has_accelerator
                 self.graph.add_edge(host_id, gpu_id, relationship="has_accelerator")
                 if self.backend:
-                    # See record_pull_request's comment: the engine's Cypher
-                    # write subset cannot MERGE a relationship pattern — mirror
-                    # the edge already written via self.graph.add_edge above
-                    # onto self.backend directly instead.
-                    self.backend.add_edge(
-                        host_id, gpu_id, relationship="has_accelerator"
-                    )
+                    # A comma-pattern MATCH plus an edge MERGE both exceed the
+                    # engine's native Cypher write subset (one leading MATCH,
+                    # MERGE on a single bare node only;
+                    # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+                    # ``link_nodes`` dispatches through the typed engine API.
+                    self.link_nodes(host_id, gpu_id, "HAS_ACCELERATOR")
 
             if labels["role"] == "storage" and "capacity_tb" in labels:
                 storage_id = f"storage:{host_ref}"
@@ -326,13 +323,9 @@ class InfrastructureEngineMixin(_Base):
                     host_id, storage_id, relationship="attached_storage"
                 )
                 if self.backend:
-                    # See record_pull_request's comment: the engine's Cypher
-                    # write subset cannot MERGE a relationship pattern — mirror
-                    # the edge already written via self.graph.add_edge above
-                    # onto self.backend directly instead.
-                    self.backend.add_edge(
-                        host_id, storage_id, relationship="attached_storage"
-                    )
+                    # See the GPU accelerator link above for why this is a
+                    # typed link, not a comma-pattern MATCH + edge MERGE.
+                    self.link_nodes(host_id, storage_id, "ATTACHED_STORAGE")
 
         logger.info("Ingested %d pseudonymous inventory hosts", len(ingested_ids))
         return ingested_ids

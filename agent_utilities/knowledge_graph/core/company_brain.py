@@ -288,28 +288,35 @@ class TenancyManager:
         validated (alphanumeric/``-``/``_``/``:`` only — no quote injection) and
         the first ``WHERE``/``RETURN`` is matched **case-insensitively** so a
         lowercase ``return`` can't silently bypass scoping. Queries with no
-        ``RETURN`` (writes/DDL) are returned unchanged.
+        ``WHERE``/``RETURN`` (writes/DDL) are returned unchanged — there is no
+        predicate site to inject into.
 
-        The injected condition binds to the query's OWN first pattern
-        variable (``MATCH (r:CallableResource)`` -> ``r.tenant_id = ...``),
-        not a hardcoded ``n`` — this engine's Cypher binder is strict about
-        unbound variable references, so scoping every query by a literal
-        ``n.tenant_id`` raised ``Binder exception: Variable n is not in
-        scope`` on any query whose primary variable wasn't actually named
-        ``n`` (e.g. ``MATCH (r:CallableResource) RETURN ...``). Falls back to
-        ``n`` when no node-pattern variable can be found, preserving prior
-        behavior for queries that already use it.
+        CONCEPT:AU-KG.backend.company-brain-write-guard — the injected predicate
+        scopes against the query's **actual** first bound node variable
+        (:func:`~.cypher_scoping.first_bound_node_variable`), not a hardcoded
+        ``n``. A prior version hardcoded ``n.tenant_id = '...'`` unconditionally,
+        which silently mis-scoped (and, on a lenient backend, silently returned
+        zero rows instead of raising) any query binding its node under a
+        different variable name (``MATCH (x:Entity) RETURN x``). When no bound
+        variable can be found at all, this now raises
+        :class:`~.cypher_scoping.UnscopableQueryError` — fail closed — rather
+        than inject a predicate against a variable the query never bound.
 
-        A row with no ``tenant_id`` (unset/NULL) is admitted regardless of
-        ``tenant_id`` -- the shared "commons" partition, matching
-        ``PostgreSQLBackend.rls_statements``'s documented RLS policy
-        (``tenant_id = current_setting(...) OR tenant_id IS NULL OR
-        tenant_id = ''``, CONCEPT:AU-KG.backend.concept-2). Nothing on the write
-        path stamps ``tenant_id`` on ad-hoc/typed node writes today, so
-        without this every such node would be invisible to every tenant
-        despite existing, rather than correctly falling back to commons.
+        The predicate is also ANDed in via
+        :func:`~.cypher_scoping.inject_and_predicate`, which parenthesizes any
+        pre-existing ``WHERE`` body as a unit first — a bare ``<cond> AND``
+        textual splice mis-groups against a top-level ``OR`` already in that
+        body (``AND`` binds tighter), letting a disjunct bypass the tenant
+        predicate entirely. Real callers hit exactly this shape (``WHERE
+        p.name CONTAINS $q OR p.description CONTAINS $q``).
+
+        Raises:
+            UnscopableQueryError: the query has a ``WHERE``/``RETURN`` clause to
+                inject into but no derivable ``MATCH (<var>...`` node variable.
         """
         import re
+
+        from .cypher_scoping import first_bound_node_variable, inject_and_predicate
 
         if not tenant_id:
             return query
@@ -317,20 +324,15 @@ class TenancyManager:
             logger.warning("Refusing to scope with unsafe tenant id %r", tenant_id)
             # Fail closed: an unsafe tenant id yields an impossible predicate.
             tenant_id = "__no_such_tenant__"
-        var_match = re.search(r"\(\s*([A-Za-z_]\w*)\s*(?::|\{|\))", query)
-        node_var = var_match.group(1) if var_match else "n"
-        cond = (
-            f"({node_var}.tenant_id = '{tenant_id}' "
-            f"OR {node_var}.tenant_id IS NULL OR {node_var}.tenant_id = '')"
-        )
 
-        m = re.search(r"\bWHERE\b", query, flags=re.IGNORECASE)
-        if m:
-            return query[: m.end()] + f" {cond} AND" + query[m.end() :]
-        m = re.search(r"\bRETURN\b", query, flags=re.IGNORECASE)
-        if m:
-            return query[: m.start()] + f"WHERE {cond} " + query[m.start() :]
-        return query
+        where_match = re.search(r"\bWHERE\b", query, flags=re.IGNORECASE)
+        return_match = re.search(r"\bRETURN\b", query, flags=re.IGNORECASE)
+        if not where_match and not return_match:
+            return query
+
+        var = first_bound_node_variable(query)
+        cond = f"{var}.tenant_id = '{tenant_id}'"
+        return inject_and_predicate(query, cond)
 
     def is_member(self, actor_id: str, tenant_id: str) -> bool:
         return tenant_id in self.get_actor_tenants(actor_id)
