@@ -3284,6 +3284,13 @@ async def _keep_process_authority_current(session: Any) -> None:
             except SessionExpiredError:
                 # Fail-closed: the next real authority check (the deep engine
                 # call already in flight, or the next one) raises for real.
+                # D-SWG-3: log it here too so the keepalive giving up is visible
+                # at the moment it happens, not only inferred later from a
+                # downstream failure.
+                logger.warning(
+                    "Delegation authority keepalive stopping: session lease "
+                    "already expired; the next authority check will fail closed"
+                )
                 return
             except Exception as exc:  # noqa: BLE001 — keepalive is best-effort renewal; a hard failure surfaces at the next real authority check either way
                 logger.error(
@@ -3291,7 +3298,11 @@ async def _keep_process_authority_current(session: Any) -> None:
                     type(exc).__name__,
                 )
     except asyncio.CancelledError:
-        pass
+        # D-SWG-3: expected, normal shutdown — the caller's
+        # authority_keepalive_scope cancels this loop when the wrapped call
+        # finishes. Logged at debug (routine, high-frequency) rather than
+        # dropped silently.
+        logger.debug("Delegation authority keepalive cancelled (scope exited)")
 
 
 @contextlib.asynccontextmanager

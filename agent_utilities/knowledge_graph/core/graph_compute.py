@@ -309,6 +309,7 @@ _CLIENT_NAMESPACES: tuple[str, ...] = (
     "rbac",
     "admin",
     "jobs",
+    "statechart",
 )
 
 

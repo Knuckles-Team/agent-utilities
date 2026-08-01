@@ -49,7 +49,52 @@ from agent_utilities.graph.state import GraphDeps, GraphState
 
 
 @pytest.mark.asyncio
-async def test_kg_native_reasoning_escalation():
+async def test_kg_native_reasoning_escalation(monkeypatch):
+    # The router only pins state.pinned_model_id in the reasoning-escalation
+    # branch when a "super"-tier chat model is configured (AgentConfig.
+    # super_chat_model resolves intelligence_level="super", falling back to
+    # the first configured chat model if none -- reasoning_model_id stays
+    # None, and pinned_model_id is never set, when NO chat models are
+    # configured at all, which is this environment's baseline state.
+    from agent_utilities.core.config import ChatModelConfig
+    from agent_utilities.core.config import config as agent_config
+
+    monkeypatch.setattr(
+        agent_config,
+        "chat_models",
+        [
+            ChatModelConfig(
+                id="test-reasoning-model",
+                provider="openai",
+                intelligence_level="super",
+            )
+        ],
+    )
+
+    # router_step() internally calls get_discovery_registry(), which lazily
+    # provisions IntelligenceGraphEngine.get_or_create(db_path=...) if no
+    # engine is already active. That path builds its own backend via
+    # create_backend(db_path=...), which constructs a bare
+    # EpistemicGraphBackend() -- resolving its own routing graph via
+    # resolve_routing_graph(None) BEFORE GraphComputeEngine is ever asked for
+    # one, bypassing the isolate_graph_compute_engine fixture's redirect (same
+    # family as test_kg_native_orchestration.py). Pre-populating
+    # IntelligenceGraphEngine._ACTIVE_ENGINE with one bound to an
+    # already-isolated GraphComputeEngine makes get_or_create() reuse it
+    # instead of falling back to the divergent bare construction.
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    compute = GraphComputeEngine(backend_type="rust")
+    isolated_backend = object.__new__(EpistemicGraphBackend)
+    isolated_backend._graph = compute
+    isolated_backend.graph_name = compute.graph_name
+    IntelligenceGraphEngine._ACTIVE_ENGINE = None
+    IntelligenceGraphEngine(backend=isolated_backend)
+
     # Mock context and dependencies
     state = GraphState(query="Calculate optimal Almgren-Chriss trajectory")
     deps = GraphDeps(tag_prompts={}, tag_env_vars={}, mcp_toolsets=[])
@@ -137,6 +182,7 @@ async def test_kg_native_reasoning_escalation():
                 original_build_kg  # type: ignore
             )
         agent_utilities.graph._router_impl.logger.error = original_logger_error  # type: ignore
+        IntelligenceGraphEngine._ACTIVE_ENGINE = None
 
     print(f"DEBUG: state.pinned_model_id is {state.pinned_model_id}")
     print(f"DEBUG: state.error is {state.error}")

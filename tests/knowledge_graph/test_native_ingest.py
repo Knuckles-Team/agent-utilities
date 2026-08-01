@@ -345,7 +345,7 @@ async def test_enrich_pending_documents_processes_and_clears_flag(monkeypatch):
         def __init__(self, *_a: Any, **_kw: Any) -> None:
             pass
 
-        async def _enrich_text(
+        async def enrich_text(
             self, source_id: str, _text: str, _source_type: str, _title: str = ""
         ) -> dict[str, int]:
             enriched_calls.append(source_id)
@@ -391,7 +391,7 @@ async def test_enrich_pending_documents_one_bad_doc_does_not_abort_sweep(monkeyp
         def __init__(self, *_a: Any, **_kw: Any) -> None:
             pass
 
-        async def _enrich_text(self, *_a: Any, **_kw: Any) -> dict[str, int]:
+        async def enrich_text(self, *_a: Any, **_kw: Any) -> dict[str, int]:
             return {"concepts": 0, "facts": 0, "topics": 0}
 
     monkeypatch.setattr(
