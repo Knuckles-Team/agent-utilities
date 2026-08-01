@@ -48,6 +48,27 @@ def _make_episode(
     g.add_edge(episode_id, outcome_id, relationship="produced_outcome")
 
 
+def _engine_over(g: GraphComputeEngine) -> IntelligenceGraphEngine:
+    """Wrap ``g`` (an already-seeded, fixture-isolated GraphComputeEngine) in
+    an ``IntelligenceGraphEngine`` that actually reads from it.
+
+    A bare ``IntelligenceGraphEngine(db_path=":memory:")`` builds its OWN
+    bare ``EpistemicGraphBackend()``, disconnected entirely from ``g`` —
+    the seeded data and the engine returned to the caller point at two
+    different graphs (and, once a root engine already exists, the bare
+    backend's own construction hits "A graph-scoped view cannot retarget
+    the verified GraphSession" on top of that). Bind an
+    ``EpistemicGraphBackend`` explicitly to ``g`` instead.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    backend = EpistemicGraphBackend()
+    backend._graph = g
+    return IntelligenceGraphEngine(backend=backend)
+
+
 @pytest.fixture
 def synthetic_engine() -> IntelligenceGraphEngine:
     g = GraphComputeEngine(backend_type="rust")
@@ -59,7 +80,7 @@ def synthetic_engine() -> IntelligenceGraphEngine:
         _make_episode(g, f"ep:ansible-{i}", "ansible", reward=0.95)
     # 1 failed terraform episode — must be ignored
     _make_episode(g, "ep:tf-fail", "terraform", reward=0.2)
-    return IntelligenceGraphEngine(db_path=":memory:")
+    return _engine_over(g)
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +202,7 @@ def test_rule_ignores_failed_episodes() -> None:
     # 5 failed terraform episodes — no proposal should emerge
     for i in range(5):
         _make_episode(g, f"ep:fail-{i}", "terraform", reward=0.1)
-    eng = IntelligenceGraphEngine(db_path=":memory:")
+    eng = _engine_over(g)
     rule = EpisodeToPreferenceRule(min_evidence_count=5)
     proposals = rule.detect(eng)
     assert proposals == []
@@ -270,6 +291,6 @@ def test_engine_dedup_by_signature() -> None:
 
 
 def test_engine_empty_graph_yields_no_proposals() -> None:
-    ce = SynthesisEngine(IntelligenceGraphEngine(db_path=":memory:"))
+    ce = SynthesisEngine(_engine_over(GraphComputeEngine(backend_type="rust")))
     ce.register(EpisodeToPreferenceRule(min_evidence_count=5))
     assert ce.run(dry_run=True) == []
