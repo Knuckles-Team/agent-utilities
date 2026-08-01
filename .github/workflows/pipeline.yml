@@ -101,7 +101,31 @@ jobs:
   publish-pypi:
     needs: numeric-runtime-gate
     runs-on: ubuntu-latest
+    # D-ORC-10: publishing is irreversible (PyPI versions can be yanked but never
+    # reused) so it must never be a side effect of an ordinary green push to main.
+    # Gate 1 (native): `environment:` enables GitHub's required-reviewers /
+    # wait-timer protection rules. Configure them once in
+    # Settings > Environments > pypi-publish; until an admin does, this line
+    # alone does not block anything, which is why gate 2 exists.
+    # Gate 2 (structural, no external config needed): refuse to publish unless
+    # the exact commit that passed Guardrails is also pointed at by an
+    # annotated `vX.Y.Z` tag, so publishing requires a deliberate tag push,
+    # not merely a merge to main.
+    environment: pypi-publish
     steps:
+      - name: Require an explicit vX.Y.Z release tag on the published commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          tags="$(gh api "repos/${{ github.repository }}/tags?per_page=100" \
+            --jq --arg sha "$HEAD_SHA" '.[] | select(.commit.sha == $sha) | .name')"
+          if ! grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$tags"; then
+            echo "::error::D-ORC-10 release gate: no vX.Y.Z tag points at $HEAD_SHA -- refusing to publish. Push an annotated release tag (e.g. 'git tag -a vX.Y.Z -m ... && git push origin vX.Y.Z') to authorize this publish."
+            exit 1
+          fi
+          echo "release tag verified: $tags"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: agent-utilities-wheel
@@ -115,6 +139,11 @@ jobs:
         run: uv publish --check-url https://pypi.org/simple dist/agent_utilities-*.whl
   publish-docker:
     needs: publish-pypi
+    # D-ORC-10: same tag + environment gate as publish-pypi above -- this job
+    # `needs: publish-pypi`, so it cannot run unless that gate already passed,
+    # but the environment protection rule is declared here too since a
+    # reusable-workflow call is still a distinct deployment target.
+    environment: docker-publish
     uses: Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@dc60f5ca0cfd00bf2e66f912a33d6d0f8ee62874 # v2.0.1
     permissions:
       contents: read
