@@ -113,7 +113,7 @@ async def test_kb_ingest_small_directory(
     article_nodes = [
         n
         for n, d in graph.nodes(data=True)
-        if d.get("type") == RegistryNodeType.ARTICLE
+        if d.get("node_type") == RegistryNodeType.ARTICLE
     ]
     assert len(article_nodes) >= 1, (
         f"Expected >=1 Article node, got {len(article_nodes)}"

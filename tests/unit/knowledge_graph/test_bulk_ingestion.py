@@ -47,17 +47,22 @@ def test_ingest_external_batch():
         {
             "id": "user:1",
             "name": "Alice",
-            "type": "Employee",
+            "node_type": "Employee",
             "department": "Engineering",
         },
-        {"id": "user:2", "name": "Bob", "type": "Employee", "department": "Sales"},
+        {
+            "id": "user:2",
+            "name": "Bob",
+            "node_type": "Employee",
+            "department": "Sales",
+        },
     ]
 
     relationships = [
         {
             "source": "user:1",
             "target": "user:2",
-            "type": "WORKS_WITH",
+            "relationship": "WORKS_WITH",
             "properties": {"since": "2023"},
         }
     ]
