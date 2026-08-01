@@ -54,6 +54,21 @@ USAGE (inside the graph-os pod; confirm the pod name first):
 Prints a machine-readable JSON report between ``===REPORT_JSON_START===`` and
 ``===REPORT_JSON_END===`` markers (the engine/session layers log a lot of
 their own noise to stdout/stderr around it).
+
+VERIFIED (D-FSR-2, closes D-SNI-2) — executed against the live graph-os KG in 6
+bounded ``--limit`` chunks (30/50/50/60/57, one 50-chunk interrupted by two
+unrelated live pod restarts and safely resumed thanks to the MERGE-based
+idempotency above): 267/267 creates succeeded, 0 failures. Final ``--dry-run``
+re-measurement confirms ``to_create_count: 0`` (fully converged). Before: 77
+``CallableResource(AGENT_SKILL)`` nodes; after: 344. Verified by delegation,
+not node count — 3 cross-package ``delegation_probe.py --stop-after skill``
+proofs (gitlab-issues/gitlab-mcp, mattermost-channel-messaging/mattermost-mcp,
+jellyfin-library-catalog/jellyfin-mcp) all report ``runnable=True``. See
+``reports/deferred/lane-fleet-skill-repair.md`` (D-FSR-1, D-FSR-2) for the full
+before/after inventory, the 4 langfuse-agent name-conflict skips, and the
+``graph_workflows execute`` silent-success risk the leftover 415 stale
+``step_count=0`` ``WorkflowDefinition`` nodes pose (NOT deleted — deletion is
+out of scope for this lane).
 """
 from __future__ import annotations
 
