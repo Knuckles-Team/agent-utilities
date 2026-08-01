@@ -859,7 +859,7 @@
     "agent_utilities/knowledge_graph/orchestration/engine_federation.py:277:FederationMixin.query_rest_union",
     "agent_utilities/knowledge_graph/orchestration/engine_federation.py:88:FederationMixin.get_registered_ontologies",
     "agent_utilities/knowledge_graph/orchestration/engine_federation.py:94:FederationMixin.ingest_external_entity_stub",
-    "agent_utilities/knowledge_graph/orchestration/engine_infra.py:332:InfrastructureEngineMixin.generate_matchmaking_recommendations",
+    "agent_utilities/knowledge_graph/orchestration/engine_infra.py:333:InfrastructureEngineMixin.generate_matchmaking_recommendations",
     "agent_utilities/knowledge_graph/orchestration/engine_query.py:1036:QueryMixin.find_path",
     "agent_utilities/knowledge_graph/orchestration/engine_query.py:1048:QueryMixin.get_agent_tools",
     "agent_utilities/knowledge_graph/orchestration/engine_query.py:1071:QueryMixin.find_relevant_callable_resources",
