@@ -58,28 +58,24 @@ def save_chat_to_disk(chat_id: str, messages: list[dict[str, Any]]):
         {"id": chat_id, "max_len": len(messages)},
     )
 
-    # Create MessageNodes and link to Thread
+    # Create MessageNodes and link to Thread. The engine's native Cypher
+    # write subset supports only one leading MATCH and no WITH between write
+    # clauses (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184), so
+    # this can't be one "MERGE ... WITH ... MATCH ... MERGE" statement; the
+    # typed engine API (CONCEPT:AU-KG.query.register-each-user-table) does the
+    # node upsert + edge merge as two dispatched, backend-appropriate writes.
     for i, msg in enumerate(messages):
         msg_id = f"msg:{chat_id}:{i}"
-        query_msg = """
-        MERGE (m:Message {id: $id})
-        SET m.role = $role,
-            m.content = $content,
-            m.timestamp = $ts
-        WITH m
-        MATCH (t:Thread {id: $chat_id})
-        MERGE (t)-[:CONTAINS]->(m)
-        """
-        engine.backend.execute(
-            query_msg,
+        engine.add_node(
+            msg_id,
+            "Message",
             {
-                "id": msg_id,
                 "role": msg.get("role", "user"),
                 "content": str(msg.get("content", "")),
-                "ts": ts,
-                "chat_id": chat_id,
+                "timestamp": ts,
             },
         )
+        engine.link_nodes(chat_id, msg_id, "CONTAINS")
 
     logger.debug(f"Saved chat {chat_id} to Knowledge Graph")
 

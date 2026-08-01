@@ -46,7 +46,13 @@ def session_db(tmp_path, monkeypatch):
     admin = ActorContext(
         actor_id="fleet-admin",
         actor_type=ActorType.AUTOMATED_SERVICE,
-        roles=("admin",),
+        # fleet._tenant_scope's privilege check delegates to
+        # tenant_sharing.is_privileged, which recognizes only "kg:admin"
+        # (the same _PRIVILEGED_ROLES set permissioning.py defines) -- a bare
+        # "admin" role is NOT privileged there, so every row's tenant
+        # predicate (extracted from metadata_json, which none of these rows
+        # even carry) silently filtered out the whole fleet.
+        roles=("kg:admin",),
         tenant_id="ops-admin",
         authenticated=True,
     )
@@ -317,7 +323,7 @@ async def test_fleet_topology_isolated_by_tenant(tenant_session_db):
 async def test_platform_admin_sees_whole_fleet(tenant_session_db):
     from agent_utilities.security.brain_context import use_actor
 
-    with use_actor(_actor(actor_id="root", tenant="acme", roles=("admin",))):
+    with use_actor(_actor(actor_id="root", tenant="acme", roles=("kg:admin",))):
         data = await _payload(await fleet.fleet_health(_Req()))
     assert data["sessions"]["total"] == 3  # admin sees acme + globex
 
