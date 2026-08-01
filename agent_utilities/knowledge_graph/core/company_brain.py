@@ -292,28 +292,31 @@ class TenancyManager:
         predicate site to inject into.
 
         CONCEPT:AU-KG.backend.company-brain-write-guard — the injected predicate
-        scopes against the query's **actual** primary bound node variable
-        (:func:`~.cypher_scope_vars.primary_bound_variable`; D-SH-4,
-        ``reports/deferred/lane-skill-harvest.md``), not a hardcoded ``n``. A
-        prior version hardcoded ``n.tenant_id = '...'`` unconditionally, which
-        silently mis-scoped (and, on a lenient backend, silently returned zero
-        rows instead of raising) any query binding its node under a different
-        variable name (``MATCH (x:Entity) RETURN x``, ``MATCH (s:Skill) ...
-        RETURN s``). When no bound variable can be found at all (a fully
-        anonymous first pattern — ``MATCH () ...``, ``MATCH (:Label) ...`` —
-        or no ``MATCH`` clause), this raises
+        scopes against the query's **actual** first bound node variable
+        (:func:`~.cypher_scoping.first_bound_node_variable`), not a hardcoded
+        ``n``. A prior version hardcoded ``n.tenant_id = '...'`` unconditionally,
+        which silently mis-scoped (and, on a lenient backend, silently returned
+        zero rows instead of raising) any query binding its node under a
+        different variable name (``MATCH (x:Entity) RETURN x``). When no bound
+        variable can be found at all, this now raises
         :class:`~.cypher_scoping.UnscopableQueryError` — fail closed — rather
-        than inject a predicate against a variable the query never bound OR
-        silently run the query unscoped (which would return matching rows
-        from EVERY tenant, not zero: strictly worse than the original bug).
+        than inject a predicate against a variable the query never bound.
+
+        The predicate is also ANDed in via
+        :func:`~.cypher_scoping.inject_and_predicate`, which parenthesizes any
+        pre-existing ``WHERE`` body as a unit first — a bare ``<cond> AND``
+        textual splice mis-groups against a top-level ``OR`` already in that
+        body (``AND`` binds tighter), letting a disjunct bypass the tenant
+        predicate entirely. Real callers hit exactly this shape (``WHERE
+        p.name CONTAINS $q OR p.description CONTAINS $q``).
 
         Raises:
             UnscopableQueryError: the query has a ``WHERE``/``RETURN`` clause to
-                inject into but no derivable primary bound node variable.
+                inject into but no derivable ``MATCH (<var>...`` node variable.
         """
         import re
 
-        from .cypher_scoping import first_bound_node_variable
+        from .cypher_scoping import first_bound_node_variable, inject_and_predicate
 
         if not tenant_id:
             return query
@@ -329,15 +332,7 @@ class TenancyManager:
 
         var = first_bound_node_variable(query)
         cond = f"{var}.tenant_id = '{tenant_id}'"
-        if where_match:
-            return (
-                query[: where_match.end()] + f" {cond} AND" + query[where_match.end() :]
-            )
-        return (
-            query[: return_match.start()]
-            + f"WHERE {cond} "
-            + query[return_match.start() :]
-        )
+        return inject_and_predicate(query, cond)
 
     def is_member(self, actor_id: str, tenant_id: str) -> bool:
         return tenant_id in self.get_actor_tenants(actor_id)

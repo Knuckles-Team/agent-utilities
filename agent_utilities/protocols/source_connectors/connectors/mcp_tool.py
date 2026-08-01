@@ -45,7 +45,7 @@ import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from agent_utilities.security.identifiers import (
     InvalidIdentifierError,
@@ -2236,6 +2236,19 @@ async def call_tool_once(
         return await conn._call(open_client, tool, arguments)
 
 
+class McpResourceContent(TypedDict):
+    """One MCP ``resources/read`` content block, normalized.
+
+    A typed seam on purpose: consumers read these keys by name (``agent-webui``'s
+    ``/api/enhanced/mcp/apps/resource`` route returns ``text`` as the app HTML),
+    so a rename here must be a type error rather than a silently-missing key.
+    """
+
+    uri: str
+    text: str
+    mimeType: str
+
+
 async def read_resource_once(
     *,
     uri: str,
@@ -2246,7 +2259,7 @@ async def read_resource_once(
     args: list[str] | None = None,
     env: dict[str, str] | None = None,
     timeout: float = 60.0,
-) -> dict[str, Any]:
+) -> McpResourceContent:
     """One-shot fleet MCP ``resources/read`` — the read-side twin of
     :func:`call_tool_once`.
 
@@ -2285,11 +2298,11 @@ async def read_resource_once(
     # MCP SDK v2 renamed ``mimeType`` to ``mime_type``; read the current name
     # first and keep the legacy one as a fallback for v1 content objects.
     mime_type = getattr(first, "mime_type", None) or getattr(first, "mimeType", None)
-    return {
-        "uri": uri,
-        "text": text,
-        "mimeType": str(mime_type or "text/plain"),
-    }
+    return McpResourceContent(
+        uri=uri,
+        text=text,
+        mimeType=str(mime_type or "text/plain"),
+    )
 
 
 async def call_preset_once(

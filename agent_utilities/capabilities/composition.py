@@ -50,6 +50,7 @@ def default_runtime_capabilities(
     max_output_repairs: int | None = None,
     content_guardrails: bool = True,
     output_schema_required_keys: Sequence[str] = (),
+    instrumentation: bool = True,
 ) -> list[AbstractCapability[Any]]:
     """Build the default-ON reliability capability set (excluding ``HooksCapability``).
 
@@ -147,6 +148,18 @@ def default_runtime_capabilities(
         capabilities.extend(pii_redaction_guardrails())
         capabilities.append(secret_leak_guardrail())
         capabilities.append(output_schema_guardrail(output_schema_required_keys))
+
+    # CONCEPT:AU-OS.observability.telemetry-observability — pydantic-ai's native
+    # `Instrumentation` capability, bound to the SAME OTel pipeline the engine's own
+    # graph.* spans export through (see `telemetry_instrumentation.py`). A clean no-op
+    # (returns None, nothing appended) when no OTLP collector is configured, exactly
+    # like every other conditionally-attached capability above.
+    if instrumentation:
+        from .telemetry_instrumentation import build_fleet_instrumentation
+
+        fleet_instrumentation = build_fleet_instrumentation()
+        if fleet_instrumentation is not None:
+            capabilities.append(fleet_instrumentation)
 
     return capabilities
 

@@ -1441,9 +1441,17 @@ def submit_work_item_input(
 #
 # Makes WorkItem authoritative for `:AgentTask` claim/execute/writeback when
 # `AGENT_CLAIM_BACKEND=workitem` (engine_claim.py). Mirrors the legacy
-# `:AgentTask.status` and a companion `:AgentLease` node (never reads them)
-# so unmigrated consumers (`fleet_reconciler.fire_ready_agent_tasks`,
-# dashboards) keep working unchanged.
+# `:AgentTask.status` (never read back) so unmigrated consumers
+# (`fleet_reconciler.fire_ready_agent_tasks`, dashboards) keep working
+# unchanged. Does NOT mirror a companion `:AgentLease` node: per
+# `docs/architecture/graph-authority-convergence.md`, lease/fencing
+# capabilities are held only by the executing process and are never copied
+# into another graph node — `AgentLease` is not an operational work-state
+# model, and an architecture guard test
+# (`test_no_agentlease_writer_remains`) enforces the absence of any
+# `AgentLease` writer. `fire_ready_agent_tasks` never reads an `AgentLease`
+# node either (only the `AgentTask.status` mirror above), so there is no
+# live consumer to preserve.
 
 _AGENT_TASK_ALREADY_TERMINAL = "completed"
 
@@ -1531,6 +1539,12 @@ def claim_agent_task_via_work_item(
     which also commits the outcome through :func:`commit_agent_task_work_item`
     (dependency release, DLQ, idempotent commit all apply). Selected via
     ``AGENT_CLAIM_BACKEND=workitem`` (:mod:`~agent_utilities.orchestration.engine_claim`).
+
+    NOT YET LIVE-WIRED (D-W2-12): ``agent_dispatch_worker.execute_agent_task_turn``
+    now exists (D-DSTO-5), but its only caller today is
+    ``tests/unit/test_agent_dispatch_work_item_backend.py`` — no production
+    dispatch loop invokes it yet. This function and
+    :func:`commit_agent_task_work_item` are the claim/commit halves it calls.
     """
     token = token or _default_token()
     now = now if now is not None else _now()
@@ -1555,24 +1569,11 @@ def claim_agent_task_via_work_item(
             e,
         )
 
+    # Opaque lease identifier for the return contract below — NOT a graph
+    # node id. No `:AgentLease` node is written for it (see the module note
+    # above): lease/fencing state lives only in the WorkItem claim
+    # (`claim_specific`/`mark_running` above already committed it).
     lease_id = f"lease:{task_id}:{claim['fence_token']}"
-    try:
-        engine.add_node(
-            lease_id,
-            "AgentLease",
-            properties={
-                "name": f"Lease: {task_id}",
-                "owner_token": claim["lease_owner"],
-                "resource_id": task_id,
-                "acquired_at": now,
-                "lease_expires_at": now + claim_ttl_s,
-                "lease_epoch": claim["fence_token"],
-            },
-        )
-    except Exception as e:  # noqa: BLE001 — mirror is best-effort
-        logger.warning(
-            "work_item bridge: AgentLease mirror failed for %s: %s", task_id, e
-        )
 
     dag_id = ""
     checkpoint_id = None
@@ -1621,9 +1622,11 @@ def commit_agent_task_work_item(
 ) -> str | None:
     """Commit an executed ``:AgentTask`` turn's outcome through :func:`commit_result`.
 
-    ``status`` is one of ``execute_agent_task_turn``'s outcome strings
+    ``status`` is one of the outcome strings the not-yet-implemented
+    ``agent_dispatch_worker.execute_agent_task_turn`` is intended to produce
     (``completed``/``failed``/``unroutable``/``denied``/``cancelled``/
-    ``blocked``). Returns the :func:`commit_result` outcome, or ``None`` when
+    ``blocked`` — see :func:`claim_agent_task_via_work_item`'s docstring,
+    D-W2-12). Returns the :func:`commit_result` outcome, or ``None`` when
     ``status`` has no WorkItem mapping (``blocked`` — see above). Never
     raises (a commit-mirror failure is logged, not propagated — the legacy
     ``:AgentTask`` write already recorded the authoritative-enough outcome

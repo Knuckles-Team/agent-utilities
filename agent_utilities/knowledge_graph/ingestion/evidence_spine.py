@@ -343,13 +343,22 @@ class Fragment:
 
     @property
     def version_id(self) -> str:
-        """``<fragment_id>@<short content hash>`` — a content-pinned citation.
+        """``<fragment_id>#<short content hash>`` — a content-pinned citation.
 
         Use this when a citation must be immutable (an audit record, a published
         claim's evidence).  Use :attr:`fragment_id` when it must *follow* the
         fragment through edits.  Both are needed; neither substitutes.
+
+        Separator is ``#``, not ``@``: the engine's ``ApplyChangeEnvelope``
+        commit path (``change_envelope.rs``'s ``validate_safe_text``) rejects
+        any ``@`` in inline text outright as an email/host-leak privacy guard —
+        by design, and correctly so; a blanket exemption for ``@`` would weaken
+        that guard fleet-wide. ``#`` carries the same "pin a version" meaning
+        (a URL fragment identifier pins a specific view of a resource) without
+        colliding with the privacy scan (see D-GM-4 / D-GS856-6 / D-MW-1 /
+        D-MW-2 in the deferred ledger for the full investigation).
         """
-        return f"{self.fragment_id}@{self.content_hash[7:23]}"
+        return f"{self.fragment_id}#{self.content_hash[7:23]}"
 
     def to_locus(self) -> dict[str, Any]:
         """Render an engine ``ArtifactLocus``-shaped selector for this fragment.
@@ -410,7 +419,7 @@ class Artifact:
     An artifact is the *object* — a markdown file, a PDF, an API record, a row
     set — not one delivery of it.  :attr:`artifact_id` is therefore keyed to
     source identity and stays put across revisions, while
-    :attr:`content_hash` identifies the revision.  Governance is NOT re-declared
+    :attr:`content_hash` identifies the revision.  Governance is NOT redeclared
     here: it is carried verbatim off the envelope, which is the trust boundary
     that decided it.
 
@@ -486,15 +495,23 @@ class Artifact:
         fragments: tuple[Fragment, ...] | list[Fragment] = (),
         title: str = "",
         fragmenter: str = "",
+        source_object_id: str = "",
     ) -> Artifact:
         """Build an artifact for the object *envelope* delivered.
 
         Governance, source identity, and revision are read off the envelope
         rather than re-derived — the envelope is the gate that already decided
         them, and re-deriving is how a payload gets to spoof its own ACL.
+
+        ``source_object_id`` overrides the envelope's own object id for the
+        SINGLE case where the envelope's id is content-derived (the
+        ``DocumentProcessor`` path hashes content into its ``doc_id``).  The
+        artifact must key to the stable *object* — the path/URL — or every edit
+        forks a new artifact and every citation to it is orphaned.
         """
+        object_id = source_object_id or envelope.source_object_id
         artifact_id = artifact_id_for(
-            envelope.connector, envelope.source_instance, envelope.source_object_id
+            envelope.connector, envelope.source_instance, object_id
         )
         raw = content.encode("utf-8") if isinstance(content, str) else content
         provenance = dict(envelope.provenance)
@@ -504,7 +521,7 @@ class Artifact:
             artifact_id=artifact_id,
             connector=envelope.connector,
             source_instance=envelope.source_instance,
-            source_object_id=envelope.source_object_id,
+            source_object_id=object_id,
             media_type=media_type or _media_type_for(envelope.payload_type),
             content_hash=content_digest(content),
             byte_length=len(raw),

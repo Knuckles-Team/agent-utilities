@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-370 publishable pages · 183 direct nav targets · 119 public capabilities · 775 action rows · 547 typed configuration fields · 356 runtime-only call-site inputs.
+371 publishable pages · 184 direct nav targets · 119 public capabilities · 777 action rows · 547 typed configuration fields · 356 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -170,6 +170,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Drift-proof release & versioning](../architecture/drift_proof_release.md) — direct nav
 - [Dynamic graph construction](../architecture/dynamic-graph-construction.md) — catalog
 - [Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)](../architecture/edit_application_engine.md) — direct nav
+- [Empirical Development Standards — the incidents behind the rules](../architecture/empirical-development-standards.md) — direct nav
 - [Tenant-Partitioned Engine Sharding](../architecture/engine_sharding.md) — direct nav
 - [Enterprise Parity, Supervisory Plane & Durable Execution](../architecture/enterprise_supervisory_and_parity.md) — catalog
 - [Entrypoint Unification — one orchestrator, thin entrypoints](../architecture/entrypoint-unification.md) — direct nav
@@ -205,6 +206,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Dynamic KV-Cache-Layering Policy (per-execution cache-worthiness)](../architecture/kv-cache-layering-policy.md) — direct nav
 - [KV-Checkpoint Intelligence — checkpointing at good moments](../architecture/kv-checkpoint-intelligence.md) — direct nav
 - [Lane concurrency — four arbitration classes](../architecture/lane-concurrency.md) — direct nav
+- [Merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — direct nav
 - [Latent-Native Memory](../architecture/latent_native_memory.md) — direct nav
 - [Layered Hybrid Architecture — KG Comparative Analysis Pipeline](../architecture/layered_analysis_architecture.md) — catalog
 - [LLM / Embedding Server-Capacity Guard](../architecture/llm-server-capacity-guard.md) — direct nav

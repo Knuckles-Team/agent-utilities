@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import threading
@@ -1369,6 +1370,310 @@ async def test_stdio_expired_static_authority_fails_closed_when_renewal_fails() 
         pytest.raises(RuntimeError, match="renewal rejected"),
     ):
         await kg_server._ensure_process_authority_current()
+
+
+# --------------------------------------------------------------------------- #
+# D-SNV-5: a long delegation's AMBIENT (network-transport / process-identity)
+# session must renew too — not just the stdio ``_PROCESS_SESSION`` fallback.
+# A caller-presented bearer JWT (no ``credential_lease``) must stay exactly as
+# fail-closed as before: this must never widen authority the server does not
+# hold.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_ambient_renewable_session_is_renewed_like_process_session() -> None:
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) - 1)
+    expiring = _verified_session("network-delegation")
+    expiring = replace(
+        expiring,
+        actor=replace(
+            expiring.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+
+    def renew(session: GraphSession) -> GraphSession:
+        lease.renew(int(time.time()) + 300)
+        return session
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.session.current_session",
+            return_value=expiring,
+        ),
+        patch.object(
+            kg_server, "_refresh_process_authority", side_effect=renew
+        ) as mock_renew,
+    ):
+        selected = await kg_server._ensure_process_authority_current()
+
+    assert selected is expiring
+    mock_renew.assert_called_once_with(expiring)
+    assert lease.expires_at > int(time.time()) + 100
+
+
+@pytest.mark.asyncio
+async def test_ambient_session_without_a_lease_is_never_renewed() -> None:
+    """A caller-presented bearer JWT has no ``credential_lease`` — the server
+    has no authority to extend it, so it must never be renewed here."""
+    from agent_utilities.mcp import kg_server
+
+    valid = _verified_session("bearer-caller")
+    valid = replace(
+        valid, actor=replace(valid.actor, credential_expires_at=int(time.time()) + 300)
+    )
+    assert valid.actor.credential_lease is None
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.session.current_session",
+            return_value=valid,
+        ),
+        patch.object(kg_server, "_refresh_process_authority") as mock_renew,
+    ):
+        selected = await kg_server._ensure_process_authority_current()
+
+    assert selected is valid
+    mock_renew.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ambient_session_without_a_lease_still_fails_closed_on_real_expiry() -> (
+    None
+):
+    """Unchanged behavior: no lease means no proactive minimum-TTL headroom
+    requirement either — only real (already-past) expiry is rejected, exactly
+    as before this fix."""
+    from agent_utilities.mcp import kg_server
+
+    expired = _verified_session("bearer-caller-expired")
+    expired = replace(
+        expired,
+        actor=replace(expired.actor, credential_expires_at=int(time.time()) - 1),
+    )
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.session.current_session",
+            return_value=expired,
+        ),
+        patch.object(kg_server, "_refresh_process_authority") as mock_renew,
+        pytest.raises(SessionExpiredError),
+    ):
+        await kg_server._ensure_process_authority_current()
+
+    mock_renew.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+# D-SNV-5: ``_keep_process_authority_current`` — the mid-dispatch keepalive
+# that renews a renewable session's SHARED lease while a long tool call
+# (``_execute_tool._guarded``) is in flight, so a delegation exceeding the
+# entry-time TTL check no longer dies mid-flight (the real reproduction: a
+# 192s ServiceNow delegation hit ``SessionExpiredError`` with nothing ever
+# renewing it after dispatch entry).
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_keepalive_renews_the_shared_lease_before_it_expires() -> None:
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 2)
+    session = _verified_session("keepalive-runtime")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+    renewed = threading.Event()
+
+    def renew(_session: GraphSession) -> GraphSession:
+        lease.renew(int(time.time()) + 300)
+        renewed.set()
+        return _session
+
+    with patch.object(
+        kg_server, "_refresh_process_authority", side_effect=renew
+    ) as mock_renew:
+        task = asyncio.ensure_future(kg_server._keep_process_authority_current(session))
+        try:
+            # Poll asynchronously (never a blocking Event.wait) — this is a
+            # single-threaded event loop and the keepalive task is scheduled
+            # on it, so a real blocking wait here would starve it forever.
+            for _ in range(50):
+                if renewed.is_set():
+                    break
+                await asyncio.sleep(0.1)
+            assert renewed.is_set()
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    mock_renew.assert_called()
+    assert lease.expires_at > int(time.time()) + 100
+
+
+@pytest.mark.asyncio
+async def test_keepalive_stops_cleanly_when_renewal_is_rejected() -> None:
+    """A hard renewal rejection (identity drift, IdP says no) must not spin
+    the keepalive loop forever — it returns and lets the next real authority
+    check fail for real."""
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 2)
+    session = _verified_session("keepalive-give-up")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+
+    with patch.object(
+        kg_server,
+        "_refresh_process_authority",
+        side_effect=SessionExpiredError("gone"),
+    ):
+        await asyncio.wait_for(
+            kg_server._keep_process_authority_current(session), timeout=5.0
+        )
+
+
+@pytest.mark.asyncio
+async def test_keepalive_cancels_cleanly_when_dispatch_finishes_first() -> None:
+    """The common case: the tool call finishes before the lease is near
+    expiry, so ``_guarded`` cancels the keepalive — it must exit quietly."""
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 300)
+    session = _verified_session("keepalive-fast-dispatch")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+
+    with patch.object(kg_server, "_refresh_process_authority") as mock_renew:
+        task = asyncio.ensure_future(kg_server._keep_process_authority_current(session))
+        await asyncio.sleep(0)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    mock_renew.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+# D-SNV-5 follow-up: ``authority_keepalive_scope`` is the ONE reusable primitive
+# both ``_execute_tool`` (MCP dispatch) and ``Orchestrator.execute_agent`` open,
+# so every delegation entrypoint — not just MCP-dispatched ones — renews a
+# renewable session's authority for the duration of a long call. These tests
+# exercise the shared primitive directly; the non-MCP-entrypoint proof lives in
+# ``tests/unit/orchestration/test_execute_agent_authority_keepalive.py``.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_authority_keepalive_scope_renews_a_renewable_session() -> None:
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 2)
+    session = _verified_session("scope-runtime")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+    renewed = threading.Event()
+
+    def renew(_session: GraphSession) -> GraphSession:
+        lease.renew(int(time.time()) + 300)
+        renewed.set()
+        return _session
+
+    with patch.object(kg_server, "_refresh_process_authority", side_effect=renew):
+        async with kg_server.authority_keepalive_scope(session):
+            for _ in range(50):
+                if renewed.is_set():
+                    break
+                await asyncio.sleep(0.1)
+            assert renewed.is_set()
+
+    assert lease.expires_at > int(time.time()) + 100
+
+
+@pytest.mark.asyncio
+async def test_authority_keepalive_scope_is_a_noop_for_a_bearer_caller() -> None:
+    """A caller-presented bearer JWT has no ``credential_lease`` — the scope
+    must never spawn a renewal loop for it (would forge authority the server
+    does not hold)."""
+    from agent_utilities.mcp import kg_server
+
+    session = _verified_session("scope-bearer")
+    assert session.actor.credential_lease is None
+
+    with patch.object(kg_server, "_refresh_process_authority") as mock_renew:
+        async with kg_server.authority_keepalive_scope(session):
+            await asyncio.sleep(0)
+
+    mock_renew.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_authority_keepalive_scope_does_not_double_start_when_nested() -> None:
+    """A nested scope (an MCP-dispatched tool whose body itself calls
+    ``execute_agent`` for a sub-delegation, or vice versa) must not start a
+    second renewal loop for the same lease — the outer scope already covers
+    it."""
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 300)
+    session = _verified_session("scope-nested")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+    started: list[Any] = []
+    real_keepalive = kg_server._keep_process_authority_current
+
+    async def counting_keepalive(_session: Any) -> None:
+        started.append(_session)
+        await real_keepalive(_session)
+
+    with patch.object(
+        kg_server, "_keep_process_authority_current", side_effect=counting_keepalive
+    ):
+        async with kg_server.authority_keepalive_scope(session):
+            async with kg_server.authority_keepalive_scope(session):
+                await asyncio.sleep(0)
+            # The inner scope's exit must not have cancelled the outer loop.
+            await asyncio.sleep(0)
+
+    assert len(started) == 1, (
+        "authority_keepalive_scope started a second renewal loop for an "
+        "already-covered lease"
+    )
 
 
 def test_process_authority_refresh_updates_only_the_shared_expiry() -> None:

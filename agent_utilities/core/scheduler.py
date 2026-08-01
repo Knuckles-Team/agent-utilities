@@ -250,23 +250,18 @@ def append_cron_log(
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_id = f"log:{task_id}:{datetime.now().timestamp()}"
 
-    query = """
-    CREATE (l:Log {id: $id})
-    SET l.timestamp = $ts,
-        l.task_id = $task_id,
-        l.task_name = $task_name,
-        l.status = $status,
-        l.output = $output,
-        l.chat_id = $chat_id
-    WITH l
-    MATCH (j:Job {id: $task_id})
-    MERGE (j)-[:HAS_LOG]->(l)
-    """
-    engine.backend.execute(
-        query,
+    # A single "CREATE ... WITH ... MATCH ... MERGE" statement exceeds the
+    # engine's native Cypher write subset (one leading MATCH, no WITH between
+    # write clauses; epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184)
+    # -- split into a typed node create + ``link_nodes`` (typed dispatch for a
+    # native authority; portable multi-clause Cypher -- tolerant of a
+    # since-deleted Job, matching the original query's silent MATCH-then-MERGE
+    # no-op -- for a non-native store).
+    engine.add_node(
+        log_id,
+        "Log",
         {
-            "id": log_id,
-            "ts": ts,
+            "timestamp": ts,
             "task_id": task_id,
             "task_name": task_name,
             "status": status,
@@ -274,6 +269,7 @@ def append_cron_log(
             "chat_id": chat_id,
         },
     )
+    engine.link_nodes(task_id, log_id, "HAS_LOG")
     logger.debug(f"Logged task execution for {task_id}")
 
 
@@ -290,13 +286,26 @@ def cleanup_cron_log(max_entries: int = DEFAULT_MAX_CRON_LOG_ENTRIES):
     if not engine or not engine.backend:
         return
 
-    # Delete logs older than the last max_entries
-    query = """
-    MATCH (l:Log)
-    WITH l ORDER BY l.timestamp DESC SKIP $skip
-    DETACH DELETE l
-    """
-    engine.backend.execute(query, {"skip": max_entries})
+    # "MATCH ... WITH ... ORDER BY ... SKIP ... DETACH DELETE" is a read-shaped
+    # WITH pipeline grafted onto a write, which the engine's native Cypher
+    # write subset does not parse (only MATCH/WHERE may precede a write
+    # clause; epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+    # ORDER BY/SKIP *is* supported on a plain read, so read the timestamps
+    # (newest first), find the cutoff at position ``max_entries``, and prune
+    # everything at or before it with the engine's supported
+    # MATCH+WHERE+DETACH DELETE write shape -- the same cutoff-based pattern
+    # already used by GraphMaintainer.prune_cron_logs.
+    rows = engine.backend.execute(
+        "MATCH (l:Log) RETURN l.timestamp AS ts ORDER BY l.timestamp DESC"
+    )
+    if not rows or len(rows) <= max_entries:
+        logger.debug("No Knowledge Graph logs to prune (kept %d)", max_entries)
+        return
+    cutoff_ts = rows[max_entries - 1]["ts"]
+    engine.backend.execute(
+        "MATCH (l:Log) WHERE l.timestamp < $cutoff DETACH DELETE l",
+        {"cutoff": cutoff_ts},
+    )
     logger.debug(f"Pruned Knowledge Graph logs, kept {max_entries}")
 
 
