@@ -648,6 +648,20 @@ def find_test_only_symbols(
             total_test_calls.update(calls)
 
     findings: list[dict] = []
+    # (file, symbol) -> next ordinal (D-OP-11: the baseline key must be
+    # stable under pure line motion elsewhere in the file; a bare (file,
+    # symbol) pair is unique for the overwhelming majority of real findings,
+    # but this ordinal disambiguates the rare genuine collision — same
+    # traversal-order pattern already proven for check_swallowed_errors.py's
+    # HandlerKey, D-SWG-1).
+    ordinals: dict[tuple[str, str], int] = {}
+
+    def _next_ordinal(rel: str, symbol: str) -> int:
+        key = (rel, symbol)
+        ordinal = ordinals.get(key, 0)
+        ordinals[key] = ordinal + 1
+        return ordinal
+
     for rel, source in au_sources.items():
         if rel.endswith("__init__.py"):
             continue
@@ -668,6 +682,7 @@ def find_test_only_symbols(
                         "file": rel,
                         "line": lineno,
                         "test_refs": test_refs,
+                        "ordinal": _next_ordinal(rel, name),
                     }
                 )
 
@@ -680,20 +695,41 @@ def find_test_only_symbols(
             same_file = au_calls[rel].get(meth_name, 0)
             test_refs = total_test_calls.get(meth_name, 0)
             if other_au == 0 and same_file <= 0 and test_refs > 0:
+                symbol = f"{cls_name}.{meth_name}"
                 findings.append(
                     {
                         "kind": "method",
-                        "symbol": f"{cls_name}.{meth_name}",
+                        "symbol": symbol,
                         "file": rel,
                         "line": m_lineno,
                         "test_refs": test_refs,
+                        "ordinal": _next_ordinal(rel, symbol),
                     }
                 )
     return findings
 
 
+_FINDING_KEY_SEP = "\t"
+
+
 def _finding_key(entry: dict) -> str:
-    return f"{entry['file']}:{entry['line']}:{entry['symbol']}"
+    """A (file, symbol, ordinal) key -- stable under pure line motion.
+
+    D-OP-11: the previous ``path:line:symbol`` key re-keyed EVERY finding
+    below any inserted line as a spurious "NEW" entry, making
+    ``--update-wire-first-baseline`` the only practical way back to green —
+    which silently absorbs unrelated pre-existing debt. Ported verbatim from
+    the same fix already proven on the sibling gate
+    (check_swallowed_errors.py's HandlerKey, D-SWG-1): drop the line number
+    from the key entirely; a (file, symbol) pair is unique for the
+    overwhelming majority of findings, and ``ordinal`` (assigned in
+    traversal order, see find_test_only_symbols) disambiguates the rare
+    genuine collision. TAB-separated (not ``:``) so a symbol/path
+    containing a colon can never be misparsed.
+    """
+    return _FINDING_KEY_SEP.join(
+        [entry["file"], entry["symbol"], str(entry.get("ordinal", 0))]
+    )
 
 
 def _load_wire_first_baseline() -> dict[str, list[str]]:
@@ -737,7 +773,13 @@ def _print_ratchet_result(
     if new:
         print(f"\n{label}: {len(new)} NEW finding(s) beyond baseline:")
         for k in new:
-            print(f"  {k}")
+            # test_only_symbols keys are TAB-separated (file, symbol,
+            # ordinal) — render for a human as "file:symbol" (dropping the
+            # near-always-zero ordinal); orphaned_test_files keys are plain
+            # paths and pass through unchanged.
+            print(
+                f"  {k.replace(_FINDING_KEY_SEP, ':') if _FINDING_KEY_SEP in k else k}"
+            )
     removed_note = f", {len(fixed)} fixed since baseline" if fixed else ""
     print(
         f"{label}: {len(current_set)} total "

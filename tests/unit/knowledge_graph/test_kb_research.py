@@ -17,20 +17,35 @@ from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 @pytest.fixture(autouse=True)
 def mock_epistemic_graph_client():
     with patch("epistemic_graph.client.SyncEpistemicGraphClient") as mock_client:
-        # ``GraphComputeEngine.__init__`` connects via
-        # ``SyncEpistemicGraphClient.connect(...)`` and wraps the result in a
-        # ``BreakerClientProxy`` (engine_breaker.py), whose ``__getattr__``
-        # distinguishes a "namespace" attribute (wrapped recursively so
-        # ``.tenants.create(...)`` stays reachable) from a "leaf" attribute
-        # (guard-wrapped as a plain callable) purely via ``callable(attr)``. A
-        # bare ``MagicMock`` auto-vivifies ``.tenants`` as itself callable, so
-        # the proxy mis-treats it as a leaf and ``.tenants.create`` breaks with
-        # "'function' object has no attribute 'create'". Pin ``tenants`` to a
-        # non-callable mock so it round-trips as the namespace the real client
-        # exposes.
+        # ``GraphComputeEngine.__init__`` does NOT use this top-level mocked
+        # client directly -- it rewraps it via ``_sync_client_view()``
+        # (graph_compute.py), which reconstructs each client namespace via
+        # ``type(namespace)(self)`` where ``namespace = getattr(base, name)``
+        # and ``base = sync_client._client`` -- a DIFFERENT, separately
+        # auto-vivified ``MagicMock`` attribute chain (``connected._client
+        # .tenants``, not ``connected.tenants``) that a shallow pin never
+        # reaches. A bare ``MagicMock`` auto-vivifies ``.tenants`` as itself
+        # callable, so the reconstructed namespace mis-resolves as a leaf and
+        # ``.tenants.create`` breaks with "'function' object has no attribute
+        # 'create'" (D-GS1-3). Pin BOTH the shallow and the ``._client``-nested
+        # chain to a non-callable mock so both legs round-trip as the
+        # namespace the real client exposes.
         connected = mock_client.connect.return_value
         connected.tenants = NonCallableMagicMock()
         connected.tenants.list.return_value = []
+        connected._client.tenants = NonCallableMagicMock()
+        connected._client.tenants.list.return_value = []
+        # ``epistemic_graph.client.SyncEpistemicGraphClient`` is patched as a
+        # whole CLASS here, so ``_sync_client_view()``'s own
+        # ``SyncEpistemicGraphClient(async_view, loop, thread)`` construction
+        # call (graph_compute.py) does not build a real instance -- it returns
+        # ``mock_client.return_value``, a THIRD auto-vivifying mock object
+        # distinct from both ``connected`` and ``connected._client`` above.
+        # This is the object every downstream ``self._client.tenants...``
+        # access on the reconstructed view actually resolves against; pin it
+        # too.
+        mock_client.return_value.tenants = NonCallableMagicMock()
+        mock_client.return_value.tenants.list.return_value = []
         yield mock_client
 
 

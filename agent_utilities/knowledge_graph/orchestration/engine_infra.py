@@ -367,13 +367,20 @@ class InfrastructureEngineMixin(_Base):
         # is au:Host, never au:BladeServer (that class belongs to an unrelated
         # vendor ontology under a completely different namespace/prefix in
         # ontology_infrastructure.ttl, not this engine-native projection).
+        # Edge predicates ARE case-transformed: _promote_stable_edges()
+        # (owlready2_backend.py) resolves each LPG edge's ``relationship``
+        # value through ``_EDGE_TYPE_TO_OWL_PROP``, whose values are the
+        # camelCase OWL object-property local names used consistently across
+        # the whole ontology ("has_accelerator" -> "hasAccelerator",
+        # "attached_storage" -> "attachedStorage") -- snake_case predicates
+        # never match a real promoted triple (D-GS7-1).
         host_query = """
         PREFIX au: <http://agent-utilities.dev/ontology#>
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
         SELECT ?host ?gpu ?storage WHERE {
             ?host rdf:type au:Host .
-            OPTIONAL { ?host au:has_accelerator ?gpu . }
-            OPTIONAL { ?host au:attached_storage ?storage . }
+            OPTIONAL { ?host au:hasAccelerator ?gpu . }
+            OPTIONAL { ?host au:attachedStorage ?storage . }
         }
         """
 
