@@ -957,10 +957,18 @@ class EvaluationDimension(BaseModel):
 
 
 class EvaluationRubric(BaseModel):
-    """Scoring rubric defining dimensions and their criteria."""
+    """Scoring rubric defining dimensions and their criteria.
+
+    ``version`` (CONCEPT:AU-AHE.evaluation.judge-calibration) is the rubric-versioning defense: bump it
+    whenever ``dimensions`` changes (weights, rubric text, or the dimension set
+    itself) so every :class:`MultiDimensionalEvaluation` this rubric produces
+    carries a traceable identifier — "a rubric that changes without a version
+    is a judge that drifts without a trace."
+    """
 
     id: str = "default"
     name: str = "Default Evaluation Rubric"
+    version: str = "1.0.0"
     dimensions: list[EvaluationDimension] = Field(
         default_factory=lambda: [
             EvaluationDimension(
@@ -998,6 +1006,10 @@ class MultiDimensionalEvaluation(BaseModel):
     composite_score: float = Field(default=0.0, ge=0.0, le=1.0)
     evaluator: str = "llm-judge"
     rubric_id: str = "default"
+    #: CONCEPT:AU-AHE.evaluation.judge-calibration — the producing rubric's version, so a later rubric edit
+    #: is visible on every evaluation it produced rather than silently reusing
+    #: the same ``rubric_id`` under changed semantics.
+    rubric_version: str = "1.0.0"
     timestamp: float = Field(default_factory=time.time)
     session_id: str = ""
     query_preview: str = ""
@@ -1095,6 +1107,7 @@ class EvaluationMonitor:
             dimensions=dimensions,
             evaluator=evaluator,
             rubric_id=rubric.id,
+            rubric_version=rubric.version,
             session_id=session_id,
             query_preview=query[:200],
             response_preview=response[:200],
@@ -1188,6 +1201,7 @@ class EvaluationMonitor:
                 composite_score=evaluation.composite_score,
                 evaluator=evaluation.evaluator,
                 rubric_id=evaluation.rubric_id,
+                rubric_version=evaluation.rubric_version,
                 session_id=evaluation.session_id,
             )
             if hasattr(self._engine, "upsert_node"):
@@ -1284,6 +1298,11 @@ class EvalResult(BaseModel):
     semantic_similarity_score: float = Field(default=0.0, ge=0.0, le=1.0)
     llm_judge_score: float = Field(default=0.0, ge=0.0, le=1.0)
     llm_judge_reasoning: str = ""
+    #: CONCEPT:AU-AHE.evaluation.judge-calibration — which judge prompt version produced ``llm_judge_score``/
+    #: ``llm_judge_reasoning`` ("" when no LLM-judge strategy ran this case), so a
+    #: later prompt edit is diagnosable against historical results instead of
+    #: drifting under no identifier at all.
+    judge_prompt_version: str = ""
     final_score: float = Field(default=0.0, ge=0.0, le=1.0)
     passed: bool = False
     timestamp: float = Field(default_factory=time.time)
@@ -1326,6 +1345,11 @@ class EvalRunner:
     judge_weight : float
         Weight of LLM-as-Judge in composite scoring.
     """
+
+    #: CONCEPT:AU-AHE.evaluation.judge-calibration — bump alongside any edit to ``LLM_JUDGE_PROMPT``'s
+    #: wording/scale so historical ``EvalResult.judge_prompt_version`` values stay
+    #: a faithful record of which prompt actually produced each score.
+    LLM_JUDGE_PROMPT_VERSION = "1.0.0"
 
     # Default LLM-as-Judge prompt — ported from MATE's structured judge
     # prompt that forces consistent single-line JSON output.
@@ -1406,6 +1430,7 @@ class EvalRunner:
             )
             result.llm_judge_score = score
             result.llm_judge_reasoning = reasoning
+            result.judge_prompt_version = self.ASSERTION_JUDGE_PROMPT_VERSION
             result.final_score = score
             result.passed = result.final_score >= self._pass_threshold
             result.duration_ms = (time.time() - start) * 1000
@@ -1433,6 +1458,7 @@ class EvalRunner:
             )
             result.llm_judge_score = score
             result.llm_judge_reasoning = reasoning
+            result.judge_prompt_version = self.LLM_JUDGE_PROMPT_VERSION
             result.final_score = result.llm_judge_score
 
         elif effective_strategy == EvalStrategy.COMPOSITE:
@@ -1445,6 +1471,7 @@ class EvalRunner:
             )
             result.llm_judge_score = score
             result.llm_judge_reasoning = reasoning
+            result.judge_prompt_version = self.LLM_JUDGE_PROMPT_VERSION
             # Weighted composite
             result.final_score = (
                 self._exact_weight * result.exact_match_score
@@ -1649,6 +1676,9 @@ class EvalRunner:
                 fallback_score,
                 f"LLM judge unavailable, using semantic fallback: {exc}",
             )
+
+    #: CONCEPT:AU-AHE.evaluation.judge-calibration — bump alongside any edit to ``ASSERTION_JUDGE_PROMPT``.
+    ASSERTION_JUDGE_PROMPT_VERSION = "1.0.0"
 
     ASSERTION_JUDGE_PROMPT = (
         "You are an expert evaluator. Decide whether the actual output satisfies "

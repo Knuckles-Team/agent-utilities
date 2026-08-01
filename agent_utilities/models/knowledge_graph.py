@@ -3378,6 +3378,10 @@ class EvaluationRecordNode(RegistryNode):
     composite_score: float = Field(default=0.0, ge=0.0, le=1.0)
     evaluator: str = "llm-judge"  # llm-judge, human, automated
     rubric_id: str | None = None
+    #: CONCEPT:AU-AHE.evaluation.judge-calibration — the rubric's version at evaluation time, so a later
+    #: rubric edit is diagnosable against historical records sharing the same
+    #: ``rubric_id`` instead of drifting under one unversioned identity.
+    rubric_version: str | None = None
     evidence: str = ""
     session_id: str = ""
 

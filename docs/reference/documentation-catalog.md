@@ -205,6 +205,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Dynamic KV-Cache-Layering Policy (per-execution cache-worthiness)](../architecture/kv-cache-layering-policy.md) — direct nav
 - [KV-Checkpoint Intelligence — checkpointing at good moments](../architecture/kv-checkpoint-intelligence.md) — direct nav
 - [Lane concurrency — four arbitration classes](../architecture/lane-concurrency.md) — direct nav
+- [Merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — direct nav
 - [Latent-Native Memory](../architecture/latent_native_memory.md) — direct nav
 - [Layered Hybrid Architecture — KG Comparative Analysis Pipeline](../architecture/layered_analysis_architecture.md) — catalog
 - [LLM / Embedding Server-Capacity Guard](../architecture/llm-server-capacity-guard.md) — direct nav
