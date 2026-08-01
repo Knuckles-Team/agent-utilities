@@ -1,0 +1,83 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<http://knuckles.team/kg/archimate> a owl:Ontology ;
+    rdfs:label "Vendor-Neutral ArchiMate Crosswalk" ;
+    rdfs:comment """The canonical crosswalk keystone: one ArchiMate-aligned anchor per
+business idea, with each vendor's native class related to it via rdfs:subClassOf /
+owl:equivalentClass. Reasoning (owlready2 / HermiT, core/owl_bridge.py) then
+propagates rdf:type up to the canonical concept, so a single query answers a
+business question regardless of which product produced the data (e.g. ServiceNow
+:Incident and ERPNext :ErpNextIssue both infer rdf:type :ApplicationEvent).
+
+This file never redefines a vendor class — those live in their own source's
+context (:Incident/:Change from ServiceNow, :ErpNextIssue from ERPNext); it only
+relates them to the canonical anchors declared here.
+CONCEPT:KG-2.9 (Enterprise OS — vendor-neutral crosswalk). See
+docs/architecture/vendor_neutral_enterprise_ontology.md §1.""" ;
+    owl:imports <http://knuckles.team/kg>,
+        <http://knuckles.team/kg/enterprise> .
+
+# ---------------------------------------------------------------------------
+# Canonical ArchiMate anchors (new classes introduced by the crosswalk)
+# ---------------------------------------------------------------------------
+
+:ApplicationEvent a owl:Class ;
+    rdfs:label "Application Event" ;
+    rdfs:comment """Canonical anchor for any application-layer occurrence raised by an
+IT service/ITSM system, regardless of vendor (ServiceNow :Incident, ERPNext
+:ErpNextIssue, Camunda process incidents). ArchiMate: Application Layer ->
+Application Event. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:BusinessProcess a owl:Class ;
+    rdfs:label "Business Process" ;
+    rdfs:comment """Canonical anchor for a business process, regardless of the BPM/ITSM
+tool that models or raises it (Camunda process definitions, ServiceNow :Change).
+ArchiMate: Business Layer -> Business Process. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :BusinessLayer .
+
+:BusinessTask a owl:Class ;
+    rdfs:label "Business Task" ;
+    rdfs:comment """A concrete unit of work within a Business Process (e.g. a Camunda
+user/service task). ArchiMate: Business Layer -> Business Process -> Business
+Task. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :BusinessProcess .
+
+:BusinessActor a owl:Class ;
+    rdfs:label "Business Actor" ;
+    rdfs:comment """Canonical anchor for a business-layer actor (e.g. an ERPNext
+:Employee or :Customer). ArchiMate: Business Layer -> Business Actor.
+CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :BusinessLayer .
+
+:BusinessCapability a owl:Class ;
+    rdfs:label "Business Capability" ;
+    rdfs:comment """Canonical anchor for an enterprise capability, regardless of the EA
+tool that catalogues it (LeanIX BusinessCapability fact sheets, ArchiMate
+Capability elements). ArchiMate: Strategy Layer -> Capability. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :StrategyLayer .
+
+# ---------------------------------------------------------------------------
+# The crosswalk axioms (relate existing vendor classes to the anchors above;
+# never redefine the vendor class itself)
+# ---------------------------------------------------------------------------
+
+:Incident rdfs:subClassOf :ApplicationEvent .
+
+:ErpNextIssue a owl:Class ;
+    rdfs:label "ERPNext Issue" ;
+    rdfs:comment """The Frappe/ERPNext HelpDesk Issue doctype — ERPNext's ITSM-equivalent
+ticket, emitted by enrichment/extractors/erpnext.py. Vendor-neutral with
+ServiceNow's :Incident (owl:equivalentClass below). CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :ApplicationEvent .
+
+:Incident owl:equivalentClass :ErpNextIssue .
+
+:Change a owl:Class ;
+    rdfs:label "Change" ;
+    rdfs:comment """A ServiceNow change request, emitted by
+enrichment/extractors/servicenow.py. Resolves to the canonical :BusinessProcess
+anchor alongside Camunda business processes. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :BusinessProcess .
