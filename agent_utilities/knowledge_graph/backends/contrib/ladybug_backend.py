@@ -46,6 +46,24 @@ from agent_utilities.models.schema_definition import SCHEMA
 
 logger = logging.getLogger(__name__)
 
+# Cross-cutting governance properties every write-path stamps onto node
+# properties unconditionally (tenant scoping: CONCEPT:AU-KG.backend.company-brain-write-guard
+# TenancyManager.scope_cypher_query / stamp_ownership; owner/scope visibility:
+# tenant_sharing.stamp_ownership / apply_visibility) but that no individual
+# ``TableDefinition`` in schema_definition.py declares as a column. Kuzu/Ladybug
+# tables are strict-schema: a read filtering on an undeclared property fails
+# with "Binder exception: Cannot find property ... for <var>" instead of simply
+# matching nothing, so every tenant-scoped read against this backend was
+# broken for every node type. Declared generically here (not duplicated across
+# ~40 individual TableDefinitions) so any node table gains these columns the
+# same way the KG-2.9g code-symbol columns are migrated onto pre-existing
+# tables below.
+_GOVERNANCE_COLUMNS: dict[str, str] = {
+    "tenant_id": "STRING",
+    "_owner_id": "STRING",
+    "_shared_scope": "STRING",
+}
+
 import threading
 
 _ACTIVE_DATABASES: dict[str, Any] = {}
@@ -1014,6 +1032,8 @@ class LadybugBackend(GraphBackend):
                     validate_identifier(name, kind="column"): dtype
                     for name, dtype in node.columns.items()
                 }
+                for gname, gtype in _GOVERNANCE_COLUMNS.items():
+                    col_names.setdefault(validate_identifier(gname, kind="column"), gtype)
             except InvalidIdentifierError:
                 logger.warning("skipping node table with an invalid schema name")
                 continue
