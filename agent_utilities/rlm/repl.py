@@ -785,7 +785,7 @@ class RLMEnvironment:
                     ):
                         try:
                             self.graph_deps.knowledge_engine.graph.add_node(
-                                trace_node.id, **(trace_node.model_dump())
+                                trace_node.id, **trace_node.to_graph_properties()
                             )
                         except Exception as e:
                             logger.warning(
@@ -797,7 +797,9 @@ class RLMEnvironment:
                         g_node = GraphNode(
                             id=trace_node.id,
                             labels=["ReasoningTrace"],
-                            properties=trace_node.model_dump(exclude_none=True),
+                            properties=trace_node.to_graph_properties(
+                                exclude_none=True
+                            ),
                         )
                         # Schedule background/async write to persistent backend
                         loop = asyncio.get_event_loop()

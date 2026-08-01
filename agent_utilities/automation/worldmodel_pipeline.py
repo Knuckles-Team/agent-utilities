@@ -368,10 +368,15 @@ class WorldModelPipelineRunner:
                 extra_edges=self._feed_edges(item_node_id, doc, rec),
             )
             # Unified always-on intelligence layer (CONCEPT:AU-KG.enrichment.topic-classification-topology):
-            # the queue-less inline path skips the central _enrich_text seam the
+            # the queue-less inline path skips the central enrich_text seam the
             # same way the feed_ingest task does — run it here too so a synchronous
             # fallback ingest still gets concepts/facts/WorldView topic
-            # classification, not a shallower write. Best-effort.
+            # classification, not a shallower write. Best-effort. ``enrich_text``
+            # is the public wrapper for the native ``_enrich_text`` seam
+            # (CONCEPT:AU-KG.ingest.change-envelope boundary gate) —
+            # this call site has no IngestionManifest to route through the
+            # normal adaptor dispatch, so it goes through the class's public
+            # API surface rather than reaching past it.
             try:
                 import asyncio
 
@@ -380,7 +385,7 @@ class WorldModelPipelineRunner:
                 )
 
                 asyncio.run(
-                    _IngestionEngine(kg_engine=self.engine)._enrich_text(
+                    _IngestionEngine(kg_engine=self.engine).enrich_text(
                         item_node_id, text, "news_article", title
                     )
                 )

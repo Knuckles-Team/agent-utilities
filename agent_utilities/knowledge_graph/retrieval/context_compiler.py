@@ -19,7 +19,7 @@ dropped.
 that optimizes six axes and returns a fully-cited, provenance-bearing bundle:
 
 1. **Relevance** — the engine's own retrieval score (native ANN / hybrid
-   retriever — CONCEPT:AU-KG.compute.kg-2), min-max normalized across the
+   retriever), min-max normalized across the
    candidate pool so it composes fairly with the other axes.
 2. **Diversity** — greedy MMR (Maximal Marginal Relevance) over embedding
    cosine similarity (falling back to lexical Jaccard overlap when no
@@ -57,7 +57,7 @@ half of the contract: same candidates + same session ⇒ same bundle, and the
 diff two runs.
 
 This is a SELECTION/ASSEMBLY/OPTIMIZATION layer. It does not retrieve (it
-calls the engine's ``search_hybrid`` / a ``HybridRetriever`` — CONCEPT:AU-KG.compute.kg-2)
+calls the engine's ``search_hybrid`` / a ``HybridRetriever``)
 and it does not gate permissions itself (it calls ``permissioning.enforce`` —
 CONCEPT:AU-KG.ontology.redact-object-materialize-restricted). It composes both, plus the epistemic columns, into
 one benchmarkable pass.

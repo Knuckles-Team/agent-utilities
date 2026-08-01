@@ -509,6 +509,22 @@ class Orchestrator:
         or a retrieval-quality-gate failure rather than silently answering ungrounded;
         ``"best_effort"``/``"none"`` opt into degraded operation, marked explicitly in
         the model messages, the RunTrace, and the OTel span).
+        CONCEPT:AU-ORCH.execution.delegation-hot-path-authority — keep a long delegation authorized for its whole run, on every entrypoint, not just MCP dispatch.
+
+        Every delegation entrypoint (MCP ``graph_orchestrate``, the agent-webui/REST
+        gateway, the messaging router, the autonomous ``agent_dispatch_worker``,
+        ``org_runtime``, a governed dynamic workflow, and the parallel engine)
+        converges on this ONE method, so it opens
+        :func:`~agent_utilities.mcp.kg_server.authority_keepalive_scope` itself rather
+        than relying on the MCP tool-dispatch path having already opened one (D-SNV-5
+        follow-up). A delegation that runs longer than the process's renewable session
+        TTL renews its own authority instead of failing closed mid-flight with
+        ``SessionExpiredError``, on every surface, not just MCP-dispatched calls. The
+        scope is idempotent/reentrant: a call that already arrived through the MCP
+        dispatch guard (which opens the same scope) does not start a second renewal
+        loop, and a caller-presented bearer JWT (no server-held ``credential_lease``)
+        is never proactively renewed here — see the scope's own docstring for the full
+        security contract.
         """
         response_format = validate_response_format(response_format)
         execution_mode = validate_execution_mode(execution_mode)
@@ -538,6 +554,11 @@ class Orchestrator:
         )
         from agent_utilities.core.contextual_model import use_grounding_policy
 
+        # D-SNV-5 follow-up: renew a renewable session's authority for the whole
+        # delegation, not just while an MCP tool dispatch is on the stack — see the
+        # CONCEPT note above and authority_keepalive_scope's own docstring.
+        from agent_utilities.mcp.kg_server import authority_keepalive_scope
+
         # CONCEPT:AU-OS.observability.delegation-run-metrics — the in-process
         # delegation path had no telemetry; this is the one seam every
         # execute_agent call passes through, so count/duration/outcome land here
@@ -549,32 +570,33 @@ class Orchestrator:
             use_grounding_policy(grounding),
             delegation_span("agent", agent_name),
         ):
-            result = await run_agent(
-                agent_name=agent_name,
-                task=task,
-                engine=self.engine,
-                max_steps=max_steps,
-                return_mermaid=return_mermaid,
-                context=context,
-                budget_tokens=budget_tokens,
-                context_ref=context_ref,
-                allowed_tools=allowed_tools,
-                required_tools=required_tools,
-                skill_name=skill_name,
-                tool_server=tool_server,
-                execution_mode=execution_mode,
-                cred_ref=cred_ref,
-                session_id=session_id,
-                open_channel=open_channel,
-                memento_source=memento_source,
-                execution_profile=execution_profile,
-                reasoning_effort=reasoning_effort,
-                model_class=model_class,
-                response_format=response_format,
-                run_id=run_id,
-                include_run_summary=include_run_summary,
-                progress_sink=progress_sink,
-            )
+            async with authority_keepalive_scope():
+                result = await run_agent(
+                    agent_name=agent_name,
+                    task=task,
+                    engine=self.engine,
+                    max_steps=max_steps,
+                    return_mermaid=return_mermaid,
+                    context=context,
+                    budget_tokens=budget_tokens,
+                    context_ref=context_ref,
+                    allowed_tools=allowed_tools,
+                    required_tools=required_tools,
+                    skill_name=skill_name,
+                    tool_server=tool_server,
+                    execution_mode=execution_mode,
+                    cred_ref=cred_ref,
+                    session_id=session_id,
+                    open_channel=open_channel,
+                    memento_source=memento_source,
+                    execution_profile=execution_profile,
+                    reasoning_effort=reasoning_effort,
+                    model_class=model_class,
+                    response_format=response_format,
+                    run_id=run_id,
+                    include_run_summary=include_run_summary,
+                    progress_sink=progress_sink,
+                )
         return result
 
     def resolve_capability(self, task: str, agent_name: str = "") -> dict[str, Any]:
@@ -956,18 +978,48 @@ class Orchestrator:
 
         It now routes to the real :class:`WorkflowRunner` (ORCH-1.24), which
         ``load_workflow(name)`` → builds dependency waves → runs each step on the
-        local LLM. The SHACL+ACL ontology gate (ORCH-1.42) still runs upstream in
-        the ``graph_workflows`` handler before this is called, so governance stays
-        in the path. Returns the ``WorkflowResult`` as a dict carrying the ``run_id``
-        handle (the session id) so a delegated workflow run is trackable (ORCH-1.97).
+        local LLM. The SHACL+ACL ontology gate (ORCH-1.42) now runs HERE, at this
+        chokepoint, rather than only in the ``graph_workflows`` MCP handler
+        (D-WS-8): four production callers —
+        ``knowledge_graph.adaptation.ticket_playbooks._dispatch_workflow``,
+        ``knowledge_graph.research.loop_controller._default_skill_runner`` (the
+        autonomous Loop engine), ``knowledge_graph.memory.weights_distillation.
+        _dispatch_train_workflow``, and ``core.schedule_engine``'s
+        ``kind in (workflow, agent)`` dispatch — call
+        :meth:`execute_workflow` directly and previously skipped SHACL shape
+        validation and the ACL permission check entirely. Gating at the single
+        function every caller converges on (the same pattern used for the ACL
+        registration convergence, ``e34a1039``, and the delegation authority
+        keepalive, ``0551a806``) means every caller now inherits it instead of
+        each needing its own call to ``gate_workflow_execution``. The
+        ``graph_workflows`` handler's own gate call becomes a harmless,
+        redundant pre-check (cheap: it is the same SHACL+ACL work done twice,
+        not a second kind of check) rather than the only enforcement point.
+        Returns the ``WorkflowResult`` as a dict carrying the ``run_id`` handle
+        (the session id) so a delegated workflow run is trackable (ORCH-1.97).
 
         ``grounding`` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract) gives
         every step in the run the same opt-in ``execute_agent``/``execute_capability``
         already has — each step still defaults to the process-wide fail-closed
         ``"required"`` policy when unset.
+
+        Raises:
+            WorkflowGateDeniedError: the stored definition fails SHACL shape
+                validation, or no definition is stored under ``workflow_id``.
+            PermissionError: the ontology permission gate denies the current
+                actor (raised by :func:`gate_workflow_execution` itself).
         """
         if task:
             self._scan_task(task)
+
+        from agent_utilities.knowledge_graph.core.workflow_gate import (
+            WorkflowGateDeniedError,
+            gate_workflow_execution,
+        )
+
+        gate = gate_workflow_execution(self.engine, workflow_id)
+        if gate.get("allowed") is not True:
+            raise WorkflowGateDeniedError(workflow_id, gate)
 
         logger.info(f"Executing workflow {workflow_id} via WorkflowRunner...")
         from agent_utilities.observability.gateway_metrics import delegation_span

@@ -24,12 +24,14 @@ def test_safe_label_keeps_valid_identifiers_and_falls_back():
 
 
 def test_group_by_label_buckets_by_real_type():
+    # group_by_label reads the canonical `node_type` key (GraphComputeEngine
+    # retired the bare `type` property; see graph_compute.add_node).
     groups = group_by_label(
         [
-            {"id": "a:1", "type": "Application"},
-            {"id": "a:2", "type": "Application"},
-            {"id": "c:1", "type": "Capability"},
-            {"id": "x:1"},  # no type → DomainEntity fallback
+            {"id": "a:1", "node_type": "Application"},
+            {"id": "a:2", "node_type": "Application"},
+            {"id": "c:1", "node_type": "Capability"},
+            {"id": "x:1"},  # no node_type → DomainEntity fallback
         ]
     )
     assert set(groups) == {"Application", "Capability", "DomainEntity"}
@@ -38,11 +40,13 @@ def test_group_by_label_buckets_by_real_type():
 
 
 def test_group_by_rel_buckets_by_real_rel_type():
+    # group_by_rel reads the canonical `relationship` key (GraphComputeEngine
+    # retired the `type`/`rel_type` edge aliases; see graph_compute.add_edge).
     groups = group_by_rel(
         [
-            {"source": "a", "target": "b", "type": "SUPPORTS"},
-            {"source": "b", "target": "c", "type": "SUPPORTS"},
-            {"source": "a", "target": "c"},  # no type → EXTERNAL_LINK fallback
+            {"source": "a", "target": "b", "relationship": "SUPPORTS"},
+            {"source": "b", "target": "c", "relationship": "SUPPORTS"},
+            {"source": "a", "target": "c"},  # no relationship → EXTERNAL_LINK fallback
         ]
     )
     assert set(groups) == {"SUPPORTS", "EXTERNAL_LINK"}

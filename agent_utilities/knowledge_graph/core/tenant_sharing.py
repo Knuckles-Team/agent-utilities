@@ -34,6 +34,7 @@ import logging
 import re
 from typing import Any
 
+from ...models.company_brain import DataClassification
 from ...security.brain_context import ActorContext, current_actor
 from .shard_topology import default_graph_name, tenant_graph_name
 
@@ -41,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "OWNER_KEY",
+    "PUBLIC_CATALOG_LABELS",
     "SCOPE_COMMONS",
     "SCOPE_KEY",
     "SCOPE_ORG",
@@ -57,6 +59,7 @@ __all__ = [
     "read_union",
     "share",
     "share_with_org",
+    "stamp_classification",
     "stamp_ownership",
     "visibility_predicate",
 ]
@@ -196,6 +199,76 @@ def stamp_ownership(
 
 
 # ---------------------------------------------------------------------------
+# ACL classification stamping (write path) — private-by-default, label-aware
+# ---------------------------------------------------------------------------
+
+#: Node labels that are deliberately broadly discoverable platform/fleet
+#: capability catalog data, not private user data. Both are the self-describing
+#: tool registry (CONCEPT:AU-ECO.toolkit.self-describing-registry): MCP tool
+#: metadata (``engine_ingestion.ingest_mcp_server``) and callable-resource /
+#: function registrations (``core.registry.kg_adapter.register_callable_resource``,
+#: whose own docstring says "discoverable through the same graph query") exist
+#: specifically so any authenticated actor can discover what capabilities the
+#: fleet exposes. PUBLIC here mirrors ``DataClassification.PUBLIC``'s documented
+#: meaning ("visible to all authenticated actors") and
+#: ``company_brain.DataLevelPermissions.check_permission``'s read-allow special
+#: case for it. Deliberately a SHORT, evidence-backed list, not a default —
+#: everything not named here gets the conservative private-by-default fallback
+#: below.
+PUBLIC_CATALOG_LABELS: frozenset[str] = frozenset({"ToolMetadata", "CallableResource"})
+
+
+def stamp_classification(
+    properties: dict[str, Any],
+    label: str | None,
+) -> None:
+    """Stamp a durable ``classification`` ACL property onto node props in place.
+
+    CONCEPT:AU-KG.backend.company-brain-write-guard — the write-time half of
+    defence-in-depth ACL registration. ``secured_reads.permit()``'s governed
+    read path is default-deny for any node with no registered ACL
+    (``company_brain.DataLevelPermissions.check_permission``: "No ACL defined
+    — default deny") and, before this, nothing on the generic
+    ``add_node``/``_upsert_node``/``GraphComputeEngine.add_node`` write seams
+    ever registered one — data was writable but permanently unreadable, even
+    by its own creator (secured_reads._hydrate_missing_acls reads this durable
+    property back at query time to reconstruct the actual ACL).
+
+    Policy (deliberate, not a blanket assignment):
+
+    * ``label`` in :data:`PUBLIC_CATALOG_LABELS` -> ``PUBLIC``.
+    * Everything else -> ``CONFIDENTIAL`` (private-by-default): the safe,
+      conservative default that fixes the "unreadable by its own creator"
+      defect without over-exposing to any OTHER actor — read access still
+      requires the node's stamped ``_owner_id`` (:func:`stamp_ownership`) to
+      match the reading actor, or an explicit grant. Mirrors this module's own
+      "data is private, its owner" default for the sibling tenant/owner stamp,
+      and is intentionally the MOST conservative non-PUBLIC classification
+      choice available (over-restrictive is a data-availability bug fixable
+      later; over-permissive is a data-exposure vulnerability).
+
+    Individual call sites with better first-hand knowledge than a bare label
+    (e.g. ``core.sessions._persist_goal``, which knows a ``Concept`` node here
+    is specifically a user's goal) may still call
+    ``DataLevelPermissions.classify_node`` explicitly afterwards to refine the
+    classification (e.g. to ``INTERNAL``) — that does not change *whether* the
+    node is readable (this stamp already guarantees the owner can read it),
+    only the label used for entailment-propagation strictness ordering
+    (``secured_reads.inherit_inferred_acl``) and audit posture.
+
+    Existing ``classification`` markers are never overwritten (a re-write is
+    not silently reclassified).
+    """
+    if properties.get("classification"):
+        return
+    normalized = str(label or "").strip()
+    if normalized in PUBLIC_CATALOG_LABELS:
+        properties["classification"] = DataClassification.PUBLIC.value
+    else:
+        properties["classification"] = DataClassification.CONFIDENTIAL.value
+
+
+# ---------------------------------------------------------------------------
 # Visibility predicate (read path) — composes with the tenant scope()
 # ---------------------------------------------------------------------------
 
@@ -263,25 +336,64 @@ def filter_visible(
 
 
 def apply_visibility(
-    cypher: str, actor: ActorContext | None = None, var: str = "n"
+    cypher: str, actor: ActorContext | None = None, var: str | None = None
 ) -> str:
     """AND the owner/scope visibility predicate into a Cypher read query.
 
     Mirrors the injection discipline of
-    :meth:`TenancyManager.scope_cypher_query`: insert after the first
-    ``WHERE`` (case-insensitive) or, lacking one, before the first ``RETURN``.
-    Queries with no ``RETURN`` (writes/DDL) are returned unchanged.
+    :meth:`~agent_utilities.knowledge_graph.core.company_brain.TenancyManager.scope_cypher_query`:
+    insert after the first ``WHERE`` (case-insensitive) or, lacking one, before
+    the first ``RETURN``. Queries with no ``WHERE``/``RETURN`` (writes/DDL) are
+    returned unchanged.
+
+    Args:
+        cypher: The Cypher read query text.
+        actor: The requesting actor (privileged actors get no restriction).
+        var: Optional explicit node variable to scope against. ``None`` (the
+            default) derives it from the query's own first ``MATCH (<var>...``
+            clause (CONCEPT:AU-KG.backend.company-brain-write-guard) instead of
+            the historical hardcoded ``"n"`` — a query binding its node under a
+            different name (``MATCH (x:Entity) RETURN x``) previously got a
+            predicate referencing an unbound ``n``, silently mis-scoping (or,
+            on a lenient backend, silently returning zero rows) instead of
+            raising.
+
+    Raises:
+        UnscopableQueryError: ``var`` is omitted, the query has a
+            ``WHERE``/``RETURN`` clause to inject into, and no bound node
+            variable can be derived from it.
     """
-    cond = visibility_predicate(actor, var=var)
+    # Privileged bypass short-circuits BEFORE variable derivation: a privileged
+    # actor gets no predicate at all (matching visibility_predicate's own
+    # contract), so an unscopable query must not be refused on their behalf
+    # for a restriction that was never going to be applied.
+    if is_privileged(actor):
+        return cypher
+
+    where_match = re.search(r"\bWHERE\b", cypher, flags=re.IGNORECASE)
+    return_match = re.search(r"\bRETURN\b", cypher, flags=re.IGNORECASE)
+    if not where_match and not return_match:
+        return cypher
+
+    resolved_var = var
+    if resolved_var is None:
+        from .cypher_scoping import first_bound_node_variable
+
+        resolved_var = first_bound_node_variable(cypher)
+
+    cond = visibility_predicate(actor, var=resolved_var)
     if cond is None:
         return cypher
-    m = re.search(r"\bWHERE\b", cypher, flags=re.IGNORECASE)
-    if m:
-        return cypher[: m.end()] + f" {cond} AND" + cypher[m.end() :]
-    m = re.search(r"\bRETURN\b", cypher, flags=re.IGNORECASE)
-    if m:
-        return cypher[: m.start()] + f"WHERE {cond} " + cypher[m.start() :]
-    return cypher
+
+    from .cypher_scoping import inject_and_predicate
+
+    # inject_and_predicate parenthesizes any PRE-EXISTING WHERE body as a unit
+    # before ANDing `cond` in — a bare `cond AND <existing>` textual splice
+    # would mis-group against a top-level OR already in `existing` (AND binds
+    # tighter), letting a disjunct bypass this visibility predicate entirely.
+    # `cond` itself is already a single parenthesized term (see
+    # visibility_predicate above), so it never needs re-wrapping.
+    return inject_and_predicate(cypher, cond)
 
 
 # ---------------------------------------------------------------------------
@@ -511,10 +623,19 @@ def promote_to_commons(
     if hasattr(dst, "add_node"):
         dst.add_node(node_id, **{k: v for k, v in props.items() if k != "id"})
     else:
-        dst.execute(
-            "MERGE (n {id: $id}) SET n += $props",
-            {"id": node_id, "props": props},
-        )
+        # ``SET n += $props`` is a map-merge assignment, outside the native
+        # write subset (SET values must be literals;
+        # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+        # ``materialization.set_clause`` is the one SET-clause builder used
+        # everywhere else in this codebase for the portable per-property
+        # equivalent (``IntelligenceGraphEngine._get_set_clause`` delegates
+        # to the same function); params are the flattened props themselves
+        # so each generated ``$key`` placeholder resolves.
+        from .materialization import set_clause
+
+        merge_props = {**props, "id": node_id}
+        query = f"MERGE (n {{id: $id}}) {set_clause(merge_props, dst)}".rstrip()
+        dst.execute(query, merge_props)
     # Reflect the promotion on the org-local copy too, so it reads as shared.
     try:
         _set_scope(node_id, SCOPE_COMMONS, src)

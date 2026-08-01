@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from pydantic_ai.models.test import TestModel
 
-from agent_utilities.core.contextual_model import create_context_agent
+from agent_utilities.core.contextual_model import (
+    create_context_agent,
+    use_grounding_policy,
+)
 from agent_utilities.harness import tracing
 from agent_utilities.harness.trace_backend import KGTraceBackend
 
@@ -26,7 +29,13 @@ def test_wrapped_model_records_generation(monkeypatch):
     try:
         wrapped = tracing.wrap_model_for_tracing(TestModel())
         assert type(wrapped).__name__ == "_TracingModel"
-        create_context_agent(wrapped).run_sync("hello")
+        # CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract: no ContextCompiler
+        # engine is configured in this unit test, so the default "required" policy
+        # would raise GroundingUnavailableError before the model is ever called.
+        # This test is about GenerationNode capture on the model wrap, not the
+        # grounding gate, so opt into degraded operation explicitly.
+        with use_grounding_policy("best_effort"):
+            create_context_agent(wrapped).run_sync("hello")
         gens = [g for e in be._traces.values() for g in e["generations"]]
         assert gens, "expected a GenerationNode from the wrapped request"
         assert gens[0].type == "generation"

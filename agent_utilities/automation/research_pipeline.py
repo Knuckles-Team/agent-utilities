@@ -716,7 +716,7 @@ class ResearchPipelineRunner:
         watchlists = []
         for node_id, data in self.engine.graph.nodes(data=True):
             if (
-                data.get("type") == "policy"
+                data.get("node_type") == "policy"
                 and data.get("policy_type") == "research_watchlist"
             ):
                 watchlists.append(

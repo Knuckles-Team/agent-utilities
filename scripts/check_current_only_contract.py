@@ -9,7 +9,6 @@ surface after its implementation is removed.
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -395,87 +394,49 @@ _README_RETIRED_KEY_LINE = (
 )
 
 
+# D-CIM-5: this check used to shell out to ``rg`` (ripgrep) for both file
+# discovery (``_iter_files``) and the bulk content scan (a since-removed
+# ``_check_repository_with_rg``), with the docstring's rationale that "WSL
+# workspaces on NTFS make thousands of Python ``read_text`` calls
+# disproportionately expensive." Neither path degraded gracefully when the
+# binary was absent: ``subprocess.run([..., "rg", ...], check=True, ...)``
+# raises a raw, unhandled ``FileNotFoundError`` straight out of ``main()`` —
+# exactly the "degraded read explodes instead of refusing" anti-pattern this
+# project codifies against. This environment has no ``rg`` installed and
+# installing one is out of scope for a governance script.
+#
+# Decision: remove the ``rg`` dependency rather than declare the binary a
+# hard requirement. Two reasons beyond portability: (1) the described
+# NTFS/WSL slowdown does not apply to this deployment target; (2) auditing
+# the two implementations for this fix found they had already DRIFTED —
+# the ripgrep path additionally ran the ``PATH_REQUIRED_IDENTIFIERS`` check
+# (asserting a current surface is present, not just that a retired one is
+# absent) that the plain-Python ``check()`` path silently lacked, so calling
+# ``check(root, paths=[...])`` directly (as every existing test in
+# ``tests/gates/test_current_only_contract_gate.py`` already does) was
+# ALREADY exercising an incomplete contract even before ``rg`` went missing
+# here. A single implementation cannot drift from itself. ``_iter_files``
+# now walks ``SCAN_ROOTS`` with ``Path.rglob`` instead of ``rg --files``, and
+# ``check()`` runs ``PATH_REQUIRED_IDENTIFIERS`` (scoped to the real
+# repository root, exactly as the removed ripgrep path scoped it, so the
+# tmp_path-based unit tests are unaffected).
+_SKIP_DIR_NAMES = frozenset({"__pycache__", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache"})
+
+
 def _iter_files() -> list[Path]:
-    roots = [str(root.relative_to(ROOT)) for root in SCAN_ROOTS if root.exists()]
-    result = subprocess.run(
-        ["rg", "--files", *roots],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    files = [path for path in SCAN_FILES if path.is_file()]
-    for name in result.stdout.splitlines():
-        path = ROOT / name
-        if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:
-            files.append(path)
-    return sorted(set(files))
-
-
-def _check_repository_with_rg() -> list[str]:
-    """Scan repository roots in one native ripgrep pass.
-
-    WSL workspaces on NTFS make thousands of Python ``read_text`` calls
-    disproportionately expensive. Ripgrep batches that I/O while preserving the
-    exact same line-level contract.
-    """
-    needles = RETIRED_IDENTIFIERS + RAW_ROUTE_FRAGMENTS
-    roots = [str(path.relative_to(ROOT)) for path in SCAN_ROOTS if path.exists()]
-    command = ["rg", "-n", "-F", "--no-heading", "--color=never"]
-    for needle in needles:
-        command.extend(("-e", needle))
-    for suffix in sorted(TEXT_SUFFIXES):
-        command.extend(("--glob", f"*{suffix}"))
-    command.extend(roots)
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
-    if result.returncode not in {0, 1}:
-        return [f"repository scan failed (ripgrep exit {result.returncode})"]
-
-    violations: list[str] = []
-    for match in result.stdout.splitlines():
-        name, line_number, line = match.split(":", 2)
-        path = ROOT / name
-        for needle in needles:
-            if needle not in line:
-                continue
-            if path == ROOT / "README.md" and line == _README_RETIRED_KEY_LINE:
-                continue
-            violations.append(f"{name}:{line_number}: retired surface {needle!r}")
-
-    # Explicit root files have suffixes such as ``.example`` and are not all
-    # selected by the root globs above.
-    violations.extend(
-        check(ROOT, paths=[path for path in SCAN_FILES if path.is_file()])
-    )
-    for relative in RETIRED_PATHS:
-        if (ROOT / relative).exists():
-            violations.append(f"{relative}: retired path exists")
-    for relative, needle in PATH_RETIRED_IDENTIFIERS:
-        path = ROOT / relative
-        if not path.is_file():
+    files: set[Path] = {path for path in SCAN_FILES if path.is_file()}
+    for scan_root in SCAN_ROOTS:
+        if not scan_root.exists():
             continue
-        for line_number, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
-            if needle in line:
-                violations.append(
-                    f"{relative}:{line_number}: retired surface {needle!r}"
-                )
-    for relative, needle in PATH_REQUIRED_IDENTIFIERS:
-        path = ROOT / relative
-        if not path.is_file():
-            violations.append(f"{relative}: required current surface is missing")
-            continue
-        if needle not in path.read_text(encoding="utf-8"):
-            violations.append(
-                f"{relative}: required current surface {needle!r} is missing"
-            )
-    return violations
+        for path in scan_root.rglob("*"):
+            if any(part in _SKIP_DIR_NAMES for part in path.parts):
+                continue
+            if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:
+                files.add(path)
+    return sorted(files)
 
 
 def check(root: Path = ROOT, *, paths: Iterable[Path] | None = None) -> list[str]:
-    if paths is None and root == ROOT:
-        return _check_repository_with_rg()
     violations: list[str] = []
     needles = RETIRED_IDENTIFIERS + RAW_ROUTE_FRAGMENTS
     inspected = _iter_files() if paths is None else sorted(set(paths))
@@ -504,6 +465,19 @@ def check(root: Path = ROOT, *, paths: Iterable[Path] | None = None) -> list[str
                     violations.append(
                         f"{relative}:{line_number}: retired surface {needle!r}"
                     )
+    if root == ROOT:
+        # Scoped to the real repository root only (not a tmp_path fixture,
+        # which cannot contain these real repo-relative files) -- matches
+        # how the removed ripgrep path scoped this same check.
+        for relative, needle in PATH_REQUIRED_IDENTIFIERS:
+            path = ROOT / relative
+            if not path.is_file():
+                violations.append(f"{relative}: required current surface is missing")
+                continue
+            if needle not in path.read_text(encoding="utf-8"):
+                violations.append(
+                    f"{relative}: required current surface {needle!r} is missing"
+                )
     return violations
 
 

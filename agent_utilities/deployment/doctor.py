@@ -4026,9 +4026,7 @@ def _check_venv_drift() -> dict[str, Any]:
             detect_drift,
         )
     except ImportError as exc:
-        return _result(
-            "venv_drift", "error", f"venv_sync is not importable: {exc}"
-        )
+        return _result("venv_drift", "error", f"venv_sync is not importable: {exc}")
 
     try:
         workspace = Workspace.discover()

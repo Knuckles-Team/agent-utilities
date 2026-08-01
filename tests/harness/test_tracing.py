@@ -18,6 +18,12 @@ from agent_utilities.harness.tracing import _safe_serialize, set_session_id, tra
 
 @pytest.fixture
 def mock_langfuse_config(monkeypatch):
+    # _tracing_active() (agent_utilities/harness/tracing.py) requires BOTH the
+    # credential ref AND an explicit trace_export_enabled opt-in — "credentials
+    # alone never authorize external emission" (deliberate: a bare process with
+    # configured-but-unauthorized creds must stay a no-op). Set all three so
+    # the decorator actually emits, matching the current gating contract.
+    monkeypatch.setattr(config, "trace_export_enabled", True)
     monkeypatch.setattr(config, "langfuse_secret_key_ref", "env://TEST_LANGFUSE_SECRET")
     monkeypatch.setattr(config, "langfuse_public_key_ref", "env://TEST_LANGFUSE_PUBLIC")
 

@@ -46,11 +46,20 @@ from agent_utilities.kvcache.checkpoint import (
 )
 from agent_utilities.kvcache.eligibility import (
     AlwaysDenyEligibility,
+    AuthorityDerivedEligibility,
     EligibilityDecision,
-    OperatorGrantEligibility,
     PersistenceRequest,
+    derive_caller_authority,
     get_persistence_eligibility_gate,
     set_persistence_eligibility_gate,
+)
+# The authority fixtures live with the derivation proofs
+# (``test_persistence_authority``); imported rather than duplicated so both modules
+# bind identical sessions and identical source labels.
+from tests.unit.kvcache.test_persistence_authority import (  # noqa: E402
+    caller,
+    labelled_source,
+    public_source,
 )
 from agent_utilities.kvcache.rebuild_cost import (
     RebuildCostInputs,
@@ -102,8 +111,11 @@ def _strong_observation(**overrides) -> CheckpointObservation:
         "tenant": "t1",
         "point": "post-plan",
         "rebuild": RebuildCostInputs(
-            prompt_tokens=55_000, completion_tokens=3_000, tool_calls=19,
-            retrievals=14, wall_time_s=110.0,
+            prompt_tokens=55_000,
+            completion_tokens=3_000,
+            tool_calls=19,
+            retrievals=14,
+            wall_time_s=110.0,
         ),
         "sibling_task_count": 5,
         "queued_task_count": 3,
@@ -128,8 +140,9 @@ def _weak_observation() -> CheckpointObservation:
     return CheckpointObservation(
         run_id="run-2",
         tenant="t1",
-        rebuild=RebuildCostInputs(prompt_tokens=400, tool_calls=0, retrievals=1,
-                                  wall_time_s=1.5),
+        rebuild=RebuildCostInputs(
+            prompt_tokens=400, tool_calls=0, retrievals=1, wall_time_s=1.5
+        ),
         sibling_task_count=0,
         queued_task_count=0,
         retrieved_items=10,
@@ -153,25 +166,35 @@ class _FakeDiskStore:
         self.created: list[dict] = []
         self.records: dict[str, KVCheckpointRecord] = {}
 
-    def create_checkpoint(self, data, *, key, run_id, point, session=None,
-                          provenance=None):
+    def create_checkpoint(
+        self, data, *, key, run_id, point, session=None, provenance=None
+    ):
         self.created.append(
             {
-                "data": data, "key": key, "run_id": run_id, "point": point,
+                "data": data,
+                "key": key,
+                "run_id": run_id,
+                "point": point,
                 "provenance": provenance or {},
             }
         )
         record = KVCheckpointRecord(
-            checkpoint_id=key.checkpoint_id, key=key,
-            blob_id=f"kvblob:{key.tenant}:d", digest="d", run_id=run_id, point=point,
-            size_bytes=len(data), created_at="2026-07-31T00:00:00Z",
+            checkpoint_id=key.checkpoint_id,
+            key=key,
+            blob_id=f"kvblob:{key.tenant}:d",
+            digest="d",
+            run_id=run_id,
+            point=point,
+            size_bytes=len(data),
+            created_at="2026-07-31T00:00:00Z",
             provenance=provenance or {},
         )
         self.records[record.checkpoint_id] = record
         return record
 
-    def get_checkpoint(self, checkpoint_id, *, requesting_tenant,
-                       current_policy_version=None):
+    def get_checkpoint(
+        self, checkpoint_id, *, requesting_tenant, current_policy_version=None
+    ):
         record = self.records.get(checkpoint_id)
         if record is None:
             raise KVCheckpointError(f"no checkpoint {checkpoint_id}")
@@ -314,12 +337,9 @@ def test_unmeasured_is_not_zero_for_rebuild_cost():
 
     scorer = RebuildCostScorer()
     assert scorer.score(CheckpointObservation()).abstained is True
-    assert (
-        scorer.score(
-            CheckpointObservation(rebuild=RebuildCostInputs(prompt_tokens=60_000))
-        ).value
-        == pytest.approx(1.0)
-    )
+    assert scorer.score(
+        CheckpointObservation(rebuild=RebuildCostInputs(prompt_tokens=60_000))
+    ).value == pytest.approx(1.0)
 
 
 def test_rebuild_cost_leaves_usd_none_for_an_unpriced_model():
@@ -336,6 +356,55 @@ def test_predicted_reuse_abstains_rather_than_inventing_a_number():
     signal = PredictedReuseScorer().score(CheckpointObservation())
     assert signal.abstained is True
     assert "no predicted-reuse model" in signal.rationale
+
+
+def test_from_prioritization_still_abstains_when_the_engine_has_no_predictor():
+    """A plain object with no predicted_reuse_from_context_overlap method must not
+    make from_prioritization invent anything (D-KCI-2's duck-typing contract)."""
+
+    class _NoPredictorEngine:
+        pass
+
+    observation = CheckpointObservation.from_prioritization(
+        _NoPredictorEngine(), "task-1"
+    )
+    signal = PredictedReuseScorer().score(observation)
+    assert signal.abstained is True
+
+
+def test_from_prioritization_carries_a_genuine_overlap_measurement_through():
+    """D-KCI-2: once an engine records real context overlap, the scorer receives a
+    genuine (possibly zero) measurement rather than an abstention."""
+    from agent_utilities.patterns.prioritization import (
+        PrioritizationEngine,
+        PrioritizedTask,
+    )
+
+    engine = PrioritizationEngine()
+    engine.add_task(
+        PrioritizedTask(
+            id="root",
+            description="root",
+            blocking_ids=["sib"],
+            context_keys=frozenset({"k1"}),
+        )
+    )
+    engine.add_task(
+        PrioritizedTask(
+            id="sib",
+            description="overlapping sibling",
+            blocked_by_ids=["root"],
+            context_keys=frozenset({"k1"}),
+        )
+    )
+
+    observation = CheckpointObservation.from_prioritization(engine, "root")
+    assert observation.sibling_task_count == 1
+    assert observation.queued_task_count == 0
+
+    signal = PredictedReuseScorer().score(observation)
+    assert signal.abstained is False
+    assert signal.value is not None and signal.value > 0.0
 
 
 def test_high_severity_contradiction_vetoes_an_otherwise_perfect_moment():
@@ -400,7 +469,8 @@ def test_disk_rule_fails_on_an_abstention_not_just_a_low_value():
     assert result.disk_verdict is not None
     assert not result.disk_verdict.satisfied
     assert any(
-        "predicted_reuse" in f and "abstained" in f for f in result.disk_verdict.failures
+        "predicted_reuse" in f and "abstained" in f
+        for f in result.disk_verdict.failures
     )
     assert any("disk not recommended" in b for b in result.blockers)
 
@@ -410,8 +480,9 @@ def test_disk_rule_names_exactly_which_requirement_failed():
         min_aggregate=0.0, required_signals={"context_stability": 0.99}
     )
     result = CheckpointAdvisor(disk_rule=rule).evaluate(
-        _strong_observation(context_rewrites=5, evicted_items=5,
-                            turns_since_context_change=0)
+        _strong_observation(
+            context_rewrites=5, evicted_items=5, turns_since_context_change=0
+        )
     )
     assert result.disk_verdict is not None and not result.disk_verdict.satisfied
     assert any("context_stability" in f for f in result.disk_verdict.failures)
@@ -432,7 +503,10 @@ def test_autonomous_path_takes_a_ram_checkpoint_when_scored_worthy(manager):
     """Crossing the threshold must actually STORE bytes, not merely return a verdict."""
     key = _key()
     outcome = manager.observe(
-        _strong_observation(), key=key, payload=b"kv-bytes", run_id="run-1",
+        _strong_observation(),
+        key=key,
+        payload=b"kv-bytes",
+        run_id="run-1",
         point="post-plan",
     )
     assert outcome.taken is True
@@ -470,9 +544,12 @@ def test_autonomous_path_does_not_advise_the_model_it_already_acted(manager):
     assert render_checkpoint_advisory_instructions() == ""
 
 
-def test_autonomous_path_cannot_reach_disk_on_its_own(manager):
-    """A system-scored DISK verdict still produces only a RAM checkpoint plus a
-    recorded refusal — visible evidence the system wanted to persist and could not."""
+def test_autonomous_path_cannot_reach_disk_without_authority(manager):
+    """A system-scored DISK verdict with no authority behind it still produces only a
+    RAM checkpoint plus a recorded refusal — visible evidence the system wanted to
+    persist and could not. (An autonomous run that DOES carry a covering session
+    persists; being autonomous is not itself the disqualifier — see
+    ``test_persistence_authority``.)"""
     outcome = manager.observe(_strong_observation(), key=_key(), payload=b"kv")
     assert outcome.recommendation is not None
     assert outcome.recommendation.recommended_tier is CheckpointTier.DISK
@@ -486,59 +563,66 @@ def test_autonomous_path_cannot_reach_disk_on_its_own(manager):
 # ---------------------------------------------------------------------------
 
 
-def test_agent_initiated_persistence_never_reaches_the_durable_store(manager):
-    outcome = manager.checkpoint_now(
-        b"kv", key=_key(), trigger="agent", persist=True, operator_grant=True
-    )
-    # Even claiming an operator grant, an agent initiator is refused by the default gate.
+def test_persistence_under_an_authority_that_does_not_cover_it_is_refused(manager):
+    """The caller clears INTERNAL; the source is RESTRICTED. No flag can bridge that —
+    there is no flag."""
+    with caller(roles=("test",)):
+        outcome = manager.checkpoint_now(
+            b"kv",
+            key=_key(),
+            trigger="agent",
+            persist=True,
+            sources=(labelled_source("src:payroll", classification="restricted"),),
+        )
     assert outcome.tier is CheckpointTier.RAM
     assert outcome.eligibility is not None and not outcome.eligibility.permitted
     assert manager.disk_store.created == []
 
 
-def test_user_grant_persists_and_records_why(manager):
-    outcome = manager.checkpoint_now(
-        b"kv", key=_key(), run_id="run-1", point="post-plan", trigger="user",
-        persist=True, operator_grant=True, observation=_strong_observation(),
-    )
+def test_a_covering_authority_persists_and_records_why(manager):
+    with caller(roles=("confidential",)):
+        outcome = manager.checkpoint_now(
+            b"kv", key=_key(), run_id="run-1", point="post-plan", trigger="user",
+            persist=True, observation=_strong_observation(),
+            sources=(public_source(), labelled_source("src:crm")),
+        )
     assert outcome.tier is CheckpointTier.DISK
     assert len(manager.disk_store.created) == 1
     provenance = manager.disk_store.created[0]["provenance"]
-    # The "why was this persisted?" record travels with the durable checkpoint.
+    # The "why was this persisted?" record travels with the durable checkpoint —
+    # now including WHOSE authority permitted it and against WHICH sources.
     assert provenance["trigger"] == "user"
-    assert provenance["eligibility_gate"] == "operator-grant-default"
+    assert provenance["eligibility_gate"] == "authority-derived"
     assert provenance["worthiness_score"] > 0
     assert provenance["worthiness_drivers"]
-    assert "data_residency_region" in provenance["eligibility_unresolved"]
-
-
-def test_persist_without_a_grant_is_refused_even_for_a_user(manager):
-    outcome = manager.checkpoint_now(
-        b"kv", key=_key(), trigger="user", persist=True, operator_grant=False
-    )
-    assert outcome.tier is CheckpointTier.RAM
-    assert manager.disk_store.created == []
-    assert "no explicit operator grant" in (outcome.eligibility.reason if outcome.eligibility else "")
+    assert provenance["authorized_actor"] == "human:ada"
+    assert provenance["composed_classification"] == "confidential"
+    # The residency/classification/retention questions are ANSWERED now, not deferred.
+    assert provenance["eligibility_unresolved"] == []
 
 
 def test_ram_residency_is_not_disk_consent(manager):
     """A checkpoint sitting in RAM does not acquire consent by having been kept."""
-    taken = manager.checkpoint_now(b"kv", key=_key(), trigger="user", persist=False)
-    assert taken.tier is CheckpointTier.RAM
-    promoted = manager.promote(
-        taken.checkpoint_id, requesting_tenant="t1", trigger="user",
-        operator_grant=False,
-    )
+    with caller(roles=("confidential",)):
+        taken = manager.checkpoint_now(b"kv", key=_key(), trigger="user", persist=False)
+        assert taken.tier is CheckpointTier.RAM
+        # No sources were recorded at RAM time, so the promotion has no provenance to
+        # judge and is refused — RAM residency is not, by itself, a basis to persist.
+        promoted = manager.promote(
+            taken.checkpoint_id, requesting_tenant="t1", trigger="user",
+        )
     assert promoted.tier is CheckpointTier.RAM
     assert manager.disk_store.created == []
     assert promoted.eligibility is not None and not promoted.eligibility.permitted
 
 
-def test_always_deny_gate_refuses_even_an_explicit_operator_grant(manager):
+def test_always_deny_gate_refuses_a_fully_covering_authority(manager):
     set_persistence_eligibility_gate(AlwaysDenyEligibility())
-    outcome = manager.checkpoint_now(
-        b"kv", key=_key(), trigger="user", persist=True, operator_grant=True
-    )
+    with caller(roles=("kg:admin",)):
+        outcome = manager.checkpoint_now(
+            b"kv", key=_key(), trigger="user", persist=True,
+            sources=(public_source(),),
+        )
     assert outcome.tier is CheckpointTier.RAM
     assert manager.disk_store.created == []
     assert outcome.eligibility is not None
@@ -569,23 +653,32 @@ def test_a_deployment_gate_can_widen_what_is_persistable(manager):
     )
 
 
-def test_the_default_gate_reports_every_unanswerable_policy_question():
-    """The unresolved privacy/residency half of D-5.1-3 is visible at runtime, not only
-    in a report."""
-    decision = OperatorGrantEligibility().evaluate(
-        PersistenceRequest(tenant="t1", initiator="user", operator_grant=True)
-    )
+def test_the_default_gate_answers_what_it_used_to_defer(manager):
+    """D-5.1-3 / D-KCI-1 closed: the three questions the old gate reported as
+    permanently unresolved are now ANSWERED from the sources' own labels, and a source
+    that cannot answer them denies instead of being waved through with a caveat."""
+    with caller(roles=("confidential",)):
+        decision = AuthorityDerivedEligibility().evaluate(
+            PersistenceRequest(
+                tenant="t1",
+                authority=derive_caller_authority(),
+                sources=(labelled_source("src:crm"),),
+            )
+        )
     assert decision.permitted is True
-    assert set(decision.unresolved) == {
-        "data_residency_region", "data_classification", "retention_period",
-    }
+    assert decision.unresolved == ()
+    assert decision.derivation is not None
+    assert decision.derivation.label.classification == "confidential"
+    assert decision.derivation.label.retention_days == -1
 
 
 def test_a_manager_without_a_durable_store_refuses_promotion_cleanly():
     ram_only = TieredCheckpointManager(disk_store=None)
-    outcome = ram_only.checkpoint_now(
-        b"kv", key=_key(), trigger="user", persist=True, operator_grant=True
-    )
+    with caller(roles=("kg:admin",)):
+        outcome = ram_only.checkpoint_now(
+            b"kv", key=_key(), trigger="user", persist=True,
+            sources=(public_source(),),
+        )
     assert outcome.tier is CheckpointTier.RAM
     assert "no durable store is bound" in outcome.reason
 
@@ -640,17 +733,19 @@ def test_ram_tier_refuses_an_empty_payload():
 
 
 def test_explain_returns_the_full_reasoning_for_a_persisted_checkpoint(manager):
-    outcome = manager.checkpoint_now(
-        b"kv", key=_key(), run_id="run-1", point="post-plan", trigger="user",
-        persist=True, operator_grant=True, observation=_strong_observation(),
-    )
-    explanation = manager.explain(outcome.checkpoint_id, requesting_tenant="t1")
+    with caller(roles=("confidential",)):
+        outcome = manager.checkpoint_now(
+            b"kv", key=_key(), run_id="run-1", point="post-plan", trigger="user",
+            persist=True, observation=_strong_observation(),
+            sources=(labelled_source("src:crm"),),
+        )
+        explanation = manager.explain(outcome.checkpoint_id, requesting_tenant="t1")
     assert explanation.tier is CheckpointTier.DISK
     assert explanation.trigger == "user"
     assert explanation.recommendation is not None
     assert explanation.recommendation.score > 0
     assert explanation.eligibility is not None and explanation.eligibility.permitted
-    assert explanation.eligibility_gate_in_force == "operator-grant-default"
+    assert explanation.eligibility_gate_in_force == "authority-derived"
 
 
 def test_explain_refuses_a_cross_tenant_question(manager):
@@ -684,8 +779,9 @@ def test_recommend_publishes_the_advisory_for_the_next_model_call(manager):
 
 
 def test_advisory_names_its_blockers_and_missing_evidence(manager):
-    manager.recommend(_strong_observation(sibling_task_count=None,
-                                          queued_task_count=None))
+    manager.recommend(
+        _strong_observation(sibling_task_count=None, queued_task_count=None)
+    )
     rendered = render_checkpoint_advisory_instructions()
     assert "blockers:" in rendered
     assert "no evidence from:" in rendered
@@ -780,7 +876,8 @@ def test_publish_is_context_local_not_global(manager):
 
 def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
     """The full operator story through the real MCP action surface: checkpoint now →
-    it is resident → promote it with a grant → ask why it was persisted."""
+    it is resident → promote it → ask why it was persisted. No grant argument exists;
+    the promotion succeeds because the bound session's authority covers the sources."""
     from agent_utilities.mcp.tools import engine_surface_tools as est
 
     disk = _FakeDiskStore()
@@ -798,52 +895,62 @@ def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
         prefix_digest=prefix_digest("ctx"), tenant="t1", policy_version="v1",
         run_id="run-1", point="post-plan", requesting_tenant="t1",
         observation_json="{}", evidence_bundle_json="{}",
-        context_bundle_json="{}", checkpoint_id="", data_b64="",
-        initiator="user", persist=False, operator_grant=False,
+        context_bundle_json="{}", sources_json="[]", checkpoint_id="", data_b64="",
+        trigger="user", persist=False,
+    )
+    labelled = json.dumps(
+        [
+            {
+                "source_id": "src:crm",
+                "classification": "confidential",
+                "residency_regions": ["*"],
+                "retention_days": -1,
+            }
+        ]
     )
 
-    taken = json.loads(
-        est._kv_checkpoint_intelligence(
-            "checkpoint_now",
-            **{**common, "data_b64": base64.b64encode(b"kv-bytes").decode()},
+    with caller(roles=("confidential",)):
+        taken = json.loads(
+            est._kv_checkpoint_intelligence(
+                "checkpoint_now",
+                **{
+                    **common,
+                    "data_b64": base64.b64encode(b"kv-bytes").decode(),
+                    "sources_json": labelled,
+                },
+            )
         )
-    )
-    assert taken["result"]["taken"] is True
-    assert taken["result"]["tier"] == "ram"
-    checkpoint_id = taken["result"]["checkpoint_id"]
+        assert taken["result"]["taken"] is True
+        assert taken["result"]["tier"] == "ram"
+        checkpoint_id = taken["result"]["checkpoint_id"]
 
-    stats = json.loads(est._kv_checkpoint_intelligence("ram_stats", **common))
-    assert stats["result"]["entries"] == 1
-    assert stats["result"]["eligibility_gate"] == "operator-grant-default"
-    # A score is uninterpretable without knowing which signals produced it.
-    assert {s["name"] for s in stats["result"]["scorers"]} >= {
-        "rebuild_cost", "contradictions", "model_self_report",
-    }
+        stats = json.loads(est._kv_checkpoint_intelligence("ram_stats", **common))
+        assert stats["result"]["entries"] == 1
+        assert stats["result"]["eligibility_gate"] == "authority-derived"
+        # A score is uninterpretable without knowing which signals produced it.
+        assert {s["name"] for s in stats["result"]["scorers"]} >= {
+            "rebuild_cost", "contradictions", "model_self_report",
+        }
 
-    refused = json.loads(
-        est._kv_checkpoint_intelligence(
-            "promote", **{**common, "checkpoint_id": checkpoint_id}
+        promoted = json.loads(
+            est._kv_checkpoint_intelligence(
+                "promote", **{**common, "checkpoint_id": checkpoint_id}
+            )
         )
-    )
-    assert refused["result"]["tier"] == "ram"
-    assert disk.created == []
+        assert promoted["result"]["tier"] == "disk"
+        assert len(disk.created) == 1
 
-    promoted = json.loads(
-        est._kv_checkpoint_intelligence(
-            "promote",
-            **{**common, "checkpoint_id": checkpoint_id, "operator_grant": True},
+        explained = json.loads(
+            est._kv_checkpoint_intelligence(
+                "explain", **{**common, "checkpoint_id": checkpoint_id}
+            )
         )
-    )
-    assert promoted["result"]["tier"] == "disk"
-    assert len(disk.created) == 1
-
-    explained = json.loads(
-        est._kv_checkpoint_intelligence(
-            "explain", **{**common, "checkpoint_id": checkpoint_id}
-        )
-    )
     assert explained["result"]["tier"] == "disk"
     assert explained["result"]["eligibility"]["permitted"] is True
+    # The derivation travels with the explanation, so "why?" is answerable.
+    assert explained["result"]["eligibility"]["derivation"]["label"][
+        "classification"
+    ] == "confidential"
 
 
 def test_mcp_recommend_action_returns_a_rendered_advisory(monkeypatch):
@@ -858,8 +965,12 @@ def test_mcp_recommend_action_returns_a_rendered_advisory(monkeypatch):
     )
     observation = json.dumps(
         {
-            "rebuild": {"prompt_tokens": 55000, "tool_calls": 19, "retrievals": 14,
-                        "wall_time_s": 110.0},
+            "rebuild": {
+                "prompt_tokens": 55000,
+                "tool_calls": 19,
+                "retrievals": 14,
+                "wall_time_s": 110.0,
+            },
             "sibling_task_count": 5,
             "retrieved_items": 20,
             "novel_items": 1,
@@ -879,8 +990,8 @@ def test_mcp_recommend_action_returns_a_rendered_advisory(monkeypatch):
             serving_engine="", engine_version="", prefix_digest="", tenant="",
             policy_version="", run_id="", point="", checkpoint_id="",
             requesting_tenant="", observation_json=observation,
-            evidence_bundle_json="{}", context_bundle_json="{}", initiator="agent",
-            persist=False, operator_grant=False,
+            evidence_bundle_json="{}", context_bundle_json="{}", sources_json="[]",
+            trigger="agent", persist=False,
         )
     )
     assert "checkpoint-worthy: score" in payload["result"]["advisory"]
@@ -901,8 +1012,8 @@ def test_mcp_recommend_rejects_a_malformed_observation(monkeypatch):
             serving_engine="", engine_version="", prefix_digest="", tenant="",
             policy_version="", run_id="", point="", checkpoint_id="",
             requesting_tenant="", observation_json="[1,2,3]",
-            evidence_bundle_json="{}", context_bundle_json="{}", initiator="agent",
-            persist=False, operator_grant=False,
+            evidence_bundle_json="{}", context_bundle_json="{}", sources_json="[]",
+            trigger="agent", persist=False,
         )
     )
     assert payload["error"]["code"] == "invalid_request"
@@ -922,7 +1033,8 @@ def test_mcp_recommend_derives_signals_from_handed_in_bundles(monkeypatch):
             graph="", data_b64="", model_identity="", quantization="",
             serving_engine="", engine_version="", prefix_digest="", tenant="",
             policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json="{}",
+            requesting_tenant="", observation_json="{}", sources_json="[]",
+            trigger="agent", persist=False,
             evidence_bundle_json=json.dumps(
                 {
                     "claims": [{"id": "c1"}, {"id": "c2"}],
@@ -930,8 +1042,7 @@ def test_mcp_recommend_derives_signals_from_handed_in_bundles(monkeypatch):
                     "contradictions": [{"severity": "high"}],
                 }
             ),
-            context_bundle_json="{}", initiator="agent", persist=False,
-            operator_grant=False,
+            context_bundle_json="{}",
         )
     )
     signals = {s["name"]: s for s in payload["result"]["signals"]}
@@ -954,11 +1065,10 @@ def test_mcp_explicit_observation_fields_win_over_a_bundle(monkeypatch):
             graph="", data_b64="", model_identity="", quantization="",
             serving_engine="", engine_version="", prefix_digest="", tenant="",
             policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="",
+            requesting_tenant="", sources_json="[]", trigger="agent", persist=False,
             observation_json=json.dumps({"claim_count": 99}),
             evidence_bundle_json=json.dumps({"claims": [{"id": "c1"}]}),
-            context_bundle_json="{}", initiator="agent", persist=False,
-            operator_grant=False,
+            context_bundle_json="{}",
         )
     )
     grounding = next(
@@ -979,17 +1089,19 @@ def test_mcp_rejects_a_malformed_bundle(monkeypatch):
             graph="", data_b64="", model_identity="", quantization="",
             serving_engine="", engine_version="", prefix_digest="", tenant="",
             policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json="{}",
+            requesting_tenant="", observation_json="{}", sources_json="[]",
             evidence_bundle_json="[1,2,3]", context_bundle_json="{}",
-            initiator="agent", persist=False, operator_grant=False,
+            trigger="agent", persist=False,
         )
     )
     assert payload["error"]["code"] == "invalid_request"
 
 
-def test_mcp_rejects_an_unrecognized_initiator(monkeypatch):
-    """The initiator is what the whole eligibility decision turns on — an unrecognized
-    value must be refused at the boundary, never coerced or guessed."""
+def test_mcp_rejects_an_unrecognized_trigger(monkeypatch):
+    """``trigger`` is a Literal on the request/record models, so an unrecognized value
+    must be refused at the boundary rather than surfacing as a raw ValidationError from
+    deep inside. (It no longer decides anything — the authority does — but it is still
+    written to the audit record, so it still has to be one of the three.)"""
     from agent_utilities.mcp.tools import engine_surface_tools as est
 
     monkeypatch.setattr(
@@ -1002,9 +1114,8 @@ def test_mcp_rejects_an_unrecognized_initiator(monkeypatch):
             model_identity="m", quantization="fp16", serving_engine="vllm",
             engine_version="1", prefix_digest="abc", tenant="t1", policy_version="v1",
             run_id="", point="", checkpoint_id="", requesting_tenant="t1",
-            observation_json="{}", evidence_bundle_json="{}",
-            context_bundle_json="{}", initiator="root", persist=True,
-            operator_grant=True,
+            observation_json="{}", evidence_bundle_json="{}", sources_json="[]",
+            context_bundle_json="{}", trigger="root", persist=True,
         )
     )
     assert payload["error"]["code"] == "invalid_request"

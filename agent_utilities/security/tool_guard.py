@@ -269,7 +269,7 @@ def check_ontological_guardrails(
         # 1. Query Knowledge Graph for active SecurityPolicyNode restrictions
         if engine and hasattr(engine, "graph") and engine.graph is not None:
             for nid, ndata in engine.graph.nodes(data=True):
-                if ndata.get("type") == "SecurityPolicyNode":
+                if ndata.get("node_type") == "SecurityPolicyNode":
                     restricted_target = ndata.get("target", "").lower()
                     if restricted_target:
                         for target in targets:

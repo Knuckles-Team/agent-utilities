@@ -26,6 +26,9 @@ class DummyBackend:
 
 @pytest.mark.asyncio
 async def test_log_heartbeat():
+    # ``knowledge_tools`` writes via ``engine.add_node``/``engine.link_nodes``
+    # directly (not ``engine.backend.execute(...)``); ``backend`` is only
+    # truthiness-checked (``if engine.backend:``) to gate the write path.
     backend = DummyBackend()
     engine = MagicMock()
     engine.backend = backend
@@ -35,8 +38,9 @@ async def test_log_heartbeat():
 
     res = await log_heartbeat(ctx, "test_agent", "OK")
     assert "Heartbeat logged" in res
-    assert len(backend.queries) == 2
-    assert "Heartbeat" in backend.queries[0]["query"]
+    assert engine.add_node.call_count == 2
+    assert engine.add_node.call_args_list[0].args[1] == "Heartbeat"
+    assert engine.link_nodes.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -50,7 +54,7 @@ async def test_create_client():
 
     res = await create_client(ctx, "TestClient")
     assert "Client created" in res
-    assert len(backend.queries) == 1
+    assert engine.add_node.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -64,7 +68,8 @@ async def test_create_user():
 
     res = await create_user(ctx, "TestUser", "admin", "client_123")
     assert "User created" in res
-    assert len(backend.queries) == 2
+    assert engine.add_node.call_count == 1
+    assert engine.link_nodes.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -78,7 +83,8 @@ async def test_save_chat_message():
 
     res = await save_chat_message(ctx, "thread_123", "user", "hello")
     assert "Message saved" in res
-    assert len(backend.queries) == 2
+    assert engine.add_node.call_count == 2
+    assert engine.link_nodes.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -92,4 +98,5 @@ async def test_log_cron_execution():
 
     res = await log_cron_execution(ctx, "job_123", "SUCCESS", "done")
     assert "Cron execution logged" in res
-    assert len(backend.queries) == 2
+    assert engine.add_node.call_count == 2
+    assert engine.link_nodes.call_count == 1

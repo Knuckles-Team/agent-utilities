@@ -37,6 +37,23 @@ check_wiring = _load_check_wiring()
 # ---------------------------------------------------------------------------
 
 
+def _synthetic_config_paths(tmp_path):
+    """An isolated ``pytest.ini``/``.pre-commit-config.yaml``/workflows-dir
+    triple, so ``find_orphaned_test_files`` can be exercised without falling
+    back to reading THIS repo's own live config (which would make the
+    fixture's verdict depend on whatever ``testpaths`` this repo currently
+    happens to declare, rather than on the synthetic scenario under test)."""
+    pytest_ini = tmp_path / "pytest.ini"
+    pytest_ini.write_text(
+        "[pytest]\ntestpaths = tests/unit tests/integration tests/retrieval\n"
+    )
+    return {
+        "pytest_ini": pytest_ini,
+        "precommit_config": tmp_path / ".pre-commit-config.yaml",  # absent -> empty
+        "workflows_dir": tmp_path / ".github" / "workflows",  # absent -> empty
+    }
+
+
 def test_orphan_gate_trips_on_a_loose_test_file_outside_testpaths(tmp_path):
     """A ``test_*.py`` sitting directly under a synthetic ``tests/`` root
     (not ``tests/unit``/``tests/integration``/``tests/retrieval``, and not
@@ -49,7 +66,7 @@ def test_orphan_gate_trips_on_a_loose_test_file_outside_testpaths(tmp_path):
     (tests_dir / "test_orphan.py").write_text("def test_x():\n    assert True\n")
 
     orphans = check_wiring.find_orphaned_test_files(
-        tests_dir=tests_dir, display_root=tmp_path
+        tests_dir=tests_dir, display_root=tmp_path, **_synthetic_config_paths(tmp_path)
     )
     assert "tests/test_orphan.py" in orphans
 
@@ -63,7 +80,7 @@ def test_orphan_gate_does_not_flag_a_file_under_tests_unit(tmp_path):
     (tests_dir / "unit" / "test_ok.py").write_text("def test_x():\n    assert True\n")
 
     orphans = check_wiring.find_orphaned_test_files(
-        tests_dir=tests_dir, display_root=tmp_path
+        tests_dir=tests_dir, display_root=tmp_path, **_synthetic_config_paths(tmp_path)
     )
     assert "tests/unit/test_ok.py" not in orphans
 

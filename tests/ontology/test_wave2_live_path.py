@@ -51,7 +51,7 @@ from agent_utilities.knowledge_graph.ontology.permissioning import (
 )
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.observability.escalation_matrix import make_decision_provider
-from agent_utilities.security.brain_context import ActorContext, use_actor
+from agent_utilities.security.brain_context import ActorContext
 from agent_utilities.security.permissions_kernel import AgentRole, PermissionsKernel
 
 
@@ -60,11 +60,39 @@ def kg() -> KnowledgeGraph:
     return KnowledgeGraph()
 
 
+class _FakeMarkingStore:
+    """Minimal durable-store double for the mandatory marking authority.
+
+    apply_marking requires a resolved marking store
+    (agent_utilities/knowledge_graph/ontology/permissioning.py) -- process-wide
+    and cached-once, so an unavailable store fails every test in the process,
+    not just the first. use_marking_authority is the sanctioned DI/test seam
+    (see tests/ontology/test_permissioning.py's clean_permissioning autouse
+    fixture for the established pattern).
+    """
+
+    def __init__(self) -> None:
+        self.persisted: dict[str, dict] = {}
+
+    def execute(self, query, params):
+        if query.startswith("MATCH"):
+            return list(self.persisted.values())
+        self.persisted[params["id"]] = {
+            "node_id": params["n"],
+            "tenant_id": params["tenant"],
+            "markings": params["marks"],
+        }
+        return []
+
+
 @pytest.fixture(autouse=True)
 def _clean_brain_state():
+    from agent_utilities.knowledge_graph.ontology import permissioning as p
+
     reset_company_brain()
     clear_markings()
-    yield
+    with p.use_marking_authority(_FakeMarkingStore()):
+        yield
     reset_company_brain()
     clear_markings()
 
@@ -167,24 +195,63 @@ def test_object_index_batch_incremental_staleness_reindex(kg: KnowledgeGraph) ->
 def test_query_enforce_filters_marked_passes_public(
     monkeypatch: pytest.MonkeyPatch, kg: KnowledgeGraph
 ) -> None:
+    from agent_utilities.core.config import config
+
+    # kg.query()'s light epistemic-attach layer (CONCEPT:AU-KB-CURRENCY, "Native
+    # by default") is on by default and needs self.compute (a bound engine) even
+    # for a plain read -- unrelated to what THIS test actually exercises (the
+    # marking-enforcement row filter). Opt out for this hermetic, no-engine test.
+    monkeypatch.setattr(config, "epistemic_light_default", False)
+
+    from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
+    from agent_utilities.models.company_brain import DataClassification
+
     pre = _p()
     pub_id, sec_id = f"{pre}:public", f"{pre}:secret"
     apply_marking(sec_id, Marking("topsecret"))
+    # enforce()/restricted_view() fail closed on a MISSING ACL regardless of
+    # marking (permissioning.py's _acl_permits docstring: "fail-closed
+    # discretionary ACL check") -- give BOTH an otherwise-permitting
+    # PUBLIC-classification ACL, so sec_id's denial for the uncleared actor
+    # (and its visibility for the cleared one) is purely a function of the
+    # mandatory marking this test actually exercises, not a missing ACL.
+    build_acl(pub_id, DataClassification.PUBLIC)
+    build_acl(sec_id, DataClassification.PUBLIC)
 
     # Use a fixed in-memory store read so the test is deterministic and exercises
     # the facade query() path (scope -> filter_rows -> enforce_fine_grained -> audit).
     rows = [{"id": pub_id, "name": "open"}, {"id": sec_id, "name": "classified"}]
 
     class _Store:
-        def execute(self, cypher, params=None):  # noqa: D401, ANN001
+        # kg.query() calls store.execute_read(...), not execute() (that's the
+        # unfiltered raw store method secured_reads.scope() wraps around).
+        def execute_read(self, cypher, params=None, *, include_epistemic=False):
             return list(rows)
 
     kg._store = _Store()
 
-    low = ActorContext(
-        actor_id="analyst:1", actor_type=ActorType.HUMAN, roles=("analyst",)
+    # kg.query()'s resolve_session(session=None, ...) always resolves the
+    # AMBIENT GraphSession (core/session.py: "Every caller must inherit the
+    # authentication middleware's ambient session" -- an out-of-band actor
+    # substitution is deliberately rejected), so use_actor(...) alone has no
+    # effect on enforcement here. Swap the ambient session's actor itself via
+    # with_actor (which requires a matching tenant_id) + use_session.
+    from _test_engine import TEST_TENANT
+
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
     )
-    with use_actor(low):
+
+    baseline = current_session()
+    low = ActorContext(
+        actor_id="analyst:1",
+        actor_type=ActorType.HUMAN,
+        roles=("analyst",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    with use_session(baseline.with_actor(low)):
         out = kg.query("MATCH (n) RETURN n")
     ids = {r["id"] for r in out}
     # Public row passes (allow-by-default); marked row is row-dropped.
@@ -193,19 +260,42 @@ def test_query_enforce_filters_marked_passes_public(
 
     # An actor holding the marking sees both.
     cleared = ActorContext(
-        actor_id="admin:1", actor_type=ActorType.HUMAN, roles=("marking:topsecret",)
+        actor_id="admin:1",
+        actor_type=ActorType.HUMAN,
+        roles=("marking:topsecret",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
     )
-    with use_actor(cleared):
+    with use_session(baseline.with_actor(cleared)):
         out2 = kg.query("MATCH (n) RETURN n")
     assert {r["id"] for r in out2} == {pub_id, sec_id}
 
 
-def test_query_unmarked_data_passes_unchanged(kg: KnowledgeGraph) -> None:
-    """Allow-by-default: unmarked/unACL'd rows are returned verbatim."""
+def test_query_unmarked_data_passes_unchanged(
+    monkeypatch: pytest.MonkeyPatch, kg: KnowledgeGraph
+) -> None:
+    """Allow-by-default (given a permitting ACL): unmarked rows pass verbatim.
+
+    permissioning.py's enforce()/restricted_view() fail closed on any row with
+    no ACL at all ("Missing authority or policy infrastructure fails closed" --
+    enforce()'s own docstring); "allow-by-default" here means an explicit
+    PUBLIC-classification ACL and no marking, not the absence of any control.
+    """
+    from agent_utilities.core.config import config
+    from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
+    from agent_utilities.models.company_brain import DataClassification
+
+    # See test_query_enforce_filters_marked_passes_public: opt out of the
+    # engine-requiring light epistemic-attach layer for this hermetic test.
+    monkeypatch.setattr(config, "epistemic_light_default", False)
+
     rows = [{"id": f"{_p()}:a", "name": "x"}, {"id": f"{_p()}:b", "name": "y"}]
+    for row in rows:
+        build_acl(row["id"], DataClassification.PUBLIC)
 
     class _Store:
-        def execute(self, cypher, params=None):  # noqa: ANN001
+        # kg.query() calls store.execute_read(...), not execute().
+        def execute_read(self, cypher, params=None, *, include_epistemic=False):
             return list(rows)
 
     kg._store = _Store()
@@ -213,17 +303,41 @@ def test_query_unmarked_data_passes_unchanged(kg: KnowledgeGraph) -> None:
     assert out == rows
 
 
+@pytest.fixture
+def kg_engine(engine_graph) -> KnowledgeGraph:
+    """A KnowledgeGraph bound to the REAL ephemeral test engine.
+
+    Unlike the bare ``kg`` fixture (used above with a hand-rolled fake
+    ``_Store``), these two tests call real backend write methods
+    (``store.add_node``/``add_edge``) and route a full ``DocumentProcessor``
+    write path through ``kg.store`` -- exactly the "live path" this module
+    docstring promises, so a fake store would defeat the point. Requesting
+    ``engine_graph`` is how a test opts into the real database (tests/
+    conftest.py); it skips cleanly via ``tiny_engine`` when no prebuilt
+    engine binary is available in this environment, rather than hard-failing
+    with "KnowledgeGraph requires the active process-owned graph engine".
+    """
+    kg = KnowledgeGraph()
+    kg._store = engine_graph
+    kg._compute = engine_graph
+    return kg
+
+
 # (d) ── KG-2.45 object sets: search_around + pivot + aggregate ────────────────
-def test_object_set_search_around_pivot_aggregate(kg: KnowledgeGraph) -> None:
-    store = kg.store
+@pytest.mark.engine
+def test_object_set_search_around_pivot_aggregate(kg_engine: KnowledgeGraph) -> None:
+    store = kg_engine.store
     pre = _p()
     a, b, c = f"{pre}:a", f"{pre}:b", f"{pre}:c"
-    store.add_node(a, type="widget", name="alpha", amount=10)
-    store.add_node(b, type="widget", name="beta", amount=20)
-    store.add_node(c, type="gadget", name="gamma")
-    store.add_edge(a, c, rel_type="USES")
+    # GraphComputeEngine.add_node/add_edge use the canonical "node_type"/
+    # "relationship" property names -- "type"/"rel_type" raise ValueError
+    # ("use canonical 'node_type'") on the real engine.
+    store.add_node(a, node_type="widget", name="alpha", amount=10)
+    store.add_node(b, node_type="widget", name="beta", amount=20)
+    store.add_node(c, node_type="gadget", name="gamma")
+    store.add_edge(a, c, relationship="USES")
 
-    ont = kg.ontology
+    ont = kg_engine.ontology
     base = ont.object_set([a, b])
 
     # aggregate: real sum over a numeric property.
@@ -235,12 +349,15 @@ def test_object_set_search_around_pivot_aggregate(kg: KnowledgeGraph) -> None:
     assert around.ids() == [c]
 
     # pivot: follow the link and group the linked set by a target property.
-    piv = base.pivot("USES", "type")
+    piv = base.pivot("USES", "node_type")
     assert {k: len(v) for k, v in piv.groups.items()} == {"gadget": 1}
 
 
 # (e) ── KG-2.48 document processing through the live facade write path ────────
-def test_document_process_chunks_linked_with_embeddings(kg: KnowledgeGraph) -> None:
+@pytest.mark.engine
+def test_document_process_chunks_linked_with_embeddings(
+    kg_engine: KnowledgeGraph,
+) -> None:
     text = (
         "Alpha block is the first paragraph here.\n\n"
         "Beta block is the second paragraph and continues a while.\n\n"
@@ -253,7 +370,7 @@ def test_document_process_chunks_linked_with_embeddings(kg: KnowledgeGraph) -> N
         return [[float(len(t) % 7)] * 8 for t in texts]
 
     proc = DocumentProcessor(
-        kg,
+        kg_engine,
         chunking=ChunkingConfig(chunk_size=50, overlap=10),
         embed_fn=_embed,
     )
@@ -266,7 +383,9 @@ def test_document_process_chunks_linked_with_embeddings(kg: KnowledgeGraph) -> N
     for cn in result.chunk_nodes:
         assert cn["document_id"] == result.document_id
         assert cn["embedding"] and len(cn["embedding"]) == 8
-    edge_types = {e["type"] for e in result.edges}
+    # document_processing.py's _build_edges keys edges by "relationship", not
+    # "type" (see tests/ontology/test_document_processing.py's identical fix).
+    edge_types = {e["relationship"] for e in result.edges}
     assert edge_types == {"HAS_CHUNK", "CHUNK_OF"}
 
 

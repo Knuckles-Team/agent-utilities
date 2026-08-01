@@ -87,6 +87,10 @@ def test_internal_node_goes_to_default_graph(backend, fake_stardog):
 
 
 def test_edge_merge_translates_to_triple(backend, fake_stardog):
+    # cypher-write-subset-allow: the module's `backend` fixture constructs
+    # StardogSparqlBackend(...); `.execute()` on it is translated to SPARQL
+    # against a fake Stardog client, never reaching the native eg-query
+    # Cypher parser at all.
     backend.execute(
         "MATCH (s:Application {id: $sid}), (t:Capability {id: $tid}) "
         "MERGE (s)-[r:SUPPORTS]->(t)",

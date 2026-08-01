@@ -727,6 +727,9 @@ class RegistryEdgeType(StrEnum):
     PRESET_OF = "preset_of"
     RAN_PRESET = "ran_preset"
     TASK_DEPENDS_ON = "task_depends_on"
+    # Dead-letter drain lineage (CONCEPT:AU-KG.ingest.dead-letter-drain): the
+    # original dead-lettered WorkItem -> its explicitly-requeued replacement.
+    DRAINED_AS = "drained_as"
     # Risk Scoring Ontology (CONCEPT:AU-KG.research.research-pipeline-runner)
     ASSESSED_RISK = "assessed_risk"
     HAS_RISK_FACTOR = "has_risk_factor"
@@ -974,7 +977,7 @@ class RegistryEdgeType(StrEnum):
     REACHED_DEAD_END = "reached_dead_end"
     CERTIFIES = "certifies"  # seal_certificate --certifies--> research_artifact
 
-    # Connector → Skill synthesis edges (CONCEPT:AU-KG.compute.automates). AUTOMATES: a proposed
+    # Connector → Skill synthesis edges. AUTOMATES: a proposed
     # Skill/Workflow automates a BusinessProcess/Capability. DERIVED_FROM:
     # provenance from a proposal back to the source system node it was distilled
     # from. COMPOSES: a SkillWorkflowProposal composes its atomic Skill steps.
@@ -1003,6 +1006,65 @@ class RegistryEdgeType(StrEnum):
     # observed-usage one). See ops_causal_crosswalk / ops_causal_graph.
     USED_MODEL = "used_model"
 
+    # Entity-resolution candidates (CONCEPT:AU-KG.identity.entity-resolution-candidates,
+    # universal-ingestion program Track 5). POSSIBLE_SAME_AS is the ONLY edge an
+    # identity-resolution pass writes on its own — it preserves ambiguity
+    # ("these two records MIGHT be the same entity") rather than collapsing
+    # nodes, carrying its evidence/confidence as edge properties. SAME_AS is
+    # written ONLY by the explicit, human/governance-reviewed confirm step
+    # (knowledge_graph.assimilation.identity_candidates.confirm_merge) and is
+    # reversible: `reverted`/`reverted_at` properties mark it inactive without
+    # deleting it, so the decision stays inspectable and undoable with its
+    # originating evidence retained. Distinct from the existing SIMILAR_TO/
+    # SUPERSEDES pair (assimilation/dedup.py), which auto-applies for the
+    # narrower Feature/Article/SDDFeature research-corpus case; general entity
+    # identity must never auto-merge (a wrong merge is worse than no merge).
+    POSSIBLE_SAME_AS = "possible_same_as"
+    SAME_AS = "same_as"
+
+
+# ── The model → graph-engine property contract ────────────────────────────────
+#
+# The engine stores a node's class under exactly ONE property name
+# (``node_type``) and an edge's kind under exactly ONE property name
+# (``relationship``); the native node identity is persisted as ``id``. Registry
+# models, however, carry the node-class discriminator as ``type``
+# (``RegistryNode.type``), so a raw ``model_dump()`` can never be handed to a
+# graph write — it always carries the retired spelling.
+#
+# ``RegistryNode.to_graph_properties()`` below is the SINGLE place that
+# translation happens; ``model_dump()`` keeps its plain Pydantic meaning.
+# Every guard that rejects the retired spelling raises through the factories
+# here so one rule reads as one rule everywhere it is enforced.
+
+GRAPH_NODE_TYPE_PROPERTY = "node_type"
+GRAPH_EDGE_RELATIONSHIP_PROPERTY = "relationship"
+RETIRED_EDGE_RELATIONSHIP_PROPERTIES = frozenset(
+    {"type", "rel_type", "relationship_type", "relation"}
+)
+
+
+def retired_node_type_property_error(*, context: str = "") -> ValueError:
+    """Build the ONE error raised for a graph write carrying a bare ``type``."""
+    where = f"{context}: " if context else ""
+    return ValueError(
+        f"{where}node property 'type' is retired; the canonical node-class "
+        f"property is '{GRAPH_NODE_TYPE_PROPERTY}' "
+        "(project typed models with RegistryNode.to_graph_properties())"
+    )
+
+
+def retired_edge_relationship_property_error(
+    aliases: Any, *, context: str = ""
+) -> ValueError:
+    """Build the ONE error raised for a graph write carrying a retired edge alias."""
+    where = f"{context}: " if context else ""
+    names = ", ".join(f"'{alias}'" for alias in sorted(aliases))
+    return ValueError(
+        f"{where}edge properties ({names}) are retired; the canonical "
+        f"relationship property is '{GRAPH_EDGE_RELATIONSHIP_PROPERTY}'"
+    )
+
 
 class RegistryNode(BaseModel):
     """Base class for all nodes in the registry graph."""
@@ -1018,6 +1080,38 @@ class RegistryNode(BaseModel):
     is_permanent: bool = False
     ewc_fisher_diag: list[float] | None = None
     temporal_drift_score: float = 0.0
+
+    def to_graph_properties(
+        self,
+        *,
+        exclude: Any = None,
+        exclude_none: bool = False,
+    ) -> dict[str, Any]:
+        """Project this node onto the property map a graph write accepts.
+
+        The graph write surface fail-closed rejects a bare ``type`` property:
+        the sole canonical node-class property is ``node_type`` and the native
+        identity is persisted as ``id``. This model carries the same
+        discriminator as ``type``, so ``**node.model_dump()`` is always
+        rejected. This method is the explicit, named model → engine projection
+        — every field in JSON-safe form, with ``type`` replaced by
+        ``node_type`` — and leaves ``model_dump()``'s Pydantic contract intact
+        for serialization, API responses, and fixtures that genuinely want
+        ``type``.
+
+        Args:
+            exclude: Extra field names to omit (e.g. ``{"id"}`` where the
+                caller supplies identity out of band).
+            exclude_none: Drop fields whose value is ``None``.
+
+        Returns:
+            The node's properties keyed exactly as the engine stores them.
+        """
+        skip = set(exclude or ())
+        skip.add("type")
+        props = self.model_dump(mode="json", exclude=skip, exclude_none=exclude_none)
+        props[GRAPH_NODE_TYPE_PROPERTY] = getattr(self.type, "value", str(self.type))
+        return props
 
 
 class CommunityNode(RegistryNode):
@@ -3929,6 +4023,9 @@ class TeamComposition(BaseModel):
             metadata={"source": "team_composition_dag", "team_id": self.team_id},
         )
 
+        def _task_id(step_id: str) -> str:
+            return f"{dag_id}:task:{step_id}"
+
         for step in plan.steps:
             from agent_utilities.orchestration.work_item import (
                 execution_work_item_id,
@@ -3948,6 +4045,28 @@ class TeamComposition(BaseModel):
                 work_item_id=work_item_id,
                 idempotency_key=work_item_id,
             )
+
+            # Legacy ':AgentTask' mirror (CONCEPT:AU-OS.state.cognitive-scheduler-preemption):
+            # WorkItem is the write/claim authority above, but
+            # fleet_reconciler.fire_ready_agent_tasks' discovery scan still
+            # matches on ":AgentTask {status: 'blocked'}" graph nodes, not
+            # WorkItems -- so this mirror must exist for that sweep (and any
+            # other unmigrated :AgentTask reader) to find candidates at all.
+            task_id = _task_id(str(step.id))
+            depends_on_task_ids = [_task_id(str(dep)) for dep in step.depends_on]
+            store.engine.add_node(
+                task_id,
+                "AgentTask",
+                properties={
+                    "dag_id": dag_id,
+                    "depends_on_task_ids": depends_on_task_ids,
+                    "status": "pending" if not depends_on_task_ids else "blocked",
+                },
+            )
+            for dep_task_id in depends_on_task_ids:
+                store.engine.link_nodes(
+                    task_id, dep_task_id, RegistryEdgeType.TASK_DEPENDS_ON
+                )
 
         return dag_id
 

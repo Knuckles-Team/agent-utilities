@@ -44,6 +44,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from agent_utilities.core.config import setting
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +89,7 @@ class _NativeGraphSliceCapture:
     ) -> None:
         row = dict(properties)
         if "type" in row:
-            raise ValueError("node property 'type' is retired; use node_type")
+            raise retired_node_type_property_error()
         node_type = str(row.pop("node_type", "") or label or "Entity")
         row["id"] = str(node_id)
         row["node_type"] = node_type
@@ -100,11 +105,9 @@ class _NativeGraphSliceCapture:
         **properties: Any,
     ) -> None:
         row = dict(properties)
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            row
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)
         if aliases:
-            raise ValueError("edge relationship aliases are retired")
+            raise retired_edge_relationship_property_error(aliases)
         edge_type = str(row.pop("relationship", "") or rel_type or "RELATED_TO")
         edge = {
             "source": str(source),
@@ -635,6 +638,34 @@ def _changed_source_files(repo_path: str, since_sha: str) -> list[Path] | None:
     return out
 
 
+def _deepcopy_safe_metadata(value: Any) -> Any:
+    """Recursively reduce ``value`` to something ``copy.deepcopy`` can handle.
+
+    Manifest metadata may legitimately carry LIVE object references some
+    connectors need only for their own run (e.g. mcp_tool's injected fastmcp
+    ``client`` — a whole server/session object, sometimes holding a class
+    attribute or similar non-deep-copyable internal). ``_privacy_safe_result``
+    below deep-copies the WHOLE ``IngestionResult`` for a persisted/historical
+    snapshot; a live object anywhere inside it crashes that copy outright
+    ("cannot pickle 'mappingproxy' object", or similar) rather than just
+    failing to serialize gracefully. Dicts/lists/tuples are walked; anything
+    that already round-trips through ``copy.deepcopy`` is kept as-is (so
+    ordinary provenance data is byte-identical); anything that doesn't is
+    replaced with an inert placeholder string.
+    """
+    import copy
+
+    if isinstance(value, dict):
+        return {k: _deepcopy_safe_metadata(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_deepcopy_safe_metadata(v) for v in value]
+    try:
+        copy.deepcopy(value)
+    except Exception:  # noqa: BLE001 - value is opaque; only its copyability matters
+        return f"<non-serializable {type(value).__name__}>"
+    return value
+
+
 # ── IngestionEngine ───────────────────────────────────────────────────────
 
 
@@ -751,6 +782,16 @@ class IngestionEngine:
             persistence_reference,
             sanitize_for_persistence,
         )
+
+        # Reduce metadata to deep-copyable data BEFORE the model-wide deep
+        # copy below — a connector config value that is a live object
+        # reference (e.g. mcp_tool's injected client) is needed only for
+        # this run, not for a persisted/historical snapshot, and would
+        # otherwise crash the deep copy outright.
+        safe_manifest = result.manifest.model_copy(
+            update={"metadata": _deepcopy_safe_metadata(result.manifest.metadata)}
+        )
+        result = result.model_copy(update={"manifest": safe_manifest})
 
         safe = result.model_copy(deep=True)
         safe_metadata, _ = sanitize_for_persistence(safe.manifest.metadata)
@@ -1626,6 +1667,45 @@ class IngestionEngine:
             "persisted": persisted,
         }
         return summary
+
+    async def enrich_text(
+        self,
+        source_id: str,
+        text: str,
+        source_type: str,
+        title: str = "",
+        *,
+        enrich_concepts: bool = True,
+        enrich_facts: bool = True,
+        enrich_entities: bool = True,
+    ) -> dict[str, int]:
+        """Public entry point for the unified intelligence layer (:meth:`_enrich_text`).
+
+        ``_enrich_text`` is the SAME native-writing seam ``ingest()`` drains
+        internally via ``_run_inline_enrich``/``_enrich_payload`` — it already
+        commits through :func:`ingest_graph_slice`, never a direct backend
+        write. It stayed private because every *in-repo* adaptor reaches it
+        through that drain path. Two call sites outside this class
+        (``worldmodel_pipeline._ingest_full`` and the ``feed_ingest`` task in
+        ``engine_tasks.py``) legitimately need the SAME best-effort enrichment
+        pass for text a native ``DocumentProcessor.process()`` call already
+        wrote structurally — they aren't handed an ``IngestionManifest`` to
+        run through the adaptor dispatch, just already-fetched article text —
+        so they were reaching past the class boundary and calling the
+        underscore-prefixed method directly (CONCEPT:AU-KG.ingest.change-envelope
+        boundary gate). This thin wrapper is the supported public surface for
+        that pattern: same signature, same native write path, no encapsulation
+        violation.
+        """
+        return await self._enrich_text(
+            source_id,
+            text,
+            source_type,
+            title,
+            enrich_concepts=enrich_concepts,
+            enrich_facts=enrich_facts,
+            enrich_entities=enrich_entities,
+        )
 
     def _enrichment_windows(self, text: str) -> list[str]:
         """Bounded LLM windows over ``text``.
@@ -2534,6 +2614,15 @@ class IngestionEngine:
                     "source_kind": "web-document",
                     "fetch_backend": "bounded-http",
                     "fetched_at": _now(),
+                    # The raw URL for immediate in-process use (e.g. the
+                    # downstream doc.file_path fallback at
+                    # manifest.metadata.get("source_url")) -- source_uri
+                    # above is the privacy-abstracted reference instead.
+                    # 'source_url' is in the persistence privacy guard's
+                    # _LOCATION_FIELDS allowlist, so it is redacted before
+                    # crossing the durable/telemetry boundary
+                    # (_privacy_safe_result).
+                    "source_url": url,
                 },
                 force=manifest.force,
             )

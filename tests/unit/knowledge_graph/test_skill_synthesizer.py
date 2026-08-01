@@ -78,7 +78,10 @@ class FakeEngine:
         self.graph.add_node(node_id, {"type": node_type, **(properties or props or {})})
 
     def link_nodes(self, source, target, rel_type, properties=None) -> None:
-        self.graph.add_edge(source, target, type=rel_type, **(properties or {}))
+        # ConnectorSkillDistiller._edge_rel reads the canonical "relationship"
+        # edge property (node classification in this module uses "type", but
+        # edges use "relationship" -- see _edge_rel/_tasks_of/_flows).
+        self.graph.add_edge(source, target, relationship=rel_type, **(properties or {}))
 
     # the distiller never calls this on the fake path, but compiler/reasoner may
     def query_cypher(self, *a, **k):  # noqa: D401 - inert fake for tests
@@ -251,19 +254,29 @@ def test_propose_writes_nodes_with_automates_and_derived_from_edges():
     wf = nodes[wf_id]
     assert wf["type"] == "skill_workflow_proposal"
     assert wf["proposal_status"] == "proposal"
-    assert wf["source_ref"].startswith("skill_source:")
+    # source_ref is an opaque, non-reversible persistence_reference() hash
+    # (agent_utilities/security/persistence_privacy.py) -- "pref_<kind>_<hex>",
+    # never a literal colon-joined "skill_source:<system>:<id>" string, so no
+    # identifying source system/id leaks into the stored proposal node.
+    assert wf["source_ref"].startswith("pref_skill_source_")
     assert "provenance" not in wf
     assert isinstance(wf["trigger_patterns"], list) and wf["trigger_patterns"]
     # AUTOMATES + DERIVED_FROM edges from the proposal
     edges = engine.graph._edges
     automates = [
-        (s, t) for s, t, p in edges if p.get("type") == "AUTOMATES" and s == wf_id
+        (s, t)
+        for s, t, p in edges
+        if p.get("relationship") == "AUTOMATES" and s == wf_id
     ]
     derived = [
-        (s, t) for s, t, p in edges if p.get("type") == "DERIVED_FROM" and s == wf_id
+        (s, t)
+        for s, t, p in edges
+        if p.get("relationship") == "DERIVED_FROM" and s == wf_id
     ]
     composes = [
-        (s, t) for s, t, p in edges if p.get("type") == "COMPOSES" and s == wf_id
+        (s, t)
+        for s, t, p in edges
+        if p.get("relationship") == "COMPOSES" and s == wf_id
     ]
     assert automates == [(wf_id, "bpmn_process:invoice")]
     assert derived == [(wf_id, "bpmn_process:invoice")]
@@ -309,7 +322,8 @@ def test_draft_artifact_writes_to_staging_not_repo(tmp_path):
     candidates = d.dedup(d.classify(d.discover()))
     wf = next(c for c in candidates if c.kind == "workflow")
     artifact_ref = d.draft_artifact(wf)
-    assert artifact_ref.startswith("skill_artifact:")
+    # opaque persistence_reference() hash, see test_propose_writes_nodes_...
+    assert artifact_ref.startswith("pref_skill_artifact_")
     assert str(tmp_path) not in artifact_ref
     text = (tmp_path / wf.name / "SKILL.md").read_text()
     assert "## Steps" in text
@@ -362,10 +376,11 @@ def test_materialize_approved_proposal_writes_skill_md_and_stamps_node(tmp_path)
         and props.get("name") == "receive-invoice"
     )
     res = d.materialize(pid)
-    assert res["proposal_ref"].startswith("skill_proposal:")
+    # opaque persistence_reference() hashes, see test_propose_writes_nodes_...
+    assert res["proposal_ref"].startswith("pref_skill_proposal_")
     assert res["status"] in ("approved", "drafted")
     # the SKILL.md exists in the staging dir (never a repo)
-    assert res["artifact_ref"].startswith("skill_artifact:")
+    assert res["artifact_ref"].startswith("pref_skill_artifact_")
     assert str(tmp_path) not in str(res)
     assert (tmp_path / "receive-invoice" / "SKILL.md").exists()
     # the node is stamped approved

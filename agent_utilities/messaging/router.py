@@ -896,32 +896,45 @@ async def _persist_media(
                     getattr(att, "mime_type", "")
                     or resp.headers.get("content-type", "").split(";")[0].strip()
                 )
-                stored = await asyncio.to_thread(
-                    store.store_media,
-                    data,
-                    media_type=media_type,
-                    mime_type=mime_type,
-                    source=platform,
-                    message_id=message_memory_id,
-                    name=getattr(att, "filename", ""),
-                    owner=owner,
-                    event_time=event_time,
-                    provenance={
-                        "platform": platform,
-                        "channel_id": channel_id,
-                        "thread_id": str(getattr(event, "thread_id", "")),
-                        "message_id": str(getattr(msg, "id", "")),
-                        "filename": getattr(att, "filename", ""),
-                    },
-                )
-                if media_type in ("voice_note", "audio"):
-                    await _persist_audio_segment_evidence(
-                        store,
+                # D-DSTO-7 (reports/deferred/lane-dst-orch.md): store_media (and the
+                # audio-segment-evidence follow-up) is per-attachment best-effort, same
+                # as the download step above — an unguarded failure here used to
+                # propagate out of the `for att in media[:8]` loop entirely, silently
+                # skipping every REMAINING attachment in this message's batch instead
+                # of just the one that failed.
+                try:
+                    stored = await asyncio.to_thread(
+                        store.store_media,
                         data,
-                        stored=stored,
+                        media_type=media_type,
                         mime_type=mime_type,
                         source=platform,
+                        message_id=message_memory_id,
+                        name=getattr(att, "filename", ""),
+                        owner=owner,
+                        event_time=event_time,
+                        provenance={
+                            "platform": platform,
+                            "channel_id": channel_id,
+                            "thread_id": str(getattr(event, "thread_id", "")),
+                            "message_id": str(getattr(msg, "id", "")),
+                            "filename": getattr(att, "filename", ""),
+                        },
                     )
+                    if media_type in ("voice_note", "audio"):
+                        await _persist_audio_segment_evidence(
+                            store,
+                            data,
+                            stored=stored,
+                            mime_type=mime_type,
+                            source=platform,
+                        )
+                except Exception as e:  # noqa: BLE001 — per-attachment store is best-effort, mirroring the download step's isolation; continues to the next attachment in the batch instead of aborting the whole message
+                    logger.debug(
+                        "[CONCEPT:AU-KG.ingest.list-durable-media] media store failed: %s",
+                        e,
+                    )
+                    continue
     finally:
         trust.cleanup()
 

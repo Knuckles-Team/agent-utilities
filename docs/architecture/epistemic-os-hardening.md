@@ -324,8 +324,19 @@ miss, ask the engine's placement-route op, trying every configured endpoint in
 HRW-preference order (the catalog is cluster-wide, any endpoint can answer); (3) the
 **static HRW ring** (`shard_topology.shard_endpoint_for`) as the bootstrap/fallback.
 
-**The honest caveat, verbatim from the code and repeated in
-`docs/architecture/engine_sharding.md`:** *the currently-shipped engine has no wire
+**Superseded — corrected 2026-07-31 (D-WD-1, D-WD-2 in
+`reports/deferred/lane-webui-dataplane.md`):** the paragraph below described the
+*original design intent* when it was written; it no longer matches the deployed
+engine. The engine **now exposes a wire `PlacementRoute` RPC** (verified live
+against the cluster), so "no wire Method yet, therefore always HRW" is false, and
+there is no callable static-HRW-ring function to fall back to in this repository
+(`shard_topology.shard_endpoint_for` does not exist — repository grep, 2026-07-31).
+The real, current behavior for a non-cluster-admin caller is a hard failure —
+`PlacementAuthorityError` from the engine's `ACCESS_DENIED: … admin:cluster-read`
+— not a silent fallback. `PLACEMENT_CATALOG_ENABLED` is still unread by any code
+path; it is reserved as the natural switch for D-WD-1's real fix, not wired yet.
+
+*Original text, kept for history:* *the currently-shipped engine has no wire
 `Method` for `PlacementRoute` yet* — `PlacementCatalog::route` is presently consumed
 only **inside** the engine by `MultiRaft`'s own cross-group dispatch. So every real
 call from this module fails today, and the designed fallback kicks in exactly as
