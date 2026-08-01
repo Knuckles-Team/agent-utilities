@@ -98,7 +98,7 @@ def server_ceiling(model: str | None = None) -> int:
     dictates — its vLLM ``--max-num-seqs`` / KV-cache + unified-memory budget — NOT
     the local host's CPU count. Resolution order:
 
-    1. The model's explicit ``max_concurrent_requests`` (CONCEPT:AU-KG.compute.same-semantics-as), when
+    1. The model's explicit ``max_concurrent_requests``, when
        configured — the operator's exact server capacity, wins absolutely (it may be
        *below* the optimistic ``parallel_instances × max_parallel_calls`` product if
        the box genuinely can't sustain that).

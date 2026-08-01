@@ -93,14 +93,18 @@ These are the node tables with embedding columns, derived from `schema_definitio
 | `KBFact` | Knowledge base facts | varies |
 | `KnowledgeBaseTopic` | KB topics | varies |
 
-## Retrieval is ONE engine plan — no Python vector path (CONCEPT:AU-KG.compute.kg-2)
+## Retrieval is ONE engine plan — no Python vector path
+
+> The decision, its rejected alternative (the hand-orchestrated Python
+> pipeline of siloed round-trips) and its cost are in
+> `.specify/design/kg-engine-native-compute/design.md`.
 
 `HybridRetriever.retrieve_hybrid`'s vector arm is **collapsed onto the engine**.
 The vector neighbourhood is **always** computed by the engine's native ANN — never
 by Python. There are exactly two engine-native vector paths, in preference order:
 
-1. **Unified cross-modal plan** (`graph.query_unified` → `client.query.unified`,
-   CONCEPT:AU-KG.compute.vector). ONE costed round-trip the engine sequences over a single
+1. **Unified cross-modal plan** (`graph.query_unified` → `client.query.unified`).
+   ONE costed round-trip the engine sequences over a single
    off-lock snapshot, composing the vector `Rank` leg with optional `Filter`
    (DataFusion) / `Traverse` (petgraph BFS) / `FuseRrf` (native reciprocal-rank
    fusion of a vector + lexical leg, CONCEPT:AU-KG.query.text-spatial-time). The
@@ -160,7 +164,7 @@ just not optimal).
 | File | Component |
 |------|-----------|
 | `knowledge_graph/backends/contrib/ladybug_backend.py` | `build_vector_indices()`, `drop_vector_indices()` (Ladybug/Kuzu is a demoted `contrib` mirror; the authority is `epistemic_graph_backend.py`, with `postgresql_backend.py` as an optional mirror) |
-| `knowledge_graph/retrieval/hybrid_retriever.py` | `_engine_vector_search()` (ONE engine unified plan / native ANN), `_batch_node_properties()` — CONCEPT:AU-KG.compute.kg-2 |
+| `knowledge_graph/retrieval/hybrid_retriever.py` | `_engine_vector_search()` (ONE engine unified plan / native ANN), `_batch_node_properties()` |
 | `knowledge_graph/core/graph_compute.py` | `query_unified()` (→ `client.query.unified`), `semantic_search()` |
 | `knowledge_graph/core/engine_tasks.py` | `submit_task()` (pre-drop), `_maybe_build_vector_indexes()` (post-build) |
 | `mcp/kg_server.py` | `graph_ingest(action="rebuild_indexes")` |
@@ -181,7 +185,7 @@ just not optimal).
    source of vector ranking (unified plan, or the native `semantic_search`
    primitive when unified planning is unavailable).
 
-## The capability designation index stays in-RAM — and why (CONCEPT:AU-KG.compute.kg-2)
+## The capability designation index stays in-RAM — and why
 
 `retrieval/capability_index.py` (`CapabilityIndex`) keeps its **own** small
 HNSW/numpy index over *callable* nodes (tools / skills / agents) for

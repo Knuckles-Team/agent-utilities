@@ -449,8 +449,11 @@ class Artifact:
         byte_length: Size of the retrieved content in bytes.
         content_ref: Where the bytes live when they are not inline (a blob key /
             URI — the envelope's ``blob_ref``), else ``""``.
-        envelope_id / idempotency_key / source_version / schema_version: The
-            delivery this artifact was extracted from.
+        envelope_id / idempotency_key / source_version / schema_version /
+            ontology_mapping_version: The delivery this artifact was extracted
+            from — ``ontology_mapping_version`` is the domain-pack revision
+            that mapped the raw payload onto graph facts, the last link in a
+            source-to-claim lineage walk (CONCEPT:AU-KG.retrieval.source-to-claim-lineage).
         classification / retention / legal_hold / external_access: Governance,
             copied from the envelope.
         fragments: The artifact's fragments in document order.
@@ -472,6 +475,7 @@ class Artifact:
     idempotency_key: str = ""
     source_version: str = ""
     schema_version: str = "1"
+    ontology_mapping_version: str = ""
     tenant: str = ""
 
     classification: str = "internal"
@@ -542,6 +546,7 @@ class Artifact:
             idempotency_key=envelope.idempotency_key,
             source_version=envelope.source_version,
             schema_version=envelope.schema_version,
+            ontology_mapping_version=envelope.ontology_mapping_version,
             tenant=envelope.tenant,
             classification=envelope.classification.value,
             retention=envelope.retention,
@@ -572,6 +577,7 @@ class Artifact:
             "idempotency_key": self.idempotency_key,
             "source_version": self.source_version,
             "schema_version": self.schema_version,
+            "ontology_mapping_version": self.ontology_mapping_version,
             "classification": self.classification,
             "legal_hold": self.legal_hold,
         }

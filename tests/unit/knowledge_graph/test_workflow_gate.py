@@ -60,6 +60,62 @@ class FakeEngine:
         self.backend = None
 
 
+class FakeBackend:
+    """Minimal Cypher-shaped stand-in for the backend/persistent-store branch of
+    :func:`workflow_gate._find_workflow` (D-WS-6) — a real deployment's ``execute()``
+    on a connected backend, honoring the exact two queries that function issues
+    (``MATCH (w:WorkflowDefinition) WHERE w.name = $name ...`` and the
+    ``-[:HAS_STEP]->`` step lookup), never the NX/compute-graph branch
+    :class:`FakeGraph` exercises.
+    """
+
+    def __init__(self):
+        self._definitions: dict[str, dict] = {}
+        self._steps: dict[str, list[dict]] = {}
+
+    def add_workflow(self, wid, name, step_count, steps=None):
+        self._definitions[name] = {"wid": wid, "name": name, "step_count": step_count}
+        self._steps[wid] = steps or []
+
+    def execute(self, query, params):
+        if "WorkflowDefinition) WHERE w.name" in query:
+            row = self._definitions.get(params.get("name"))
+            return [row] if row else []
+        if "HAS_STEP" in query:
+            return self._steps.get(params.get("wid"), [])
+        return []
+
+
+class FakeBackendEngine:
+    """Engine stand-in whose ``backend`` is set — routes ``_find_workflow`` down
+    the backend branch, never the ``graph`` (compute-mirror) branch, exactly as a
+    real connected-backend deployment does.
+    """
+
+    def __init__(self):
+        self.backend = FakeBackend()
+        self.graph = None
+
+
+def _seed_backend_workflow(
+    engine, name="invoice_flow", step_count=2, steps=None, *, acl=True
+):
+    wid = f"workflow:{name}:abc123"
+    if acl:
+        from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
+        from agent_utilities.models.company_brain import DataClassification
+
+        build_acl(wid, DataClassification.PUBLIC)
+    if steps is None:
+        steps = [{"step_id": "review"}, {"step_id": "archive"}]
+    step_rows = [
+        {"sid": f"{wid}:step:{i}", "step_order": i, **step}
+        for i, step in enumerate(steps)
+    ]
+    engine.backend.add_workflow(wid, name, step_count, step_rows)
+    return wid
+
+
 def _seed_workflow(engine, name="invoice_flow", step_count=2, steps=None, *, acl=True):
     wid = f"workflow:{name}:abc123"
     engine.graph.add_node(
@@ -163,6 +219,38 @@ class TestShapeGate:
         from agent_utilities.core.config import AgentConfig
 
         assert AgentConfig().kg_workflow_shape_gate is True
+
+
+class TestShapeGateBackendPath:
+    """D-WS-6 — mirrors :class:`TestShapeGate` against the backend/persistent-store
+    branch of ``_find_workflow`` (``engine.backend`` set, real Cypher-shaped
+    queries), not just the NX/compute-graph branch every other test in this file
+    exercises. A real deployment uses the backend branch exclusively — this
+    file previously had zero coverage proving it behaves identically.
+    """
+
+    def test_valid_workflow_passes(self):
+        engine = FakeBackendEngine()
+        wid = _seed_backend_workflow(engine)
+        gate = gate_workflow_execution(engine, "invoice_flow")
+        assert gate["allowed"] is True
+        assert gate["workflow_id"] == wid
+        assert gate["violations"] == []
+
+    def test_zero_step_workflow_refused(self):
+        engine = FakeBackendEngine()
+        _seed_backend_workflow(engine, name="empty_flow", step_count=0, steps=[])
+        gate = gate_workflow_execution(engine, "empty_flow")
+        assert gate["allowed"] is False
+        assert any(
+            "step" in str(v.get("message", "")).lower() for v in gate["violations"]
+        )
+
+    def test_unstored_workflow_is_refused(self):
+        engine = FakeBackendEngine()
+        gate = gate_workflow_execution(engine, "dynamic_adhoc_flow")
+        assert gate["allowed"] is False
+        assert gate["workflow_id"] is None
 
 
 class TestPermissionGate:
@@ -382,3 +470,115 @@ class TestDispatchWorkflowWiring:
         assert gate_idx != -1, "dispatch_workflow must run the ORCH-1.42 gate"
         assert task_idx != -1
         assert gate_idx < task_idx, "gate must run BEFORE background dispatch"
+
+
+class TestOrchestratorExecuteWorkflowGatesAtTheChokepoint:
+    """D-WS-8 — the gate now runs INSIDE ``Orchestrator.execute_workflow`` itself.
+
+    Before this fix only the ``graph_workflows`` MCP handler called
+    ``gate_workflow_execution`` before dispatch; four production callers
+    (``ticket_playbooks._dispatch_workflow``,
+    ``loop_controller._default_skill_runner``,
+    ``weights_distillation._dispatch_train_workflow``, ``schedule_engine``)
+    invoke ``Orchestrator.execute_workflow`` directly and skipped SHACL/ACL
+    validation entirely. Gating at this single chokepoint means every caller
+    inherits it without touching any of the four call sites.
+    """
+
+    async def _orchestrator(self, engine):
+        from agent_utilities.orchestration.manager import Orchestrator
+
+        return Orchestrator(engine)
+
+    async def test_unstored_workflow_raises_gate_denied_before_any_dispatch(self):
+        from agent_utilities.knowledge_graph.core.workflow_gate import (
+            WorkflowGateDeniedError,
+        )
+
+        engine = FakeEngine()
+        orchestrator = await self._orchestrator(engine)
+
+        with pytest.raises(WorkflowGateDeniedError) as excinfo:
+            await orchestrator.execute_workflow("never_stored_flow")
+
+        assert excinfo.value.gate["workflow_id"] is None
+        assert excinfo.value.gate["violations"][0]["code"] == (
+            "workflow_definition_missing"
+        )
+
+    async def test_zero_step_workflow_raises_gate_denied_before_any_dispatch(
+        self, monkeypatch
+    ):
+        """A step_count=0 WorkflowDefinition must be refused BY THE GATE, not
+        merely by the deeper zero-step guard in ``WorkflowRunner`` (D-FSR-1) —
+        proving the gate itself is now reached from this entrypoint.
+        """
+        from agent_utilities.knowledge_graph.core.workflow_gate import (
+            WorkflowGateDeniedError,
+        )
+        from agent_utilities.workflows.runner import WorkflowRunner
+
+        engine = FakeEngine()
+        _seed_workflow(engine, name="empty_flow", step_count=0, steps=[])
+        orchestrator = await self._orchestrator(engine)
+
+        called = {"execute_by_name": False}
+
+        async def _must_not_be_called(*_a, **_k):
+            called["execute_by_name"] = True
+            raise AssertionError("WorkflowRunner must not run past a gate denial")
+
+        monkeypatch.setattr(WorkflowRunner, "execute_by_name", _must_not_be_called)
+
+        with pytest.raises(WorkflowGateDeniedError):
+            await orchestrator.execute_workflow("empty_flow")
+
+        assert called["execute_by_name"] is False
+
+    async def test_valid_workflow_passes_the_gate_and_reaches_the_runner(
+        self, monkeypatch
+    ):
+        """The gate is not a blanket refusal — a conformant, ACL-permitted
+        workflow still reaches ``WorkflowRunner.execute_by_name`` as before.
+        """
+        from agent_utilities.workflows.runner import WorkflowResult, WorkflowRunner
+
+        engine = FakeEngine()
+        _seed_workflow(engine, name="invoice_flow")
+        orchestrator = await self._orchestrator(engine)
+
+        seen: dict[str, object] = {}
+
+        async def _fake_execute_by_name(self, *, workflow_name, engine, **kwargs):
+            seen["workflow_name"] = workflow_name
+            return WorkflowResult(
+                workflow_name=workflow_name,
+                session_id="sess-1",
+                step_results=[],
+                status="completed",
+            )
+
+        monkeypatch.setattr(WorkflowRunner, "execute_by_name", _fake_execute_by_name)
+
+        payload = await orchestrator.execute_workflow("invoice_flow")
+
+        assert seen["workflow_name"] == "invoice_flow"
+        assert payload["run_id"] == "sess-1"
+
+    def test_gate_call_precedes_the_workflow_runner_import_in_source(self):
+        """Source order: the chokepoint gate must run BEFORE WorkflowRunner is
+        even constructed — a caller must never be able to reach dispatch on a
+        denial (belt-and-suspenders alongside the behavioral tests above).
+        """
+        import inspect
+
+        from agent_utilities.orchestration import manager
+
+        source = inspect.getsource(manager.Orchestrator.execute_workflow)
+        gate_idx = source.find("gate_workflow_execution(self.engine, workflow_id)")
+        runner_idx = source.find("runner = WorkflowRunner(")
+        assert gate_idx != -1, (
+            "execute_workflow must call gate_workflow_execution (D-WS-8)"
+        )
+        assert runner_idx != -1
+        assert gate_idx < runner_idx, "gate must run BEFORE the runner is built"

@@ -434,6 +434,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: guardrail-citation-lineage
+    name: Guardrail — citation lineage (mandatory evidence citation + embedding versioning)
+    entry: python3 scripts/check_citation_lineage.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: guardrail-liveness
     name: Guardrail — liveness ratchet
     entry: python3 scripts/check_liveness.py
@@ -466,6 +472,19 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # concept-governance.yml's merged-audit job (D-RG2-3) — base-less: audits
+  # EVERY live CONCEPT id in the tree (not just the diff), ratcheted against
+  # scripts/concept_design_doc_baseline.txt. This scans the whole repo tree
+  # (~9s), heavier than the diff-based hook above, so it is staged
+  # manual/pre-push rather than added to every default --all-files run:
+  #   pre-commit run check-concept-governance-merged --hook-stage manual --all-files
+  - id: check-concept-governance-merged
+    name: CI parity — concept governance (merged-but-undocumented audit, D-RG2-3)
+    entry: python3 scripts/check_concept_governance.py --audit-merged
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   # pages.yml — `mkdocs build` (the docs build step of the GitHub Pages deploy
   # workflow). Staged manual/pre-push: it provisions an isolated mkdocs env and
   # is heavier than a per-commit gate, and the deploy itself is push-to-main

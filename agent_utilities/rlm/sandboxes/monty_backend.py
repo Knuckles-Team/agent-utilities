@@ -75,6 +75,14 @@ class MontySandbox(Sandbox):
         return self._available
 
     async def execute(self, code: str, env: SandboxEnv) -> SandboxResult:
+        # pydantic-monty >=0.0.18 replaced the old fresh-per-call `Monty(code, inputs=...)` +
+        # `run_async(...)` object with a subprocess-worker-pool model: `AsyncMonty` is the pool
+        # (spawned by `async with`), `pool.checkout(limits=...)` hands out a dedicated
+        # `AsyncMontySession`, and `session.feed_run(code, inputs=..., external_lookup=...)`
+        # parses AND runs the snippet in one call. There is no longer a separate
+        # construct-then-run split, but a syntax error still surfaces (as `MontySyntaxError`)
+        # before any `external_lookup` entry is invoked, so the "parse rejections happen
+        # before any helper fires" invariant this backend depends on still holds.
         from pydantic_monty import (
             AsyncMonty,
             CollectString,

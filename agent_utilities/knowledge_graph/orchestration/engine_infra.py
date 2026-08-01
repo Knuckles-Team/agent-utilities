@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
 import time
@@ -361,12 +362,23 @@ class InfrastructureEngineMixin(_Base):
         # Execute the promotion cycle to populate ABox facts inside OWL backend
         bridge.run_cycle()
 
-        # 4. Query Host capabilities via SPARQL
+        # 4. Query Host capabilities via SPARQL. The engine's live projection
+        # types every promoted node as au:CamelCase(node_type) — a "host" node
+        # is au:Host, never au:BladeServer (that class belongs to an unrelated
+        # vendor ontology under a completely different namespace/prefix in
+        # ontology_infrastructure.ttl, not this engine-native projection).
+        # Edge predicates ARE case-transformed: _promote_stable_edges()
+        # (owlready2_backend.py) resolves each LPG edge's ``relationship``
+        # value through ``_EDGE_TYPE_TO_OWL_PROP``, whose values are the
+        # camelCase OWL object-property local names used consistently across
+        # the whole ontology ("has_accelerator" -> "hasAccelerator",
+        # "attached_storage" -> "attachedStorage") -- snake_case predicates
+        # never match a real promoted triple (D-GS7-1).
         host_query = """
         PREFIX au: <http://agent-utilities.dev/ontology#>
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
         SELECT ?host ?gpu ?storage WHERE {
-            ?host rdf:type au:BladeServer .
+            ?host rdf:type au:Host .
             OPTIONAL { ?host au:hasAccelerator ?gpu . }
             OPTIONAL { ?host au:attachedStorage ?storage . }
         }
@@ -384,22 +396,48 @@ class InfrastructureEngineMixin(_Base):
         hosts_rdf = bridge.query_sparql(host_query)
         services_rdf = bridge.query_sparql(service_query)
 
+        def _local_id(uri: str) -> str:
+            """The bare node id from a SPARQL-bound URI.
+
+            The engine-native SPARQL surface (and rdflib's SELECT bindings)
+            return full URI terms wrapped in angle brackets
+            (``<http://.../ontology#node:id>``), not bare strings — splitting
+            on ``#`` alone left a trailing ``>`` glued onto the id, so it never
+            matched a real node id and every row was silently dropped below.
+            """
+            return str(uri).strip().strip("<>").split("#")[-1]
+
+        def _labels_of(node_data: dict) -> dict:
+            """The node's "labels" dict property, decoded.
+
+            dict-valued properties are JSON-encoded for storage
+            (IntelligenceGraphEngine._serialize_node) and come back as a JSON
+            string, not a dict.
+            """
+            raw = node_data.get("labels", {}) or {}
+            if isinstance(raw, str):
+                try:
+                    decoded = json.loads(raw)
+                except (TypeError, ValueError):
+                    return {}
+                return decoded if isinstance(decoded, dict) else {}
+            return raw if isinstance(raw, dict) else {}
+
         # Parse SPARQL results and extract attributes from LPG
         hosts_by_id = {}
         for row in hosts_rdf:
-            host_uri = row.get("host", "")
-            host_id = host_uri.split("#")[-1] if "#" in host_uri else host_uri
+            host_id = _local_id(row.get("host", ""))
             if not host_id or host_id not in self.graph:
                 continue
 
             node_data = self.graph.nodes[host_id]
-            labels = node_data.get("labels", {}) or {}
+            labels = _labels_of(node_data)
 
             gpu_uri = row.get("gpu", "")
-            gpu_id = gpu_uri.split("#")[-1] if gpu_uri else None
+            gpu_id = _local_id(gpu_uri) if gpu_uri else None
 
             storage_uri = row.get("storage", "")
-            storage_id = storage_uri.split("#")[-1] if storage_uri else None
+            storage_id = _local_id(storage_uri) if storage_uri else None
 
             hosts_by_id[host_id] = {
                 "id": host_id,
@@ -417,13 +455,12 @@ class InfrastructureEngineMixin(_Base):
         recommendations = []
 
         for row in services_rdf:
-            svc_uri = row.get("service", "")
-            svc_id = svc_uri.split("#")[-1] if "#" in svc_uri else svc_uri
+            svc_id = _local_id(row.get("service", ""))
             if not svc_id or svc_id not in self.graph:
                 continue
 
             svc_data = self.graph.nodes[svc_id]
-            svc_labels = svc_data.get("labels", {}) or {}
+            svc_labels = _labels_of(svc_data)
             svc_desc = svc_data.get("description", "")
             svc_name = svc_data.get("name", svc_id)
 
@@ -504,7 +541,11 @@ class InfrastructureEngineMixin(_Base):
                     "service_id": svc_id,
                     "service_name": svc_name,
                     "description": svc_desc,
-                    "best_host": best_match["host_name"],
+                    # The node id (e.g. "host:pref_...", matching every other
+                    # id this function and ingest_hosts_from_inventory() deal
+                    # in), not the display name — a caller needs the id to
+                    # look the host back up in the graph.
+                    "best_host": best_match["host_id"],
                     "match_score": best_match["score"],
                     "rationale": best_match["reasons"],
                     "all_candidates": candidates,

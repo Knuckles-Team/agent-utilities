@@ -17,6 +17,11 @@ from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from agent_utilities.core.config import setting
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
 from agent_utilities.security.log_redaction import redact_for_log
 
@@ -2243,9 +2248,7 @@ class GraphComputeEngine:
         props = dict(properties or {})
         props.update(kwargs)
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is not supported; use canonical 'node_type'"
-            )
+            raise retired_node_type_property_error()
         declared_id = props.get("id")
         if declared_id is not None and str(declared_id) != str(node_id):
             raise ValueError("node property 'id' must match the native node identity")
@@ -2317,15 +2320,9 @@ class GraphComputeEngine:
 
         props = dict(properties or {})
         props.update(kwargs)
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            props
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
         if aliases:
-            names = ", ".join(sorted(aliases))
-            raise ValueError(
-                f"edge relationship aliases are not supported ({names}); "
-                "use canonical 'relationship'"
-            )
+            raise retired_edge_relationship_property_error(aliases)
         if not props.get("relationship"):
             raise ValueError("edge property 'relationship' is required")
         props = clean_props(props)
@@ -2411,9 +2408,7 @@ class GraphComputeEngine:
         props = dict(properties or {})
         props.update(kwargs)
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is not supported; use canonical 'node_type'"
-            )
+            raise retired_node_type_property_error()
         declared_id = props.get("id")
         if declared_id is not None and str(declared_id) != str(node_id):
             raise ValueError("node property 'id' must match the native node identity")
@@ -2564,7 +2559,7 @@ class GraphComputeEngine:
         reorder_filter_selectivity: float | None = None,
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:AU-KG.compute.kg-2).
+        """Run ONE cross-modal unified plan in a single costed round-trip.
 
         ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
         ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
@@ -2573,7 +2568,7 @@ class GraphComputeEngine:
         traverse via petgraph BFS, rank via the native ANN, RRF fusion in-plan).
         This is the engine doing filter+traverse+vector+rerank itself instead of
         the old hand-orchestrated Python pipeline of siloed round-trips
-        (CONCEPT:AU-KG.compute.vector/214/215). Returns ``[{"id": str, "score": float|None}]``
+        Returns ``[{"id": str, "score": float|None}]``
         in the plan's final (post-``Rank``) order.
 
         Requires an engine built with the ``query`` feature; on a build without it
@@ -3789,7 +3784,7 @@ class GraphComputeEngine:
         merge_threshold: float = 0.92,
         node_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Native entity-resolution candidate generation (CONCEPT:AU-KG.compute.when-exposes-native).
+        """Native entity-resolution candidate generation.
 
         Returns merge proposals (``{canonical, members, score, kind}``;
         ``kind`` = ``same_as`` | ``extends``) — the server-side escalation tier the
@@ -3906,7 +3901,7 @@ class GraphComputeEngine:
         """
         return self._client.lifecycle.evict_lru(max_nodes)
 
-    # ── Native multiplexed engine transport (CONCEPT:AU-KG.compute.when-exposes) ────────────
+    # ── Native multiplexed engine transport ────────────
     # The current client demultiplexes many in-flight requests by request id on
     # the ONE authenticated process transport. An auxiliary connection pool is
     # redundant and would pin one caller's authority into long-lived clients.

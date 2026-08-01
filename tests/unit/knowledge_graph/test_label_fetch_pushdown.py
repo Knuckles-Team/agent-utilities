@@ -1,14 +1,20 @@
-"""A label-scoped MATCH with no real predicate uses the engine's bounded labeled
-fetch, not a full scan; a MATCH carrying a real WHERE predicate routes to the
-native Cypher engine instead of a client-side scan-and-eval.
+"""Every ``EpistemicGraphBackend.execute()`` MATCH — label-scoped or bare —
+routes straight to the native engine's ``query_cypher``; there is no
+client-side dispatch layer left in front of it.
 
-CONCEPT:EG-KG.txn.per-graph-write-isolation — `_exec_node_match` previously materialized the WHOLE graph
-(`_get_all_nodes_with_properties`) for any `MATCH (n:Label) … LIMIT k`; it now
-pushes the label (and the LIMIT, for a pure read) down to the engine. A WHERE
-predicate beyond the trivial id equality no longer gets a client-side
-scan-and-`_eval_groups` pass — CONCEPT:AU-P0-2 moved that to
-`GraphComputeEngine.query_cypher` (the native engine's own WHERE evaluator), so
-`_exec_node_match` now defers (`handled=False`) for that shape.
+CONCEPT:EG-KG.txn.per-graph-write-isolation — a prior revision of
+``EpistemicGraphBackend`` had a client-side ``_exec_node_match`` that
+special-cased ``MATCH (n:Label) … LIMIT k`` into a bounded
+``get_nodes_by_label`` call (avoiding ``_get_all_nodes_with_properties``'s
+whole-graph materialization) and only fell through to the native engine for a
+real WHERE predicate. CONCEPT:AU-P0-2 removed that dispatch layer entirely:
+``execute_read``/``execute_write`` now render params inline and hand the
+WHOLE statement to ``self._graph.query_cypher()``/``query_cypher_write()``
+unconditionally — label and LIMIT pushdown (and WHERE evaluation) all happen
+server-side, inside the native engine, for every shape. ``nodes_by_label()``
+still exists on ``EpistemicGraphBackend`` as an explicit, separate,
+non-Cypher API for callers who want to bypass Cypher parsing outright — but
+routing a MATCH *through* ``execute()`` no longer reaches it.
 """
 
 from __future__ import annotations
@@ -55,13 +61,16 @@ def _backend(g: _FakeGraph) -> EpistemicGraphBackend:
 
 
 def test_label_query_pushes_label_and_limit_down() -> None:
+    """A label-scoped MATCH with no WHERE predicate still routes to the native
+    engine's query_cypher — label + LIMIT pushdown is the native engine's own
+    job now (CONCEPT:AU-P0-2), not a client-side get_nodes_by_label dispatch."""
     g = _FakeGraph()
     b = _backend(g)
     rows = b.execute("MATCH (n:Agent) RETURN n LIMIT 5")
-    assert g.by_label_calls == [("Agent", 5)]  # pure read -> LIMIT pushed down
+    assert g.by_label_calls == []  # no client-side label dispatch anymore
     assert g.full_scan_calls == 0  # NO full-graph scan
-    assert g.cypher_calls == []  # no predicate -> stays off the native engine
-    assert rows  # returned the agent
+    assert g.cypher_calls == ["MATCH (n:Agent) RETURN n LIMIT 5"]
+    assert rows == [{"n": "a1"}]
 
 
 def test_label_query_with_where_routes_to_native_engine() -> None:
@@ -77,9 +86,14 @@ def test_label_query_with_where_routes_to_native_engine() -> None:
 
 
 def test_bare_match_without_label_still_full_scans() -> None:
+    """A label-less MATCH also routes to the native engine's query_cypher —
+    there is no client-side _get_all_nodes_with_properties full-scan fallback
+    left in ``execute()`` to exercise; the engine decides how to satisfy an
+    unlabeled scan server-side."""
     g = _FakeGraph()
     b = _backend(g)
-    b.execute("MATCH (n) RETURN n LIMIT 3")
+    rows = b.execute("MATCH (n) RETURN n LIMIT 3")
     assert g.by_label_calls == []
-    assert g.full_scan_calls == 1
-    assert g.cypher_calls == []
+    assert g.full_scan_calls == 0
+    assert g.cypher_calls == ["MATCH (n) RETURN n LIMIT 3"]
+    assert rows == [{"n": "a1"}]
