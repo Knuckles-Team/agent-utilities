@@ -37,6 +37,17 @@ from .feature_matrix import (
     materialize as materialize_feature_matrix,
 )
 from .gap_analysis import GapReport, is_closed, open_features
+from .identity_candidates import (
+    EntityRecord,
+    EntityResolutionCandidate,
+    IdentityEvidence,
+    IdentityEvidenceKind,
+    MergeDecision,
+    confirm_merge,
+    resolve_identity_candidates,
+    revert_merge,
+    write_candidate,
+)
 from .ingest import (
     IngestReport,
     canonical_source_id,
@@ -120,4 +131,13 @@ __all__ = [
     "PilotReport",
     "run_pilot",
     "summarize",
+    "EntityRecord",
+    "EntityResolutionCandidate",
+    "IdentityEvidence",
+    "IdentityEvidenceKind",
+    "MergeDecision",
+    "confirm_merge",
+    "resolve_identity_candidates",
+    "revert_merge",
+    "write_candidate",
 ]

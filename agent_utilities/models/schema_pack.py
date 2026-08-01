@@ -114,6 +114,53 @@ class LinkInferenceRule(BaseModel):
     flags_ignorecase: bool = True
 
 
+class IdentityRule(BaseModel):
+    """A pack-declared entity-identity rule (CONCEPT:AU-KG.ontology.pack-identity-rules).
+
+    Universal-ingestion program, Track 5 (entity resolution): identity
+    decisions ("is `payments platform` the same as `payments-platform`, or a
+    CMDB id?") are corpus-specific, so the rule that decides WHICH fields are
+    strong identifiers and which are display names belongs in the active
+    domain pack — never hardcoded in
+    :mod:`agent_utilities.knowledge_graph.assimilation.identity_candidates`,
+    which only ever consumes a ``list[IdentityRule]`` as data. The engine
+    stays generic; a CMDB pack, a research pack, and a finance pack each
+    declare their own.
+
+    Attributes:
+        applies_to: Node-type/source-type substrings this rule scopes to
+            (matched the same permissive way
+            :data:`.extraction_schema.CONTENT_TYPE_TO_ONTOLOGY`'s keys match a
+            source type — a substring hit, not an exact one). Empty means
+            "every kind" (a generic fallback rule).
+        identifier_fields: Record property keys whose EXACT match between two
+            records is a strong identity signal (e.g. ``["cmdb_id",
+            "external_id"]`` — a shared CMDB id).
+        name_fields: Record property keys carrying a human display name,
+            compared via the normalized-string-similarity tier
+            (``knowledge_graph.assimilation.entity_resolution.normalize_name``)
+            rather than an exact match.
+        exact_identifier_score: Evidence strength contributed by one matching
+            ``identifier_fields`` hit. Defaults near-certain — a shared CMDB
+            id essentially never coincides by accident.
+        min_confidence_to_flag: Below this aggregate confidence, NO candidate
+            is emitted at all — too weak even to flag for human review.
+    """
+
+    applies_to: list[str] = Field(default_factory=list)
+    identifier_fields: list[str] = Field(default_factory=list)
+    name_fields: list[str] = Field(default_factory=list)
+    exact_identifier_score: float = Field(default=0.98, ge=0.0, le=1.0)
+    min_confidence_to_flag: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    def applies(self, kind: str) -> bool:
+        """True when ``kind`` (a node/source type) is in this rule's scope."""
+        if not self.applies_to:
+            return True
+        k = (kind or "").lower()
+        return any(scope.lower() in k for scope in self.applies_to)
+
+
 class OwlObjectProperty(BaseModel):
     """A pack-declared OWL object-property characteristic.
 
@@ -314,6 +361,15 @@ class SchemaPack(BaseModel):
         "closure when this pack is active (CONCEPT:AU-KG.ontology.pack-owl-closure).",
     )
 
+    # Universal-ingestion program, Track 5 — pack-declared entity-identity rules
+    identity_rules: list[IdentityRule] = Field(
+        default_factory=list,
+        description="Which fields are strong identifiers vs. display names for "
+        "entity resolution; empty means the generic name-only fallback "
+        "(CONCEPT:AU-KG.ontology.pack-identity-rules). Never hardcoded per-corpus "
+        "in the resolver — this is the ONE place identity rules are declared.",
+    )
+
     def get_active_node_types(self) -> frozenset[RegistryNodeType]:
         """Return the set of node types active under this pack.
 
@@ -369,6 +425,16 @@ class SchemaPack(BaseModel):
         if not self.source_trust:
             return 1.0
         return self.source_trust.get(source.lower(), 1.0)
+
+    def identity_rules_for(self, kind: str) -> list[IdentityRule]:
+        """Return this pack's :class:`IdentityRule`\\ s scoped to ``kind`` (KG-2.37-style).
+
+        Returns an empty list (never fabricates a rule) when the pack
+        declares none for ``kind`` — the caller's generic fallback applies.
+        """
+        if not self.identity_rules:
+            return []
+        return [r for r in self.identity_rules if r.applies(kind)]
 
     def get_owl_closure_sets(self) -> tuple[set[str], set[str], dict[str, str]]:
         """Return ``(transitive, symmetric, inverse_map)`` for OWL closure (KG-2.36).
