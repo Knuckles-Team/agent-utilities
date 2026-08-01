@@ -100,7 +100,17 @@ def _source_freeze_evidence(path: Path, producer_root: Path) -> Path:
             for item in manifest["gates"]
         ],
     }
-    path.write_text(json.dumps(evidence, sort_keys=True) + "\n", encoding="utf-8")
+    # D-TS-1: must match validate_source_freeze_evidence's canonical-JSON
+    # check byte-for-byte (sort_keys + compact separators + trailing
+    # newline) -- the default json.dumps separators (", ", ": ") produced
+    # non-canonical bytes here, so this fixture's own evidence file always
+    # failed check_compatibility's canonical-JSON gate, independent of test
+    # order (test_source_freeze_binds_the_exact_producer_tree failed even
+    # run standalone).
+    path.write_text(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
     return path
 
 

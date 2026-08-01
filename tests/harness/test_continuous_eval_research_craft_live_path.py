@@ -39,14 +39,22 @@ def _traces(scores):
 
 
 @pytest.mark.asyncio
-async def test_distill_applies_research_craft():
+async def test_distill_applies_research_craft(tmp_path):
     backend = _StubBackend(
         {
             "r1": _traces([0.9, 0.8, 0.2, 0.1]),  # 50% pass
             "r2": _traces([0.2, 0.1, 0.1, 0.1]),  # regression vs r1
         }
     )
-    d = TraceDistiller(backend, config=DistillationConfig())
+    # D-TS-2: DistillationConfig()'s default evidence_output_dir
+    # (".specify/evidence") is a relative path resolved against the process
+    # cwd -- pointing it at tmp_path keeps distill()'s real evidence-corpus
+    # write hermetic instead of overwriting the tracked
+    # .specify/evidence/r1.json / r2.json fixtures on every full-suite run.
+    d = TraceDistiller(
+        backend,
+        config=DistillationConfig(evidence_output_dir=str(tmp_path / "evidence")),
+    )
 
     c1 = await d.distill("r1")
     # AHE-3.34: a forecast for r1 was registered and resolved to its score.
