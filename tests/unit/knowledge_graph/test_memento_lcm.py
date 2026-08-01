@@ -77,7 +77,9 @@ def test_recover_chain_walks_multi_level_dag(monkeypatch):
         }.get(pid, [])
 
     engine.backend.execute.side_effect = _execute
-    monkeypatch.setattr(mc, "_recover_evicted_row", lambda _engine, _row: "RAW BLOCK")
+    # _recover_evicted_row(row) takes just the row now (no engine arg) — see
+    # agent_utilities/knowledge_graph/memory/memento_compressor.py.
+    monkeypatch.setattr(mc, "_recover_evicted_row", lambda _row: "RAW BLOCK")
     assert recover_chain(engine, "m1") == "RAW BLOCK"  # deepest leaf content
 
 

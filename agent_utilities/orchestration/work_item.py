@@ -1527,23 +1527,24 @@ def claim_agent_task_via_work_item(
 ) -> dict[str, Any] | None:
     """Claim one ``:AgentTask`` through the WorkItem state machine (MIGRATED path).
 
-    Same return contract as :func:`agent_utilities.orchestration.engine_claim.
-    claim_agent_task` (``task_id``/``lease_id``/``dag_id``/``checkpoint_id``/
-    ``depends_on_task_ids``/``fence_token``) — plus an internal
-    ``_work_item_id`` key so a caller can additionally commit through
-    :func:`commit_result` (dependency release, DLQ, idempotent commit all
-    apply; see :func:`commit_agent_task_work_item`, this module's ready-made
-    wrapper for that). Selected via ``AGENT_CLAIM_BACKEND=workitem``
-    (:mod:`~agent_utilities.orchestration.engine_claim`).
+    Same legacy-shaped fields as the retired KG-``:AgentLease`` claim path
+    (``task_id``/``lease_id``/``dag_id``/``checkpoint_id``/
+    ``depends_on_task_ids``/``fence_token``), so a caller that only reads
+    those is unaffected — PLUS ``work_item_id`` and ``lease_owner``, which
+    :class:`~agent_utilities.orchestration.agent_dispatch_worker.WorkItemLeaseGuard`
+    / :func:`~agent_utilities.orchestration.agent_dispatch_worker._work_item_fence_still_valid`
+    / :func:`heartbeat` require to renew and verify authority against THIS
+    (WorkItem-native) fence, not the retired AgentLease one. Consumed by
+    :func:`~agent_utilities.orchestration.agent_dispatch_worker.execute_agent_task_turn`,
+    which also commits the outcome through :func:`commit_agent_task_work_item`
+    (dependency release, DLQ, idempotent commit all apply). Selected via
+    ``AGENT_CLAIM_BACKEND=workitem`` (:mod:`~agent_utilities.orchestration.engine_claim`).
 
-    NOT YET WIRED (D-W2-12, verified 2026-07-31): the intended top-level
-    orchestrator, ``agent_utilities.orchestration.agent_dispatch_worker.
-    execute_agent_task_turn(engine, task_id, agent_id=..., executor=...)``,
-    does not exist in that module — only its test,
-    ``tests/unit/test_agent_dispatch_work_item_backend.py``, and this
-    docstring describe it. This function and :func:`commit_agent_task_work_item`
-    are the claim/commit halves it would call; nobody currently calls them
-    for the ``:AgentTask`` dispatch path.
+    NOT YET LIVE-WIRED (D-W2-12): ``agent_dispatch_worker.execute_agent_task_turn``
+    now exists (D-DSTO-5), but its only caller today is
+    ``tests/unit/test_agent_dispatch_work_item_backend.py`` — no production
+    dispatch loop invokes it yet. This function and
+    :func:`commit_agent_task_work_item` are the claim/commit halves it calls.
     """
     token = token or _default_token()
     now = now if now is not None else _now()
@@ -1598,7 +1599,8 @@ def claim_agent_task_via_work_item(
         "checkpoint_id": checkpoint_id,
         "depends_on_task_ids": list(item.get("depends_on") or []),
         "fence_token": claim["fence_token"],
-        "_work_item_id": item_id,
+        "lease_owner": claim.get("lease_owner"),
+        "work_item_id": item_id,
     }
 
 
