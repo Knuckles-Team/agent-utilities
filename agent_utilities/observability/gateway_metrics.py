@@ -593,6 +593,37 @@ SEMANTIC_CACHE_STALENESS_SECONDS = _histogram(
     buckets=(1, 5, 15, 30, 60, 300, 900, 1800, 3600, 21600, 86400),
 )
 
+# ── Universal-ingestion program: embedding/retrieval policy + evaluation
+#    (reports/program/universal-ingestion.md, tracks 8/9) ───────────────────
+EMBEDDING_VERSION_MISMATCHES = _counter(
+    "agent_utilities_embedding_version_mismatches_total",
+    "EmbeddingVersionMismatchError raisals (CONCEPT:AU-KG.retrieval.embedding-version-identity) "
+    "by site (capability_index_add|capability_index_designate) — a vector from one embedding "
+    "model was about to be compared against another's; each increment is a refused comparison, "
+    "never a silently degraded ranking. Sustained non-zero indicates a mid-flight model swap "
+    "that needs the generation-swap reindex described in embedding_versioning.py.",
+    ("site",),
+)
+RETRIEVAL_ACL_ENFORCEMENT = _counter(
+    "agent_utilities_retrieval_acl_enforcement_total",
+    "Per-node ACL/owner-scope enforcement outcomes on vector/hybrid retrieval "
+    "(CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval, search_hybrid) by outcome "
+    "(admitted|denied|enforcement_failed) — 'denied' is a node the actor was not permitted to "
+    "read being filtered out (fail-closed, not a silent empty result); 'enforcement_failed' is "
+    "a PermissionError from the enforcement plumbing itself (fails closed, never falls back to "
+    "unfiltered results).",
+    ("outcome",),
+)
+RETRIEVAL_CITATION_RESOLUTION = _counter(
+    "agent_utilities_retrieval_citation_resolution_total",
+    "Evidence-citation resolution outcomes (CONCEPT:AU-KG.retrieval.mandatory-evidence-citation) "
+    "by status (current|moved|stale|lost) — see evidence_spine.citation_status. A retrieval "
+    "result whose citation cannot be resolved to real evidence ('lost') is a defect, not a "
+    "degraded result; sustained 'stale'/'lost' indicates the source drifted since the citing "
+    "chunk was indexed and the affected artifact needs reprocessing.",
+    ("status",),
+)
+
 
 #: Callbacks run immediately before a ``/metrics`` scrape is rendered, for
 #: gauges whose truth lives in a live object rather than in an event stream

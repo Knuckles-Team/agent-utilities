@@ -557,8 +557,12 @@ def test_refresh_shrink_guard_keeps_content_on_moved_url(tmp_path):
     state = {"text": big}
 
     def crawler_fn(spec):
+        # NOT "index.md" — that name is reserved for the OKF-conformance
+        # sidecar write_dir_index() unconditionally (re)writes into every
+        # reference/ dir at build time; a source doc using that same rel_path
+        # would be silently clobbered by it.
         return [
-            AcquiredDoc(rel_path="index.md", text=state["text"], source_uri=spec.uri)
+            AcquiredDoc(rel_path="docs.md", text=state["text"], source_uri=spec.uri)
         ]
 
     pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
