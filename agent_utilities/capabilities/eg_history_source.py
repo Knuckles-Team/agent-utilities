@@ -500,5 +500,7 @@ def build_conversation_search_capability(
     """
     from pydantic_ai_harness.conversation_search import ConversationSearch
 
-    source = ScopedEgHistorySource(engine=engine, session=session, root_run_id=root_run_id)
+    source = ScopedEgHistorySource(
+        engine=engine, session=session, root_run_id=root_run_id
+    )
     return ConversationSearch(source=source, scope=scope)

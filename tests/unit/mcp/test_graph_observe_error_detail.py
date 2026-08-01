@@ -140,7 +140,7 @@ def test_graph_observe_error_detail_fails_closed_without_verified_authority() ->
 
 def test_graph_observe_error_detail_sanitizes_secret_material() -> None:
     graph_observe = _register_graph_observe()
-    sensitive = "Bearer sk-proj-abcdefghijklmnopqrstuvwxyz012345"
+    sensitive = "Bearer sk-proj-example-abcdefghijklmnopqrstuvwxyz012345"
     with use_actor(_tenant_actor("acme")):
         try:
             raise RuntimeError(sensitive)
@@ -152,4 +152,4 @@ def test_graph_observe_error_detail_sanitizes_secret_material() -> None:
             graph_observe(action="error_detail", query=detail_ref, top_k=20)
         )
 
-    assert "sk-proj-abcdefghijklmnopqrstuvwxyz012345" not in out
+    assert "sk-proj-example-abcdefghijklmnopqrstuvwxyz012345" not in out
