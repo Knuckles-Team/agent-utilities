@@ -107,6 +107,21 @@ future merge. Only a violation NOT already in the baseline fails the gate;
 fixing a baselined site shrinks the baseline on the next
 ``--update-baseline`` run.
 
+D-MT-2: the baseline key was ``(path, line)`` — the same line-anchor
+fragility ``check_cypher_write_subset.py``'s ratchet baseline had (D-F6-2)
+and its ``_ALLOWLIST`` had before that (D-MW-11): any unrelated commit
+landing above a baselined site shifts its line and the gate reports a false
+"NEW violation". This baseline happens to be empty as of this writing (its
+15 sites were fixed), but the mechanism is the landmine, not the current
+entry count — the next lane to add an entry here would inherit the same
+churn. The key is now ``(path, symbol, logger_name, ordinal)`` — ``symbol``
+is the enclosing function's dotted qualname from a manual parent-tracking
+DFS (mirrors ``check_cypher_write_subset.py``'s ``_scope_units`` /
+``check_swallowed_errors.py``'s ``_iter_except_handlers_with_scope``,
+D-SWG-1), ``logger_name`` narrows to the specific out-of-boundary logger,
+and ``ordinal`` disambiguates two violations on the same logger in the same
+symbol, assigned in deterministic AST discovery order.
+
 Usage:
   python3 scripts/security/check_log_exception_redaction.py
   python3 scripts/security/check_log_exception_redaction.py --repository-root DIR
@@ -165,6 +180,13 @@ class Violation:
     line: int
     logger_name: str
     snippet: str
+    #: D-MT-2: enclosing function/method's dotted qualname (or
+    #: ``"<module>"``), used for the content-anchored baseline key instead
+    #: of ``line`` — see ``_baseline_key``.
+    symbol: str = "<module>"
+    #: Disambiguates two violations on the same logger in the same
+    #: ``symbol`` — assigned in deterministic AST discovery order.
+    ordinal: int = 0
 
     def render(self) -> str:
         return f"{self.path}:{self.line} [{_SHAPE}] logger={self.logger_name!r} {self.snippet}"
@@ -366,11 +388,30 @@ def _walk_scope(
                     _walk_scope(nested, frozenset(current), coverage, violations)
 
 
-def _iter_scopes(tree: ast.Module) -> list[list[ast.stmt]]:
-    scopes = [tree.body]
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            scopes.append(node.body)
+def _iter_scopes(tree: ast.Module) -> list[tuple[list[ast.stmt], str]]:
+    """(scope body, dotted qualname) for the module and every
+    function/async-function.
+
+    D-MT-2: a manual parent-tracking DFS (mirrors
+    ``check_cypher_write_subset.py``'s ``_scope_units``, D-F6-2) rather than
+    a flat ``ast.walk`` — gives each scope a stable qualname
+    (``"<module>"``, ``"f"``, ``"ClassName.method"``) for the
+    content-anchored baseline key, with no dependence on line position.
+    """
+    scopes: list[tuple[list[ast.stmt], str]] = [(tree.body, "<module>")]
+
+    def walk(node: ast.AST, scope_stack: tuple[str, ...]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qualname = ".".join(scope_stack + (child.name,))
+                scopes.append((child.body, qualname))
+                walk(child, scope_stack + (child.name,))
+            elif isinstance(child, ast.ClassDef):
+                walk(child, scope_stack + (child.name,))
+            else:
+                walk(child, scope_stack)
+
+    walk(tree, ())
     return scopes
 
 
@@ -378,22 +419,35 @@ def _find_violations(rel: str, tree: ast.Module) -> list[Violation]:
     coverage = _logger_coverage(tree)
     if not any(covered is False for covered in coverage.values()):
         return []  # every logger in this module is inside the boundary
-    raw: list[tuple[int, str, str]] = []
-    for scope_body in _iter_scopes(tree):
-        _walk_scope(scope_body, frozenset(), coverage, raw)
+    raw: list[tuple[int, str, str, str]] = []  # (lineno, logger_name, snippet, symbol)
+    for scope_body, symbol in _iter_scopes(tree):
+        scope_raw: list[tuple[int, str, str]] = []
+        _walk_scope(scope_body, frozenset(), coverage, scope_raw)
+        raw.extend((lineno, logger_name, snippet, symbol) for lineno, logger_name, snippet in scope_raw)
     # A single log call can carry more than one unsafe reference (e.g. both
     # a positional `exc` and a keyword `exc_info=exc`) but is ONE violation
-    # site — dedupe by line, keep the first snippet found.
-    seen: dict[int, tuple[str, str]] = {}
-    for lineno, logger_name, snippet in raw:
-        seen.setdefault(lineno, (logger_name, snippet))
-    return sorted(
-        (
-            Violation(rel, line, logger_name, snippet)
-            for line, (logger_name, snippet) in seen.items()
-        ),
-        key=lambda v: v.line,
-    )
+    # site — dedupe by (symbol, line), keep the first snippet found, in
+    # discovery order (each scope's own statements are visited in source
+    # order, and scopes themselves are visited module-first then DFS order).
+    seen: dict[tuple[str, int], tuple[str, str]] = {}
+    order: list[tuple[str, int]] = []
+    for lineno, logger_name, snippet, symbol in raw:
+        key = (symbol, lineno)
+        if key not in seen:
+            seen[key] = (logger_name, snippet)
+            order.append(key)
+    #: D-MT-2: ordinal per (symbol, logger_name), assigned in the same
+    #: deterministic discovery order — the second half of the
+    #: content-anchored baseline key.
+    ordinal_counts: dict[tuple[str, str], int] = {}
+    violations: list[Violation] = []
+    for symbol, lineno in order:
+        logger_name, snippet = seen[(symbol, lineno)]
+        ordinal_key = (symbol, logger_name)
+        ordinal = ordinal_counts.get(ordinal_key, 0)
+        ordinal_counts[ordinal_key] = ordinal + 1
+        violations.append(Violation(rel, lineno, logger_name, snippet, symbol, ordinal))
+    return sorted(violations, key=lambda v: v.line)
 
 
 def _candidate_files(root: Path, target_dirs: tuple[Path, ...]) -> list[Path]:
@@ -455,29 +509,35 @@ BASELINE = Path(__file__).resolve().parent / "log_exception_redaction_baseline.t
 _BASELINE_SEP = "\t"
 
 
-def _baseline_key(v: Violation) -> tuple[str, int]:
-    return (v.path, v.line)
+#: D-MT-2: (path, enclosing symbol, logger_name, ordinal) — NOT line. Stable
+#: under unrelated code landing above/below the flagged call.
+BaselineKey = tuple[str, str, str, int]
 
 
-def _load_baseline() -> set[tuple[str, int]]:
+def _baseline_key(v: Violation) -> BaselineKey:
+    return (v.path, v.symbol, v.logger_name, v.ordinal)
+
+
+def _load_baseline() -> set[BaselineKey]:
     if not BASELINE.exists():
         return set()
-    out: set[tuple[str, int]] = set()
+    out: set[BaselineKey] = set()
     for line in BASELINE.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         fields = line.split(_BASELINE_SEP)
-        if len(fields) < 2 or not fields[1].isdigit():
+        if len(fields) < 4 or not fields[3].isdigit():
             continue
-        out.add((fields[0], int(fields[1])))
+        out.add((fields[0], fields[1], fields[2], int(fields[3])))
     return out
 
 
 def _write_baseline(violations: list[Violation]) -> None:
     lines = [
-        f"{v.path}{_BASELINE_SEP}{v.line}{_BASELINE_SEP}# logger={v.logger_name} {v.snippet}"
-        for v in sorted(violations, key=lambda v: (v.path, v.line))
+        f"{v.path}{_BASELINE_SEP}{v.symbol}{_BASELINE_SEP}{v.logger_name}"
+        f"{_BASELINE_SEP}{v.ordinal}{_BASELINE_SEP}# line {v.line}: {v.snippet}"
+        for v in sorted(violations, key=lambda v: (v.path, v.symbol, v.logger_name, v.ordinal))
     ]
     BASELINE.write_text(
         "# Frozen baseline of pre-existing raw-exception log violations this\n"
@@ -489,11 +549,13 @@ def _write_baseline(violations: list[Violation]) -> None:
         "# MCP-session-isolation lane that owns that file. Registered as D-LR-1\n"
         "# in the deferred registry — a ratchet, not a permanent exemption:\n"
         "# burn down toward zero once that lane lands. TAB-separated:\n"
-        "# path\\tline\\t# comment (comment is not parsed and will drift as the\n"
-        "# codebase changes -- expected). A NEW entry (not here) fails\n"
-        "# check_log_exception_redaction.py. Fixing a baselined site shrinks\n"
-        "# this file on the next --update-baseline; never hand-add an entry to\n"
-        "# make a real violation disappear.\n"
+        "# path\\tsymbol\\tlogger_name\\tordinal\\t# line N: snippet (D-MT-2:\n"
+        "# keyed by symbol+logger+ordinal, NOT line -- the trailing 'line N'\n"
+        "# in the comment is informational only, not parsed, and WILL drift\n"
+        "# as the codebase changes -- expected and harmless). A NEW entry\n"
+        "# (not here) fails check_log_exception_redaction.py. Fixing a\n"
+        "# baselined site shrinks this file on the next --update-baseline;\n"
+        "# never hand-add an entry to make a real violation disappear.\n"
         + "\n".join(lines)
         + ("\n" if lines else ""),
         encoding="utf-8",
@@ -642,10 +704,11 @@ def self_check() -> None:
         )
 
     # The ratchet baseline: a violation present in the baseline is
-    # tolerated (burn-down, not a block), but a violation at a DIFFERENT
-    # line is treated as genuinely new.
-    baselined = Violation("fixture_baselined.py", 10, "mcp_multiplexer", "x")
-    new_one = Violation("fixture_baselined.py", 20, "mcp_multiplexer", "y")
+    # tolerated (burn-down, not a block), but a violation in a DIFFERENT
+    # symbol is treated as genuinely new — even though both happen to
+    # render at a line, the key never looks at it.
+    baselined = Violation("fixture_baselined.py", 10, "mcp_multiplexer", "x", "f")
+    new_one = Violation("fixture_baselined.py", 20, "mcp_multiplexer", "y", "g")
     baseline_keys = {_baseline_key(baselined)}
     still_new = [
         v for v in (baselined, new_one) if _baseline_key(v) not in baseline_keys
@@ -654,6 +717,32 @@ def self_check() -> None:
         raise LogExceptionRedactionGateError(
             "self-check: baseline ratchet did not distinguish a baselined "
             f"site from a new one (got {still_new!r})"
+        )
+
+    # D-MT-2: the SAME baselined site's key must be byte-identical whether
+    # or not unrelated code has landed above it in the file (no line-number
+    # anchor to drift).
+    fixture = _BAD_FIXTURES["named_logger_fstring"]
+    unpadded_tree = ast.parse(fixture)
+    unpadded_hits = _find_violations("fixture_d_mt_2.py", unpadded_tree)
+    padded_source = ("\n" * 7) + fixture
+    padded_tree = ast.parse(padded_source)
+    padded_hits = _find_violations("fixture_d_mt_2.py", padded_tree)
+    if not unpadded_hits or not padded_hits:
+        raise LogExceptionRedactionGateError(
+            "self-check: D-MT-2 fixture produced no violations to compare"
+        )
+    if padded_hits[0].line == unpadded_hits[0].line:
+        raise LogExceptionRedactionGateError(
+            "self-check: D-MT-2 padding fixture did not actually move the "
+            "violation's line -- the drift-survival proof is vacuous"
+        )
+    if _baseline_key(unpadded_hits[0]) != _baseline_key(padded_hits[0]):
+        raise LogExceptionRedactionGateError(
+            "self-check: baseline key changed when unrelated lines landed "
+            f"above the site (line-anchor drift survived the D-MT-2 fix): "
+            f"{_baseline_key(unpadded_hits[0])!r} != "
+            f"{_baseline_key(padded_hits[0])!r}"
         )
 
     # An honest absence: a root with none of the target subdirectories
