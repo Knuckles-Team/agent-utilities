@@ -192,6 +192,73 @@ class _BridgeEngine:
             "changed_work_item_ids": [item_id],
         }
 
+    # ── engine-native WorkItem verbs execute_agent_task_turn's lease renewal
+    # and commit path require (heartbeat()/commit_result() in work_item.py
+    # have no CAS fallback for these two, unlike scheduling-metadata writes —
+    # AU-P0-3 fenced claim/commit is always native). Ported from
+    # tests/unit/orchestration/test_work_item.py's fuller NativeEngine, which
+    # this class's own claim_work_item docstring already says it mirrors.
+    @staticmethod
+    def _owns(node: dict | None, request: dict) -> bool:
+        return bool(
+            node
+            and node.get("lease_owner") == request.get("worker_ref")
+            and node.get("lease_epoch") == request.get("expected_epoch")
+            and node.get("fencing_token") == request.get("fencing_token")
+        )
+
+    def renew_work_item_lease(self, request: dict) -> dict:
+        node = self.nodes.get(request["work_item_id"])
+        if not self._owns(node, request) or float(
+            (node or {}).get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
+            return {"renewed": False}
+        node["lease_expires_at"] = float(request["now_unix"]) + float(
+            request["lease_ttl"]
+        )
+        return {"renewed": True}
+
+    def commit_work_item_result(self, request: dict) -> dict:
+        node = self.nodes.get(request["work_item_id"])
+        if node is None:
+            return {"status": "missing"}
+        if node.get("status") in wi.TERMINAL_WORK_ITEM_STATUSES:
+            return {"status": "noop"}
+        if not self._owns(node, request) or float(
+            node.get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
+            return {"status": "fenced"}
+        outcome = request["outcome"]
+        if outcome == "failed" and request["retryable"]:
+            if int(node.get("attempt") or 0) >= int(node.get("max_attempts") or 1):
+                node.update(status="dead_letter", error_ref=request.get("error_ref"))
+                return {"status": "dead_letter"}
+            node.update(
+                status="ready",
+                next_retry_at=float(request["now_unix"])
+                + float(node.get("backoff_base_s") or 1.0)
+                * (2 ** (int(node.get("attempt") or 1) - 1)),
+                lease_epoch=int(node.get("lease_epoch") or 0) + 1,
+                lease_owner=None,
+                lease_expires_at=None,
+            )
+            return {"status": "retry_scheduled"}
+        node.update(
+            status=outcome,
+            result_ref=request.get("result_ref"),
+            error_ref=request.get("error_ref"),
+            completed_at=request["now_unix"],
+            lease_owner=None,
+            lease_expires_at=None,
+        )
+        if outcome == "succeeded":
+            for child_id in node.get("downstream_ids") or []:
+                child = self.nodes[child_id]
+                child["dep_count"] = max(0, int(child.get("dep_count") or 0) - 1)
+                if child["dep_count"] == 0:
+                    child["status"] = "ready"
+        return {"status": "committed"}
+
     @staticmethod
     def _negative_claim() -> dict:
         return {

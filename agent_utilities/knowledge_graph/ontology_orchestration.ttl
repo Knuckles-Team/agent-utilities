@@ -148,6 +148,16 @@
     rdfs:comment "CONCEPT:KG-2.91 — inverse of :derivedFrom (source node → the proposal distilled from it)." ;
     owl:inverseOf :derivedFrom .
 
+:diagnoses a owl:ObjectProperty ;
+    rdfs:label "diagnoses" ;
+    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — ErrorDetail -[:DIAGNOSES]-> RunTrace:
+    a durable, sanitized failure record links to the RunTrace of the operation that raised it, when
+    the failure occurred inside a correlated run (the ambient run-wide correlation id was active).
+    Best-effort: most failures occur outside an orchestrated run, so an ErrorDetail node with no
+    outgoing :DIAGNOSES edge is normal, not an error.""" ;
+    rdfs:domain :ErrorDetail ;
+    rdfs:range :RunTrace .
+
 :dueAt a owl:DatatypeProperty ;
     rdfs:label "due at" ;
     rdfs:comment """CONCEPT:KG-2.113 — the earliest time a delayed/retrying WorkItem becomes
@@ -182,16 +192,6 @@
     workflow completes). Closes the provenance loop opened by
     :realizesProcess.""" ;
     rdfs:range :BusinessProcess .
-
-:diagnoses a owl:ObjectProperty ;
-    rdfs:label "diagnoses" ;
-    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — ErrorDetail -[:DIAGNOSES]-> RunTrace:
-    a durable, sanitized failure record links to the RunTrace of the operation that raised it, when
-    the failure occurred inside a correlated run (the ambient run-wide correlation id was active).
-    Best-effort: most failures occur outside an orchestrated run, so an ErrorDetail node with no
-    outgoing :DIAGNOSES edge is normal, not an error.""" ;
-    rdfs:domain :ErrorDetail ;
-    rdfs:range :RunTrace .
 
 :forkedFrom a owl:ObjectProperty ;
     rdfs:label "forked from" ;
@@ -381,6 +381,18 @@
     rdfs:comment """CONCEPT:KG-2.141 — a BusAgent's subscription to a Topic, modeled as a node
     (not an edge) so membership resolves in one hop on every backend (ECO-4.84).""" .
 
+:ErrorDetail a owl:Class ;
+    rdfs:label "ErrorDetail" ;
+    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — the durable backend behind
+    a public failure envelope's opaque `error.detail_ref` (D-24): a sanitized, tenant-scoped
+    error_class/failing_layer/traceback bundle, keyed by the same correlation id already
+    logged and returned to the caller, so the ref stays resolvable past this process's
+    lifetime and across replicas (`GraphErrorDetailSink`,
+    `agent_utilities.observability.error_detail_sink`). Never carries the raw exception
+    message — only what `agent_utilities.security.error_surface._record_error_detail`
+    already sanitized through the persistence-privacy gate before handing it to the sink.""" ;
+    rdfs:seeAlso prov:Entity .
+
 :Goal a owl:Class ;
     rdfs:label "Goal" .
 
@@ -458,25 +470,6 @@
 :Prompt a owl:Class ;
     rdfs:label "Prompt" .
 
-:RunTrace a owl:Class ;
-    rdfs:label "RunTrace" ;
-    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — one agent run, now the root of a
-    content-addressed, typed run-event log (not just an observe-only action chain). Owns an
-    ordered :RunEvent path plus the :RunCommit history a fork/revert branches from.""" ;
-    rdfs:seeAlso prov:Activity .
-
-:ErrorDetail a owl:Class ;
-    rdfs:label "ErrorDetail" ;
-    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — the durable backend behind
-    a public failure envelope's opaque `error.detail_ref` (D-24): a sanitized, tenant-scoped
-    error_class/failing_layer/traceback bundle, keyed by the same correlation id already
-    logged and returned to the caller, so the ref stays resolvable past this process's
-    lifetime and across replicas (`GraphErrorDetailSink`,
-    `agent_utilities.observability.error_detail_sink`). Never carries the raw exception
-    message — only what `agent_utilities.security.error_surface._record_error_detail`
-    already sanitized through the persistence-privacy gate before handing it to the sink.""" ;
-    rdfs:seeAlso prov:Entity .
-
 :Session a owl:Class ;
     rdfs:label "Session" ;
     rdfs:comment "CONCEPT:ORCH-1.40 — id-addressable anchor (session:{sid}) for a session's collections; lets 'list by session' be a reliable single-hop traversal on a property-index-free engine." .
@@ -484,6 +477,13 @@
 :Workflow a owl:Class ;
     rdfs:label "Workflow" ;
     rdfs:comment "An orchestration flow (skill-workflow) over agents/skills." .
+
+:RunTrace a owl:Class ;
+    rdfs:label "RunTrace" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — one agent run, now the root of a
+    content-addressed, typed run-event log (not just an observe-only action chain). Owns an
+    ordered :RunEvent path plus the :RunCommit history a fork/revert branches from.""" ;
+    rdfs:seeAlso prov:Activity .
 
 :Model a owl:Class ;
     rdfs:label "Model" ;

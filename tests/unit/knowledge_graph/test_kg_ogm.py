@@ -126,9 +126,11 @@ class TestKGMapperUpsert:
         assert "sm:001" in engine.graph
         nx_data = engine.graph.nodes["sm:001"]
         assert nx_data["version"] == 1
-        # Dict-valued properties are JSON-encoded for KG storage by
-        # KGMapper._serialize; a raw graph-compute read sees that string, not
-        # the original dict (round-trips back to a dict via KGMapper._deserialize).
+        # KGMapper._serialize documents that KG backends generally don't
+        # support nested structures: dict/list fields are JSON-encoded for
+        # storage and reversed by _deserialize (see test_load_from_graph's
+        # roundtrip below) -- the raw graph property is a JSON string, not
+        # the live dict.
         assert json.loads(nx_data["domain_success_rates"]) == {"gitlab": 0.85}
 
 

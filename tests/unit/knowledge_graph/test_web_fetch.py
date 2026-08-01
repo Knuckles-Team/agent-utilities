@@ -46,6 +46,15 @@ def test_falls_through_on_backend_failure(monkeypatch):
 
 
 def test_prefer_forces_single_backend(monkeypatch):
+    # crawl4ai is browser-backed hydration, opt-in via
+    # SOURCE_HTTP_ALLOW_BROWSER_FETCH (default False -- "keep browser-backed
+    # hydration explicit", larger egress/sandbox surface than the bounded
+    # HTTP client). resolve_web_fetch enforces that gate even when `prefer`
+    # names crawl4ai explicitly, so exercising the crawl4ai backend at all
+    # requires opting in, same as a real caller would.
+    from agent_utilities.core.config import config as agent_config
+
+    monkeypatch.setattr(agent_config, "source_http_allow_browser_fetch", True)
     monkeypatch.setattr(wf, "_fetch_via_crawl4ai", lambda u, t: _page("crawl4ai"))
     monkeypatch.setattr(wf, "_fetch_via_requests", lambda u, t: _page("requests"))
     page = resolve_web_fetch("https://x.io", prefer="crawl4ai")
