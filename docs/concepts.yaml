@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1143
+total_concepts: 1144
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1255,6 +1255,13 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
   - agent_utilities/protocols/source_connectors/registry.py
   doc: the discovery half of the self-registering pattern. Called
+- id: AU-ECO.connector.git-markdown-revision-connector
+  name: Git-Markdown Revision Connector
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
+  doc: Git-Markdown Revision Connector
 - id: AU-ECO.connector.git-task-resolver
   name: git issue/PR -> SWE task resolver + webhook ingress
   pillar: AU-ECO
@@ -3743,15 +3750,17 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   doc: build the capability writeback callable
 - id: AU-KG.ingest.change-envelope
-  name: the SAME
+  name: boundary gate
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/automation/worldmodel_pipeline.py
   - agent_utilities/knowledge_graph/argumentation/aif.py
   - agent_utilities/knowledge_graph/ingestion/change_envelope.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/external_graph.py
   - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
-  doc: the SAME
+  doc: boundary gate
 - id: AU-KG.ingest.chunk-overlap-stage
   name: the one-call form the ingestion engine / MCP wrapper invokes
   pillar: AU-KG
@@ -3997,6 +4006,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
   doc: one retrieved source object
 - id: AU-KG.ingest.external-graph-federation
   name: External Graph Federation
@@ -4369,6 +4379,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
   doc: Returns fragments in document
 - id: AU-KG.ingest.staged
   name: staged
