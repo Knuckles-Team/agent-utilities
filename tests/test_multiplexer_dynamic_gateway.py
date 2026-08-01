@@ -988,8 +988,16 @@ async def test_per_session_disclosure_isolation(tmp_path):
         # A fresh session B has loaded nothing.
         async with Client(mcp) as b:
             b_tools = await _list_tool_names(b, "session-B")
-            # B cannot even call A's tool (gated until B loads it).
-            with pytest.raises(ToolError):
+            # B cannot even call A's tool (gated until B loads it). Matched on
+            # the SessionVisibilityMiddleware's own gate message (not just
+            # "any ToolError") — this test's fixture forwards to a mocked
+            # child session that ALSO raises ToolError("delegated_child_tool_failed")
+            # on ANY call, loaded or not, so an unmatched ``pytest.raises``
+            # here would pass even if the session gate were wide open (see
+            # D-W2-6 closure notes). The precise match is the difference
+            # between "never reached the child" (gate held) and "reached the
+            # child, which then failed" (gate did NOT hold).
+            with pytest.raises(ToolError, match="not loaded in this session"):
                 await b.call_tool(
                     CNT_PREFIXED, {}, meta={_LOCAL_SESSION_META_KEY: "session-B"}
                 )
@@ -1267,7 +1275,11 @@ async def test_list_catalog_mounted_matches_dispatch_reality_across_sessions(
             # ...but session B never loaded it, so list_catalog must NOT claim
             # it's dispatchable — and an actual call must agree with that claim.
             assert entry_b["mounted"] is False
-            with pytest.raises(ToolError):
+            # Precise match (see the analogous note in
+            # test_per_session_disclosure_isolation): this fixture's mocked
+            # child session fails on ANY invocation, so only a message match
+            # proves the SESSION GATE — not the mock — rejected the call.
+            with pytest.raises(ToolError, match="not loaded in this session"):
                 await b.call_tool(
                     CNT_PREFIXED, {}, meta={_LOCAL_SESSION_META_KEY: "session-B"}
                 )
@@ -1346,11 +1358,15 @@ async def test_three_concurrent_local_sessions_blast_radius(tmp_path):
 
         # Severity finding 2: INVOCATION — siblings must not be able to call it
         # either, even by naming it directly (skipping discovery entirely).
-        with pytest.raises(ToolError):
+        # Matched on the session-gate's own message: this fixture's mocked
+        # child ALWAYS raises ToolError("delegated_child_tool_failed") once a
+        # call reaches it, loaded or not, so an unmatched ``pytest.raises``
+        # would pass even with the gate wide open — see D-W2-6 severity notes.
+        with pytest.raises(ToolError, match="not loaded in this session"):
             await sibling_one.call_tool(
                 CNT_PREFIXED, {}, meta={_LOCAL_SESSION_META_KEY: "task-sibling-1"}
             )
-        with pytest.raises(ToolError):
+        with pytest.raises(ToolError, match="not loaded in this session"):
             await sibling_two.call_tool(
                 CNT_PREFIXED, {}, meta={_LOCAL_SESSION_META_KEY: "task-sibling-2"}
             )

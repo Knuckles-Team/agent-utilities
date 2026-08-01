@@ -3372,7 +3372,8 @@ def _explicit_local_session_key() -> str | None:
     try:
         from fastmcp.server.dependencies import get_context
 
-        meta = get_context().request_context.meta
+        request_context = get_context().request_context
+        meta = request_context.meta if request_context is not None else None
     except Exception:
         return None
     if not isinstance(meta, Mapping):
