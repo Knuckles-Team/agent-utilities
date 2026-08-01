@@ -36,6 +36,17 @@ NOTE on the *execution* seam: this module only INGESTS — it puts the workflow
 in the store/shape ``execute_workflow`` reads. It deliberately does NOT touch
 the step-by-step execution dispatch (a known-flaky area); a workflow is made
 *dispatchable*, not executed.
+
+NOTE on scope (D-SNV-1): when ``ingest_skill_workflows`` is given an explicit
+``root`` (a corpus that mixes atomic skills, skill-graphs, and workflows under
+one tree — e.g. a fleet package's own ``skills/`` directory), every
+``SKILL.md`` is *discovered*, but only files whose own frontmatter is silent
+on ``skill_type`` or explicitly says ``skill_type: workflow`` are minted as a
+``WorkflowDefinition``. A file that declares itself ``skill_type: skill`` (an
+atomic, MCP-tool-backed skill — see ``ingest_runnable_skill`` above) or
+``skill_type: graph`` (a skill-graph) is skipped here and left for its own
+ingester, so it is never forced into the wrong node shape just because it
+shares a directory with real workflows.
 """
 
 from __future__ import annotations
@@ -161,7 +172,9 @@ def ingest_runnable_skill(
     if str(mcp_server).strip():
         safe_server, server_privacy = guard.sanitize_text(str(mcp_server).strip())
         if server_privacy.changed:
-            raise ValueError("skill server identity failed the persistence privacy policy")
+            raise ValueError(
+                "skill server identity failed the persistence privacy policy"
+            )
         common["mcp_server"] = safe_server
     with use_actor(session.actor):
         engine._upsert_node(
@@ -300,6 +313,7 @@ def parse_workflow_skill(skill_md: Path) -> dict[str, Any] | None:
         )
 
     name = str(frontmatter.get("name") or skill_md.parent.name)
+    raw_skill_type = frontmatter.get("skill_type")
     return {
         "source_ref": skill_reference(name),
         "name": name,
@@ -309,6 +323,18 @@ def parse_workflow_skill(skill_md: Path) -> dict[str, Any] | None:
         "specialist_ids": team_config.get("specialist_ids") or [],
         "tool_assignments": team_config.get("tool_assignments") or {},
         "concept": frontmatter.get("concept"),
+        # The corpus's own self-declaration (``skill_type: workflow`` /
+        # ``skill: skill`` / ``skill_type: graph`` / absent). D-SNV-1: an
+        # explicit ``root`` sweep (see ``discover_workflow_skill_files``) walks
+        # EVERY ``SKILL.md`` under it with no directory-shape filter, so this is
+        # the only signal available at parse time to keep an atomic skill (or a
+        # skill-graph) from being minted as a ``WorkflowDefinition`` it never
+        # claimed to be. ``None`` when the field is absent (older/undeclared
+        # fixtures) — treated as "assume workflow" for backward compatibility,
+        # matching every pre-existing corpus file under the default root.
+        "skill_type": (str(raw_skill_type).strip().lower() or None)
+        if raw_skill_type
+        else None,
         "steps": steps,
         "body": body,
     }
@@ -330,9 +356,16 @@ def discover_workflow_skill_files(root: str | None = None) -> list[Path]:
     shipped convention, e.g. ``finance-workflows/<name>/SKILL.md``; there is
     no directory literally named ``workflows/`` anywhere in the corpus) and
     also accepts an explicit ``root``, searched recursively as-is with no
-    further filtering, for tests and out-of-tree corpora whose own convention
-    mixes atomic skills, skill-graphs, and workflows under one root (e.g. a
-    package's own ``skills/`` tree).
+    directory-shape filtering, for tests and out-of-tree corpora whose own
+    convention mixes atomic skills, skill-graphs, and workflows under one root
+    (e.g. a package's own ``skills/`` tree).
+
+    NOTE (D-SNV-1): this function only enumerates candidate ``SKILL.md`` PATHS
+    — it does not read frontmatter, so it cannot itself tell a workflow from an
+    atomic skill. ``ingest_skill_workflows`` is what excludes files whose own
+    ``skill_type`` frontmatter explicitly says they are not a workflow (e.g.
+    ``skill_type: skill``) before minting a ``WorkflowDefinition`` — do not
+    treat this function's return value as "files that will become workflows".
     """
     roots: list[Path] = []
     if root:
@@ -663,15 +696,21 @@ def ingest_skill_workflows(
     Args:
         engine: the live ``IntelligenceGraphEngine``.
         root: optional explicit corpus root, searched recursively for every
-            ``SKILL.md`` under it (no ``-workflows`` filtering — an explicit
+            ``SKILL.md`` under it (no directory-shape filtering — an explicit
             root is trusted as-is, matching corpora like a package's own
             ``skills/`` tree that mix atomic/workflow/graph skills together).
             Defaults to the installed ``universal_skills`` package, where
             only ``<domain>-workflows/`` categories are swept.
+            D-SNV-1: a file IS still excluded from becoming a
+            ``WorkflowDefinition`` when its own frontmatter declares a
+            non-workflow ``skill_type`` (e.g. ``skill_type: skill`` for an
+            atomic skill, ``skill_type: graph`` for a skill-graph) — that is a
+            content-level check, not a directory-shape one, so it applies to
+            BOTH the default and explicit-root cases.
 
     Returns:
-        Report dict: ``{workflows, steps, skill_links, skipped, errors,
-        error_detail}``.
+        Report dict: ``{workflows, steps, skill_links, skipped, not_workflow,
+        not_workflow_detail, errors, error_detail}``.
     """
     files = discover_workflow_skill_files(root)
     report: dict[str, Any] = {
@@ -681,6 +720,14 @@ def ingest_skill_workflows(
         "skipped": 0,
         "errors": 0,
         "error_detail": [],
+        # D-SNV-1: SKILL.md files an explicit root swept in that self-declare a
+        # non-workflow ``skill_type`` (e.g. ``skill``, ``graph``) — deliberately
+        # NOT minted as WorkflowDefinition here so they stay available for their
+        # own ingester (``ingest_runnable_skill`` for atomic skills, the
+        # skill-graph ingester for ``graph``) to land them as the shape their own
+        # frontmatter claims.
+        "not_workflow": 0,
+        "not_workflow_detail": [],
         "scanned": len(files),
     }
     for f in files:
@@ -690,6 +737,19 @@ def ingest_skill_workflows(
                 report["errors"] += 1
                 report["error_detail"].append(
                     f"{skill_reference(f.parent.name)}: parse failed"
+                )
+                continue
+            declared_type = parsed.get("skill_type")
+            if declared_type and declared_type != "workflow":
+                report["not_workflow"] += 1
+                report["not_workflow_detail"].append(
+                    f"{parsed['source_ref']}: skill_type={declared_type!r}"
+                )
+                logger.info(
+                    "[KG-2.97] skipping %s for workflow ingest — declares "
+                    "skill_type=%r, not 'workflow'",
+                    parsed["source_ref"],
+                    declared_type,
                 )
                 continue
             outcome = ingest_one(engine, parsed)
@@ -707,11 +767,12 @@ def ingest_skill_workflows(
 
     logger.info(
         "[KG-2.97] skill-workflow ingest: %d workflows, %d steps, %d skill links, "
-        "%d skipped, %d errors (of %d scanned)",
+        "%d skipped, %d not-workflow (D-SNV-1), %d errors (of %d scanned)",
         report["workflows"],
         report["steps"],
         report["skill_links"],
         report["skipped"],
+        report["not_workflow"],
         report["errors"],
         report["scanned"],
     )

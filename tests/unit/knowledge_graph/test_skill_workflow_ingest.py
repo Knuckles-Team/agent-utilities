@@ -91,6 +91,30 @@ _FINANCE_WF = textwrap.dedent(
 )
 
 
+# An atomic, MCP-tool-backed skill — mirrors the real
+# ``servicenow-incident-management`` SKILL.md shape (declares itself
+# ``skill_type: skill``, has NO ``### Step N:`` headings). D-SNV-1: mixed into
+# an explicit-root corpus sweep, this must NOT be minted as a WorkflowDefinition.
+_ATOMIC_SKILL = textwrap.dedent(
+    """\
+    ---
+    name: servicenow-incident-management
+    skill_type: skill
+    description: ITSM incident operations on the ServiceNow Incident API.
+    tags: [servicenow, incident, itsm]
+    ---
+
+    # servicenow-incident-management
+
+    ## When to use
+    List, read, and create incident records.
+
+    ## Tools & actions
+    servicenow_get_incidents, servicenow_create_incident
+    """
+)
+
+
 @pytest.fixture
 def corpus(tmp_path):
     """A ``workflows/<domain>/<name>/SKILL.md`` tree under ``tmp_path``."""
@@ -462,6 +486,53 @@ def test_discover_default_matches_domain_workflows_convention(monkeypatch, tmp_p
     files = discover_workflow_skill_files()
     names = {f.parent.name for f in files}
     assert names == {"tiny_pnl"}
+
+
+def test_explicit_root_does_not_mint_workflowdefinition_for_declared_atomic_skill(
+    tmp_path,
+):
+    """D-SNV-1 regression: a fleet package's own ``skills/`` tree mixes atomic
+    skills (``skill_type: skill``, MCP-tool-backed, no ``### Step N:`` DAG)
+    alongside real workflows. An explicit-root sweep of that tree must
+    discover BOTH SKILL.md files (directory-shape filtering stays off — see
+    ``test_discover_explicit_root_does_not_redirect_into_nested_workflows_dir``)
+    but must NOT mint a WorkflowDefinition for the one that self-declares it is
+    not a workflow — that used to happen unconditionally and is exactly how
+    ``servicenow-incident-management`` (real prod skill, identical frontmatter
+    shape) landed in the graph as a 0-step WorkflowDefinition instead of a
+    CallableResource, making it undelegatable (only describable).
+    """
+    root = tmp_path / "skills"
+    wf = root / "tiny-infra-deploy"
+    wf.mkdir(parents=True)
+    (wf / "SKILL.md").write_text(_INFRA_WF, encoding="utf-8")
+    atomic = root / "servicenow-incident-management"
+    atomic.mkdir(parents=True)
+    (atomic / "SKILL.md").write_text(_ATOMIC_SKILL, encoding="utf-8")
+
+    # Discovery itself stays directory-shape-agnostic (both files found)...
+    files = discover_workflow_skill_files(root=str(root))
+    assert {f.parent.name for f in files} == {
+        "tiny-infra-deploy",
+        "servicenow-incident-management",
+    }
+
+    # ...but ingestion must gate on the declared skill_type before writing.
+    eng = FakeEngine()
+    report = ingest_skill_workflows(eng, root=str(root))
+    assert report["workflows"] == 1
+    assert report["not_workflow"] == 1
+    assert "skill://servicenow-incident-management: skill_type='skill'" in (
+        report["not_workflow_detail"]
+    )
+    assert report["errors"] == 0
+
+    defs = eng.of_type("WorkflowDefinition")
+    assert "skill_workflow:tiny_infra_deploy" in defs
+    assert "skill_workflow:servicenow_incident_management" not in defs
+    assert not any(
+        d.get("name") == "servicenow-incident-management" for d in defs.values()
+    )
 
 
 # --------------------------------------------------------------------------- #
