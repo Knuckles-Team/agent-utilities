@@ -196,8 +196,14 @@ async def execute_slash_command(payload: dict, request: Request):
                     node_rows = (
                         engine.query_cypher("MATCH (n) RETURN count(n) AS c") or []
                     )
+                    # See enhanced.py's get_graph_stats for why this binds a
+                    # source node (`a`) rather than the bare `()-[r]->()`
+                    # shape: an anonymous-only pattern has no variable
+                    # TenancyManager.scope_cypher_query can inject a tenant
+                    # predicate against, so it fails closed with
+                    # UnscopableQueryError instead of returning a count (D-W2T-1).
                     edge_rows = (
-                        engine.query_cypher("MATCH ()-[r]->() RETURN count(r) AS c")
+                        engine.query_cypher("MATCH (a)-[r]->() RETURN count(r) AS c")
                         or []
                     )
                     nodes = int(node_rows[0]["c"]) if node_rows else 0
