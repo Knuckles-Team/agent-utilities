@@ -96,8 +96,8 @@ import os
 import shutil
 import subprocess
 import time
-from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -890,7 +890,9 @@ def _merge_contract_baseline_cache(
     tmp.replace(path)
 
 
-def _contract_check_argv(script: Path, rel: Path, *, interpreter: str, tree: Path) -> list[str]:
+def _contract_check_argv(
+    script: Path, rel: Path, *, interpreter: str, tree: Path
+) -> list[str]:
     argv = [interpreter, str(rel)]
     if "--repository-root" in script.read_text(encoding="utf-8", errors="replace"):
         argv += ["--repository-root", str(tree)]
@@ -959,7 +961,10 @@ def compute_contract_baseline(
         jobs = {
             name: (
                 _contract_check_argv(
-                    script, script.relative_to(base_tree), interpreter=interpreter, tree=base_tree
+                    script,
+                    script.relative_to(base_tree),
+                    interpreter=interpreter,
+                    tree=base_tree,
                 ),
                 base_tree,
                 CONTRACT_BASELINE_BUDGET_SECONDS,
@@ -1122,7 +1127,11 @@ def run_contract_checks(
                 # new_lines empty and merged_lines non-empty => merged_lines is
                 # entirely a subset of base.lines => pre_existing == merged_lines.
                 shown = "\n".join(sorted(pre_existing)[:10])
-                more = f" (+{len(pre_existing) - 10} more)" if len(pre_existing) > 10 else ""
+                more = (
+                    f" (+{len(pre_existing) - 10} more)"
+                    if len(pre_existing) > 10
+                    else ""
+                )
                 notes.append(
                     f"{rel}: {len(pre_existing)} pre-existing violation(s) on "
                     f"the base ref (allowed — not caused by this candidate):\n"
