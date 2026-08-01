@@ -263,7 +263,7 @@ def filter_visible(
 
 
 def apply_visibility(
-    cypher: str, actor: ActorContext | None = None, var: str = "n"
+    cypher: str, actor: ActorContext | None = None, var: str | None = None
 ) -> str:
     """AND the owner/scope visibility predicate into a Cypher read query.
 
@@ -271,7 +271,16 @@ def apply_visibility(
     :meth:`TenancyManager.scope_cypher_query`: insert after the first
     ``WHERE`` (case-insensitive) or, lacking one, before the first ``RETURN``.
     Queries with no ``RETURN`` (writes/DDL) are returned unchanged.
+
+    ``var`` defaults to the query's own primary matched variable (the
+    identifier right after the first ``MATCH (``), same as
+    :meth:`TenancyManager.scope_cypher_query` — a caller can still force a
+    specific variable explicitly, but a hardcoded ``n`` referenced an unbound
+    variable and broke every real query that named its node something else.
     """
+    if var is None:
+        m = re.search(r"\bMATCH\s*\(\s*([A-Za-z_]\w*)", cypher, flags=re.IGNORECASE)
+        var = m.group(1) if m else "n"
     cond = visibility_predicate(actor, var=var)
     if cond is None:
         return cypher

@@ -289,6 +289,17 @@ class TenancyManager:
         the first ``WHERE``/``RETURN`` is matched **case-insensitively** so a
         lowercase ``return`` can't silently bypass scoping. Queries with no
         ``RETURN`` (writes/DDL) are returned unchanged.
+
+        The scoping condition is bound to the query's own **primary matched
+        variable** (the identifier right after the first ``MATCH (``), not a
+        hardcoded ``n``. A caller-written query keeps whatever variable name it
+        chose for its primary node (``m``, ``r``, ``a``, ...); scoping by a
+        literal ``n`` regardless of that name referenced an unbound variable
+        and made the query fail closed with a binder error instead of
+        filtering — every real query not literally naming its node ``n`` was
+        silently broken. Falls back to ``n`` (the prior constant) only when no
+        ``MATCH (<var>`` can be found at all, preserving prior behavior for
+        that edge case.
         """
         import re
 
@@ -298,7 +309,9 @@ class TenancyManager:
             logger.warning("Refusing to scope with unsafe tenant id %r", tenant_id)
             # Fail closed: an unsafe tenant id yields an impossible predicate.
             tenant_id = "__no_such_tenant__"
-        cond = f"n.tenant_id = '{tenant_id}'"
+        var_match = re.search(r"\bMATCH\s*\(\s*([A-Za-z_]\w*)", query, flags=re.IGNORECASE)
+        var = var_match.group(1) if var_match else "n"
+        cond = f"{var}.tenant_id = '{tenant_id}'"
 
         m = re.search(r"\bWHERE\b", query, flags=re.IGNORECASE)
         if m:
