@@ -23,5 +23,16 @@ def test_unified_image_installs_and_checks_the_rdf_runtime() -> None:
         encoding="utf-8"
     )
 
-    assert "agent-headless,rdf,logfire" in dockerfile
+    # `docker/graphos-unified.Dockerfile`'s own "reconcile runtime stack" commit
+    # (5b177b0d) deliberately widened the unified image from the lightweight
+    # `rdf` extra to the full `owl` extra (owlready2 + rdflib + pyshacl) — the
+    # unified server needs real OWL-DL reasoning + SHACL validation (the
+    # hosted-ontology activation-ICV-fallback path), not just RDF parsing, and
+    # the build's own smoke-test import (below) was updated in that same
+    # commit to match. `owl` is a strict superset of `rdf` (both ship
+    # rdflib), so this still satisfies the "carries an RDF parser" contract —
+    # just via the fuller extra the image actually needs.
+    assert "agent-headless,owl,logfire" in dockerfile
+    assert "import owlready2" in dockerfile
+    assert "import pyshacl" in dockerfile
     assert "import rdflib" in dockerfile

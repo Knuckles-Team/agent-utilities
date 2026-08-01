@@ -478,6 +478,16 @@ class IntelligenceGraphEngine(
 
         # Filter by schema if label is provided
         allowed_cols = self._get_allowed_columns(label) if label else None
+        # The schema's declared column is still the retired 'type' name across
+        # the whole SCHEMA table (agent_utilities/models/schema_definition.py
+        # never picked up the type -> node_type rename this method performs
+        # just above). Without this, the fold above is undone immediately:
+        # 'node_type' isn't a declared column, so the whitelist below silently
+        # drops it again, and every schema-labeled write loses its node_type
+        # -- exactly the retired-property-silently-matching-nothing pattern
+        # (D-OTR-1) on the WRITE side instead of the read side.
+        if allowed_cols is not None and "type" in allowed_cols:
+            allowed_cols = [*allowed_cols, "node_type"]
 
         for k, v in data.items():
             if v is None:

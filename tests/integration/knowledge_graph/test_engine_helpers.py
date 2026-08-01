@@ -9,7 +9,6 @@ CONCEPT:AU-KG.query.object-graph-mapper — Workspace Reload
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.knowledge_graph import (
     RegistryEdgeType,
 )
@@ -24,12 +23,45 @@ def _reset_active_engine():
 
 
 @pytest.fixture
-def engine():
-    import uuid
+def engine(isolate_graph_compute_engine):
+    """An IntelligenceGraphEngine bound to its OWN uniquely-named test graph.
 
-    unique_name = f"test_graph_{uuid.uuid4().hex}"
-    GraphComputeEngine(graph_name=unique_name, backend_type="rust")
-    return IntelligenceGraphEngine(db_path=":memory:")
+    Two prior shapes of this fixture both broke:
+
+    1. A throwaway ``GraphComputeEngine(graph_name=<locally invented uuid>,
+       ...)`` constructed and discarded before building the real engine became
+       the process-owned singleton, bound to a graph name that did NOT match
+       the ambient ``GraphSession``'s declared graph -- every
+       ``engine.backend.execute()`` then failed with ``PermissionError: A
+       graph-scoped view cannot retarget the verified GraphSession``
+       (``graph_compute.py._send`` rejects any explicit ``graph`` that
+       disagrees with ``session.graph``).
+    2. Dropping that line entirely and just calling
+       ``IntelligenceGraphEngine(db_path=":memory:")`` resolves, via
+       ``create_backend`` -> bare ``EpistemicGraphBackend()`` ->
+       ``resolve_routing_graph(None)``, onto the SHARED tenant-default graph
+       (``tenant__<tenant>____commons__``) -- every test in this 26-test file
+       then wrote to the SAME graph sequentially and collided:
+       ``RuntimeError: durable graph registration failed: STALE_FENCE``.
+
+    The fix (same shape as
+    ``tests/unit/knowledge_graph/test_topological_analogy.py::base_graph``):
+    retarget a per-test ``GraphSession`` at an explicit, uniquely-named graph
+    derived from the autouse ``isolate_graph_compute_engine`` fixture's own
+    test graph name, then construct the backend for THAT graph name inside
+    that session -- explicit and ambient agree, so neither failure mode
+    applies.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+
+    graph_name = f"{isolate_graph_compute_engine}_engine_helpers"
+    session = GraphSession.from_ambient().with_graph(graph_name)
+    with use_session(session):
+        backend = EpistemicGraphBackend(graph_name=graph_name)
+        yield IntelligenceGraphEngine(backend=backend)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -158,10 +190,12 @@ class TestPromptVersioning:
         assert v2["content"] == "v2"
         assert v2["parent_id"] == v1["id"]
 
-        # Check edge exists. The graph engine canonicalizes the relationship
-        # under ``rel_type`` (the uppercased relationship-type slot).
+        # Check edge exists. kg_adapter.update_prompt writes the edge property
+        # under the canonical ``relationship`` key (dropping the retired
+        # ``rel_type`` alias), with the raw RegistryEdgeType member as the
+        # value -- a StrEnum, so it compares equal to its lowercase .value.
         has_supersedes = any(
-            edata.get("rel_type") == RegistryEdgeType.SUPERSEDES.name
+            edata.get("relationship") == RegistryEdgeType.SUPERSEDES
             for _, _, edata in engine.graph.out_edges(v2["id"], data=True)
         )
         assert has_supersedes
@@ -213,7 +247,7 @@ class TestGranularResourceQueries:
         """Finds skill-type nodes in the in-memory graph."""
         engine.graph.add_node(
             "skill:code-enhancer",
-            type="skill",
+            node_type="skill",
             name="code-enhancer",
             description="Code analysis",
         )
@@ -226,7 +260,7 @@ class TestGranularResourceQueries:
         """Also finds AGENT_SKILL resource_type nodes."""
         engine.graph.add_node(
             "res:web-search",
-            type="callable_resource",
+            node_type="callable_resource",
             resource_type="agent_skill",
             name="web-search",
             description="Web search capability",
@@ -255,15 +289,15 @@ class TestGranularResourceQueries:
 
     def test_get_skills_sorted(self, engine: IntelligenceGraphEngine):
         """Skills are returned sorted alphabetically."""
-        engine.graph.add_node("s2", type="skill", name="zeta")
-        engine.graph.add_node("s1", type="skill", name="alpha")
+        engine.graph.add_node("s2", node_type="skill", name="zeta")
+        engine.graph.add_node("s1", node_type="skill", name="alpha")
         skills = engine.get_skills()
         assert skills[0]["name"] == "alpha"
         assert skills[1]["name"] == "zeta"
 
     def test_toggle_resource(self, engine: IntelligenceGraphEngine):
         """toggle_resource flips the enabled flag."""
-        engine.graph.add_node("tool:x", type="tool", name="x", enabled=True)
+        engine.graph.add_node("tool:x", node_type="tool", name="x", enabled=True)
         result = engine.toggle_resource("tool:x")
         assert result["enabled"] is False
         assert engine.graph.nodes["tool:x"]["enabled"] is False
@@ -274,7 +308,7 @@ class TestGranularResourceQueries:
 
     def test_toggle_resource_default_enabled(self, engine: IntelligenceGraphEngine):
         """Nodes without explicit enabled flag are treated as enabled."""
-        engine.graph.add_node("tool:y", type="tool", name="y")
+        engine.graph.add_node("tool:y", node_type="tool", name="y")
         result = engine.toggle_resource("tool:y")
         assert result["enabled"] is False
 

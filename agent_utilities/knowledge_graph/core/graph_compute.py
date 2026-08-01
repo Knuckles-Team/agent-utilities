@@ -1253,6 +1253,32 @@ def connect_external_read_transport(
     return SyncEpistemicGraphClient.connect(**connect)
 
 
+@functools.lru_cache(maxsize=8)
+def _query_unified_accepts_reorder_kwarg(unified_method: Any) -> bool:
+    """Whether the installed ``epistemic_graph`` client's ``query.unified`` accepts
+    ``reorder_filter_selectivity`` (D-W2X-4).
+
+    ``GraphComputeEngine.query_unified`` assumes a client signature newer than
+    what the frozen ``au 2.0.0`` / ``eg 2.23.1`` pin currently installs;
+    passing the kwarg unconditionally against an older client raises
+    ``TypeError: unified() got an unexpected keyword argument``. Cached (keyed
+    on the bound method itself — hashable, and stable for the client
+    instance's lifetime) so this introspection runs once per client, not once
+    per call.
+    """
+    import inspect
+
+    try:
+        return (
+            "reorder_filter_selectivity" in inspect.signature(unified_method).parameters
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):  # pragma: no cover - defensive: unintrospectable callable
+        return False
+
+
 class GraphComputeEngine:
     """Graph compute engine backed by the epistemic-graph Tokio service.
 
@@ -2565,12 +2591,26 @@ class GraphComputeEngine:
                 policy labels — never fabricated, resolved server-side. See
                 ``docs/architecture/epistemic-columns-currency.md``.
         """
-        rows = (
-            self._client.query.unified(
-                plan, reorder_filter_selectivity=reorder_filter_selectivity
+        # D-W2X-4: the installed epistemic_graph client's query.unified() may
+        # predate reorder_filter_selectivity (a version skew under the
+        # au 2.0.0/eg 2.23.1 freeze) -- only pass it when the client's own
+        # signature accepts it, rather than assuming the newest wire contract.
+        unified_fn = self._client.query.unified
+        if _query_unified_accepts_reorder_kwarg(unified_fn):
+            rows = (
+                unified_fn(plan, reorder_filter_selectivity=reorder_filter_selectivity)
+                or []
             )
-            or []
-        )
+        else:
+            if reorder_filter_selectivity is not None:
+                logger.warning(
+                    "query_unified: installed epistemic_graph client's "
+                    "query.unified() does not accept reorder_filter_selectivity "
+                    "(version skew under the au/eg freeze) -- calling without it "
+                    "instead of raising; the caller's requested reordering hint "
+                    "is dropped, not silently honored."
+                )
+            rows = unified_fn(plan) or []
         if include_epistemic:
             from .epistemic_row import attach_epistemic_rows
 

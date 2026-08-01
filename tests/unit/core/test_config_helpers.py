@@ -95,10 +95,11 @@ def test_production_xdg_config_loads_private_regular_file(
 def test_xdg_schema_rejection_logs_only_value_free_coordinates(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    secret_value = "must-never-appear-in-diagnostics"
-    with caplog.at_level(logging.ERROR), pytest.raises(
-        ch.ConfigurationSourceError
-    ) as caught:
+    secret_value = "must-never-appear-in-diagnostics"  # sanitizer:ignore - synthetic fixture value, not a live credential
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(ch.ConfigurationSourceError) as caught,
+    ):
         ch._validate_xdg_configuration_schema(
             {
                 "CHAT_MODELS": [

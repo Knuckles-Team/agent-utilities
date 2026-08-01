@@ -73,19 +73,25 @@ def test_assertion_strategy_explicitly_selected():
     assert result.final_score in (0.0, 1.0)
 
 
-def test_lock_regression_cases_idempotent():
+def test_lock_regression_cases_idempotent(monkeypatch):
     """A verified remediation locks one assertion case per signature, once."""
 
     class _FakeEngine:
         def __init__(self):
             self.nodes = []
 
-        def add_node(self, node_id, type=None, **props):  # noqa: A002
-            self.nodes.append({"id": node_id, "type": type, **props})
+        def add_node(self, node_id, node_type=None, **props):
+            self.nodes.append({"id": node_id, "type": node_type, **props})
 
+    from agent_utilities.core.config import config
     from agent_utilities.knowledge_graph.adaptation.failure_analyzer import (
         FailureAnalyzer,
     )
+
+    # The regression corpus is content-bearing by nature and stays disabled
+    # unless an operator makes the explicit governance decision
+    # (_lock_regression_cases's own docstring/guard) -- opt in for this test.
+    monkeypatch.setattr(config, "kg_failure_regression_dataset", True)
 
     analyzer = FailureAnalyzer.__new__(FailureAnalyzer)
     analyzer.engine = _FakeEngine()

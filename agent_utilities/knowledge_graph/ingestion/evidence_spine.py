@@ -72,6 +72,7 @@ import hashlib
 import logging
 import re
 import unicodedata
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -91,6 +92,9 @@ __all__ = [
     "ARTIFACT_OF_EDGE",
     "FRAGMENT_KINDS",
     "fragment_markdown",
+    "fragment_pdf",
+    "fragment_record",
+    "fragment_rowset",
     "ingest_artifact",
     "load_fragments",
     "citation_status",
@@ -343,13 +347,22 @@ class Fragment:
 
     @property
     def version_id(self) -> str:
-        """``<fragment_id>@<short content hash>`` — a content-pinned citation.
+        """``<fragment_id>#<short content hash>`` — a content-pinned citation.
 
         Use this when a citation must be immutable (an audit record, a published
         claim's evidence).  Use :attr:`fragment_id` when it must *follow* the
         fragment through edits.  Both are needed; neither substitutes.
+
+        Separator is ``#``, not ``@``: the engine's ``ApplyChangeEnvelope``
+        commit path (``change_envelope.rs``'s ``validate_safe_text``) rejects
+        any ``@`` in inline text outright as an email/host-leak privacy guard —
+        by design, and correctly so; a blanket exemption for ``@`` would weaken
+        that guard fleet-wide. ``#`` carries the same "pin a version" meaning
+        (a URL fragment identifier pins a specific view of a resource) without
+        colliding with the privacy scan (see D-GM-4 / D-GS856-6 / D-MW-1 /
+        D-MW-2 in the deferred ledger for the full investigation).
         """
-        return f"{self.fragment_id}@{self.content_hash[7:23]}"
+        return f"{self.fragment_id}#{self.content_hash[7:23]}"
 
     def to_locus(self) -> dict[str, Any]:
         """Render an engine ``ArtifactLocus``-shaped selector for this fragment.
@@ -410,7 +423,7 @@ class Artifact:
     An artifact is the *object* — a markdown file, a PDF, an API record, a row
     set — not one delivery of it.  :attr:`artifact_id` is therefore keyed to
     source identity and stays put across revisions, while
-    :attr:`content_hash` identifies the revision.  Governance is NOT re-declared
+    :attr:`content_hash` identifies the revision.  Governance is NOT redeclared
     here: it is carried verbatim off the envelope, which is the trust boundary
     that decided it.
 
@@ -947,6 +960,226 @@ def _split_row(line: str) -> list[str]:
     if body.endswith("|"):
         body = body[:-1]
     return [cell.strip() for cell in body.split("|")]
+
+
+# ── PDF fragmenter ────────────────────────────────────────────────────────────
+# D-ES-3: fragment_markdown() was the only producer even though Fragment/
+# Artifact already carry the ``page``/``record``/``field``/``table_cell`` kinds
+# and the engine's ``ArtifactLocus`` vocabulary (``page_box``/``row_version``/
+# ``table_cell_range``) for the rest — the gap was producers, not contract.
+# ``extraction/pdf.py``'s ``read_pdf_pages`` already does the sandboxed
+# extraction (subprocess, byte/page/time limits); this fragments text it is
+# HANDED rather than a path, so the resource-sandboxing concern (a genuinely
+# different, security-adjacent surface) stays exactly where it already lived.
+_BLOCK_SPLIT_RE = re.compile(r"\n\s*\n")
+
+
+def fragment_pdf(
+    pages: Sequence[str], *, artifact_id: str
+) -> tuple[Fragment, ...]:
+    """Fragment already-extracted PDF page text into ``page`` + ``paragraph``.
+
+    ``pages`` is per-page text (see
+    :func:`~..extraction.pdf.read_pdf_pages`, which preserves page
+    boundaries — ``read_pdf_text``'s single joined string cannot, since a
+    ``"\\n"`` inside one page's own extracted text is indistinguishable from
+    a page break once joined). Each page becomes a ``page`` fragment
+    (``locus_kind="page_box"``, matching the engine's ``ArtifactLocus``);
+    each blank-line-separated block of text within it becomes a child
+    ``paragraph`` fragment — PDF text extraction carries no markdown syntax,
+    so there is no heading/table structure to recover, only page + block.
+    """
+    fragments: list[Fragment] = []
+    for page_index, page_text in enumerate(pages):
+        page_number = page_index + 1
+        page = Fragment.at(
+            artifact_id=artifact_id,
+            kind="page",
+            parent_path=(),
+            text="",
+            label=f"page {page_number}",
+            ordinal=page_index,
+            sequence=len(fragments),
+            parent_fragment_id=None,
+            attributes={"page_number": page_number},
+            locus_kind="page_box",
+        )
+        fragments.append(page)
+        block_ordinal = 0
+        for block in _BLOCK_SPLIT_RE.split(page_text or ""):
+            body = block.strip()
+            if not body:
+                continue
+            fragments.append(
+                Fragment.at(
+                    artifact_id=artifact_id,
+                    kind="paragraph",
+                    parent_path=page.path,
+                    text=body,
+                    ordinal=block_ordinal,
+                    sequence=len(fragments),
+                    parent_fragment_id=page.fragment_id,
+                )
+            )
+            block_ordinal += 1
+    return tuple(fragments)
+
+
+# ── JSON / row fragmenters ───────────────────────────────────────────────────
+# D-ES-3: a JSON object -> record/field fragments keyed by JSON-pointer-shaped
+# path segments (a naturally stable address — renaming a sibling key never
+# moves this one), and DB rows -> the same, keyed by primary key instead of
+# row position (a naturally stable address across a re-sort or an insert
+# elsewhere in the result set).
+
+
+def fragment_record(value: Any, *, artifact_id: str) -> tuple[Fragment, ...]:
+    """Fragment one JSON-like value into ``record``/``list``/``field`` fragments.
+
+    The JSON analogue of :func:`fragment_markdown`: a ``dict`` becomes a
+    ``record`` fragment and each of its scalar values a child ``field``
+    fragment addressed by its key (slugified, mirroring how a heading anchors
+    a markdown section); a ``list``/``tuple`` becomes a ``list`` fragment and
+    each scalar item a child ``list_item``. A nested ``dict``/``list`` value
+    recurses into its own nested ``record``/``list`` fragment rather than a
+    leaf, so the tree — and every fragment's ``parent_fragment_id`` chain —
+    exactly mirrors the JSON structure.
+    """
+    fragments: list[Fragment] = []
+    _fragment_value(
+        value,
+        artifact_id=artifact_id,
+        kind="record",
+        parent_path=(),
+        parent_id=None,
+        label="",
+        ordinal=0,
+        fragments=fragments,
+    )
+    return tuple(fragments)
+
+
+def fragment_rowset(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    artifact_id: str,
+    key_field: str | Sequence[str] = "id",
+) -> tuple[Fragment, ...]:
+    """Fragment a set of DB rows, each keyed by its primary key.
+
+    Each row becomes a top-level ``record`` fragment (see
+    :func:`fragment_record`) whose path is anchored to the row's
+    ``key_field`` value(s) instead of its position in ``rows`` — a re-sort or
+    an insert elsewhere in the result set moves no other row's address.
+    ``key_field`` may name a composite key (``("tenant_id", "id")``); the
+    fallback to the row's ordinal (only used when every key field is missing)
+    still guarantees distinct addresses.
+    """
+    fragments: list[Fragment] = []
+    keys = (key_field,) if isinstance(key_field, str) else tuple(key_field)
+    for row_index, row in enumerate(rows):
+        pk = "/".join(str(row.get(k, "")) for k in keys).strip("/")
+        _fragment_value(
+            row,
+            artifact_id=artifact_id,
+            kind="record",
+            parent_path=(),
+            parent_id=None,
+            label=pk,
+            ordinal=row_index,
+            fragments=fragments,
+        )
+    return tuple(fragments)
+
+
+def _fragment_value(
+    value: Any,
+    *,
+    artifact_id: str,
+    kind: FragmentKind,
+    parent_path: tuple[str, ...],
+    parent_id: str | None,
+    label: str,
+    ordinal: int,
+    fragments: list[Fragment],
+) -> Fragment:
+    """Recursively fragment one JSON value; appends to *fragments* in order."""
+    if isinstance(value, Mapping):
+        node = Fragment.at(
+            artifact_id=artifact_id,
+            kind=kind,
+            parent_path=parent_path,
+            text="",
+            label=label,
+            ordinal=ordinal,
+            sequence=len(fragments),
+            parent_fragment_id=parent_id,
+            attributes={"keys": len(value)},
+        )
+        fragments.append(node)
+        for key, item in value.items():
+            child_kind = _child_kind(item, is_named=True)
+            _fragment_value(
+                item,
+                artifact_id=artifact_id,
+                kind=child_kind,
+                parent_path=node.path,
+                parent_id=node.fragment_id,
+                label=str(key),
+                ordinal=0,
+                fragments=fragments,
+            )
+        return node
+
+    if isinstance(value, list | tuple):
+        node = Fragment.at(
+            artifact_id=artifact_id,
+            kind=kind,
+            parent_path=parent_path,
+            text="",
+            label=label,
+            ordinal=ordinal,
+            sequence=len(fragments),
+            parent_fragment_id=parent_id,
+            attributes={"item_count": len(value)},
+        )
+        fragments.append(node)
+        for item_index, item in enumerate(value):
+            child_kind = _child_kind(item, is_named=False)
+            _fragment_value(
+                item,
+                artifact_id=artifact_id,
+                kind=child_kind,
+                parent_path=node.path,
+                parent_id=node.fragment_id,
+                label="",
+                ordinal=item_index,
+                fragments=fragments,
+            )
+        return node
+
+    # Leaf scalar (str/int/float/bool/None).
+    node = Fragment.at(
+        artifact_id=artifact_id,
+        kind=kind,
+        parent_path=parent_path,
+        text="" if value is None else str(value),
+        label=label,
+        ordinal=ordinal,
+        sequence=len(fragments),
+        parent_fragment_id=parent_id,
+    )
+    fragments.append(node)
+    return node
+
+
+def _child_kind(value: Any, *, is_named: bool) -> FragmentKind:
+    """The fragment kind for one child value — a dict/list child recurses."""
+    if isinstance(value, Mapping):
+        return "record"
+    if isinstance(value, list | tuple):
+        return "list"
+    return "field" if is_named else "list_item"
 
 
 # ── Ingest wiring ────────────────────────────────────────────────────────────

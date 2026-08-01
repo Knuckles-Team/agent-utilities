@@ -136,7 +136,7 @@ def normalize_label(label: str) -> str:
 # here (the single source of truth both write-shaping paths consult) rather
 # than duplicated across ~40 TableDefinitions.
 _GOVERNANCE_COLUMNS = frozenset(
-    {"tenant_id", "_owner_id", "_shared_scope", "classification"}
+    {"tenant_id", "_owner_id", "_shared_scope", "classification", "external_access"}
 )
 
 
@@ -166,13 +166,22 @@ def set_clause(
     if alias == "r" and backend and backend.__class__.__name__ == "LadybugBackend":
         return ""
     valid_keys = schema_valid_keys(backend, label)
+    # The native epistemic_graph Cypher parser does not support backtick-quoted
+    # identifiers at all -- it fails outright with "unexpected character: '`'"
+    # on every SET clause this built, regardless of the property name. Property
+    # keys reaching this helper are already identifier-safe (dict/**kwargs
+    # keys), so a bare identifier is safe here; only quote for other backends
+    # whose (Neo4j-flavored) dialect expects/tolerates it.
+    backtick = not (
+        backend and backend.__class__.__name__ == "EpistemicGraphBackend"
+    )
     sets = []
     for k in data:
         if k == "id":
             continue
         if valid_keys is not None and k not in valid_keys:
             continue
-        sets.append(f"{alias}.`{k}` = ${k}")
+        sets.append(f"{alias}.`{k}` = ${k}" if backtick else f"{alias}.{k} = ${k}")
     return " SET " + ", ".join(sets) if sets else ""
 
 

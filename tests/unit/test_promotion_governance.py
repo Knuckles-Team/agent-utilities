@@ -297,13 +297,19 @@ class TestGateRecording:
             for entity in entities:
                 row = dict(entity)
                 node_id = row.pop("id")
-                node_type = row.pop("type")
+                # D-W2X-1: _record_gate_result builds each entity with the
+                # canonical `node_type` key (never the retired bare `type`,
+                # see D-W2-4). This fixture's own `graph_writer` popped
+                # `type` instead, which KeyError'd and was silently
+                # swallowed by _record_gate_result's `except Exception`
+                # ("recording must never gate the gate") — so the
+                # RegressionGateResult node was never actually written, not
+                # because of any production-code defect.
+                node_type = row.pop("node_type")
                 eng.add_node(node_id, node_type, properties=row)
             return {"status": "success"}
 
-        analyzer = FailureAnalyzer(
-            eng, trace_backend=None, graph_writer=graph_writer
-        )
+        analyzer = FailureAnalyzer(eng, trace_backend=None, graph_writer=graph_writer)
         check = analyzer.make_regression_check(
             [{"workflow": "wf", "occurrences": 2, "signature": "s", "id": "g"}]
         )

@@ -68,10 +68,12 @@ class FakeEngine:
         self.backend = FakeBackend() if with_backend else None
 
     def add_node(self, node_id, node_type, properties=None, **props):
-        self.graph.add_node(node_id, {"type": node_type, **(properties or props or {})})
+        self.graph.add_node(
+            node_id, {"node_type": node_type, **(properties or props or {})}
+        )
 
     def link_nodes(self, source, target, rel_type, properties=None):
-        self.graph.add_edge(source, target, type=rel_type, **(properties or {}))
+        self.graph.add_edge(source, target, relationship=rel_type, **(properties or {}))
 
     def search_hybrid(self, query, top_k=3):
         return []
@@ -137,11 +139,11 @@ def test_import_epc_yields_workflow_with_gate_step():
     assert rep["gate_count"] == 1  # "Manager Approval" → gate
     # the WorkflowDefinition + a gate WorkflowStep + REALIZES edge landed
     steps = [
-        d for _n, d in engine.graph.nodes(data=True) if d.get("type") == "WorkflowStep"
+        d for _n, d in engine.graph.nodes(data=True) if d.get("node_type") == "WorkflowStep"
     ]
     kinds = {s["kind"] for s in steps}
     assert "gate" in kinds
-    assert any(p.get("type") == "REALIZES" for _s, _t, p in engine.graph._edges)
+    assert any(p.get("relationship") == "REALIZES" for _s, _t, p in engine.graph._edges)
 
 
 def test_import_archimate_walks_triggering_chain():
@@ -156,7 +158,7 @@ def test_import_archimate_walks_triggering_chain():
         (
             d
             for _n, d in engine.graph.nodes(data=True)
-            if d.get("type") == "WorkflowStep"
+            if d.get("node_type") == "WorkflowStep"
         ),
         key=lambda s: s["step_order"],
     )
@@ -176,7 +178,7 @@ def test_import_onetrust_single_gate():
     assert rep["step_count"] == 1
     assert rep["gate_count"] == 1
     step = next(
-        d for _n, d in engine.graph.nodes(data=True) if d.get("type") == "WorkflowStep"
+        d for _n, d in engine.graph.nodes(data=True) if d.get("node_type") == "WorkflowStep"
     )
     assert step["kind"] == "gate"
     assert step["boundCapability"] == "onetrust_assessments"
@@ -188,7 +190,7 @@ def test_import_erpnext_single_gate():
         "erpnext:workflow:purchase", "erpnext", name="Purchase Approval"
     )
     step = next(
-        d for _n, d in engine.graph.nodes(data=True) if d.get("type") == "WorkflowStep"
+        d for _n, d in engine.graph.nodes(data=True) if d.get("node_type") == "WorkflowStep"
     )
     assert step["kind"] == "gate"
     assert step["boundCapability"] == "erpnext_workflow"

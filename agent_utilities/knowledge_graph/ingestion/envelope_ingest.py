@@ -59,15 +59,30 @@ logger = logging.getLogger(__name__)
 #: (D-GM-3): 24-hex/96-bit (``engine.py``'s ``_ingest_connector`` object_key —
 #: ``sha256(portable_uri).hexdigest()[:24]`` — and the matching
 #: ``GitMarkdownConnector._document_node_id``/``_object_key`` truncation),
-#: 32-hex/128-bit, and 64-hex/256-bit full digests. A truncated 24-hex digest
-#: previously fell through to the full scan and could trip the case-insensitive
-#: IBAN pattern by chance (~1 in 20 sha256 digests), rejecting a genuine
-#: connector-owned document/record id with no PII involved.
-_OPAQUE_INTERNAL_ID_RE = re.compile(r"^(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$")
+#: 32-hex/128-bit, 40-hex/160-bit (``evidence_spine.py``'s
+#: ``artifact_id_for``/``fragment_id_for`` — ``sha256(...).hexdigest()[:40]``),
+#: and 64-hex/256-bit full digests. A truncated digest previously fell through
+#: to the full scan and could trip the case-insensitive IBAN pattern by chance
+#: (~1 in 20 sha256 digests), rejecting a genuine connector-owned document/
+#: record id with no PII involved.
+#:
+#: Also exempts an optional trailing ``#<16-hex>`` content-pin suffix
+#: (``Fragment.version_id`` — ``f"{fragment_id}#{content_hash[7:23]}"``, a
+#: content-pinned citation address; see the module docstring on
+#: ``Fragment.version_id`` in ``evidence_spine.py`` for why the separator is
+#: ``#`` and not ``@``: the engine's ``ApplyChangeEnvelope`` privacy guard
+#: rejects any ``@`` outright, D-GM-4/D-GS856-6/D-MW-1/D-MW-2). Same class of
+#: defect as D-GM-3, on the same shared gate: without this, a fragment's
+#: ``fragment:<40-hex>#<16-hex>`` version_id falls through to the full scan and
+#: can reproducibly trip the IBAN pattern, rejecting entire connector documents
+#: with no PII involved.
+_OPAQUE_DIGEST = r"(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64})"
+_OPAQUE_VERSION_PIN = r"(?:#[0-9a-f]{16})?"
+_OPAQUE_INTERNAL_ID_RE = re.compile(f"^{_OPAQUE_DIGEST}{_OPAQUE_VERSION_PIN}$")
 _OPAQUE_NAMESPACED_ID_RE = re.compile(
     r"^(?P<namespace>[a-z][a-z0-9._-]{0,63}"
     r"(?::[a-z][a-z0-9._-]{0,63}){0,7}):"
-    r"(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$"
+    f"{_OPAQUE_DIGEST}{_OPAQUE_VERSION_PIN}$"
 )
 
 __all__ = [
@@ -423,21 +438,41 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
         opaque_values: dict[int, Any] = {}
         next_sentinel = -(1 << 255)
 
-        def identity_field(key: Any) -> bool:
+        def identity_field(key: Any, *, in_links: bool) -> bool:
+            """Is ``key`` a routing/identity key that must not be rewritten?
+
+            ``id``/``*_id``/``*Id``/``*ID`` are unconditionally node-identity
+            keys everywhere in the payload. ``source``/``target`` are ONLY
+            node-id references when they appear inside an edge record (an
+            entry of a ``_links`` list) — a :class:`DocumentChunk`/Document
+            record legitimately reuses the bare key ``source`` for a
+            human-readable provenance label (e.g. a filesystem path or URL),
+            which is exactly the kind of content the docstring above commits
+            to "deeply sanitizing" rather than rejecting outright. Treating
+            that provenance field as an opaque identity previously made
+            ``ingest_envelope`` reject ordinary document/skill ingestion
+            whenever the source path matched a PII pattern (e.g. a POSIX
+            local path) instead of just redacting it.
+            """
             rendered = str(key)
             normalized = re.sub(r"[^a-z0-9]+", "_", rendered.casefold()).strip("_")
-            return (
-                normalized in {"id", "source", "target"}
+            if (
+                normalized == "id"
                 or normalized.endswith("_id")
                 or rendered.endswith(("Id", "ID"))
-            )
+            ):
+                return True
+            return in_links and normalized in {"source", "target"}
 
-        def mask_opaque_identities(value: Any) -> Any:
+        def mask_opaque_identities(value: Any, *, in_links: bool = False) -> Any:
             nonlocal next_sentinel
             if isinstance(value, dict):
                 masked: dict[Any, Any] = {}
                 for key, item in value.items():
-                    if identity_field(key) and item not in (None, ""):
+                    if identity_field(key, in_links=in_links) and item not in (
+                        None,
+                        "",
+                    ):
                         assert_safe_identity(item)
                         rendered = str(item)
                         if _OPAQUE_INTERNAL_ID_RE.fullmatch(
@@ -448,28 +483,36 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
                             opaque_values[sentinel] = item
                             masked[key] = sentinel
                             continue
-                    masked[key] = mask_opaque_identities(item)
+                    child_in_links = in_links or key == "_links"
+                    masked[key] = mask_opaque_identities(item, in_links=child_in_links)
                 return masked
             if isinstance(value, list | tuple | set | frozenset):
-                return [mask_opaque_identities(item) for item in value]
+                return [
+                    mask_opaque_identities(item, in_links=in_links) for item in value
+                ]
             return value
 
-        def restore_opaque_identities(value: Any) -> Any:
+        def restore_opaque_identities(value: Any, *, in_links: bool = False) -> Any:
             if isinstance(value, dict):
                 restored: dict[Any, Any] = {}
                 for key, item in value.items():
                     if (
-                        identity_field(key)
+                        identity_field(key, in_links=in_links)
                         and isinstance(item, int)
                         and not isinstance(item, bool)
                         and item in opaque_values
                     ):
                         restored[key] = opaque_values[item]
                     else:
-                        restored[key] = restore_opaque_identities(item)
+                        child_in_links = in_links or key == "_links"
+                        restored[key] = restore_opaque_identities(
+                            item, in_links=child_in_links
+                        )
                 return restored
             if isinstance(value, list):
-                return [restore_opaque_identities(item) for item in value]
+                return [
+                    restore_opaque_identities(item, in_links=in_links) for item in value
+                ]
             return value
 
         try:

@@ -255,8 +255,15 @@ async def organize_trading_knowledge(
                 # sig:book:<cid> derives from tk:execution:<cid>
                 cid = sig.id.split(":", 2)[-1]
                 try:
+                    # D-W2N-2: EdgeClient.add's 3rd positional arg is a
+                    # properties dict (or None), never a bare relationship
+                    # string -- a real epistemic_graph client TypeErrors on
+                    # a str here, silently swallowed by the except below, so
+                    # the DERIVED_FROM edge never landed.
                     await client.edges.add(
-                        sig.id, f"tk:execution:{cid}", "DERIVED_FROM"
+                        sig.id,
+                        f"tk:execution:{cid}",
+                        {"relationship": "DERIVED_FROM"},
                     )
                     written_edges += 1
                 except Exception as exc:  # noqa: BLE001 — the signal node itself already landed (written_nodes was already incremented above); only the DERIVED_FROM provenance edge is missing, and written_edges correctly stays un-incremented so the report reflects it

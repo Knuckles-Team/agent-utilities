@@ -73,9 +73,7 @@ def test_mcp_registration_accepts_runtime_references() -> None:
 )
 def test_mcp_registration_rejects_sensitive_command_arguments(args: list[str]) -> None:
     with pytest.raises(ValueError):
-        analysis_tools._validate_mcp_server_definition(
-            {"command": "uvx", "args": args}
-        )
+        analysis_tools._validate_mcp_server_definition({"command": "uvx", "args": args})
 
 
 def test_register_mcp_writes_atomically_with_private_mode(
@@ -116,14 +114,10 @@ def test_register_mcp_rejects_symlink_target(
         linked.symlink_to(outside)
     except OSError:
         pytest.skip("symlinks are unavailable on this platform")
-    monkeypatch.setattr(
-        analysis_tools, "_workspace_mcp_config_path", lambda: linked
-    )
+    monkeypatch.setattr(analysis_tools, "_workspace_mcp_config_path", lambda: linked)
 
     with pytest.raises(PermissionError):
-        analysis_tools._register_mcp_server(
-            "graph-os", json.dumps({"command": "uvx"})
-        )
+        analysis_tools._register_mcp_server("graph-os", json.dumps({"command": "uvx"}))
 
     assert outside.read_text(encoding="utf-8") == '{"mcpServers": {}}'
 
@@ -133,11 +127,7 @@ def test_register_mcp_rejects_existing_inline_material_without_rewriting(
 ) -> None:
     config_path = tmp_path / "mcp_config.json"
     original = json.dumps(
-        {
-            "mcpServers": {
-                "external": {"url": "https://sensitive.invalid/service"}
-            }
-        }
+        {"mcpServers": {"external": {"url": "https://sensitive.invalid/service"}}}
     )
     config_path.write_text(original, encoding="utf-8")
     monkeypatch.setattr(
@@ -145,9 +135,7 @@ def test_register_mcp_rejects_existing_inline_material_without_rewriting(
     )
 
     with pytest.raises(ValueError):
-        analysis_tools._register_mcp_server(
-            "graph-os", json.dumps({"command": "uvx"})
-        )
+        analysis_tools._register_mcp_server("graph-os", json.dumps({"command": "uvx"}))
 
     assert config_path.read_text(encoding="utf-8") == original
 
@@ -178,9 +166,7 @@ def test_workspace_mcp_path_rejects_escape(
     from agent_utilities.core import config, workspace
 
     monkeypatch.setattr(workspace, "get_agent_workspace", lambda: tmp_path)
-    monkeypatch.setattr(
-        config, "setting", lambda key, default="": "../outside.json"
-    )
+    monkeypatch.setattr(config, "setting", lambda key, default="": "../outside.json")
 
     with pytest.raises(PermissionError):
         analysis_tools._workspace_mcp_config_path()
@@ -247,6 +233,136 @@ def test_stardog_action_rejects_inline_connection_material() -> None:
     assert "sensitive.invalid" not in result
     assert "synthetic-credential-material" not in result
     assert "inline Stardog connection material" in result
+
+
+def test_stardog_export_graph_action_rejects_inline_connection_material() -> None:
+    fake = _FakeMCP()
+    analysis_tools.register_analysis_tools(fake)
+
+    result = fake.tools["graph_configure"](
+        action="stardog_export_graph",
+        config_key="",
+        config_value=json.dumps(
+            {
+                "endpoint": "https://sensitive.invalid",
+                "password": "synthetic-credential-material",
+            }
+        ),
+    )
+
+    assert "sensitive.invalid" not in result
+    assert "synthetic-credential-material" not in result
+    assert "inline Stardog connection material" in result
+
+
+class _FakeTurtleBackend:
+    """A minimal SparqlAdapter-shaped backend for the D-MT-1 export/import actions."""
+
+    def __init__(self) -> None:
+        self.uploaded: list[tuple[str, str | None]] = []
+
+    def download_graph(self, graph_uri: str | None = None) -> str:
+        return f"# turtle for {graph_uri or 'default'}"
+
+    def upload_graph(self, ttl_content: str, graph_uri: str | None = None) -> None:
+        self.uploaded.append((ttl_content, graph_uri))
+
+
+def _register_fake_stardog_connection(monkeypatch, backend) -> None:
+    from agent_utilities.mcp import kg_server
+
+    class _FakeRegistry:
+        def get_engine(self, name):
+            return backend
+
+    monkeypatch.setattr(kg_server, "get_connection_registry", lambda: _FakeRegistry())
+
+
+def test_stardog_export_graph_action_returns_turtle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeMCP()
+    analysis_tools.register_analysis_tools(fake)
+    backend = _FakeTurtleBackend()
+    _register_fake_stardog_connection(monkeypatch, backend)
+
+    result = json.loads(
+        fake.tools["graph_configure"](
+            action="stardog_export_graph",
+            config_key="stardog-primary",
+            config_value=json.dumps({"graph_uri": "urn:mirror:kg_mirror"}),
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["graph_uri"] == "urn:mirror:kg_mirror"
+    assert "urn:mirror:kg_mirror" in result["turtle"]
+
+
+def test_stardog_import_graph_action_requires_turtle_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeMCP()
+    analysis_tools.register_analysis_tools(fake)
+    backend = _FakeTurtleBackend()
+    _register_fake_stardog_connection(monkeypatch, backend)
+
+    result = json.loads(
+        fake.tools["graph_configure"](
+            action="stardog_import_graph",
+            config_key="stardog-primary",
+            config_value=json.dumps({"graph_uri": "urn:mirror:kg_mirror"}),
+        )
+    )
+
+    assert "error" in result
+    assert "turtle" in result["error"]
+    assert backend.uploaded == []
+
+
+def test_stardog_import_graph_action_uploads_the_turtle_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeMCP()
+    analysis_tools.register_analysis_tools(fake)
+    backend = _FakeTurtleBackend()
+    _register_fake_stardog_connection(monkeypatch, backend)
+
+    result = json.loads(
+        fake.tools["graph_configure"](
+            action="stardog_import_graph",
+            config_key="stardog-primary",
+            config_value=json.dumps(
+                {
+                    "graph_uri": "urn:mirror:kg_mirror",
+                    "turtle": "<urn:s> <urn:p> <urn:o> .",
+                }
+            ),
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert backend.uploaded == [("<urn:s> <urn:p> <urn:o> .", "urn:mirror:kg_mirror")]
+
+
+def test_stardog_export_graph_action_reports_unsupported_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registered connection that isn't Turtle-capable (e.g. a Cypher mirror)
+    must fail with a clear error, not an AttributeError."""
+    fake = _FakeMCP()
+    analysis_tools.register_analysis_tools(fake)
+    _register_fake_stardog_connection(monkeypatch, object())
+
+    result = json.loads(
+        fake.tools["graph_configure"](
+            action="stardog_export_graph",
+            config_key="stardog-primary",
+            config_value="",
+        )
+    )
+
+    assert "does not support Turtle graph export/import" in result["error"]
 
 
 def test_database_action_rejects_inline_endpoint() -> None:
