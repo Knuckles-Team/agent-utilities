@@ -201,6 +201,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2.21.0) so a single oversized tool result cannot blow a run in one request.
 
 ### Fixed
+- **Authenticating a request no longer requires engine cluster-admin authority.**
+  `security/request_identity.py::_mint_graph_session` ended with a live
+  `placement_catalog.resolve_placement` round-trip. Because *every* authenticated
+  request on *every* served surface mints a `GraphSession`, that made engine
+  cluster-administrator authority a precondition for authenticating at all:
+  epistemic-graph declares `PlacementRoute` with
+  `authz_action = "admin:cluster-read"` (`crates/eg-capabilities/src/lib.rs:2274`)
+  and enforces it twice in `src/server/dispatch.rs` — against the caller's token
+  scopes (`:2185`) and again against the engine's own `IsolationLayer` via
+  `require_admin_capability` (`:2199` → `src/server/access.rs:858`), which no JWT
+  claim can satisfy. graph-os only looked healthy because every credential in use
+  belonged to a cluster admin; the first genuinely non-admin principal got a
+  blanket HTTP 500 (`PlacementAuthorityError` is a `RuntimeError`, so it matched
+  none of the middleware's 401/403 arms). Minting now establishes **identity, not
+  topology**: `endpoint`/`placement_group`/`catalog_epoch` are left unbound
+  (`endpoint=None` is `GraphSession`'s documented "resolve normally" value) and
+  the data plane binds the authoritative route per call in `graph_compute`, which
+  already overwrote the session's epoch and fencing token on every
+  `ApplyChangeEnvelope` — so the mint-time route was never authoritative. Every
+  authority field, every `PermissionError`, and `UNAUTHENTICATED_PATHS` are
+  unchanged; `scripts/security/check_tenant_identity_contract.py` now statically
+  forbids the minter from resolving topology at all. (D-WD-1 / D-SP-1)
 - **Budget exhaustion is always terminal.** `error_recovery_step` previously
   only treated the node-transition budget as non-retryable; a token, cost, or
   duration budget was silently retried through the planner for up to 2 more
