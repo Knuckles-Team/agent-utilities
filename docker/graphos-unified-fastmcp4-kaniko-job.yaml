@@ -15,7 +15,7 @@
 #
 # Caching stays ON (as in every sibling job) and is SAFE for this particular change:
 # kaniko's composite cache key for a RUN layer covers the command string plus every
-# preceding layer, including the content hash of COPYed context files. `overrides.txt` is
+# preceding layer, including the content hash of copied context files. `overrides.txt` is
 # both new-in-position and changed-in-content immediately before the install, and the
 # `uv pip install` command line itself changed, so the dependency-resolving layer cannot
 # hit a warm entry and replay the old fastmcp-3 closure. The earlier apt/uv/eg-wheel
