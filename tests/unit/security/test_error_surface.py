@@ -113,7 +113,7 @@ def test_public_error_payload_reports_error_class_and_failing_layer() -> None:
 
 
 def test_detail_ref_equals_correlation_id_and_resolves_a_sanitized_detail() -> None:
-    sensitive = "Bearer sk-proj-abcdefghijklmnopqrstuvwxyz012345"
+    sensitive = "Bearer sk-proj-example-abcdefghijklmnopqrstuvwxyz012345"
 
     try:
         raise RuntimeError(sensitive)
@@ -131,7 +131,7 @@ def test_detail_ref_equals_correlation_id_and_resolves_a_sanitized_detail() -> N
     # The stored detail is sanitized through the SAME persistence privacy
     # gate as any other payload crossing this boundary — no secret material
     # leaks into the resolvable detail store either.
-    assert "sk-proj-abcdefghijklmnopqrstuvwxyz012345" not in json.dumps(detail)
+    assert "sk-proj-example-abcdefghijklmnopqrstuvwxyz012345" not in json.dumps(detail)
     assert "abcdefghijklmnopqrstuvwxyz012345" not in json.dumps(detail)
 
 
@@ -243,7 +243,7 @@ def test_resolve_error_detail_for_actor_unknown_ref_returns_none_not_raise() -> 
 
 
 def test_resolve_error_detail_for_actor_applies_the_same_sanitization() -> None:
-    sensitive = "Bearer sk-proj-abcdefghijklmnopqrstuvwxyz012345"
+    sensitive = "Bearer sk-proj-example-abcdefghijklmnopqrstuvwxyz012345"
     with use_actor(_tenant_actor("acme")):
         try:
             raise RuntimeError(sensitive)
@@ -252,7 +252,7 @@ def test_resolve_error_detail_for_actor_applies_the_same_sanitization() -> None:
         detail = resolve_error_detail_for_actor(payload["error"]["detail_ref"])
 
     assert detail is not None
-    assert "sk-proj-abcdefghijklmnopqrstuvwxyz012345" not in json.dumps(detail)
+    assert "sk-proj-example-abcdefghijklmnopqrstuvwxyz012345" not in json.dumps(detail)
 
 
 def test_detail_persistence_sink_is_called_best_effort_and_never_breaks_recording() -> (

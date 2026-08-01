@@ -1,0 +1,22 @@
+# Frozen baseline of pre-existing privacy leaks that D-CIP-10's scope
+# fix made VISIBLE for the first time (a ratchet — burn down toward
+# zero, same convention as scripts/security/cypher_write_subset_baseline.txt).
+#
+# Until D-CIP-10, check_tracked_privacy had two passes with a hole
+# between them: the whole-tree pass was location-filtered to docs/,
+# .github/, top-level and *.toml, and the unrestricted pass was scoped
+# to `git diff`. Anything committed earlier under docker/ or
+# agent_utilities/ was scanned by neither, so these leaks were public
+# and invisible. They are NOT new — only newly seen.
+#
+# These entries are tracked debt, not exemptions. Two are the personal
+# account name in live kaniko Job manifests (D-PCC-1, owned by
+# lane-release-0801); the rest are internal endpoints and shared-account
+# paths. GitHub is public-facing and gets STRICT standards, so this file
+# must reach zero before the repository is pushed.
+#
+# TAB-separated: path\tline\tcategory. Line numbers drift as the
+# codebase changes -- expected; re-run --update-baseline to re-anchor.
+# A NEW leak (not listed here) FAILS the gate. Fixing a listed site
+# shrinks this file on the next --update-baseline; never hand-add an
+# entry to make a real leak disappear.

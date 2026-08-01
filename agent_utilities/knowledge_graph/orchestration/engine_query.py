@@ -193,7 +193,12 @@ class QueryMixin(_Base):
         try:
             from agent_utilities.knowledge_graph.core.secured_reads import scope
 
-            scoped_query = scope(query, session.actor)
+            # D-W2T-2: `scope()` now returns (query, extra_params) — the tenant
+            # id is injected as a bound `$_tenant_scope_id` parameter, not a
+            # string-literal splice. Merge it into this call's own params dict
+            # (same convention as the `_clearance_level` system param above).
+            scoped_query, tenant_params = scope(query, session.actor)
+            params.update(tenant_params)
             if aggregate_query:
                 # CONCEPT:AU-KG.compute.data-is-private-its — an aggregate has no row
                 # to post-filter by owner/scope (below), so that boundary is pushed
@@ -223,9 +228,13 @@ class QueryMixin(_Base):
 
                 agg_var = primary_bound_variable(query)
                 if agg_var is not None:
-                    scoped_query = apply_visibility(
+                    # D-W2T-2: same (query, extra_params) contract as scope()
+                    # above — the visibility owner id is a bound
+                    # `$_visibility_owner_id` parameter now.
+                    scoped_query, vis_params = apply_visibility(
                         scoped_query, session.actor, var=agg_var
                     )
+                    params.update(vis_params)
         except Exception as exc:
             raise PermissionError("Graph query scoping failed") from exc
 

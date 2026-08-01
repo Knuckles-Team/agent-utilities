@@ -409,7 +409,7 @@ def assess_credit_quality(
                 horizon_years=horizon_years,
                 engine_client=engine_client,
             )
-        except ValueError as exc:
+        except ValueError as exc:  # noqa: BLE001 — one optional credit-risk sub-factor, caller aggregates several
             logger.debug("Merton DD skipped for %s: %s", ticker, exc)
 
     # Interest coverage: EBIT / interest.

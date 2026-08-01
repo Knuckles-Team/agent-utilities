@@ -306,19 +306,19 @@ CONCEPT:AU-KG.ingest.fact-supersession, CONCEPT:AU-KG.ingest.dead-letter-drain)
 
 ```mermaid
 flowchart TD
-    C[Candidate claim<br/>domain + statement + confidence<br/>+ proposed ChangeEnvelope] --> P["propose_candidate_claim()<br/>persists a :Claim node<br/>(is_verified=False)"]
+    C["Candidate claim<br/>domain + statement + confidence<br/>+ proposed ChangeEnvelope"] --> P["propose_candidate_claim()<br/>persists a :Claim node<br/>(is_verified=False)"]
     P --> V["GovernedPromotionValidator.validate()"]
-    V -->|classification/policy or SHACL fails| REJ[flywheel.reject → RETRACTED<br/>terminal, sticky, never materialized]
-    V -->|PII detected| QUA[flywheel.reject → RETRACTED<br/>quarantined]
+    V -->|classification/policy or SHACL fails| REJ["flywheel.reject → RETRACTED<br/>terminal, sticky, never materialized"]
+    V -->|PII detected| QUA["flywheel.reject → RETRACTED<br/>quarantined"]
     V -->|dedup / contradiction / below<br/>per-pack confidence threshold| HOLD["flywheel.record_hold()<br/>stays PROPOSED — audit-visible hold"]
     V -->|every gate clears| VAL["flywheel.validate() → VALIDATED<br/>still NOT a fact"]
     VAL -.->|steward reviews via graph_claims list/get| ST((Steward))
     ST -->|graph_claims action=accept<br/>fail-closed ActionPolicy approval queue| ACC["flywheel.accept() → ACCEPTED"]
     ACC --> MAT["materialize_on_claim_accepted()<br/>ingest_envelope() writes the real fact"]
-    MAT --> FACT[(Real typed fact —<br/>now queryable)]
+    MAT --> FACT[("Real typed fact —<br/>now queryable")]
     FACT -->|later found wrong| RETR["graph_claims action=retract"]
     RETR --> SUP["supersede_materialized_claim()<br/>retire_fact(): tombstone via ingest_envelope<br/>operation=delete + SUPERSEDES edge"]
-    SUP --> HIST[(Retired fact —<br/>archived, NOT deleted,<br/>inspectable with its evidence edge)]
+    SUP --> HIST[("Retired fact —<br/>archived, NOT deleted,<br/>inspectable with its evidence edge")]
 ```
 
 * **Steward review is structural, not a flag.** A candidate claim is always a

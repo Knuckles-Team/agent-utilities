@@ -55,12 +55,12 @@ Both are wired into every toolset-construction call site in this package:
 ```mermaid
 flowchart TD
     A[toolset_factory.build_http_toolset / build_stdio_toolset] --> C[MCPToolset construction]
-    B[agent/factory.py: MCPToolset(server)] --> C
+    B["agent/factory.py: MCPToolset(server)"] --> C
     D[core/config.py: load_mcp_servers_from_config] --> C
     E[graph/executor.py: lazy MCP load] --> C
     C --> F[force_legacy_protocol_mode]
     F --> G[toolset.client.mode = 'legacy']
-    H[install_mcp_v2_bridge, called once per call site] --> I[mcp.types capability/exception patches]
+    H["install_mcp_v2_bridge, called once per call site"] --> I["mcp.types capability/exception patches"]
     G --> J[Real fastmcp-4 server: connect / list tools / call tool]
     I --> J
 ```

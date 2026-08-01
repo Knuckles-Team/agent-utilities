@@ -275,12 +275,22 @@ def stamp_classification(
 
 def visibility_predicate(
     actor: ActorContext | None = None, var: str = "n"
-) -> str | None:
+) -> tuple[str, dict[str, Any]] | None:
     """A Cypher boolean fragment gating owner/scope, or ``None`` for full access.
 
     Returns ``None`` for privileged actors (no restriction). Otherwise returns
-    ``(n._owner_id = '<me>' OR n._shared_scope IN ['org','commons'] OR
-    n._owner_id IS NULL)`` — own, org-shared/commons, or unowned data.
+    ``(predicate, extra_params)`` where ``predicate`` is
+    ``(n._owner_id = $_visibility_owner_id OR n._shared_scope IN ['org','commons']
+    OR n._owner_id IS NULL)`` — own, org-shared/commons, or unowned data.
+
+    D-W2T-2: the actor's owner id is injected as a **bound Cypher parameter**
+    (``$_visibility_owner_id``) rather than spliced into the predicate text as
+    a string literal — the ``_SAFE_ID_RE`` allowlist below already made the
+    literal splice safe, but a bound parameter is real defense-in-depth
+    instead of relying solely on that validation. ``SCOPE_ORG``/
+    ``SCOPE_COMMONS`` stay as literals: they are fixed module-level constants,
+    never actor-influenced. The caller MUST merge ``extra_params`` into
+    whatever params dict it executes the scoped query with.
     """
     actor = _require_actor(actor)
     if is_privileged(actor):
@@ -290,11 +300,12 @@ def visibility_predicate(
         # An unsafe id can never equal a stored owner; fall back to the
         # share-scope branches only (fail closed on the owner test).
         owner = "__no_such_owner__"
-    return (
-        f"({var}.{OWNER_KEY} = '{owner}' "
+    predicate = (
+        f"({var}.{OWNER_KEY} = $_visibility_owner_id "
         f"OR {var}.{SCOPE_KEY} IN ['{SCOPE_ORG}', '{SCOPE_COMMONS}'] "
         f"OR {var}.{OWNER_KEY} IS NULL)"
     )
+    return predicate, {"_visibility_owner_id": owner}
 
 
 def _row_props(row: dict[str, Any]) -> dict[str, Any]:
@@ -337,7 +348,7 @@ def filter_visible(
 
 def apply_visibility(
     cypher: str, actor: ActorContext | None = None, var: str | None = None
-) -> str:
+) -> tuple[str, dict[str, Any]]:
     """AND the owner/scope visibility predicate into a Cypher read query.
 
     Mirrors the injection discipline of
@@ -358,6 +369,14 @@ def apply_visibility(
             on a lenient backend, silently returning zero rows) instead of
             raising.
 
+    Returns:
+        ``(scoped_cypher, extra_params)``. D-W2T-2: the visibility predicate's
+        owner id is now a bound parameter (``$_visibility_owner_id``), not a
+        string-literal splice — the caller MUST merge ``extra_params`` into
+        whatever params dict it executes ``scoped_cypher`` with. ``extra_params``
+        is ``{}`` whenever no predicate was injected (privileged actor, or no
+        ``WHERE``/``RETURN`` site).
+
     Raises:
         UnscopableQueryError: ``var`` is omitted, the query has a
             ``WHERE``/``RETURN`` clause to inject into, and no bound node
@@ -368,12 +387,12 @@ def apply_visibility(
     # contract), so an unscopable query must not be refused on their behalf
     # for a restriction that was never going to be applied.
     if is_privileged(actor):
-        return cypher
+        return cypher, {}
 
     where_match = re.search(r"\bWHERE\b", cypher, flags=re.IGNORECASE)
     return_match = re.search(r"\bRETURN\b", cypher, flags=re.IGNORECASE)
     if not where_match and not return_match:
-        return cypher
+        return cypher, {}
 
     resolved_var = var
     if resolved_var is None:
@@ -381,9 +400,10 @@ def apply_visibility(
 
         resolved_var = first_bound_node_variable(cypher)
 
-    cond = visibility_predicate(actor, var=resolved_var)
-    if cond is None:
-        return cypher
+    predicate = visibility_predicate(actor, var=resolved_var)
+    if predicate is None:
+        return cypher, {}
+    cond, extra_params = predicate
 
     from .cypher_scoping import inject_and_predicate
 
@@ -393,7 +413,7 @@ def apply_visibility(
     # tighter), letting a disjunct bypass this visibility predicate entirely.
     # `cond` itself is already a single parenthesized term (see
     # visibility_predicate above), so it never needs re-wrapping.
-    return inject_and_predicate(cypher, cond)
+    return inject_and_predicate(cypher, cond), extra_params
 
 
 # ---------------------------------------------------------------------------

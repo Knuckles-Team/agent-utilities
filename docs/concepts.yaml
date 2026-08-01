@@ -2328,6 +2328,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/secured_reads.py
   - agent_utilities/knowledge_graph/core/tenant_sharing.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/server/routers/enhanced.py
   doc: wrap with the Company Brain write-path guard
 - id: AU-KG.backend.concept-2
   name: ──
@@ -3246,12 +3247,13 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: document → atomic-triple fact extraction
 - id: AU-KG.enrichment.candidate-claim-extraction
-  name: AU-KG.enrichment.candidate-claim-extraction
+  name: and Track 5
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/extraction/candidate_claims.py
-  doc: AU-KG.enrichment.candidate-claim-extraction
+  - agent_utilities/mcp/tools/candidate_claim_tools.py
+  doc: and Track 5
 - id: AU-KG.enrichment.card-attempt-status
   name: keeps a down card LLM from being retry-stormed
   pillar: AU-KG
@@ -3563,14 +3565,22 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/messaging/router.py
   doc: migrate_legacy_assets_bulk progress callback failed
+- id: AU-KG.identity.canonical-id-non-idempotence
+  name: AU-KG.identity.canonical-id-non-idempotence
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/kg_audit_sink.py
+  doc: AU-KG.identity.canonical-id-non-idempotence
 - id: AU-KG.identity.entity-resolution-candidates
-  name: AU-KG.identity.entity-resolution-candidates
+  name: exposed as a standalone
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/assimilation/identity_candidates.py
+  - agent_utilities/mcp/tools/candidate_claim_tools.py
   - agent_utilities/models/knowledge_graph.py
-  doc: AU-KG.identity.entity-resolution-candidates
+  doc: exposed as a standalone
 - id: AU-KG.identity.evidence-spine-convergence
   name: Evidence write failed for occurrence
   pillar: AU-KG
@@ -3780,16 +3790,19 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   doc: the extractor
 - id: AU-KG.ingest.domain-pack-framework
-  name: one of
+  name: a pack author states its
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/domain_packs/__init__.py
   - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
   - agent_utilities/knowledge_graph/domain_packs/envelope_bridge.py
   - agent_utilities/knowledge_graph/domain_packs/pack_loader.py
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
-  doc: one of
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/knowledge_graph/ingestion/promotion.py
+  doc: a pack author states its
 - id: AU-KG.ingest.drain-session-bundle
   name: drain a remote session-bundle upload that the
   pillar: AU-KG
@@ -3932,6 +3945,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
@@ -4026,6 +4040,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
   - agent_utilities/knowledge_graph/ingestion/promotion.py
   - agent_utilities/mcp/tools/claim_tools.py
@@ -4080,16 +4095,15 @@ concepts:
   - agent_utilities/messaging/router.py
   doc: the durable-media path needs the engine BLOB substrate, reached
 - id: AU-KG.ingest.mapping-dsl
-  name: a refinement of the evidence-spine
+  name: the
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/domain_packs/__init__.py
   - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
   - agent_utilities/knowledge_graph/domain_packs/dsl.py
-  - agent_utilities/knowledge_graph/domain_packs/fragment_contract.py
   - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
-  doc: a refinement of the evidence-spine
+  doc: the
 - id: AU-KG.ingest.mcp-tool-connector
   name: ────────────────────────────
   pillar: AU-KG
@@ -4311,6 +4325,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/mcp/tools/query_tools.py
@@ -6705,13 +6720,6 @@ concepts:
   code_paths:
   - agent_utilities/runtime/provenance.py
   doc: Workspace-Action Provenance Graph
-- id: AU-KG.trace.canonical-id-non-idempotence
-  name: AU-KG.trace.canonical-id-non-idempotence
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/capabilities/kg_audit_sink.py
-  doc: AU-KG.trace.canonical-id-non-idempotence
 - id: AU-KG.txn.git-like-versioning
   name: Provides git-like transactional mutation for KG evolution
   pillar: AU-KG
@@ -7221,6 +7229,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/capabilities/checkpointing.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: persist_facts
 - id: AU-ORCH.execution.execution-budget-caps
@@ -9197,12 +9206,12 @@ concepts:
   - agent_utilities/governance/lanes.py
   doc: AU-OS.governance.shared-scope-lease
 - id: AU-OS.governance.test-regression-baseline
-  name: Keyed by
+  name: D-MW-10
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/governance/merge_queue.py
-  doc: Keyed by
+  doc: D-MW-10
 - id: AU-OS.governance.tiered-merge-gate
   name: AU-OS.governance.tiered-merge-gate
   pillar: AU-OS

@@ -111,3 +111,91 @@ def test_wheel_privacy_gate_rejects_non_runtime_local_content(
         "non-runtime-content",
         "runtime-state-content",
     )
+
+
+def test_wheel_privacy_gate_rejects_a_planted_credential_uri(tmp_path: Path) -> None:
+    """D-CIP-15/D-ORC-23: proof-of-catch for the gate's blind spot.
+
+    Before this fix, ``check_wheel_privacy.py`` had no credential-URI,
+    password, or private-key pattern at all -- a real ``user:pass@host`` DSN
+    shipped in a runtime file passed silently (this is exactly the shape of
+    the hardcoded ``postgresql://agent:agent@pggraph:5432/agent_kg`` default
+    that shipped in the deploy wizard).
+    """
+    gate = _gate_module()
+    wheel = _wheel(
+        tmp_path,
+        {
+            "agent_utilities/deployment/scripts/deploy_wizard.py": (
+                b'GRAPH_DB_URI = "postgresql://agent:hunter2@pggraph:5432/agent_kg"'
+            ),
+            **_REQUIRED_RUNTIME_MEMBERS,
+        },
+    )
+
+    assert gate.wheel_privacy_findings(wheel, local_identifiers=frozenset()) == (
+        "credential-content",
+    )
+
+
+def test_wheel_privacy_gate_rejects_a_planted_private_key(tmp_path: Path) -> None:
+    gate = _gate_module()
+    # Built from fragments (never a contiguous "-----BEGIN ... PRIVATE KEY-----"
+    # literal in this tracked source file) so this synthetic fixture does not
+    # itself trip the repo's own supply-chain-source-contract secret scanner
+    # (SC-SEC-002), which treats that exact header as unconditionally live --
+    # the runtime bytes assembled below are what the gate under test receives.
+    pem_header = "-----" + "BEGIN" + " RSA " + "PRIVATE" + " KEY" + "-----"
+    pem_footer = "-----" + "END" + " RSA " + "PRIVATE" + " KEY" + "-----"
+    wheel = _wheel(
+        tmp_path,
+        {
+            "agent_utilities/deployment/secret.pem": (
+                f"{pem_header}\nMIIBOgIBAAJB\n{pem_footer}\n"
+            ).encode(),
+            **_REQUIRED_RUNTIME_MEMBERS,
+        },
+    )
+
+    assert gate.wheel_privacy_findings(wheel, local_identifiers=frozenset()) == (
+        "credential-content",
+    )
+
+
+def test_wheel_privacy_gate_rejects_a_planted_secret_assignment(
+    tmp_path: Path,
+) -> None:
+    gate = _gate_module()
+    wheel = _wheel(
+        tmp_path,
+        {
+            "agent_utilities/deployment/config.py": (
+                b'API_KEY = "sk-live-abcdef1234567890"'
+            ),
+            **_REQUIRED_RUNTIME_MEMBERS,
+        },
+    )
+
+    assert gate.wheel_privacy_findings(wheel, local_identifiers=frozenset()) == (
+        "credential-content",
+    )
+
+
+def test_wheel_privacy_gate_does_not_flag_documented_placeholder_credentials(
+    tmp_path: Path,
+) -> None:
+    """A DSN whose secret slot is an obvious, documented placeholder (the
+    fixed form of the deploy-wizard default) must NOT trip the gate -- only
+    a value that looks like it could actually authenticate somewhere."""
+    gate = _gate_module()
+    wheel = _wheel(
+        tmp_path,
+        {
+            "agent_utilities/deployment/scripts/deploy_wizard.py": (
+                b'GRAPH_DB_URI = "postgresql://agent:CHANGEME@pggraph:5432/agent_kg"'
+            ),
+            **_REQUIRED_RUNTIME_MEMBERS,
+        },
+    )
+
+    assert gate.wheel_privacy_findings(wheel, local_identifiers=frozenset()) == ()

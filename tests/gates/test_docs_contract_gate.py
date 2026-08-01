@@ -123,19 +123,19 @@ def test_privacy_gate_includes_public_metadata_but_excludes_bundled_skills():
     assert not privacy._is_public_artifact("agent_utilities/skills/demo/SKILL.md")
 
 
-def test_privacy_gate_checks_changed_source_for_environment_material():
+def test_privacy_gate_checks_runtime_source_for_environment_material():
     privacy = _load_script("check_tracked_privacy.py")
     synthetic_endpoint = "https://service.private." + "internal/api"
-    categories = privacy.classify_changed_source_line(
+    categories = privacy.classify_runtime_source_line(
         f'ENDPOINT = "{synthetic_endpoint}"',
         identifiers=frozenset(),
     )
-    assert categories == {"hard-coded internal endpoint in changed source"}
+    assert categories == {"hard-coded internal endpoint in runtime source"}
 
 
-def test_privacy_gate_checks_changed_source_for_local_identity_without_echoing_it():
+def test_privacy_gate_checks_runtime_source_for_local_identity_without_echoing_it():
     privacy = _load_script("check_tracked_privacy.py")
-    categories = privacy.classify_changed_source_line(
+    categories = privacy.classify_runtime_source_line(
         "owner = runtime-identity",
         identifiers=frozenset({"runtime-identity"}),
     )
@@ -180,7 +180,100 @@ def test_privacy_gate_scans_immutable_no_git_snapshot(tmp_path):
     ignored.write_text("ignored\n", encoding="utf-8")
 
     assert privacy._tracked_artifacts(tmp_path) == [public]
-    assert privacy._changed_source_artifacts(tmp_path) == [runtime]
+    assert privacy._runtime_source_artifacts(tmp_path) == [runtime]
+
+
+def test_privacy_baseline_excuses_only_listed_leaks_and_never_a_new_one(tmp_path):
+    """The D-CIP-10 baseline must be a ratchet, not an exemption.
+
+    The scope fix took the gate from 7 reported leaks to 37, all of them
+    pre-existing but previously invisible. They are baselined so `main` stays
+    green while the debt is tracked — which is only defensible if a *new* leak
+    still fails. That is what this pins, in both directions.
+    """
+    privacy = _load_script("check_tracked_privacy.py")
+    baselined = privacy.Violation(
+        "docker/job.yaml", 12, "machine-specific home path in runtime source"
+    )
+    fresh = privacy.Violation(
+        "docker/job.yaml", 99, "machine-specific home path in runtime source"
+    )
+
+    baseline_file = tmp_path / "tracked_privacy_baseline.txt"
+    baseline_file.write_text(
+        "# header comment is skipped\n"
+        f"{baselined.path}\t{baselined.line}\t{baselined.category}\n",
+        encoding="utf-8",
+    )
+    privacy.BASELINE = baseline_file
+    loaded = privacy._load_baseline()
+
+    assert privacy._baseline_key(baselined) in loaded
+    # A leak on a different LINE of the same already-baselined file is new.
+    assert privacy._baseline_key(fresh) not in loaded
+
+    # A missing baseline must read as EMPTY, i.e. stricter — never laxer.
+    privacy.BASELINE = tmp_path / "does_not_exist.txt"
+    assert privacy._load_baseline() == set()
+
+
+def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path):
+    """D-CIP-10: a leak that landed in an earlier commit must still be caught.
+
+    The regression this pins: ``_runtime_source_artifacts`` was scoped to
+    ``git diff``/untracked files, so a machine path already committed under
+    ``docker/`` was never re-examined and stayed public forever — while
+    ``_is_public_artifact``'s location filter (``docs/``, ``.github/``,
+    top-level, ``*.toml``) meant the whole-tree pass never looked at
+    ``docker/`` either.
+
+    This **must** run inside a real git repository with the file *committed and
+    unmodified*. In a plain temp directory both the old and the new
+    implementation fall back to :func:`_filesystem_files` and return the same
+    answer, so a non-git fixture would pass against the very bug it claims to
+    pin — the vacuous-gate shape this suite exists to prevent. With a real repo,
+    the old diff-scoped code sees an empty ``git diff`` and returns ``[]``.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    leaked = tmp_path / "docker" / "build-job.yaml"
+    leaked.parent.mkdir(parents=True)
+    leaked.write_text("            path: /home/someone/state/tree\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.email=gate@example.invalid",
+            "-c",
+            "user.name=gate",
+            "commit",
+            "-q",
+            "-m",
+            "committed leak",
+        ],
+        check=True,
+    )
+    # Nothing is staged or modified now: `git diff` and `git diff --cached` are
+    # both empty, and `ls-files --others` lists nothing.
+    assert (
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "diff", "--name-only"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        == ""
+    )
+
+    privacy = _load_script("check_tracked_privacy.py")
+    assert privacy._runtime_source_artifacts(tmp_path) == [leaked]
+
+    categories = privacy.classify_runtime_source_line(
+        leaked.read_text(encoding="utf-8").strip(), identifiers=frozenset()
+    )
+    assert "machine-specific home path in runtime source" in categories
 
 
 def test_docs_link_gate_trips_on_missing_target(tmp_path, monkeypatch):

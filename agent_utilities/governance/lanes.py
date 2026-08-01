@@ -50,6 +50,7 @@ arbiter needs.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -273,6 +274,42 @@ class PartitionedPaths:
     stash_ref: str
 
 
+LANE_TEMP_DIRNAME = ".al"
+
+
+def _lane_temp_root(scope: LaneScope) -> Path:
+    """Where this lane's pytest basetemp / scratch (``TMPDIR``) live (D-ORC-16).
+
+    Deliberately **not** under ``scope.arbitration_dir`` (the repo's shared
+    ``.git`` dir): that path ran ~90-100 chars deep, which left under 10 bytes
+    of ``AF_UNIX``'s 108-byte ``sun_path`` for anything a fixture appended —
+    its own per-test subdirectory plus a socket filename — so *any* Unix-socket
+    fixture under a lane basetemp failed deterministically on path length
+    alone (measured: a 99-char basetemp produced a 158-byte socket path and a
+    live-engine subprocess that could not bind it). Living inside ``.git`` had
+    a second, independent cost: a supposedly hermetic ``git -C <tmp_path>
+    remote get-url origin`` resolved to the **canonical repo's own origin**,
+    leaking its identity into tests that believed themselves isolated.
+
+    ``~/.al/<token>`` fixes both — short (~35-45 chars total, comfortably
+    inside ``sun_path``) and outside every repo's ``.git``. ``/home`` was
+    chosen over ``/tmp`` because ``/tmp`` here is a RAM-backed ``tmpfs`` that
+    has already hit 100% swap under concurrent lane load; keeping pytest's
+    temp-file volume on disk avoids compounding that.
+
+    ``token`` hashes ``(common_dir, lane)``, **not** ``lane`` alone: every
+    repo's canonical checkout is independently named lane ``"canonical"``, so
+    hashing the lane name alone would collapse the canonical checkout of
+    *every* repo in the workspace onto one path — exactly the PARTITION
+    collision this module exists to prevent. This changes **where** the
+    per-lane resource lives, never **whether** it is per-lane.
+    """
+    token = hashlib.sha1(
+        f"{scope.common_dir}:{scope.lane}".encode(), usedforsecurity=False
+    ).hexdigest()[:12]
+    return Path.home() / LANE_TEMP_DIRNAME / token
+
+
 def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
     """Resolve this lane's private instance of every PARTITION-class resource.
 
@@ -280,13 +317,18 @@ def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
     worktree**, so ``git stash`` in one lane is visible — and poppable — in all of
     them. A per-lane ref makes concurrent stashing safe, and is the only reason
     the blanket never-stash rule can ever be relaxed.
+
+    ``pytest_basetemp``/``scratch_dir`` resolve under ``_lane_temp_root()``, a
+    short ``~/.al/<token>`` path outside any repo's ``.git`` — see that
+    function's docstring for why (D-ORC-16: AF_UNIX ``sun_path`` overflow +
+    a git-identity leak that both traced to the same `.git`-nested location).
     """
     scope = lane_scope(path)
-    lane_state = scope.arbitration_dir / "lanes" / scope.lane
+    temp_root = _lane_temp_root(scope)
     return PartitionedPaths(
         cargo_target_dir=scope.tree / "target-isolated",
-        pytest_basetemp=lane_state / "pytest",
-        scratch_dir=lane_state / "scratch",
+        pytest_basetemp=temp_root / "pytest",
+        scratch_dir=temp_root / "scratch",
         stash_ref=f"refs/lane/{scope.lane}/stash",
     )
 

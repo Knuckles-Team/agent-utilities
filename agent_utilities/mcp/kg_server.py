@@ -2812,7 +2812,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                                     "disabled": disabled,
                                 },
                             )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
                     logger.debug("Failed to ingest a native-tool module: %s", exc)
         logger.info("Ingested Native Tools")
     except Exception as exc:
@@ -3248,6 +3248,13 @@ async def _ensure_process_authority_current() -> Any:
             ambient.ensure_authority_current(minimum_ttl_seconds=30)
         except SessionExpiredError:
             ambient = await asyncio.to_thread(_refresh_process_authority, ambient)
+        if ambient is None:
+            # `_refresh_process_authority` is typed `Any` (it renews in place and
+            # returns the same session), so this should be unreachable in
+            # practice — but if it ever did return nothing, failing closed with
+            # the same PermissionError the no-ambient-session branch below uses
+            # is correct, not an opaque AttributeError on the next line.
+            raise PermissionError("Verified GraphSession required")
         ambient.ensure_authority_current(minimum_ttl_seconds=30)
         return ambient
     session = _PROCESS_SESSION
@@ -4533,7 +4540,7 @@ def mcp_server() -> None:
         if fleet_mux is not None:
             try:
                 asyncio.run(fleet_mux.aclose())
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — best-effort teardown of a lazily-mounted fleet child at process exit
                 logger.debug("fleet loader close failed: %s", exc)
 
 

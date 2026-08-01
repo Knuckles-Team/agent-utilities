@@ -28,6 +28,17 @@ resources:
     evidence: >-
       ~28 concurrent pytest processes shared a basetemp and made a baseline
       measurement read materially worse, nearly causing a false regression call.
+      D-ORC-16: the per-lane instance originally lived at
+      <git-common-dir>/agent-lanes/lanes/<lane>/pytest, ~99 chars deep, which
+      left AF_UNIX's 108-byte sun_path under 10 bytes of headroom for
+      anything a fixture appended (its own subdir + a socket filename) --
+      every Unix-socket fixture under a lane basetemp failed deterministically
+      on path length alone -- and being nested inside .git let a supposedly
+      hermetic `git -C <tmp_path> remote get-url origin` resolve to the
+      CANONICAL repo's own origin. Fixed by moving the per-lane instance to
+      `~/.al/<hash(common_dir, lane)>/pytest` (see `_lane_temp_root()`) --
+      short, outside any .git, still per-lane. The class stays PARTITION;
+      only the location changed.
 
   - name: git-stash
     class: partition
@@ -66,7 +77,10 @@ resources:
     mechanism: partitioned_paths().scratch_dir
     evidence: >-
       Lanes writing scratch into the repo tree or a shared temp dir overwrite
-      each other's intermediate state.
+      each other's intermediate state. D-ORC-16: this is also the `TMPDIR`
+      `lane env` exports, and it shared the pytest-tmp row's AF_UNIX
+      sun_path/git-identity-leak defect (same `_lane_temp_root()` fix, same
+      relocation to `~/.al/<hash(common_dir, lane)>/scratch`).
 
   - name: concept-reservations
     class: append-only
@@ -146,3 +160,28 @@ resources:
       pull_project. The verb was `git checkout`, not `git reset` — so the guard
       must cover every tree-mutating verb, held under one lease across the whole
       check-then-mutate so the tree cannot go dirty in between.
+
+  - name: epistemic-graph-daemon
+    class: lease
+    scope: workspace   # engine_resolver's share-running-local/autostart-shared-supervised
+                        # precedence deliberately hands ONE local daemon to every
+                        # entrypoint on the host, across every repo's worktrees —
+                        # not just this repo's lanes.
+    mechanism: hold_lease("epistemic-graph-daemon")
+    evidence: >-
+      A lane's 37-minute full-suite run logged 731 failed / 14197 passed / 353
+      errors, with 1,234 occurrences of `ConnectionRefusedError: Cannot connect
+      to epistemic-graph service` in its log — while two OTHER lanes' full-suite
+      runs and an `--all-files` pre-commit ran concurrently, all four driving the
+      SAME single shared local engine daemon (the `GRAPH_SERVICE_ENDPOINTS`
+      externally-provided branch of the session engine fixture, which reuses a
+      running daemon verbatim rather than spinning an ephemeral one). Ten of the
+      eighteen files that lane had edited showed as failures despite passing
+      individually minutes earlier; two other lanes independently reported
+      phantom failure counts (167, 503) that reproduced identically against
+      unmodified base code under the same contention. Not PARTITION: this
+      daemon's own auto-provisioning is explicitly built to be SHARED across
+      every entrypoint on the host (that is the point of "shared" in
+      share-running-local/autostart-shared-supervised) — splitting it per lane
+      would defeat the sharing it exists for, unlike the cargo target dir, which
+      should never have been shared at all.

@@ -390,7 +390,7 @@ class EgStepStore:
         # write-side StepStore has no `root_run_id` concept to bound it by, so this
         # deliberately stays narrow (single run_id lookups only) rather than growing
         # into a second, unscoped read path next to ScopedEgHistorySource.
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: deliberately unscoped write-side path refused by design; see class docstring
             "EgStepStore.list_runs is intentionally unimplemented: use "
             "ScopedEgHistorySource for scoped read access instead of adding a second, "
             "unscoped enumeration path."
@@ -425,7 +425,7 @@ class EgStepStore:
         )
 
     async def list_events(self, *, run_id: str) -> list[Any]:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no StepEvent-shaped substrate exists yet; fails loud rather than fake
             self._UNSUPPORTED.format(
                 method="EgStepStore.list_events",
                 what="a StepEvent-shaped read distinct from ToolCallRecord",
@@ -433,7 +433,7 @@ class EgStepStore:
         )
 
     async def save_snapshot(self, snapshot: Any) -> None:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no full-fidelity snapshot substrate; silent no-op would risk silent data loss on resume
             self._UNSUPPORTED.format(
                 method="EgStepStore.save_snapshot",
                 what="a full-fidelity list[ModelMessage] snapshot store",
@@ -443,7 +443,13 @@ class EgStepStore:
     async def latest_snapshot(
         self, *, run_id: str, include_interrupted: bool = False
     ) -> Any:
-        raise NotImplementedError(
+        # `include_interrupted` is part of the fixed `StepStore` protocol signature
+        # (pydantic_ai_harness.step_persistence.StepStore.latest_snapshot) and must
+        # keep this exact keyword name for structural conformance, even though this
+        # facade doesn't implement snapshot storage yet. Referenced (not dropped or
+        # whitelisted) so it stays honestly "read but unused" rather than dead.
+        _ = include_interrupted
+        raise NotImplementedError(  # ABSTRACT-OK: no full-fidelity snapshot substrate; silent no-op would risk silent data loss on resume
             self._UNSUPPORTED.format(
                 method="EgStepStore.latest_snapshot",
                 what="a full-fidelity list[ModelMessage] snapshot store",
@@ -451,7 +457,7 @@ class EgStepStore:
         )
 
     async def record_tool_effect(self, record: Any) -> None:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no tool-effect status ledger substrate exists yet; fails loud rather than fake
             self._UNSUPPORTED.format(
                 method="EgStepStore.record_tool_effect",
                 what="a tool-effect status ledger",
@@ -459,7 +465,7 @@ class EgStepStore:
         )
 
     async def get_tool_effect(self, *, run_id: str, tool_call_id: str) -> Any:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no tool-effect status ledger substrate exists yet; fails loud rather than fake
             self._UNSUPPORTED.format(
                 method="EgStepStore.get_tool_effect",
                 what="a tool-effect status ledger",
@@ -467,7 +473,7 @@ class EgStepStore:
         )
 
     async def list_unresolved_tool_effects(self, *, run_id: str) -> list[Any]:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no tool-effect status ledger substrate exists yet; fails loud rather than fake
             self._UNSUPPORTED.format(
                 method="EgStepStore.list_unresolved_tool_effects",
                 what="a tool-effect status ledger",
@@ -494,5 +500,7 @@ def build_conversation_search_capability(
     """
     from pydantic_ai_harness.conversation_search import ConversationSearch
 
-    source = ScopedEgHistorySource(engine=engine, session=session, root_run_id=root_run_id)
+    source = ScopedEgHistorySource(
+        engine=engine, session=session, root_run_id=root_run_id
+    )
     return ConversationSearch(source=source, scope=scope)

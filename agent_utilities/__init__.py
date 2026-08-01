@@ -227,14 +227,6 @@ def __getattr__(name):
         from .observability.audit_logger import AuditLogger, AuditRecord
 
         return AuditLogger if name == "AuditLogger" else AuditRecord
-    elif name in ["GuardrailEngine", "GuardrailRule", "GuardrailAction"]:
-        from .security.threat_defense_engine import (
-            GuardrailAction,
-            GuardrailEngine,
-            GuardrailRule,
-        )
-
-        return locals()[name]
     elif name in ["AgentConfigVersionManager", "AgentConfigSnapshot"]:
         from .observability.config_versioning import (
             AgentConfigSnapshot,
@@ -494,10 +486,6 @@ __all__ = [
     # MATE Integration — Audit Logging (CONCEPT:AU-OS.config.secrets-authentication)
     "AuditLogger",
     "AuditRecord",
-    # MATE Integration — Guardrail Engine (CONCEPT:AU-OS.config.secrets-authentication)
-    "GuardrailEngine",
-    "GuardrailRule",
-    "GuardrailAction",
     # MATE Integration — Config Versioning (CONCEPT:AU-AHE.harness.evolutionary-aggregation)
     "AgentConfigVersionManager",
     "AgentConfigSnapshot",

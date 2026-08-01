@@ -87,11 +87,12 @@ class BenchmarkHarness:
         start = time.monotonic()
         correct, proof, metrics = run_fn()
         wall_time_s = time.monotonic() - start
+        grounded_metric = metrics.get("grounded")
         record = BenchmarkRecord(
             topology=topology,
             task_id=task_id,
             correct=bool(correct),
-            grounded=metrics.get("grounded"),
+            grounded=None if grounded_metric is None else bool(grounded_metric),
             tokens=int(metrics.get("tokens", 0)),
             wall_time_s=wall_time_s,
             tool_calls=int(metrics.get("tool_calls", 0)),

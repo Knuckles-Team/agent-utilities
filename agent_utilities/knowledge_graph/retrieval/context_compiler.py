@@ -605,12 +605,12 @@ class ContextCompiler:
                 nodes = list(
                     search_hybrid(query, top_k=top_k, as_of=as_of or None) or []
                 )
-                # ``last_quality_report`` is instance state on the engine's shared
-                # ``HybridRetriever`` (set synchronously inside the call just
-                # above), read back immediately — see its own docstring for the
-                # pre-existing concurrency caveat this inherits (already relied on
-                # the same way by ``HybridRetriever.plan_and_retrieve``'s
-                # self-correction trigger).
+                # ``last_quality_report`` is set synchronously inside the call
+                # just above and read back immediately on this same call
+                # stack. It is backed by a context-local ``ContextVar`` on
+                # ``HybridRetriever`` (D-39), not shared instance state, so a
+                # concurrent caller of the same shared ``HybridRetriever``
+                # cannot race this read — see its own docstring.
                 report = getattr(
                     getattr(self.engine, "hybrid_retriever", None),
                     "last_quality_report",

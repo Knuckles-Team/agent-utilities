@@ -153,8 +153,10 @@ def test_filter_rows_drops_denied_and_requires_governed_ids(brain):
 
 def test_scope_injects_verified_tenant(brain):
     with use_actor(_actor("reader")):
-        scoped = sr.scope("MATCH (n) RETURN n")
-    assert "tenant_id = 'tenant-a'" in scoped
+        scoped, extra_params = sr.scope("MATCH (n) RETURN n")
+    # D-W2T-2: the tenant id is a bound parameter, not spliced into the text.
+    assert "tenant_id = $_tenant_scope_id" in scoped
+    assert extra_params == {"_tenant_scope_id": "tenant-a"}
 
 
 def test_tenantless_actor_is_rejected(brain):

@@ -267,7 +267,7 @@ def is_loopback_url(
     1. **Advertised self-host** — the URL host is one of the process's own advertised
        names (:func:`advertised_self_hosts`, config-driven from ``MCP_ALLOWED_HOSTS`` +
        bind ``HOST``). Port-independent: the gateway answers to the whole host, so
-       ``http://graph-os.arpa/mcp`` is recognized as self from inside graph-os even
+       ``http://graph-os.example/mcp`` is recognized as self from inside graph-os even
        though no ``current_host``/``current_port`` was threaded to this call.
     2. **Explicit caller identity** — the URL host equals a ``current_host`` the caller
        passed (port-matched when both ports are known).

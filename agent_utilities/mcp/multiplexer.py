@@ -1783,16 +1783,24 @@ class MCPMultiplexer:
                 native = native_langfuse_mcp_config()
             except LangfuseTrustError as exc:
                 native = None
-                # LangfuseTrustError.category is a small, fixed-vocabulary
-                # label (see its class docstring: "a stable, non-sensitive
-                # trust failure") -- read into a local before logging so this
-                # out-of-boundary logger's static exception-redaction check
-                # can see it is not the raw exception object.
+                # LangfuseTrustError.category AND .reason are both small,
+                # fixed-vocabulary labels drawn from a closed set (see the
+                # class docstring: "a stable, non-sensitive trust failure" --
+                # LangfuseTrustError.__init__ rejects any reason outside its
+                # _CATEGORIES map). Read both into locals before logging so
+                # this out-of-boundary logger's static exception-redaction
+                # check can see neither is the raw exception object, and log
+                # .reason verbatim rather than through redact_for_log: that
+                # helper is for genuinely sensitive runtime values (paths,
+                # endpoints), and hashing an already-safe fixed-vocabulary
+                # string only destroys the diagnostic detail this log line
+                # exists to carry.
                 category = exc.category
+                reason = exc.reason
                 logger.error(
                     "Native Langfuse MCP disabled: %s configuration invalid (%s)",
                     category,
-                    redact_for_log(exc),
+                    reason,
                 )
             if native is not None:
                 runtime_materialized_configs.add(id(native))
@@ -1838,13 +1846,16 @@ class MCPMultiplexer:
                     cfg = attest_runtime_child_config(cfg)
                 except LangfuseTrustError as exc:
                     # See the analogous native_langfuse_mcp_config() handler
-                    # above: category is a fixed-vocabulary, non-sensitive
-                    # label read into a local before logging.
+                    # above: category and reason are both fixed-vocabulary,
+                    # non-sensitive labels read into locals before logging
+                    # (reason logged verbatim, not through redact_for_log,
+                    # for the same reason given there).
                     category = exc.category
+                    reason = exc.reason
                     logger.error(
                         "Langfuse MCP entry disabled: %s configuration invalid (%s)",
                         category,
-                        redact_for_log(exc),
+                        reason,
                     )
                     continue
             self._catalog[str(server_name)] = cfg
@@ -2455,7 +2466,11 @@ class MCPMultiplexer:
         self._probe_tasks.add(task)
         if not force:
             self._probe_inflight[server] = task
-        task.add_done_callback(lambda t, _s=server: self._settle_probe_task(_s, t))
+        # `server` is this call's own parameter (not a mutating loop variable), so a
+        # plain closure captures it correctly without the default-arg-capture trick —
+        # which also lets mypy infer the callback's type against
+        # ``Task.add_done_callback``'s single-argument signature.
+        task.add_done_callback(lambda t: self._settle_probe_task(server, t))
         return task
 
     async def probe_catalog(

@@ -112,6 +112,7 @@ from agent_utilities.governance.lanes import (
     hold_lease,
     lane_scope,
     partitioned_paths,
+    tree_has_uncommitted_work,
 )
 
 # ---------------------------------------------------------------------------
@@ -216,6 +217,19 @@ DEFAULT_BATCH_SIZE = 8
 #: can never run concurrently during a transition and no second arbiter exists.
 MERGE_LEASE = "reconciliation-merge"
 
+#: D-ORC-20: how long the OLDEST queued candidate may sit with nothing draining
+#: it before :func:`queue_report` calls that out. ``enqueue`` returns
+#: ``state: queued``, which reads exactly like "handed off" — a lane can
+#: reasonably believe the queue's own runner will pick it up. It does not:
+#: the only driver is the CLI verb ``agent-utilities merge-queue run``,
+#: invoked by hand or by an external scheduler (there is no daemon/cron/timer
+#: wired to it in this repo). A candidate that has waited longer than one
+#: fast-gate budget (:data:`FAST_GATE_BUDGET_SECONDS`) past its enqueue time
+#: has almost certainly not been picked up by a run that happened to be in
+#: flight — it is waiting on someone to invoke ``merge-queue run``. Generous
+#: on purpose: this warns an operator, it never blocks anything.
+STALE_QUEUE_THRESHOLD_SECONDS = FAST_GATE_BUDGET_SECONDS * 5
+
 #: Where queue fragments live inside the shared, unversioned arbitration dir.
 QUEUE_DIRNAME = "merge-queue"
 
@@ -289,6 +303,16 @@ class Candidate:
     enqueued_at: str = ""
     state: str = QUEUED
     reason: str = ""
+    #: D-F6-1: WHEN this specific record was appended — distinct from
+    #: ``enqueued_at``, which is the original enqueue time and stays fixed
+    #: across every later state transition (see ``_record_state``). Used by
+    #: :func:`_resolve_latest_candidate_record` to pick the chronologically
+    #: LATEST record for an id across every lane's fragment, instead of
+    #: :meth:`FragmentStore.fold`'s default "last in lane-name-sorted
+    #: iteration order" — which silently prefers whichever lane's name
+    #: sorts alphabetically last, not whichever record was actually written
+    #: most recently.
+    recorded_at: str = ""
 
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> Candidate:
@@ -300,6 +324,7 @@ class Candidate:
             enqueued_at=str(record.get("enqueued_at", "")),
             state=str(record.get("state", QUEUED)),
             reason=str(record.get("reason", "")),
+            recorded_at=str(record.get("recorded_at", "")),
         )
 
     def to_record(self) -> dict[str, Any]:
@@ -311,6 +336,7 @@ class Candidate:
             "enqueued_at": self.enqueued_at,
             "state": self.state,
             "reason": self.reason,
+            "recorded_at": self.recorded_at,
         }
 
 
@@ -339,6 +365,13 @@ def enqueue(
     returns. Nothing is verified here: verification happens once, at the head of
     the queue, against the ``main`` that actually exists then. Verifying at enqueue
     time would re-create the stale-premise problem this whole design exists to kill.
+
+    D-ORC-20: ``state: queued`` in the return value reads like completion — a
+    lane can reasonably (and wrongly) read it as "handed off, the queue's own
+    runner will land it." There is no such runner: the only driver is
+    ``agent-utilities merge-queue run``, invoked by hand or an external
+    scheduler. The returned ``note`` says so explicitly, on every call, so a
+    caller that never reads this docstring still sees it.
     """
     scope = lane_scope(path)
     branch = branch or _require_git(["rev-parse", "--abbrev-ref", "HEAD"], scope.tree)
@@ -347,17 +380,30 @@ def enqueue(
             f"refusing to enqueue {branch!r}: a candidate must be a named branch "
             f"that is not {base!r} (detached HEAD or the base itself is never one)"
         )
+    now = _now()
     candidate = Candidate(
         branch=branch,
         lane=scope.lane,
         base=base,
         worktree=str(Path(worktree).resolve()) if worktree else str(scope.tree),
-        enqueued_at=_now(),
+        enqueued_at=now,
         state=QUEUED,
+        recorded_at=now,
     )
     store = queue_store(scope.tree)
     store.append(candidate.to_record(), lane=scope.lane)
-    return {"enqueued": True, **candidate.to_record()}
+    depth = len(queued(scope.tree))
+    return {
+        "enqueued": True,
+        **candidate.to_record(),
+        "note": (
+            "queued != landed. Nothing drives this queue automatically (D-ORC-20) "
+            "— a human or scheduler must run `agent-utilities merge-queue run` "
+            f"before {branch!r} lands on {base!r}. Check `agent-utilities "
+            "merge-queue status` to see whether it has drained."
+        ),
+        "queue_depth": depth,
+    }
 
 
 def _record_state(
@@ -366,8 +412,18 @@ def _record_state(
     """Supersede a candidate's record with its terminal state.
 
     A *new* append, never an edit: the fold collapses records sharing an ``id`` to
-    the last one written, so a landed/rejected record supersedes the queued one
-    without any writer ever rewriting a file another lane also writes.
+    the CHRONOLOGICALLY LATEST one written (D-F6-1 — see
+    :func:`_resolve_latest_candidate_record`), so a landed/rejected record
+    supersedes the queued one without any writer ever rewriting a file another
+    lane also writes — including when the terminal state is recorded from a
+    DIFFERENT lane's fragment than the one that originally enqueued it (the
+    common shape: enqueue from a candidate's own worktree, land from the
+    canonical checkout).
+
+    ``recorded_at`` is stamped FRESH here — unlike ``enqueued_at``, which is
+    preserved from the original record so the candidate's true enqueue time
+    survives every later transition — because it is specifically WHEN THIS
+    record was written, the field the fold resolves ties on.
     """
     scope = lane_scope(path)
     store = queue_store(scope.tree)
@@ -379,6 +435,7 @@ def _record_state(
         enqueued_at=candidate.enqueued_at,
         state=state,
         reason=reason,
+        recorded_at=_now(),
     )
     store.append(updated.to_record(), lane=scope.lane)
 
@@ -393,8 +450,43 @@ def withdraw(branch: str, *, reason: str = "", path: Path | str | None = None) -
     raise MergeQueueError(f"{branch!r} is not in the queue")
 
 
+def _resolve_latest_candidate_record(
+    group: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Pick the chronologically LATEST record in *group* by ``recorded_at``
+    (D-F6-1), not :meth:`FragmentStore.fold`'s default ``group[-1]``.
+
+    ``fold()`` groups every lane's record for one id together in
+    ``self.lanes()``'s (alphabetically SORTED) iteration order, then hands
+    the whole group here. ``group[-1]`` alone would therefore silently
+    prefer whichever LANE NAME sorts alphabetically last among every lane
+    that ever wrote a record for this id — completely unrelated to which
+    record was actually written most recently. That is exactly backwards
+    when a candidate is enqueued from its own worktree (lane e.g.
+    ``lane-foo``) and its terminal state is later recorded from the
+    canonical checkout (lane ``canonical``): ``"canonical" < "lane-foo"``
+    alphabetically, so the OLDER queued record from ``lane-foo`` would win
+    over the newer terminal one from ``canonical`` — reproduced live as a
+    candidate that had genuinely landed still reporting ``queued`` forever.
+
+    ISO-8601 ``recorded_at`` timestamps sort correctly as plain strings, so
+    ``max(..., key=...)`` is enough. Falls back to ``group[-1]`` — the OLD
+    behavior — only when every candidate in a tie is missing/blank
+    ``recorded_at`` (a record written before this field existed), so
+    existing fragment files degrade gracefully rather than needing a
+    migration.
+    """
+    with_timestamp = [r for r in group if str(r.get("recorded_at", "")).strip()]
+    if not with_timestamp:
+        return group[-1]
+    return max(with_timestamp, key=lambda r: str(r.get("recorded_at", "")))
+
+
 def _all_candidates(path: Path | str | None = None) -> list[Candidate]:
-    return [Candidate.from_record(r) for r in queue_store(path).fold()]
+    return [
+        Candidate.from_record(r)
+        for r in queue_store(path).fold(resolve=_resolve_latest_candidate_record)
+    ]
 
 
 def queued(path: Path | str | None = None) -> list[Candidate]:
@@ -403,10 +495,37 @@ def queued(path: Path | str | None = None) -> list[Candidate]:
     return sorted(pending, key=lambda c: (c.enqueued_at, c.branch))
 
 
+def _candidate_age_seconds(candidate: Candidate, *, now: datetime) -> float | None:
+    """Seconds since *candidate* was enqueued, or ``None`` if unparseable."""
+    try:
+        enqueued = datetime.fromisoformat(candidate.enqueued_at)
+    except ValueError:
+        return None
+    return (now - enqueued).total_seconds()
+
+
 def queue_report(path: Path | str | None = None) -> dict[str, Any]:
-    """Everything an operator or a waiting lane needs: depth, order, and terminal outcomes."""
+    """Everything an operator or a waiting lane needs: depth, order, terminal outcomes.
+
+    D-ORC-20: ``stale_queue_warning`` fires when the OLDEST queued candidate has
+    waited past :data:`STALE_QUEUE_THRESHOLD_SECONDS` with nothing having drained
+    it — the queue has no automatic runner, so a candidate that old is not "about
+    to be picked up", it is waiting on an operator to run ``merge-queue run``.
+    """
     everything = _all_candidates(path)
     pending = queued(path)
+    now = datetime.now(UTC)
+    stale_warning = None
+    if pending:
+        oldest = pending[0]
+        age = _candidate_age_seconds(oldest, now=now)
+        if age is not None and age > STALE_QUEUE_THRESHOLD_SECONDS:
+            stale_warning = (
+                f"{oldest.branch!r} has been queued for {age:.0f}s "
+                f"(> {STALE_QUEUE_THRESHOLD_SECONDS}s threshold) with no runner "
+                "draining it (D-ORC-20) — the queue has no automated driver; run "
+                "`agent-utilities merge-queue run` to land it."
+            )
     return {
         "depth": len(pending),
         "queued": [c.to_record() for c in pending],
@@ -416,6 +535,7 @@ def queue_report(path: Path | str | None = None) -> dict[str, Any]:
         "budget_seconds": FAST_GATE_BUDGET_SECONDS,
         "batch_size": DEFAULT_BATCH_SIZE,
         "lease": MERGE_LEASE,
+        "stale_queue_warning": stale_warning,
         "checked_at": _now(),
     }
 
@@ -639,6 +759,54 @@ def _interpreter(tree: Path) -> str:
     return sys.executable
 
 
+def _venv_signature(interpreter: str) -> str:
+    """A cheap content signature of *interpreter*'s installed package set.
+
+    D-MQD-1: the baseline caches (:func:`_baseline_cache_path` /
+    :func:`_contract_baseline_cache_path`) were keyed on ``(base_sha,
+    interpreter)`` where ``interpreter`` is a bare PATH STRING. If the venv
+    at that path is rebuilt IN PLACE with different package versions while
+    ``base_sha`` stays the same (the path itself doesn't change), the old key
+    still resolves and the cache would silently serve a failing-id set
+    computed against packages that no longer exist.
+
+    Folding this signature into the key busts the cache on exactly that
+    event: it lists every ``*.dist-info``/``*.egg-info`` directory name
+    (which encodes ``name-version``) under the interpreter's
+    ``site-packages``, sorted and hashed — one directory listing, no
+    subprocess, no import of the target environment's own packages. Falls
+    back to the interpreter file's own mtime+size when the standard venv
+    layout isn't found (a non-standard interpreter, e.g. bare
+    ``sys.executable`` on a system without a discoverable site-packages) —
+    still busts the cache on a full venv recreation (a fresh venv/binary
+    always changes mtime), just not on an in-place `pip install` into that
+    unusual layout. Never raises: an unresolvable signature degrades to
+    ``"unknown"`` (busts every cache uniformly) rather than failing the gate.
+    """
+    try:
+        venv_root = Path(interpreter).resolve().parent.parent
+    except OSError:
+        return "unknown"
+    dist_infos: list[str] = []
+    for site_packages in (
+        *sorted(venv_root.glob("lib/python*/site-packages")),
+        *sorted(venv_root.glob("Lib/site-packages")),  # Windows layout
+    ):
+        dist_infos.extend(p.name for p in site_packages.glob("*.dist-info"))
+        dist_infos.extend(p.name for p in site_packages.glob("*.egg-info"))
+    if dist_infos:
+        return hashlib.sha256("\n".join(sorted(dist_infos)).encode("utf-8")).hexdigest()[
+            :16
+        ]
+    try:
+        stat = Path(interpreter).stat()
+    except OSError:
+        return "unknown"
+    return hashlib.sha256(f"{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8")).hexdigest()[
+        :16
+    ]
+
+
 def select_tests(tree: Path, paths: Iterable[str]) -> list[str]:
     """Test files worth running for *paths* — targeted, and honest when it can't be.
 
@@ -837,8 +1005,19 @@ def _contract_baseline_cache_path(
     item, not per whole request" shape as :func:`_baseline_cache_path`, just at
     script granularity instead of test-file granularity (there are only a
     handful of contract scripts, so no delta-run optimization is needed beyond
-    "don't recompute a script already known for this base_sha")."""
-    digest = hashlib.sha256((base_sha + "\n" + interpreter).encode("utf-8")).hexdigest()
+    "don't recompute a script already known for this base_sha").
+
+    D-MQD-1: the key includes :func:`_venv_signature` alongside the bare
+    interpreter path, so an in-place venv rebuild (same path, different
+    installed packages, same ``base_sha``) busts this cache instead of
+    silently serving a baseline computed against packages that no longer
+    exist.
+    """
+    digest = hashlib.sha256(
+        (base_sha + "\n" + interpreter + "\n" + _venv_signature(interpreter)).encode(
+            "utf-8"
+        )
+    ).hexdigest()
     return (
         scope.arbitration_dir
         / QUEUE_DIRNAME
@@ -1251,8 +1430,16 @@ def _baseline_cache_path(scope: LaneScope, base_sha: str, *, interpreter: str) -
     :func:`_merge_file_baseline_cache`'s read-merge-atomic-replace); nothing needs
     the queue's APPEND-ONLY discipline here because a cache entry for a given
     ``(base_sha, file)`` is immutable once written — only new files get merged in.
+
+    D-MQD-1: the key includes :func:`_venv_signature` alongside the bare
+    interpreter path — see that function's docstring for why a bare path is
+    not enough to catch an in-place venv rebuild.
     """
-    digest = hashlib.sha256((base_sha + "\n" + interpreter).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(
+        (base_sha + "\n" + interpreter + "\n" + _venv_signature(interpreter)).encode(
+            "utf-8"
+        )
+    ).hexdigest()
     return (
         scope.arbitration_dir
         / QUEUE_DIRNAME
@@ -1778,61 +1965,283 @@ def land(repo: Path, commit: str, *, base: str, scope: LaneScope) -> dict[str, A
 
 
 # ---------------------------------------------------------------------------
-# Prune on merge — delegated, never re-implemented
+# Prune on merge — repository-manager preferred, guarded inline fallback (D-ORC-21)
 # ---------------------------------------------------------------------------
-def prune_landed(candidate: Candidate, *, repo_name: str, base: str) -> dict[str, Any]:
-    """Remove a landed candidate's worktree and branch, via repository-manager.
+def _prune_landed_inline(
+    candidate: Candidate, *, repo: Path, base: str
+) -> dict[str, Any]:
+    """The same guarded prune repository-manager implements
+    (``CONCEPT:RM-PRUNE-GUARD``), reimplemented with no external dependency so
+    the queue stays runnable in a minimal environment (D-ORC-21).
 
-    **Delegated on purpose.** repository-manager owns the guarded prune
-    (``CONCEPT:RM-PRUNE-GUARD``) and it is the only implementation that should
-    exist: it anchors ``refs/lane-backup/<branch>`` immediately before deleting,
-    re-asks ``git merge-base --is-ancestor`` *at delete time* rather than trusting
-    an earlier scan, and defers to ``git branch -d`` — never ``-D`` — so git
-    re-decides reachability under its own ref lock, atomically with the delete. It
-    also reads occupancy from the lane protocol, so a lane still sitting in that
-    worktree is skipped rather than deleted out from under.
+    Every measure repository-manager's own docstring calls out is reproduced,
+    in the same order, for the same reason:
 
-    When repository-manager is not importable in this interpreter this **fails
-    closed**: it reports ``pruned: False`` with the reason and leaves the branch
-    alone. An un-pruned branch is untidy; a wrongly-pruned one loses work.
+    1. Read the branch tip *now* — every later step names this exact object.
+    2. ``git merge-base --is-ancestor <tip> <base>`` — re-asked at this moment,
+       never trusted from an earlier scan. A non-zero exit is a real refusal,
+       not a malfunction: the branch stays.
+    3. If the candidate's worktree still exists, refuse to touch it while it
+       holds uncommitted work (:func:`tree_has_uncommitted_work` — a lane may
+       still be occupying it), then ``git worktree remove`` it.
+    4. **Anchor before deleting.** ``refs/lane-backup/<branch>`` is pointed at
+       the tip immediately before the delete, restored (or removed, if it did
+       not pre-exist) should the delete itself then fail.
+    5. ``git branch -d`` — **never** ``-D``. Git re-decides reachability
+       itself, under its own ref lock, atomically with the delete, closing the
+       check-then-delete race a python-side check alone cannot close.
+
+    Fails closed at every step: any refusal returns ``pruned: False`` with a
+    reason and leaves everything as found. An un-pruned branch is untidy; a
+    wrongly-pruned one loses work — the second is never an acceptable trade
+    for the first.
+    """
+    branch = candidate.branch
+    tip = _run_git(["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], repo)
+    if not tip.ok or not tip.out:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "reason": (
+                f"branch {branch!r} does not exist in {repo} — nothing to prune"
+            ),
+        }
+    tip_sha = tip.out
+
+    ancestor = _run_git(["merge-base", "--is-ancestor", tip_sha, base], repo)
+    if not ancestor.ok:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "reason": (
+                f"refused to delete branch {branch!r}: {tip_sha[:12]} has commits "
+                f"that are not (or no longer) reachable from {base!r}, so deleting "
+                "the ref would turn them into unreferenced objects"
+            ),
+        }
+
+    worktree = Path(candidate.worktree).resolve() if candidate.worktree else None
+    removed_worktree: str | None = None
+    if worktree and worktree != repo.resolve() and worktree.is_dir():
+        if tree_has_uncommitted_work(worktree):
+            return {
+                "pruned": False,
+                "branch": branch,
+                "reason": (
+                    f"worktree {worktree} still holds uncommitted work — a lane may "
+                    "still be occupying it, so it is skipped rather than removed "
+                    "out from under it"
+                ),
+            }
+        wt_remove = _run_git(["worktree", "remove", str(worktree)], repo)
+        if not wt_remove.ok:
+            return {
+                "pruned": False,
+                "branch": branch,
+                "reason": (
+                    f"git worktree remove {worktree} failed: "
+                    f"{wt_remove.err or wt_remove.out}"
+                ),
+            }
+        removed_worktree = str(worktree)
+
+    anchor = f"refs/lane-backup/{branch.replace('/', '-')}"
+    previous = _run_git(["rev-parse", "--verify", "--quiet", anchor], repo)
+    previous_sha = previous.out if previous.ok else ""
+    _run_git(["update-ref", anchor, tip_sha], repo)
+
+    deleted = _run_git(["branch", "-d", branch], repo)  # never -D — see docstring
+    if not deleted.ok:
+        # Restore the ref namespace exactly as found: put back a pre-existing
+        # anchor, or remove only the one just written.
+        if previous_sha:
+            _run_git(["update-ref", anchor, previous_sha, tip_sha], repo)
+        else:
+            _run_git(["update-ref", "-d", anchor, tip_sha], repo)
+        return {
+            "pruned": False,
+            "branch": branch,
+            "reason": (
+                f"git refused to delete branch {branch!r} as merged: "
+                f"{deleted.err or deleted.out}"
+            ),
+        }
+    return {
+        "pruned": True,
+        "branch": branch,
+        "branch_anchor": anchor,
+        "removed": removed_worktree,
+    }
+
+
+def prune_landed(
+    candidate: Candidate,
+    *,
+    repo_name: str,
+    base: str,
+    repo: Path | str | None = None,
+) -> dict[str, Any]:
+    """Remove a landed candidate's worktree and branch.
+
+    Prefers repository-manager (``CONCEPT:RM-PRUNE-GUARD``) when importable —
+    it additionally consults the lane occupancy *protocol* (not just a
+    dirty-tree check), so it is the more complete implementation and stays the
+    accelerator of choice. When repository-manager is not importable in this
+    interpreter, :func:`_prune_landed_inline` runs the SAME guard sequence
+    (anchor + merge-base recheck + ``git branch -d``, never ``-D``) with no
+    external dependency, so the queue keeps pruning in a minimal environment
+    instead of degrading to "every landed branch is kept" (D-ORC-21) — the
+    branch/worktree bloat that produced this defect in the first place.
+
+    *repo* is the canonical checkout the branch ref actually lives in — always
+    pass it when known (:func:`run_queue` does). When omitted (an older
+    caller, or a direct test), it is reconstructed by walking up from the
+    candidate's own worktree looking for a ``.git`` — correct whenever that
+    worktree still exists, since branch refs are shared repo-wide regardless
+    of which of its worktrees a git command runs from.
     """
     try:
         from repository_manager.repository_manager import Git
         from repository_manager.worktree import WorktreeManager
-    except ImportError as exc:
-        return {
-            "pruned": False,
-            "branch": candidate.branch,
-            "reason": (
-                "repository-manager is not importable in this interpreter, so the "
-                "guarded prune (anchor + merge-base recheck + `git branch -d`) is "
-                f"unavailable: {exc}. The branch is kept; a later "
-                "`repository-manager worktree audit --prune-merged` sweeps it."
-            ),
-        }
+    except ImportError:
+        if repo is not None:
+            repo_path = Path(repo).resolve()
+        else:
+            repo_path = Path(candidate.worktree or ".").resolve()
+            while repo_path != repo_path.parent and not (repo_path / ".git").exists():
+                repo_path = repo_path.parent
+        result = _prune_landed_inline(candidate, repo=repo_path, base=base)
+        result["accelerator"] = "inline (repository-manager not importable)"
+        return result
     manager = WorktreeManager(Git(path=str(Path(candidate.worktree or ".").parent)))
     result = manager.remove(repo_name, candidate.branch, delete_branch=True, base=base)
-    return {"pruned": bool(result.get("ok")), "branch": candidate.branch, **result}
+    return {
+        "pruned": bool(result.get("ok")),
+        "branch": candidate.branch,
+        "accelerator": "repository-manager",
+        **result,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Regenerate-on-land — the queue resolves a GENERATED-FILE-ONLY conflict
+# itself instead of rejecting the candidate (CONCEPT:AU-OS.governance.merge-queue-regenerate-on-land)
+# ---------------------------------------------------------------------------
+
+#: The 4 files every land regenerates (see the module `build_concepts_yaml.py`
+#: / `gen_docs.py` / `gen_agents_md.py` docstrings) — so with ~76 candidates
+#: converging on one base, nearly every OTHER candidate that also touched one
+#: of these (or added a `CONCEPT:` marker, changing the count) conflicts on
+#: it too, even though there is no real disagreement: both sides just have a
+#: stale copy of a purely-derived file. Regenerating from the ALREADY-MERGED
+#: source of truth (the trial tree itself, after the two branches' real
+#: content is combined) is the correct resolution — never "pick a side" via
+#: ``checkout --theirs``, which silently drops whichever side lost.
+GENERATED_FILES = frozenset(
+    {
+        "docs/concepts.yaml",
+        "README.md",
+        "AGENTS.md",
+        "docs/project_structure.md",
+    }
+)
+
+#: Regeneration order matters: ``gen_docs.py --write`` reads
+#: ``docs/concepts.yaml`` (must be fresh first); ``gen_agents_md.py`` writes
+#: both ``AGENTS.md`` and ``docs/project_structure.md`` last.
+_REGENERATE_COMMANDS: tuple[tuple[str, ...], ...] = (
+    ("scripts/build_concepts_yaml.py",),
+    ("scripts/gen_docs.py", "--write"),
+    ("scripts/gen_agents_md.py",),
+)
+
+
+def _regenerate_generated_files(repo: Path, tree: str, *, scope: LaneScope) -> str:
+    """Materialize *tree*, regenerate :data:`GENERATED_FILES` in place, and
+    return the OID of the resulting tree.
+
+    Runs the same 3 commands the module docstring's manual recipe named
+    (``build_concepts_yaml.py && gen_docs.py --write && gen_agents_md.py``),
+    against a REAL worktree (``materialized`` — the generators read/write
+    actual files, not git objects) built from the trial tree, which already
+    holds BOTH sides' real changes merged — so this is regeneration from
+    truth, never a "pick a side" resolution. Fail-closed: a script that
+    exits non-zero raises :class:`MergeQueueError` rather than silently
+    keeping a stale or half-regenerated tree.
+    """
+    throwaway = _commit_trial(repo, tree, [], "merge-queue: regenerate-on-land scratch")
+    interpreter = _interpreter(scope.tree)
+    with materialized(repo, throwaway, scope=scope) as work_tree:
+        for command in _REGENERATE_COMMANDS:
+            script = work_tree / command[0]
+            if not script.is_file():
+                raise MergeQueueError(
+                    f"regenerate-on-land: generator script missing in the "
+                    f"materialized tree: {script}"
+                )
+            try:
+                proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                    [interpreter, str(script), *command[1:]],
+                    cwd=str(work_tree),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=120,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise MergeQueueError(
+                    f"regenerate-on-land: could not run {' '.join(command)}: {exc}"
+                ) from exc
+            if proc.returncode != 0:
+                raise MergeQueueError(
+                    "regenerate-on-land: "
+                    f"{' '.join(command)} exited {proc.returncode}: "
+                    f"{proc.stderr.strip() or proc.stdout.strip()}"
+                )
+        _require_git(["add", "--", *sorted(GENERATED_FILES)], work_tree)
+        return _require_git(["write-tree"], work_tree)
+
+
+def _resolve_generated_file_conflict(
+    repo: Path, trial: TrialMerge, *, scope: LaneScope
+) -> TrialMerge:
+    """If *trial* conflicts ONLY within :data:`GENERATED_FILES`, resolve it by
+    regenerating them; otherwise return *trial* unchanged.
+
+    Deliberately narrow: if even one conflicted path falls OUTSIDE
+    ``GENERATED_FILES``, this is a real, human-resolvable conflict and the
+    candidate is rejected exactly as before — regeneration never touches a
+    conflict that also involves hand-written content.
+    """
+    if trial.ok or not trial.conflicts:
+        return trial
+    if not set(trial.conflicts) <= GENERATED_FILES:
+        return trial
+    resolved_tree = _regenerate_generated_files(repo, trial.tree, scope=scope)
+    return TrialMerge(ok=True, tree=resolved_tree, detail=trial.detail)
 
 
 # ---------------------------------------------------------------------------
 # The queue runner — optimistic batching with bisection on failure
 # ---------------------------------------------------------------------------
 def _build_chain(
-    repo: Path, base: str, candidates: list[Candidate]
+    repo: Path, base: str, candidates: list[Candidate], *, scope: LaneScope
 ) -> tuple[str, list[Candidate], list[tuple[Candidate, TrialMerge]]]:
     """Merge each candidate onto a rolling trial commit; split off the conflicted.
 
     A conflicting candidate is identified precisely (it is the one whose
     ``merge-tree`` exited 1 against the rolling head) and dropped from the batch
     rather than poisoning it, so one lane's conflict never rejects seven innocent
-    ones.
+    ones — UNLESS the conflict is confined to :data:`GENERATED_FILES`, in which
+    case :func:`_resolve_generated_file_conflict` regenerates them from the
+    merged truth and the candidate proceeds as accepted.
     """
     head = _require_git(["rev-parse", base], repo)
     accepted: list[Candidate] = []
     conflicted: list[tuple[Candidate, TrialMerge]] = []
     for candidate in candidates:
         trial = trial_merge(repo, head, candidate.branch)
+        trial = _resolve_generated_file_conflict(repo, trial, scope=scope)
         if not trial.ok:
             conflicted.append((candidate, trial))
             continue
@@ -1874,7 +2283,7 @@ def integrate_batch(
     if not candidates:
         return []
 
-    head, accepted, conflicted = _build_chain(repo, base, candidates)
+    head, accepted, conflicted = _build_chain(repo, base, candidates, scope=scope)
     outcomes: list[dict[str, Any]] = [
         {
             "branch": c.branch,
@@ -1975,7 +2384,7 @@ def run_queue(
                 _record_state(candidate, LANDED, "", scope.tree)
                 if prune:
                     outcome["prune"] = prune_landed(
-                        candidate, repo_name=repo_name, base=base
+                        candidate, repo_name=repo_name, base=base, repo=repo
                     )
             else:
                 _record_state(candidate, REJECTED, outcome["reason"], scope.tree)
@@ -2050,3 +2459,80 @@ def promotion_state(path: Path | str | None = None) -> dict[str, Any]:
         "deployed": deployed.out,
         "unpromoted_commits": int(behind or 0),
     }
+
+
+# ---------------------------------------------------------------------------
+# A standalone entrypoint (D-ORC-20)
+#
+# ``agent-utilities merge-queue run`` (agent_utilities.cli) is the primary,
+# fully-featured entrypoint and stays that way. This module previously had NO
+# ``main()`` at all — a library function only, invoked exclusively by hand
+# through the CLI. That is one reason ``enqueue`` reads like completion: there
+# is no visible "thing that runs the queue" anywhere in this file, only a
+# function a human remembers to call. This gives the module its own minimal,
+# dependency-light entrypoint — usable directly as
+# ``python3 -m agent_utilities.governance.merge_queue [run|status]`` — so a
+# scheduler can drive it without importing the full CLI's argparse surface
+# (dozens of unrelated subcommands, console-script install).
+#
+# PROPOSED, NOT DEPLOYED (D-ORC-20 item (c)): a supervised runner —
+# a systemd timer (``OnUnitActiveSec=60`` + ``ExecStart=python3 -m
+# agent_utilities.governance.merge_queue run``) or a Kubernetes CronJob
+# (``schedule: "* * * * *"``) with the equivalent command — would close the
+# remaining gap: even with the ``note``/``stale_queue_warning`` this lane
+# added, draining is still an action an operator must remember to take.
+# ``reconciliation-merge`` already serializes concurrent drains (a second
+# runner just gets ``LeaseUnavailable``, exit 75), so nothing about the
+# queue itself blocks this — only the scheduled unit is missing. Proposing
+# it here rather than shipping it: adding a systemd unit or CronJob manifest
+# is an infrastructure change outside this lane's remit (no target host/
+# cluster namespace was specified), and the queue must keep working with or
+# without it, which the tests in this module's test suite pin down.
+# ---------------------------------------------------------------------------
+def main(argv: list[str] | None = None) -> int:
+    """Minimal CLI: ``run`` (default), ``status``, ``enqueue``, ``withdraw``."""
+    import argparse
+    import json
+
+    p = argparse.ArgumentParser(
+        prog="python3 -m agent_utilities.governance.merge_queue",
+        description="Standalone merge-queue driver (see agent-utilities merge-queue "
+        "for the full-featured CLI). Suitable as a systemd/cron ExecStart.",
+    )
+    p.add_argument(
+        "action",
+        nargs="?",
+        default="run",
+        choices=["run", "status", "enqueue", "withdraw"],
+    )
+    p.add_argument("--base", default="main")
+    p.add_argument("--branch", default="")
+    p.add_argument("--reason", default="")
+    p.add_argument("--path", default=None)
+    p.add_argument("--no-prune", action="store_true")
+    from agent_utilities.governance.lanes import LeaseUnavailable
+
+    args = p.parse_args(argv)
+    try:
+        if args.action == "status":
+            out = queue_report(args.path)
+        elif args.action == "enqueue":
+            out = enqueue(args.branch, base=args.base, path=args.path)
+        elif args.action == "withdraw":
+            out = withdraw(args.branch, reason=args.reason, path=args.path)
+        else:
+            out = run_queue(base=args.base, prune=not args.no_prune, path=args.path)
+    except LeaseUnavailable as exc:
+        # Same contract as the full CLI: exit 75 so a shell chained with `&&`
+        # stops instead of proceeding — another runner already holds the lease.
+        print(json.dumps({"deferred": True, "holder": exc.holder}))
+        return 75
+    except LaneArbitrationError as exc:
+        print(json.dumps({"refused": str(exc)}))
+        return 1
+    print(json.dumps(out, default=str))
+    return 1 if out.get("rejected") else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

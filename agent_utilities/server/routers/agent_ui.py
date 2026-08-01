@@ -196,7 +196,22 @@ async def ag_ui_endpoint(request: Request) -> Response:
             _exec_cfg = graph_cfg
             with suppress(Exception):
                 _kg_engine = IntelligenceGraphEngine.get_active()
-                _primed = prime_session_context(_kg_engine, run_id)
+                # D-TC-6: the continuity seam is keyed by the caller's raw
+                # ``session_id`` (what ``run_agent`` and every other surface
+                # key their per-session mementos to -- see
+                # ``session_continuity.prime_session_context``'s docstring),
+                # NOT ``run_id``, which ``_scoped_run_id`` already ran through
+                # ``persistence_reference("agent_run", ...)`` -- a DIFFERENT
+                # hash (different kind, no namespace) than the seam's own
+                # internal ``persistence_reference("session", ..., namespace=
+                # "session-continuity")``. Passing ``run_id`` in fed an
+                # already-pseudonymized, execution-scoped id through the
+                # seam's OWN pseudonymization a second time, so recall never
+                # found the memento a raw-``session_id``-keyed write (e.g. from
+                # ``run_agent``) had stored, and two AG-UI calls with the same
+                # caller ``session_id`` but different auth context (``owner``)
+                # wouldn't even collide with each other's history.
+                _primed = prime_session_context(_kg_engine, session_id)
                 if _primed:
                     _exec_cfg = {**graph_cfg, "invoker_context": _primed}
 
@@ -247,7 +262,10 @@ async def ag_ui_endpoint(request: Request) -> Response:
                         asyncio.create_task(
                             persist_session_turn(
                                 _kg_engine,
-                                run_id,
+                                # D-TC-6: same fix as the ``prime_session_context``
+                                # call above -- key the seam off the caller's raw
+                                # ``session_id``, not the pseudonymized ``run_id``.
+                                session_id,
                                 clean_query,
                                 clean_output,
                                 agent_name="agent-ui",

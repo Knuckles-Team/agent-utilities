@@ -125,7 +125,8 @@ credential is present in the same ConfigMap/Secret the manifest above already
 wires — there is no second Deployment, no second Secret, and no new flag to set.
 Cutting an existing deployment over from a separately-run `agent-utilities-messaging`
 service to the bundled co-service is documented, with the exact verification and
-retirement commands (none applied automatically), in
-[`k8s/messaging-bundle-retirement.yaml`](k8s/messaging-bundle-retirement.yaml); the
-behavioral/deployment model is in
+retirement commands (none applied automatically), in an operator-held cutover
+runbook (relocated out of this public repository — it names live homelab hosts and
+a real Keycloak realm/client-id, which have no place in a public GitHub repo); the
+behavioral/deployment model, which is safe to publish, is in
 [`docs/architecture/messaging_reach.md`](../docs/architecture/messaging_reach.md#deployment).

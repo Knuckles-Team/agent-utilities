@@ -542,9 +542,10 @@ class WorkflowRunner:
                     # property; "type" is kept as a fallback for callers that
                     # hand this a raw/foreign node dict.
                     node_label = data.get("node_type") or data.get("type")
-                    if node_label != "WorkflowDefinition" or data.get(
-                        "name"
-                    ) != workflow_name:
+                    if (
+                        node_label != "WorkflowDefinition"
+                        or data.get("name") != workflow_name
+                    ):
                         continue
                     for _src, tgt, edata in graph.out_edges(nid, data=True):
                         # "relationship" is the canonical GraphComputeEngine edge

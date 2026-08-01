@@ -272,9 +272,15 @@ class RetrievalQualityGate:
         # cosine similarity and was never meant to be comparable to ``self._threshold``
         # (calibrated for genuine embedding scores, default 0.6). Gating lexical hits
         # against the vector threshold made the gate reject 100% of lexical-only
-        # retrievals regardless of actual keyword relevance. Merged in from
-        # lane/engine-tests-0801@550354cf (D-GS4-3/D-GS27-6/D-49-2): a separate, lower
-        # threshold, graded per-result via ``_result_threshold``.
+        # retrievals regardless of actual keyword relevance — the query embedder being
+        # hermetically blocked/unavailable (tests, offline mode, cold-start before an
+        # index exists) always failed LOW_RELEVANCE_TOPK even when the returned nodes
+        # visibly contained the query term. A keyword/substring match already IS the
+        # relevance signal for a lexical hit, so it is graded against its own, lower,
+        # separately-calibrated threshold instead of the vector one. Set just below the
+        # 0.2 sentinel so genuine lexical fallback hits pass while a caller that
+        # constructs a degenerate near-zero fallback score still correctly fails closed.
+        # (landed on main via lane/engine-tests-0801@550354cf, D-GS4-3/D-GS27-6/D-49-2)
         env_lexical_threshold = setting("KG_MIN_LEXICAL_RELEVANCE_THRESHOLD")
         self._lexical_threshold = (
             float(env_lexical_threshold) if env_lexical_threshold is not None else 0.15

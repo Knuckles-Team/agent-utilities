@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-548 typed fields · 360 runtime-only call-site inputs.
+549 typed fields · 361 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -466,6 +466,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `PLANE_INSTANCES` | `Union` | `unset` |
 | `KG_DEFAULT_GRAPH` | `str` | `__commons__` |
 | `GRAPH_SCHEMA_PACK` | `str` | `core` |
+| `DOMAIN_PACKS_ROOT` | `str` | `` |
 | `KG_INGEST_SHARD_FANOUT` | `bool` | `False` |
 | `KG_RERANK_MODEL` | `Union` | `unset` |
 | `KG_RERANK_BASE_URL` | `Union` | `unset` |
@@ -913,6 +914,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MCP_FLEET_REGISTRATION` | 1 |
 | `MCP_FLEET_REGISTRATION_TTL_SECS` | 1 |
 | `MCP_PUBLIC_BASE_URL` | 1 |
+| `MCP_SDK_FLOOR_ENFORCE` | 1 |
 | `MEDIA_TOOLS` | 1 |
 | `MESSAGING_INBOX_RETRY_S` | 1 |
 | `MESSAGING_LISTEN_BACKOFF_BASE_S` | 1 |

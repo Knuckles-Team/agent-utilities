@@ -40,7 +40,7 @@ def _client():
         )
 
         return GraphComputeEngine.get_or_create().client
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — engine client construction, caller treats None as "use local fallback"
         logger.debug(
             "[CONCEPT:AU-KG.domains.ohlcv-gap-fill] engine unavailable for series op: %s",
             e,
@@ -81,7 +81,7 @@ def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.S
         idx = pd.to_datetime([t for t, _v, _f in rows], utc=True)
         vals = [v for _t, v, _f in rows]
         return pd.Series(vals, index=idx, name=series.name)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — engine-accelerated path, equivalent pandas-only fallback follows
         logger.debug(
             "[CONCEPT:AU-KG.domains.ohlcv-gap-fill] gap_fill_series engine path failed: %s",
             e,
@@ -114,7 +114,7 @@ def asof_align(series: pd.Series, at: pd.Index, *, client=None) -> pd.Series:
         at_ns = _to_ns(at)
         vals = client.timeseries.asof_join(sid, at_ns)
         return pd.Series(vals, index=at, name=series.name)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — engine-accelerated path, equivalent pandas-only fallback follows
         logger.debug(
             "[CONCEPT:AU-KG.domains.ohlcv-gap-fill] asof_align engine path failed: %s",
             e,
