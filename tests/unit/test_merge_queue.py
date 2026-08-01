@@ -790,7 +790,102 @@ def test_unreadable_baseline_is_not_cached(
     )
     assert first.readable is False
     base_sha = mq._require_git(["rev-parse", "main"], canonical)
-    cache_path = mq._baseline_cache_path(
-        scope, base_sha, tests, interpreter=interpreter
+    cache_path = mq._baseline_cache_path(scope, base_sha, interpreter=interpreter)
+    assert mq._load_file_baseline_cache(cache_path) == {}
+
+
+def test_baseline_cache_is_per_file_and_serves_a_subset_selection_free(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-MW-10: a selection that is a SUBSET of one already baselined at the same
+    base_sha must be answered entirely from cache — no subprocess, no
+    materialized() worktree — because this is exactly the shape
+    integrate_batch's bisection produces on every retry (a sub-batch's selection
+    is by construction a subset of its parent batch's)."""
+    _write(canonical, "pkg/a.py", "A = 1\n")
+    _write(canonical, "pkg/b.py", "B = 1\n")
+    _write(canonical, "tests/unit/test_a.py", "def test_a():\n    assert True\n")
+    _write(
+        canonical,
+        "tests/unit/test_b.py",
+        "def test_b():\n    assert False\n",
     )
-    assert not cache_path.is_file()
+    _commit(canonical, "main: two independent test files, one pre-existing red")
+    scope = lanes.lane_scope(canonical)
+    interpreter = mq._interpreter(canonical)
+    env = dict(os.environ)
+    superset = ["tests/unit/test_a.py", "tests/unit/test_b.py"]
+
+    parent = mq.compute_test_baseline(
+        canonical, "main", superset, scope=scope, interpreter=interpreter, env=env
+    )
+    assert parent.readable is True
+    assert parent.failing == {"tests/unit/test_b.py::test_b"}
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise AssertionError(
+            "materialized() must not run again for a subset already covered "
+            "by the parent batch's baseline"
+        )
+
+    monkeypatch.setattr(mq, "materialized", _boom)
+    monkeypatch.setattr(
+        mq,
+        "_timed_run",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("no subprocess needed for an all-cached subset")
+        ),
+    )
+    for subset in (["tests/unit/test_a.py"], ["tests/unit/test_b.py"], superset):
+        sub = mq.compute_test_baseline(
+            canonical, "main", subset, scope=scope, interpreter=interpreter, env=env
+        )
+        assert sub.readable is True
+        assert sub.failing == {
+            fid for fid in parent.failing if fid.split("::")[0] in subset
+        }
+
+
+def test_baseline_only_runs_the_not_yet_cached_delta(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A selection that PARTIALLY overlaps an already-baselined one only pays for
+    the genuinely new file — the already-known file is not re-run."""
+    _write(canonical, "tests/unit/test_a.py", "def test_a():\n    assert True\n")
+    _write(canonical, "tests/unit/test_c.py", "def test_c():\n    assert True\n")
+    _commit(canonical, "main")
+    scope = lanes.lane_scope(canonical)
+    interpreter = mq._interpreter(canonical)
+    env = dict(os.environ)
+
+    mq.compute_test_baseline(
+        canonical,
+        "main",
+        ["tests/unit/test_a.py"],
+        scope=scope,
+        interpreter=interpreter,
+        env=env,
+    )
+
+    real_timed_run = mq._timed_run
+    seen: list[list[str]] = []
+
+    def _tracking(argv: list[str], *a: object, **k: object) -> object:
+        seen.append(list(argv))
+        return real_timed_run(argv, *a, **k)
+
+    monkeypatch.setattr(mq, "_timed_run", _tracking)
+    result = mq.compute_test_baseline(
+        canonical,
+        "main",
+        ["tests/unit/test_a.py", "tests/unit/test_c.py"],
+        scope=scope,
+        interpreter=interpreter,
+        env=env,
+    )
+    assert result.readable is True
+    assert result.failing == frozenset()
+    assert len(seen) == 1
+    (argv,) = seen
+    assert "tests/unit/test_a.py" not in argv
+    assert "tests/unit/test_c.py" in argv

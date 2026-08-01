@@ -126,9 +126,13 @@ from agent_utilities.governance.lanes import (
 #: lease is sized to fit here; anything that cannot is Tier-slow by definition.
 FAST_GATE_BUDGET_SECONDS = 180
 
-#: Hard ceiling on the targeted-test step. Exceeding it is not a failure — it is a
+#: Hard ceiling on the targeted-test step **against the merged tree** —
+#: candidate-facing, always paid fresh. Exceeding it is not a failure — it is a
 #: *deferral* to the post-merge suite, reported as such, because a gate that hangs
-#: is a gate that gets bypassed.
+#: is a gate that gets bypassed. D-MW-10: the base-ref comparison run this step's
+#: verdict depends on has its OWN, larger budget — see
+#: BASELINE_TEST_BUDGET_SECONDS below — because it is not on this same latency
+#: path once its per-file cache is warm.
 TARGETED_TEST_BUDGET_SECONDS = 120
 
 #: Ceiling on the import-smoke step (it imports only changed modules).
@@ -140,20 +144,54 @@ IMPORT_SMOKE_BUDGET_SECONDS = 60
 #: contract has that contract enforced against itself in the same gate run.
 CONTRACT_CHECK_GLOB = "scripts/security/check_*.py"
 
-#: Ceiling for the whole contract-check step. Measured cost of the two live
-#: scripts is ~0.15 s and ~1.5 s, so this is ~30x headroom, not a tuning knob.
+#: Ceiling for the whole contract-check step **against the merged tree** — the
+#: candidate-facing, always-fresh half of the check. Measured cost of the four
+#: live scripts is ~1-9 s combined (see docs/architecture/merge-queue.md), so this
+#: is still comfortable headroom for the (now 11-script) discovered set, not a
+#: tuning knob.
 CONTRACT_CHECK_BUDGET_SECONDS = 60
+
+#: Ceiling for computing a contract check's OUTPUT on *base_ref* (D-MW-9's
+#: differential contract gating, mirroring compute_test_baseline). Separate from
+#: CONTRACT_CHECK_BUDGET_SECONDS and generous, on the same reasoning as
+#: BASELINE_TEST_BUDGET_SECONDS below: this run is cached per (base_sha, script)
+#: and materializes a whole base tree on a cold miss, so it is not on every
+#: candidate's critical path once warm, and contending with other lanes for the
+#: shared epistemic-graph daemon makes it slower than its merged-tree twin even
+#: at the same selection size.
+CONTRACT_BASELINE_BUDGET_SECONDS = 180
 
 #: Above this many selected test files the targeted selection has stopped being
 #: "targeted" and is just a slow full run wearing a costume. Defer to Tier-slow.
 MAX_TARGETED_TEST_FILES = 40
 
+#: Ceiling for computing (the not-yet-cached portion of) the base-ref test
+#: baseline. D-MW-10: this used to share TARGETED_TEST_BUDGET_SECONDS (the
+#: merged-tree run's budget, above) and started REFUSING landable branches once
+#: ~8 concurrent lanes began contending for the shared epistemic-graph daemon —
+#: the base run is no smaller than the merged run it is being compared against,
+#: so sharing one budget between two runs with different contention profiles was
+#: always going to starve one of them. Kept separate and larger (not shared with
+#: CONTRACT_BASELINE_BUDGET_SECONDS above — different subprocess, different cost
+#: shape) because, per the per-file cache below, this ceiling is paid at most
+#: once per (base_sha, file) — most calls after the first pay nothing.
+BASELINE_TEST_BUDGET_SECONDS = 240
+
 #: Where the shared, content-addressed test-baseline cache lives inside the
-#: arbitration dir (CONCEPT:AU-OS.governance.test-regression-baseline). Keyed by
-#: (base commit sha, sorted selection, interpreter) so ``main`` — static within a
-#: batch — is measured once per selection and every later candidate, in this batch
-#: or a later one, reuses the answer instead of paying for a second full run.
+#: arbitration dir (CONCEPT:AU-OS.governance.test-regression-baseline). D-MW-10:
+#: keyed by ``(base commit sha, interpreter)`` ONLY — one entry per file, not one
+#: entry per whole selection — so a selection that overlaps a PREVIOUSLY-baselined
+#: selection at the same base_sha (the common case during bisection, and across
+#: batches that land close together) reuses every already-known file and pays
+#: only for the files that are genuinely new to this base_sha. A selection that
+#: is a pure subset of an already-baselined selection costs nothing at all: no
+#: subprocess, no ``materialized()`` worktree checkout.
 BASELINE_CACHE_DIRNAME = "test-baseline-cache"
+
+#: Where the discovered-contract-check output baseline lives — same shared
+#: arbitration dir, same per-(base_sha, script) file-level granularity as the
+#: test baseline above (D-MW-9).
+CONTRACT_BASELINE_CACHE_DIRNAME = "contract-baseline-cache"
 
 #: Candidates merged into one trial commit and gated together. Failure bisects, so
 #: a bad candidate costs ceil(log2(N)) extra gate runs, not N.
@@ -710,12 +748,221 @@ def contract_baseline(repo: Path, base_ref: str) -> set[str]:
     }
 
 
+@dataclass(frozen=True)
+class ScriptBaseline:
+    """One contract script's state on *base_ref*: whether it exited clean, and
+    (best-effort) the itemized violation lines it printed if it did not.
+
+    Two granularities are tracked because contract scripts report failure two
+    different ways in this codebase — some print one line per violation
+    (``check_current_only_contract.py``, ``check_swallowed_errors.py``, the
+    boundary gates), some print a single static message regardless of *why*
+    they failed (``check_sbom_licenses.py``'s ``{"error": "LicenseAuditError"}``,
+    a bare ``sys.exit(1)`` with no output at all). Line-diffing alone would
+    silently treat the second class as "no new violation" whenever the base was
+    already red for ANY reason, even a different one — see
+    :func:`run_contract_checks` for how ``ok``/``lines`` combine to avoid that.
+    """
+
+    ok: bool
+    lines: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class ContractBaselineResult:
+    """The per-script :class:`ScriptBaseline` every discovered contract check
+    already produces on *base_ref* (D-MW-9, CONCEPT:AU-OS.governance.
+    test-regression-baseline applied one level up from tests).
+
+    A script absent from *base_ref* entirely (a candidate that adds a brand-new
+    contract) maps to ``ScriptBaseline(ok=True)`` — vacuously clean, nothing to
+    compare against — so ANY failure it prints on the merged tree is correctly
+    "new", which is what makes a freshly-added contract enforced against itself
+    in the same gate run.
+
+    ``readable=False`` is the fail-closed case: callers MUST refuse any script
+    whose merged-tree run is non-clean rather than guess it is pre-existing red —
+    the same non-negotiable contract :class:`BaselineResult` already holds for
+    tests.
+    """
+
+    readable: bool
+    base_sha: str = ""
+    scripts: dict[str, ScriptBaseline] = field(default_factory=dict)
+    detail: str = ""
+
+
+def _contract_baseline_cache_path(
+    scope: LaneScope, base_sha: str, *, interpreter: str
+) -> Path:
+    """Cache location for one ``(base_sha, interpreter)``'s contract-check output
+    baseline — same shared arbitration dir and same "one entry per discovered
+    item, not per whole request" shape as :func:`_baseline_cache_path`, just at
+    script granularity instead of test-file granularity (there are only a
+    handful of contract scripts, so no delta-run optimization is needed beyond
+    "don't recompute a script already known for this base_sha")."""
+    digest = hashlib.sha256((base_sha + "\n" + interpreter).encode("utf-8")).hexdigest()
+    return (
+        scope.arbitration_dir
+        / QUEUE_DIRNAME
+        / CONTRACT_BASELINE_CACHE_DIRNAME
+        / f"{digest}.json"
+    )
+
+
+def _load_contract_baseline_cache(path: Path) -> dict[str, ScriptBaseline]:
+    """The ``{script_name: ScriptBaseline}`` map cached for one
+    ``(base_sha, interpreter)``, or ``{}`` on a miss/corrupt entry — see
+    :func:`_load_file_baseline_cache`'s identical reasoning."""
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        scripts = data["scripts"]
+        return {
+            str(k): ScriptBaseline(
+                ok=bool(v["ok"]), lines=frozenset(str(x) for x in v["lines"])
+            )
+            for k, v in scripts.items()
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def _merge_contract_baseline_cache(
+    path: Path, base_sha: str, new_entries: dict[str, ScriptBaseline]
+) -> None:
+    """Merge ``new_entries`` into the cache — see
+    :func:`_merge_file_baseline_cache`'s identical read-merge-atomic-replace."""
+    if not new_entries:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = _load_contract_baseline_cache(path)
+    current.update(new_entries)
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(
+        json.dumps(
+            {
+                "base_sha": base_sha,
+                "scripts": {
+                    k: {"ok": v.ok, "lines": sorted(v.lines)}
+                    for k, v in current.items()
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+
+
+def _contract_check_argv(script: Path, rel: Path, *, interpreter: str, tree: Path) -> list[str]:
+    argv = [interpreter, str(rel)]
+    if "--repository-root" in script.read_text(encoding="utf-8", errors="replace"):
+        argv += ["--repository-root", str(tree)]
+    return argv
+
+
+def _output_lines(proc: subprocess.CompletedProcess) -> frozenset[str]:
+    return frozenset(
+        line.strip()
+        for line in (proc.stdout + "\n" + proc.stderr).splitlines()
+        if line.strip()
+    )
+
+
+def compute_contract_baseline(
+    repo: Path,
+    base_ref: str,
+    script_names: list[str],
+    *,
+    scope: LaneScope,
+    interpreter: str,
+    env: dict[str, str],
+) -> ContractBaselineResult:
+    """The :class:`ScriptBaseline` each named contract check already produces on
+    *base_ref* — cached per ``(base_sha, script)`` exactly like
+    :func:`compute_test_baseline` is cached per ``(base_sha, file)``, and for the
+    identical reason: :func:`run_fast_gate` calls this once per batch/sub-batch
+    attempt, and bisection's sub-batches ask for the same (or a subset of the
+    same) script set their parent batch already baselined at the same base_sha.
+
+    A script named here that does not exist under ``scripts/security/`` on
+    *base_ref* at all (a candidate that *adds* a contract) maps to
+    ``ScriptBaseline(ok=True)`` — every line it prints on the merged tree is then
+    correctly "new", which is what makes a freshly-added contract enforced
+    against itself in the same gate run (see :func:`run_contract_checks`).
+    """
+    base_sha = _require_git(["rev-parse", base_ref], repo)
+    cache_path = _contract_baseline_cache_path(scope, base_sha, interpreter=interpreter)
+    cached = _load_contract_baseline_cache(cache_path)
+
+    unknown = [s for s in script_names if s not in cached]
+    if not unknown:
+        return ContractBaselineResult(
+            readable=True,
+            base_sha=base_sha,
+            scripts={s: cached[s] for s in script_names},
+            detail=(
+                f"{len(script_names)} contract script(s) already baselined on "
+                f"{base_ref} ({base_sha[:12]}) — full cache hit"
+            ),
+        )
+
+    contract_dir = Path(CONTRACT_CHECK_GLOB).parent
+    new_entries: dict[str, ScriptBaseline] = {}
+    with materialized(repo, base_sha, scope=scope) as base_tree:
+        for name in unknown:
+            script = base_tree / contract_dir / name
+            if not script.is_file():
+                new_entries[name] = ScriptBaseline(ok=True)
+                continue
+            rel = script.relative_to(base_tree)
+            argv = _contract_check_argv(
+                script, rel, interpreter=interpreter, tree=base_tree
+            )
+            proc, secs = _timed_run(
+                argv, base_tree, timeout=CONTRACT_BASELINE_BUDGET_SECONDS, env=env
+            )
+            if proc is None:
+                return ContractBaselineResult(
+                    readable=False,
+                    base_sha=base_sha,
+                    detail=(
+                        f"baseline run of {name} on {base_ref} ({base_sha[:12]}) "
+                        f"exceeded {CONTRACT_BASELINE_BUDGET_SECONDS}s — an "
+                        "unproducible baseline is REFUSED, never silently "
+                        f"treated as 'no pre-existing violations' (took "
+                        f"{secs:.1f}s before timing out)"
+                    ),
+                )
+            new_entries[name] = (
+                ScriptBaseline(ok=True)
+                if proc.returncode == 0
+                else ScriptBaseline(ok=False, lines=_output_lines(proc))
+            )
+
+    _merge_contract_baseline_cache(cache_path, base_sha, new_entries)
+    all_known = {**cached, **new_entries}
+    hits = len(script_names) - len(unknown)
+    return ContractBaselineResult(
+        readable=True,
+        base_sha=base_sha,
+        scripts={s: all_known.get(s, ScriptBaseline(ok=True)) for s in script_names},
+        detail=(
+            f"{len(script_names)} contract script(s) evaluated on {base_ref} "
+            f"({base_sha[:12]}) — {hits} from cache, {len(unknown)} freshly run"
+        ),
+    )
+
+
 def run_contract_checks(
     tree: Path,
     *,
     interpreter: str,
     env: dict[str, str],
     baseline: set[str] | None = None,
+    output_baseline: ContractBaselineResult | None = None,
 ) -> Check:
     """Run every discovered contract check against the merged tree.
 
@@ -730,6 +977,22 @@ def run_contract_checks(
     has, median 8, max 667 — see ``docs/architecture/merge-queue.md``), whereas a
     contract states the invariant once and is silent until it is violated.
 
+    **Differential (D-MW-9).** ``main`` legitimately carries contract debt (e.g.
+    ``check_current_only_contract.py``'s ~490 pre-existing retired-surface
+    references) — judging every discovered script by exit code alone, the
+    original shape of this step, would refuse EVERY candidate the moment such a
+    script's own debt was folded into discovery, recreating the exact
+    absolute-green deadlock ``contract_baseline`` (dropped-script comparison,
+    below) already escaped for deletions and ``compute_test_baseline`` escaped
+    for tests. A non-clean script's OWN OUTPUT LINES are now diffed against
+    ``output_baseline`` (:func:`compute_contract_baseline`): a line present on
+    the merged tree but absent from the base-ref run is a NEW violation and
+    blocks; a line present on both is pre-existing debt, reported explicitly,
+    never silent, and never blocking. ``output_baseline=None`` degrades to the
+    pre-D-MW-9 behavior (any non-clean exit fails) — callers that want
+    differential gating must pass one, exactly as ``compute_test_baseline`` is an
+    opt-in the caller wires up in :func:`run_fast_gate`.
+
     Runs with ``cwd`` set to the merged tree, and passes ``--repository-root`` only
     to scripts that declare it — detected by reading the script, not by probing it
     with a throwaway subprocess.
@@ -737,6 +1000,7 @@ def run_contract_checks(
     started = time.monotonic()
     scripts = contract_scripts(tree)
     failures: list[str] = []
+    notes: list[str] = []
     dropped = sorted((baseline or set()) - {s.name for s in scripts})
     if dropped:
         # A candidate that deletes an invariant would otherwise land by having
@@ -760,22 +1024,78 @@ def run_contract_checks(
         )
     for script in scripts:
         rel = script.relative_to(tree)
-        argv = [interpreter, str(rel)]
-        if "--repository-root" in script.read_text(encoding="utf-8", errors="replace"):
-            argv += ["--repository-root", str(tree)]
+        argv = _contract_check_argv(script, rel, interpreter=interpreter, tree=tree)
         proc, _ = _timed_run(argv, tree, timeout=CONTRACT_CHECK_BUDGET_SECONDS, env=env)
         if proc is None:
             failures.append(
                 f"{rel}: exceeded {CONTRACT_CHECK_BUDGET_SECONDS}s — a contract "
                 "check that cannot answer is not a passing contract check"
             )
-        elif proc.returncode != 0:
+            continue
+        if proc.returncode == 0:
+            continue
+        if output_baseline is None:
             failures.append(f"{rel}: {(proc.stderr or proc.stdout).strip()[:1500]}")
+            continue
+        if not output_baseline.readable:
+            failures.append(
+                f"{rel}: REFUSED — the base-ref baseline needed to tell a NEW "
+                f"violation from pre-existing red could not be produced: "
+                f"{output_baseline.detail}"
+            )
+            continue
+        merged_lines = _output_lines(proc)
+        base = output_baseline.scripts.get(script.name, ScriptBaseline(ok=True))
+        if merged_lines:
+            # Itemized script: line-level diff catches a genuinely new
+            # violation even when the base was already red for something
+            # else — the precise case a coarser script-level compare would
+            # mask (see ScriptBaseline's docstring).
+            new_lines = sorted(merged_lines - base.lines)
+            pre_existing = merged_lines & base.lines
+            if new_lines:
+                detail = (
+                    f"{rel}: NEW violation(s) not present on the base ref:\n"
+                    + "\n".join(new_lines[:50])
+                )
+                if pre_existing:
+                    detail += (
+                        f"\n({len(pre_existing)} pre-existing violation(s) also "
+                        "on the base ref, not blocking)"
+                    )
+                failures.append(detail)
+            else:
+                # new_lines empty and merged_lines non-empty => merged_lines is
+                # entirely a subset of base.lines => pre_existing == merged_lines.
+                notes.append(
+                    f"{rel}: {len(pre_existing)} pre-existing violation(s) on "
+                    "the base ref (allowed — not caused by this candidate)"
+                )
+        elif not base.ok:
+            # Non-itemized script (a static message or a bare nonzero exit
+            # with no output at all) that was ALSO non-clean on the base:
+            # the finest signal available is "was this script red before" —
+            # allowed, reported as pre-existing debt, not blocking.
+            notes.append(
+                f"{rel}: non-clean on the base ref too (no itemized output to "
+                "compare — allowed at script granularity, not blocking)"
+            )
+        else:
+            # Non-itemized script that was clean (or absent/new) on the base:
+            # any failure now is unambiguously new.
+            failures.append(
+                f"{rel}: NEW failure not present on the base ref "
+                f"(exit {proc.returncode}, no itemized output): "
+                f"{(proc.stderr or proc.stdout).strip()[:1500]}"
+            )
+    detail = "\n".join(failures)
+    if notes:
+        detail = (detail + "\n" if detail else "") + "\n".join(notes)
     return Check(
         "contract-checks",
         ok=not failures,
         seconds=time.monotonic() - started,
-        detail="\n".join(failures)
+        detail=detail
         or f"{len(scripts)} contract(s) held: {', '.join(str(s.name) for s in scripts)}",
     )
 
@@ -843,24 +1163,27 @@ def _parse_failing_test_ids(stdout: str) -> set[str]:
     return ids
 
 
-def _baseline_cache_path(
-    scope: LaneScope, base_sha: str, tests: list[str], *, interpreter: str
-) -> Path:
-    """Content-addressed cache location for one ``(base_sha, selection, interpreter)``.
+def _baseline_cache_path(scope: LaneScope, base_sha: str, *, interpreter: str) -> Path:
+    """Content-addressed cache location for one ``(base_sha, interpreter)``.
+
+    D-MW-10: no longer keyed by the test *selection* — one JSON file holds every
+    file this ``(base_sha, interpreter)`` has EVER been asked to baseline, each
+    keyed by its own relative path (see :func:`_load_file_baseline_cache` /
+    :func:`_merge_file_baseline_cache`). A selection is now answered by looking up
+    each of its files individually, so two selections that overlap (the common
+    case: a bisected sub-batch's selection is always a *subset* of its parent
+    batch's) share cache entries instead of each owning an all-or-nothing blob
+    keyed by their exact, usually-never-repeated set.
 
     Lives under the same shared, unversioned arbitration dir as the queue itself
     (see :func:`queue_store`) — identical from every worktree, never rewritten by
-    a checkout/reset/merge. Two runners computing the same key write the same
-    deterministic content, so a race between them is harmless (see
-    :func:`_store_cached_baseline`'s atomic replace); nothing needs the queue's
-    APPEND-ONLY discipline here because a cache entry is never edited, only
-    replaced by an identical write or a fresh key.
+    a checkout/reset/merge. Two runners computing the same file's entry write the
+    same deterministic content, so a race between them is harmless (see
+    :func:`_merge_file_baseline_cache`'s read-merge-atomic-replace); nothing needs
+    the queue's APPEND-ONLY discipline here because a cache entry for a given
+    ``(base_sha, file)`` is immutable once written — only new files get merged in.
     """
-    digest = hashlib.sha256(
-        (base_sha + "\n" + interpreter + "\n" + "\n".join(sorted(tests))).encode(
-            "utf-8"
-        )
-    ).hexdigest()
+    digest = hashlib.sha256((base_sha + "\n" + interpreter).encode("utf-8")).hexdigest()
     return (
         scope.arbitration_dir
         / QUEUE_DIRNAME
@@ -869,51 +1192,47 @@ def _baseline_cache_path(
     )
 
 
-def _load_cached_baseline(path: Path) -> BaselineResult | None:
-    """A cached baseline, or ``None`` on a miss — including a corrupt entry.
+def _load_file_baseline_cache(path: Path) -> dict[str, list[str]]:
+    """The ``{relative_test_file_path: [failing test id, ...]}`` map cached for
+    one ``(base_sha, interpreter)``, or ``{}`` on a miss — including a corrupt
+    entry.
 
-    A corrupt file is treated as a miss (recompute), not as an unreadable
-    baseline: the fail-closed contract is about the TEST RUN's own honesty, not
-    about this cache's storage layer, and refusing every future candidate because
-    one cache file got truncated would be a self-inflicted, permanent denial.
+    A corrupt file is treated as empty (recompute whatever is asked for), not as
+    an unreadable baseline: the fail-closed contract is about each TEST RUN's own
+    honesty, not about this cache's storage layer, and refusing every future
+    candidate because one cache file got truncated would be a self-inflicted,
+    permanent denial.
     """
     if not path.is_file():
-        return None
+        return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return BaselineResult(
-            readable=True,
-            base_sha=str(data["base_sha"]),
-            failing=frozenset(data["failing"]),
-            detail=str(data.get("detail", "")),
-        )
+        files = data["files"]
+        return {str(k): [str(v) for v in vs] for k, vs in files.items()}
     except (OSError, ValueError, KeyError, TypeError):
-        return None
+        return {}
 
 
-def _store_cached_baseline(path: Path, result: BaselineResult) -> None:
-    """Cache a baseline — but only a READABLE one.
+def _merge_file_baseline_cache(
+    path: Path, base_sha: str, new_entries: dict[str, list[str]]
+) -> None:
+    """Merge ``new_entries`` (only READABLE, freshly-run files) into the cache.
 
-    An unreadable run may be a transient fluke (disk pressure, an interpreter
-    crash) rather than a durable property of ``base_sha``. Caching it would turn
-    one bad run into a standing refusal for every future candidate touching this
-    selection until someone notices and clears the cache by hand — worse than the
-    cost of retrying. The write is atomic (`write to a pid-suffixed temp file,
-    then replace`) so a concurrent second writer computing the identical answer
-    can never observe a half-written cache file.
+    Read-merge-write rather than a blind overwrite, so a concurrent second writer
+    baselining a *different* file for the same ``(base_sha, interpreter)`` never
+    loses the first writer's entries — both are deterministic per file, so the
+    merge always converges to the same union regardless of write order. The write
+    is atomic (write to a pid-suffixed temp file, then replace) so a concurrent
+    reader can never observe a half-written cache file.
     """
-    if not result.readable:
+    if not new_entries:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
+    current = _load_file_baseline_cache(path)
+    current.update(new_entries)
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(
-        json.dumps(
-            {
-                "base_sha": result.base_sha,
-                "failing": sorted(result.failing),
-                "detail": result.detail,
-            }
-        ),
+        json.dumps({"base_sha": base_sha, "files": current}, sort_keys=True),
         encoding="utf-8",
     )
     tmp.replace(path)
@@ -929,8 +1248,15 @@ def compute_test_baseline(
     env: dict[str, str],
 ) -> BaselineResult:
     """The failing-test-id set the SAME targeted selection already produces on
-    *base_ref* — cached, so ``main`` (static within a batch) is paid for once per
-    distinct selection rather than once per candidate.
+    *base_ref* — cached **per file** (D-MW-10, CONCEPT:AU-OS.governance.
+    test-regression-baseline), so ``main`` (static within a batch) is paid for
+    once per FILE rather than once per distinct selection. A selection that is a
+    pure subset of one already baselined at this ``base_sha`` — the common shape
+    during :func:`integrate_batch`'s bisection, where every sub-batch's selection
+    is by construction a subset of its parent's — costs nothing at all: no
+    subprocess, no :func:`materialized` worktree checkout. Only files genuinely
+    new to this ``base_sha`` are run, and only those are worth
+    BASELINE_TEST_BUDGET_SECONDS of patience.
 
     A selected file that does not exist on *base_ref* at all contributes zero
     baseline failures (it is wholly new on this candidate) rather than making the
@@ -939,81 +1265,98 @@ def compute_test_baseline(
     those paths are filtered out before the base run rather than left to fail.
     """
     base_sha = _require_git(["rev-parse", base_ref], repo)
-    cache_path = _baseline_cache_path(scope, base_sha, tests, interpreter=interpreter)
-    cached = _load_cached_baseline(cache_path)
-    if cached is not None:
-        return cached
+    cache_path = _baseline_cache_path(scope, base_sha, interpreter=interpreter)
+    cached_files = _load_file_baseline_cache(cache_path)
+
+    unknown = [t for t in tests if t not in cached_files]
+    if not unknown:
+        failing = {fid for t in tests for fid in cached_files[t]}
+        return BaselineResult(
+            readable=True,
+            base_sha=base_sha,
+            failing=frozenset(failing),
+            detail=(
+                f"{len(tests)} test file(s) already baselined on {base_ref} "
+                f"({base_sha[:12]}) — full cache hit, no run needed"
+            ),
+        )
 
     with materialized(repo, base_sha, scope=scope) as base_tree:
-        present = [t for t in tests if (base_tree / t).is_file()]
-        if not present:
-            result = BaselineResult(
-                readable=True,
-                base_sha=base_sha,
-                failing=frozenset(),
-                detail=(
-                    f"none of the {len(tests)} selected test file(s) exist on "
-                    f"{base_ref} ({base_sha[:12]}) — a genuine empty baseline, not "
-                    "a degraded read: every failure in the merged tree for this "
-                    "selection is necessarily new"
-                ),
-            )
-            _store_cached_baseline(cache_path, result)
-            return result
-        basetemp = (
-            partitioned_paths(scope.tree).pytest_basetemp / "merge-queue-baseline"
-        )
-        basetemp.mkdir(parents=True, exist_ok=True)
-        proc, secs = _timed_run(
-            [
-                interpreter,
-                "-m",
-                "pytest",
-                "-q",
-                "-p",
-                "no:randomly",
-                "-rfE",
-                f"--basetemp={basetemp}",
-                *present,
-            ],
-            base_tree,
-            timeout=TARGETED_TEST_BUDGET_SECONDS,
-            env=env,
-        )
+        present = [t for t in unknown if (base_tree / t).is_file()]
+        missing = [t for t in unknown if t not in present]
+        new_entries: dict[str, list[str]] = {t: [] for t in missing}
 
-    if proc is None:
-        return BaselineResult(
-            readable=False,
-            base_sha=base_sha,
-            detail=(
-                f"baseline run on {base_ref} ({base_sha[:12]}) exceeded "
-                f"{TARGETED_TEST_BUDGET_SECONDS}s — an unproducible baseline is "
-                "REFUSED, never silently treated as 'no pre-existing failures' "
-                f"(took {secs:.1f}s before timing out)"
-            ),
-        )
-    if proc.returncode not in _PYTEST_READABLE_EXIT_CODES:
-        return BaselineResult(
-            readable=False,
-            base_sha=base_sha,
-            detail=(
-                f"baseline run on {base_ref} ({base_sha[:12]}) exited "
-                f"{proc.returncode} (collection/usage/internal error, not a test "
-                "outcome) — an unreadable baseline is REFUSED, never silently "
-                "treated as 'no pre-existing failures'\n"
-                + proc.stdout[-2000:]
-                + "\n"
-                + proc.stderr[-1000:]
-            ),
-        )
-    result = BaselineResult(
+        if present:
+            basetemp = (
+                partitioned_paths(scope.tree).pytest_basetemp / "merge-queue-baseline"
+            )
+            basetemp.mkdir(parents=True, exist_ok=True)
+            proc, secs = _timed_run(
+                [
+                    interpreter,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-p",
+                    "no:randomly",
+                    "-rfE",
+                    f"--basetemp={basetemp}",
+                    *present,
+                ],
+                base_tree,
+                timeout=BASELINE_TEST_BUDGET_SECONDS,
+                env=env,
+            )
+
+            if proc is None:
+                return BaselineResult(
+                    readable=False,
+                    base_sha=base_sha,
+                    detail=(
+                        f"baseline run on {base_ref} ({base_sha[:12]}) for "
+                        f"{len(present)} not-yet-cached file(s) exceeded "
+                        f"{BASELINE_TEST_BUDGET_SECONDS}s — an unproducible "
+                        "baseline is REFUSED, never silently treated as 'no "
+                        f"pre-existing failures' (took {secs:.1f}s before "
+                        "timing out; the already-cached files this batch also "
+                        "asked for are not re-run, but a whole answer needs the "
+                        "new ones too)"
+                    ),
+                )
+            if proc.returncode not in _PYTEST_READABLE_EXIT_CODES:
+                return BaselineResult(
+                    readable=False,
+                    base_sha=base_sha,
+                    detail=(
+                        f"baseline run on {base_ref} ({base_sha[:12]}) exited "
+                        f"{proc.returncode} (collection/usage/internal error, not "
+                        "a test outcome) — an unreadable baseline is REFUSED, "
+                        "never silently treated as 'no pre-existing failures'\n"
+                        + proc.stdout[-2000:]
+                        + "\n"
+                        + proc.stderr[-1000:]
+                    ),
+                )
+            fresh_failing = _parse_failing_test_ids(proc.stdout)
+            for t in present:
+                new_entries[t] = sorted(
+                    fid for fid in fresh_failing if fid.startswith(t + "::")
+                )
+
+    _merge_file_baseline_cache(cache_path, base_sha, new_entries)
+    all_files = {**cached_files, **new_entries}
+    failing = {fid for t in tests for fid in all_files.get(t, [])}
+    hits = len(tests) - len(unknown)
+    return BaselineResult(
         readable=True,
         base_sha=base_sha,
-        failing=frozenset(_parse_failing_test_ids(proc.stdout)),
-        detail=f"{len(present)} test file(s) evaluated on {base_ref} ({base_sha[:12]})",
+        failing=frozenset(failing),
+        detail=(
+            f"{len(tests)} test file(s) evaluated on {base_ref} ({base_sha[:12]}) "
+            f"— {hits} from cache, {len(present)} freshly run"
+            + (f", {len(missing)} absent on base" if missing else "")
+        ),
     )
-    _store_cached_baseline(cache_path, result)
-    return result
 
 
 def run_fast_gate(
@@ -1058,12 +1401,27 @@ def run_fast_gate(
     # 2. repo-invariant contract checks, against the MERGED tree. Second because it
     #    is the cheapest thing that can catch a *semantic* regression, and because a
     #    silently-reverted security fix must not wait on a test selection to notice.
+    #    D-MW-9: differential against base_ref's own output, exactly like
+    #    targeted-tests below — main legitimately carries contract debt.
+    discovered_names = [s.name for s in contract_scripts(tree)]
     checks.append(
         run_contract_checks(
             tree,
             interpreter=interpreter,
             env=env,
             baseline=contract_baseline(scope.main_tree, base_ref),
+            output_baseline=(
+                compute_contract_baseline(
+                    scope.main_tree,
+                    base_ref,
+                    discovered_names,
+                    scope=scope,
+                    interpreter=interpreter,
+                    env=env,
+                )
+                if discovered_names
+                else None
+            ),
         )
     )
 
