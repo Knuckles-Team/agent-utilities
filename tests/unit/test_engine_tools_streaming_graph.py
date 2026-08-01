@@ -120,17 +120,30 @@ def test_list_triggers_threads_resolved_default_graph(monkeypatch):
 
 
 def test_list_triggers_threads_explicit_top_level_graph(monkeypatch):
+    # ``_resolve_graph_name`` now fail-closes a ``graph`` that would retarget the
+    # verified ambient GraphSession (engine_tools.py: "An engine action cannot
+    # retarget its verified GraphSession") — a deliberate anti-cross-tenant
+    # hardening this test predates. The ambient session's own graph (set by the
+    # autouse ``isolate_graph_compute_engine`` fixture to a per-test unique name)
+    # is therefore the only value that can be passed explicitly here; using it
+    # still fully exercises "explicit top-level graph threads through to the
+    # client call" without retargeting authority.
+    from agent_utilities.knowledge_graph.core.session import current_session
+
     client = _FakeClient()
     monkeypatch.setattr(engine_tools, "_client_for", lambda graph: client)
 
     with use_actor(NON_ADMIN_ACTOR):
+        session_graph = current_session().graph
         out = json.loads(
             asyncio.run(
-                _tool()(action="list_triggers", params_json="{}", graph="tenant-x")
+                _tool()(
+                    action="list_triggers", params_json="{}", graph=session_graph
+                )
             )
         )
     assert out == []
-    assert client.streaming.calls == [("list_triggers", ("tenant-x",), {})]
+    assert client.streaming.calls == [("list_triggers", (session_graph,), {})]
 
 
 def test_caller_supplied_graph_in_params_json_wins(monkeypatch):

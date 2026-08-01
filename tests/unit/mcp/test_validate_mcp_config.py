@@ -7,7 +7,7 @@ from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location(
     "validate_mcp_config",
-    Path(__file__).resolve().parents[1] / "scripts" / "validate_mcp_config.py",
+    Path(__file__).resolve().parents[3] / "scripts" / "validate_mcp_config.py",
 )
 vmc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(vmc)
@@ -56,7 +56,13 @@ def test_validate_all_valid():
             "graph-os": {"command": "graph-os"},
         }
     }
-    report = vmc.validate(config, vmc.parse_caddy_hosts(CADDY))
+    # ``managed_suffix`` is an opt-in filter (default "" = coverage-gap checking
+    # off, since an unscoped Caddyfile may legitimately route third-party hosts
+    # never meant to appear in mcp_config.json); opt in to ".arpa" to exercise
+    # the coverage-gap detection this test is about.
+    report = vmc.validate(
+        config, vmc.parse_caddy_hosts(CADDY), managed_suffix=".arpa"
+    )
     assert report["passed"] is True
     assert report["invalid"] == {}
     assert set(report["ok"]) == {"github-mcp", "container-manager-mcp"}
