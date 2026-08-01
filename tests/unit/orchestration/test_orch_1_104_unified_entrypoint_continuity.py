@@ -17,8 +17,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-import pytest
-
 from agent_utilities.observability.trace_ontology import trace_id
 from agent_utilities.orchestration import session_continuity
 from agent_utilities.security.persistence_privacy import persistence_reference
@@ -100,10 +98,6 @@ def test_persist_session_turn_writes_runtrace_and_memento(monkeypatch) -> None:
     assert calls["refresh_source"] == "webui:99"
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-6: continuity seam receives a generated pref_agent_r... id "
-    "instead of the caller's session_id ('webui:7')"
-)
 def test_ag_ui_fast_path_reaches_continuity_seam(monkeypatch) -> None:
     """The /ag-ui streaming endpoint primes + persists via the shared seam."""
     from agent_utilities.server.routers import agent_ui
