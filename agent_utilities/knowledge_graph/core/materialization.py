@@ -136,7 +136,7 @@ def normalize_label(label: str) -> str:
 # here (the single source of truth both write-shaping paths consult) rather
 # than duplicated across ~40 TableDefinitions.
 _GOVERNANCE_COLUMNS = frozenset(
-    {"tenant_id", "_owner_id", "_shared_scope", "classification"}
+    {"tenant_id", "_owner_id", "_shared_scope", "classification", "external_access"}
 )
 
 
