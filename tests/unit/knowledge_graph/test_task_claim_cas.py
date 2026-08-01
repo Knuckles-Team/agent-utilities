@@ -99,27 +99,22 @@ def _task_status(b: EpistemicGraphBackend, tid: str) -> str | None:
 
 def test_claim_wins_creates_running_shadow_and_stamps_task():
     """A winning claim creates+claims the shadow WorkItem; the returned meta
-    is the RAW WorkItem metadata, unstamped, and the legacy :Task node is left
-    untouched by design.
+    is the RAW WorkItem metadata plus the winning claim's own lease identity,
+    and the legacy :Task node is left untouched by design.
 
     Was originally written expecting ``_claim_next_task`` to stamp
     ``claimed_by``/``claim_unix``/``started_at``/``work_item_id``/
     ``work_item_epoch`` onto the returned meta and mirror ``status:
-    "running"`` onto the legacy ``:Task`` node. No production code ever did
-    either (confirmed: no call site sets those keys or CAS-updates a legacy
-    ``:Task.status`` on claim), and at least 6 OTHER tests
-    (``test_ingest_task_workitem_lifecycle.py``,
-    ``test_hydration_reserved_worker.py`` x3,
-    ``test_admission_policy_live_path.py``,
-    ``test_ingest_workitem_lease_recovery.py``) assert byte-identical
-    equality between ``_claim_next_task``'s returned meta and the RAW
-    unstamped WorkItem metadata — i.e. the rest of the suite already encodes
-    "no stamping" as the real contract. AU-P1-CL made the native WorkItem
-    lease the SOLE win/lose authority; the legacy ``:Task`` node is a
-    read-only historical mirror nothing here updates post-migration. This
-    was the stale half of the AU-P1-CL rewrite (a docstring/assertion that
-    described intended-but-never-built behavior); the WorkItem-side
-    assertions below (the real, engine-native authority) still hold.
+    "running"`` onto the legacy ``:Task`` node. Only the FIRST half of that
+    was ever built: D-W2-12 (``fix/w2-w2-tail``) added ``claimed_by``/
+    ``work_item_epoch``/``work_item_id`` stamping (the winning claim's own
+    lease fields — see ``test_claim_next_task_stamps_claimed_by_and_
+    work_item_epoch_onto_meta`` below) because the caller had no way to say
+    WHO holds a task or WHICH fencing generation it runs under; the legacy
+    ``:Task`` node CAS-update never landed and still isn't done by any call
+    site — AU-P1-CL made the native WorkItem lease the SOLE win/lose
+    authority and the legacy ``:Task`` node stays a read-only historical
+    mirror nothing here updates post-migration.
     """
     b = EpistemicGraphBackend()
     _add_task(b, "job-1", target="/x")
@@ -130,7 +125,14 @@ def test_claim_wins_creates_running_shadow_and_stamps_task():
     assert result is not None
     job_id, meta = result
     assert job_id == "job-1"
-    assert meta == {}  # _add_task never passes metadata= to submit_work_item
+    # _add_task never passes metadata= to submit_work_item, so the only keys
+    # present are the D-W2-12 lease-identity stamp added on top of the (here,
+    # empty) raw WorkItem metadata.
+    assert meta == {
+        "claimed_by": TOKEN,
+        "work_item_epoch": 1,
+        "work_item_id": wi.ingest_task_work_item_id("job-1"),
+    }
 
     # Legacy :Task node is untouched by the native claim (no post-migration
     # mirror step exists).
@@ -221,7 +223,10 @@ def test_two_sequential_claims_of_same_task_first_wins_second_loses():
 
     assert first is not None and first[0] == "job-shared"  # winner
     assert second is None  # loser got no claim, no other candidate
-    assert _task_status(b, "job-shared") == "running"
+    # The legacy :Task node is never mirrored on claim (see
+    # test_claim_wins_creates_running_shadow_and_stamps_task's docstring) —
+    # the native WorkItem lease above is the sole win/lose authority.
+    assert _task_status(b, "job-shared") == "pending"
 
 
 class _MetaStampHarness:
