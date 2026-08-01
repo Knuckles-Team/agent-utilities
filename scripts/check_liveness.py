@@ -60,9 +60,19 @@ def _find_analyzer() -> Path | None:
 def main() -> int:
     analyzer = _find_analyzer()
     if analyzer is None:
+        # Say NOT ENFORCED, loudly. This branch is not hypothetical: the
+        # `guardrails` dependency group `.github/workflows/guardrails.yml` syncs
+        # does NOT contain `universal-skills` (it is only in the `agent-runtime`
+        # / `agent-headless` extras), so the CI job named "Liveness ratchet gate"
+        # takes this path and exits 0 — a gate that reads green in the log while
+        # ratcheting nothing (D-PCG-9). Until that group gains the dependency,
+        # the wording must make a skip impossible to mistake for a pass.
         print(
-            "liveness gate: code-enhancer skill (universal_skills) not installed — "
-            "skipping. `pip install universal-skills` to enable."
+            "liveness gate NOT ENFORCED (exit 0, nothing was checked): the "
+            "code-enhancer detector (universal_skills) is not importable by "
+            f"{sys.executable}. Add `universal-skills` to the environment this "
+            "gate runs in — for CI that is the `guardrails` dependency group in "
+            "pyproject.toml."
         )
         return 0
 
