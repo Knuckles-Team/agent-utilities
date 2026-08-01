@@ -62,6 +62,62 @@ def test_owlready2_promote(ontology_path):
     backend.close()
 
 
+def test_owlready2_promote_camelcase_node_type(monkeypatch):
+    """D-TC-5 follow-on: a node read back from the native compute engine has
+    its ``node_type`` CamelCased (``"host"`` -> ``"Host"``, ``"gpu_accelerator"``
+    -> ``"GPUAccelerator"``) rather than the lowercase snake_case
+    ``RegistryNodeType``/``_NODE_TYPE_TO_OWL_CLASS`` convention. Before the
+    ``_node_type_to_snake`` fold in ``_get_owl_class``, this silently promoted
+    ZERO individuals for every node sourced from a live engine -- no error,
+    just a permanently empty OWL world for that node's class (the same
+    masking-bug class D-GS7-1 fixed for edge relationships).
+
+    Uses ``ontology_infrastructure.ttl`` (not the general ``ontology.ttl`` the
+    other tests in this file load) -- the actual ontology
+    ``generate_matchmaking_recommendations`` loads, and the one that declares
+    the canonical, unambiguous ``:Host``/``:GPUAccelerator``/``:StorageArray``
+    classes this test asserts against.
+    """
+    monkeypatch.setenv("OWL_ALLOW_REMOTE_IMPORTS", "true")
+    infra_ontology_path = str(
+        Path(__file__).parent.parent.parent.parent
+        / "agent_utilities"
+        / "knowledge_graph"
+        / "ontology_infrastructure.ttl"
+    )
+    backend = Owlready2Backend(ontology_path=infra_ontology_path)
+
+    nodes = [
+        {"id": "host:test-host", "node_type": "Host", "importance_score": 0.9},
+        {
+            "id": "gpu:test-gpu",
+            "node_type": "GPUAccelerator",
+            "importance_score": 0.9,
+        },
+        {
+            "id": "storage:test-storage",
+            "node_type": "StorageArray",
+            "importance_score": 0.9,
+        },
+    ]
+
+    # count == 3 (not 0) is the load-bearing assertion: pre-fix, ``_get_owl_class``
+    # looked up the *raw* CamelCased node_type ("Host") against
+    # ``_NODE_TYPE_TO_OWL_CLASS``'s snake_case keys ("host"), always missed, so
+    # every node here would have been silently skipped (count == 0). Which
+    # exact OWL class the world's substring `iri="*Host"` search resolves to
+    # (this ontology's imports include more than one class ending in "Host")
+    # is a separate, pre-existing concern this test doesn't assert on.
+    count = backend.promote(nodes)  # type: ignore[arg-type]
+    assert count == 3
+
+    assert backend._onto.search_one(iri="*host_test-host") is not None
+    assert backend._onto.search_one(iri="*gpu_test-gpu") is not None
+    assert backend._onto.search_one(iri="*storage_test-storage") is not None
+
+    backend.close()
+
+
 def test_owlready2_promote_edges(ontology_path):
     """Test promotion of edges to OWL property assertions."""
     backend = Owlready2Backend(ontology_path=ontology_path)
