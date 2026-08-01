@@ -274,6 +274,118 @@ def test_durable_acl_hydration_reads_the_backend_not_the_compute_scratchpad(
     assert backend.queries[0][1]["ids"] == ["srv:demo-mcp-server"]
 
 
+def test_owner_fallback_grants_the_creator_read_access(monkeypatch, brain):
+    """The core defect: a first-party write (no external_access descriptor)
+    stamps classification/_owner_id via the write-time chokepoint
+    (tenant_sharing.stamp_ownership/stamp_classification); the creator must be
+    able to read their own data back without any explicit ACL call."""
+    monkeypatch.setattr(
+        sr,
+        "_durable_access_rows",
+        lambda _ids: {
+            "mem-1": {
+                "tenant_id": "tenant-a",
+                "classification": "confidential",
+                "external_access": None,
+                "owner_id": "principal:verified",
+            }
+        },
+    )
+    with use_actor(_actor()):
+        assert sr.permit(["mem-1"]) == ["mem-1"]
+
+
+def test_owner_fallback_widens_only_the_owner_not_other_tenant_or_other_actor(
+    monkeypatch, brain
+):
+    """Proves this fix restores the OWNER's access without widening anyone
+    else's: a same-tenant non-owner and a cross-tenant actor both stay denied."""
+    rows = {
+        "mem-1": {
+            "tenant_id": "tenant-a",
+            "classification": "confidential",
+            "external_access": None,
+            "owner_id": "principal:verified",
+        }
+    }
+    monkeypatch.setattr(sr, "_durable_access_rows", lambda _ids: dict(rows))
+
+    # The owner, same tenant: granted.
+    reset_company_brain()
+    with use_actor(_actor()):
+        assert sr.permit(["mem-1"]) == ["mem-1"]
+
+    # A different actor, SAME tenant: still denied (not the owner, no PUBLIC,
+    # no explicit grant).
+    other_same_tenant = ActorContext(
+        "principal:someone-else",
+        ActorType.AI_AGENT,
+        roles=(),
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    reset_company_brain()
+    with use_actor(other_same_tenant):
+        assert sr.permit(["mem-1"]) == []
+
+    # The owner's own actor_id, but a DIFFERENT tenant: the pre-existing
+    # cross-tenant hydration gate still denies before ownership is even
+    # considered.
+    cross_tenant_same_id = ActorContext(
+        "principal:verified",
+        ActorType.AI_AGENT,
+        roles=(),
+        tenant_id="tenant-b",
+        authenticated=True,
+    )
+    reset_company_brain()
+    with use_actor(cross_tenant_same_id):
+        assert sr.permit(["mem-1"]) == []
+
+
+def test_public_classification_fallback_grants_any_authenticated_actor(
+    monkeypatch, brain
+):
+    """CallableResource/ToolMetadata-style catalog nodes: PUBLIC classification
+    synthesizes regardless of owner, matching the deliberate (not blanket)
+    classification policy for platform capability catalog labels."""
+    monkeypatch.setattr(
+        sr,
+        "_durable_access_rows",
+        lambda _ids: {
+            "srv:tool-1": {
+                "tenant_id": "tenant-a",
+                "classification": "public",
+                "external_access": None,
+                "owner_id": None,
+            }
+        },
+    )
+    with use_actor(_actor("no-special-role")):
+        assert sr.permit(["srv:tool-1"]) == ["srv:tool-1"]
+
+
+def test_unowned_non_public_node_stays_denied(monkeypatch, brain):
+    """A node with no owner, no PUBLIC classification, and no external_access
+    (e.g. a system/background write with no bound actor to stamp) has nothing
+    to synthesize from and must stay denied -- unchanged, fail-closed
+    behaviour, not a new gap."""
+    monkeypatch.setattr(
+        sr,
+        "_durable_access_rows",
+        lambda _ids: {
+            "sys-1": {
+                "tenant_id": "tenant-a",
+                "classification": "confidential",
+                "external_access": None,
+                "owner_id": None,
+            }
+        },
+    )
+    with use_actor(_actor()):
+        assert sr.permit(["sys-1"]) == []
+
+
 def test_durable_access_rows_parses_json_and_native_external_access(monkeypatch, brain):
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
