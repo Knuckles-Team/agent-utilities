@@ -385,9 +385,9 @@ def _resolve_templates_from_kg(
                 "at.model_preference AS model_preference, "
                 "at.execution_tier AS execution_tier, "
                 "at.step_order AS step_order, "
-                "at.parallel AS is_parallel, "
+                "at.is_parallel AS is_parallel, "
                 "at.max_retries AS max_retries, "
-                "at.description AS descriptionription "
+                "at.description AS description "
                 "ORDER BY at.step_order ASC "
                 f"LIMIT {top_k}",
                 {},
@@ -507,17 +507,16 @@ def build_pydantic_graph_from_kg(
             composer = KGTeamComposer(engine=engine)
             try:
                 team_composition = composer.compose_team(query=query)
-            except LookupError:
-                # No proven team AND no domain-authorized agents in the KG (an
-                # empty/minimal engine, e.g. in tests, or a genuinely
-                # under-populated graph). This factory's contract is to
-                # always materialize A graph — degrade the same way the
-                # engine-is-None branch above does rather than let team
-                # composition's hard failure propagate out of a "best
-                # effort" fallback path.
-                logger.info(
-                    "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KGTeamComposer found no "
-                    "authorized agents; falling back to a generic executor."
+            except LookupError as exc:
+                # The KG has no AgentTemplate nodes AND no authorized Agent roster for
+                # the domain (e.g. a fresh/empty graph, or a genuinely
+                # under-populated one) — degrade to the same generic placeholder
+                # used for `engine is None` rather than letting the whole factory
+                # call crash on an otherwise-recoverable empty roster.
+                logger.warning(
+                    "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KGTeamComposer "
+                    "found no authorized agents (%s). Falling back to a generic executor.",
+                    exc,
                 )
                 team_composition = None
 

@@ -212,14 +212,38 @@ class PromotionVerdict:
 def resolve_confidence_threshold(domain: str) -> float:
     """Per-pack/per-domain promotion confidence threshold.
 
-    Reads ``AgentConfig.ingestion_confidence_thresholds`` (a bounded
-    domain -> threshold mapping, ``INGESTION_CONFIDENCE_THRESHOLDS``) — falls
-    back to :data:`DEFAULT_CONFIDENCE_THRESHOLD` for any domain without an
-    explicit entry. This is the ONE place a domain pack's threshold is
-    resolved; a future domain-pack framework overrides it by populating this
-    same mapping (or, once the domain-pack contract lands, by extending this
-    resolver to consult the pack's own manifest first).
+    Resolution order (first hit wins), so packs genuinely differ instead of
+    every domain funneling through one shared ``AgentConfig`` mapping:
+
+    1. The installed domain pack named ``domain``'s own
+       ``DomainPackManifest.promotion_confidence_threshold``
+       (:func:`~.domain_packs.pack_loader.get_default_registry`,
+       CONCEPT:AU-KG.ingest.domain-pack-framework) — a pack author states its
+       own risk tolerance alongside its mappings. Best-effort: an unavailable
+       registry, an uninstalled pack, or a pack that declares no threshold
+       (``None``) all fall through to step 2, never raise.
+    2. ``AgentConfig.ingestion_confidence_thresholds`` (a bounded
+       domain -> threshold mapping, ``INGESTION_CONFIDENCE_THRESHOLDS``) — the
+       operator-configured override for a domain with no pack, or a pack that
+       hasn't stated its own threshold.
+    3. :data:`DEFAULT_CONFIDENCE_THRESHOLD` — the conservative global fallback.
     """
+    try:
+        from ..domain_packs.pack_loader import get_default_registry
+
+        loaded = get_default_registry().get(domain)
+        if loaded is not None:
+            pack_threshold = loaded.manifest.promotion_confidence_threshold
+            if pack_threshold is not None:
+                return float(pack_threshold)
+    except Exception as exc:  # noqa: BLE001 - a pack-registry hiccup falls through, never raises
+        logger.debug(
+            "promotion: domain-pack confidence lookup for %r failed: %s",
+            domain,
+            exc,
+            exc_info=True,
+        )
+
     from ...core.config import config
 
     thresholds = getattr(config, "ingestion_confidence_thresholds", None) or {}

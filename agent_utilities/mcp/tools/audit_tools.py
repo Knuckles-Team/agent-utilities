@@ -23,6 +23,10 @@ Two actions:
   every ``:ToolCall`` that acted on a given entity id, in call order, plus a
   best-effort chain-verification snapshot alongside it. See
   :meth:`~agent_utilities.orchestration.manager.Orchestrator.get_tool_calls_for_target`.
+- ``lineage`` — source-to-claim lineage (CONCEPT:AU-KG.retrieval.source-to-claim-lineage,
+  universal-ingestion program track 9): given a cited ``fragment_id``, walks
+  claim -> Fragment -> Artifact -> envelope fields -> pack (ontology-mapping)
+  version. See :func:`~agent_utilities.knowledge_graph.retrieval.lineage.resolve_lineage`.
 
 Mirrors the ``graph_ops_causal`` action-router shape (single ``@mcp.tool``, an
 ``action`` enum, registered into ``kg_server.REGISTERED_TOOLS``) rather than
@@ -55,19 +59,35 @@ def register_audit_tools(mcp: Any) -> None:
             "cleanly with a clear error when the connected engine build/config "
             "doesn't expose it), 'for_target' (every :ToolCall -[:ACTED_ON]-> "
             "target_id, in call order, plus a best-effort verify() snapshot "
-            "alongside it)."
+            "alongside it), 'lineage' (source-to-claim lineage: given a cited "
+            "fragment_id, walk claim -> Fragment -> Artifact -> envelope -> "
+            "pack version — CONCEPT:AU-KG.retrieval.source-to-claim-lineage)."
         ),
         tags=["graph-os", "audit", "governance", "provenance"],
     )
     def graph_audit(
-        action: str = Field(default="verify", description="verify | for_target"),
+        action: str = Field(
+            default="verify", description="verify | for_target | lineage"
+        ),
         target_id: str = Field(
             default="",
             description="Entity id to reverse-index tool-call provenance for "
             "(required for for_target).",
         ),
+        fragment_id: str = Field(
+            default="",
+            description="Cited fragment id to resolve lineage for (required for lineage).",
+        ),
+        claim: str = Field(
+            default="",
+            description="The claim/fact text this lineage is for (lineage only, carried through verbatim).",
+        ),
+        content_hash: str = Field(
+            default="",
+            description="The content hash the citation was made against (lineage only, sharpens moved/stale detection).",
+        ),
     ) -> str:
-        """Verify the tamper-evident audit chain, or reverse-index provenance for an entity."""
+        """Verify the tamper-evident audit chain, reverse-index provenance for an entity, or resolve a citation's lineage."""
         action = (action or "verify").strip().lower()
 
         if action == "verify":
@@ -82,6 +102,19 @@ def register_audit_tools(mcp: Any) -> None:
                     }
                 )
             return json.dumps(_for_target(target_id), default=str)
+        if action == "lineage":
+            if not fragment_id:
+                return json.dumps(
+                    {
+                        "surface": "audit",
+                        "action": action,
+                        "error": "fragment_id required for lineage",
+                    }
+                )
+            return json.dumps(
+                _lineage(fragment_id, claim=claim, content_hash=content_hash),
+                default=str,
+            )
         return json.dumps(
             {
                 "surface": "audit",
@@ -142,3 +175,26 @@ def _for_target(target_id: str) -> dict[str, Any]:
     orch = Orchestrator(engine)
     result = orch.get_tool_calls_for_target(target_id)
     return {"surface": "audit", "action": "for_target", **result}
+
+
+def _lineage(fragment_id: str, *, claim: str, content_hash: str) -> dict[str, Any]:
+    """Source-to-claim lineage for one cited fragment (CONCEPT:AU-KG.retrieval.source-to-claim-lineage)."""
+    from agent_utilities.knowledge_graph.retrieval.lineage import (
+        LineageNotFoundError,
+        resolve_lineage,
+    )
+
+    engine = kg_server._get_engine()
+    try:
+        record = resolve_lineage(
+            engine, fragment_id=fragment_id, claim_text=claim, content_hash=content_hash
+        )
+    except LineageNotFoundError as exc:
+        return {
+            "surface": "audit",
+            "action": "lineage",
+            "fragment_id": fragment_id,
+            "found": False,
+            **public_error_payload(exc, code="lineage_not_found"),
+        }
+    return {"surface": "audit", "action": "lineage", "found": True, **record}

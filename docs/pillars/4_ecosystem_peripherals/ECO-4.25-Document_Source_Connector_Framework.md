@@ -18,7 +18,16 @@ of a flat vector index.
   the proven native path; other dialects route through `mcp_tool` instead),
   `connectors/mcp_package.py` (ECO-4.29 fleet adapter), `connectors/mcp_tool.py`
   (AU-KG.ingest.mcp-tool-connector universal MCP-tool source — sql-mcp/objectstore-mcp/servicenow/… as
-  declarative, checkpointed sources)
+  declarative, checkpointed sources), `connectors/git_markdown.py`
+  (AU-ECO.connector.git-markdown-revision-connector — a git working tree, revision-scoped: content is
+  read via `git show <sha>:<path>` at an exact commit, never the live working
+  tree, and `git diff --name-status` between two revisions is the incremental
+  change feed. A genuine native connector, not an `mcp_tool` preset, because
+  git has real revision semantics a filesystem walk cannot express — see the
+  module's own docstring for the full preset-vs-connector reasoning. Ships
+  two domain-pack presets, `au-pillars`/`au-skills`, proving several
+  structurally different static markdown corpora can be mounted at once with
+  epistemic-graph authoritative across them.)
 - **Ingestion**: `ContentType.CONNECTOR` adaptor in `knowledge_graph/ingestion/engine.py`;
   facade `kg.ontology.run_connector(...)`; MCP tool `source_connector`; REST `/connector/*`.
 - **Source routing**: bulk hot-path extraction → native `database` (Postgres);

@@ -8,6 +8,7 @@ mapping — one worked example exercising all four wired rule kinds.
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import yaml
@@ -22,6 +23,7 @@ from agent_utilities.knowledge_graph.domain_packs.domain_pack import (
     TableMapping,
 )
 from agent_utilities.knowledge_graph.domain_packs.pack_loader import pack_integrity_hash
+from agent_utilities.knowledge_graph.ingestion.evidence_spine import Artifact, Fragment
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     ConnectorManifest,
     IntegrityInfo,
@@ -66,49 +68,57 @@ RUNBOOK_MAPPINGS = [
 
 
 def _synthetic_evaluation_case() -> EvaluationCase:
+    """Fragments built with :meth:`Fragment.at` (the evidence spine's own
+    sanctioned constructor, D-GP2-2) so every ``fragment_id`` is derived
+    exactly the way every other spine-producing path derives it — never a
+    hand-typed id that could drift from ``fragment_id_for``."""
     artifact_id = "md:test123"
     artifact = {
         "artifact_id": artifact_id,
-        "source_path": "runbook.md",
-        "content_hash": "0" * 64,
+        "connector": "test-fixture",
+        "media_type": "text/markdown",
+        "content_hash": "sha256:" + "0" * 64,
+        "source_object_id": "runbook.md",
     }
+    status_fragment = Fragment.at(
+        artifact_id=artifact_id,
+        kind="frontmatter_key",
+        label="status",
+        text="active",
+        sequence=0,
+        attributes={"key": "status", "value": "active"},
+    )
+    owner_fragment = Fragment.at(
+        artifact_id=artifact_id,
+        kind="frontmatter_key",
+        label="owner",
+        text="alice",
+        sequence=1,
+        attributes={"key": "owner", "value": "alice"},
+    )
+    row_fragment = Fragment.at(
+        artifact_id=artifact_id,
+        kind="table_row",
+        ordinal=0,
+        text="Provision VM | bob",
+        sequence=2,
+        attributes={
+            "heading_path": "Steps",
+            "row_index": 0,
+            "row": {"step": "Provision VM", "assignee": "bob"},
+        },
+    )
+    link_fragment = Fragment.at(
+        artifact_id=artifact_id,
+        kind="link",
+        ordinal=0,
+        text="reference",
+        sequence=3,
+        attributes={"text": "reference", "href": "other.md"},
+    )
     fragments = [
-        {
-            "fragment_id": f"{artifact_id}#frontmatter:status",
-            "artifact_id": artifact_id,
-            "fragment_type": "frontmatter_key",
-            "locator": "frontmatter.status",
-            "content_hash": "1" * 64,
-            "value": "active",
-            "metadata": {"key": "status"},
-        },
-        {
-            "fragment_id": f"{artifact_id}#frontmatter:owner",
-            "artifact_id": artifact_id,
-            "fragment_type": "frontmatter_key",
-            "locator": "frontmatter.owner",
-            "content_hash": "2" * 64,
-            "value": "alice",
-            "metadata": {"key": "owner"},
-        },
-        {
-            "fragment_id": f"{artifact_id}#row:0",
-            "artifact_id": artifact_id,
-            "fragment_type": "table_row",
-            "locator": "table[Steps].row[0]",
-            "content_hash": "3" * 64,
-            "value": {"step": "Provision VM", "assignee": "bob"},
-            "metadata": {"heading_path": "Steps", "row_index": 0},
-        },
-        {
-            "fragment_id": f"{artifact_id}#link:0",
-            "artifact_id": artifact_id,
-            "fragment_type": "link",
-            "locator": "link[0]",
-            "content_hash": "4" * 64,
-            "value": {"text": "reference", "href": "other.md"},
-            "metadata": {"text": "reference", "href": "other.md"},
-        },
+        dataclasses.asdict(f)
+        for f in (status_fragment, owner_fragment, row_fragment, link_fragment)
     ]
     row_id = f"{artifact_id}#row:0"
     expect_entities = [
@@ -158,6 +168,7 @@ def build_manifest(
     mappings: list | None = None,
     evaluation_cases: list[EvaluationCase] | None = None,
     default_classification: str = "internal",
+    promotion_confidence_threshold: float | None = None,
 ) -> DomainPackManifest:
     """A real, hash-consistent :class:`DomainPackManifest` fixture."""
     ontology = _ontology_extension(pack_name)
@@ -173,6 +184,7 @@ def build_manifest(
             else evaluation_cases
         ),
         default_classification=default_classification,
+        promotion_confidence_threshold=promotion_confidence_threshold,
         provenance=DomainPackProvenance(integrity=IntegrityInfo(hash="0" * 64)),
     )
     digest = pack_integrity_hash(manifest)

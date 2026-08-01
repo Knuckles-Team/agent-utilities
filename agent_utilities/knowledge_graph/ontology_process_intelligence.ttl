@@ -18,18 +18,8 @@
     rdfs:domain :ConformanceRun ;
     rdfs:range :ProcessPerspective .
 
-:ConformanceRun a owl:Class ;
-    rdfs:label "Conformance Run" ;
-    rdfs:comment "A versioned comparison of a process model with a frozen object-centric data slice." ;
-    rdfs:subClassOf prov:Activity .
-
 :DIRECTLY_FOLLOWS a owl:ObjectProperty ;
     owl:equivalentProperty :directlyFollows .
-
-:Deviation a owl:Class ;
-    rdfs:label "Process Deviation" ;
-    rdfs:comment "Evidence-backed behavioral, participation, state, or temporal deviation found by a ConformanceRun." ;
-    rdfs:subClassOf prov:Entity .
 
 :HAS_DEVIATION a owl:ObjectProperty ;
     rdfs:label "has deviation" ;
@@ -74,11 +64,6 @@
     rdfs:comment "A reproducible DFG, BPMN, OC-Petri-net, or other process model bound to a perspective and data version." ;
     rdfs:subClassOf :ProcessModel,
         prov:Entity .
-
-:ProcessPerspective a owl:Class ;
-    rdfs:label "Process Perspective" ;
-    rdfs:comment "A versioned selection of object types, qualifiers, temporal bounds, and derivation policy for one analytical question." ;
-    rdfs:subClassOf :Concept .
 
 :artifact_ref a owl:DatatypeProperty ;
     owl:equivalentProperty :artifactRef .
@@ -149,6 +134,11 @@
     neural outputs are proposal-only until the existing review lifecycle accepts them.""" ;
     owl:imports <http://knuckles.team/kg> .
 
+:Deviation a owl:Class ;
+    rdfs:label "Process Deviation" ;
+    rdfs:comment "Evidence-backed behavioral, participation, state, or temporal deviation found by a ConformanceRun." ;
+    rdfs:subClassOf prov:Entity .
+
 :EntityResolutionProposal a owl:Class ;
     rdfs:label "Entity Resolution Proposal" ;
     rdfs:comment "An ambiguous mention-to-entity candidate carrying blocking evidence and calibrated score." ;
@@ -179,6 +169,11 @@
 
 :PROPOSES_RESOLUTION a owl:ObjectProperty ;
     owl:equivalentProperty :proposesResolution .
+
+:ProcessPerspective a owl:Class ;
+    rdfs:label "Process Perspective" ;
+    rdfs:comment "A versioned selection of object types, qualifiers, temporal bounds, and derivation policy for one analytical question." ;
+    rdfs:subClassOf :Concept .
 
 :RELATION_SOURCE a owl:ObjectProperty ;
     owl:equivalentProperty :relationSource .
@@ -327,6 +322,11 @@
     rdfs:comment "An OCEL 2.0 object-type declaration and its attribute schema." ;
     rdfs:subClassOf prov:Entity .
 
+:ConformanceRun a owl:Class ;
+    rdfs:label "Conformance Run" ;
+    rdfs:comment "A versioned comparison of a process model with a frozen object-centric data slice." ;
+    rdfs:subClassOf prov:Activity .
+
 :EventObjectParticipation a owl:Class ;
     rdfs:label "Event-Object Participation" ;
     rdfs:comment "A reified qualified OCEL event-to-object relation." ;
@@ -399,3 +399,4 @@
     rdfs:comment "A source event with immutable identity, activity, event time, attributes, and qualified object participation." ;
     rdfs:subClassOf :Event,
         prov:Activity .
+

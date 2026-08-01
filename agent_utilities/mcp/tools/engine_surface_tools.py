@@ -2358,6 +2358,44 @@ def register_engine_surface_tools(mcp) -> None:
                 if ocel_mode not in {"mine", "validate"}:
                     raise ValueError("ocel_mode must be 'mine' or 'validate'")
                 exported = export_ocel_json(slice_)
+                # Merge fix (feat/retrieval-eval-policy x fix/sweep-orch-skills):
+                # the process_signal evidence snapshot below reads `envelope`
+                # before either mode-branch computes its own further down —
+                # a pre-existing NameError on fix/sweep-orch-skills@504c903d,
+                # not something either lane's change caused directly. Computed
+                # here from the bare (pre-perspective) `slice_` so this
+                # best-effort observability snapshot never blocks the import;
+                # each mode branch still computes its OWN envelope for the
+                # actual commit (the `mine` branch's includes the perspective).
+                envelope = slice_.to_change_envelope(tenant=tenant, provenance=provenance)
+                evidence = {
+                    "mode": "ocel_2.0",
+                    "tenant": tenant,
+                    "content_hash": slice_.canonical_digest(),
+                    "idempotency_key": envelope.idempotency_key,
+                    "mapping_version": slice_.mapping_version,
+                    "node_count": len(envelope.typed_payload["entities"]),
+                    "relationship_count": len(envelope.typed_payload["relationships"]),
+                }
+                # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
+                # D-71-1) — the process_signal channel: recorded HERE, at the one place
+                # this import's real outcome is computed, never re-derived by a second
+                # query. Best-effort audit overlay; never gates the import.
+                try:
+                    from agent_utilities.knowledge_graph.research.evidence import (
+                        from_process_signal,
+                        record_evidence,
+                    )
+
+                    record_evidence(
+                        kg_server._get_engine(), from_process_signal(evidence)
+                    )
+                except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: this Evidence write is a pure observability side-channel over an import that has ALREADY succeeded, and the comment above states it "never gates the import". Failing it must not fail the caller's OCEL import. The cause is preserved (the exception is interpolated), at DEBUG because the authoritative import outcome is already reported through the normal return path.
+                    logger.debug(
+                        "OCEL process_signal evidence record failed for %s: %s",
+                        evidence.get("idempotency_key"),
+                        exc,
+                    )
                 if ocel_mode == "validate":
                     envelope = slice_.to_change_envelope(
                         tenant=tenant,

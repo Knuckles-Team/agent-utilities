@@ -558,7 +558,9 @@ class GraphOSV2Gateway:
                 job_id = self._job_id(dispatched)
                 # A task result is only permitted after the WorkItem can be read.
                 status = await self._job_status(job_id, context)
-                return self._task_from_status(job_id, status, result_type="task")
+                return await self._task_from_status(
+                    job_id, status, context, result_type="task"
+                )
         return self._complete(
             await self._downstream.call_tool(name, arguments, context)
         )
@@ -582,8 +584,8 @@ class GraphOSV2Gateway:
         if not isinstance(task_id, str) or not task_id:
             raise GatewayProtocolError(-32602, "Invalid params")
         if method == "tasks/get":
-            return self._task_from_status(
-                task_id, await self._job_status(task_id, context)
+            return await self._task_from_status(
+                task_id, await self._job_status(task_id, context), context
             )
         # A WorkItem awaiting input carries a `pending_input_request` in its
         # metadata (`request_work_item_input`); update submits the client's
@@ -743,8 +745,13 @@ class GraphOSV2Gateway:
         {"queued", "pending", "ready", "leased", "running", "executing"}
     )
 
-    def _task_from_status(
-        self, task_id: str, status: Mapping[str, Any], *, result_type: str = "complete"
+    async def _task_from_status(
+        self,
+        task_id: str,
+        status: Mapping[str, Any],
+        context: GatewayRequestContext,
+        *,
+        result_type: str = "complete",
     ) -> dict[str, Any]:
         raw_status = str(status.get("status", "")).lower()
         pending_input = (
@@ -807,7 +814,9 @@ class GraphOSV2Gateway:
             # place it can surface without violating the wire contract.
             result["statusMessage"] = self._input_required_status_message(pending_input)
         elif projected == "completed" and result_type == "complete":
-            result["result"] = self._completed_task_result(task_id, status)
+            result["result"] = await self._completed_task_result(
+                task_id, status, context
+            )
         elif projected == "failed" and result_type == "complete":
             result["error"] = {"code": -32603, "message": "GraphOS WorkItem failed"}
         return result
@@ -827,17 +836,61 @@ class GraphOSV2Gateway:
             return prompt[:500]
         return "Task requires client input to continue."
 
-    @staticmethod
-    def _completed_task_result(
-        task_id: str, status: Mapping[str, Any]
+    async def _completed_task_result(
+        self, task_id: str, status: Mapping[str, Any], context: GatewayRequestContext
     ) -> dict[str, Any]:
-        # `result_ref` is the WorkItem's real completion field (an opaque
-        # marker/reference, e.g. "orchestrator:<job>:completed" --
-        # `commit_result`'s docstring; never the literal agent output inline).
+        # `result_ref` is the WorkItem's real completion field, but it is an
+        # opaque marker/reference (e.g. "orchestrator:<job>:completed" --
+        # `commit_result`'s docstring), never the literal agent output inline.
+        # D-25-4: the orchestrator dispatch worker pins the run's :RunTrace to
+        # THIS SAME task_id (`_execute_orchestrator_turn` passes
+        # `run_id=envelope.job_id` into `execute_agent`, and
+        # `orchestrator.get_task_status`'s job_id IS that same id) -- so the
+        # real output is one more downstream `graph_jobs(action="status")`
+        # call away, addressed by its `trace:` id form (job_tools.py's own
+        # dispatch: a job_id prefixed `trace:`/`run:` reads the RunTrace,
+        # not the WorkItem). This gateway has no direct engine access (see
+        # module docstring) -- the RunTrace lookup goes through the SAME
+        # authenticated downstream MCP call every other read here uses, never
+        # a second, unauthenticated path to the graph.
+        trace = await self._run_trace_for_task(task_id, context)
+        if trace is not None:
+            preview = trace.get("result_preview")
+            trace_error = trace.get("error")
+            if isinstance(preview, str) and preview:
+                return {
+                    "resultType": "complete",
+                    "content": [{"type": "text", "text": preview}],
+                    "structuredContent": {
+                        "taskId": task_id,
+                        "runId": trace.get("run_id") or task_id,
+                        "resultPreview": preview,
+                        "toolCallCount": trace.get("tool_call_count"),
+                    },
+                    "isError": False,
+                }
+            if isinstance(trace_error, str) and trace_error:
+                # A RunTrace was found but recorded an error -- surface that
+                # REAL detail rather than falling through to the generic
+                # opaque-marker text below, which would misreport it as an
+                # unremarkable "Task completed.".
+                return {
+                    "resultType": "complete",
+                    "content": [{"type": "text", "text": trace_error}],
+                    "structuredContent": {
+                        "taskId": task_id,
+                        "runId": trace.get("run_id") or task_id,
+                        "error": trace_error,
+                    },
+                    "isError": False,
+                }
+
         # The prior `status.get("result", status.get("output"))` read two keys
         # that no real WorkItem row ever has, so this branch was dead: every
         # completed task fell through to the generic "Task completed."
-        # fallback below regardless of its actual outcome.
+        # fallback below regardless of its actual outcome. Still the fallback
+        # for a WorkItem outcome with no correlated RunTrace (a non-orchestrator
+        # job kind, or a run predating this correlation).
         value = status.get("result_ref")
         if isinstance(value, (dict, list)):
             text = json.dumps(value, separators=(",", ":"), default=str)
@@ -854,6 +907,42 @@ class GraphOSV2Gateway:
             "structuredContent": structured,
             "isError": False,
         }
+
+    async def _run_trace_for_task(
+        self, task_id: str, context: GatewayRequestContext
+    ) -> dict[str, Any] | None:
+        """Best-effort ``:RunTrace`` lookup for ``task_id`` (D-25-4).
+
+        ``None`` on ANY failure (downstream error, malformed payload, no
+        correlated trace) -- this is a best-effort enrichment layered on top
+        of the WorkItem outcome that already answers ``tasks/get``
+        authoritatively; a RunTrace lookup hiccup must never turn an
+        otherwise-successful task-result read into an error.
+        """
+        try:
+            trace = self._tool_object(
+                await self._downstream.call_tool(
+                    "graph_jobs",
+                    {"action": "status", "job_id": f"trace:{task_id}"},
+                    context,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort enrichment, see docstring
+            _LOGGER.warning(
+                "mcp_v2_gateway: RunTrace lookup for task %s failed: %s", task_id, exc
+            )
+            return None
+        if not isinstance(trace, dict):
+            return None
+        if str(trace.get("status", "")).lower() == "not_found":
+            return None
+        # `get_run_trace`'s found-path always stamps `trace_id` -- the
+        # unambiguous "this really is a RunTrace row" signal (its `status`
+        # field is otherwise indistinguishable from a legitimate run outcome
+        # value like "succeeded"/"failed").
+        if "trace_id" not in trace:
+            return None
+        return trace
 
     def _timestamp(self) -> str:
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self._clock()))

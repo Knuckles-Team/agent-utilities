@@ -64,7 +64,9 @@ _STALENESS_CMD = "agent-utilities staleness-audit --cwd $PWD"
 # runs `install_hooks()` for it — deliberately not retroactive, matching the
 # autosync precedent (D-VS-3): shipping the capability is not the same as an
 # operator opting every already-configured surface into its latency.
-_VENV_SESSION_HINT_CMD = "agent-utilities-venv session-hint --workspace $PWD 2>/dev/null || true"
+_VENV_SESSION_HINT_CMD = (
+    "agent-utilities-venv session-hint --workspace $PWD 2>/dev/null || true"
+)
 
 _CLAUDE_HOOKS = {
     "hooks": {

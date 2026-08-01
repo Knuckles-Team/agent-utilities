@@ -348,7 +348,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "surveillance_signal",
     # Connector → Skill synthesis proposals (CONCEPT:AU-KG.ontology.connector-agnostic-proposal) — the distiller's
     # propose-only candidates; OWL reasoning runs transitive/inverse over their
-    # automates/derived_from/composes edges (CONCEPT:AU-KG.compute.automates).
+    # automates/derived_from/composes edges.
     "skill_proposal",
     "skill_workflow_proposal",
     # Ops / platform connectors as typed OWL entities (CONCEPT:AU-KG.compute.dockerhub-repositories–2.161).
@@ -1035,7 +1035,14 @@ class OWLBridge:
 
         for src, tgt, attrs in self.graph.edges(data=True):
             edge_type = attrs.get("relationship", "")
-            if edge_type in self._effective_edge_types:
+            # ``link_nodes()`` writes the edge's ``relationship`` property
+            # upper-cased (the converged relationship-type convention used by
+            # every call site), but ``PROMOTABLE_EDGE_TYPES``/schema-pack
+            # active-edge sets are lowercase snake_case, so a bare membership
+            # check here always misses for any edge written through
+            # link_nodes -- promotion silently never fires (D-GS7-1). Fold
+            # case on the lookup rather than weakening link_nodes' casing.
+            if edge_type.lower() in self._effective_edge_types:
                 stable_edges.append(
                     {
                         "source": src,
@@ -1308,6 +1315,11 @@ class OWLBridge:
             for key, value in data.items():
                 if key in ("embedding", "ewc_fisher_diag"):
                     continue  # Skip large float arrays
+                if key == "node_type":
+                    continue  # Already materialized above as rdf:type — the engine's
+                    # own LPG->RDF projection folds node_type into rdf:type and does
+                    # NOT re-emit it as a literal property triple, so this fallback
+                    # must match that projection (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
                 prop = AU[quote(str(key), safe="")]
                 if isinstance(value, str) and value:
                     g.add((node_uri, prop, rdflib.Literal(value)))

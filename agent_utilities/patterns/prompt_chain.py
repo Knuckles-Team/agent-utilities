@@ -365,7 +365,7 @@ class PromptChainExecutor:
                 success_rate=1.0 if result.success else 0.0,
             )
             if hasattr(self._engine, "upsert_node"):
-                self._engine.upsert_node(node.model_dump())
+                self._engine.upsert_node(node.to_graph_properties())
             logger.info("Persisted chain '%s' to KG", chain.id)
         except Exception:
             logger.debug("KG persistence skipped for chain '%s'", chain.id)
