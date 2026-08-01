@@ -152,8 +152,9 @@ def build_model_profile(
         )
 
     supported_effort_levels: list[str] = []
-    if definition.reasoning_effort not in (None, "inherit"):
-        supported_effort_levels = [definition.reasoning_effort]
+    reasoning_effort = definition.reasoning_effort
+    if reasoning_effort is not None and reasoning_effort != "inherit":
+        supported_effort_levels = [reasoning_effort]
     else:
         unsourced["supported_effort_levels"] = (
             "ModelDefinition.reasoning_effort is unset/'inherit'; only a pinned "

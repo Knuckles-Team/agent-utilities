@@ -327,7 +327,7 @@ def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]
     diverged = shadow_req is not None and str(shadow_req.specifier) != str(
         fastmcp_req.specifier
     )
-    if diverged:
+    if diverged and shadow_req is not None:
         divergence = (
             f"source/installed divergence: the imported source ({manifest}) declares "
             f"fastmcp '{shadow_req.specifier}' under [mcp] while the installed "
