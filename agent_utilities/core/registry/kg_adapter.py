@@ -85,14 +85,25 @@ class RegistryMixin(_Base):
         query: str,
         max_nodes: int = 150,
         min_centrality: float = 0.01,
+        skip_quality_gate: bool = False,
     ) -> FocusedSubgraph:
         """
         Task-specific subgraph extraction — the core engine behind Codemaps.
         Reuses existing search + topological analysis.
+
+        ``skip_quality_gate`` passes through to :meth:`search_hybrid` — the
+        keyword-fallback path (no embedder available) never stamps a
+        ``_score`` on its candidates, so the retrieval quality gate always
+        sees ``composite=0.0`` and rejects them outright regardless of match
+        quality. Callers that know they are keyword-only (e.g. no configured
+        embedder) can opt out of that gate the same way ``search_hybrid``'s
+        other direct callers already do.
         """
         # 1. Hybrid search for initial candidates
         logger.info(f"Extracting subgraph for query: {query}")
-        search_results = self.search_hybrid(query, top_k=max_nodes * 2)
+        search_results = self.search_hybrid(
+            query, top_k=max_nodes * 2, skip_quality_gate=skip_quality_gate
+        )
         logger.info(f"Hybrid search found {len(search_results)} candidates")
 
         # 2. Build initial node set
@@ -154,11 +165,29 @@ class RegistryMixin(_Base):
 
     async def get_codemap_by_id(self, codemap_id: str) -> Any | None:
         """Retrieve a codemap artifact by its ID."""
-        # Check in-memory first if we store them there
-        cm_node_id = f"codemap:{codemap_id}"
+        # Check in-memory first if we store them there. Same bare id
+        # store_codemap writes under -- the graph's stored 'id' property must
+        # match the node's storage key everywhere (GraphComputeEngine.add_node),
+        # so this can't carry a local "codemap:" prefix the backend upsert
+        # path (self._upsert_node("Codemap", artifact.id, ...) below) never
+        # used either.
+        cm_node_id = codemap_id
         if self.graph.has_node(cm_node_id):
-            data = self.graph._get_node_properties(cm_node_id)
+            data = dict(self.graph._get_node_properties(cm_node_id) or {})
             from ...models.codemap import CodemapArtifact
+
+            # Same JSON-string normalization as the backend-Cypher path below:
+            # complex fields can come back JSON-serialized (the add_node write
+            # path's clean_props/serialize does not round-trip lists back to
+            # lists on every backend). This branch was previously unreachable
+            # (the "codemap:"-prefixed lookup key never matched what
+            # store_codemap actually wrote), so this gap was latent.
+            import json
+
+            for k in ["hierarchy", "nodes", "edges", "evidence_refs"]:
+                if k in data and isinstance(data[k], str):
+                    with contextlib.suppress(Exception):
+                        data[k] = json.loads(data[k])
 
             return CodemapArtifact.model_validate(data)
 
@@ -182,7 +211,14 @@ class RegistryMixin(_Base):
 
     async def store_codemap(self, artifact: Any):
         """Persist a codemap artifact to the graph."""
-        node_id = f"codemap:{artifact.id}"
+        # Bare artifact.id, matching every other _canonical_node_payload
+        # caller in this module and the backend upsert below -- a local
+        # "codemap:" prefix here made the stored 'id' property diverge from
+        # the node's own storage key, which add_node's identity invariant now
+        # rejects outright (previously a silent split-identity: the in-memory
+        # write and the backend upsert created two different node ids for one
+        # artifact).
+        node_id = artifact.id
         data = _canonical_node_payload(artifact, "Codemap")
 
         # Add to in-memory graph

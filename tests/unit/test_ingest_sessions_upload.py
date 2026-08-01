@@ -15,10 +15,7 @@ import json
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.engine_tasks import (
-    TaskManagerMixin,
-    _encode_metadata,
-)
+from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools.write_ingest_tools import register_write_ingest_tools
 from agent_utilities.usage.backends.sqlite_fts import SqliteUsageBackend
@@ -99,7 +96,7 @@ def test_large_upload_enqueues_and_returns_fast(upload_tool, monkeypatch):
 
     bundles = [_bundle_dict(f"s{i}") for i in range(10)]
     out = json.loads(
-        asyncio.run(upload_tool(action="upload", bundles_json=json.dumps(bundles)))
+        asyncio.run(upload_tool(action="upload", bundles_json=json.dumps(bundles), tenant_id=""))
     )
 
     # Returns enqueued immediately — NOT synchronously ingested.
@@ -113,7 +110,21 @@ def test_large_upload_enqueues_and_returns_fast(upload_tool, monkeypatch):
     call = engine.calls[0]
     assert call["task_type"] == "session_upload"
     assert call["skip_dedupe"] is True
-    assert call["extra_meta"]["payload"]["bundles"] == bundles
+    # The tool privacy-normalizes each bundle (normalize_bundle) before it
+    # ever reaches the durable queue -- session/tenant ids are pseudonymized,
+    # so the enqueued payload is never byte-identical to the raw input.
+    # Reproduce the same transform to assert what actually should be there.
+    from agent_utilities.usage.authorization import resolve_usage_tenant
+    from agent_utilities.usage.privacy import normalize_bundle
+
+    authoritative_tenant = resolve_usage_tenant(None)
+    expected_bundles = []
+    for raw_bundle in bundles:
+        b = ParsedSessionBundle.model_validate(raw_bundle)
+        if authoritative_tenant:
+            b.session.tenant_id = authoritative_tenant
+        expected_bundles.append(normalize_bundle(b).model_dump())
+    assert call["extra_meta"]["payload"]["bundles"] == expected_bundles
 
 
 def test_small_upload_runs_inline(upload_tool, monkeypatch):
@@ -126,7 +137,7 @@ def test_small_upload_runs_inline(upload_tool, monkeypatch):
 
     bundles = [_bundle_dict("s0")]
     out = json.loads(
-        asyncio.run(upload_tool(action="upload", bundles_json=json.dumps(bundles)))
+        asyncio.run(upload_tool(action="upload", bundles_json=json.dumps(bundles), tenant_id=""))
     )
 
     assert out["status"] == "ingested"
@@ -136,17 +147,33 @@ def test_small_upload_runs_inline(upload_tool, monkeypatch):
 
 
 # ── drain half ──────────────────────────────────────────────────────────────
+class _FakeWorkItemAuthority:
+    """Minimal ``query_cypher`` double satisfying ``work_item.get_work_item``.
+
+    ``_ingest_task_metadata`` now reads the ingestion definition off the sole
+    native WorkItem (``work_item.get_work_item``) instead of a raw
+    ``_control_cypher`` row -- metadata lives there as a plain dict (WorkItem
+    write paths like ``submit_work_item`` store it natively, never
+    base64-encoded; ``_encode_metadata``/``_decode_metadata`` are a distinct,
+    unrelated legacy Cypher-storage helper).
+    """
+
+    def __init__(self, metadata: dict):
+        self._metadata = metadata
+
+    def query_cypher(self, query, params=None):  # noqa: ANN001
+        return [{"id": (params or {}).get("id", ""), "metadata": self._metadata}]
+
+
 class _DrainEngine:
     """Minimal carrier for the extracted ``_drain_session_upload`` helper."""
 
     _drain_session_upload = TaskManagerMixin._drain_session_upload
+    _ingest_task_metadata = TaskManagerMixin._ingest_task_metadata
 
-    def __init__(self, encoded_meta: str):
-        self._meta = encoded_meta
+    def __init__(self, metadata: dict):
+        self._work_item_engine = _FakeWorkItemAuthority(metadata)
         self.final = None
-
-    def _control_cypher(self, query, params=None):  # noqa: ANN001
-        return [{"m": self._meta}]
 
     def _update_task_status(self, job_id, status, info):  # noqa: ANN001
         self.final = (status, info)
@@ -154,7 +181,7 @@ class _DrainEngine:
 
 def test_drain_lands_bundles_in_usage_store(tmp_path, monkeypatch):
     bundles = [_bundle_dict(f"s{i}") for i in range(10)]
-    encoded = _encode_metadata({"payload": {"bundles": bundles, "tenant_id": ""}})
+    metadata = {"payload": {"bundles": bundles, "tenant_id": ""}}
 
     backend = SqliteUsageBackend(tmp_path / "usage.db")
     backend.ensure_schema()
@@ -163,7 +190,7 @@ def test_drain_lands_bundles_in_usage_store(tmp_path, monkeypatch):
         lambda: UsageRecorder(backend),
     )
 
-    eng = _DrainEngine(encoded)
+    eng = _DrainEngine(metadata)
     result = eng._drain_session_upload("job-test-123")
 
     assert result == {"received": 10, "ingested": 10}
