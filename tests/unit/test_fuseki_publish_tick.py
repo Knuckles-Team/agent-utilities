@@ -32,6 +32,7 @@ def _maint_specs():
 
     inst = TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
     inst.backend = EpistemicGraphBackend()
+    inst.control_backend = inst.backend
     inst._register_maintenance_schedules()
     return {s.name: s for s in _se._load_all(inst)}
 
@@ -153,7 +154,7 @@ class TestPublishInvocation:
     def test_fuseki_transport_put_with_mocked_requests(self, monkeypatch):
         """The real ``push_to_jena_fuseki`` issues a Graph Store Protocol PUT."""
         rdflib = pytest.importorskip("rdflib")
-        import requests
+        from agent_utilities.core.http_client import _GovernedRequestsSession
 
         calls = {}
 
@@ -161,33 +162,28 @@ class TestPublishInvocation:
             def raise_for_status(self):
                 return None
 
-        class _Session:
-            trust_env = True
-            verify = True
-            cert = None
-            proxies = {}
+        def _fake_put(
+            self,
+            url,
+            data=None,
+            params=None,
+            headers=None,
+            timeout=None,
+            **_kwargs,
+        ):
+            calls.update(
+                {"url": url, "params": params, "headers": headers, "data": data}
+            )
+            return _Resp()
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return None
-
-            def put(
-                self,
-                url,
-                data=None,
-                params=None,
-                headers=None,
-                timeout=None,
-                **_kwargs,
-            ):
-                calls.update(
-                    {"url": url, "params": params, "headers": headers, "data": data}
-                )
-                return _Resp()
-
-        monkeypatch.setattr(requests, "Session", _Session)
+        # ``create_requests_session`` always constructs a
+        # ``_GovernedRequestsSession`` (http_client.py), a ``requests.Session``
+        # SUBCLASS whose base is bound at class-definition (import) time —
+        # ``monkeypatch.setattr(requests, "Session", ...)`` only rebinds the
+        # module attribute, which a subclass already defined never re-reads, so
+        # it silently misses and the real (unreachable) network PUT ran. Patch
+        # the governed session's own ``put`` instead.
+        monkeypatch.setattr(_GovernedRequestsSession, "put", _fake_put)
         graph = rdflib.Graph()
         graph.add(
             (

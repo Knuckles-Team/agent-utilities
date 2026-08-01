@@ -232,8 +232,14 @@ class SynergyEngine:
         # 1. Check known bridges
         for concept_id, bridged_pillars in self._KNOWN_BRIDGES.items():
             meta = self._registry.get(concept_id, {})
-            match = _CONCEPT_RE.match(f"CONCEPT:{concept_id}")
-            primary = match.group(1) if match else ""
+            # Prefer the registry's explicit "pillar" (mirrors _build_pillar_index)
+            # — _CONCEPT_RE only matches the legacy "PILLAR-N.NN" id scheme, and
+            # _KNOWN_BRIDGES keys are now OKF-CIS namespaced concept ids
+            # (e.g. "AU-AHE.harness.self-evolution-narrative"), which never match it.
+            primary = meta.get("pillar", "")
+            if not primary:
+                match = _CONCEPT_RE.match(f"CONCEPT:{concept_id}")
+                primary = match.group(1) if match else ""
 
             bridges.append(
                 ConceptBridge(

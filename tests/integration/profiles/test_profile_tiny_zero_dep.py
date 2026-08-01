@@ -111,7 +111,7 @@ def test_local_owl_reasoner_runs_in_process():
         owl.close()
 
 
-def test_tiny_profile_serves_kg_over_gateway_with_zero_containers():
+def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
     """Write + read the KG through the local gateway REST surface, no containers."""
     if not os.environ.get("GRAPH_SERVICE_ENDPOINTS"):
         pytest.skip(
@@ -123,16 +123,99 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers():
 
     from agent_utilities.gateway.graph_api import register_graph_routes
     from agent_utilities.mcp import kg_server
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
 
     kg_server.ensure_tools_registered()
 
     app = FastAPI()
     register_graph_routes(app, prefix="/api")
 
+    # register_graph_routes always mounts ActorIdentityMiddleware
+    # (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) -- "zero
+    # external dependencies" (no Kafka/Postgres/Stardog) is an orthogonal
+    # guarantee from "no identity required"; every route still needs a
+    # verified Bearer identity. Mint one the same way
+    # tests/integration/core/test_security_server.py's secure_client does,
+    # without a real JWKS round-trip.
+    from _test_engine import TEST_TENANT
+
+    actor = ActorContext(
+        actor_id="tiny-profile-test",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("kg:read", "kg:write"),
+        # The shared epistemic-graph engine's placement catalog only knows
+        # graphs the test-engine fixtures actually provisioned it for --
+        # the same TEST_TENANT every other conftest fixture uses, not an
+        # arbitrary string ("request context tenant does not match graph
+        # tenant" / PlacementAuthorityError otherwise).
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+
+    async def _actor_from_bearer_token(token: str) -> ActorContext:
+        if token != "valid-token":
+            raise PermissionError("invalid token")
+        return actor
+
+    import agent_utilities.core.config as config_mod
+    import agent_utilities.security.request_identity as request_identity
+
+    monkeypatch.setattr(
+        config_mod.config, "auth_jwt_jwks_uri", "https://identity.example.test/jwks"
+    )
+    # mint_graph_session fails closed (PermissionError -> 403 "Verified
+    # tenant claim required", the generic message the middleware maps every
+    # PermissionError from mint_graph_session to) unless BOTH an audience and
+    # a policy revision are configured -- neither has a test default. The
+    # audience must additionally match what the shared epistemic-graph
+    # engine this suite runs against was started with -- the same
+    # TEST_AUDIENCE every other conftest fixture (engine_graph et al.) uses
+    # -- or the native engine's placement layer rejects the request context
+    # ("request context audience does not match deployment").
+    from _test_engine import TEST_AUDIENCE, TEST_POLICY_VERSION
+
+    monkeypatch.setattr(config_mod.config, "auth_jwt_audience", TEST_AUDIENCE)
+    # Likewise, the active policy version must match what the shared engine
+    # was started with, not an arbitrary string ("request context policy
+    # version is not active" otherwise).
+    monkeypatch.setattr(config_mod.config, "kg_policy_version", TEST_POLICY_VERSION)
+    monkeypatch.setattr(
+        request_identity, "actor_from_bearer_token", _actor_from_bearer_token
+    )
+    # mint_graph_session is left real (unlike test_security_server.py's
+    # secure_client, which never exercises a live query_cypher round trip):
+    # it derives the actual routing graph from actor.tenant_id, which the
+    # write/read below need to land on the SAME graph the engine actually
+    # serves. A hand-rolled static GraphSession here left the read's engine
+    # resolution with no bound graph (AttributeError: 'NoneType' object has
+    # no attribute 'query_cypher').
+    auth_headers = {"Authorization": "Bearer valid-token"}
+
+    # Force the process-active engine to exist (and be registered via
+    # IntelligenceGraphEngine.set_active) BEFORE any request. The connection
+    # registry's "default" target resolves ONLY to
+    # IntelligenceGraphEngine.get_active() (get_connection_registry's own
+    # docstring: "registry construction never creates or seeds a second
+    # engine"), and _tiny_profile_env's autouse fixture just reset it to
+    # None -- without an explicit warm-up here, resolution order between
+    # the write and read requests is not guaranteed to both observe it.
+    # Must run under the SAME actor as the requests below: with no ambient
+    # actor, resolve_routing_graph(None) binds the engine to the default/
+    # commons graph, while each authenticated request's minted GraphSession
+    # binds to actor.tenant_id's OWN graph -- a mismatch the native engine's
+    # placement layer rejects ("request context tenant does not match graph
+    # tenant").
+    from agent_utilities.security.brain_context import use_actor
+
+    with use_actor(actor):
+        kg_server._get_engine()
+
     node_id = f"tiny:{uuid.uuid4().hex[:8]}"
     with TestClient(app) as client:
         write = client.post(
             "/api/graph/write",
+            headers=auth_headers,
             json={
                 "action": "add_node",
                 "node_id": node_id,
@@ -143,8 +226,24 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers():
         assert write.status_code == 200, write.text
         assert write.json().get("status") == "success", write.text
 
+        # KNOWN ENVIRONMENTAL BLOCKER (not fixed by this pass): the read below
+        # can still fail with PlacementAuthorityError ("ACCESS_DENIED:
+        # verified request context lacks required scope
+        # 'admin:cluster-read'") when GRAPH_SERVICE_ENDPOINTS resolves to a
+        # multi-endpoint/route-configured engine (graph_compute.py only skips
+        # placement resolution when `self._route_config is None or not
+        # self._route_endpoints`). Per request_identity.py's own D-SP-1
+        # docstring, that engine-side capability "no JWT claim can satisfy" --
+        # it is enforced twice inside the compiled epistemic-graph engine
+        # (dispatch.rs/access.rs), not resolvable from any Python-side
+        # actor/session field. A genuinely single-node/tiny engine instance
+        # (no route config, e.g. a fresh _session_engine-style ephemeral
+        # engine with GRAPH_SERVICE_ENDPOINTS pointed at exactly one socket)
+        # skips placement entirely and this passes; a shared multi-lane test
+        # daemon configured with real route/placement config does not.
         read = client.post(
             "/api/graph/query",
+            headers=auth_headers,
             json={
                 "cypher": "MATCH (n:TinyProfileNode) WHERE n.id = $id RETURN n.id AS id",
                 # graph_query expects ``params`` as a JSON string, mirroring the MCP tool.

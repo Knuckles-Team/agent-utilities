@@ -224,7 +224,6 @@ def test_evaluate_goal_slas_collects_breaches():
                     {
                         "id": "goal:a",
                         "objective": "triage P1s",
-                        "status": "running",
                         "created_at": base - 5000,
                         "sla_seconds": 3600,
                         "escalate_to": "",
@@ -232,12 +231,20 @@ def test_evaluate_goal_slas_collects_breaches():
                     {
                         "id": "goal:b",
                         "objective": "slow",
-                        "status": "running",
                         "created_at": base - 10,
                         "sla_seconds": 3600,
                         "escalate_to": "",
                     },
                 ]
+            # _open_goals no longer trusts a 'status' field off the :Concept
+            # query above -- it derives open/running status from the sole
+            # native WorkItem authority instead (work_item.get_work_item,
+            # via work_item.loop_work_item_id(goal_id)). Both goals here are
+            # meant to be "running" (an in-flight develop loop).
+            if "w:WorkItem" in cypher and str(params.get("id", "")).startswith(
+                "workitem:loop:goal:"
+            ):
+                return [{"status": "running"}]
             return []
 
     rep = evaluate_goal_slas(_GoalEngine(), now=_NOW)

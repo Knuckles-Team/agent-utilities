@@ -222,7 +222,16 @@ class PromotionGovernanceValidator:
                     val = getattr(spec, attr, None)
                     if val is not None:
                         data.setdefault(attr, val)
-            data["type"] = _spec_class(spec)
+            # ``build_data_graph`` (pipeline/phases/shacl_gate.py) materializes
+            # the focus node's ``rdf:type`` from the ``node_type`` key — the
+            # SAME key every other KG write uses (``_upsert_node``'s
+            # ``node_type`` property) — defaulting to ``:Thing`` when absent.
+            # A plain ``"type"`` key is invisible to it: the proposal would
+            # always materialize as ``kg:Thing``, so a class-specific shape
+            # (e.g. ``:AgentShape``, ``sh:targetClass :Agent``) never targets
+            # it and SHACL conforms vacuously regardless of real violations
+            # (e.g. a nameless Agent). Must match the reader's key.
+            data["node_type"] = _spec_class(spec)
             node_id = f"proposal_{abs(hash(_spec_text(spec))) % 10**8}"
             graph = build_data_graph(_OneNodeGraph(node_id, data))
             report = SHACLValidator().validate(graph, self.shapes_path)

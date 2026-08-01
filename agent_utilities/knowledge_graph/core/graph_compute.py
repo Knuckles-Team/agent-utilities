@@ -2225,6 +2225,27 @@ class GraphComputeEngine:
         # field. Stamping it on every typed write removes the Python-side
         # virtual-id interpreter and keeps point predicates inside the engine.
         props["id"] = str(node_id)
+
+        # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard),
+        # mirroring IntelligenceGraphEngine._upsert_node's stamp: this method IS
+        # ``self.graph``/``self.graph_compute`` — the class docstring's own
+        # invariant is that they name the SAME native graph authority as
+        # ``self.backend`` in the standard (EpistemicGraphBackend) topology —
+        # so every ``engine.graph.add_node(...)`` call across the ingestion
+        # fleet (kb/ingestion.py, pipeline/document_*.py, security/*_ingestor.py,
+        # …) that bypasses IntelligenceGraphEngine._upsert_node lands here
+        # directly and needs the same governance stamp to avoid the identical
+        # "written but permanently unreadable" gap. Best-effort: writes with no
+        # bound actor (system/background/control-plane paths) proceed unstamped
+        # exactly as before this seam existed.
+        try:
+            from .tenant_sharing import stamp_classification, stamp_ownership
+
+            stamp_ownership(props)
+            stamp_classification(props, props.get("node_type"))
+        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
+            pass
+
         props = clean_props(props)
         self._client.nodes.add(node_id, props)
 
@@ -3113,7 +3134,15 @@ class GraphComputeEngine:
 
         # The wire call needs the RAW client of the pattern engine, not its
         # breaker proxy (CONCEPT:AU-OS.observability.no-op-without-metrics).
-        return self._client.graph.vf2_subgraph_match(unwrap_client(pattern._client))
+        # The underlying client method returns the engine's typed
+        # ``{"matches": [...], "truncated": bool}`` envelope (its own
+        # docstring: "Returns {'matches': [...], 'truncated': bool}") — this
+        # wrapper's declared contract is a bare match list, so unwrap it here
+        # rather than leaking the envelope to every caller.
+        result = self._client.graph.vf2_subgraph_match(unwrap_client(pattern._client))
+        if isinstance(result, dict):
+            return list(result.get("matches") or [])
+        return list(result or [])
 
     # ── Ledger Operations ────────────────────────────────────────────────
 

@@ -38,15 +38,22 @@ async def test_roundup_page_acquires_and_links_papers(monkeypatch):
         _connector,
         _entities,
         relationships=None,
-        *,
-        backend=None,
         **_kwargs,
     ):
+        # The real ingest_graph_slice(engine, connector, entities,
+        # relationships=None, *, source_instance="", checkpoint=None,
+        # version_field="updatedAt") has no 'backend' keyword -- it resolves
+        # the engine authority from `engine` (its docstring: "The Epistemic
+        # Graph authority is resolved from `engine`"). Mirror that: derive it
+        # from _engine.backend (kg.backend, set up above) rather than an
+        # unpassed kwarg that always stayed None. Relationship dicts also
+        # carry the canonical 'relationship' key, never 'type'.
+        backend = _engine.backend
         for relationship in relationships or []:
             backend.add_edge(
                 relationship["source"],
                 relationship["target"],
-                rel_type=relationship["type"],
+                rel_type=relationship["relationship"],
             )
         return {"status": "success"}
 
@@ -98,13 +105,17 @@ async def test_pdf_url_downloads_bytes_not_text(monkeypatch):
     kg.backend = MagicMock()
     engine = IngestionEngine(kg_engine=kg)
 
-    class FakeResp:
-        content = b"%PDF-1.7 fake bytes"
+    # _ingest_document_url's binary-document branch fetches via
+    # http_safety.safe_get_bytes (httpx, DNS-pinned egress policy) imported
+    # locally at call time -- not the bare `requests` module this test
+    # previously patched (which was never on this code path's dependency
+    # graph at all, so the real network call ran and failed closed with
+    # status="failed"). Patch the actual source-of-truth function instead.
+    import agent_utilities.protocols.source_connectors.http_safety as http_safety
 
-        def raise_for_status(self):
-            pass
-
-    monkeypatch.setattr("requests.get", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(
+        http_safety, "safe_get_bytes", lambda *a, **k: (b"%PDF-1.7 fake bytes", None)
+    )
     seen = {}
 
     def fake_file(manifest, path):

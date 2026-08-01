@@ -82,6 +82,16 @@ def test_native_capability_ingestion_uses_outer_typed_policy_seam() -> None:
                 "name": "synthetic",
                 "synonyms": ["synthetic", "example"],
                 "metadata": {"runnable": True},
+                # Write-time ACL registration chokepoint
+                # (CONCEPT:AU-KG.backend.company-brain-write-guard,
+                # tenant_sharing.stamp_ownership/stamp_classification) now
+                # stamps every node this seam writes -- without it the node
+                # is written but permanently unreadable, even to its own
+                # creator. See docs/architecture/acl_registration_convergence.md.
+                "tenant_id": "tenant:test",
+                "_owner_id": "service:agent-utilities-test-suite",
+                "_shared_scope": "private",
+                "classification": "confidential",
                 "node_type": "Skill",
             },
         )
@@ -145,9 +155,16 @@ def test_graph_compute_declares_and_executes_the_typed_node_contract() -> None:
         (
             "skill:synthetic",
             {
-                "id": "skill:synthetic",
                 "name": "synthetic",
                 "metadata": {"runnable": True},
+                "id": "skill:synthetic",
+                # Write-time ACL registration chokepoint (same as above) --
+                # GraphComputeEngine.add_node stamps governance too, since it
+                # IS self.graph/self.graph_compute in the standard topology.
+                "tenant_id": "tenant:test",
+                "_owner_id": "service:agent-utilities-test-suite",
+                "_shared_scope": "private",
+                "classification": "confidential",
                 "node_type": "Skill",
             },
         )
