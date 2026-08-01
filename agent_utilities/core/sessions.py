@@ -284,8 +284,18 @@ def _connect_db():
 
 # Goal definitions/observability live on a develop ``Concept`` projection. The
 # sole writable lifecycle authority is its deterministic WorkItem.
+#
+# ``c.id AS id`` is required (in addition to the ``goal_id`` alias the rest of
+# this module reads) because ``secured_reads.row_node_ids``/``_row_node_id``
+# governance enforcement (CONCEPT:AU-KG.query.vendor-agnostic-traversal) demands
+# every returned row carry an identifiable governed node id under one of
+# "id"/"node_id"/"n.id"/"_id" — a row with a custom-named identity column only
+# (here, "goal_id") is rejected as ungovernable and the whole query raises
+# PermissionError, which callers swallow into a silent None/[] result. Mirrors
+# ``agent_dispatch_worker.load_goal_run``'s query, which already carries both
+# aliases for the same reason.
 _GOAL_RETURN = (
-    "c.id AS goal_id, c.session_id AS session_id, "
+    "c.id AS id, c.id AS goal_id, c.session_id AS session_id, "
     "c.objective AS objective, c.owner_host AS owner_host, c.summary AS summary, "
     "c.error AS error, c.total_iterations AS total_iterations, "
     "c.total_duration_ms AS total_duration_ms, c.total_tool_calls AS total_tool_calls, "
@@ -365,6 +375,32 @@ def _persist_goal(goal_id: str) -> None:
         engine.add_node(goal_id, "Concept", properties=props)
     except Exception as e:  # noqa: BLE001 — best-effort persist
         logger.error(f"Error persisting goal {goal_id} to KG: {e}")
+        return
+    # Register the node's ACL (CONCEPT:AU-KG.research.these-properties-carry): secured_reads.permit()'s
+    # governed read path is default-deny for any node with no registered ACL
+    # ("No ACL defined — default deny", company_brain.py's check_permission) —
+    # nothing on the generic add_node path stamps one (only tenant_id/ownership
+    # markers via BrainGuardedBackend's write-time stamp_ownership). Without
+    # this, a goal Concept node was writable but permanently unreadable via
+    # query_cypher (the read path _load_goal_entry/_list_goal_entries use) even
+    # by the actor who just created it. INTERNAL + this actor as data_owner
+    # mirrors CompanyBrain.classify_node's own documented usage and grants
+    # exactly the creating actor read access without loosening anything else.
+    try:
+        from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+            get_company_brain,
+        )
+        from agent_utilities.models.company_brain import DataClassification
+        from agent_utilities.security.brain_context import current_actor
+
+        actor = current_actor()
+        get_company_brain().permissions.classify_node(
+            goal_id,
+            DataClassification.INTERNAL,
+            data_owner=actor.actor_id,
+        )
+    except Exception as e:  # noqa: BLE001 — best-effort; a missing ACL degrades to "not found" reads, not a crash
+        logger.debug(f"Goal {goal_id} ACL classification failed: {e}")
 
 
 def _goal_row_to_entry(row: dict[str, Any]) -> dict[str, Any]:

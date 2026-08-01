@@ -280,6 +280,45 @@ class IntelligenceGraphEngine(
             self._memory_manager = MemoryEngine(engine=self)
         return self._memory_manager
 
+    @property
+    def statechart(self) -> Any:
+        """The native ``eg-statechart`` namespace (``define``/``instantiate``/
+        ``send_event``/``get_state``/``list`` — see
+        ``epistemic_graph.client.StatechartClient``).
+
+        Statechart instances are NOT graph-scoped (their own
+        ``statecharts.redb``, owner-scoped to the caller's ``(tenant,
+        actor)``, like ``JobsClient``) but the RPC itself still requires the
+        task-local verified :class:`~.session.GraphSession` bound into the
+        native client's signed request context, exactly like every other
+        engine RPC (``GraphComputeEngine._send``). The bare process client
+        (``self.graph_compute.client``) is NOT session-routed — only a
+        ``for_graph()`` view rebuilds its namespaces (``_CLIENT_NAMESPACES``,
+        which now includes ``"statechart"``) over ``_SessionRoutedAsyncClient``,
+        whose ``_send`` resolves ``current_session()`` and binds
+        ``use_verified_context`` before every call. Calling the bare client's
+        ``.statechart`` directly sent an unauthenticated request and the
+        engine correctly rejected it ("Authentication failed"). Route through
+        the ambient session's graph view instead, mirroring
+        ``envelope_ingest._native_session``'s ``compute.for_graph(graph)``.
+
+        Callers across the Loop/agent-lifecycle durability surface
+        (``research.loops``, ``orchestration.agent_activation``,
+        ``orchestration.work_item``) call ``engine.statechart.X(...)``
+        directly on whatever ``engine`` they were handed — this is what makes
+        that contract hold for a plain ``IntelligenceGraphEngine`` (e.g. the
+        one ``core.sessions.run_goal_loop`` acquires via
+        ``IntelligenceGraphEngine.get_or_create()``).
+        """
+        from .session import current_session, resolve_session
+
+        session = resolve_session(current_session())
+        compute = self.graph_compute
+        view_factory = getattr(compute, "for_graph", None)
+        if callable(view_factory) and session.graph:
+            compute = view_factory(session.graph)
+        return compute.client.statechart
+
     @classmethod
     def get_active(cls) -> IntelligenceGraphEngine | None:
         """Retrieve the currently active engine instance."""

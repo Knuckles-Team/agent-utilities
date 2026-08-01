@@ -152,7 +152,7 @@ class TestHistoricalAdjustment:
         for i in range(5):
             mock_engine.graph.add_node(
                 f"hist_{i}",
-                type="subagent_pattern_decision",
+                node_type="subagent_pattern_decision",
                 pattern="inline_tool",
                 outcome_success=True,
             )
@@ -165,7 +165,7 @@ class TestHistoricalAdjustment:
         # Only 1 historical decision (below min_sample_size of 3)
         mock_engine.graph.add_node(
             "hist_0",
-            type="subagent_pattern_decision",
+            node_type="subagent_pattern_decision",
             pattern="inline_tool",
             outcome_success=True,
         )
