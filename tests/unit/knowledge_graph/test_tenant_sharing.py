@@ -267,9 +267,15 @@ def test_promote_to_commons_copies_node():
         "n1", store=src, commons_store=dst, actor=_user("alice", "acme")
     )
     assert ok is True
-    # Wrote into commons with commons scope.
+    # Wrote into commons with commons scope. The write is per-property SET
+    # (not a ``SET n += $props`` map-merge assignment, which exceeds the
+    # engine's native Cypher write subset —
+    # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184), so params
+    # are flattened rather than nested under a single "props" key.
     dst_cypher, dst_params = dst.calls[0]
-    assert dst_params["props"][ts.SCOPE_KEY] == ts.SCOPE_COMMONS
+    assert "+=" not in dst_cypher
+    assert dst_params[ts.SCOPE_KEY] == ts.SCOPE_COMMONS
+    assert dst_params["id"] == "n1"
 
 
 def test_promote_to_commons_missing_node_returns_false():

@@ -623,10 +623,19 @@ def promote_to_commons(
     if hasattr(dst, "add_node"):
         dst.add_node(node_id, **{k: v for k, v in props.items() if k != "id"})
     else:
-        dst.execute(
-            "MERGE (n {id: $id}) SET n += $props",
-            {"id": node_id, "props": props},
-        )
+        # ``SET n += $props`` is a map-merge assignment, outside the native
+        # write subset (SET values must be literals;
+        # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+        # ``materialization.set_clause`` is the one SET-clause builder used
+        # everywhere else in this codebase for the portable per-property
+        # equivalent (``IntelligenceGraphEngine._get_set_clause`` delegates
+        # to the same function); params are the flattened props themselves
+        # so each generated ``$key`` placeholder resolves.
+        from .materialization import set_clause
+
+        merge_props = {**props, "id": node_id}
+        query = f"MERGE (n {{id: $id}}) {set_clause(merge_props, dst)}".rstrip()
+        dst.execute(query, merge_props)
     # Reflect the promotion on the org-local copy too, so it reads as shared.
     try:
         _set_scope(node_id, SCOPE_COMMONS, src)

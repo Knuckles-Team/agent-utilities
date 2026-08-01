@@ -2933,7 +2933,18 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                         self.backend.execute(query, params)
 
-                # Execute all edges sequentially
+                # Execute all edges sequentially. A comma-pattern MATCH plus an
+                # edge MERGE both exceed the engine's native Cypher write
+                # subset (one leading MATCH, MERGE on a single bare node only;
+                # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+                # ``link_nodes`` dispatches through the typed engine API for a
+                # native authority (which requires both endpoints to already
+                # exist, unlike the portable Cypher fallback used for a
+                # non-native store) and per-edge best effort (matching the
+                # original MATCH's silent no-op for a dangling reference): the
+                # staged item is retried wholesale on failure (below), so one
+                # edge referencing a node outside this batch must not doom the
+                # whole item to an infinite retry loop.
                 for edge in edges:
                     if "source" in edge and "target" in edge and "type" in edge:
                         src = edge.pop("source")
@@ -2943,11 +2954,16 @@ class TaskManagerMixin(GraphEngineProtocol):
                         if not etype:
                             continue
 
-                        u_label = node_type_map.get(src, "Code")
-                        v_label = node_type_map.get(tgt, "Code")
-
-                        query = f"MATCH (a:{u_label} {{id: $uid}}), (b:{v_label} {{id: $vid}}) MERGE (a)-[r:{etype}]->(b)"
-                        self.backend.execute(query, {"uid": src, "vid": tgt})
+                        try:
+                            self.link_nodes(src, tgt, etype)
+                        except Exception as exc:  # noqa: BLE001 — dangling edge reference against a native authority; logged and skipped so it can't wedge this staged item in an infinite retry loop
+                            logger.debug(
+                                "Skipped staged edge %s -[%s]-> %s: %s",
+                                src,
+                                etype,
+                                tgt,
+                                exc,
+                            )
 
                 # Only acknowledge and remove from staging if successful
                 self._submission_queue.ack_staged_graph(item_id)
