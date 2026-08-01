@@ -29,7 +29,7 @@ Two questions get two fields, because one value cannot answer both.
 |---|---|---|
 | `Fragment.fragment_id` | *where is it?* — the **address** a citation stores | the document's **structure** around it changes |
 | `Fragment.content_hash` | *does it still say that?* — the **revision** | the fragment's **text** changes |
-| `Fragment.version_id` | a content-pinned, immutable citation (`<id>@<hash>`) | either changes |
+| `Fragment.version_id` | a content-pinned, immutable citation (`<id>#<hash>`) | either changes |
 
 `fragment_id = sha256(artifact_id ‖ structural_path)`. Each path segment is
 `<kind>:<anchor>`, where the anchor is a **slug of the node's own label** when it has one
@@ -78,16 +78,16 @@ to keep correct across every re-ingest. The same-kind-sibling case is covered by
 
 ```mermaid
 flowchart TD
-    SRC([source object<br/>markdown · PDF · API record · row set]) --> CE[ChangeEnvelope<br/>identity · revision · ACL · provenance]
-    CE --> ART[Artifact<br/>content_hash · media_type · byte_length]
+    SRC(["source object<br/>markdown · PDF · API record · row set"]) --> CE["ChangeEnvelope<br/>identity · revision · ACL · provenance"]
+    CE --> ART["Artifact<br/>content_hash · media_type · byte_length"]
     SRC -.verbatim bytes.-> FRAG[fragment_markdown]
-    FRAG --> F[Fragment tree<br/>address + content_hash<br/>ordinal · sequence · parent]
+    FRAG --> F["Fragment tree<br/>address + content_hash<br/>ordinal · sequence · parent"]
     ART --> SLICE[to_graph_slice]
     F --> SLICE
     SLICE --> IE[["ingest_envelope / ingest_graph_slice<br/>ONE atomic ApplyChangeEnvelope"]]
-    IE --> SHACL{{ArtifactShape · FragmentShape<br/>governance.shapes.ttl}}
-    SHACL --> KG[(Epistemic Graph<br/>:Artifact -HAS_FRAGMENT-> :Fragment)]
-    KG --> READ[graph_document_tree<br/>action=fragments · action=cite]
+    IE --> SHACL{{"ArtifactShape · FragmentShape<br/>governance.shapes.ttl"}}
+    SHACL --> KG[("Epistemic Graph<br/>:Artifact -HAS_FRAGMENT-> :Fragment")]
+    KG --> READ["graph_document_tree<br/>action=fragments · action=cite"]
     READ --> MCP([MCP])
     READ --> REST([REST /graph/document-tree])
 ```

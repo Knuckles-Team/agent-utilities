@@ -20,6 +20,7 @@ path for remote MCP clients; boolean verification controls are not supported.
 
 from typing import Any
 
+from agent_utilities.mcp.httpx_boundary import coerce_httpx2_auth
 from agent_utilities.mcp.protocol_compat import (
     force_legacy_protocol_mode,
     install_mcp_v2_bridge,
@@ -150,10 +151,26 @@ def build_http_toolset(
             if str(url).rstrip("/").lower().endswith("/sse")
             else StreamableHttpTransport
         )
+        # D-MTT-1: `auth` may be a local `httpx.Auth` built by
+        # `client_credentials.child_auth()` (3 real call sites route through
+        # here: skill_validation_assets.py, runtime_validation.py, and
+        # agent_runner.py's `_spawn_auth()`, all reused per that function's
+        # docstring). `SSETransport.__init__` stores it as `self.auth:
+        # httpx2.Auth | None` and hands it straight to `mcp.client.sse.
+        # sse_client(auth=self.auth, ...)` — the exact same crossing fixed at
+        # multiplexer.py:1475 (see httpx_boundary.py's docstring), so it must
+        # be coerced here. `StreamableHttpTransport` must NOT be coerced the
+        # same way: it re-derives its own client via `_httpx_client_factory`
+        # below, which builds a LOCAL `httpx.AsyncClient(auth=auth, ...)` —
+        # `httpx.AsyncClient._build_auth` requires `isinstance(auth,
+        # httpx.Auth)`, so handing it the httpx2-wrapped adapter instead
+        # would swap a working case for a new, self-inflicted crossing
+        # failure in the *other* direction. Branch on the transport actually
+        # selected, not a blanket coercion.
         transport = transport_cls(
             url,
             headers=headers or None,
-            auth=auth,
+            auth=coerce_httpx2_auth(auth) if transport_cls is SSETransport else auth,
             httpx_client_factory=_httpx_client_factory(trust, timeout),
         )
         return force_legacy_protocol_mode(
