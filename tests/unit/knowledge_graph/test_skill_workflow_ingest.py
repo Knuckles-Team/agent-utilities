@@ -393,8 +393,26 @@ def test_live_ingest_into_memory_engine_discoverable_by_name(corpus):
     ``WorkflowDefinition`` queryable by ``name`` with its ``WorkflowStep`` DAG.
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
+    # Construct the process-owned compute engine FIRST so it (not a bare
+    # ``IntelligenceGraphEngine(db_path=...)``'s own tenant-routed default)
+    # claims the isolated per-test graph the ``isolate_graph_compute_engine``
+    # autouse fixture provisions (tests/conftest.py) — the same
+    # GraphComputeEngine-first idiom used elsewhere (e.g.
+    # tests/unit/test_kg_native_orchestration.py) to avoid the shared
+    # ``tenant__..____commons__`` default graph, whose racy durable-lifecycle
+    # registration is a documented pre-existing flake (D-OTR-3/D-W2X-3). The
+    # backend's own ``_graph`` is then rebound onto that already-isolated
+    # compute engine (D-OTR-2's fix idiom) — otherwise ``EpistemicGraphBackend``
+    # independently resolves its own tenant-routed graph and opens a
+    # ``for_graph()`` view that cannot retarget the verified GraphSession.
+    isolated = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(db_path=":memory:")
+    # ``engine.backend`` is a ``BrainGuardedBackend`` proxy — the real
+    # ``EpistemicGraphBackend`` (whose ``_graph`` needs rebinding) is its
+    # ``_inner``.
+    getattr(engine.backend, "_inner", engine.backend)._graph = isolated
     report = ingest_skill_workflows(engine, root=str(corpus))
     assert report["workflows"] == 2
     assert report["errors"] == 0
@@ -410,9 +428,13 @@ def test_live_ingest_into_memory_engine_discoverable_by_name(corpus):
     assert rows[0]["source"] == "universal-skills"
 
     # The HAS_STEP subgraph is traversable (what WorkflowStore.load reads).
+    # ``s.id`` must be projected alongside ``step_order`` — public graph reads
+    # are governed by a per-row node id (secured_reads.row_node_ids): a
+    # projection with no identifiable node id is denied outright, regardless
+    # of how benign the returned scalar is.
     steps = engine.query_cypher(
         "MATCH (w:WorkflowDefinition {id: $wid})-[:HAS_STEP]->(s:WorkflowStep) "
-        "RETURN s.step_order AS o ORDER BY s.step_order",
+        "RETURN s.id AS id, s.step_order AS o ORDER BY s.step_order",
         {"wid": "skill_workflow:tiny_infra_deploy"},
     )
     assert [r["o"] for r in steps] == [1, 2, 3]
@@ -547,14 +569,49 @@ def test_background_job_branch_ingests_corpus(corpus):
     from pathlib import Path
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
+    # See test_live_ingest_into_memory_engine_discoverable_by_name for why the
+    # compute engine is constructed first and the backend rebound onto it
+    # (isolated-graph idiom, D-OTR-2/D-OTR-3/D-W2X-3).
+    isolated = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(db_path=":memory:")
-    # Drive the exact branch the background worker dispatches for the job.
-    asyncio.run(
-        engine._run_background_task(
-            "job-skilltest", Path(str(corpus)), False, "skill_workflows"
+    getattr(engine.backend, "_inner", engine.backend)._graph = isolated
+
+    # ``_run_background_task`` commits its terminal outcome through the
+    # in-memory WorkItem claim a real worker's ``_claim_next_task()`` leaves
+    # behind (``_update_task_status``/``_fail_or_retry_task`` both require
+    # one, via ``_wi.heartbeat``/``_wi.commit_result`` against a REAL
+    # backing WorkItem). Standing one up for real would route through
+    # ``submit_task``, which rejects any target outside the configured
+    # agent workspace — incompatible with a pytest ``tmp_path`` corpus. This
+    # test's unit is the ``skill_workflows`` ingest branch inside
+    # ``_run_background_task``, not the WorkItem claim/commit lifecycle
+    # (covered separately by ``test_ingest_task_workitem_lifecycle.py``), so
+    # a minimal in-memory claim plus stubbed lease/commit calls isolate that
+    # unit the same way ``test_ingest_tail_optimization.py`` stubs the
+    # inverse (mocking OUT ``_run_background_task`` to test claiming).
+    from unittest.mock import patch
+
+    from agent_utilities.orchestration import work_item as _wi
+
+    job_id = "job-skilltest"
+    fake_claim = {
+        "work_item_id": _wi.ingest_task_work_item_id(job_id),
+        "lease_owner": "test-worker",
+        "lease_epoch": 1,
+    }
+    engine._remember_work_item_claim(job_id, fake_claim)
+    with (
+        patch.object(_wi, "heartbeat", return_value=True),
+        patch.object(_wi, "commit_result", return_value="committed"),
+    ):
+        # Drive the exact branch the background worker dispatches for the job.
+        asyncio.run(
+            engine._run_background_task(
+                job_id, Path(str(corpus)), False, "skill_workflows"
+            )
         )
-    )
     rows = engine.query_cypher(
         "MATCH (w:WorkflowDefinition) WHERE w.source = $s RETURN count(w) AS c",
         {"s": "universal-skills"},

@@ -517,13 +517,33 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
         "external_access": ExternalAccess(is_public=True).model_dump(mode="json"),
     }
 
-    # Idempotent no-op: identical content already present.
-    existing = engine.query_cypher(
-        "MATCH (w:WorkflowDefinition) WHERE w.id = $wid "
-        "RETURN w.content_hash AS h, w.tenant_id AS tenant_id, "
-        "w.classification AS classification, w.external_access AS external_access",
-        {"wid": wf_id},
-    )
+    # Idempotent no-op: identical content already present. This is purely a
+    # perf/no-op-skip optimization over ``add_node``'s own idempotent upsert
+    # (MERGE) semantics below — NOT a correctness precondition. A brand-new
+    # graph with no prior writes at all (e.g. the very first ingest into a
+    # fresh tenant graph) can reject this read before the graph has any
+    # resident state to query (KG-2.97: observed as a ``CypherEngineError``
+    # here, the exact same "nothing there yet" condition
+    # ``IntelligenceGraphEngine.__init__``'s own ``ingest_queue_depth()`` boot
+    # check already tolerates by degrading instead of raising). Treat that
+    # failure the same way: there is no evidence of prior content, so proceed
+    # to the idempotent write below rather than aborting this file's ingest.
+    try:
+        existing = engine.query_cypher(
+            "MATCH (w:WorkflowDefinition) WHERE w.id = $wid "
+            "RETURN w.content_hash AS h, w.tenant_id AS tenant_id, "
+            "w.classification AS classification, w.external_access AS external_access",
+            {"wid": wf_id},
+        )
+    except Exception as exc:  # noqa: BLE001 — a failed existence probe must not
+        # abort an otherwise-idempotent write; see comment above.
+        logger.debug(
+            "[KG-2.97] workflow existence probe failed for %s (%s); "
+            "proceeding as if no prior content exists",
+            wf_id,
+            _error_kind(exc),
+        )
+        existing = []
     if existing and existing[0].get("h") == chash:
         row = existing[0]
         raw_access = row.get("external_access")
