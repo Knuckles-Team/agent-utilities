@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1151
+total_concepts: 1152
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1255,6 +1255,13 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
   - agent_utilities/protocols/source_connectors/registry.py
   doc: the discovery half of the self-registering pattern. Called
+- id: AU-ECO.connector.git-markdown-revision-connector
+  name: Git-Markdown Revision Connector
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
+  doc: Git-Markdown Revision Connector
 - id: AU-ECO.connector.git-task-resolver
   name: git issue/PR -> SWE task resolver + webhook ingress
   pillar: AU-ECO
@@ -2453,6 +2460,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
   - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: One uniform mirror *target* concept resolved once in the fan-out layer and mapped by each external
     backend onto its native isolation unit
 - id: AU-KG.backend.multi-connection-registry
@@ -3743,15 +3751,17 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   doc: build the capability writeback callable
 - id: AU-KG.ingest.change-envelope
-  name: the SAME
+  name: boundary gate
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/automation/worldmodel_pipeline.py
   - agent_utilities/knowledge_graph/argumentation/aif.py
   - agent_utilities/knowledge_graph/ingestion/change_envelope.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/external_graph.py
   - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
-  doc: the SAME
+  doc: boundary gate
 - id: AU-KG.ingest.chunk-overlap-stage
   name: the one-call form the ingestion engine / MCP wrapper invokes
   pillar: AU-KG
@@ -3997,6 +4007,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
   doc: one retrieved source object
 - id: AU-KG.ingest.external-graph-federation
   name: External Graph Federation
@@ -4376,6 +4387,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
   doc: Returns fragments in document
 - id: AU-KG.ingest.staged
   name: staged
@@ -4597,6 +4609,7 @@ concepts:
   - agent_utilities/kvcache/worthiness.py
   - agent_utilities/mcp/tools/engine_surface_tools.py
   - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/patterns/prioritization.py
   doc: Construct-then-evaluate is cheap
 - id: AU-KG.memory.decay-scanner-merge
   name: decay scanner + semantic merge
@@ -6222,14 +6235,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/entity_context.py
   doc: assimilated from MRAgent
 - id: AU-KG.retrieval.batch-hydrate
-  name: instead of one point-read per
+  name: cross-base-node hydration batching
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/graph_engineering.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  doc: instead of one point-read per
+  doc: cross-base-node hydration batching
 - id: AU-KG.retrieval.batched-neighborhood-prefetch
   name: hard ceiling on how many
   pillar: AU-KG

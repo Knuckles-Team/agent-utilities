@@ -59,18 +59,28 @@ def remediate(
     loop_controller: Any = None,
     run_cycle: bool = False,
     max_topics: int = 5,
+    graph_writer: Any = None,
 ) -> dict[str, Any]:
     """File failure-gap Concepts for every unresolved instance; optionally run a golden cycle.
 
     Returns ``{patterns, gaps, cycle}``. ``gaps`` are the dicts the golden loop intake consumes;
     when ``run_cycle`` is set and a ``loop_controller`` controller is supplied, one cycle is driven
     with those gaps as explicit topics.
+
+    ``graph_writer`` is the same explicit in-memory test adapter
+    :func:`~agent_utilities.knowledge_graph.adaptation.failure_analyzer.file_gap_topic`
+    and :class:`~agent_utilities.knowledge_graph.adaptation.failure_analyzer.FailureAnalyzer`
+    already accept — production never passes it (the native ChangeEnvelope authority
+    fails closed instead of falling back to a legacy per-node write); tests use it to
+    avoid needing a real engine.
     """
     records = build_failure_records(results)
     patterns = cluster_failures(records)
     gaps: list[dict[str, Any]] = []
     for pattern in patterns:
-        gap = file_gap_topic(engine, pattern, source="swebench")
+        gap = file_gap_topic(
+            engine, pattern, source="swebench", graph_writer=graph_writer
+        )
         if gap:
             gaps.append(gap)
 

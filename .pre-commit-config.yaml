@@ -182,6 +182,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: check-release-catalogs
+    name: Release catalogs match the checked-in connector manifests (D-35-9)
+    entry: python3 scripts/release/check_release_catalogs.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-skill-name-collision
     name: Skill names globally unique across the fleet (install-all, no overlap)
     entry: python3 scripts/check_skill_name_collision.py
@@ -387,7 +393,10 @@ repos:
     name: Guardrail — production profile guard
     # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees
     # are gated on their OWN conftest/engine wiring, not the canonical checkout's.
-    entry: bash -c 'python3 -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"'
+    # AGENT_UTILITIES_ALLOW_ANY_INTERPRETER: deliberately plain system python3
+    # for speed, like backend-interface-parity above — the sanctioned exception
+    # to tests/conftest.py's D-CC-6 wrong-interpreter fail-fast guard.
+    entry: bash -c 'AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"'
     language: system
     pass_filenames: false
     always_run: true
@@ -441,7 +450,8 @@ repos:
     name: Guardrail — gate meta-tests (prove every gate can fail)
     # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees
     # are gated on their OWN gate tests, matching the prod-profile guard above.
-    entry: bash -c 'python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""'
+    # AGENT_UTILITIES_ALLOW_ANY_INTERPRETER: same sanctioned D-CC-6 exception.
+    entry: bash -c 'AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""'
     language: system
     pass_filenames: false
     always_run: true
@@ -499,7 +509,11 @@ repos:
   # without resolving the full optional-dependency set (and runs in ~5s on every commit).
   - id: backend-interface-parity
     name: CI parity — backend interface parity (static, engine-free)
-    entry: python3 -m pytest tests/unit/test_backend_interface_parity.py -q -p no:cacheprovider -o addopts=""
+    # AGENT_UTILITIES_ALLOW_ANY_INTERPRETER: this hook deliberately runs under
+    # plain system `python3`, not the uv_workspace-managed `.venv` (see the
+    # comment above — no extras, no engine, ~5s), so it is the one sanctioned
+    # exception to tests/conftest.py's D-CC-6 wrong-interpreter fail-fast guard.
+    entry: bash -c 'AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/unit/test_backend_interface_parity.py -q -p no:cacheprovider -o addopts=""'
     language: system
     pass_filenames: false
     always_run: true
@@ -508,7 +522,7 @@ repos:
   #    Run it via:  pre-commit run backend-parity --hook-stage manual --all-files
   - id: backend-parity
     name: CI parity — live backend conformance matrix (manual; Docker + engine)
-    entry: bash -c 'AGENT_UTILITIES_TESTING=true python3 -m pytest tests/integration/backends -m live -rs --timeout=900'
+    entry: bash -c 'AGENT_UTILITIES_TESTING=true AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/integration/backends -m live -rs --timeout=900'
     language: system
     pass_filenames: false
     always_run: true

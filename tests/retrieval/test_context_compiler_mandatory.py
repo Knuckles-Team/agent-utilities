@@ -179,7 +179,15 @@ def test_create_context_agent_governs_arbitrary_injected_model(monkeypatch) -> N
         lambda model: governed_model if model is raw_model else model,
     )
 
-    agent = create_context_agent(model=raw_model, name="governed")
+    # create_context_agent is ALSO the default capability-composition seam
+    # (default_capabilities=True by default): it merges in the default-ON
+    # reliability capability set (stuck-loop detection, output repair
+    # retries, ...) unless told not to. This test is about model governance
+    # specifically, so opt out of that unrelated merge to keep the kwarg
+    # assertion below focused on what it actually checks.
+    agent = create_context_agent(
+        model=raw_model, name="governed", default_capabilities=False
+    )
     assert isinstance(agent, SpyAgent)
     assert observed == {"model": governed_model, "name": "governed"}
 

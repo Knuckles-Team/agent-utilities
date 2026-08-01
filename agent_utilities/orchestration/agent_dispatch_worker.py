@@ -1212,6 +1212,19 @@ def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
             from agent_utilities.orchestration import work_item as _wi
 
             item_id = _wi.loop_work_item_id(gid)
+            # A goal past its dispatch deadline before ever being claimed has
+            # no loop WorkItem yet — create_goal registers only the dispatch
+            # envelope's own WorkItem eagerly (submit_work_item above); the
+            # goal's OWN loop WorkItem is otherwise created lazily by
+            # run_goal_loop's submit_loop() on first execution, which this
+            # goal never reached. cancel_work_item on a nonexistent item is a
+            # silent no-op, so the goal's status (the WorkItem is the sole
+            # authority, AU-P1-1) would incorrectly stay "submitted" forever
+            # instead of the "cancelled" terminal outcome this expiry
+            # represents. ensure_loop_work_item is idempotent (upserts), so
+            # this is a no-op when the item already exists (e.g. a goal that
+            # WAS claimed at least once before this deadline check).
+            _wi.ensure_loop_work_item(goal_engine, gid)
             if _wi.cancel_work_item(
                 goal_engine,
                 item_id,

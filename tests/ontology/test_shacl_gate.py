@@ -31,7 +31,7 @@ def _ctx(graph: GraphComputeEngine) -> PipelineContext:
 def test_invalid_node_is_quarantined_with_report() -> None:
     """An Agent missing its required ``name`` is quarantined with a report."""
     g = GraphComputeEngine()
-    g.add_node("bad_agent", {"type": "agent"})  # missing required :name
+    g.add_node("bad_agent", {"node_type": "agent"})  # missing required :name
 
     conforms, violations, report_text = validate_graph(g, _DEFAULT_SHAPES)
     assert conforms is False
@@ -44,26 +44,29 @@ async def test_gate_phase_routes_invalid_node_to_quarantine() -> None:
     """The phase reroutes the violating node's type to the quarantine marker
     and attaches the violation report; the valid node is untouched."""
     g = GraphComputeEngine()
-    g.add_node("good_agent", {"type": "agent", "name": "Planner"})
-    g.add_node("bad_agent", {"type": "agent"})  # missing :name
+    g.add_node("good_agent", {"node_type": "agent", "name": "Planner"})
+    g.add_node("bad_agent", {"node_type": "agent"})  # missing :name
 
     ctx = _ctx(g)
     out = await execute_shacl_gate(ctx, {})
 
     assert out["status"] == "completed"
     assert out["conforms"] is False
-    assert "bad_agent" in out["quarantined_nodes"]
-    assert "good_agent" not in out["quarantined_nodes"]
-    assert out["report"]  # human-readable report attached on rejection
+    # execute_shacl_gate's return is a summary (status/conforms/
+    # quarantined_count/report_available), not a per-node id list or the
+    # report text itself -- which node was quarantined (and its attached
+    # report) is verifiable on the graph node the gate re-routes in place.
+    assert out["quarantined_count"] == 1
+    assert out["report_available"] is True
 
     bad = dict(g.nodes.get("bad_agent"))
-    assert bad["type"] == ctx.config.shacl_quarantine_marker  # -> Invalid
+    assert bad["node_type"] == ctx.config.shacl_quarantine_marker  # -> Invalid
     assert bad["shacl_valid"] is False
     assert bad["shacl_original_type"] == "agent"
     assert "name" in bad["shacl_report"].lower()
 
     good = dict(g.nodes.get("good_agent"))
-    assert good["type"] == "agent"  # untouched
+    assert good["node_type"] == "agent"  # untouched
     assert "shacl_valid" not in good
 
 
@@ -74,28 +77,29 @@ async def test_valid_tool_passes_invalid_tool_rejected() -> None:
     g = GraphComputeEngine()
     g.add_node(
         "good_tool",
-        {"type": "tool", "name": "GitLab", "capabilityCategory": "source_control"},
+        {"node_type": "tool", "name": "GitLab", "capabilityCategory": "source_control"},
     )
-    g.add_node("bad_tool", {"type": "tool", "name": "OnlyName"})  # no category
+    g.add_node("bad_tool", {"node_type": "tool", "name": "OnlyName"})  # no category
 
     ctx = _ctx(g)
     out = await execute_shacl_gate(ctx, {})
 
-    assert "bad_tool" in out["quarantined_nodes"]
-    assert "good_tool" not in out["quarantined_nodes"]
+    assert out["quarantined_count"] == 1
 
-    assert dict(g.nodes.get("good_tool"))["type"] == "tool"
-    assert dict(g.nodes.get("bad_tool"))["type"] == ctx.config.shacl_quarantine_marker
+    assert dict(g.nodes.get("good_tool"))["node_type"] == "tool"
+    assert (
+        dict(g.nodes.get("bad_tool"))["node_type"] == ctx.config.shacl_quarantine_marker
+    )
 
 
 @pytest.mark.asyncio
 async def test_all_valid_nodes_conform() -> None:
     """When every node satisfies its shape, nothing is quarantined."""
     g = GraphComputeEngine()
-    g.add_node("a", {"type": "agent", "name": "A"})
+    g.add_node("a", {"node_type": "agent", "name": "A"})
     g.add_node(
         "t",
-        {"type": "tool", "name": "T", "capabilityCategory": "itsm"},
+        {"node_type": "tool", "name": "T", "capabilityCategory": "itsm"},
     )
 
     out = await execute_shacl_gate(_ctx(g), {})

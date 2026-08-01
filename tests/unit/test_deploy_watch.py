@@ -77,11 +77,9 @@ def test_watch_deploy_queues_durable_task_with_spec(engine):
     assert job_id is not None
     task = engine.submitted[0]
     assert task["task_type"] == "deploy_watch"
-    # D-DSTO-6 (reports/deferred/lane-dst-orch.md): the spec rides in
-    # WorkItem METADATA as a plain dict (FakeEngine.submit_task ->
-    # node["metadata"][WATCH_PROP]), not a flat json-encoded node property —
-    # matches deploy_watch._load_spec's real contract
-    # (engine.get_task_status(job_id)["metadata"][WATCH_PROP]).
+    # FakeEngine.submit_task nests extra_meta under the WorkItem's "metadata"
+    # key as a raw dict (mirroring get_task_status's real contract, which
+    # _load_spec depends on via `isinstance(spec, dict)` -- never a JSON string).
     spec = engine.nodes[job_id]["metadata"][dw.WATCH_PROP]
     assert spec["service"] == "caddy-mcp"
     assert spec["version"] == "1.2.3"
@@ -177,11 +175,11 @@ def test_resumed_watch_keeps_original_deadline(engine):
     set_fleet_observer(FakeObserver({"caddy-mcp": obs("caddy-mcp", "up")}))
     job_id = dw.watch_deploy(engine, "caddy-mcp", window_s=600)
     # Simulate the original deadline having already passed before resume.
-    # D-DSTO-6 (reports/deferred/lane-dst-orch.md): plain dict in WorkItem
-    # metadata, not a flat json-encoded node property -- see the sibling
-    # test above for the same correction.
+    # _load_spec's real contract requires a raw dict at metadata[WATCH_PROP]
+    # (isinstance(spec, dict)), same shape as test_watch_deploy_queues_durable_task_with_spec.
     spec = engine.nodes[job_id]["metadata"][dw.WATCH_PROP]
     spec["deadline_unix"] = time.time() - 1
+    engine.nodes[job_id]["metadata"][dw.WATCH_PROP] = spec
     start = time.time()
     result = _run(engine, "caddy-mcp", job_id)
     assert time.time() - start < 5  # did NOT wait a fresh 600s window

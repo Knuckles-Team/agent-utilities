@@ -869,6 +869,20 @@ class HybridRetriever:
             """
             return _neighbors.get(nid, [])
 
+        # CONCEPT:AU-KG.retrieval.batch-hydrate — cross-base-node hydration batching.
+        # PHASE 1 below (the base-node loop) discovers each base node's BFS-reachable
+        # id set exactly as before but DEFERS the `properties_batch` hydration
+        # round-trip; PHASE 2 (after the loop) hydrates the UNION of every base
+        # node's discovered ids in ONE round-trip instead of one per base node.
+        # `_batch_node_properties` was already itself a single-RPC batch, but it
+        # sat INSIDE this loop — called once per base node — so a compile with
+        # e.g. 40 base nodes issued 40 separate `nodes.properties_batch` calls,
+        # each paying the SAME payload-independent round-trip cost the module
+        # docstring above documents (measured 4-6s each on a contended engine).
+        # Moving the call outside the loop collapses that back to one.
+        _pending_hydrate: list[tuple[str, list[str]]] = []
+        _hydrate_ids: set[str] = set()
+
         for node in base_nodes:
             node_id = node["id"]
             if node_id in visited:
@@ -903,7 +917,8 @@ class HybridRetriever:
                 assembled_subgraph.append(node)
                 assembled_subgraph.extend(context_nodes)
             else:
-                # GraphComputeEngine BFS fallback
+                # GraphComputeEngine BFS fallback — discovery only; hydration is
+                # batched across every base node after this loop (see PHASE 2).
                 try:
                     if _exists.get(node_id, False):
                         # BFS traversal up to multi_hop_depth
@@ -924,39 +939,49 @@ class HybridRetriever:
                             for f_node in sorted(frontier):
                                 if f_node not in all_discovered:
                                     all_discovered.append(f_node)
-                        # Collect all discovered nodes — hydrate the whole batch in ONE
-                        # engine round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate) instead
-                        # of a per-node point-read per BFS hit inside this loop: with
-                        # multi_hop_depth hops fanning out per base node, the old per-nid
-                        # `_get_node_properties` call serialized O(N) single-node reads and
-                        # dominated retrieval latency under engine contention. Same id set,
-                        # same guard, same per-node semantics below — only the fetch is batched.
-                        hydrated = self._batch_node_properties(
-                            [nid for nid in all_discovered if nid not in visited]
-                        )
-                        for nid in all_discovered:
-                            if nid not in visited:
-                                visited.add(nid)
-                                if nid == node_id:
-                                    # Preserve the vector-scored base node — it carries
-                                    # _score, the active-task attention boost and its
-                                    # embedding. Enrich (don't overwrite) with any graph
-                                    # properties (e.g. type) it lacks rather than
-                                    # refetching a bare graph projection.
-                                    d = dict(node)
-                                    for k, v in hydrated.get(nid, {}).items():
-                                        d.setdefault(k, v)
-                                else:
-                                    d = dict(hydrated.get(nid, {}))
-                                d["id"] = nid
-                                if self._boost_strategy == "context_only":
-                                    d["_context_boost"] = self._backlink_boost(nid)
-                                assembled_subgraph.append(d)
+                        # Mark every discovered id visited NOW — same dedup
+                        # contract as before, so a later base node's BFS still
+                        # excludes anything this one already found — but queue
+                        # the actual hydration for the single PHASE 2 batch call
+                        # instead of paying its own round-trip here.
+                        visited.update(all_discovered)
+                        _pending_hydrate.append((node_id, all_discovered))
+                        _hydrate_ids.update(all_discovered)
                 except Exception as e:  # noqa: BLE001 — read-path retrieval enrichment; falls back to the bare vector-scored node (already fully valid, just unenriched) rather than losing it from the result set
                     logger.debug(f"Graph traversal fallback failed: {e}")
                     if node_id not in visited:
                         visited.add(node_id)
                         assembled_subgraph.append(node)
+
+        # PHASE 2 — hydrate the UNION of every deferred base node's discovered
+        # ids in ONE `properties_batch` round-trip (CONCEPT:AU-KG.retrieval.batch-hydrate).
+        if _pending_hydrate:
+            try:
+                hydrated_all = self._batch_node_properties(sorted(_hydrate_ids))
+            except Exception as e:  # noqa: BLE001 — a hydration failure must never drop the already-discovered nodes, only their enrichment (mirrors the per-node fallback this replaces)
+                logger.debug(f"Batched hydration failed: {e}")
+                hydrated_all = {}
+            _node_by_id = {
+                str(n.get("id")): n for n in base_nodes if isinstance(n, dict)
+            }
+            for node_id, all_discovered in _pending_hydrate:
+                base_node = _node_by_id.get(node_id) or {"id": node_id}
+                for nid in all_discovered:
+                    if nid == node_id:
+                        # Preserve the vector-scored base node — it carries
+                        # _score, the active-task attention boost and its
+                        # embedding. Enrich (don't overwrite) with any graph
+                        # properties (e.g. type) it lacks rather than
+                        # refetching a bare graph projection.
+                        d = dict(base_node)
+                        for k, v in hydrated_all.get(nid, {}).items():
+                            d.setdefault(k, v)
+                    else:
+                        d = dict(hydrated_all.get(nid, {}))
+                    d["id"] = nid
+                    if self._boost_strategy == "context_only":
+                        d["_context_boost"] = self._backlink_boost(nid)
+                    assembled_subgraph.append(d)
 
         # CONCEPT:AU-ECO.connector.apply-any-query-analysis — apply any query-analysis source-type restriction to
         # the assembled result (no-op when query_analysis is off / no types).

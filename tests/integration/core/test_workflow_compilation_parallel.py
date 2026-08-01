@@ -21,11 +21,19 @@ os.environ["OTEL_SDK_DISABLED"] = "true"
 
 
 def get_skills_root() -> Path:
-    """Find the universal-skills folder from the workspace."""
-    # The path structure is agent-packages/skills/universal-skills/universal_skills/workflows/
-    root = Path(
-        "/home/agent-user/workspace/agent-packages/skills/universal-skills/universal_skills/workflows"
-    )
+    """Find the universal-skills folder via the installed ``universal_skills`` package.
+
+    A hardcoded ``/home/agent-user/workspace/...`` path only worked on one
+    specific historical checkout layout; every worktree (this repo runs from
+    git worktrees under ``/home/apps/worktrees/...``) resolved it to a path
+    that never existed. ``universal_skills`` is a uv workspace member — its
+    installed (editable) package path is the portable way to find it,
+    consistent with how production code locates it (see
+    ``agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.discover_workflow_skill_files``).
+    """
+    import universal_skills
+
+    root = Path(next(iter(universal_skills.__path__)))
     if not root.exists():
         raise FileNotFoundError(f"Skills directory not found at {root}")
     return root
@@ -34,7 +42,7 @@ def get_skills_root() -> Path:
 def test_deploy_observability_stack_compilation():
     """Verify that deploy_observability_stack workflow compiles into correct parallel DAG."""
     skills_root = get_skills_root()
-    skill_dir = skills_root / "infra" / "deploy_observability_stack"
+    skill_dir = skills_root / "infrastructure-workflows" / "deploy-observability-stack"
 
     plan = SkillCompiler.compile(skill_dir)
     assert plan is not None
@@ -78,7 +86,7 @@ def test_deploy_observability_stack_compilation():
 def test_alpha_factor_mining_compilation():
     """Verify that alpha_factor_mining workflow compiles into correct parallel DAG."""
     skills_root = get_skills_root()
-    skill_dir = skills_root / "finance" / "alpha_factor_mining"
+    skill_dir = skills_root / "finance-workflows" / "alpha-factor-mining"
 
     plan = SkillCompiler.compile(skill_dir)
     assert plan is not None
@@ -114,9 +122,16 @@ def test_alpha_factor_mining_compilation():
 
 
 def test_sdd_full_lifecycle_compilation():
-    """Verify that sdd_full_lifecycle workflow compiles into correct multi-wave DAG."""
+    """Verify that sdd-full-lifecycle workflow compiles into the correct sequential DAG.
+
+    The skill was redesigned (now v1.2.1) since this test was written: it's a
+    strictly sequential intake->spec->verify->plan->implement->test chain, not
+    the old fan-out/fan-in shape (spec-generator -> 3 parallel builders ->
+    verification-gate -> kg-persistence). Step ids and depends_on below match
+    universal_skills/development-workflows/sdd-full-lifecycle/SKILL.md.
+    """
     skills_root = get_skills_root()
-    skill_dir = skills_root / "dev-workflows" / "sdd_full_lifecycle"
+    skill_dir = skills_root / "development-workflows" / "sdd-full-lifecycle"
 
     plan = SkillCompiler.compile(skill_dir)
     assert plan is not None
@@ -124,32 +139,28 @@ def test_sdd_full_lifecycle_compilation():
 
     # Assert node IDs
     node_ids = [step.id for step in plan.steps]
+    assert "spec-intake-wizard" in node_ids
     assert "spec-generator" in node_ids
-    assert "python-backend-engineer" in node_ids
-    assert "typescript-frontend-developer" in node_ids
-    assert "qa-test-engineer" in node_ids
-    assert "verification-gate" in node_ids
-    assert "kg-persistence" in node_ids
+    assert "spec-verifier" in node_ids
+    assert "task-planner" in node_ids
+    assert "sdd-implementer" in node_ids
+    assert "automated-test-runner" in node_ids
 
-    # Assert step dependencies
+    # Assert step dependencies (strictly sequential)
     step_dict = {step.id: step for step in plan.steps}
-    assert step_dict["spec-generator"].depends_on == []
-    assert step_dict["python-backend-engineer"].depends_on == ["spec-generator"]
-    assert step_dict["typescript-frontend-developer"].depends_on == ["spec-generator"]
-    assert step_dict["qa-test-engineer"].depends_on == ["spec-generator"]
-    assert set(step_dict["verification-gate"].depends_on) == {
-        "python-backend-engineer",
-        "typescript-frontend-developer",
-        "qa-test-engineer",
-    }
-    assert step_dict["kg-persistence"].depends_on == ["verification-gate"]
+    assert step_dict["spec-intake-wizard"].depends_on == []
+    assert step_dict["spec-generator"].depends_on == ["spec-intake-wizard"]
+    assert step_dict["spec-verifier"].depends_on == ["spec-generator"]
+    assert step_dict["task-planner"].depends_on == ["spec-verifier"]
+    assert step_dict["sdd-implementer"].depends_on == ["task-planner"]
+    assert step_dict["automated-test-runner"].depends_on == ["sdd-implementer"]
 
     # Verify team.yaml loading
     team = SkillCompiler.load_team_config(skill_dir)
     assert team is not None
-    assert team["name"] == "Software Engineering Swarm"
-    assert "spec-generator" in team["specialist_ids"]
-    assert "verification-gate" in team["specialist_ids"]
+    assert team["name"] == "sdd-full-lifecycle-team"
+    assert "spec-intake-wizard" in team["specialist_ids"]
+    assert "automated-test-runner" in team["specialist_ids"]
 
 
 def test_parallel_engine_wave_scheduling_for_workflows():
@@ -159,7 +170,7 @@ def test_parallel_engine_wave_scheduling_for_workflows():
 
     # 1. Test deploy_observability_stack scheduling
     observability_plan = SkillCompiler.compile(
-        skills_root / "infra" / "deploy_observability_stack"
+        skills_root / "infrastructure-workflows" / "deploy-observability-stack"
     )
     assert observability_plan is not None
 
@@ -195,7 +206,7 @@ def test_parallel_engine_wave_scheduling_for_workflows():
 
     # 2. Test sdd_full_lifecycle scheduling
     sdd_plan = SkillCompiler.compile(
-        skills_root / "dev-workflows" / "sdd_full_lifecycle"
+        skills_root / "development-workflows" / "sdd-full-lifecycle"
     )
     assert sdd_plan is not None
 
@@ -216,50 +227,49 @@ def test_parallel_engine_wave_scheduling_for_workflows():
         synthesis=SynthesisSpec(strategy="flat"),
     )
 
+    # The current sdd-full-lifecycle skill is a strictly sequential 6-step
+    # chain (see test_sdd_full_lifecycle_compilation), so each wave has
+    # exactly one agent.
     sdd_waves = engine._schedule_waves(sdd_manifest)
-    assert len(sdd_waves) == 4
-    # Wave 0
-    assert [a.agent_id for a in sdd_waves[0]] == ["spec-generator"]
-    # Wave 1
-    assert set(a.agent_id for a in sdd_waves[1]) == {
-        "python-backend-engineer",
-        "typescript-frontend-developer",
-        "qa-test-engineer",
-    }
-    # Wave 2
-    assert [a.agent_id for a in sdd_waves[2]] == ["verification-gate"]
-    # Wave 3
-    assert [a.agent_id for a in sdd_waves[3]] == ["kg-persistence"]
+    assert len(sdd_waves) == 6
+    assert [a.agent_id for a in sdd_waves[0]] == ["spec-intake-wizard"]
+    assert [a.agent_id for a in sdd_waves[1]] == ["spec-generator"]
+    assert [a.agent_id for a in sdd_waves[2]] == ["spec-verifier"]
+    assert [a.agent_id for a in sdd_waves[3]] == ["task-planner"]
+    assert [a.agent_id for a in sdd_waves[4]] == ["sdd-implementer"]
+    assert [a.agent_id for a in sdd_waves[5]] == ["automated-test-runner"]
 
 
 def test_all_library_workflows_compilation():
-    """Verify that all 240 workflows in the library compile and schedule correctly."""
+    """Verify that all multi-agent workflows in the library compile and schedule correctly.
+
+    The library's category taxonomy has been reorganized since this test's
+    original 8-folder allowlist (``infra``, ``health``, ``system``, ``finance``,
+    ``dev-workflows``, ``research``, ``social``, ``ops``) was written: multi-agent
+    workflows (a ``references/team.yaml`` alongside ``SKILL.md``) now live
+    exclusively under ``<domain>-workflows/`` category directories, distinct
+    from the single-skill ``<domain>/`` directories that share the same root.
+    Discover those categories by suffix instead of hardcoding a stale list, so
+    this test tracks the catalog's actual shape rather than one snapshot of it.
+    """
     skills_root = get_skills_root()
     engine = ParallelEngine()
 
-    folders = [
-        "infra",
-        "health",
-        "system",
-        "finance",
-        "dev-workflows",
-        "research",
-        "social",
-        "ops",
-    ]
-
     workflow_paths = []
-    for f in folders:
-        dir_path = skills_root / f
-        if not dir_path.exists():
+    for dir_path in sorted(skills_root.iterdir()):
+        if not dir_path.is_dir() or not dir_path.name.endswith("-workflows"):
             continue
         for p in dir_path.iterdir():
             if p.is_dir() and (p / "SKILL.md").exists():
                 workflow_paths.append(p)
 
-    # We expect exactly 240 workflows (or very close depending on initial setup)
-    assert len(workflow_paths) >= 235, (
-        f"Expected around 240 workflows, found {len(workflow_paths)}"
+    # Verified current catalog size: 166 team.yaml-backed multi-agent workflows
+    # across the 10 "*-workflows" categories (see the D-RG2-1-era investigation
+    # that replaced the stale 8-folder/~240 expectation above). Keep a small
+    # buffer below that so a handful of workflows moving around doesn't flake
+    # this test, while still catching a real catalog regression.
+    assert len(workflow_paths) >= 160, (
+        f"Expected at least 160 multi-agent workflows, found {len(workflow_paths)}"
     )
 
     for skill_dir in workflow_paths:

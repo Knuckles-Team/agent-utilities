@@ -20,9 +20,15 @@ def _make_config(**overrides):
     cfg = AgentConfig()
     # Hermetic baseline: the guard inspects these connection fields, and
     # pydantic-settings would otherwise source them from a leaked os.environ (test
-    # order pollution — e.g. a DSN set by an earlier test). Reset to None unless a
+    # order pollution — e.g. a DSN set by an earlier test, or the suite-wide
+    # autouse ``_session_engine`` fixture in tests/conftest.py exporting a real
+    # ``GRAPH_SERVICE_ENDPOINTS`` for the whole session). Reset to None unless a
     # test overrides them, so each scenario is pinned regardless of run order.
-    for field in ("graph_db_connection_profile_ref", "graph_mirror_targets"):
+    for field in (
+        "graph_db_connection_profile_ref",
+        "graph_mirror_targets",
+        "graph_service_endpoints",
+    ):
         if field not in overrides:
             setattr(cfg, field, None)
     for key, value in overrides.items():
