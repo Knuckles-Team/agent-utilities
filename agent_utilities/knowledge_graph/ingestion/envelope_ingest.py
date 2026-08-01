@@ -55,11 +55,19 @@ from .change_envelope import ChangeEnvelope
 
 logger = logging.getLogger(__name__)
 
-_OPAQUE_INTERNAL_ID_RE = re.compile(r"^[0-9a-f]{32}(?:[0-9a-f]{32})?$")
+#: Opaque digest lengths this gate exempts from the full privacy-pattern scan
+#: (D-GM-3): 24-hex/96-bit (``engine.py``'s ``_ingest_connector`` object_key —
+#: ``sha256(portable_uri).hexdigest()[:24]`` — and the matching
+#: ``GitMarkdownConnector._document_node_id``/``_object_key`` truncation),
+#: 32-hex/128-bit, and 64-hex/256-bit full digests. A truncated 24-hex digest
+#: previously fell through to the full scan and could trip the case-insensitive
+#: IBAN pattern by chance (~1 in 20 sha256 digests), rejecting a genuine
+#: connector-owned document/record id with no PII involved.
+_OPAQUE_INTERNAL_ID_RE = re.compile(r"^(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$")
 _OPAQUE_NAMESPACED_ID_RE = re.compile(
     r"^(?P<namespace>[a-z][a-z0-9._-]{0,63}"
     r"(?::[a-z][a-z0-9._-]{0,63}){0,7}):"
-    r"[0-9a-f]{32}(?:[0-9a-f]{32})?$"
+    r"(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$"
 )
 
 __all__ = [

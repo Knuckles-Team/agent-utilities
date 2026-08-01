@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1129
+total_concepts: 1132
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2007,6 +2007,7 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/capabilities/fleet_tool_search.py
   - agent_utilities/core/config.py
   - agent_utilities/mcp/multiplexer.py
   doc: catalog-aware, collision-free prefix assignment
@@ -2310,6 +2311,8 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
   - agent_utilities/knowledge_graph/core/company_brain.py
+  - agent_utilities/knowledge_graph/core/cypher_scoping.py
+  - agent_utilities/knowledge_graph/core/tenant_sharing.py
   doc: wrap with the Company Brain write-path guard
 - id: AU-KG.backend.concept-2
   name: ──
@@ -3953,6 +3956,14 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
   - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
   doc: shared migration tail for the
+- id: AU-KG.ingest.evidence-spine-artifact
+  name: one retrieved source object
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  doc: one retrieved source object
 - id: AU-KG.ingest.external-graph-federation
   name: External Graph Federation
   pillar: AU-KG
@@ -4299,6 +4310,15 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: ────────────────────────────
+- id: AU-KG.ingest.stable-fragment-address
+  name: Returns fragments in document
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: Returns fragments in document
 - id: AU-KG.ingest.staged
   name: staged
   pillar: AU-KG
@@ -9070,6 +9090,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/lanes.py
   doc: AU-OS.governance.shared-scope-lease
+- id: AU-OS.governance.test-regression-baseline
+  name: Keyed by
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/merge_queue.py
+  doc: Keyed by
 - id: AU-OS.governance.tiered-merge-gate
   name: AU-OS.governance.tiered-merge-gate
   pillar: AU-OS
@@ -9469,10 +9496,12 @@ concepts:
   - agent_utilities/observability/runtime_signals.py
   doc: the missing intake for a class
 - id: AU-OS.observability.telemetry-observability
-  name: Telemetry Engine
+  name: Track 3 of the pydantic-ai
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/capabilities/composition.py
+  - agent_utilities/capabilities/telemetry_instrumentation.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/observability/__init__.py
@@ -9480,7 +9509,7 @@ concepts:
   - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/graph_execution_evidence.py
   - agent_utilities/server/app.py
-  doc: Telemetry Engine
+  doc: Track 3 of the pydantic-ai
 - id: AU-OS.observability.unified-health-kernels
   name: AU-OS.observability.unified-health-kernels
   pillar: AU-OS
