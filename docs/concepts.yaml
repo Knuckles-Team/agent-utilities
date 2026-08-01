@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1127
+total_concepts: 1133
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2007,6 +2007,7 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/capabilities/fleet_tool_search.py
   - agent_utilities/core/config.py
   - agent_utilities/mcp/multiplexer.py
   doc: catalog-aware, collision-free prefix assignment
@@ -2103,6 +2104,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/registry/kg_adapter.py
+  - agent_utilities/knowledge_graph/core/tenant_sharing.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   doc: Self-Describing Function Registry
 - id: AU-ECO.toolkit.self-documenting-plugin-bundle
@@ -2309,7 +2311,15 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
+  - agent_utilities/knowledge_graph/backends/brain_guarded_backend.py
+  - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/core/company_brain.py
+  - agent_utilities/knowledge_graph/core/cypher_scoping.py
+  - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/secured_reads.py
+  - agent_utilities/knowledge_graph/core/tenant_sharing.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
   doc: wrap with the Company Brain write-path guard
 - id: AU-KG.backend.concept-2
   name: ──
@@ -3805,6 +3815,17 @@ concepts:
   - agent_utilities/knowledge_graph/kb/entity_claim_extractor.py
   - agent_utilities/models/knowledge_graph.py
   doc: the extractor
+- id: AU-KG.ingest.domain-pack-framework
+  name: one of
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/domain_packs/__init__.py
+  - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
+  - agent_utilities/knowledge_graph/domain_packs/envelope_bridge.py
+  - agent_utilities/knowledge_graph/domain_packs/pack_loader.py
+  - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+  doc: one of
 - id: AU-KG.ingest.drain-session-bundle
   name: drain a remote session-bundle upload that the
   pillar: AU-KG
@@ -3942,6 +3963,14 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
   - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
   doc: shared migration tail for the
+- id: AU-KG.ingest.evidence-spine-artifact
+  name: one retrieved source object
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  doc: one retrieved source object
 - id: AU-KG.ingest.external-graph-federation
   name: External Graph Federation
   pillar: AU-KG
@@ -4061,6 +4090,17 @@ concepts:
   - agent_utilities/knowledge_graph/memory/media_store.py
   - agent_utilities/messaging/router.py
   doc: the durable-media path needs the engine BLOB substrate, reached
+- id: AU-KG.ingest.mapping-dsl
+  name: a refinement of the evidence-spine
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/domain_packs/__init__.py
+  - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
+  - agent_utilities/knowledge_graph/domain_packs/dsl.py
+  - agent_utilities/knowledge_graph/domain_packs/fragment_contract.py
+  - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
+  doc: a refinement of the evidence-spine
 - id: AU-KG.ingest.mcp-tool-connector
   name: ────────────────────────────
   pillar: AU-KG
@@ -4277,6 +4317,15 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: ────────────────────────────
+- id: AU-KG.ingest.stable-fragment-address
+  name: Returns fragments in document
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: Returns fragments in document
 - id: AU-KG.ingest.staged
   name: staged
   pillar: AU-KG
@@ -5748,6 +5797,7 @@ concepts:
   - agent_utilities/__init__.py
   - agent_utilities/core/background_throttle.py
   - agent_utilities/core/config.py
+  - agent_utilities/core/sessions.py
   - agent_utilities/core/workspace_config.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/knowledge_graph/assimilation/__init__.py
@@ -8879,6 +8929,16 @@ concepts:
   - agent_utilities/cli/__init__.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: atomic concept-ID reservation
+- id: AU-OS.governance.authority-derived-persistence-eligibility
+  name: '**how** that gate'
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/eligibility.py
+  - agent_utilities/kvcache/tiering.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  - agent_utilities/models/company_brain.py
+  doc: '**how** that gate'
 - id: AU-OS.governance.autonomy-change-proposer
   name: earned-autonomy ramp
   pillar: AU-OS
@@ -9048,6 +9108,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/lanes.py
   doc: AU-OS.governance.shared-scope-lease
+- id: AU-OS.governance.test-regression-baseline
+  name: Keyed by
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/merge_queue.py
+  doc: Keyed by
 - id: AU-OS.governance.tiered-merge-gate
   name: AU-OS.governance.tiered-merge-gate
   pillar: AU-OS
@@ -9447,10 +9514,12 @@ concepts:
   - agent_utilities/observability/runtime_signals.py
   doc: the missing intake for a class
 - id: AU-OS.observability.telemetry-observability
-  name: Telemetry Engine
+  name: Track 3 of the pydantic-ai
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/capabilities/composition.py
+  - agent_utilities/capabilities/telemetry_instrumentation.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/observability/__init__.py
@@ -9458,7 +9527,7 @@ concepts:
   - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/graph_execution_evidence.py
   - agent_utilities/server/app.py
-  doc: Telemetry Engine
+  doc: Track 3 of the pydantic-ai
 - id: AU-OS.observability.unified-health-kernels
   name: AU-OS.observability.unified-health-kernels
   pillar: AU-OS

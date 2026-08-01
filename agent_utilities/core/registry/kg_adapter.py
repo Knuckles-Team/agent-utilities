@@ -284,11 +284,17 @@ class RegistryMixin(_Base):
             props.update(updates)
             self.graph.add_node(node_id, props)
         if self.backend:
-            set_clause = self._get_set_clause(updates, alias="n", label="SystemPrompt")
-            query = f"MATCH (n:SystemPrompt {{id: $id}}){set_clause}"
-            params = {"id": node_id}
-            params.update(updates)
-            self.backend.execute(query, params)
+            # D-W2-13: was a hand-built ``MATCH ... SET n.`field` = $field``
+            # (materialization.set_clause always backtick-quotes property
+            # names), sent through self.backend.execute() unconditionally --
+            # against the native engine that is rejected outright (the
+            # hand-written Cypher parser has no backtick-quoted-property
+            # grammar). _upsert_node already dispatches correctly per backend
+            # (the SAME typed native seam add_agent_identity/add_prompt use
+            # for CREATE), and its native path is a field-merge upsert, so it
+            # is the exact semantic equivalent of this MATCH+SET for an
+            # existing node.
+            self._upsert_node("SystemPrompt", node_id, updates)
 
     # ─────────────────────────────────────────────────────────────────────
     #  Prompt Management (with versioning and rollback)
@@ -1079,12 +1085,12 @@ class RegistryMixin(_Base):
         self.graph.add_node(function_id, node_data)
 
         if self.backend:
-            set_clause = self._get_set_clause(
-                node_data, alias="n", label="CallableResource"
-            )
-            query = f"MERGE (n:CallableResource {{id: $id}}){set_clause}"
-            params: dict[str, Any] = {"id": function_id, **node_data}
-            self.backend.execute(query, params)
+            # D-W2-13: same fix as update_agent_identity above -- a hand-built
+            # MERGE + backtick-quoted SET clause sent unconditionally through
+            # self.backend.execute() is rejected by the native engine's
+            # Cypher parser. _upsert_node is the typed-native-aware
+            # equivalent of this MERGE + SET (create-or-field-merge).
+            self._upsert_node("CallableResource", function_id, node_data)
 
         logger.info(
             "[CONCEPT:AU-ECO.toolkit.self-describing-registry] Registered function '%s' (type=%s, triggers=%d)",
