@@ -157,6 +157,9 @@ celerybeat.pid
 .env
 .envrc
 .venv
+# scripts/uv_workspace.py partitions the environment by dependency selection, so
+# a worktree owns one `.venv-<label>` per selection alongside `.venv`.
+.venv-*
 env/
 venv/
 ENV/

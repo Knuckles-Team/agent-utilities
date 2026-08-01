@@ -13,6 +13,14 @@ own embedder (``create_embedding_model``) for dedup rather than a second model,
 and our engine edge model for persistence — no new infrastructure.
 """
 
+from .candidate_claims import (
+    CandidateClaim,
+    CandidateClaimBatch,
+    CandidateClaimExtractor,
+    EvidenceSpan,
+    FragmentLike,
+    claim_confidence,
+)
 from .fact_extractor import (
     FACT_EXTRACTION_PROMPT,
     FACT_JSON_SCHEMA,
@@ -37,12 +45,18 @@ from .second_brain_sync import (
 __all__ = [
     "FACT_EXTRACTION_PROMPT",
     "FACT_JSON_SCHEMA",
+    "CandidateClaim",
+    "CandidateClaimBatch",
+    "CandidateClaimExtractor",
     "EngineStoreAdapter",
+    "EvidenceSpan",
     "ExtractedFact",
     "ExtractionJobManager",
     "FactDeduper",
+    "FragmentLike",
     "GraphCheckpointStore",
     "SecondBrainSyncResult",
+    "claim_confidence",
     "extract_facts",
     "facts_to_jsonl",
     "iter_note_files",
