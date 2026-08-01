@@ -25,9 +25,13 @@ def test_initialize_workspace(tmp_path):
         main_agent = tmp_path / "main_agent.json"
         assert main_agent.exists()
         data = json.loads(main_agent.read_text(encoding="utf-8"))
-        assert data["name"] == "main-agent"
+        # CONCEPT:AU-ORCH.routing.resolve-body-single-canonical (core/workspace.py
+        # TEMPLATES["MAIN_AGENT"]): the canonical StructuredPrompt shape moved
+        # the body under instructions.core_directive; task/tools/schema_version/
+        # source replaced the legacy name/capabilities/content keys.
+        assert data["task"] == "main-agent"
         assert data["type"] == "prompt"
-        assert data["content"].startswith("# Main Agent")
+        assert data["instructions"]["core_directive"].startswith("# Main Agent")
 
 
 def test_write_and_load_file(tmp_path):

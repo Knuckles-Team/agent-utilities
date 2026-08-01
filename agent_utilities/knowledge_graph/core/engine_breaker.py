@@ -42,6 +42,7 @@ from agent_utilities.observability.gateway_metrics import (
     ENGINE_REQUESTS,
     ENGINE_SHARD_REQUESTS,
 )
+from agent_utilities.security.log_redaction import redact_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ def _observe_latency(op: str, elapsed: float, endpoint: str) -> None:
             "engine likely contended — a retrieval/loop issuing many of these will "
             "exhaust its time budget",
             op,
-            endpoint,
+            redact_for_log(endpoint),
             elapsed,
             _SLOW_ENGINE_CALL_S,
         )

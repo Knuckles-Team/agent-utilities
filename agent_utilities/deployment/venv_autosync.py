@@ -80,6 +80,7 @@ from agent_utilities.deployment.venv_sync import (
     classify_change,
     exclusive_lock,
     member_install_states,
+    redact_path_for_log,
     sync,
     upgrade,
 )
@@ -246,7 +247,9 @@ def pending(workspace: Workspace) -> list[Intent]:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
-            logger.warning("ignoring unreadable intent %s: %s", path, exc)
+            logger.warning(
+                "ignoring unreadable intent %s: %s", redact_path_for_log(path), exc
+            )
             continue
         intents.append(
             Intent(
@@ -272,7 +275,9 @@ def _clear(workspace: Workspace, intents: Sequence[Intent]) -> None:
         try:
             path.unlink(missing_ok=True)
         except OSError as exc:
-            logger.warning("could not drain intent %s: %s", path, exc)
+            logger.warning(
+                "could not drain intent %s: %s", redact_path_for_log(path), exc
+            )
 
 
 def _record_run(workspace: Workspace, payload: dict[str, Any]) -> Path:

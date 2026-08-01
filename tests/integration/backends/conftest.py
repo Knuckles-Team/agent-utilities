@@ -68,7 +68,30 @@ def backend_under_test(request: pytest.FixtureRequest) -> Iterator[Any]:
     else:  # pragma: no cover — guarded by the param list above
         pytest.skip(f"unknown backend param {backend_type!r}")
 
-    backend = create_backend(backend_type=backend_type, **kwargs)
+    if backend_type == "epistemic_graph":
+        # create_backend(backend_type="epistemic_graph") constructs a bare
+        # EpistemicGraphBackend(), which independently resolves the ambient
+        # tenant's SHARED default graph (resolve_routing_graph(None)) rather
+        # than the per-test isolated graph tests/conftest.py's
+        # isolate_graph_compute_engine fixture provisions — that redirect
+        # only intercepts a literal None/"__commons__"/"__secrets__"
+        # graph_name passed straight to GraphComputeEngine.__init__, which a
+        # bare EpistemicGraphBackend() bypasses (it resolves and passes an
+        # already-non-None tenant name). Construct the isolated
+        # GraphComputeEngine first and rebind the backend to it, the same
+        # idiom established for this exact defect elsewhere (D-OTR-2/D-OTR-3).
+        from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+            EpistemicGraphBackend,
+        )
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
+
+        compute = GraphComputeEngine(backend_type="rust")
+        backend = EpistemicGraphBackend()
+        backend._graph = compute
+    else:
+        backend = create_backend(backend_type=backend_type, **kwargs)
     if backend is None:
         pytest.skip(
             f"{backend_type} backend unavailable "

@@ -68,6 +68,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.security.log_redaction import redact_for_log
+
 from .lifecycle import (
     OntologyError,
     OntologyLifecycle,
@@ -198,7 +200,11 @@ def _bundled_standard_vocabulary() -> frozenset[str]:
     try:
         graph.parse(str(path), format="turtle")
     except Exception as exc:  # noqa: BLE001 — a corrupt bundle degrades to "no corpus"
-        logger.warning("standards vocabulary: failed to parse %s: %s", path, exc)
+        logger.warning(
+            "standards vocabulary: failed to parse %s: %s",
+            redact_for_log(path),
+            exc,
+        )
         return frozenset()
     names: set[str] = set()
     for s in graph.subjects(predicate=rdflib.RDF.type, object=rdflib.OWL.Class):

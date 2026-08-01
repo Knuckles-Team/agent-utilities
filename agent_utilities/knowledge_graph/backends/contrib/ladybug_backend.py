@@ -46,6 +46,28 @@ from agent_utilities.models.schema_definition import SCHEMA
 
 logger = logging.getLogger(__name__)
 
+# Cross-cutting governance properties every write-path stamps onto node
+# properties unconditionally (tenant scoping: CONCEPT:AU-KG.backend.company-brain-write-guard
+# TenancyManager.scope_cypher_query / tenant_sharing.stamp_ownership; owner/scope
+# visibility: tenant_sharing.stamp_ownership / apply_visibility; write-time ACL
+# classification: tenant_sharing.stamp_classification) but that no individual
+# ``TableDefinition`` in schema_definition.py declares as a column. Kuzu/Ladybug
+# tables are strict-schema: a write/read referencing an undeclared property fails
+# with "Binder exception: Cannot find property ... for <var>" instead of simply
+# matching/storing nothing, so every governance-stamped write or tenant-scoped
+# read against this backend was broken for every node type. Declared generically
+# here (not duplicated across ~40 individual TableDefinitions) so any node table
+# gains these columns the same way the KG-2.9g code-symbol columns are migrated
+# onto pre-existing tables below. Kept in lockstep with
+# ``materialization._GOVERNANCE_COLUMNS`` (the SET-clause/valid-keys side of the
+# same contract).
+_GOVERNANCE_COLUMNS: dict[str, str] = {
+    "tenant_id": "STRING",
+    "_owner_id": "STRING",
+    "_shared_scope": "STRING",
+    "classification": "STRING",
+}
+
 import threading
 
 _ACTIVE_DATABASES: dict[str, Any] = {}
@@ -671,35 +693,49 @@ class LadybugBackend(GraphBackend):
         *,
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Execute inside a Ladybug/Kuzu read-only transaction."""
+        """Execute inside a Ladybug/Kuzu read-only transaction.
+
+        The transient-connection close (test/ephemeral mode,
+        ``AGENT_UTILITIES_TESTING``) must happen AFTER row extraction, not in
+        the same ``finally`` as the transaction itself: ``result``/
+        ``result_set`` are lazy handles onto the live connection —
+        ``rows_as_dict()`` reads through them — so closing right after
+        ``COMMIT`` (before that read) made every read in transient mode raise
+        ``RuntimeError: Query result is closed`` instead of returning rows.
+        This is load-bearing for ``secured_reads._durable_access_rows``, whose
+        ACL-hydration read goes through this exact method — the ACL fallback
+        this convergence lane wires up would itself have raised in every
+        transient/test run without this fix.
+        """
         if include_epistemic:
             return []
-        with self._get_lock():
-            self._ensure_connection()
-            connection = self.conn
-            if connection is None:
-                raise RuntimeError("LadybugDB read connection is unavailable")
-            try:
-                connection.execute("BEGIN TRANSACTION READ ONLY")
-                result = connection.execute(query, params or {})
-                connection.execute("COMMIT")
-            except Exception:
+        try:
+            with self._get_lock():
+                self._ensure_connection()
+                connection = self.conn
+                if connection is None:
+                    raise RuntimeError("LadybugDB read connection is unavailable")
                 try:
-                    connection.execute("ROLLBACK")
+                    connection.execute("BEGIN TRANSACTION READ ONLY")
+                    result = connection.execute(query, params or {})
+                    connection.execute("COMMIT")
                 except Exception:
-                    pass
-                raise
-            finally:
-                if self.transient:
-                    self.close()
-        if isinstance(result, list):
-            result_sets = result
-        else:
-            result_sets = [result]
-        rows: list[dict[str, Any]] = []
-        for result_set in result_sets:
-            rows.extend(result_set.rows_as_dict().get_all())
-        return rows
+                    try:
+                        connection.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise
+            if isinstance(result, list):
+                result_sets = result
+            else:
+                result_sets = [result]
+            rows: list[dict[str, Any]] = []
+            for result_set in result_sets:
+                rows.extend(result_set.rows_as_dict().get_all())
+            return rows
+        finally:
+            if self.transient:
+                self.close()
 
     @staticmethod
     def _unwind_to_per_row(query: str) -> str:
@@ -849,7 +885,10 @@ class LadybugBackend(GraphBackend):
         label = validate_identifier(label, kind="label")
         from agent_utilities.models.schema_definition import GENERIC_NODE_COLUMNS
 
-        cols = ", ".join(f"`{n}` {t}" for n, t in GENERIC_NODE_COLUMNS.items())
+        all_columns = dict(GENERIC_NODE_COLUMNS)
+        for gname, gtype in _GOVERNANCE_COLUMNS.items():
+            all_columns.setdefault(gname, gtype)
+        cols = ", ".join(f"`{n}` {t}" for n, t in all_columns.items())
         try:
             self.conn.execute(f"CREATE NODE TABLE IF NOT EXISTS {label} ({cols});")
         except Exception as e:  # noqa: BLE001
@@ -1014,6 +1053,10 @@ class LadybugBackend(GraphBackend):
                     validate_identifier(name, kind="column"): dtype
                     for name, dtype in node.columns.items()
                 }
+                for gname, gtype in _GOVERNANCE_COLUMNS.items():
+                    col_names.setdefault(
+                        validate_identifier(gname, kind="column"), gtype
+                    )
             except InvalidIdentifierError:
                 logger.warning("skipping node table with an invalid schema name")
                 continue

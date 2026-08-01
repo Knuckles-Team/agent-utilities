@@ -91,7 +91,7 @@ nav:
       - Configuration Reference & Flag Audit: architecture/configuration.md
       - Drift-Proof Release & Versioning: architecture/drift_proof_release.md
       - Lane Concurrency (four arbitration classes): architecture/lane-concurrency.md
-      - Empirical Development Standards (evidence, fail-closed, interruption): architecture/empirical-development-standards.md
+      - Merge Queue (continuous merge, tiered gate): architecture/merge-queue.md
       - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
       - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
       - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md
@@ -165,6 +165,7 @@ nav:
       - KV-Cache-Layering Policy (per-execution cache-worthiness): architecture/kv-cache-layering-policy.md
       - KV-Checkpoint Intelligence (when to freeze a context, RAM vs disk): architecture/kv-checkpoint-intelligence.md
       - Intelligent Ingestion (classify/commit-history/tail): architecture/intelligent-ingestion.md
+      - Evidence Spine (Artifact → addressable Fragment): architecture/evidence-spine.md
       - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
       - Orchestrator Migration & Cutover (Swarm→k8s hardening): architecture/orchestrator-migration-cutover.md
@@ -196,6 +197,7 @@ nav:
       - Camunda + ARIS ↔ Knowledge Graph: architecture/camunda_aris_kg_integration.md
       - CISO Assistant ↔ Knowledge Graph: architecture/ciso_assistant_kg_integration.md
       - Company Brain Runtime: architecture/company_brain_runtime.md
+      - ACL Registration Convergence (write-time + read-time defence in depth): architecture/acl_registration_convergence.md
       - Global Workspace Attention: architecture/global_workspace_attention.md
       - Multi-Agent Social System: architecture/multi_agent_social_system.md
       - In-House Training Substrate: architecture/in_house_training_substrate.md
