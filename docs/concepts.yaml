@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1130
+total_concepts: 1132
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2007,6 +2007,7 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/capabilities/fleet_tool_search.py
   - agent_utilities/core/config.py
   - agent_utilities/mcp/multiplexer.py
   doc: catalog-aware, collision-free prefix assignment
@@ -3807,6 +3808,17 @@ concepts:
   - agent_utilities/knowledge_graph/kb/entity_claim_extractor.py
   - agent_utilities/models/knowledge_graph.py
   doc: the extractor
+- id: AU-KG.ingest.domain-pack-framework
+  name: one of
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/domain_packs/__init__.py
+  - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
+  - agent_utilities/knowledge_graph/domain_packs/envelope_bridge.py
+  - agent_utilities/knowledge_graph/domain_packs/pack_loader.py
+  - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+  doc: one of
 - id: AU-KG.ingest.drain-session-bundle
   name: drain a remote session-bundle upload that the
   pillar: AU-KG
@@ -4071,6 +4083,17 @@ concepts:
   - agent_utilities/knowledge_graph/memory/media_store.py
   - agent_utilities/messaging/router.py
   doc: the durable-media path needs the engine BLOB substrate, reached
+- id: AU-KG.ingest.mapping-dsl
+  name: a refinement of the evidence-spine
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/domain_packs/__init__.py
+  - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
+  - agent_utilities/knowledge_graph/domain_packs/dsl.py
+  - agent_utilities/knowledge_graph/domain_packs/fragment_contract.py
+  - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
+  doc: a refinement of the evidence-spine
 - id: AU-KG.ingest.mcp-tool-connector
   name: ────────────────────────────
   pillar: AU-KG
@@ -9473,10 +9496,12 @@ concepts:
   - agent_utilities/observability/runtime_signals.py
   doc: the missing intake for a class
 - id: AU-OS.observability.telemetry-observability
-  name: Telemetry Engine
+  name: Track 3 of the pydantic-ai
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/capabilities/composition.py
+  - agent_utilities/capabilities/telemetry_instrumentation.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/observability/__init__.py
@@ -9484,7 +9509,7 @@ concepts:
   - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/graph_execution_evidence.py
   - agent_utilities/server/app.py
-  doc: Telemetry Engine
+  doc: Track 3 of the pydantic-ai
 - id: AU-OS.observability.unified-health-kernels
   name: AU-OS.observability.unified-health-kernels
   pillar: AU-OS

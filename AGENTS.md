@@ -1181,13 +1181,13 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 1130 concepts across 9 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1132 concepts across 9 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
 | **AU-AHE** | 118 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
 | **AU-ECO** | 127 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
-| **AU-KG** | 485 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, trace, txn |
+| **AU-KG** | 487 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, trace, txn |
 | **AU-ORCH** | 212 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
 | **AU-OS** | 156 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
