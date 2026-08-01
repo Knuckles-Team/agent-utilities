@@ -122,9 +122,13 @@ class TestSpanReachesARealOtlpReceiver:
     def test_a_real_agent_run_exports_a_span_over_a_real_socket(
         self, monkeypatch: pytest.MonkeyPatch, loopback_otlp_receiver: str
     ) -> None:
-        from pydantic_ai import Agent
         from pydantic_ai.messages import ModelResponse, TextPart
         from pydantic_ai.models.function import FunctionModel
+
+        from agent_utilities.core.contextual_model import (
+            create_context_agent,
+            use_grounding_policy,
+        )
 
         # See the identical opt-back-in note in ``TestBuildFleetInstrumentation``
         # above and ``tests/unit/test_telemetry_engine.py``.
@@ -138,11 +142,13 @@ class TestSpanReachesARealOtlpReceiver:
             del messages, info
             return ModelResponse(parts=[TextPart(content="pong")])
 
-        agent: Agent[None, str] = Agent(
+        agent = create_context_agent(
             FunctionModel(_respond, model_name="fleet-instrumentation-probe"),
             capabilities=[instrumentation],
+            default_capabilities=False,
         )
-        result = agent.run_sync("ping")
+        with use_grounding_policy("none"):
+            result = agent.run_sync("ping")
         assert result.output == "pong"
 
         # Flush the BatchSpanProcessor synchronously so the export happens before

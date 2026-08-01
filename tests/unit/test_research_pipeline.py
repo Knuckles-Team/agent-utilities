@@ -192,7 +192,7 @@ class TestPaperIngestion:
         assert call["kwargs"]["source_instance"] == "research"
         assert "Author One" not in str(call)
         author_nodes = [
-            node for node in call["entities"] if node.get("type") == "person"
+            node for node in call["entities"] if node.get("node_type") == "person"
         ]
         assert author_nodes
         assert all(
@@ -380,7 +380,7 @@ class TestWatchlists:
         graph = GraphComputeEngine(backend_type="rust")
         graph.add_node(
             "policy:wl1",
-            type="policy",
+            node_type="policy",
             policy_type="research_watchlist",
             name="Agent Safety",
             keywords=["alignment", "safety"],

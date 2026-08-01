@@ -1774,3 +1774,51 @@ def test_ingest_entities_via_envelope_no_entities_writes_no_activity():
 
     assert (ok, failed) == (0, 0)
     assert eng.node_calls == []
+
+
+def test_mcp_tracker_servers_matches_resolve_tracker_instances_call_sites():
+    """``_MCP_TRACKER_SERVERS`` (CONCEPT:AU-KG.compute.mcp-backed-dedicated-trackers) is
+    documented as kept in sync "by convention" with each dedicated tracker handler's own
+    ``_resolve_tracker_instances(default_name=..., default_server=...)`` call — nothing
+    enforced that. Parse the module's own source with ``ast`` (not a hand-maintained
+    duplicate list, so it can't itself drift) and assert every such call site's
+    ``default_name`` is a key in ``_MCP_TRACKER_SERVERS`` whose tuple contains that call
+    site's ``default_server`` (D-CC-3)."""
+    import ast
+    import inspect
+
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    tree = ast.parse(inspect.getsource(ss))
+    call_sites: list[tuple[str, str]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        if node.func.id != "_resolve_tracker_instances":
+            continue
+        kwargs = {
+            kw.arg: kw.value.value
+            for kw in node.keywords
+            if kw.arg in ("default_name", "default_server")
+            and isinstance(kw.value, ast.Constant)
+        }
+        assert "default_name" in kwargs and "default_server" in kwargs, (
+            "every _resolve_tracker_instances call must pass literal "
+            "default_name/default_server so this gate can see it"
+        )
+        call_sites.append((kwargs["default_name"], kwargs["default_server"]))
+
+    assert call_sites, "expected to find dedicated-tracker call sites via ast — parser drifted?"
+
+    for default_name, default_server in call_sites:
+        assert default_name in ss._MCP_TRACKER_SERVERS, (
+            f"_resolve_tracker_instances(default_name={default_name!r}, ...) has no "
+            f"matching entry in _MCP_TRACKER_SERVERS — add one so sweep-configured "
+            f"detection covers it"
+        )
+        assert default_server in ss._MCP_TRACKER_SERVERS[default_name], (
+            f"_MCP_TRACKER_SERVERS[{default_name!r}] = "
+            f"{ss._MCP_TRACKER_SERVERS[default_name]!r} does not contain "
+            f"{default_server!r}, the default_server this handler actually resolves "
+            f"instances against — the two have drifted out of sync"
+        )

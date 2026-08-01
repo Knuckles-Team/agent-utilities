@@ -110,12 +110,66 @@ _SET_FUNCTION_CALL_RE = re.compile(r"=\s*(?!current_timestamp\()[A-Za-z_]\w*\s*\
 _ALLOWLIST: dict[tuple[str, int], str] = {
     (
         "agent_utilities/knowledge_graph/core/graph_compute.py",
-        3316,
+        3357,
     ): (
         "flush_ledger_to_backend's sole caller "
         "(agent_utilities/workflows/epistemic_sync.py) always passes a "
         "LadybugBackend, which hands the query to Kuzu's full openCypher "
         "engine, not the native subset parser."
+    ),
+    # D-W2C-6: the 4 sites below were baselined (not allowlisted) as a
+    # precaution when the gate first landed. All 4 verified by direct
+    # fixture inspection to call `.execute()` on a backend instance that
+    # never reaches the native eg-query parser, so they were false
+    # positives, not real defects — moved here rather than left in the
+    # (burn-down) ratchet baseline, matching the entry above.
+    (
+        "tests/integration/knowledge_graph/test_knowledge_graph_integration.py",
+        355,
+    ): (
+        "the module's `engine` fixture (line 33-39) constructs "
+        "IntelligenceGraphEngine(backend=LadybugBackend(temp_db)); "
+        "`engine.backend.execute(...)` goes straight to Kuzu's full "
+        "openCypher engine, never the native subset parser."
+    ),
+    (
+        "tests/integration/knowledge_graph/test_knowledge_graph_integration.py",
+        359,
+    ): (
+        "same `engine` fixture as line 355 above (LadybugBackend)."
+    ),
+    (
+        "tests/integration/knowledge_graph/test_knowledge_graph_integration.py",
+        387,
+    ): (
+        "same `engine` fixture as line 355 above (LadybugBackend)."
+    ),
+    (
+        "tests/unit/knowledge_graph/test_fanout_backend.py",
+        445,
+    ): (
+        "test_edge_write_replays_structurally_per_dialect constructs "
+        "`lady, neo = LadybugBackend(\"lady\"), Neo4jBackend(\"neo\")` (both "
+        "RecordingBackend test fakes) and fans a write through them via "
+        "FanOutBackend — never through the native eg-query parser."
+    ),
+    (
+        "tests/unit/knowledge_graph/test_ladybug_edge_binding.py",
+        35,
+    ): (
+        "the module's `_backend` helper builds "
+        "`create_backend(backend_type=\"ladybug\", ...)` and asserts "
+        "`type(b).__name__ == \"LadybugBackend\"` (skipping otherwise); "
+        "`.execute()` on it goes to Kuzu, not the native subset parser."
+    ),
+    (
+        "tests/unit/knowledge_graph/test_stardog_data_backend.py",
+        90,
+    ): (
+        "the module's `backend` fixture (line 36-45) constructs "
+        "StardogSparqlBackend(...); `.execute()` on it is translated to "
+        "SPARQL against a fake Stardog client, never reaching the native "
+        "eg-query Cypher parser at all."
     ),
 }
 

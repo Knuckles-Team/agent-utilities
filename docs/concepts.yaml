@@ -3750,15 +3750,17 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   doc: build the capability writeback callable
 - id: AU-KG.ingest.change-envelope
-  name: the SAME
+  name: boundary gate
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/automation/worldmodel_pipeline.py
   - agent_utilities/knowledge_graph/argumentation/aif.py
   - agent_utilities/knowledge_graph/ingestion/change_envelope.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/external_graph.py
   - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
-  doc: the SAME
+  doc: boundary gate
 - id: AU-KG.ingest.chunk-overlap-stage
   name: the one-call form the ingestion engine / MCP wrapper invokes
   pillar: AU-KG
@@ -6201,14 +6203,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/entity_context.py
   doc: assimilated from MRAgent
 - id: AU-KG.retrieval.batch-hydrate
-  name: instead of one point-read per
+  name: cross-base-node hydration batching
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/graph_engineering.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  doc: instead of one point-read per
+  doc: cross-base-node hydration batching
 - id: AU-KG.retrieval.batched-neighborhood-prefetch
   name: hard ceiling on how many
   pillar: AU-KG
