@@ -80,7 +80,7 @@ def _local_auth_adapter(wrapped: Any, httpx2_module: Any) -> Any:
                     response = yield next_request
                     try:
                         next_request = await flow.asend(response)
-                    except StopAsyncIteration:
+                    except StopAsyncIteration:  # noqa: BLE001 — expected termination: this is the documented asend() protocol signal that the wrapped auth_flow generator is exhausted, not a failure, so there is no cause to log
                         return
             finally:
                 aclose = getattr(flow, "aclose", None)

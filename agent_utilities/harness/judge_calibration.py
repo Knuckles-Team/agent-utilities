@@ -237,7 +237,10 @@ def llm_pairwise_judge(
         score_b = max(0.0, min(1.0, float(parsed.get("score_b", 0.5))))
         reasoning = str(parsed.get("reasoning", ""))
     except Exception as exc:  # a judge/parse error must never crash the caller
-        logger.debug("llm_pairwise_judge failed: %s", exc)
+        # D-SWG-3: DEBUG alone is invisible in every production deployment this
+        # codebase ships; warning keeps a judge-parse failure loud enough to notice
+        # while staying best-effort (the caller still gets a usable fallback verdict).
+        logger.warning("llm_pairwise_judge failed: %s", exc)
         return PairwiseVerdict(
             winner="tie",
             score_a=0.0,
