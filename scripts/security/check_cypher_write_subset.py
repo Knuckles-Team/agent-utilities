@@ -72,21 +72,6 @@ to block every future merge. Only a violation NOT already in the baseline
 fails the gate; fixing a baselined site shrinks the baseline on the next
 ``--update-baseline`` run.
 
-D-F6-2: the baseline key was originally ``(path, line, shape)`` — the SAME
-line-anchored fragility D-MW-11 fixed for the ``_ALLOWLIST`` pragma, just one
-layer down in this same gate. It drifted on every merge that landed code
-above a baselined site (observed 3x: ``graph_compute.py`` 3357->3352,
-``engine.py`` 903->904, ``ogm.py`` 315->312), each time requiring a
-``--update-baseline`` re-derive to quiet a phantom "NEW violation". The key
-is now ``(path, symbol, shape, ordinal)`` — ``symbol`` is the enclosing
-function/method's dotted qualname (``"<module>"`` at module scope,
-``"ClassName.method"`` inside a class), computed by ``_scope_units``'s
-manual parent-tracking DFS, not a line coordinate; ``ordinal`` disambiguates
-the rare case of two same-shape violations in the same symbol, assigned in
-deterministic AST traversal order. Same pattern already proven for
-``scripts/check_swallowed_errors.py`` (D-SWG-1) and
-``scripts/check_wiring.py`` (D-OP-11).
-
 Usage:
   python3 scripts/security/check_cypher_write_subset.py
   python3 scripts/security/check_cypher_write_subset.py --repository-root DIR
@@ -151,14 +136,6 @@ class Violation:
     line: int
     shape: str
     snippet: str
-    #: D-F6-2: the enclosing function/method's dotted qualname (or
-    #: ``"<module>"``), used for the content-anchored baseline key instead
-    #: of ``line`` — see ``_baseline_key``.
-    symbol: str = "<module>"
-    #: Disambiguates two violations of the same ``shape`` in the same
-    #: ``symbol`` — assigned in deterministic AST discovery order (see
-    #: ``_find_violations``), not by line position.
-    ordinal: int = 0
 
     def render(self) -> str:
         return f"{self.path}:{self.line} [{self.shape}] {self.snippet}"
@@ -260,34 +237,14 @@ def _shape(query: str) -> str | None:
     return None
 
 
-def _scope_units(tree: ast.Module) -> list[tuple[ast.AST, list[ast.stmt], str]]:
-    """(owning node, body, dotted qualname) for the module and every
-    function/async-function — the units ``_find_violations`` tracks local
-    string assignments and the typed-dispatch guard within.
-
-    D-F6-2: unlike a flat ``ast.walk`` (which finds every function but has
-    no parent information), this is a manual pre-order DFS that tracks the
-    enclosing class/function chain — the same "no line-number anchor"
-    technique ``check_swallowed_errors.py``'s ``_iter_except_handlers_with_scope``
-    already established (D-SWG-1) — so each unit gets a stable qualname
-    (``"<module>"``, ``"foo"``, ``"ClassName.method"``) for the
-    content-anchored baseline key, deterministic given the AST regardless of
-    unrelated code landing above or below it.
-    """
-    units: list[tuple[ast.AST, list[ast.stmt], str]] = [(tree, tree.body, "<module>")]
-
-    def walk(node: ast.AST, scope_stack: tuple[str, ...]) -> None:
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                qualname = ".".join(scope_stack + (child.name,))
-                units.append((child, child.body, qualname))
-                walk(child, scope_stack + (child.name,))
-            elif isinstance(child, ast.ClassDef):
-                walk(child, scope_stack + (child.name,))
-            else:
-                walk(child, scope_stack)
-
-    walk(tree, ())
+def _scope_units(tree: ast.Module) -> list[tuple[ast.AST, list[ast.stmt]]]:
+    """(owning node, body) for the module and every function/async-function —
+    the units ``_find_violations`` tracks local string assignments and the
+    typed-dispatch guard within."""
+    units: list[tuple[ast.AST, list[ast.stmt]]] = [(tree, tree.body)]
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            units.append((node, node.body))
     return units
 
 
@@ -310,18 +267,13 @@ _DISPATCH_GUARD_MARKERS = ("typed_mutation_support", "cypher_support")
 
 def _find_violations(rel: str, source: str, tree: ast.Module) -> list[Violation]:
     violations: list[Violation] = []
-    #: D-F6-2: ordinal counter per (symbol, shape), incremented in
-    #: deterministic AST discovery order below — gives the second field the
-    #: content-anchored key needs to tell apart two same-shape violations in
-    #: the same function, with no dependence on either violation's line.
-    ordinal_counts: dict[tuple[str, str], int] = {}
     # Split once per file and slice by line range instead of calling
     # ``ast.get_source_segment`` per scope unit: that helper re-splits the
     # WHOLE source into lines internally on every call, which dominated this
     # gate's runtime (measured: the majority of a ~17s full-tree scan) on a
     # file with many functions, each getting its own scope-unit lookup.
     lines = source.splitlines()
-    for owner, body, symbol in _scope_units(tree):
+    for owner, body in _scope_units(tree):
         start = getattr(owner, "lineno", 1) - 1
         end = getattr(owner, "end_lineno", len(lines))
         owner_source = "\n".join(lines[max(start, 0) : end])
@@ -352,12 +304,7 @@ def _find_violations(rel: str, source: str, tree: ast.Module) -> list[Violation]
             if _pragma_allows(lines, node):
                 continue
             snippet = " ".join(text.split())[:160]
-            ordinal_key = (symbol, shape)
-            ordinal = ordinal_counts.get(ordinal_key, 0)
-            ordinal_counts[ordinal_key] = ordinal + 1
-            violations.append(
-                Violation(rel, node.lineno, shape, snippet, symbol, ordinal)
-            )
+            violations.append(Violation(rel, node.lineno, shape, snippet))
     return violations
 
 
@@ -477,45 +424,37 @@ BASELINE = Path(__file__).resolve().parent / "cypher_write_subset_baseline.txt"
 _BASELINE_SEP = "\t"
 
 
-#: D-F6-2: (path, enclosing symbol, shape, ordinal) — NOT line. Stable under
-#: unrelated code landing above/below the flagged statement; see the module
-#: docstring's D-F6-2 note and ``_scope_units``.
-BaselineKey = tuple[str, str, str, int]
+def _baseline_key(v: Violation) -> tuple[str, int, str]:
+    return (v.path, v.line, v.shape)
 
 
-def _baseline_key(v: Violation) -> BaselineKey:
-    return (v.path, v.symbol, v.shape, v.ordinal)
-
-
-def _load_baseline() -> set[BaselineKey]:
+def _load_baseline() -> set[tuple[str, int, str]]:
     if not BASELINE.exists():
         return set()
-    out: set[BaselineKey] = set()
+    out: set[tuple[str, int, str]] = set()
     for line in BASELINE.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         fields = line.split(_BASELINE_SEP)
-        if len(fields) < 4 or not fields[3].isdigit():
+        if len(fields) < 3 or not fields[1].isdigit():
             continue
-        out.add((fields[0], fields[1], fields[2], int(fields[3])))
+        out.add((fields[0], int(fields[1]), fields[2]))
     return out
 
 
 def _write_baseline(violations: list[Violation]) -> None:
     lines = [
-        f"{v.path}{_BASELINE_SEP}{v.symbol}{_BASELINE_SEP}{v.shape}"
-        f"{_BASELINE_SEP}{v.ordinal}{_BASELINE_SEP}# line {v.line}: {v.snippet}"
-        for v in sorted(violations, key=lambda v: (v.path, v.symbol, v.shape, v.ordinal))
+        f"{v.path}{_BASELINE_SEP}{v.line}{_BASELINE_SEP}{v.shape}"
+        f"{_BASELINE_SEP}# {v.snippet}"
+        for v in sorted(violations, key=lambda v: (v.path, v.line))
     ]
     BASELINE.write_text(
         "# Frozen baseline of pre-existing Cypher write-subset violations\n"
         "# OUTSIDE this lane's assigned 14 files (a ratchet — burn down\n"
         "# toward zero, same convention as scripts/swallowed_error_baseline.txt).\n"
-        "# TAB-separated: path\\tsymbol\\tshape\\tordinal\\t# line N: snippet\n"
-        "# (D-F6-2: keyed by symbol+ordinal, NOT line -- the trailing 'line N'\n"
-        "# in the comment is informational only, not parsed, and WILL drift as\n"
-        "# the codebase changes -- expected and harmless).\n"
+        "# TAB-separated: path\\tline\\tshape\\t# snippet (snippet is a comment,\n"
+        "# not parsed, and will drift as the codebase changes -- expected).\n"
         "# A NEW entry (not here) fails check_cypher_write_subset.py. Fixing a\n"
         "# baselined site (see the module docstring's fix pattern) shrinks this\n"
         "# file on the next --update-baseline; never hand-add an entry to make\n"
@@ -703,69 +642,16 @@ def self_check() -> None:
         )
 
     # The ratchet baseline: a violation present in the baseline is tolerated
-    # (burn-down, not a block), but a violation in a DIFFERENT symbol for the
-    # same shape/file is treated as genuinely new — even though both happen
-    # to render at a line, the key never looks at it.
-    baselined = Violation("fixture_baselined.py", 10, "comma_pattern_match", "x", "f")
-    new_one = Violation("fixture_baselined.py", 20, "comma_pattern_match", "y", "g")
+    # (burn-down, not a block), but a violation at a DIFFERENT line for the
+    # same shape/file is treated as genuinely new.
+    baselined = Violation("fixture_baselined.py", 10, "comma_pattern_match", "x")
+    new_one = Violation("fixture_baselined.py", 20, "comma_pattern_match", "y")
     baseline_keys = {_baseline_key(baselined)}
     still_new = [v for v in (baselined, new_one) if _baseline_key(v) not in baseline_keys]
     if still_new != [new_one]:
         raise CypherWriteSubsetGateError(
             "self-check: baseline ratchet did not distinguish a baselined "
             f"site from a new one (got {still_new!r})"
-        )
-
-    # D-F6-2: the SAME baselined site's key must be byte-identical whether or
-    # not unrelated code has landed above it in the file (no line-number
-    # anchor to drift), and a genuinely SECOND same-shape violation in the
-    # SAME symbol must get a distinct key (ordinal 1, not silently merged
-    # into ordinal 0's baseline entry).
-    unpadded_tree = ast.parse(_BAD_FIXTURES["comma_pattern_match"])
-    unpadded_hits = _find_violations(
-        "fixture_f6_2.py", _BAD_FIXTURES["comma_pattern_match"], unpadded_tree
-    )
-    padded_source = ("\n" * 7) + _BAD_FIXTURES["comma_pattern_match"]
-    padded_tree2 = ast.parse(padded_source)
-    padded_hits2 = _find_violations("fixture_f6_2.py", padded_source, padded_tree2)
-    if not unpadded_hits or not padded_hits2:
-        raise CypherWriteSubsetGateError(
-            "self-check: D-F6-2 fixture produced no violations to compare"
-        )
-    if padded_hits2[0].line == unpadded_hits[0].line:
-        raise CypherWriteSubsetGateError(
-            "self-check: D-F6-2 padding fixture did not actually move the "
-            "violation's line -- the drift-survival proof is vacuous"
-        )
-    if _baseline_key(unpadded_hits[0]) != _baseline_key(padded_hits2[0]):
-        raise CypherWriteSubsetGateError(
-            "self-check: baseline key changed when unrelated lines landed "
-            f"above the site (line-anchor drift survived the D-F6-2 fix): "
-            f"{_baseline_key(unpadded_hits[0])!r} != "
-            f"{_baseline_key(padded_hits2[0])!r}"
-        )
-
-    two_hits_source = '''
-def f(backend):
-    backend.execute(
-        "MATCH (a:X {id: $a}), (b:Y {id: $b}) MERGE (a)-[:REL]->(b)", {}
-    )
-    backend.execute(
-        "MATCH (c:X {id: $c}), (d:Y {id: $d}) MERGE (c)-[:REL]->(d)", {}
-    )
-'''
-    two_hits_tree = ast.parse(two_hits_source)
-    two_hits = _find_violations("fixture_f6_2_twice.py", two_hits_source, two_hits_tree)
-    if len(two_hits) != 2:
-        raise CypherWriteSubsetGateError(
-            f"self-check: D-F6-2 same-symbol-twice fixture expected 2 "
-            f"violations, found {len(two_hits)}"
-        )
-    two_keys = {_baseline_key(v) for v in two_hits}
-    if len(two_keys) != 2:
-        raise CypherWriteSubsetGateError(
-            "self-check: two distinct same-shape violations in one symbol "
-            f"collapsed onto the same baseline key: {two_keys!r}"
         )
 
 
