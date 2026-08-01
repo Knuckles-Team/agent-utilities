@@ -7,6 +7,7 @@ Combines semantic vector similarity with topological graph traversal
 and optional backlink-density retrieval weighting (CONCEPT:AU-KG.ingest.engineering-rules).
 """
 
+import contextvars
 import json
 import logging
 import math
@@ -26,6 +27,24 @@ if TYPE_CHECKING:
     from agent_utilities.models.schema_pack import SchemaPack
 
 logger = logging.getLogger(__name__)
+
+# CONCEPT:AU-KG.retrieval.memory-first-retrieval / D-39 — the quality report
+# from the most recent ``retrieve_hybrid`` call was previously plain instance
+# state on ``HybridRetriever`` (``self._last_quality_report``). A
+# ``HybridRetriever`` is shared per-engine, not per-request, so two concurrent
+# callers (two OS threads both inside ``retrieve_hybrid`` via a thread pool, or
+# two overlapping requests against one shared engine) could have caller A's
+# read observe caller B's write if B's set landed between A's call returning
+# and A's read of the property. A ``ContextVar`` fixes this at the root: it is
+# both thread-local (each OS thread gets its own value once it calls ``.set``)
+# and asyncio-task-local (each ``Task``, and each ``run_in_executor`` hop,
+# gets its own copy of the current context), so a write on one call stack can
+# never leak into a concurrent, unrelated call stack's read -- without
+# changing ``retrieve_hybrid``/``search_hybrid``'s external return signature
+# (still just the node list) for their many existing callers.
+_LAST_QUALITY_REPORT: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
+    "hybrid_retriever_last_quality_report", default=None
+)
 
 # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — how many independent
 # neighbour point-reads the context-assembly BFS may have in flight at once.
@@ -189,7 +208,9 @@ class HybridRetriever:
 
         # CONCEPT:AU-KG.research.research-pipeline-runner: Retrieval Quality Gate
         self._quality_gate: Any = None  # Lazy-initialized
-        self._last_quality_report = None
+        # last_quality_report (D-39) lives in the module-level, context-local
+        # ``_LAST_QUALITY_REPORT`` ContextVar, not instance state -- see its
+        # definition above for why.
 
         # CONCEPT:AU-KG.memory.auto-similarity-memory-graph: Lazy embedding model — defer HTTP connection to first use
         # (typed Any to avoid importing the heavy llama_index BaseEmbedding onto the
@@ -996,7 +1017,7 @@ class HybridRetriever:
         if skip_quality_gate:
             return _qa(assembled_subgraph)
 
-        self._last_quality_report = None
+        _LAST_QUALITY_REPORT.set(None)
         try:
             from .retrieval_quality import RetrievalQualityGate
 
@@ -1008,7 +1029,7 @@ class HybridRetriever:
             filtered, report = self._quality_gate.gate_results(
                 assembled_subgraph, query
             )
-            self._last_quality_report = report
+            _LAST_QUALITY_REPORT.set(report)
             if not report.gate_passed:
                 logger.warning(
                     "[CONCEPT:AU-KG.research.research-pipeline-runner] Retrieval quality gate failed: %s",
@@ -1233,8 +1254,17 @@ class HybridRetriever:
 
     @property
     def last_quality_report(self):
-        """The quality report from the most recent retrieval, if available."""
-        return self._last_quality_report
+        """The quality report from the most recent retrieval on THIS call
+        stack (thread/asyncio-task), if available.
+
+        D-39: this used to be plain shared instance state
+        (``self._last_quality_report``), which raced across concurrent
+        callers of a shared ``HybridRetriever`` -- see
+        ``_LAST_QUALITY_REPORT``'s module-level docstring. Backed by a
+        ``ContextVar`` now, so a concurrent, unrelated call stack's write can
+        never be observed here.
+        """
+        return _LAST_QUALITY_REPORT.get()
 
     def retrieve_decomposed(
         self,
