@@ -79,6 +79,36 @@ def _mcp_persistence_resources(source: object, environment: object) -> dict[str,
     }
 
 
+def _classify_mcp_node(node_id: str) -> None:
+    """Register a PUBLIC ACL for one MCP ``ToolMetadata``/``CallableResource`` node.
+
+    ``secured_reads.permit()``'s governed read path (``query_cypher``'s
+    mandatory ACL check, ``company_brain.CompanyBrain.check_permission``) is
+    default-deny for any node with no registered ACL ("No ACL defined —
+    default deny") — nothing on the generic ``add_node``/``_upsert_node``
+    path stamps one. Without this, a freshly-ingested MCP tool's
+    ``CallableResource``/``ToolMetadata`` rows were writable but permanently
+    invisible to ``query_cypher`` (the surface ``graph_search``/tool
+    discovery reads through) for any non-privileged actor. The fleet's MCP
+    tool catalog is a discoverable capability list, not private data, so
+    PUBLIC (visible to every authenticated actor) is the correct
+    classification — unlike a user's own goal record, which stays INTERNAL +
+    owner-scoped (see ``core.sessions._persist_goal``).
+
+    Best-effort: a classification failure degrades to "not found" on read,
+    never a hard ingestion failure.
+    """
+    try:
+        from ...models.company_brain import DataClassification
+        from .company_brain_runtime import get_company_brain
+
+        get_company_brain().permissions.classify_node(
+            node_id, DataClassification.PUBLIC
+        )
+    except Exception as e:  # noqa: BLE001 — best-effort, mirrors _persist_goal's ACL stamp
+        logger.debug("MCP node %s ACL classification failed: %s", node_id, e)
+
+
 class IngestionMixin(_Base):
     """Ingestion capabilities for the KG engine."""
 
@@ -180,6 +210,7 @@ class IngestionMixin(_Base):
                 if self.backend:
                     m_data = self._serialize_node(metadata, label="ToolMetadata")
                     self._upsert_node("ToolMetadata", meta_id, m_data)
+                    _classify_mcp_node(meta_id)
                 else:
                     self.graph.add_node(metadata.id, **self._serialize_node(metadata))
 
@@ -216,6 +247,7 @@ class IngestionMixin(_Base):
                 if self.backend:
                     r_data = self._serialize_node(resource, label="CallableResource")
                     self._upsert_node("CallableResource", res_id, r_data)
+                    _classify_mcp_node(res_id)
                 else:
                     self.graph.add_node(resource.id, **self._serialize_node(resource))
 

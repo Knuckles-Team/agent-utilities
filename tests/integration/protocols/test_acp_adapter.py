@@ -72,6 +72,8 @@ async def test_harness_adapter_negotiates_load_session(tmp_path: Path) -> None:
 async def test_harness_adapter_round_trips_over_json_rpc_wire(tmp_path: Path) -> None:
     import acp
 
+    from agent_utilities.core.contextual_model import use_grounding_policy
+
     agent = create_context_agent(
         TestModel(custom_output_text="wire response"),
         default_capabilities=False,
@@ -79,14 +81,22 @@ async def test_harness_adapter_round_trips_over_json_rpc_wire(tmp_path: Path) ->
     adapter = create_acp_agent(agent, build_acp_config(tmp_path))
     client = WireClient()
 
-    async with WireAgent(adapter, client) as (connection, _client):
-        initialized = await connection.initialize(protocol_version=1)
-        session = await connection.new_session(cwd="/workspace", mcp_servers=[])
-        response = await connection.prompt(
-            session_id=session.session_id,
-            prompt=[acp.text_block("hello")],
-        )
-        closed = await connection.close_session(session_id=session.session_id)
+    # This test exercises the ACP/JSON-RPC wire protocol round-trip (session
+    # init -> prompt -> close) against a hermetic TestModel, not real
+    # retrieval/grounding. ContextualModel's grounding policy defaults to
+    # "required" and fails closed with no configured ContextCompiler engine
+    # (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract, deliberately
+    # not opt-out-able except through this documented scope) — opt into the
+    # policy's own sanctioned "none" escape hatch for this hermetic call.
+    with use_grounding_policy("none"):
+        async with WireAgent(adapter, client) as (connection, _client):
+            initialized = await connection.initialize(protocol_version=1)
+            session = await connection.new_session(cwd="/workspace", mcp_servers=[])
+            response = await connection.prompt(
+                session_id=session.session_id,
+                prompt=[acp.text_block("hello")],
+            )
+            closed = await connection.close_session(session_id=session.session_id)
 
     assert initialized.protocol_version == 1
     assert response.stop_reason == "end_turn"

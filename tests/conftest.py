@@ -10,6 +10,37 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
+def _fail_fast_on_wrong_interpreter() -> None:
+    """D-CC-6: a bare ``pytest``/``uv run pytest`` silently runs a stray
+    interpreter (the host's ``/home/genius/.local/bin/pytest`` has shebang
+    ``#!/usr/bin/python`` and resolves an OLD fastmcp) instead of this repo's
+    own ``.venv``, producing floods of phantom failures that cite the
+    project's own guards — see ``reports/deferred/`` (``uv run -> system
+    interpreter fallback``). ``scripts/uv_workspace.py run`` always points
+    ``UV_PROJECT_ENVIRONMENT`` at ``<repo root>/.venv``, so a correctly
+    launched test run's ``sys.executable`` is always inside it; anything else
+    means the wrong interpreter is collecting these tests. Fails immediately,
+    before collection wastes time producing misleading results, rather than
+    silently proceeding.
+    """
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    expected_venv = os.path.join(repo_root, ".venv")
+    if os.environ.get("AGENT_UTILITIES_ALLOW_ANY_INTERPRETER"):
+        return  # explicit, deliberate escape hatch — never the default
+    if os.path.commonpath([sys.executable, expected_venv]) == expected_venv:
+        return
+    raise SystemExit(
+        f"tests/conftest.py: sys.executable={sys.executable!r} is not inside "
+        f"{expected_venv!r} — this looks like a bare `pytest`/`uv run pytest` "
+        "invocation resolving the wrong interpreter, not this repo's managed "
+        "venv. Use `python3 scripts/uv_workspace.py run --all-extras -- pytest "
+        "<targets>` instead (never bare `pytest` or `uv run pytest`)."
+    )
+
+
+_fail_fast_on_wrong_interpreter()
+
+
 # CONCEPT:AU-KG.memory.provides-real-ephemeral-one — the ephemeral fixture (``tests/_test_engine.py``) deploys the
 # installed approved ``epistemic-graph[full]`` wheel: its bundled
 # ``epistemic-graph-server`` binary (resolved next to ``sys.executable``) and its
@@ -412,6 +443,36 @@ def isolate_graph_compute_engine(monkeypatch):
         _created_engines.append(self)
 
     monkeypatch.setattr(graph_compute.GraphComputeEngine, "__init__", _isolated_init)
+
+    # A bare ``EpistemicGraphBackend()`` resolves its OWN routing graph via
+    # ``resolve_routing_graph()`` (tenant/default) before ever calling
+    # ``GraphComputeEngine.get_or_create()`` — by the time that call happens the
+    # graph name is already a concrete resolved string (e.g.
+    # ``tenant__<tenant>____commons__``), never the ``None``/``__commons__``/
+    # ``__secrets__`` sentinels the patch above matches. That resolved name then
+    # differs from ``root.graph_name`` (this test's isolated graph), so
+    # ``get_or_create()`` returns a ``for_graph()`` *view* — which never goes
+    # through the patched ``__init__`` above — fixed to the tenant's shared
+    # default graph. Every later operation on that view is then correctly
+    # fail-closed rejected by ``_send()`` (``session.graph != self._fixed_graph``)
+    # since the test's verified GraphSession targets its own isolated graph.
+    # The engine's guard is doing its job; the gap is that a bare backend
+    # construction bypasses test isolation. Patch the backend the same way.
+    from agent_utilities.knowledge_graph.backends import epistemic_graph_backend
+
+    _original_egb_init = epistemic_graph_backend.EpistemicGraphBackend.__init__
+
+    def _isolated_egb_init(self, graph_name: str | None = None, **kwargs):
+        effective_name = (
+            _test_graph_name
+            if graph_name in _default_graph_sentinels
+            else graph_name
+        )
+        _original_egb_init(self, graph_name=effective_name, **kwargs)
+
+    monkeypatch.setattr(
+        epistemic_graph_backend.EpistemicGraphBackend, "__init__", _isolated_egb_init
+    )
 
     def _isolated_get_or_create(cls, graph_name: str | None = None, **kwargs):
         # ``get_or_create`` re-derives its own "does this retarget the root?"

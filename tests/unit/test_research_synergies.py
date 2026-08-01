@@ -24,10 +24,18 @@ from agent_utilities.models.knowledge_graph import ExperienceNode
 
 @pytest.fixture
 def mock_engine():
-    import uuid
-
-    graph_name = f"test_graph_{uuid.uuid4().hex}"
-    GraphComputeEngine(backend_type="rust", graph_name=graph_name)
+    # Warm up the per-test isolated graph tenant WITHOUT an explicit graph_name
+    # (matching the working idiom in test_service_registry.py /
+    # test_kg_native_orchestration.py): tests/conftest.py's autouse
+    # isolate_graph_compute_engine fixture redirects a bare
+    # GraphComputeEngine(graph_name=None) to this test's one isolated tenant,
+    # and IntelligenceGraphEngine's own internal construction resolves the
+    # SAME tenant the same way. Passing an explicit custom graph_name here (as
+    # this fixture previously did) created and left active a SEPARATE,
+    # unrelated tenant, so mock_engine.graph's later operations targeted a
+    # graph the fixture never actually provisioned ("RuntimeError: Graph
+    # '<name>' not found").
+    GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(db_path=":memory:")
     engine.backend = MagicMock()
     return engine
@@ -79,12 +87,12 @@ def test_voi_budget_controller():
 def test_cognitive_trap_defense(mock_engine):
     defense = CognitiveTrapDefense(mock_engine)
     # Inject a sybil cluster trap into the graph
-    mock_engine.graph.add_edge("C", "F1", type="VALIDATES")
-    mock_engine.graph.add_edge("C", "F2", type="VALIDATES")
-    mock_engine.graph.add_edge("C", "F3", type="VALIDATES")
-    mock_engine.graph.add_edge("F1", "F2", type="AGREES_WITH")
-    mock_engine.graph.add_edge("F2", "F3", type="AGREES_WITH")
-    mock_engine.graph.add_edge("F3", "F1", type="AGREES_WITH")
+    mock_engine.graph.add_edge("C", "F1", relationship="VALIDATES")
+    mock_engine.graph.add_edge("C", "F2", relationship="VALIDATES")
+    mock_engine.graph.add_edge("C", "F3", relationship="VALIDATES")
+    mock_engine.graph.add_edge("F1", "F2", relationship="AGREES_WITH")
+    mock_engine.graph.add_edge("F2", "F3", relationship="AGREES_WITH")
+    mock_engine.graph.add_edge("F3", "F1", relationship="AGREES_WITH")
 
     traps = defense.scan_for_traps()
     assert len(traps) > 0

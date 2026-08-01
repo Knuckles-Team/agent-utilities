@@ -4563,7 +4563,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                                 IngestionEngine as _IngestionEngine,
                             )
 
-                            await _IngestionEngine(kg_engine=self)._enrich_text(
+                            await _IngestionEngine(kg_engine=self).enrich_text(
                                 fd["document_id"],
                                 fd.get("text", "") or "",
                                 fd.get("doc_type", "news_article"),

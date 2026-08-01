@@ -6059,9 +6059,29 @@ class _RegistryCache:
 
     @classmethod
     def get_registry(cls) -> MCPAgentRegistryModel:
-        """Return the cached registry, populating on first access."""
+        """Return the cached registry, populating on first access.
+
+        D-DSTO-1 (``reports/deferred/lane-dst-orch.md``): a fetch that hit a
+        transient KG failure (backend unavailable, or any of
+        ``_fetch_prompt_agents``/``_fetch_specialist_agents``/``_fetch_tools``
+        swallowing an exception) is returned to THIS caller as a best-effort
+        partial/empty registry, but is deliberately NOT cached — the guard
+        below only latches ``cls._registry`` on a fully clean fetch, so the
+        next access retries against the KG instead of being stuck with a
+        degraded snapshot for the rest of the process's life (the
+        write-then-mark-seen shape this item exists to close).
+        """
         if cls._registry is None:
-            cls._registry = _fetch_registry_from_kg()
+            registry, complete = _fetch_registry_from_kg()
+            if not complete:
+                logger.warning(
+                    "[CACHE] Registry fetch was incomplete (%d agents, %d tools) — "
+                    "NOT caching; the next access will retry against the KG.",
+                    len(registry.agents),
+                    len(registry.tools),
+                )
+                return registry
+            cls._registry = registry
             logger.info(
                 "[CACHE] Registry cache populated: %d agents, %d tools.",
                 len(cls._registry.agents),
@@ -6082,11 +6102,24 @@ def invalidate_registry_cache() -> None:
     _RegistryCache.invalidate()
 
 
-def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
+def _fetch_registry_from_kg() -> tuple[MCPAgentRegistryModel, bool]:
     """Fetch the full registry from the Knowledge Graph (uncached).
 
     This is the expensive operation that ``_RegistryCache`` wraps.
     Delegates to focused sub-functions for each data source.
+
+    Returns:
+        ``(registry, complete)``. ``complete`` is ``False`` when the KG
+        backend was unavailable or any of ``_fetch_prompt_agents`` /
+        ``_fetch_specialist_agents`` / ``_fetch_tools`` swallowed an
+        exception (D-DSTO-1, ``reports/deferred/lane-dst-orch.md``):
+        ``_RegistryCache.get_registry()`` must NOT cache a partial/empty
+        result for the life of the process just because a single fetch hit a
+        transient KG hiccup — this flag is exactly what lets it skip caching
+        and retry on the next access instead. A deliberate bypass
+        (``ENABLE_KG_REGISTRY_FETCH=false``) is not a failure and reports
+        ``complete=True``: an intentionally-empty registry is the correct,
+        stable answer, not a degraded one to retry.
     """
     if __import__("os").getenv("ENABLE_KG_REGISTRY_FETCH", "true").lower() in (
         "false",
@@ -6094,7 +6127,7 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
         "no",
     ):
         logger.info("Registry fetch bypassed via environment variable.")
-        return MCPAgentRegistryModel()
+        return MCPAgentRegistryModel(), True
 
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -6106,20 +6139,33 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
         engine = IntelligenceGraphEngine.get_or_create(db_path=db_path)
 
     if not engine or not engine.backend:
-        return MCPAgentRegistryModel()
+        logger.warning(
+            "[CACHE] KG engine/backend unavailable — registry fetch degraded; "
+            "not caching so the next access retries."
+        )
+        return MCPAgentRegistryModel(), False
 
+    errors: list[str] = []
     agents: list[MCPAgent] = []
-    agents.extend(_fetch_prompt_agents(engine))
-    agents.extend(_fetch_specialist_agents(engine))
+    agents.extend(_fetch_prompt_agents(engine, errors))
+    agents.extend(_fetch_specialist_agents(engine, errors))
 
-    tools = _fetch_tools(engine)
+    tools = _fetch_tools(engine, errors)
     agents.extend(_synthesize_partition_agents(tools, {a.name for a in agents}))
 
-    return MCPAgentRegistryModel(agents=agents, tools=tools)
+    return MCPAgentRegistryModel(agents=agents, tools=tools), not errors
 
 
-def _fetch_prompt_agents(engine: Any) -> list[MCPAgent]:
-    """Fetch Prompt-based agents from the KG."""
+def _fetch_prompt_agents(
+    engine: Any, errors: list[str] | None = None
+) -> list[MCPAgent]:
+    """Fetch Prompt-based agents from the KG.
+
+    Args:
+        errors: when provided, a failure appends a short description here
+            (D-DSTO-1) so the caller can decide whether the assembled
+            registry is safe to cache.
+    """
     agents: list[MCPAgent] = []
     try:
         prompt_rows = engine.backend.execute(
@@ -6158,19 +6204,28 @@ def _fetch_prompt_agents(engine: Any) -> list[MCPAgent]:
                 )
             )
     except Exception as e:
-        # D-DST-6: _RegistryCache.get_registry() (this function's caller, one frame up)
-        # has no TTL and caches whatever _fetch_registry_from_kg() returns for the life
-        # of the process — a transient failure here silently produces a partial/empty
-        # agent registry that then never self-heals. Raised to warning for visibility;
-        # the cache-poisoning fix itself belongs to _RegistryCache (see D-DSTO follow-up).
+        # D-DST-6 raised this to warning for visibility. D-DSTO-1 closes the
+        # caching side: this failure is now reported to the caller via
+        # ``errors`` so ``_RegistryCache`` does not cache a partial registry
+        # for the life of the process.
         logger.warning(
             f"Failed to fetch Prompt nodes (registry cache may go stale): {e}"
         )
+        if errors is not None:
+            errors.append(f"prompt_agents: {e}")
     return agents
 
 
-def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
-    """Fetch Agent-type specialist nodes from the KG."""
+def _fetch_specialist_agents(
+    engine: Any, errors: list[str] | None = None
+) -> list[MCPAgent]:
+    """Fetch Agent-type specialist nodes from the KG.
+
+    Args:
+        errors: when provided, a failure appends a short description here
+            (D-DSTO-1) so the caller can decide whether the assembled
+            registry is safe to cache.
+    """
     agents: list[MCPAgent] = []
     try:
         agent_rows = engine.backend.execute(
@@ -6192,16 +6247,25 @@ def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
                 )
             )
     except Exception as e:
-        # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
-        # raised to warning so a persistently-failing fetch is diagnosable.
+        # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
+        # (see _fetch_prompt_agents above) so it isn't cached as a false
+        # "complete" registry for the life of the process.
         logger.warning(
             f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}"
         )
+        if errors is not None:
+            errors.append(f"specialist_agents: {e}")
     return agents
 
 
-def _fetch_tools(engine: Any) -> list[MCPToolInfo]:
-    """Fetch Tool nodes from the KG."""
+def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolInfo]:
+    """Fetch Tool nodes from the KG.
+
+    Args:
+        errors: when provided, a failure appends a short description here
+            (D-DSTO-1) so the caller can decide whether the assembled
+            registry is safe to cache.
+    """
     tools: list[MCPToolInfo] = []
     try:
         tool_rows = engine.backend.execute(
@@ -6219,10 +6283,14 @@ def _fetch_tools(engine: Any) -> list[MCPToolInfo]:
                 )
             )
     except Exception as e:
-        # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
-        # a failure here additionally drops all dynamically-synthesized partition agents
-        # (they're derived from `tools`). Raised to warning for visibility.
+        # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
+        # (see _fetch_prompt_agents above) — a failure here additionally drops
+        # all dynamically-synthesized partition agents (they're derived from
+        # `tools`), so it is especially important this isn't cached as
+        # "complete" for the process's whole lifetime.
         logger.warning(f"Failed to fetch Tool nodes (registry cache may go stale): {e}")
+        if errors is not None:
+            errors.append(f"tools: {e}")
     return tools
 
 

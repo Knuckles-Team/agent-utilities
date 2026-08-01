@@ -321,7 +321,8 @@ case itself next time. The goal is orchestrating completely off the harness.
   `scripts/build_concepts_yaml.py`; README/AGENTS counts come from it).
 - **Guardrail gates (CI + pre-commit, `guardrails.yml`):** `scripts/check_no_stub.py`,
   `check_sprawl.py`, `check_concepts.py`, `check_coupling.py`,
-  `check_retrieval_quality.py`, `check_no_env_sprawl.py`, with meta-tests in `tests/gates/`.
+  `check_retrieval_quality.py`, `check_citation_lineage.py`, `check_no_env_sprawl.py`,
+  with meta-tests in `tests/gates/`.
 - **Cardinal rules:** no stubs (`raise NotImplementedError` only with `# ABSTRACT-OK`);
   strangler-then-delete (never "v2 beside old"); keep the unit suite green.
 
@@ -1071,6 +1072,7 @@ a regression.** Before merging to `main`, the full gate suite must be green:
 - **Every guardrail gate** (`guardrails.yml`): `check_no_stub`, `check_concepts`,
   `check_prompt_schema --strict`, `check_genesis_manifest`, `check_ontology`,
   `check_retrieval_quality`, `check_eval_corpus`, `check_reliability_corpus`,
+  `check_citation_lineage`,
   `check_sprawl`, `check_no_env_sprawl`, `check_surface_parity`, the
   `tests/gates` meta-tests, and `test_prod_profile_guard` — run the ones your change
   could touch locally; **a gate red on `main` is a release-blocker, fix it (even if a
@@ -1260,13 +1262,13 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 1135 concepts across 9 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1144 concepts across 9 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
 | **AU-AHE** | 118 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
-| **AU-ECO** | 127 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
-| **AU-KG** | 485 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, trace, txn |
+| **AU-ECO** | 128 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
+| **AU-KG** | 493 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, trace, txn |
 | **AU-ORCH** | 214 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
 | **AU-OS** | 159 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
