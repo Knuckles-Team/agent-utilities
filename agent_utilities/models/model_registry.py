@@ -494,10 +494,10 @@ class ModelRegistry(BaseModel):
     def _effective_tier(
         self,
         *,
-        complexity: str,
+        complexity: ModelTier,
         confidence_signal: float,
         routing_percentile: float,
-    ) -> str:
+    ) -> ModelTier:
         """The tier confidence-gated routing will ACTUALLY select from.
 
         Shared by :meth:`pick_for_task_adaptive` (which picks from it) and

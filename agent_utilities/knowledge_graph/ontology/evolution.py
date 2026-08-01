@@ -459,7 +459,7 @@ def propose_ontology_change(
     shadow_graph, shadow_report = materialize_shadow(
         engine, tenant, proposal_id, turtle
     )
-    replay = (
+    replay: dict[str, Any] = (
         replay_competency_queries(
             engine, tenant, shadow_graph, queries=competency_queries
         )

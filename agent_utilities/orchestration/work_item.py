@@ -414,7 +414,9 @@ def _delegation_still_live(*, now: float | None = None) -> bool:
     return True
 
 
-def _consent_still_live(item: dict[str, Any] | None, *, now: float | None = None) -> bool:
+def _consent_still_live(
+    item: dict[str, Any] | None, *, now: float | None = None
+) -> bool:
     """False when a WorkItem's consent gate denies a claim/lease-renewal.
 
     CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — mirrors
