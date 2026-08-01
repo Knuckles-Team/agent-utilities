@@ -144,6 +144,15 @@ FRAGMENT_KINDS: frozenset[str] = frozenset(
         "span",
         "record",
         "field",
+        # The domain-pack framework's three additional structural units
+        # (CONCEPT:AU-KG.ingest.domain-pack-framework, D-GP2-2) — a corpus
+        # structure the generic markdown/PDF/record fragmenters above don't
+        # themselves produce, but which the SAME addressable-citation
+        # contract (this module, not a rival stand-in) must still be able to
+        # name so every consumer speaks one Fragment vocabulary:
+        "frontmatter_key",  # one YAML frontmatter key/value pair
+        "link",  # one inline `[text](href)` markdown link
+        "json_field",  # one dotted-path field in a JSON document/API record
     }
 )
 FragmentKind = Literal[
@@ -162,6 +171,9 @@ FragmentKind = Literal[
     "span",
     "record",
     "field",
+    "frontmatter_key",
+    "link",
+    "json_field",
 ]
 
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
@@ -974,9 +986,7 @@ def _split_row(line: str) -> list[str]:
 _BLOCK_SPLIT_RE = re.compile(r"\n\s*\n")
 
 
-def fragment_pdf(
-    pages: Sequence[str], *, artifact_id: str
-) -> tuple[Fragment, ...]:
+def fragment_pdf(pages: Sequence[str], *, artifact_id: str) -> tuple[Fragment, ...]:
     """Fragment already-extracted PDF page text into ``page`` + ``paragraph``.
 
     ``pages`` is per-page text (see
