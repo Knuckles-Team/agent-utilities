@@ -695,7 +695,9 @@ class LeaseActivityProbe:
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
-                logger.warning("ignoring unreadable lease %s: %s", redact_path_for_log(path), exc)
+                logger.warning(
+                    "ignoring unreadable lease %s: %s", redact_path_for_log(path), exc
+                )
                 continue
             expires = float(payload.get("expires_at", 0.0))
             if expires <= now:
@@ -2852,28 +2854,28 @@ def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
         return 0 if verdict.allowed else 3
 
     if args.command == "sync":
-        outcome = sync(
+        sync_outcome = sync(
             workspace,
             reason=args.reason,
             apply=not args.dry_run,
             ignore_activity=args.ignore_activity,
             allow_uninstalls=args.allow_uninstalls,
         )
-        emit(outcome.as_dict(), as_json=as_json)
-        return 0 if outcome.verdict.allowed else 3
+        emit(sync_outcome.as_dict(), as_json=as_json)
+        return 0 if sync_outcome.verdict.allowed else 3
 
     if args.command == "prune":
-        outcome = prune(
+        prune_outcome = prune(
             workspace,
             allow_uninstalls=args.allow_uninstalls,
             apply=not args.dry_run,
             ignore_activity=args.ignore_activity,
         )
-        emit(outcome.as_dict(), as_json=as_json)
-        return 0 if not outcome.refused else 3
+        emit(prune_outcome.as_dict(), as_json=as_json)
+        return 0 if not prune_outcome.refused else 3
 
     if args.command in ("upgrade", "relock"):
-        outcome = upgrade(
+        upgrade_outcome = upgrade(
             workspace,
             packages=getattr(args, "packages", []),
             all_packages=getattr(args, "all_packages", False)
@@ -2881,15 +2883,15 @@ def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
             reason=getattr(args, "reason", args.command),
             ignore_activity=args.ignore_activity,
         )
-        emit(outcome.as_dict(), as_json=as_json)
-        return 0 if outcome.ok else 3
+        emit(upgrade_outcome.as_dict(), as_json=as_json)
+        return 0 if upgrade_outcome.ok else 3
 
     if args.command == "rollback":
-        outcome = rollback(
+        rollback_outcome = rollback(
             workspace, args.backup_id, ignore_activity=args.ignore_activity
         )
-        emit(outcome.as_dict(), as_json=as_json)
-        return 0 if outcome.verdict.allowed else 3
+        emit(rollback_outcome.as_dict(), as_json=as_json)
+        return 0 if rollback_outcome.verdict.allowed else 3
 
     if args.command == "backups":
         emit(
@@ -2960,9 +2962,13 @@ def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
         if args.action == "release":
             emit({"released": release_lease(workspace, args.owner)}, as_json=as_json)
             return 0
-        records = LeaseActivityProbe().busy(workspace)
+        lease_records = LeaseActivityProbe().busy(workspace)
         emit(
-            {"leases": [{"owner": r.identifier, "detail": r.detail} for r in records]},
+            {
+                "leases": [
+                    {"owner": r.identifier, "detail": r.detail} for r in lease_records
+                ]
+            },
             as_json=as_json,
         )
         return 0

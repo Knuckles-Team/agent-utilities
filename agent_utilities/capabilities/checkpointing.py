@@ -170,6 +170,7 @@ class GraphCheckpointStore(CheckpointStore):
         parse failure logs the cause and degrades to an empty/partial result
         rather than raising.
         """
+        from agent_utilities.core.event_loop import run_blocking_ordered
         from agent_utilities.models.knowledge_graph import RegistryNodeType
         from agent_utilities.security.identifiers import validate_identifier
 
@@ -186,22 +187,29 @@ class GraphCheckpointStore(CheckpointStore):
             f"MATCH (c:{node_type}) RETURN c.message_data AS message_data "
             f"ORDER BY c.timestamp DESC LIMIT {int(limit)}"
         )
-        checkpoints: builtins.list[Checkpoint] = []
-        try:
-            for row in query_cypher(cypher) or []:
-                data = row.get("message_data") if isinstance(row, dict) else None
-                if not data:
-                    continue
-                try:
-                    checkpoints.append(Checkpoint.from_json(data))
-                except Exception as e:
-                    logger.error(
-                        f"Failed to parse a listed checkpoint from the graph: {e}"
-                    )
-        except Exception as e:
-            logger.error(f"Failed to list checkpoints from graph: {e}")
-            return []
-        return checkpoints
+
+        def _list_sync() -> builtins.list[Checkpoint]:
+            # Synchronous engine Cypher call — hopped off the event loop via
+            # run_blocking_ordered below rather than invoked directly inside
+            # this async def (CONCEPT:AU-ORCH.execution.event-loop-blocking-sweep).
+            checkpoints: builtins.list[Checkpoint] = []
+            try:
+                for row in query_cypher(cypher) or []:
+                    data = row.get("message_data") if isinstance(row, dict) else None
+                    if not data:
+                        continue
+                    try:
+                        checkpoints.append(Checkpoint.from_json(data))
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to parse a listed checkpoint from the graph: {e}"
+                        )
+            except Exception as e:
+                logger.error(f"Failed to list checkpoints from graph: {e}")
+                return []
+            return checkpoints
+
+        return await run_blocking_ordered(_list_sync)
 
 
 class FileCheckpointStore(CheckpointStore):

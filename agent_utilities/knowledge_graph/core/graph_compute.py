@@ -3349,6 +3349,10 @@ class GraphComputeEngine:
                     "SET r.metadata = $meta"
                 )
                 try:
+                    # cypher-write-subset-allow: flush_ledger_to_backend's sole
+                    # caller (agent_utilities/workflows/epistemic_sync.py) always
+                    # passes a LadybugBackend, which hands the query to Kuzu's
+                    # full openCypher engine, not the native subset parser.
                     backend.execute_write(
                         query,
                         parameters={

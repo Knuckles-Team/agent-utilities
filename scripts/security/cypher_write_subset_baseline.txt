@@ -24,6 +24,3 @@ agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py	70	comma_pattern_
 agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py	99	comma_pattern_match	# MATCH (p1:ParetoFrontierEntry {id: $pid1}), (p2:ParetoFrontierEntry {id: $pid2}) MERGE (p1)-[:PARETO_DOMINATES]->(p2) SET p2.is_dominated = true
 agent_utilities/knowledge_graph/pipeline/phases/sync.py	268	with_in_write_statement	# MATCH (n:Code) WHERE n.file_path STARTS WITH $workspace_path AND (n.last_seen_timestamp < $ts OR n.last_seen_timestamp IS NULL) DETACH DELETE n
 agent_utilities/knowledge_graph/workflow_store.py	621	set_function_call_value	# MATCH (w:WorkflowDefinition {id: $wid}) SET w.use_count = COALESCE(w.use_count, 0) + 1, w.last_used = $ts
-tests/integration/knowledge_graph/test_knowledge_graph_integration.py	363	comma_pattern_match	# MATCH (r:RunTrace), (a:SpawnedAgent) WHERE r.id = $rid AND a.id = $aid MERGE (r)-[:EXECUTED_ON]->(a)
-tests/integration/knowledge_graph/test_knowledge_graph_integration.py	367	comma_pattern_match	# MATCH (a:SpawnedAgent), (p:SystemPrompt) WHERE a.id = $aid AND p.id = $pid MERGE (a)-[:USES]->(p)
-tests/integration/knowledge_graph/test_knowledge_graph_integration.py	395	comma_pattern_match	# MATCH (a:Memory {name: 'A'}), (b:Memory {name: 'B'}) MERGE (a)-[:RELATED_TO]->(b)
