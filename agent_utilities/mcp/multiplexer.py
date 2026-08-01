@@ -70,6 +70,7 @@ from agent_utilities.mcp.child_resilience import (
     MCPChildError,
 )
 from agent_utilities.security.error_surface import public_error_text
+from agent_utilities.security.log_redaction import redact_for_log
 
 # Direct all logs to stderr so stdout remains perfectly clean for stdio JSON-RPC
 logging.basicConfig(
@@ -169,7 +170,7 @@ def _register_child_health_sampler() -> None:
             "(exception_type=%s): %s — mounted/dispatchable gauges will only "
             "refresh when multiplexer_status is called.",
             type(exc).__name__,
-            exc,
+            redact_for_log(exc),
         )
 
 
@@ -1184,7 +1185,11 @@ class MCPMultiplexer:
             # callers can branch on it) — but the server-side log keeps the
             # full message (e.g. which server, timing), which the class name
             # alone drops.
-            logger.warning("Child tool call rejected: %s", e)
+            logger.warning(
+                "Child tool call rejected: %s: %s",
+                type(e).__name__,
+                redact_for_log(e),
+            )
             return mcp.types.CallToolResult(
                 content=[mcp.types.TextContent(type="text", text=type(e).__name__)],
                 isError=True,
@@ -1701,7 +1706,11 @@ class MCPMultiplexer:
             _close_policy()
             return None
         except Exception as exc:
-            logger.error("Failed to start MCP child: %s", exc)
+            logger.error(
+                "Failed to start MCP child: %s: %s",
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
             _close_policy()
             return None
 
@@ -1733,7 +1742,11 @@ class MCPMultiplexer:
             try:
                 content = _read_catalog_text(self.config_path)
             except Exception as exc:
-                logger.error("Failed to read MCP config: %s", exc)
+                logger.error(
+                    "Failed to read MCP config: %s: %s",
+                    type(exc).__name__,
+                    redact_for_log(exc),
+                )
                 content = ""
             if content:
                 try:
@@ -1742,7 +1755,11 @@ class MCPMultiplexer:
                     # them, so secret values never enter this catalog wholesale.
                     config_data = json.loads(content)
                 except Exception as exc:
-                    logger.error("Failed to parse MCP config: %s", exc)
+                    logger.error(
+                        "Failed to parse MCP config: %s: %s",
+                        type(exc).__name__,
+                        redact_for_log(exc),
+                    )
                     config_data = {"mcpServers": {}}
 
         servers = config_data.get("mcpServers") or {}
@@ -1766,10 +1783,16 @@ class MCPMultiplexer:
                 native = native_langfuse_mcp_config()
             except LangfuseTrustError as exc:
                 native = None
+                # LangfuseTrustError.category is a small, fixed-vocabulary
+                # label (see its class docstring: "a stable, non-sensitive
+                # trust failure") -- read into a local before logging so this
+                # out-of-boundary logger's static exception-redaction check
+                # can see it is not the raw exception object.
+                category = exc.category
                 logger.error(
                     "Native Langfuse MCP disabled: %s configuration invalid (%s)",
-                    exc.category,
-                    str(exc),
+                    category,
+                    redact_for_log(exc),
                 )
             if native is not None:
                 runtime_materialized_configs.add(id(native))
@@ -1814,10 +1837,14 @@ class MCPMultiplexer:
                         cfg = prepare_langfuse_mcp_config(cfg)
                     cfg = attest_runtime_child_config(cfg)
                 except LangfuseTrustError as exc:
+                    # See the analogous native_langfuse_mcp_config() handler
+                    # above: category is a fixed-vocabulary, non-sensitive
+                    # label read into a local before logging.
+                    category = exc.category
                     logger.error(
                         "Langfuse MCP entry disabled: %s configuration invalid (%s)",
-                        exc.category,
-                        str(exc),
+                        category,
+                        redact_for_log(exc),
                     )
                     continue
             self._catalog[str(server_name)] = cfg
@@ -2231,9 +2258,10 @@ class MCPMultiplexer:
             # contribute the tools its probe already returned. The cause IS
             # logged so a real transport failure stays diagnosable.
             logger.debug(
-                "Server %s does not support skill resource discovery: %s",
+                "Server %s does not support skill resource discovery: %s: %s",
                 server_name,
-                exc,
+                type(exc).__name__,
+                redact_for_log(exc),
             )
             return []
         try:
@@ -2242,9 +2270,10 @@ class MCPMultiplexer:
             # one server must not fail the tool probe that already succeeded.
             # The cause IS logged.
             logger.warning(
-                "Server %s returned an invalid skill resource catalog: %s",
+                "Server %s returned an invalid skill resource catalog: %s: %s",
                 server_name,
-                exc,
+                type(exc).__name__,
+                redact_for_log(exc),
             )
             return []
         await self._harvest_skill_bodies(server_name, session, skills)
@@ -2395,10 +2424,10 @@ class MCPMultiplexer:
         exc = task.exception()
         if exc is not None:
             logger.error(
-                "Unexpected exception from background probe of %s: %s",
+                "Unexpected exception from background probe of %s: %s: %s",
                 server,
-                exc,
-                exc_info=exc,
+                type(exc).__name__,
+                redact_for_log(exc),
             )
 
     def _ensure_probing(
@@ -2632,8 +2661,9 @@ class MCPMultiplexer:
             qv = (await asyncio.to_thread(embed, [query]))[0]
         except Exception as exc:
             logger.debug(
-                "find_tools embedding rerank unavailable; token-overlap only: %s",
-                exc,
+                "find_tools embedding rerank unavailable; token-overlap only: %s: %s",
+                type(exc).__name__,
+                redact_for_log(exc),
             )
             return
         if not qv:
@@ -3031,6 +3061,26 @@ class MCPMultiplexer:
         """The set of prefixed tools loaded (visible) for one session."""
         return self._session_loaded.setdefault(session_key, set())
 
+    def is_serving(self) -> bool:
+        """Whether this instance's catalog actually names at least one server.
+
+        CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — checks truthiness
+        (non-empty), not merely ``self._catalog is not None``: calling
+        :meth:`tool_dispatchable` on ANY instance — including a
+        freshly-constructed, never-served one (what ``source_sync``/a fleet
+        harvest builds standalone, D-SH-6, ``reports/deferred/
+        lane-skill-harvest.md``) — reaches :meth:`_server_for_prefixed`,
+        which lazily calls :meth:`load_catalog` as a side effect via
+        :meth:`_build_prefix_map`. That side effect turns ``self._catalog``
+        from ``None`` into (at least) ``{}``, so an ``is not None`` check
+        would already read ``True`` by the time this runs — it is the
+        catalog being genuinely EMPTY (verified live in-pod: a harvest's
+        throwaway instance resolved zero servers for both real probed tool
+        names and an invented one) that distinguishes a non-serving instance,
+        not whether ``load_catalog`` merely ran.
+        """
+        return bool(self._catalog)
+
     def tool_dispatchable(
         self, prefixed_name: str, *, session_key: str | None = None
     ) -> bool:
@@ -3046,6 +3096,20 @@ class MCPMultiplexer:
         call one of its tools) — that divergence is exactly the control-plane
         truthfulness bug this exists to close: a caller must never be told a
         tool is usable when the dispatch gate would reject it.
+
+        D-SH-6 (``reports/deferred/lane-skill-harvest.md``): on a
+        freshly-constructed instance that never loaded a catalog
+        (:meth:`is_serving` is ``False``), ``_global_visible``/
+        ``_local_gated``/``_server_for_prefixed`` all resolve nothing for
+        EVERY name — including an invented one — so this used to fall
+        through to the final "unknown to our bookkeeping" branch
+        unconditionally, re-creating the exact mounted-vs-callable lie the
+        reconciliation gate exists to close, one layer up. That final
+        branch's premise (an out-of-band native host tool the real dispatch
+        middleware would also allow through) only holds for an instance
+        that is actually serving; a non-serving instance has no dispatch
+        middleware running at all, so there is nothing to defer to — refuse
+        rather than default-open.
         """
         if prefixed_name in self._global_visible:
             return True
@@ -3069,6 +3133,8 @@ class MCPMultiplexer:
                 return False
             key = session_key if session_key is not None else _session_key()
             return prefixed_name in self._session_loaded.get(key, set())
+        if not self.is_serving():
+            return False
         # Unknown to the multiplexer's own bookkeeping entirely — e.g. a
         # native host tool registered directly on the FastMCP server outside
         # the progressive-disclosure surface. Nothing here can gate it, so it
@@ -3154,7 +3220,7 @@ class MCPMultiplexer:
             logger.warning(
                 "Could not publish multiplexer child gauges (exception_type=%s): %s",
                 type(exc).__name__,
-                exc,
+                redact_for_log(exc),
             )
         return snapshot
 
@@ -3325,9 +3391,9 @@ async def _notify_tools_changed(mcp) -> bool:
         await context.send_notification(mcp_types.ToolListChangedNotification())
     except Exception as exc:
         logger.warning(
-            "tools/list_changed notification failed to reach the client: %s",
-            exc,
-            exc_info=True,
+            "tools/list_changed notification failed to reach the client: %s: %s",
+            type(exc).__name__,
+            redact_for_log(exc),
         )
         return False
     return True
@@ -3427,8 +3493,9 @@ def _session_key() -> str:
         return _explicit_local_session_key() or "__local_stdio__"
     except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: this is a per-request CONTROL-FLOW probe ("is there an HTTP request context?"), not an error path. Every stdio/local call takes it, so WARNING here would emit one line per request. The cause is preserved (interpolated) and the outcome is encoded in the returned key.
         logger.debug(
-            "No HTTP request context; trying next key source: %s",
-            exc,
+            "No HTTP request context; trying next key source: %s: %s",
+            type(exc).__name__,
+            redact_for_log(exc),
         )
         return _explicit_local_session_key() or "__invalid_http_context__"
     try:
@@ -3437,8 +3504,9 @@ def _session_key() -> str:
             return str(sid)
     except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: same per-request probe as above, one rung down the key-source cascade (session_id -> token -> unauthenticated). Absence is the NORMAL case for an unauthenticated caller, not a failure; the cause is preserved and the cascade continues below.
         logger.debug(
-            "HTTP context present but no session_id; falling back to token key: %s",
-            exc,
+            "HTTP context present but no session_id; falling back to token key: %s: %s",
+            type(exc).__name__,
+            redact_for_log(exc),
         )
     try:
         token = get_access_token()

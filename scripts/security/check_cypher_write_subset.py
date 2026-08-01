@@ -35,9 +35,23 @@ built on one) may legitimately emit the fuller grammar — see
 ``GraphComputeEngine.flush_ledger_to_backend`` in
 ``agent_utilities/knowledge_graph/core/graph_compute.py``, whose sole caller
 (``agent_utilities/workflows/epistemic_sync.py``) always passes a
-``LadybugBackend``. Sites like that are in ``_ALLOWLIST`` below, with the
-reason recorded next to them — the same "document why" convention as this
-repo's ``# noqa: BLE001 — <reason>`` swallowed-error exemptions.
+``LadybugBackend``. Sites like that carry an inline
+``# cypher-write-subset-allow: <reason>`` pragma AT the call site (on the
+line immediately above the ``.execute``/``.execute_write`` call, or trailing
+on any line of the call itself) — the same "document why, in the source, at
+the site" convention as this repo's ``# noqa: BLE001 — <reason>`` swallowed-
+error exemptions.
+
+D-MW-11: this pragma replaces a prior ``_ALLOWLIST`` dict keyed by
+``(relative_path, lineno)``. That anchor drifted every time unrelated code
+landed ABOVE an allowlisted site — shifting its line number made the gate
+report a false "NEW violation" at the moved location, repeatedly (observed
+2026-08-01: one site chased three times in one session as concurrent lanes
+landed code ahead of it). An inline pragma has no such anchor to drift: it
+is source text attached to the flagged statement itself, so it moves WITH
+the statement no matter what lands above or below it. It is also
+impossible to "hand-add" to silence an unrelated real violation without
+touching the flagged line itself, unlike a separate allowlist file entry.
 
 **Fail-closed vs. an honest absence** (a project-wide, codified distinction —
 see ``run_contract_checks`` in ``agent_utilities/governance/merge_queue.py``,
@@ -102,76 +116,14 @@ _SET_PLUS_EQ_RE = re.compile(r"\bSET\b.*?\+=", re.DOTALL)
 #: exemption.
 _SET_FUNCTION_CALL_RE = re.compile(r"=\s*(?!current_timestamp\()[A-Za-z_]\w*\s*\(")
 
-#: (relative_path, lineno) -> reason. Both fields refer to the line the
-#: flagged query literal (or the variable holding it) starts on. Keep this
-#: list short and each entry justified — it is the ONLY escape hatch this
-#: gate has, and it is checked by exact (file, line) match, so it cannot
-#: silently widen to cover an unrelated future site.
-_ALLOWLIST: dict[tuple[str, int], str] = {
-    (
-        "agent_utilities/knowledge_graph/core/graph_compute.py",
-        3357,
-    ): (
-        "flush_ledger_to_backend's sole caller "
-        "(agent_utilities/workflows/epistemic_sync.py) always passes a "
-        "LadybugBackend, which hands the query to Kuzu's full openCypher "
-        "engine, not the native subset parser."
-    ),
-    # D-W2C-6: the 4 sites below were baselined (not allowlisted) as a
-    # precaution when the gate first landed. All 4 verified by direct
-    # fixture inspection to call `.execute()` on a backend instance that
-    # never reaches the native eg-query parser, so they were false
-    # positives, not real defects — moved here rather than left in the
-    # (burn-down) ratchet baseline, matching the entry above.
-    (
-        "tests/integration/knowledge_graph/test_knowledge_graph_integration.py",
-        355,
-    ): (
-        "the module's `engine` fixture (line 33-39) constructs "
-        "IntelligenceGraphEngine(backend=LadybugBackend(temp_db)); "
-        "`engine.backend.execute(...)` goes straight to Kuzu's full "
-        "openCypher engine, never the native subset parser."
-    ),
-    (
-        "tests/integration/knowledge_graph/test_knowledge_graph_integration.py",
-        359,
-    ): (
-        "same `engine` fixture as line 355 above (LadybugBackend)."
-    ),
-    (
-        "tests/integration/knowledge_graph/test_knowledge_graph_integration.py",
-        387,
-    ): (
-        "same `engine` fixture as line 355 above (LadybugBackend)."
-    ),
-    (
-        "tests/unit/knowledge_graph/test_fanout_backend.py",
-        445,
-    ): (
-        "test_edge_write_replays_structurally_per_dialect constructs "
-        "`lady, neo = LadybugBackend(\"lady\"), Neo4jBackend(\"neo\")` (both "
-        "RecordingBackend test fakes) and fans a write through them via "
-        "FanOutBackend — never through the native eg-query parser."
-    ),
-    (
-        "tests/unit/knowledge_graph/test_ladybug_edge_binding.py",
-        35,
-    ): (
-        "the module's `_backend` helper builds "
-        "`create_backend(backend_type=\"ladybug\", ...)` and asserts "
-        "`type(b).__name__ == \"LadybugBackend\"` (skipping otherwise); "
-        "`.execute()` on it goes to Kuzu, not the native subset parser."
-    ),
-    (
-        "tests/unit/knowledge_graph/test_stardog_data_backend.py",
-        90,
-    ): (
-        "the module's `backend` fixture (line 36-45) constructs "
-        "StardogSparqlBackend(...); `.execute()` on it is translated to "
-        "SPARQL against a fake Stardog client, never reaching the native "
-        "eg-query Cypher parser at all."
-    ),
-}
+#: D-MW-11: the ONLY escape hatch this gate has — an inline pragma comment
+#: attached to the flagged call site itself (see module docstring). Checked
+#: by scanning the physical source text around the call, never by (file,
+#: line) coordinates, so it cannot drift when unrelated code moves above it.
+#: Requires a non-empty reason after the colon (an unexplained pragma is
+#: rejected the same way an unexplained ``# noqa: BLE001`` is elsewhere in
+#: this repo).
+_ALLOW_PRAGMA_RE = re.compile(r"#\s*cypher-write-subset-allow:\s*\S")
 
 
 class CypherWriteSubsetGateError(RuntimeError):
@@ -349,11 +301,32 @@ def _find_violations(rel: str, source: str, tree: ast.Module) -> list[Violation]
             shape = _shape(text)
             if shape is None:
                 continue
-            if (rel, node.lineno) in _ALLOWLIST:
+            if _pragma_allows(lines, node):
                 continue
             snippet = " ".join(text.split())[:160]
             violations.append(Violation(rel, node.lineno, shape, snippet))
     return violations
+
+
+def _pragma_allows(lines: list[str], node: ast.Call) -> bool:
+    """True when a ``# cypher-write-subset-allow: <reason>`` pragma is
+    attached to this call — anywhere in the contiguous ``#``-only comment
+    block immediately above the call's opening line (a justification is
+    often several lines long, mirroring this repo's other multi-line
+    ``# noqa``-adjacent explanations), or trailing on any line the call
+    itself spans (multi-line calls are common here). D-MW-11:
+    source-text-anchored, so it travels with the call no matter what code
+    lands above or below it — unlike a (file, line) coordinate in a
+    separate allowlist file.
+    """
+    call_start = getattr(node, "lineno", 1)  # 1-indexed
+    call_end = getattr(node, "end_lineno", call_start)  # 1-indexed, inclusive
+    window = list(lines[call_start - 1 : call_end])  # the call's own lines
+    idx = call_start - 2  # 0-indexed line directly above the call
+    while idx >= 0 and lines[idx].strip().startswith("#"):
+        window.append(lines[idx])
+        idx -= 1
+    return any(_ALLOW_PRAGMA_RE.search(line) for line in window)
 
 
 def _ordered_descendants_of_body(body: list[ast.stmt]) -> list[ast.AST]:
@@ -569,10 +542,35 @@ def f(backend):
 }
 
 
+#: D-MW-11 proof fixtures: the SAME bad-shape statement, once with a pragma
+#: on the line above the call, once with a trailing pragma on the call's own
+#: line — both must be suppressed. An unpadded and a padded (code inserted
+#: ABOVE the pragma'd site, simulating an unrelated merge landing ahead of
+#: it) variant of each prove the mechanism has no line-number anchor to
+#: drift: only line COUNT changes, the pragma's suppression is unaffected.
+_PRAGMA_ABOVE_FIXTURE = '''
+def f(backend):
+    # cypher-write-subset-allow: LadybugBackend, not the native parser.
+    backend.execute(
+        "MATCH (a:X {id: $a}), (b:Y {id: $b}) MERGE (a)-[:REL]->(b)", {}
+    )
+'''
+
+_PRAGMA_TRAILING_FIXTURE = '''
+def f(backend):
+    backend.execute(  # cypher-write-subset-allow: LadybugBackend here too.
+        "MATCH (a:X {id: $a}), (b:Y {id: $b}) MERGE (a)-[:REL]->(b)", {}
+    )
+'''
+
+
 def self_check() -> None:
     """Prove: (1) each known-bad shape is caught, (2) the supported subset
-    and the typed-API convention are NOT flagged, (3) an allowlisted site is
-    NOT flagged, (4) a missing root fails closed."""
+    and the typed-API convention are NOT flagged, (3) a pragma'd site is NOT
+    flagged whether the pragma is above the call or trailing on it, (4) that
+    suppression survives unrelated code landing ABOVE the pragma'd site
+    (D-MW-11 — the whole point: no (file, line) anchor to drift), (5) a
+    missing root fails closed."""
     good_tree = ast.parse(_GOOD_FIXTURE)
     good_hits = _find_violations("fixture_good.py", _GOOD_FIXTURE, good_tree)
     if good_hits:
@@ -591,22 +589,45 @@ def self_check() -> None:
                 f"(found instead: {sorted(found_shapes)})"
             )
 
-    # The allowlist is checked by exact (relative_path, lineno) — reusing a
-    # real allowlisted entry's path with a fixture whose bad statement lands
-    # on that same line number proves the allowlist actually suppresses it
-    # (and, by construction of the loop above, that the *same shape* on a
-    # *different* line is still caught).
-    (alist_path, alist_line), _reason = next(iter(_ALLOWLIST.items()))
-    padded = "\n" * (alist_line - 2) + (
-        'def f(backend):\n    backend.execute("MATCH (a:X {id: $a}), (b:Y {id: $b}) '
-        'MERGE (a)-[:REL]->(b)", {})\n'
+    for label, fixture in (
+        ("above", _PRAGMA_ABOVE_FIXTURE),
+        ("trailing", _PRAGMA_TRAILING_FIXTURE),
+    ):
+        # Unpadded: the pragma suppresses the violation at its natural line.
+        tree = ast.parse(fixture)
+        hits = _find_violations(f"fixture_pragma_{label}.py", fixture, tree)
+        if hits:
+            raise CypherWriteSubsetGateError(
+                f"self-check: a {label}-pragma'd site was still flagged: "
+                f"{[v.render() for v in hits]}"
+            )
+        # Padded: 5 unrelated lines inserted ABOVE the whole fixture — the
+        # exact shape of a sibling lane landing code ahead of an allowlisted
+        # site (D-MW-11's reported failure mode). A line-number-anchored
+        # allowlist would miss this; the pragma travels with the statement.
+        padded = ("\n" * 5) + fixture
+        padded_tree = ast.parse(padded)
+        padded_hits = _find_violations(
+            f"fixture_pragma_{label}_padded.py", padded, padded_tree
+        )
+        if padded_hits:
+            raise CypherWriteSubsetGateError(
+                f"self-check: a {label}-pragma'd site was flagged after "
+                f"unrelated lines landed above it (line-anchor drift): "
+                f"{[v.render() for v in padded_hits]}"
+            )
+
+    # And the negative: the SAME bad shape with NO pragma at all is still
+    # caught — the pragma is not accidentally suppressing everything.
+    unpragma_tree = ast.parse(_BAD_FIXTURES["comma_pattern_match"])
+    unpragma_hits = _find_violations(
+        "fixture_no_pragma.py",
+        _BAD_FIXTURES["comma_pattern_match"],
+        unpragma_tree,
     )
-    tree = ast.parse(padded)
-    allowlisted_hits = _find_violations(alist_path, padded, tree)
-    if allowlisted_hits:
+    if not unpragma_hits:
         raise CypherWriteSubsetGateError(
-            "self-check: an allowlisted (path, line) was still flagged: "
-            f"{[v.render() for v in allowlisted_hits]}"
+            "self-check: a violation with NO pragma was incorrectly suppressed"
         )
 
     # Fail-closed: a nonexistent root must raise, not report a clean scan.

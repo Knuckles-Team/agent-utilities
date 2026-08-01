@@ -40,9 +40,9 @@ def owl_graph(engine_graph):
     SPARQL/OWL/SHACL assertions have content to reason over. The conftest fixture
     owns the engine lifecycle + tenant purge — this only seeds nodes.
     """
-    engine_graph.add_node("alice", type="Agent", name="Alice")
-    engine_graph.add_node("bob", type="Agent", name="Bob")
-    engine_graph.add_edge("alice", "bob", type="knows")
+    engine_graph.add_node("alice", node_type="Agent", name="Alice")
+    engine_graph.add_node("bob", node_type="Agent", name="Bob")
+    engine_graph.add_edge("alice", "bob", relationship="knows")
     return engine_graph
 
 
@@ -151,7 +151,7 @@ def test_shacl_gate_data_graph_from_engine(owl_graph):
 
     # An inline shape: every Agent must have a name. alice/bob HAVE names, so add a
     # nameless Agent and prove the engine-sourced data graph carries the violation.
-    owl_graph.add_node("ghost", type="Agent")
+    owl_graph.add_node("ghost", node_type="Agent")
     data2 = shacl_gate._data_graph_from_engine_rdf(owl_graph)
     import rdflib
 
@@ -187,11 +187,11 @@ def test_no_engine_fallback_still_works():
     import networkx as nx
 
     g = nx.MultiDiGraph()
-    g.add_node("a", type="symbol")
-    g.add_node("b", type="symbol")
-    g.add_node("c", type="symbol")
-    g.add_edge("a", "b", type="depends_on")
-    g.add_edge("b", "c", type="depends_on")
+    g.add_node("a", node_type="symbol")
+    g.add_node("b", node_type="symbol")
+    g.add_node("c", node_type="symbol")
+    g.add_edge("a", "b", relationship="depends_on")
+    g.add_edge("b", "c", relationship="depends_on")
 
     bridge = OWLBridge(graph=g, owl_backend=None, backend=None)
 

@@ -32,6 +32,10 @@ def _seed_chain(b):
         b.execute("MERGE (n:Code {id:$id}) SET n.name=$name", r)
     # The exact label-LESS edge shape ingest_external_batch emits.
     for s, t in [("top", "mid"), ("mid", "leaf")]:
+        # cypher-write-subset-allow: `_backend` (above) builds
+        # create_backend(backend_type="ladybug", ...) and skips unless
+        # type(b).__name__ == "LadybugBackend"; `.execute()` on it goes to
+        # Kuzu, not the native subset parser.
         b.execute(
             "MATCH (s {id:$source}) MATCH (t {id:$target}) MERGE (s)-[r:calls]->(t)",
             {"source": s, "target": t},

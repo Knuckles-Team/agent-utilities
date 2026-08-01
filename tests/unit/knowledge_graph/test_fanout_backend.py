@@ -442,6 +442,10 @@ def test_edge_write_replays_structurally_per_dialect(tmp_path):
     )
     try:
         # The engine's edge-write shape (IntelligenceGraphEngine._upsert_edge).
+        # cypher-write-subset-allow: constructs
+        # `lady, neo = LadybugBackend("lady"), Neo4jBackend("neo")` (both
+        # RecordingBackend test fakes) and fans a write through them via
+        # FanOutBackend — never through the native eg-query parser.
         fan.execute(
             "MATCH (s {id: $sid}) MATCH (t {id: $tid}) "
             "MERGE (s)-[r:DEPENDS_ON]->(t) SET r.`confidence` = $confidence",

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """``retrieve_hybrid`` runs ONE engine unified plan — no O(N) Python cosine scan.
 
-CONCEPT:AU-KG.compute.kg-2 / KG-2.238. The hand-orchestrated hybrid retriever's vector arm
+KG-2.238. The hand-orchestrated hybrid retriever's vector arm
 is collapsed onto the engine: the vector neighbourhood is computed by the engine's
 native ANN inside a single costed cross-modal plan (``query.unified``, falling to
 the native ``semantic_search`` ANN primitive if unified planning is unavailable), NEVER by an O(N)

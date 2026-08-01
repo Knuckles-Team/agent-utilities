@@ -78,7 +78,8 @@ def test_mcp_server_ingestion_and_discovery(mock_create_model, graph_engine):
 
     # 5. Verify agent is linked to tools
     links = graph_engine.query_cypher(
-        "MATCH (a:SpawnedAgent {id: $aid})-[:USES]->(r:CallableResource) RETURN r.name as name",
+        "MATCH (a:SpawnedAgent {id: $aid})-[:USES]->(r:CallableResource) "
+        "RETURN r.id as id, r.name as name",
         {"aid": agent_id},
     )
     assert len(links) > 0

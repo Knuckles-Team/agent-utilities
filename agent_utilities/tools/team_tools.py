@@ -84,7 +84,7 @@ async def list_team_tasks(ctx: RunContext[Any]) -> str:
 
     tasks = []
     for node_id, node_data in engine.graph.nodes(data=True):
-        if node_data.get("type") == "task":
+        if node_data.get("node_type") == "task":
             status = node_data.get("status", "pending")
             assigned = node_data.get("assigned_to", "unassigned")
             tasks.append(

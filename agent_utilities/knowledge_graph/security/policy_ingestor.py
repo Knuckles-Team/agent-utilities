@@ -390,7 +390,11 @@ class PolicyIngestor:
                 except Exception as exc:
                     logger.debug("Failed to embed policy (%s)", type(exc).__name__)
 
-            self.engine.graph.add_node(node.id, **node.model_dump())
+            # engine.graph.add_node() fail-closed rejects a literal 'type'
+            # property (the pydantic model's own type field) — use the same
+            # node/node_type translation _serialize_node already applies for
+            # the self.engine.backend branch below, instead of the raw dump.
+            self.engine.graph.add_node(node.id, **self.engine._serialize_node(node))
             if self.engine.backend:
                 data = self.engine._serialize_node(node, label="Policy")
                 self.engine._upsert_node("Policy", policy_id, data)
@@ -514,7 +518,10 @@ class PolicyIngestor:
                     },
                 )
 
-                self.engine.graph.add_node(node.id, **node.model_dump())
+                # See ingest_constitution's identical comment above.
+                self.engine.graph.add_node(
+                    node.id, **self.engine._serialize_node(node)
+                )
                 if self.engine.backend:
                     data = self.engine._serialize_node(node, label="Policy")
                     self.engine._upsert_node("Policy", policy_id, data)
