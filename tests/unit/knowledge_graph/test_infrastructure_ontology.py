@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 
@@ -99,33 +100,68 @@ def test_host_ingestion_and_sparql_matchmaking(mock_inventory_file):
     assert len(ingested) == 4
     assert any(node_id.startswith("host:pref_host_") for node_id in ingested)
 
-    # Verify LPG relationships were correctly created. The graph engine
-    # canonicalizes the relationship under ``rel_type`` (uppercased), so read
-    # edge data via get_edge_data rather than networkx adjacency subscripting.
+    # Verify LPG relationships were correctly created. link_nodes() (the typed
+    # engine API these edges now route through — see engine_infra.py's
+    # ingest_hosts_from_inventory) canonicalizes the relationship type
+    # (uppercased) on write, so read edge data via get_edge_data rather than
+    # networkx adjacency subscripting.
+    def _host_role(node_id: str) -> str:
+        # dict-valued properties (like HostNode.labels) are JSON-encoded for
+        # storage (IntelligenceGraphEngine._serialize_node) and come back as a
+        # JSON string, not a dict — see agent_utilities/knowledge_graph/core/
+        # engine.py's _serialize_node.
+        raw = engine.graph.nodes[node_id]["labels"]
+        labels = json.loads(raw) if isinstance(raw, str) else raw
+        return labels.get("role")
+
     storage_host = next(
-        node_id
-        for node_id in ingested
-        if engine.graph.nodes[node_id]["labels"].get("role") == "storage"
+        node_id for node_id in ingested if _host_role(node_id) == "storage"
     )
     storage_id = storage_host.replace("host:", "storage:", 1)
     assert engine.graph.has_edge(storage_host, storage_id)
     storage_edge = engine.graph.get_edge_data(storage_host, storage_id)[0]
-    assert storage_edge["rel_type"] == "ATTACHED_STORAGE"
+    assert storage_edge["relationship"] == "ATTACHED_STORAGE"
 
     accelerator_host = next(
-        node_id
-        for node_id in ingested
-        if engine.graph.nodes[node_id]["labels"].get("role") == "gpu"
+        node_id for node_id in ingested if _host_role(node_id) == "gpu"
     )
     accelerator_id = accelerator_host.replace("host:", "gpu:", 1)
     assert engine.graph.has_edge(accelerator_host, accelerator_id)
     gpu_edge = engine.graph.get_edge_data(accelerator_host, accelerator_id)[0]
-    assert gpu_edge["rel_type"] == "HAS_ACCELERATOR"
+    assert gpu_edge["relationship"] == "HAS_ACCELERATOR"
 
     # Matchmaking runs SPARQL over the OWL backend, which needs owlready2
     # (an optional extra). Skip that portion when it isn't installed, matching
     # the importorskip convention used by the other OWL test modules.
     pytest.importorskip("owlready2")
+
+    # generate_matchmaking_recommendations() only ever produces a recommendation
+    # per PlatformService node found via SPARQL (`?service rdf:type
+    # au:PlatformService`) — none exist yet (ingest_hosts_from_inventory only
+    # creates Host/GPUAccelerator/StorageArray nodes), so this seeds the three
+    # services the assertions below expect: one GPU-requiring, one
+    # storage-requiring, one high-compute-requiring.
+    for svc in (
+        PlatformServiceNode(
+            id="service:ollama",
+            name="ollama-service",
+            endpoint="http://ollama:11434",
+            labels={"requires_gpu": "true"},
+        ),
+        PlatformServiceNode(
+            id="service:postgres",
+            name="postgres",
+            endpoint="postgres://db:5432",
+            labels={"requires_storage": "true"},
+        ),
+        PlatformServiceNode(
+            id="service:reasoner",
+            name="reasoner",
+            endpoint="http://reasoner:8080",
+            labels={"requires_high_compute": "true"},
+        ),
+    ):
+        engine.graph.add_node(svc.id, **engine._serialize_node(svc))
 
     # Generate matchmaking recommendations
     recs = engine.generate_matchmaking_recommendations(

@@ -58,6 +58,7 @@ SOURCE_TO_CONNECTOR_PACKAGE: dict[str, str] = {
     "database": "native-source-connectors",
     "external_graph": "native-source-connectors",
     "filesystem": "native-source-connectors",
+    "git_markdown": "native-source-connectors",
     "graphql_document": "native-source-connectors",
     "reader": "native-source-connectors",
     "rest": "native-source-connectors",

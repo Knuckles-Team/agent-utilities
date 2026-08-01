@@ -444,6 +444,36 @@ def isolate_graph_compute_engine(monkeypatch):
 
     monkeypatch.setattr(graph_compute.GraphComputeEngine, "__init__", _isolated_init)
 
+    # A bare ``EpistemicGraphBackend()`` resolves its OWN routing graph via
+    # ``resolve_routing_graph()`` (tenant/default) before ever calling
+    # ``GraphComputeEngine.get_or_create()`` — by the time that call happens the
+    # graph name is already a concrete resolved string (e.g.
+    # ``tenant__<tenant>____commons__``), never the ``None``/``__commons__``/
+    # ``__secrets__`` sentinels the patch above matches. That resolved name then
+    # differs from ``root.graph_name`` (this test's isolated graph), so
+    # ``get_or_create()`` returns a ``for_graph()`` *view* — which never goes
+    # through the patched ``__init__`` above — fixed to the tenant's shared
+    # default graph. Every later operation on that view is then correctly
+    # fail-closed rejected by ``_send()`` (``session.graph != self._fixed_graph``)
+    # since the test's verified GraphSession targets its own isolated graph.
+    # The engine's guard is doing its job; the gap is that a bare backend
+    # construction bypasses test isolation. Patch the backend the same way.
+    from agent_utilities.knowledge_graph.backends import epistemic_graph_backend
+
+    _original_egb_init = epistemic_graph_backend.EpistemicGraphBackend.__init__
+
+    def _isolated_egb_init(self, graph_name: str | None = None, **kwargs):
+        effective_name = (
+            _test_graph_name
+            if graph_name in _default_graph_sentinels
+            else graph_name
+        )
+        _original_egb_init(self, graph_name=effective_name, **kwargs)
+
+    monkeypatch.setattr(
+        epistemic_graph_backend.EpistemicGraphBackend, "__init__", _isolated_egb_init
+    )
+
     def _isolated_get_or_create(cls, graph_name: str | None = None, **kwargs):
         # ``get_or_create`` re-derives its own "does this retarget the root?"
         # decision straight from the caller's raw ``graph_name`` — once a root

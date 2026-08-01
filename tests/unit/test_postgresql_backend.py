@@ -29,6 +29,10 @@ def mock_backend():
     backend._pggraph_available = False
     backend._pgvector_available = False
     backend._paradedb_available = False
+    # __new__ bypasses __init__, which normally sets this to None before any
+    # TLS profile resolution (see PostgreSQLBackend.__init__); close() reads
+    # it unconditionally, so it must exist here too.
+    backend._tls_trust = None
 
     # Mock connection and cursor
     mock_cur = MagicMock()

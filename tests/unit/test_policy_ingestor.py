@@ -236,10 +236,22 @@ class MockEngine:
         self.hybrid_retriever = MockHybridRetriever()
 
     def link_nodes(self, src, tgt, edge_type, metadata=None):
-        self.graph.add_edge(src, tgt, type=edge_type, **(metadata or {}))
+        self.graph.add_edge(src, tgt, relationship=edge_type, **(metadata or {}))
 
     def _serialize_node(self, node, label=None):
-        return node.model_dump()
+        # Mirror IntelligenceGraphEngine._serialize_node's "type"->"node_type"
+        # translation (agent_utilities/knowledge_graph/core/engine.py) — every
+        # RegistryNode subclass carries a pydantic "type" field, but
+        # GraphComputeEngine.add_node() fail-closed rejects a literal "type"
+        # property key (canonical is "node_type"). A raw model_dump() here
+        # made every add_node() call downstream of this mock raise.
+        data = node.model_dump()
+        if "type" in data:
+            node_type_value = data.pop("type")
+            data.setdefault(
+                "node_type", getattr(node_type_value, "value", node_type_value)
+            )
+        return data
 
     def _upsert_node(self, label, node_id, data):
         self.last_upsert = (label, node_id, data)
@@ -270,7 +282,7 @@ class TestPolicyIngestor:
 
         # Verify policy nodes were created
         policy_nodes = [
-            n for n, d in engine.graph.nodes(data=True) if d.get("type") == "policy"
+            n for n, d in engine.graph.nodes(data=True) if d.get("node_type") == "policy"
         ]
         assert len(policy_nodes) == stats["policies_ingested"]
 
@@ -285,7 +297,7 @@ class TestPolicyIngestor:
         project_nodes = [
             n
             for n, d in engine.graph.nodes(data=True)
-            if d.get("type") == "software_project"
+            if d.get("node_type") == "software_project"
         ]
         assert len(project_nodes) == 1
 
@@ -301,7 +313,7 @@ class TestPolicyIngestor:
         policy_data = [
             data
             for _, data in engine.graph.nodes(data=True)
-            if data.get("type") == "policy"
+            if data.get("node_type") == "policy"
         ]
         assert policy_data
         for data in policy_data:
