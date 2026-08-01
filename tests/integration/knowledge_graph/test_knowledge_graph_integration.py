@@ -352,10 +352,15 @@ class TestSelfImprovement:
         # Spawn agent and link to episode and prompt
         agent_id = engine.spawn_specialized_agent("review code", [])
 
+        # cypher-write-subset-allow: this module's `engine` fixture constructs
+        # IntelligenceGraphEngine(backend=LadybugBackend(temp_db)); `.execute()`
+        # here goes straight to Kuzu's full openCypher engine, never the
+        # native subset parser.
         engine.backend.execute(
             "MATCH (r:RunTrace), (a:SpawnedAgent) WHERE r.id = $rid AND a.id = $aid MERGE (r)-[:EXECUTED_ON]->(a)",
             {"rid": trace_id(ep_id), "aid": agent_id},
         )
+        # cypher-write-subset-allow: same LadybugBackend `engine` fixture as above.
         engine.backend.execute(
             "MATCH (a:SpawnedAgent), (p:SystemPrompt) WHERE a.id = $aid AND p.id = $pid MERGE (a)-[:USES]->(p)",
             {"aid": agent_id, "pid": base_id},
@@ -384,6 +389,8 @@ class TestMaintenance:
         engine.add_memory("Node B", name="B")
 
         # We must add edge to the backend since memory nodes go there, not NX
+        # cypher-write-subset-allow: same LadybugBackend `engine` fixture as
+        # TestSelfImprovement above.
         engine.backend.execute(
             "MATCH (a:Memory {name: 'A'}), (b:Memory {name: 'B'}) MERGE (a)-[:RELATED_TO]->(b)"
         )
