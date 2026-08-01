@@ -125,7 +125,7 @@ def test_clean_merge_that_does_not_import_is_rejected(canonical: Path) -> None:
     mq.enqueue(path=consumer)
     scope = lanes.lane_scope(canonical)
     head, accepted, conflicted = mq._build_chain(
-        canonical, "main", mq.queued(canonical)
+        canonical, "main", mq.queued(canonical), scope=scope
     )
     assert conflicted == [] and len(accepted) == 1  # git is perfectly happy
     changed = mq.changed_paths(canonical, "main", "lane-consumer")
@@ -967,3 +967,108 @@ def test_pre_existing_contract_debt_does_not_block_an_unrelated_candidate(
     assert check["ok"] is True
     assert "BAD_existing" in check["detail"]
     assert "pre-existing" in check["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Regenerate-on-land — a conflict confined to GENERATED_FILES is resolved by
+# regenerating them from the merged truth, never by rejecting the candidate
+# or picking a side (CONCEPT:AU-OS.governance.merge-queue-regenerate-on-land)
+# ---------------------------------------------------------------------------
+
+
+def _with_fake_generators(canonical: Path) -> None:
+    """Stub ``scripts/{build_concepts_yaml,gen_docs,gen_agents_md}.py`` that
+    write FIXED, deterministic content — enough to prove the regenerate-on-land
+    mechanism runs the real commands and uses their output, without needing the
+    real doc-generation logic in a synthetic test repo."""
+    _write(
+        canonical,
+        "scripts/build_concepts_yaml.py",
+        "from pathlib import Path\n"
+        "Path('docs').mkdir(exist_ok=True)\n"
+        "Path('docs/concepts.yaml').write_text('regenerated: true\\n')\n",
+    )
+    _write(
+        canonical,
+        "scripts/gen_docs.py",
+        "from pathlib import Path\n"
+        "Path('README.md').write_text('REGENERATED README\\n')\n",
+    )
+    _write(
+        canonical,
+        "scripts/gen_agents_md.py",
+        "from pathlib import Path\n"
+        "Path('docs').mkdir(exist_ok=True)\n"
+        "Path('AGENTS.md').write_text('REGENERATED AGENTS\\n')\n"
+        "Path('docs/project_structure.md').write_text('REGENERATED STRUCTURE\\n')\n",
+    )
+    _write(canonical, "docs/concepts.yaml", "concepts: stale\n")
+    _write(canonical, "README.md", "stale readme\n")
+    _write(canonical, "AGENTS.md", "stale agents\n")
+    _write(canonical, "docs/project_structure.md", "stale structure\n")
+    _commit(canonical, "add fake generators + generated files")
+
+
+def test_conflict_confined_to_generated_files_is_regenerated_not_rejected(
+    canonical: Path,
+) -> None:
+    """Two lanes each hand-edit README.md (simulating each having run its own
+    stale copy of the generator locally) alongside an UNRELATED source change.
+    Merging the two branches conflicts on README.md alone -- the real-world
+    shape the module docstring describes ("every land regenerates ... so
+    every other branch then conflicts"). The queue must resolve this itself
+    by regenerating GENERATED_FILES from the merged tree, landing BOTH
+    candidates, rather than rejecting either."""
+    _with_fake_generators(canonical)
+    a = _branch(
+        canonical,
+        "lane-a",
+        {"pkg/a.py": "A = 1\n", "README.md": "lane-a's stale regeneration\n"},
+    )
+    b = _branch(
+        canonical,
+        "lane-b",
+        {"pkg/b.py": "B = 1\n", "README.md": "lane-b's stale regeneration\n"},
+    )
+    mq.enqueue(path=a)
+    mq.enqueue(path=b)
+    # Confirm the premise BEFORE resolution: git itself cannot auto-merge the
+    # two branches' README.md edits -- that is the conflict this feature
+    # must catch and resolve, not something already harmless.
+    scope = lanes.lane_scope(canonical)
+    head0 = mq._require_git(["rev-parse", "main"], canonical)
+    raw_trial = mq.trial_merge(canonical, head0, "lane-a")
+    assert raw_trial.ok
+    chained = mq._commit_trial(canonical, raw_trial.tree, [head0], "premise: lane-a")
+    raw_trial_2 = mq.trial_merge(canonical, chained, "lane-b")
+    assert not raw_trial_2.ok and "README.md" in raw_trial_2.conflicts
+
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 2 and result["rejected"] == 0, result
+    head = mq._require_git(["rev-parse", "main"], canonical)
+    with mq.materialized(canonical, head, scope=scope) as tree:
+        # Regenerated from the (fake) generator, not either lane's stale copy.
+        assert (tree / "README.md").read_text() == "REGENERATED README\n"
+        assert (tree / "docs" / "concepts.yaml").read_text() == "regenerated: true\n"
+        assert (tree / "AGENTS.md").read_text() == "REGENERATED AGENTS\n"
+        assert (
+            tree / "docs" / "project_structure.md"
+        ).read_text() == "REGENERATED STRUCTURE\n"
+        # Both lanes' REAL (non-generated) source changes are present.
+        assert (tree / "pkg" / "a.py").read_text() == "A = 1\n"
+        assert (tree / "pkg" / "b.py").read_text() == "B = 1\n"
+
+
+def test_conflict_outside_generated_files_is_still_rejected(canonical: Path) -> None:
+    """The narrowness guarantee: if even one conflicted path falls OUTSIDE
+    GENERATED_FILES, regeneration must NOT kick in -- this stays a real,
+    human-resolvable conflict."""
+    _with_fake_generators(canonical)
+    c = _branch(canonical, "lane-c", {"pkg/core.py": "VALUE = 1\nC = 1\n"})
+    d = _branch(canonical, "lane-d", {"pkg/core.py": "VALUE = 1\nD = 1\n"})
+    mq.enqueue(path=c)
+    mq.enqueue(path=d)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 1 and result["rejected"] == 1, result
+    rejected = next(o for o in result["outcomes"] if not o["landed"])
+    assert "pkg/core.py" in rejected["reason"]
