@@ -1,0 +1,24 @@
+# Frozen baseline of CI environment builds that CANNOT resolve from a
+# tracked-only checkout today (a ratchet — burn down toward zero, same
+# convention as scripts/security/cypher_write_subset_baseline.txt and
+# scripts/security/log_exception_redaction_baseline.txt).
+#
+# Registered as D-CIP-2 in the deferred registry. NOT a permanent
+# exemption: security.yml's sync is genuinely broken on a GitHub runner
+# and every gate in that workflow is consequently skipped. It is
+# baselined rather than fixed because the fix is a real trade-off the
+# operator has to pick (see check_ci_environment_contract.py's module
+# docstring and reports/ci-parity-matrix-0801.md section 2a): adding
+# guardrails.yml's --no-install-package flags makes the sync resolve but
+# then reds check_sbom_licenses.py, which raises LicenseAuditError for a
+# declared dependency it cannot find in the installed environment.
+#
+# TAB-separated: workflow\tcommand
+#
+# A NEW unresolvable env build (not listed here) FAILS the gate — that is
+# the regression this exists to catch, and it is why baselining does not
+# weaken the check. A listed build that starts PASSING also fails the
+# gate, demanding the line be removed, so the file can only shrink.
+# Never hand-add an entry to make a real regression disappear; use
+# --update-baseline only when burning an entry down.
+security.yml	uv sync --frozen --group guardrails --extra agent-runtime

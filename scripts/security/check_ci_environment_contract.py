@@ -70,8 +70,11 @@ WORKFLOW_DIR = Path(".github/workflows")
 ENFORCED = re.compile(r"\buv\s+sync\b")
 REPORTED = re.compile(r"\bpip\s+install\s+(?:-e\s+\.|--editable\s+\.)")
 
-#: uv flags that take a value, so a replay can drop/keep them coherently.
 _TIMEOUT_SECONDS = 45
+
+#: Frozen list of env builds already known not to resolve — a ratchet, not an
+#: exemption. See the file's own header and :func:`load_baseline`.
+BASELINE_PATH = Path("scripts/security/ci_environment_contract_baseline.txt")
 
 
 @dataclass(frozen=True)
@@ -212,6 +215,27 @@ def replay(tree: Path, build: EnvBuild) -> tuple[bool, str]:
     return False, "\n".join(tail.splitlines()[-4:])
 
 
+def load_baseline(repo_root: Path) -> set[tuple[str, str]]:
+    """``{(workflow, command)}`` already known not to resolve.
+
+    A missing baseline file is an empty baseline — i.e. *stricter*, every
+    failure is new. That direction is deliberate: a lost or mistyped baseline
+    path must never silently excuse a real regression.
+    """
+    path = repo_root / BASELINE_PATH
+    if not path.is_file():
+        return set()
+    entries: set[tuple[str, str]] = set()
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        workflow, _, command = line.partition("\t")
+        if command:
+            entries.add((workflow.strip(), command.strip()))
+    return entries
+
+
 def check(repo_root: Path) -> tuple[int, dict]:
     builds = discover(repo_root)
     enforced = [b for b in builds if b.enforced]
@@ -230,25 +254,45 @@ def check(repo_root: Path) -> tuple[int, dict]:
             ),
         }
 
+    baseline = load_baseline(repo_root)
     with tempfile.TemporaryDirectory(prefix="ci-env-contract-") as tmp:
         tree = Path(tmp) / "tracked"
         export_tracked_tree(repo_root, tree)
         results = []
         failures = 0
+        stale: list[dict] = []
         for build in enforced:
             ok, detail = replay(tree, build)
-            failures += 0 if ok else 1
+            key = (build.workflow, build.command)
+            baselined = key in baseline
+            if not ok and baselined:
+                # Known-broken (D-CIP-2): reported, not counted. The ratchet.
+                status = "known-broken (baselined)"
+            elif not ok:
+                status = "NEW FAILURE"
+                failures += 1
+            elif baselined:
+                # Ratchet tightening: it resolves now, so the line must go.
+                status = "FIXED — remove from baseline"
+                failures += 1
+                stale.append({"workflow": build.workflow, "command": build.command})
+            else:
+                status = "resolved"
             results.append(
                 {
                     "workflow": build.workflow,
                     "command": build.command,
                     "ok": ok,
+                    "baselined": baselined,
+                    "status": status,
                     "detail": detail,
                 }
             )
 
     payload = {
         "ok": failures == 0,
+        "baselinedKnownBroken": sorted(f"{w}: {c}" for w, c in baseline),
+        "staleBaselineEntries": stale,
         "enforced": results,
         "notReplayed": [
             {
@@ -265,10 +309,12 @@ def check(repo_root: Path) -> tuple[int, dict]:
     }
     if failures:
         payload["error"] = (
-            f"{failures} CI environment build(s) cannot resolve from a "
-            "tracked-only checkout — every gate in the affected workflow(s) "
-            "would be skipped and the workflow would red out before running "
-            "a single contract check"
+            f"{failures} CI environment build(s) regressed against "
+            f"{BASELINE_PATH}. A build that newly fails to resolve means every "
+            "gate in that workflow would be skipped and the workflow would red "
+            "out before running a single contract check. A build listed as "
+            "known-broken that now RESOLVES must be removed from the baseline "
+            "— the ratchet only shrinks."
         )
     return (1 if failures else 0), payload
 
@@ -315,6 +361,28 @@ def self_check(repo_root: Path) -> None:
             )
     finally:
         empty.cleanup()
+
+    # 4 + 5. The ratchet must move in BOTH directions, or baselining would be
+    # a silent exemption rather than tracked debt.
+    baseline = load_baseline(repo_root)
+    if not baseline:
+        raise AssertionError(
+            f"self-check: {BASELINE_PATH} parsed to ZERO entries — either it "
+            "was lost or its format drifted. An empty baseline silently turns "
+            "every known-broken build into a hard failure, so verify it is "
+            "genuinely burned down before accepting this"
+        )
+    known_broken = {
+        (r["workflow"], r["command"])
+        for r in check(repo_root)[1].get("enforced", [])
+        if r.get("baselined") and not r.get("ok")
+    }
+    if not known_broken:
+        raise AssertionError(
+            "self-check: no baselined entry is actually failing — every line "
+            f"in {BASELINE_PATH} is stale and must be removed (the ratchet "
+            "only shrinks); a baseline that excuses nothing real is dead weight"
+        )
 
 
 def main() -> int:
