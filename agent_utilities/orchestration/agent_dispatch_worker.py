@@ -601,7 +601,7 @@ def _write_work_item_provenance(
             confidence=confidence,
             source="agent-dispatch",
         )
-        obs_props = observation.model_dump(exclude={"id", "type"})
+        obs_props = observation.to_graph_properties(exclude={"id"})
         obs_props["work_item_id"] = work_item_id
         obs_props["lease_id"] = lease_id
         engine.add_node(obs_id, "Observation", properties=obs_props)
@@ -616,7 +616,7 @@ def _write_work_item_provenance(
             claim_type="decision",
             is_verified=policy_decision_node.allowed,
         )
-        claim_props = policy_claim.model_dump(exclude={"id", "type"})
+        claim_props = policy_claim.to_graph_properties(exclude={"id"})
         claim_props["work_item_id"] = work_item_id
         claim_props["policy_decision_id"] = policy_decision_node.id
         engine.add_node(claim_node_id, "Claim", properties=claim_props)
@@ -628,7 +628,7 @@ def _write_work_item_provenance(
             status=status,
             result=clean_result[:4000],
         )
-        action_props = action.model_dump(exclude={"id", "type"})
+        action_props = action.to_graph_properties(exclude={"id"})
         action_props["work_item_id"] = work_item_id
         action_props["lease_id"] = lease_id
         action_props["policy_decision_id"] = policy_decision_node.id
@@ -644,7 +644,7 @@ def _write_work_item_provenance(
             status="ok" if status == "completed" else "error",
             outcome=status,
         )
-        trace_props = trace.model_dump(exclude={"id", "type"})
+        trace_props = trace.to_graph_properties(exclude={"id"})
         trace_props["lease_id"] = lease_id
         engine.add_node(trace_id, "Trace", properties=trace_props)
     except Exception as e:  # noqa: BLE001 — provenance is audit, never blocks the outcome
@@ -696,7 +696,7 @@ def _finalize_work_item(
         engine.add_node(
             outcome_id,
             "OutcomeEvaluation",
-            properties=outcome.model_dump(exclude={"id", "type"}),
+            properties=outcome.to_graph_properties(exclude={"id"}),
         )
     except Exception as e:  # noqa: BLE001 — writeback is durable-best-effort
         logger.warning("work-item outcome append failed (%s)", type(e).__name__)
@@ -913,6 +913,169 @@ def execute_work_item_turn(
     return status
 
 
+def _default_agent_task_executor(claim: dict[str, Any]) -> str:
+    """Structural default executor: FAILS CLOSED — no executor bound means no
+    work ran (mirrors :func:`_default_work_item_executor`'s discipline for
+    the AgentTask-specific, single-argument executor contract below).
+    """
+    raise NoExecutorBoundError(
+        f"no executor bound for AgentTask {claim.get('task_id')}"
+    )
+
+
+def _finalize_agent_task(
+    engine: Any,
+    work_item_id: str,
+    claim: dict[str, Any],
+    *,
+    status: str,
+) -> str | None:
+    """Commit an executed ``:AgentTask`` turn's WorkItem shadow.
+
+    Mirrors :func:`_finalize_work_item`'s pattern for the AgentTask-specific
+    bridge: commits through :func:`~agent_utilities.orchestration.work_item
+    .commit_agent_task_work_item` (native dependency release, DLQ, idempotent
+    commit), then mirrors the TERMINAL legacy ``:AgentTask.status`` for
+    unmigrated readers (``fleet_reconciler``, dashboards) —
+    ``claim_agent_task_via_work_item`` already mirrored ``"running"`` at
+    claim time.
+    """
+    if engine is None:
+        return None
+    if claim.get("work_item_id") != work_item_id:
+        return None
+
+    from agent_utilities.orchestration.work_item import commit_agent_task_work_item
+
+    try:
+        committed = commit_agent_task_work_item(
+            engine, work_item_id, claim, status=status
+        )
+    except Exception as exc:  # noqa: BLE001 — commit API is fail-closed/no-raise
+        logger.warning("AgentTask WorkItem commit failed (%s)", type(exc).__name__)
+        return "conflict"
+
+    task_id = str(claim.get("task_id") or "")
+    if task_id:
+        try:
+            engine.add_node(task_id, "AgentTask", properties={"status": status})
+        except Exception as e:  # noqa: BLE001 — mirror is best-effort
+            logger.warning(
+                "legacy AgentTask status mirror failed for %s: %s", task_id, e
+            )
+
+    return committed
+
+
+def execute_agent_task_turn(
+    engine: Any,
+    task_id: str,
+    *,
+    agent_id: str = "",
+    executor: Callable[[dict[str, Any]], Any] | None = None,
+    token: str | None = None,
+    now: float | None = None,
+    claim_ttl_s: float | None = None,
+) -> str:
+    """Claim, execute, and commit one durable ``:AgentTask`` turn (AU-P1-1 MIGRATED path).
+
+    The bridge counterpart of :func:`execute_work_item_turn` for the legacy
+    ``:AgentTask``/``TASK_DEPENDS_ON`` DAG shape (``TeamComposition
+    .to_durable_task_dag``): claims through
+    :func:`~agent_utilities.orchestration.engine_claim.claim_agent_task`
+    (which shadows the task 1:1 onto a WorkItem — see
+    :func:`~agent_utilities.orchestration.work_item.ensure_agent_task_work_item`
+    — and mirrors the legacy ``:AgentTask``/``:AgentLease`` nodes for
+    unmigrated readers), runs the bound ``executor(claim)``, then commits
+    through the SAME fenced WorkItem authority :func:`execute_work_item_turn`
+    uses, with native cross-task dependency release.
+
+    Outcomes: ``"skipped"`` (duplicate delivery / live claim elsewhere),
+    ``"unroutable"`` (no executor was bound — terminal, AU-P0-3 fail-closed),
+    ``"fenced"`` (this holder's lease was reclaimed by a newer holder before
+    it could commit — no writeback happens), ``"completed"`` | ``"failed"``
+    (the executor ran; writeback recorded, dependents released on success).
+    Never raises — an executor exception is caught and recorded as a failed
+    outcome.
+
+    The executor signature is ``executor(claim)`` — simpler than
+    :func:`execute_work_item_turn`'s ``executor(claim, lease_guard)``, since
+    an AgentTask body is typically a short, already-fenced unit of work
+    (``TeamComposition``-authored tasks) rather than the long-running,
+    self-renewing computation that seam is for; use
+    :func:`execute_work_item_turn` directly if a task body needs its own
+    ``lease_guard.side_effect`` renewal points.
+
+    Unlike :func:`execute_work_item_turn`, this does not (yet) route through
+    ``action_policy``'s governance gate or issue a capability grant — no
+    caller of the legacy ``:AgentTask`` DAG shape requires per-action policy
+    review today. A future caller that does should compose
+    :func:`execute_work_item_turn` directly against the same WorkItem shadow
+    rather than extending this function's contract.
+    """
+    token = token or worker_token()
+    now = now if now is not None else time.time()
+    claim_ttl_s = _claim_ttl_seconds(claim_ttl_s)
+
+    from agent_utilities.orchestration.engine_claim import claim_agent_task
+
+    claim = claim_agent_task(
+        engine, task_id, token=token, now=now, claim_ttl_s=claim_ttl_s
+    )
+    if claim is None:
+        return "skipped"
+
+    work_item_id = str(claim.get("work_item_id") or "")
+    if not work_item_id:
+        # No live claim backend produces a claim without one; fail closed
+        # rather than commit against an unverifiable authority.
+        logger.warning(
+            "AgentTask %s claim carries no work_item_id; commit rejected", task_id
+        )
+        return "fenced"
+
+    lease = WorkItemLeaseGuard(engine, work_item_id, claim, lease_ttl_s=claim_ttl_s)
+    try:
+        lease.start()
+        try:
+            lease.require_current()
+            result = (executor or _default_agent_task_executor)(claim)
+            status = "completed"
+        except WorkItemLeaseLost:
+            raise
+        except NoExecutorBoundError as e:
+            result = str(e)
+            status = "unroutable"
+        except Exception as e:  # noqa: BLE001 — durably record, never raise
+            result = str(e)
+            status = "failed"
+
+        finalization = lease.side_effect(
+            _finalize_agent_task,
+            engine,
+            work_item_id,
+            claim,
+            status=status,
+        )
+    except WorkItemLeaseLost:
+        logger.warning(
+            "AgentTask %s: renewable fence was lost; result discarded", task_id
+        )
+        return "fenced"
+    finally:
+        lease.close()
+    if finalization in {"fenced", "missing", "conflict", None}:
+        return "fenced"
+    logger.debug(
+        "AgentTask %s turn finished: %s (agent=%s, result=%s)",
+        task_id,
+        status,
+        agent_id,
+        result,
+    )
+    return status
+
+
 # ── execution (the existing bodies, relocated) ─────────────────────────────
 
 
@@ -1049,6 +1212,19 @@ def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
             from agent_utilities.orchestration import work_item as _wi
 
             item_id = _wi.loop_work_item_id(gid)
+            # A goal past its dispatch deadline before ever being claimed has
+            # no loop WorkItem yet — create_goal registers only the dispatch
+            # envelope's own WorkItem eagerly (submit_work_item above); the
+            # goal's OWN loop WorkItem is otherwise created lazily by
+            # run_goal_loop's submit_loop() on first execution, which this
+            # goal never reached. cancel_work_item on a nonexistent item is a
+            # silent no-op, so the goal's status (the WorkItem is the sole
+            # authority, AU-P1-1) would incorrectly stay "submitted" forever
+            # instead of the "cancelled" terminal outcome this expiry
+            # represents. ensure_loop_work_item is idempotent (upserts), so
+            # this is a no-op when the item already exists (e.g. a goal that
+            # WAS claimed at least once before this deadline check).
+            _wi.ensure_loop_work_item(goal_engine, gid)
             if _wi.cancel_work_item(
                 goal_engine,
                 item_id,

@@ -33,6 +33,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .session import GraphSession
 
 from ...core.registry.kg_adapter import FocusedSubgraph, RegistryMixin
+from ...models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    RegistryNode,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 from ...security.identifiers import validate_identifier
 from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
@@ -252,7 +258,7 @@ class IntelligenceGraphEngine(
             registry = ServiceRegistry.instance()
             registry.initialize()
             count = registry.register_with_kg(self)
-            self._services_registered = True
+            self._services_registered = count > 0
             logger.info(
                 "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] Registered %d services with KG engine",
                 count,
@@ -450,21 +456,16 @@ class IntelligenceGraphEngine(
 
     def _serialize_node(self, node: Any, label: str | None = None) -> dict[str, Any]:
         """Serialize a Pydantic node for backend storage, handling Enums and JSON fields."""
-        data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
+        # Every RegistryNode subclass carries the node class as a Pydantic `type`
+        # field, but the engine's sole canonical node-class PROPERTY is
+        # `node_type` — both EpistemicGraphBackend.add_node and
+        # GraphComputeEngine.add_node raise on a stray 'type' key. The rename is
+        # owned by the one named projection on the model.
+        if isinstance(node, RegistryNode):
+            data = node.to_graph_properties()
+        else:
+            data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
         clean_data = {}
-
-        # Every RegistryNode subclass still carries a Pydantic `type` field, but the
-        # engine retired the 'type' node PROPERTY in favor of 'node_type' (add_node's
-        # own explicit argument) — EpistemicGraphBackend.add_node/GraphComputeEngine.add_node
-        # both raise on a stray 'type' key. Fold it into 'node_type' here, mirroring
-        # the same rename ``core/ogm.py``'s ``KGMapper._serialize`` already performs, so
-        # every caller of this helper (``_upsert_node``/``add_node``-bound) emits the
-        # current property name instead of the retired one.
-        if "type" in data:
-            node_type_value = data.pop("type")
-            data.setdefault(
-                "node_type", getattr(node_type_value, "value", node_type_value)
-            )
 
         # Define fields that Ladybug supports as native arrays
         ARRAY_FIELDS = [
@@ -997,9 +998,7 @@ class IntelligenceGraphEngine(
         node_type = self._normalize_label(node_type)
         props = dict(properties or {})
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is retired; use the node_type argument"
-            )
+            raise retired_node_type_property_error()
         props["node_type"] = node_type
         # Flag types outside an EXCLUSIVE pack, observe-only (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
         self._audit_candidate_type("node", node_type)
@@ -1048,15 +1047,9 @@ class IntelligenceGraphEngine(
         if not str(rel_type).strip():
             raise ValueError("rel_type is required")
 
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            properties
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(properties)
         if aliases:
-            names = ", ".join(sorted(aliases))
-            raise ValueError(
-                f"edge relationship aliases are retired ({names}); "
-                "use the rel_type argument"
-            )
+            raise retired_edge_relationship_property_error(aliases)
 
         with use_actor(session.actor):
             if self.backend and not ephemeral:

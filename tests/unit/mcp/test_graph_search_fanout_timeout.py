@@ -56,7 +56,9 @@ class _FakeSearchEngine:
         self._results = results or []
         self._delay = delay
 
-    def search_hybrid(self, query, top_k, self_correct=False, as_of=None):
+    def search_hybrid(
+        self, query, top_k, self_correct=False, as_of=None, session=None
+    ):
         if self._delay:
             time.sleep(self._delay)
         return self._results

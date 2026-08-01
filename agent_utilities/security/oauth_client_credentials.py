@@ -821,8 +821,8 @@ def build_provider_from_config(
 
     try:
         client_secret = _resolve(cfg.client_secret)
-    except Exception:
-        raise ValueError("oauth2.client_secret did not resolve") from None
+    except Exception as exc:
+        raise ValueError("oauth2.client_secret did not resolve") from exc
     if not client_secret:
         raise ValueError(
             "oauth2.client_secret did not resolve through the configured secrets backend"
@@ -833,8 +833,8 @@ def build_provider_from_config(
             if _looks_like_secret_ref(cfg.client_id)
             else cfg.client_id
         )
-    except Exception:
-        raise ValueError("oauth2.client_id did not resolve") from None
+    except Exception as exc:
+        raise ValueError("oauth2.client_id did not resolve") from exc
     if not client_id:
         raise ValueError("oauth2.client_id did not resolve")
 

@@ -469,7 +469,7 @@ def record_evidence(engine: Any, evidence: Evidence) -> str | None:
         engine.add_node(
             node.id,
             "EvolutionEvidence",
-            properties=node.model_dump(mode="json", exclude={"type"}),
+            properties=node.to_graph_properties(),
         )
     except Exception as e:  # noqa: BLE001 — best-effort writeback
         logger.debug("evidence: record failed for %s: %s", node.id, e)

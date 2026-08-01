@@ -212,7 +212,7 @@ class TeamCapability(AbstractCapability[Any]):
                 engine.add_node(
                     node.id,
                     str(node.type),
-                    properties=node.model_dump(exclude={"id", "type"}),
+                    properties=node.to_graph_properties(exclude={"id"}),
                 )
                 for member in persisted_members:
                     # Link members to team
@@ -406,6 +406,6 @@ class TeamCapability(AbstractCapability[Any]):
 
         members: list[str] = []
         for src, tgt, data in engine.graph.in_edges(self.team_id, data=True):
-            if data.get("type") == "BELONGS_TO_TEAM":
+            if data.get("relationship") == "BELONGS_TO_TEAM":
                 members.append(src)
         return members or list(self.members)

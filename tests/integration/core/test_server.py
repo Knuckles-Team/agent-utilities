@@ -19,19 +19,108 @@ def mock_agent():
 
 @pytest.fixture
 def client(mock_agent):
-    # Mocking create_agent to return our mock_agent
-    with patch(
-        "agent_utilities.server.app.create_agent", return_value=(mock_agent, [])
-    ):
-        app = build_agent_app(
-            provider="test-provider",
-            model_id="test-model",
-            enable_web_ui=False,
-            enable_acp=False,
-            enable_otel=False,
-            graph_bundle=("graph", "config"),
-        )
-        return TestClient(app)
+    # This file exercises route/handler behavior (chat listing, MCP config,
+    # approvals, codemap generation, streaming, ...), not the auth boundary
+    # itself — that is test_security_server.py's job (it asserts the 401/403
+    # shape directly). The server now requires a verified Bearer identity on
+    # every non-health route by default (CONCEPT:AU-OS.config.secrets-authentication), so give every
+    # request here one, the same way test_security_server.py's ``secure_client``
+    # does: patch the auth seam to accept one fixed token and default it onto
+    # every request via the TestClient's own default headers.
+    import agent_utilities.core.config as _config_module
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    # ActorIdentityMiddleware 401s ANY request carrying a bearer token when
+    # JWT auth isn't configured at all ("Token validation unavailable") — even
+    # for otherwise-unauthenticated paths like /health — so this must be set
+    # for every request in this file to reach its handler, not just the ones
+    # asserting a specific status code.
+    original_jwks = _config_module.config.auth_jwt_jwks_uri
+    original_issuer = _config_module.config.auth_jwt_issuer
+    original_audience = _config_module.config.auth_jwt_audience
+    _config_module.config.auth_jwt_jwks_uri = "https://identity.example.test/jwks"
+    _config_module.config.auth_jwt_issuer = "https://identity.example.test"
+    _config_module.config.auth_jwt_audience = "agent-services"
+
+    actor = ActorContext(
+        actor_id="test-subject",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id="test-tenant",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant="test-tenant",
+        scopes=frozenset({"kg:read", "kg:write", "kg:admin", "*"}),
+        policy_version="test-policy",
+        audience="agent-services",
+    )
+
+    async def authenticate(*, authorization):
+        if authorization != [b"Bearer test-token"]:
+            raise PermissionError("authentication required")
+        # "api_key" (not "jwt") short-circuits the fine-grained per-route
+        # capability check in agent_ui.py's _require_agent_invoke (and
+        # similar dependencies elsewhere) — this file's synthetic identity is
+        # a full-access system test credential, not a narrowly-scoped user
+        # JWT, so it should behave like one instead of also needing every
+        # route's specific identity_group_capability_map entry configured.
+        return {
+            "auth_type": "api_key",
+            "sub": "test-subject",
+            "tenant_id": "test-tenant",
+            "scope": "*",
+        }
+
+    async def actor_from_bearer_token(token):
+        if token != "test-token":
+            raise PermissionError("invalid token")
+        return actor
+
+    # Mocking create_agent to return our mock_agent. The auth patches must stay
+    # active for the LIFETIME of the yielded client, not just app construction —
+    # authentication runs per-request, at request time, well after this fixture
+    # function would otherwise have returned — so this is a generator fixture
+    # that yields from inside the ``with`` block (mirroring secure_client).
+    try:
+        with (
+            patch(
+                "agent_utilities.server.app.create_agent",
+                return_value=(mock_agent, []),
+            ),
+            patch(
+                "agent_utilities.security.auth.authenticate_header_values",
+                new=authenticate,
+            ),
+            patch(
+                "agent_utilities.security.request_identity.actor_from_claims",
+                return_value=actor,
+            ),
+            patch(
+                "agent_utilities.security.request_identity.actor_from_bearer_token",
+                new=actor_from_bearer_token,
+            ),
+            patch(
+                "agent_utilities.security.request_identity.mint_graph_session",
+                return_value=session,
+            ),
+        ):
+            app = build_agent_app(
+                provider="test-provider",
+                model_id="test-model",
+                enable_web_ui=False,
+                enable_acp=False,
+                enable_otel=False,
+                graph_bundle=("graph", "config"),
+            )
+            yield TestClient(app, headers={"Authorization": "Bearer test-token"})
+    finally:
+        _config_module.config.auth_jwt_jwks_uri = original_jwks
+        _config_module.config.auth_jwt_issuer = original_issuer
+        _config_module.config.auth_jwt_audience = original_audience
 
 
 def test_health_check(client):
@@ -109,14 +198,18 @@ def test_resolve_approval_not_found(client):
 
 @pytest.mark.asyncio
 async def test_reload_mcp_config(client):
-    # We must patch where it's used if it's a local import, or use the full path
+    # reload_mcp_config() imports get_discovery_registry lazily, function-
+    # local (`from ...core.config import get_discovery_registry`), so it is
+    # never bound as a module-level attribute of
+    # agent_utilities.server.routers.interop — patching it there raises
+    # AttributeError. Patch it at its actual definition site
+    # (agent_utilities.core.config); the lazy import re-resolves the patched
+    # name on every call.
     with (
         patch(
             "agent_utilities.mcp.agent_manager.sync_mcp_agents", new_callable=AsyncMock
         ),
-        patch(
-            "agent_utilities.server.routers.interop.get_discovery_registry"
-        ) as mock_reg,
+        patch("agent_utilities.core.config.get_discovery_registry") as mock_reg,
     ):
         mock_reg.return_value.agents = [1, 2]
         mock_reg.return_value.tools = [1, 2, 3]

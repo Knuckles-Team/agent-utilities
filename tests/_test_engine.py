@@ -48,6 +48,18 @@ TEST_SIGNER_KEY = "agent-utilities-test-operation-signer"  # nosec B105 - test o
 TEST_AUDIENCE = "epistemic-graph-test"
 TEST_TENANT = "tenant:test"
 TEST_POLICY_VERSION = "policy:test"
+#: Fixed data-at-rest key for the ephemeral test engine's durable transaction/
+#: blob substrate (the native engine's txn/blob commit paths refuse to run
+#: without one — "transaction durability requires EPISTEMIC_GRAPH_ENCRYPTION_KEY
+#: to be configured"). Kept OUT of ``strict_server_env`` deliberately —
+#: ``test_ephemeral_engine_environment.py`` asserts that function's return
+#: value by exact dict equality, so this is merged directly into
+#: :meth:`EphemeralEngine.start`'s env instead of widening that contract.
+#: >= 32 bytes as required by ``_ENGINE_ENCRYPTION_KEY_MIN_BYTES``; test-only,
+#: never a real credential.
+TEST_ENGINE_ENCRYPTION_KEY = (  # nosec B105 - test only
+    "agent-utilities-test-engine-encryption-key-0123456789abcdef"
+)
 
 
 def request_context(
@@ -216,6 +228,9 @@ class EphemeralEngine:
             # Be a durable source of truth in tests too (redb authoritative is the
             # default when a persist dir is set) — exactly the shipped behaviour.
             "GRAPH_SERVICE_PERSIST_DIR": self._persist_dir,
+            # Required for the engine's durable txn/blob commit paths (media
+            # store, ACID cross-modal writes, ...) — see TEST_ENGINE_ENCRYPTION_KEY.
+            "EPISTEMIC_GRAPH_ENCRYPTION_KEY": TEST_ENGINE_ENCRYPTION_KEY,
         }
         self._proc = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
             [

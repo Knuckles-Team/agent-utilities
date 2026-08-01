@@ -745,6 +745,11 @@ class LoopController:
         if not force and restrict_to is None and pre and pre == self._load_watermark():
             return {"skipped": True, "reason": "unchanged", "watermark": pre}
 
+        from agent_utilities.core.resource_priority import (
+            PriorityClass,
+            priority_scope,
+        )
+
         from ..assimilation import (
             ConceptMatcher,
             dedup_features,
@@ -753,11 +758,6 @@ class LoopController:
             synergy_bundles,
         )
         from ..assimilation.gap_analysis import _CONCEPT_TYPES, _FEATURE_TYPES
-        from agent_utilities.core.resource_priority import (
-            PriorityClass,
-            priority_scope,
-        )
-
         from ..core.ingest_profile import stage as _pstage  # OS-5.70 per-stage timing
 
         # Feature dedup is a WHOLE-GRAPH ecosystem op (SUPERSEDES clustering); skip it
@@ -1453,7 +1453,7 @@ class LoopController:
                     claim.id,
                     "Claim",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": "proposal",
                         "evidence_bundle_json": bundle.model_dump_json(),
                     },
@@ -1672,7 +1672,7 @@ class LoopController:
                     claim.id,
                     "Claim",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": "active",
                         "is_verified": True,
                         "evidence_bundle_json": bundle.model_dump_json(),
@@ -1818,7 +1818,7 @@ class LoopController:
                     claim.id,
                     "Claim",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": "proposal",
                         "evidence_bundle_json": bundle.model_dump_json(),
                     },
@@ -2402,7 +2402,9 @@ class LoopController:
             # (never resurfaced again). Only declare the topic addressed when at least one
             # ADDRESSES/ADDRESSED_BY edge was actually written; otherwise stay "pending" so
             # the next cycle retries the link instead of silently losing it.
-            written = mark_addressed(self.engine, loop["id"], srcs, source="loop_engine")
+            written = mark_addressed(
+                self.engine, loop["id"], srcs, source="loop_engine"
+            )
             if written:
                 return {
                     "status": "completed",

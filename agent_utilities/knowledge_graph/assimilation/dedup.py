@@ -51,7 +51,7 @@ class DedupReport:
     low_entropy_skipped: int = 0
     # version-variant pairs LINKED (not merged) as VARIANT_OF (CONCEPT:AU-AHE.assimilation.transliteration-singularization-extend-ahe)
     variants_linked: int = 0
-    # proposals applied from the engine ResolveCandidates escalation (CONCEPT:AU-KG.compute.when-exposes-native)
+    # proposals applied from the engine ResolveCandidates escalation
     engine_proposals: int = 0
 
 
@@ -300,7 +300,7 @@ def dedup_features(
                 },
             )
 
-    # Server-side escalation (CONCEPT:AU-KG.compute.when-exposes-native): when the engine exposes the native
+    # Server-side escalation: when the engine exposes the native
     # ResolveCandidates op, escalate the ambiguous residual to it — embedding
     # similarity + clustering yields same_as (merge) AND extends (variant) proposals
     # the local name-only pass can't produce. Capability-gated + best-effort: a no-op

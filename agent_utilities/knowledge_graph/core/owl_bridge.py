@@ -348,7 +348,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "surveillance_signal",
     # Connector → Skill synthesis proposals (CONCEPT:AU-KG.ontology.connector-agnostic-proposal) — the distiller's
     # propose-only candidates; OWL reasoning runs transitive/inverse over their
-    # automates/derived_from/composes edges (CONCEPT:AU-KG.compute.automates).
+    # automates/derived_from/composes edges.
     "skill_proposal",
     "skill_workflow_proposal",
     # Ops / platform connectors as typed OWL entities (CONCEPT:AU-KG.compute.dockerhub-repositories–2.161).
@@ -1315,6 +1315,11 @@ class OWLBridge:
             for key, value in data.items():
                 if key in ("embedding", "ewc_fisher_diag"):
                     continue  # Skip large float arrays
+                if key == "node_type":
+                    continue  # Already materialized above as rdf:type — the engine's
+                    # own LPG->RDF projection folds node_type into rdf:type and does
+                    # NOT re-emit it as a literal property triple, so this fallback
+                    # must match that projection (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
                 prop = AU[quote(str(key), safe="")]
                 if isinstance(value, str) and value:
                     g.add((node_uri, prop, rdflib.Literal(value)))
