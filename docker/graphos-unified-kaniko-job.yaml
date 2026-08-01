@@ -1,11 +1,21 @@
 # W-C — builds docker/graphos-unified.Dockerfile via kaniko (no dockerd on the hosts;
-# Docker is sunset cluster-wide) and pushes to Docker Hub. Run once, ad hoc:
+# Docker is sunset cluster-wide) and pushes to Docker Hub. Run once, ad hoc.
 #
-#   kubectl apply -f docker/graphos-unified-kaniko-job.yaml
+# D-PCC-1: this manifest is node-pinned by construction (a kaniko build context is a
+# literal hostPath, and kubectl does no env substitution), which used to mean every
+# host-specific value -- including a personal account path -- was baked in as a tracked
+# literal. Templated via envsubst instead, so the tracked file carries zero host-specific
+# strings; see docker/kaniko-build.env.example for what each variable means and a safe
+# placeholder value.
+#
+#   export KANIKO_BUILD_NODE=<node hostname>              # e.g. the NFS server this workspace lives on
+#   export WORKSPACE_HOSTPATH=<this au worktree's path on that node>
+#   export EG_WHEEL_HOSTPATH=<the staged eg wheel's path on that node>
+#   envsubst < docker/graphos-unified-kaniko-job.yaml | kubectl apply -f -
 #   kubectl logs -n image-build -f job/graphos-unified-image-build
 #
 # Prereqs this manifest assumes are already in place (not created by this file):
-#   1. The au worktree checked out at the hostPath below (git worktree add ... wC-unified-image),
+#   1. The au worktree checked out at WORKSPACE_HOSTPATH (git worktree add ... <name>),
 #      materialized under the shared `apps` build account, NOT a personal account (D-PCC-1: GitHub
 #      is public-facing, so tracked manifests must never leak a personal account name).
 #   2. A Secret `kaniko-dockerhub-config` in the `image-build` namespace holding a standard
@@ -17,16 +27,16 @@
 #      used to push those — reused here rather than fabricated.)
 #
 # Context composition: kaniko takes exactly ONE --context directory. The build needs BOTH
-# the au worktree (the Dockerfile + source) AND the staged eg wheel (which lives under
-# /home/apps/eg-wheel on this same node, outside the worktree). Rather than copying the
+# the au worktree (the Dockerfile + source) AND the staged eg wheel (which lives at
+# EG_WHEEL_HOSTPATH on this same node, outside the worktree). Rather than copying the
 # 77MB wheel into the worktree (git-tracked bloat) or hardlinking it, this Job mounts the
 # eg-wheel hostPath AT a path *inside* the workspace mount (build-artifacts/eg-wheel/) — a
 # pod-local mount composition, not a change to either directory on disk. This path is at
 # the context ROOT, not under docker/ — this repo's .dockerignore excludes `docker/*`
 # wholesale, which would silently drop anything staged there from the build context (hit
 # this the hard way on the first attempt: kaniko logged "No files to copy" and the
-# subsequent `uv pip install` failed with "Distribution not found"). Both hostPaths are on
-# rw710 (the NFS server this whole workspace lives on), hence the nodeSelector.
+# subsequent `uv pip install` failed with "Distribution not found"). Both hostPaths must be
+# on the SAME node as KANIKO_BUILD_NODE, hence the nodeSelector.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -42,7 +52,7 @@ spec:
     spec:
       restartPolicy: Never
       nodeSelector:
-        kubernetes.io/hostname: rw710
+        kubernetes.io/hostname: ${KANIKO_BUILD_NODE}
       containers:
         - name: kaniko
           image: gcr.io/kaniko-project/executor:latest
@@ -64,11 +74,11 @@ spec:
       volumes:
         - name: workspace
           hostPath:
-            path: /home/apps/worktrees/wC-unified-image
+            path: ${WORKSPACE_HOSTPATH}
             type: Directory
         - name: eg-wheel
           hostPath:
-            path: /home/apps/eg-wheel
+            path: ${EG_WHEEL_HOSTPATH}
             type: Directory
         - name: docker-config
           secret:

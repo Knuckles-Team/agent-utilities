@@ -157,6 +157,9 @@ celerybeat.pid
 .env
 .envrc
 .venv
+# D-PCC-1: real per-node values for the kaniko-job.yaml envsubst templates (never the
+# .example, which is tracked and placeholder-only).
+docker/kaniko-build.env
 # scripts/uv_workspace.py partitions the environment by dependency selection, so
 # a worktree owns one `.venv-<label>` per selection alongside `.venv`.
 .venv-*

@@ -4,14 +4,20 @@
 # resolves through `overrides.txt` (the build-side mirror of the workspace root's
 # `[tool.uv] override-dependencies`) instead of a hand-copied `fastmcp==3.4.5` literal.
 #
-#   kubectl apply -f docker/graphos-unified-fastmcp4-kaniko-job.yaml
+# D-PCC-1: templated via envsubst -- the tracked file carries zero host-specific strings;
+# see docker/kaniko-build.env.example.
+#
+#   export KANIKO_BUILD_NODE=<node hostname>
+#   export WORKSPACE_HOSTPATH=<this lane's au worktree path on that node>
+#   export EG_WHEEL_HOSTPATH=<the staged eg wheel's path on that node>
+#   export LANGFUSE_AGENT_HOSTPATH=<the langfuse-agent sibling checkout's path on that node>
+#   envsubst < docker/graphos-unified-fastmcp4-kaniko-job.yaml | kubectl apply -f -
 #   kubectl logs -n image-build -f job/graphos-unified-fastmcp4-image-build
 #
 # The context is THIS LANE'S worktree rather than the main checkout, because the
 # Dockerfile + overrides.txt changes live on `fix/image-fastmcp4` and merging is the
-# orchestrator's call, not this lane's. Point `workspace` at
-# /home/apps/workspace/agent-packages/agent-utilities once the branch lands — the two
-# trees are otherwise identical.
+# orchestrator's call, not this lane's. Point WORKSPACE_HOSTPATH at the canonical au
+# checkout once the branch lands — the two trees are otherwise identical.
 #
 # Caching stays ON (as in every sibling job) and is SAFE for this particular change:
 # kaniko's composite cache key for a RUN layer covers the command string plus every
@@ -45,7 +51,7 @@ spec:
     spec:
       restartPolicy: Never
       nodeSelector:
-        kubernetes.io/hostname: rw710
+        kubernetes.io/hostname: ${KANIKO_BUILD_NODE}
       containers:
         - name: kaniko
           image: gcr.io/kaniko-project/executor:latest
@@ -78,15 +84,15 @@ spec:
       volumes:
         - name: workspace
           hostPath:
-            path: /home/apps/worktrees/au-image-fastmcp4
+            path: ${WORKSPACE_HOSTPATH}
             type: Directory
         - name: eg-wheel
           hostPath:
-            path: /home/apps/eg-wheel
+            path: ${EG_WHEEL_HOSTPATH}
             type: Directory
         - name: langfuse-agent-src
           hostPath:
-            path: /home/apps/workspace/agent-packages/agents/langfuse-agent
+            path: ${LANGFUSE_AGENT_HOSTPATH}
             type: Directory
         - name: docker-config
           secret:
