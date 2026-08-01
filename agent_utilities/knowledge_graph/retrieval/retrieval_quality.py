@@ -50,6 +50,47 @@ logger = logging.getLogger(__name__)
 # Default: enabled (opt-out pattern matching OWL reasoning)
 _GATE_ENABLED = setting("KG_RETRIEVAL_QUALITY_GATE", True)
 
+# Below this embedded/total ratio, a failing retrieval is tagged SPARSE_INDEX
+# (an ingestion problem) rather than left looking like a pure query/coverage
+# miss. 5% is deliberately generous — the measured production ratio (D-PERF-5)
+# was 0.5% (136/26,680); a healthy, fully-backfilled graph should read ~100%.
+_SPARSE_INDEX_RATIO_THRESHOLD = 0.05
+
+# How long a sampled population ratio is trusted before re-querying the engine.
+# The ratio changes slowly (it moves only as fast as ingestion + the backfill
+# daemon embed nodes), so a 5-minute cache turns "one extra query per failing
+# retrieval" into "one extra query per 5 minutes of failing retrievals" — the
+# engine is already contended (D-PERF-2) and this check must never add to that.
+_POPULATION_CACHE_TTL_S = 300.0
+
+
+def _sample_index_population_ratio(engine: Any) -> float | None:
+    """Best-effort, uncached ``embedded_nodes / total_nodes`` for ``engine``'s
+    backend. Returns ``None`` (never raises) when the backend can't answer the
+    two count queries — a missing signal must never make retrieval louder OR
+    quieter than it already is. Caching (TTL'd) is the caller's responsibility
+    — see ``RetrievalQualityGate._sample_index_population``, which keys the
+    cache on the gate INSTANCE rather than ``id(engine)``: engines are
+    frequently short-lived in tests, and CPython can reuse a garbage-collected
+    object's ``id()`` for an unrelated later object, which would silently leak
+    one engine's ratio into another's report under an id()-keyed cache.
+    """
+    backend = getattr(engine, "backend", None)
+    execute = getattr(backend, "execute", None)
+    if not callable(execute):
+        return None
+    try:
+        total_rows = execute("MATCH (n) RETURN count(n) AS c")
+        embedded_rows = execute(
+            "MATCH (n) WHERE n.embedding IS NOT NULL RETURN count(n) AS c"
+        )
+        total = int((total_rows or [{}])[0].get("c", 0) or 0)
+        embedded = int((embedded_rows or [{}])[0].get("c", 0) or 0)
+    except Exception as exc:  # noqa: BLE001 — this is a best-effort diagnostic sample on an already-failing retrieval path; it must never raise into the caller's gate decision
+        logger.debug("index population sample failed: %s", exc)
+        return None
+    return (embedded / total) if total > 0 else 0.0
+
 
 class RetrievalFailureMode(StrEnum):
     """Taxonomy of retrieval failure modes (Ambekar, 2026).
@@ -77,6 +118,18 @@ class RetrievalFailureMode(StrEnum):
     INTER_AGENT_PROPAGATION = "inter_agent_propagation"
     """Upstream agent passed degraded context that was used as retrieval
     input by the downstream agent, propagating retrieval failure."""
+
+    SPARSE_INDEX = "sparse_index"
+    """The underlying vector index itself is (near-)empty — this query could
+    not possibly have scored well because almost nothing in the graph carries
+    an embedding yet. Distinct from :attr:`LOW_RELEVANCE_TOPK`: that mode means
+    "the index has content but none of it matched this query" (a query/coverage
+    problem); this one means "the index barely has content to match against"
+    (an ingestion/backfill problem). D-EGD-5/D-PERF-5: a low composite score was
+    read as a retrieval-quality bug for days before the 0.5%-populated index
+    (136/26,680 embedded nodes) was found — this mode exists so the SAME
+    fail-closed refusal that a caller already sees names the actual cause
+    instead of forcing another investigation each time."""
 
 
 class ContextProvenanceRecord(BaseModel):
@@ -148,6 +201,20 @@ class RetrievalQualityReport(BaseModel):
     freshness_penalty_applied: bool = False
     latency_ms: float = 0.0
     gate_passed: bool = True
+    index_population_ratio: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Fraction of graph nodes carrying an embedding, sampled when this "
+            "report's quality looked poor enough to be worth explaining "
+            "(None when not sampled this call — see RetrievalQualityGate."
+            "_index_population_ratio's cache/sampling policy). Lets a caller "
+            "tell 'the index is sparse' apart from 'this query scored low "
+            "against a populated index' instead of reading both as the same "
+            "composite=0.05 number."
+        ),
+    )
 
 
 class RetrievalQualityGate:
@@ -178,6 +245,11 @@ class RetrievalQualityGate:
         self.engine = engine
         self._enable_freshness = enable_freshness
         self._min_composite_quality = min_composite_quality
+        # TTL cache for the sampled index-population ratio (D-EGD-5). Instance-
+        # scoped (not a module-level dict keyed by id(engine)) so a gate's cache
+        # can never leak across unrelated engines — see
+        # `_sample_index_population_ratio`'s docstring for why that matters.
+        self._population_ratio_cache: tuple[float, float] | None = None
 
         # Resolve threshold: env var > explicit arg > schema pack > default
         env_threshold = setting("KG_MIN_RELEVANCE_THRESHOLD")
@@ -208,6 +280,7 @@ class RetrievalQualityGate:
         # separately-calibrated threshold instead of the vector one. Set just below the
         # 0.2 sentinel so genuine lexical fallback hits pass while a caller that
         # constructs a degenerate near-zero fallback score still correctly fails closed.
+        # (landed on main via lane/engine-tests-0801@550354cf, D-GS4-3/D-GS27-6/D-49-2)
         env_lexical_threshold = setting("KG_MIN_LEXICAL_RELEVANCE_THRESHOLD")
         self._lexical_threshold = (
             float(env_lexical_threshold) if env_lexical_threshold is not None else 0.15
@@ -228,6 +301,31 @@ class RetrievalQualityGate:
     def enabled(self) -> bool:
         """Whether the quality gate is active."""
         return _GATE_ENABLED
+
+    def _sample_index_population(self, report: RetrievalQualityReport) -> None:
+        """Best-effort: when a report is about to fail the gate, sample whether
+        the underlying index is actually populated and, if it's sparse, tag
+        :attr:`RetrievalFailureMode.SPARSE_INDEX` so the failure names its own
+        cause (D-EGD-5/D-PERF-5 — see the mode's docstring).
+
+        Only called on the already-failing path (never on a passing retrieval),
+        and the ratio itself is cached with a TTL (:data:`_POPULATION_CACHE_TTL_S`)
+        so a burst of failing queries costs at most one extra engine round-trip
+        per TTL window, not one per query — the engine is already contended
+        (D-PERF-2) and this must never add to that.
+        """
+        now = time.monotonic()
+        cached = self._population_ratio_cache
+        if cached is not None and (now - cached[0]) < _POPULATION_CACHE_TTL_S:
+            ratio = cached[1]
+        else:
+            ratio = _sample_index_population_ratio(self.engine)
+            if ratio is None:
+                return
+            self._population_ratio_cache = (now, ratio)
+        report.index_population_ratio = ratio
+        if ratio < _SPARSE_INDEX_RATIO_THRESHOLD:
+            report.failure_modes_detected.append(RetrievalFailureMode.SPARSE_INDEX)
 
     def assess_quality(
         self,
@@ -255,6 +353,7 @@ class RetrievalQualityGate:
                 RetrievalFailureMode.LOW_RELEVANCE_TOPK
             )
             report.gate_passed = False
+            self._sample_index_population(report)
             report.latency_ms = (time.monotonic() - start) * 1000
             return report
 
@@ -300,6 +399,8 @@ class RetrievalQualityGate:
             report.composite_quality >= self._min_composite_quality
             and report.above_threshold > 0
         )
+        if not report.gate_passed:
+            self._sample_index_population(report)
 
         report.latency_ms = (time.monotonic() - start) * 1000
         return report
@@ -471,12 +572,24 @@ class RetrievalQualityGate:
         report = self.assess_quality(results, query, upstream_provenance)
 
         if not report.gate_passed:
-            logger.warning(
-                "Retrieval quality gate FAILED for query %r (composite=%.2f, modes=%s)",
-                query[:80],
-                report.composite_quality,
-                [m.value for m in report.failure_modes_detected],
-            )
+            if RetrievalFailureMode.SPARSE_INDEX in report.failure_modes_detected:
+                logger.warning(
+                    "Retrieval quality gate FAILED for query %r (composite=%.2f, "
+                    "modes=%s) — index is only %.1f%% populated (embedded/total "
+                    "nodes); this is an INGESTION/BACKFILL gap, not a query-"
+                    "relevance problem",
+                    query[:80],
+                    report.composite_quality,
+                    [m.value for m in report.failure_modes_detected],
+                    (report.index_population_ratio or 0.0) * 100,
+                )
+            else:
+                logger.warning(
+                    "Retrieval quality gate FAILED for query %r (composite=%.2f, modes=%s)",
+                    query[:80],
+                    report.composite_quality,
+                    [m.value for m in report.failure_modes_detected],
+                )
             return [], report
 
         # Apply freshness scoring if enabled

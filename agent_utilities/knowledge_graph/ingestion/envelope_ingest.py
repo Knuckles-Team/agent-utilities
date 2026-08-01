@@ -1751,6 +1751,116 @@ def _apply_native_change_envelopes(
         raise _NativeOccRetryBudgetExhausted(conflict_sequence)
 
 
+# ── D-EMB / D-PERF-5: ingest-time embedding chokepoint ──────────────────────
+#
+# Every typed-entity connector (ServiceNow, LeanIX, GitHub, Twenty, ...) funnels
+# its writes through `_ingest_entities_via_envelope` (source_sync.py) into
+# `ingest_envelope`/`ingest_envelopes` here — this is the one point where EVERY
+# ChangeEnvelope-based write converges (grepped: 15+ production callers beyond
+# source_sync alone — domain_packs, external_graph, promotion, supersession,
+# document_processing, worldmodel_pipeline, feed_sources, research/loop_controller,
+# engine_surface_tools, neural/governance). Only ~6 document-shaped connectors
+# computed their own embedding before calling in; every other entity landed with
+# no vector (26,680 KG nodes, 136 embedded — 0.5%). This hooks embedding
+# generation HERE, once, instead of at each connector, so no future connector can
+# bypass it the way the ACL fix's 4 write-chokepoint precedent established.
+#
+# Best-effort by design: a down/unconfigured embedding endpoint must never fail
+# an entity's write (embedding is a retrieval nicety, not a durability gate) —
+# every failure path below degrades to "no vector this write" and is logged at
+# most once per call, never raised.
+def _envelopes_needing_embedding(
+    envelopes: list[ChangeEnvelope],
+) -> list[tuple[int, str]]:
+    """Positions (into ``envelopes``) + derived text for upsert envelopes that
+    have a typed_payload, no embedding yet, and *some* extractable text."""
+    from ..enrichment.semantic import derive_entity_text
+
+    pending: list[tuple[int, str]] = []
+    for i, env in enumerate(envelopes):
+        if env.operation != "upsert" or env.typed_payload is None:
+            continue
+        if env.typed_payload.get("embedding"):
+            continue  # already embedded upstream (a document-shaped connector)
+        text = derive_entity_text(env.typed_payload)
+        if text:
+            pending.append((i, text))
+    return pending
+
+
+def _auto_embed_envelopes(envelopes: list[ChangeEnvelope]) -> dict[int, list[float]]:
+    """Best-effort batch-embed upsert envelopes lacking a vector, mutating each
+    envelope's ``typed_payload`` in place (dataclass is frozen; the dict it
+    references is not). Returns ``{position: vector}`` for what it embedded, so
+    the caller can also register the vector in the engine's ANN index once the
+    write commits.
+    """
+    try:
+        from agent_utilities.core.config import config
+
+        if not bool(getattr(config, "kg_ingest_auto_embed", True)):
+            return {}
+    except Exception:  # noqa: BLE001 — config unavailable → default on, matches the field default
+        pass
+
+    pending = _envelopes_needing_embedding(envelopes)
+    if not pending:
+        return {}
+
+    try:
+        from ..enrichment.semantic import make_embed_fn
+
+        embed_fn = make_embed_fn()
+        vecs = embed_fn([text for _, text in pending])
+    except Exception as exc:  # noqa: BLE001 — ingest-time embedding is best-effort: an unconfigured/unreachable embedding endpoint must degrade to "no vector", never fail the entity's write
+        logger.debug("ingest-time auto-embed skipped (%s): %s", type(exc).__name__, exc)
+        return {}
+
+    embedded: dict[int, list[float]] = {}
+    for (position, text), vec in zip(pending, vecs, strict=False):
+        if not vec:
+            continue
+        vec_list = list(vec)
+        envelope = envelopes[position]
+        # typed_payload is a plain dict — mutating it in place is safe even
+        # though ChangeEnvelope itself is frozen (only attribute REASSIGNMENT
+        # is blocked).
+        envelope.typed_payload["embedding"] = vec_list  # type: ignore[index]
+        envelope.typed_payload.setdefault("text", text)  # type: ignore[union-attr]
+        embedded[position] = vec_list
+    return embedded
+
+
+def _index_embedded_vectors(
+    authority: Any,
+    node_ids: dict[int, str],
+    vectors: dict[int, list[float]],
+) -> None:
+    """Best-effort ANN-index registration for freshly embedded, freshly
+    committed entities (CONCEPT:AU-KG.query.object-graph-mapper — distinct from
+    the ``embedding`` node property, which the write above already set: the
+    engine's ``semantic_search`` reads the ANN/HNSW index, not the property, so
+    both are needed for a new entity to actually be retrievable).
+    """
+    compute = getattr(authority, "compute", None)
+    add_embedding = getattr(compute, "add_embedding", None)
+    if not callable(add_embedding):
+        return
+    for position, vec in vectors.items():
+        node_id = node_ids.get(position)
+        if not node_id:
+            continue
+        try:
+            add_embedding(node_id, vec)
+        except Exception as exc:  # noqa: BLE001 — ANN indexing is best-effort; the entity's write already committed successfully and must not be undone by an index-side failure
+            logger.debug(
+                "ingest-time ANN indexing skipped for %s (%s): %s",
+                node_id,
+                type(exc).__name__,
+                exc,
+            )
+
+
 def ingest_envelopes(
     engine: Any, envelopes: list[ChangeEnvelope]
 ) -> list[dict[str, Any]]:
@@ -1812,11 +1922,18 @@ def ingest_envelopes(
     if not prepared:
         return results
 
+    # D-EMB chokepoint: embed every upsert envelope in this batch that lacks a
+    # vector, ONE batched embedding call for the whole page (never per-record —
+    # CONCEPT:AU-KG.ingest.applying-agents-md-batch), before the atomic commit
+    # below so the vector lands in the SAME write as the entity's own fields.
+    prepared_envelopes = [envelope for _, envelope in prepared]
+    embedded_by_position = _auto_embed_envelopes(prepared_envelopes)
+
     try:
         authority = _resolve_native_authority(engine)
         authority, session = _native_session(authority, prepared[0][1])
         batch_results = _apply_native_change_envelopes(
-            authority, session, [envelope for _, envelope in prepared]
+            authority, session, prepared_envelopes
         )
     except NativeChangeEnvelopeUnavailable:
         logger.info(
@@ -1867,6 +1984,15 @@ def ingest_envelopes(
 
     for (index, _envelope), result in zip(prepared, batch_results, strict=True):
         results[index] = result
+
+    if embedded_by_position:
+        node_ids_by_position = {
+            position: results[index].get("node_id")
+            for position, (index, _envelope) in enumerate(prepared)
+            if results[index].get("status") in {"success", "skipped"}
+        }
+        _index_embedded_vectors(authority, node_ids_by_position, embedded_by_position)
+
     return results
 
 
@@ -2075,10 +2201,18 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
     if violations:
         return {**base, "status": "rejected", "violations": violations}
 
+    # D-EMB chokepoint (single-envelope twin of the batch path above).
+    embedded_by_position = _auto_embed_envelopes([envelope])
+
     try:
         authority = _resolve_native_authority(engine)
         authority, session = _native_session(authority, envelope)
-        return _apply_native_change_envelope(authority, session, envelope)
+        result = _apply_native_change_envelope(authority, session, envelope)
+        if embedded_by_position and result.get("status") in {"success", "skipped"}:
+            _index_embedded_vectors(
+                authority, {0: result.get("node_id")}, embedded_by_position
+            )
+        return result
     except NativeChangeEnvelopeUnavailable:
         logger.warning("native ChangeEnvelope capability is unavailable")
         return {

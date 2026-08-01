@@ -87,6 +87,85 @@ class GraphMaintainer:
         logger.info(f"Enriched {updated_count} messages with embeddings.")
         return updated_count
 
+    def backfill_entity_embeddings(
+        self, *, limit: int = 500, batch_size: int = 256
+    ) -> dict[str, int]:
+        """Generalized twin of :meth:`enrich_embeddings` for the WHOLE typed-
+        entity graph, not just ``:Message`` nodes (D-EMB/D-PERF-5).
+
+        The ingest-time chokepoint (``ingestion/envelope_ingest.py``) now
+        embeds every NEW upsert going forward, but a graph ingested before
+        that fix landed still has legacy nodes carrying no vector at all
+        (measured: 26,680 nodes, 136 embedded — 0.5%). This is the operator-
+        run catch-up for those: bounded (``limit``), batched (one embed call
+        per ``batch_size`` texts — never per-node, CONCEPT:
+        AU-KG.ingest.applying-agents-md-batch), and reuses the SAME
+        connector-agnostic text extractor
+        (:func:`~..enrichment.semantic.derive_entity_text`) the chokepoint
+        uses.
+
+        Deliberately writes ONLY to the engine's ANN/HNSW index via
+        ``backend.add_embedding`` — the same safe pattern
+        :meth:`enrich_embeddings` above already uses — never through the
+        governed ``ChangeEnvelope`` write path. Re-upserting an EXISTING,
+        already-governed entity through ChangeEnvelope with this call's own
+        (unknown, default-quarantined) ACL/classification would silently
+        REPLACE that entity's real access policy with a fail-closed default —
+        a data-governance regression, not a fix. Registering the vector in the
+        ANN index alone is enough for ``semantic_search`` (what "search_hybrid
+        returning 0 candidates" actually depends on) to find the entity; it
+        does not set the ``embedding`` node property, so this reconciliation
+        pass and the property-based population count (``n.embedding IS NOT
+        NULL``) intentionally stay separate signals — see the register entry
+        for this known limitation.
+
+        Returns ``{"scanned": N, "embedded": N, "skipped_no_text": N}``.
+        """
+        result = {"scanned": 0, "embedded": 0, "skipped_no_text": 0}
+        if not self.engine.backend:
+            return result
+
+        query = (
+            "MATCH (n) WHERE n.embedding IS NULL "
+            "RETURN n.id AS id, properties(n) AS props "
+            "ORDER BY n.id LIMIT $limit"
+        )
+        rows = self.engine.backend.execute(query, {"limit": int(limit)}) or []
+        result["scanned"] = len(rows)
+        if not rows:
+            return result
+
+        from ..enrichment.semantic import (
+            derive_entity_text,
+            embed_and_store,
+            make_embed_fn,
+        )
+
+        items: list[tuple[str, str]] = []
+        for row in rows:
+            node_id = row.get("id")
+            props = row.get("props") or {}
+            if not node_id:
+                continue
+            text = derive_entity_text(props)
+            if not text:
+                result["skipped_no_text"] += 1
+                continue
+            items.append((str(node_id), text))
+
+        if not items:
+            return result
+
+        embed_fn = make_embed_fn(batch_size=batch_size)
+        result["embedded"] = embed_and_store(self.engine.backend, items, embed_fn)
+        logger.info(
+            "Entity embedding backfill: scanned=%d embedded=%d skipped_no_text=%d",
+            result["scanned"],
+            result["embedded"],
+            result["skipped_no_text"],
+        )
+        return result
+
     def prune_cron_logs(self, keep_days: int = 30) -> int:
         """Delete successful cron logs older than keep_days."""
         if not self.engine.backend:
@@ -919,6 +998,7 @@ class GraphMaintainer:
             "status": "ready",
             "operations": {
                 "enrich_embeddings": "idle",
+                "backfill_entity_embeddings": "idle",
                 "prune_cron_logs": "idle",
                 "summarize_old_chats": "idle",
                 "consolidate_memory": "idle",
@@ -936,6 +1016,7 @@ class GraphMaintainer:
         """Trigger a specific maintenance operation."""
         op_map: dict[str, Callable[[], Any]] = {
             "enrich_embeddings": self.enrich_embeddings,
+            "backfill_entity_embeddings": self.backfill_entity_embeddings,
             "prune_cron_logs": self.prune_cron_logs,
             "summarize_old_chats": self.summarize_old_chats,
             "consolidate_memory": self.consolidate_memory,

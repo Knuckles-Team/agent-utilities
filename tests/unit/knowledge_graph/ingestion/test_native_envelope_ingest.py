@@ -447,9 +447,7 @@ def test_privacy_gate_still_rejects_a_real_iban_shaped_identifier(
         module._privacy_gate(_envelope(source_object_id=real_iban))
 
     with pytest.raises(ValueError, match="unsafe envelope identity"):
-        module._privacy_gate(
-            _envelope(source_object_id=f"account:{real_iban}")
-        )
+        module._privacy_gate(_envelope(source_object_id=f"account:{real_iban}"))
 
 
 def test_native_cursor_read_uses_the_same_hashed_source_partition() -> None:
@@ -1180,3 +1178,138 @@ def test_ingest_envelopes_reports_conflict_and_stops_the_batch_outcome() -> None
     # The engine per-envelope conflict surfaces as a failed status the caller can act
     # on; the OCC loop retried the injected content-version conflict to exhaustion.
     assert results[2]["status"] == "failed"
+
+
+# ── D-EMB: ingest-time embedding chokepoint ──────────────────────────────────
+
+
+@pytest.fixture
+def _fake_embed_fn(monkeypatch: pytest.MonkeyPatch):
+    """Patch the lazily-imported ``make_embed_fn`` to a deterministic stub and
+    return the list of texts it was called with (batched, one call per commit)."""
+    import agent_utilities.knowledge_graph.enrichment.semantic as semantic_module
+
+    calls: list[list[str]] = []
+
+    def _embed_fn(texts: list[str]) -> list[list[float]]:
+        calls.append(list(texts))
+        return [[0.1, 0.2, 0.3] for _ in texts]
+
+    monkeypatch.setattr(semantic_module, "make_embed_fn", lambda: _embed_fn)
+    return calls
+
+
+def test_ingest_envelope_auto_embeds_and_indexes_on_success(_fake_embed_fn) -> None:
+    """A typed entity with no pre-computed embedding gets one at ingest time,
+    written both as the ``embedding`` node property AND registered in the
+    engine's ANN index via ``compute.add_embedding`` (D-EMB/D-PERF-5)."""
+    compute = _Compute("graph-embed")
+    ann_calls: list[tuple[str, list[float]]] = []
+    compute.add_embedding = lambda node_id, vec: ann_calls.append((node_id, list(vec)))
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "Synthetic record",
+            "description": "a fixture used to exercise the embedding chokepoint",
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["embedding"] == [0.1, 0.2, 0.3]
+    assert stored["text"]
+    assert ann_calls == [("object-1", [0.1, 0.2, 0.3])]
+
+
+def test_ingest_envelope_skips_embedding_when_already_present(_fake_embed_fn) -> None:
+    """A document-shaped connector that already computed its own embedding is
+    left untouched — no second embed call, no overwrite."""
+    compute = _Compute("graph-embed-preset")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "Synthetic record",
+            "embedding": [0.9, 0.9, 0.9],
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["embedding"] == [0.9, 0.9, 0.9]
+    assert _fake_embed_fn == []  # never called
+
+
+def test_ingest_envelope_auto_embed_disabled_by_config(
+    monkeypatch: pytest.MonkeyPatch, _fake_embed_fn
+) -> None:
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_ingest_auto_embed", False, raising=False)
+    compute = _Compute("graph-embed-off")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "Synthetic record",
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert "embedding" not in stored
+    assert _fake_embed_fn == []
+
+
+def test_ingest_envelope_embedding_failure_never_fails_the_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unreachable/misconfigured embedder degrades to 'no vector', never to
+    a failed entity write (embedding is a retrieval nicety, not a durability gate)."""
+    import agent_utilities.knowledge_graph.enrichment.semantic as semantic_module
+
+    def _raise() -> None:
+        raise RuntimeError("embedding model unavailable: no endpoint configured")
+
+    monkeypatch.setattr(semantic_module, "make_embed_fn", _raise)
+    compute = _Compute("graph-embed-down")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "Synthetic record",
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert "embedding" not in stored
+
+
+def test_ingest_envelopes_batch_auto_embeds_in_one_call(_fake_embed_fn) -> None:
+    """The whole batch is embedded in ONE call to the embed fn (never
+    per-record — CONCEPT:AU-KG.ingest.applying-agents-md-batch), and every
+    successfully committed entity is registered in the ANN index."""
+    compute = _Compute("graph-embed-batch")
+    ann_calls: list[tuple[str, list[float]]] = []
+    compute.add_embedding = lambda node_id, vec: ann_calls.append((node_id, list(vec)))
+    envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 4)]
+
+    results = module.ingest_envelopes(compute, envelopes)
+
+    assert [r["status"] for r in results] == ["success"] * 3
+    assert len(_fake_embed_fn) == 1  # one batched embed call for the whole page
+    assert len(_fake_embed_fn[0]) == 3
+    assert len(ann_calls) == 3
+    for i in range(1, 4):
+        stored = compute.client.nodes.properties(f"object-{i}")
+        assert stored["embedding"] == [0.1, 0.2, 0.3]

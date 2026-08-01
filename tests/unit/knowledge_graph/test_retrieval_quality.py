@@ -220,3 +220,110 @@ class TestContextProvenance:
         results = [{"id": "n1", "_score": 0.9}]
         report = gate.assess_quality(results)
         assert report.latency_ms >= 0.0
+
+
+# ── D-EGD-5: index-empty vs results-poor distinction ────────────────────
+
+
+class _FakeBackendWithCounts:
+    """Minimal backend stub answering the gate's two population-sample
+    Cypher queries deterministically."""
+
+    def __init__(self, total: int, embedded: int) -> None:
+        self._total = total
+        self._embedded = embedded
+        self.calls = 0
+
+    def execute(self, query: str, *_args, **_kwargs):
+        self.calls += 1
+        if "n.embedding IS NOT NULL" in query:
+            return [{"c": self._embedded}]
+        return [{"c": self._total}]
+
+
+class TestSparseIndexDetection:
+    """A failing retrieval against a near-empty index must be tagged
+    SPARSE_INDEX (an ingestion problem), distinct from LOW_RELEVANCE_TOPK
+    against a populated index (a query/coverage problem) — conflating the two
+    cost the program real time reading composite=0.05 as a retrieval bug when
+    the index was 0.5% populated (D-PERF-5/D-EGD-5)."""
+
+    def test_empty_results_against_sparse_index_tags_sparse_index(self, mock_engine):
+        mock_engine.backend = _FakeBackendWithCounts(total=26680, embedded=136)
+        gate = RetrievalQualityGate(mock_engine, min_relevance_threshold=0.6)
+
+        report = gate.assess_quality([], query="test query")
+
+        assert not report.gate_passed
+        assert RetrievalFailureMode.LOW_RELEVANCE_TOPK in report.failure_modes_detected
+        assert RetrievalFailureMode.SPARSE_INDEX in report.failure_modes_detected
+        assert report.index_population_ratio == pytest.approx(136 / 26680)
+
+    def test_low_scores_against_populated_index_does_not_tag_sparse_index(
+        self, mock_engine
+    ):
+        """The same LOW_RELEVANCE_TOPK failure, but the index itself is
+        healthy (99% populated) — this is a genuine query/coverage miss, not
+        an ingestion gap, and must NOT be mislabeled SPARSE_INDEX."""
+        mock_engine.backend = _FakeBackendWithCounts(total=1000, embedded=990)
+        gate = RetrievalQualityGate(mock_engine, min_relevance_threshold=0.6)
+
+        results = [{"id": "n1", "_score": 0.1}, {"id": "n2", "_score": 0.05}]
+        report = gate.assess_quality(results, query="test query")
+
+        assert not report.gate_passed
+        assert RetrievalFailureMode.LOW_RELEVANCE_TOPK in report.failure_modes_detected
+        assert RetrievalFailureMode.SPARSE_INDEX not in report.failure_modes_detected
+        assert report.index_population_ratio == pytest.approx(0.99)
+
+    def test_passing_retrieval_never_samples_population(self, mock_engine):
+        """The population sample only runs on the failing path — a healthy
+        retrieval must not pay for an extra engine round-trip."""
+        backend = _FakeBackendWithCounts(total=1000, embedded=10)
+        mock_engine.backend = backend
+        gate = RetrievalQualityGate(mock_engine, min_relevance_threshold=0.6)
+
+        results = [{"id": "n1", "_score": 0.9}]
+        report = gate.assess_quality(results, query="test query")
+
+        assert report.gate_passed
+        assert backend.calls == 0
+        assert report.index_population_ratio is None
+
+    def test_population_sample_is_cached_within_ttl(self, mock_engine):
+        """A burst of failing queries samples the engine at most once per TTL
+        window, not once per query — the engine is already contended."""
+        backend = _FakeBackendWithCounts(total=26680, embedded=136)
+        mock_engine.backend = backend
+        gate = RetrievalQualityGate(mock_engine, min_relevance_threshold=0.6)
+
+        for _ in range(5):
+            gate.assess_quality([], query="test query")
+
+        # One SAMPLE (total + embedded count queries = 2 backend.execute
+        # calls) for the whole 5-query burst, not 2 per query.
+        assert backend.calls == 2
+
+    def test_population_cache_does_not_leak_across_gate_instances(self, mock_engine):
+        """Regression guard: the cache must be keyed per-gate-instance, not by
+        id(engine) — id() reuse after garbage collection could otherwise leak
+        one engine's ratio into an unrelated gate's report."""
+        sparse_backend = _FakeBackendWithCounts(total=26680, embedded=136)
+        mock_engine.backend = sparse_backend
+        sparse_gate = RetrievalQualityGate(mock_engine, min_relevance_threshold=0.6)
+        sparse_report = sparse_gate.assess_quality([], query="q1")
+        assert RetrievalFailureMode.SPARSE_INDEX in sparse_report.failure_modes_detected
+
+        class _HealthyEngine:
+            pass
+
+        healthy_engine = _HealthyEngine()
+        healthy_engine.backend = _FakeBackendWithCounts(total=1000, embedded=990)
+        healthy_gate = RetrievalQualityGate(healthy_engine, min_relevance_threshold=0.6)
+        healthy_report = healthy_gate.assess_quality([], query="q2")
+
+        assert (
+            RetrievalFailureMode.SPARSE_INDEX
+            not in healthy_report.failure_modes_detected
+        )
+        assert healthy_report.index_population_ratio == pytest.approx(0.99)

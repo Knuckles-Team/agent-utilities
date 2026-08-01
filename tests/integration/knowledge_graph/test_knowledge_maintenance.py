@@ -72,3 +72,76 @@ def test_enrich_embeddings(mock_generate_embedding):
     assert count == 1
     assert mock_generate_embedding.called
     assert any(q.get("action") == "add_embedding" for q in backend.queries)
+
+
+def test_backfill_entity_embeddings_embeds_arbitrary_entity_types():
+    """D-EMB: unlike enrich_embeddings (Message-only), this covers ANY node
+    type -- the actual shape of the 26,680-node/136-embedded gap."""
+    backend = DummyBackend(
+        execute_results=[
+            [
+                {
+                    "id": "incident-1",
+                    "props": {
+                        "id": "incident-1",
+                        "type": "Incident",
+                        "short_description": "disk full on host-3",
+                        "description": "root partition is 98% full",
+                    },
+                },
+                {
+                    "id": "factsheet-1",
+                    "props": {
+                        "id": "factsheet-1",
+                        "type": "Application",
+                        "name": "billing-service",
+                    },
+                },
+            ]
+        ]
+    )
+    engine = MagicMock()
+    engine.backend = backend
+
+    with patch(
+        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn"
+    ) as mock_make_embed_fn:
+        mock_make_embed_fn.return_value = lambda texts: [[0.1, 0.2] for _ in texts]
+        maintainer = GraphMaintainer(engine)
+        report = maintainer.backfill_entity_embeddings(limit=500, batch_size=64)
+
+    assert report["scanned"] == 2
+    assert report["embedded"] == 2
+    assert report["skipped_no_text"] == 0
+    add_embedding_ids = {
+        q["id"] for q in backend.queries if q.get("action") == "add_embedding"
+    }
+    assert add_embedding_ids == {"incident-1", "factsheet-1"}
+
+
+def test_backfill_entity_embeddings_skips_nodes_with_no_extractable_text():
+    backend = DummyBackend(
+        execute_results=[
+            [{"id": "sensor-1", "props": {"id": "sensor-1", "reading": 42.0}}]
+        ]
+    )
+    engine = MagicMock()
+    engine.backend = backend
+
+    maintainer = GraphMaintainer(engine)
+    report = maintainer.backfill_entity_embeddings(limit=500)
+
+    assert report["scanned"] == 1
+    assert report["embedded"] == 0
+    assert report["skipped_no_text"] == 1
+    assert not any(q.get("action") == "add_embedding" for q in backend.queries)
+
+
+def test_backfill_entity_embeddings_no_backend_returns_zeros():
+    engine = MagicMock()
+    engine.backend = None
+
+    maintainer = GraphMaintainer(engine)
+    report = maintainer.backfill_entity_embeddings()
+
+    assert report == {"scanned": 0, "embedded": 0, "skipped_no_text": 0}
