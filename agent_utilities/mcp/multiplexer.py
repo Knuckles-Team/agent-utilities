@@ -1469,10 +1469,19 @@ class MCPMultiplexer:
             _svc_auth = child_auth(headers)
             use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
             if use_sse:
+                # D-MTT-1: `_svc_auth` is a local `httpx.Auth` (see
+                # `child_auth`'s docstring); `sse_client`'s `auth` param is
+                # typed `httpx2.Auth | None` (fastmcp's vendored SDK v2 HTTP
+                # client, a distinct package from this repo's own `httpx` —
+                # see `agent_utilities/mcp/httpx_boundary.py`). Coerce at
+                # this boundary rather than passing the foreign-typed object
+                # straight through.
+                from agent_utilities.mcp.httpx_boundary import coerce_httpx2_auth
+
                 transport = sse_client(
                     url,
                     headers=headers,
-                    auth=_svc_auth,
+                    auth=coerce_httpx2_auth(_svc_auth),
                     httpx_client_factory=_secure_httpx_factory,
                 )
             else:
