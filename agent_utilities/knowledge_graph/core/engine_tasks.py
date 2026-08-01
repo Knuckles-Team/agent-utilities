@@ -2873,9 +2873,15 @@ class TaskManagerMixin(GraphEngineProtocol):
                         # Filter valid properties
                         valid_keys = schema_cache.get(label)
                         props = {k: v for k, v in node.items() if v is not None}
-                        # Preserve original semantic type for Code nodes (file/symbol/module)
+                        # Preserve original semantic type for Code nodes (file/symbol/module).
+                        # The Code table declares ``symbol_type`` (not a bare ``type``, which
+                        # the schema retired in favor of ``node_type``) for exactly this — the
+                        # same column parse.py/graph_compute.py/blast_radius.py already read
+                        # and write. Writing "type" here used to alias the schema's generic
+                        # column; now it would be silently dropped by the valid_keys filter
+                        # below, so route it to the dedicated column instead.
                         if label == "Code" and raw_type and raw_type != "code":
-                            props["type"] = raw_type
+                            props["symbol_type"] = raw_type
 
                         # Collect extra properties into metadata dict, mirroring sync.py logic
                         if valid_keys is not None and "metadata" in valid_keys:
@@ -3858,6 +3864,19 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # reservation. The exception itself is always re-raised.
                 self._active_work_item_claim(job_id, pop=True)
             raise
+        # Stamp the winning claim's own lease identity onto the returned
+        # metadata — ``claim`` (from ``_wi.claim_next``/``claim_specific``)
+        # already carries the authoritative ``lease_owner``/``lease_epoch``
+        # native WorkItem fields; nothing downstream previously surfaced them,
+        # so a caller/log line had no way to say WHO holds this task or WHICH
+        # fencing generation it's running under. This is an in-memory
+        # enrichment of the dict handed back to the caller ONLY — it is never
+        # persisted onto another node's durable metadata (that would create a
+        # second writable ownership authority; the native WorkItem lease
+        # remains the sole source of truth, per ``_remember_work_item_claim``).
+        meta["claimed_by"] = claim.get("lease_owner")
+        meta["work_item_epoch"] = claim.get("lease_epoch")
+        meta["work_item_id"] = claim.get("work_item_id")
         tkind = str(meta.get("type") or "document")
         if worker_id is not None:
             from agent_utilities.knowledge_graph.core.task_lanes import (
