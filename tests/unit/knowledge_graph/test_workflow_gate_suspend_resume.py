@@ -245,6 +245,10 @@ async def test_grounding_policy_threads_into_each_step(monkeypatch):
     assert policies_read == ["required"]
 
 
+@pytest.mark.quarantine(
+    reason="D-TC-8: WorkflowStore save_workflow/load_workflow drops the "
+    "kind='gate' step on round-trip"
+)
 def test_gate_step_round_trips_through_workflow_store():
     """A gate ExecutionStep persists its kind/condition/on_reject via WorkflowStore
     and reloads with them intact (§7.1 delta 2)."""

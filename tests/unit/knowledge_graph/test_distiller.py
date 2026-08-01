@@ -48,7 +48,7 @@ This is the workflow description.
     # 2. Distill updated properties
     success = engine.distill_skill(
         skill_id="test_skill",
-        new_name="evolved_skill_name",
+        new_name="evolved-skill-name",
         new_description="This is a highly advanced evolved skill description.",
         artifact_path=skill_dir,
         tags=["evolved", "dns", "auto"],
@@ -62,7 +62,7 @@ This is the workflow description.
         updated_content = f.read()
 
     frontmatter = yaml.safe_load(updated_content.split("---", 2)[1])
-    assert frontmatter["name"] == "evolved_skill_name"
+    assert frontmatter["name"] == "evolved-skill-name"
     assert (
         frontmatter["description"]
         == "This is a highly advanced evolved skill description."

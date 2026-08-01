@@ -332,35 +332,45 @@ def shortest_chain(
     return None
 
 
-def _load_testpaths() -> list[str]:
+def _load_testpaths(*, pytest_ini: Path = PYTEST_INI) -> list[str]:
     """Parse ``testpaths = ...`` out of ``pytest.ini`` (pytest.ini wins over
     ``pyproject.toml`` per pytest's own ini-file precedence, so that's the
     only file this needs to read to know what ``pytest`` actually collects
-    by default)."""
-    if not PYTEST_INI.exists():
+    by default). ``pytest_ini`` is overridable (default: the real repo's)
+    so a caller testing this in isolation (``tests/gates/test_wire_first_gate.py``)
+    can point it at a synthetic ini instead of silently falling back to
+    reading THIS repo's real, live ``pytest.ini`` regardless of the fixture
+    under test."""
+    if not pytest_ini.exists():
         return []
-    for line in PYTEST_INI.read_text(encoding="utf-8").splitlines():
+    for line in pytest_ini.read_text(encoding="utf-8").splitlines():
         m = re.match(r"\s*testpaths\s*=\s*(.+)$", line)
         if m:
             return m.group(1).split()
     return []
 
 
-def _load_explicit_pytest_paths() -> set[str]:
+def _load_explicit_pytest_paths(
+    *,
+    precommit_config: Path = PRECOMMIT_CONFIG,
+    workflows_dir: Path = WORKFLOWS_DIR,
+) -> set[str]:
     """``tests/...`` paths explicitly passed to ``pytest`` in a pre-commit
     hook ``entry:`` or a GitHub Actions ``run:`` step, outside of
     ``testpaths``. These are structurally collected even though
     ``testpaths`` doesn't cover them (e.g. ``tests/gates``, ``tests/docs``,
     ``tests/scale/test_prod_profile_guard.py``) — derived by regex over the
     hook/workflow files themselves so this can't hand-drift from what they
-    actually run.
+    actually run. ``precommit_config``/``workflows_dir`` are overridable
+    (default: the real repo's) for the same isolation reason as
+    ``_load_testpaths``'s ``pytest_ini`` parameter.
     """
     paths: set[str] = set()
     texts: list[str] = []
-    if PRECOMMIT_CONFIG.exists():
-        texts.append(PRECOMMIT_CONFIG.read_text(encoding="utf-8"))
-    if WORKFLOWS_DIR.exists():
-        for f in sorted(WORKFLOWS_DIR.glob("*.yml")):
+    if precommit_config.exists():
+        texts.append(precommit_config.read_text(encoding="utf-8"))
+    if workflows_dir.exists():
+        for f in sorted(workflows_dir.glob("*.yml")):
             texts.append(f.read_text(encoding="utf-8"))
     for text in texts:
         for m in re.finditer(r"pytest\s+((?:tests/[\w./\-]+\s*)+)", text):
@@ -377,16 +387,26 @@ def _under_any(rel_path: str, prefixes: set[str]) -> bool:
 
 
 def find_orphaned_test_files(
-    *, tests_dir: Path = TESTS_DIR, display_root: Path = ROOT
+    *,
+    tests_dir: Path = TESTS_DIR,
+    display_root: Path = ROOT,
+    pytest_ini: Path = PYTEST_INI,
+    precommit_config: Path = PRECOMMIT_CONFIG,
+    workflows_dir: Path = WORKFLOWS_DIR,
 ) -> list[str]:
     """Test files under ``tests/`` collected by NEITHER ``testpaths`` NOR an
     explicit pytest invocation in pre-commit/CI (D-OB-13a). ``tests_dir``/
-    ``display_root`` are overridable (default: the real repo) so
-    ``tests/gates/test_wire_first_gate.py`` can prove this trips on a
-    synthetic fixture — "a gate that can't fail is not a gate"."""
+    ``display_root``/``pytest_ini``/``precommit_config``/``workflows_dir``
+    are all overridable (default: the real repo) so
+    ``tests/gates/test_wire_first_gate.py`` can prove this trips on a fully
+    synthetic fixture, isolated from whatever this repo's OWN live
+    ``pytest.ini``/``.pre-commit-config.yaml``/``.github/workflows`` happen
+    to say — "a gate that can't fail is not a gate"."""
     if not tests_dir.exists():
         return []
-    collected = set(_load_testpaths()) | _load_explicit_pytest_paths()
+    collected = set(_load_testpaths(pytest_ini=pytest_ini)) | _load_explicit_pytest_paths(
+        precommit_config=precommit_config, workflows_dir=workflows_dir
+    )
     orphans = []
     for py in sorted(tests_dir.rglob("test_*.py")):
         rel = py.relative_to(display_root).as_posix()

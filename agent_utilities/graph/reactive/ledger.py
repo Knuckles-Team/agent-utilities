@@ -196,12 +196,10 @@ class EventLedger:
         # Fallback to Tier 2 in-memory MultiDiGraph
         if not events:
             for nid, data in self.engine.graph.nodes(data=True):
-                # OGM._serialize (ogm.py) writes the canonical `node_type` key
-                # (enum value string, e.g. "event"), never the retired bare
-                # `type` this used to check -- so this fallback branch matched
-                # ZERO nodes against any node actually written through the OGM
-                # (D-W2N-3 family: same defect class already fixed once for
-                # knowledge_tools.sync_feature_to_memory).
+                # OGM._serialize stores the canonical 'node_type' key (retired
+                # 'type' is rejected at the write boundary — see
+                # GraphComputeEngine.add_node); this read-side filter must
+                # match that same canonical key.
                 if (
                     data.get("node_type") == "event"
                     and data.get("episode_id") == run_id
