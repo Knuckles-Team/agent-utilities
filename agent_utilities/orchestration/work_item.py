@@ -414,7 +414,9 @@ def _delegation_still_live(*, now: float | None = None) -> bool:
     return True
 
 
-def _consent_still_live(item: dict[str, Any] | None, *, now: float | None = None) -> bool:
+def _consent_still_live(
+    item: dict[str, Any] | None, *, now: float | None = None
+) -> bool:
     """False when a WorkItem's consent gate denies a claim/lease-renewal.
 
     CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — mirrors
@@ -1525,16 +1527,23 @@ def claim_agent_task_via_work_item(
 ) -> dict[str, Any] | None:
     """Claim one ``:AgentTask`` through the WorkItem state machine (MIGRATED path).
 
-    Same return contract as
-    :func:`agent_utilities.orchestration.agent_dispatch_worker.claim_agent_task`
-    (``task_id``/``lease_id``/``dag_id``/``checkpoint_id``/
-    ``depends_on_task_ids``/``fence_token``), so every existing downstream
-    consumer (``execute_agent_task_turn``, ``_fence_still_valid``) is
-    unchanged — plus an internal ``_work_item_id`` key so
-    ``_finalize_agent_task`` can additionally commit through
+    Same return contract as :func:`agent_utilities.orchestration.engine_claim.
+    claim_agent_task` (``task_id``/``lease_id``/``dag_id``/``checkpoint_id``/
+    ``depends_on_task_ids``/``fence_token``) — plus an internal
+    ``_work_item_id`` key so a caller can additionally commit through
     :func:`commit_result` (dependency release, DLQ, idempotent commit all
-    apply). Selected via ``AGENT_CLAIM_BACKEND=workitem``
+    apply; see :func:`commit_agent_task_work_item`, this module's ready-made
+    wrapper for that). Selected via ``AGENT_CLAIM_BACKEND=workitem``
     (:mod:`~agent_utilities.orchestration.engine_claim`).
+
+    NOT YET WIRED (D-W2-12, verified 2026-07-31): the intended top-level
+    orchestrator, ``agent_utilities.orchestration.agent_dispatch_worker.
+    execute_agent_task_turn(engine, task_id, agent_id=..., executor=...)``,
+    does not exist in that module — only its test,
+    ``tests/unit/test_agent_dispatch_work_item_backend.py``, and this
+    docstring describe it. This function and :func:`commit_agent_task_work_item`
+    are the claim/commit halves it would call; nobody currently calls them
+    for the ``:AgentTask`` dispatch path.
     """
     token = token or _default_token()
     now = now if now is not None else _now()
@@ -1611,9 +1620,11 @@ def commit_agent_task_work_item(
 ) -> str | None:
     """Commit an executed ``:AgentTask`` turn's outcome through :func:`commit_result`.
 
-    ``status`` is one of ``execute_agent_task_turn``'s outcome strings
+    ``status`` is one of the outcome strings the not-yet-implemented
+    ``agent_dispatch_worker.execute_agent_task_turn`` is intended to produce
     (``completed``/``failed``/``unroutable``/``denied``/``cancelled``/
-    ``blocked``). Returns the :func:`commit_result` outcome, or ``None`` when
+    ``blocked`` — see :func:`claim_agent_task_via_work_item`'s docstring,
+    D-W2-12). Returns the :func:`commit_result` outcome, or ``None`` when
     ``status`` has no WorkItem mapping (``blocked`` — see above). Never
     raises (a commit-mirror failure is logged, not propagated — the legacy
     ``:AgentTask`` write already recorded the authoritative-enough outcome
