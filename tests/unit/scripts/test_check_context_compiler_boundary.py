@@ -11,7 +11,6 @@ def _gate() -> ModuleType:
     path = (
         Path(__file__).resolve().parents[3]
         / "scripts"
-        / "security"
         / "check_context_compiler_boundary.py"
     )
     spec = importlib.util.spec_from_file_location("context_boundary_gate", path)

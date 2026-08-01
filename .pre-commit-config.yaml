@@ -154,7 +154,7 @@ repos:
     always_run: true
   - id: check-swallowed-errors
     name: Swallowed errors — no NEW cause-dropping exception handler (ratchet)
-    entry: python3 scripts/security/check_swallowed_errors.py
+    entry: python3 scripts/check_swallowed_errors.py
     language: system
     pass_filenames: false
     always_run: true

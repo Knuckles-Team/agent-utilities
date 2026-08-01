@@ -85,7 +85,7 @@ independently runnable and combined by ``--wire-first-report``:
   top-level class/function and public method defined under
   ``agent_utilities/`` is cross-referenced (word-boundary text search, not
   full type-resolved call-graph — same class of heuristic as
-  ``security/check_swallowed_errors.py``) against every OTHER file under
+  ``check_swallowed_errors.py``) against every OTHER file under
   ``agent_utilities/`` and every file under ``tests/``. A symbol referenced
   ONLY from test files (zero non-test, non-defining-file references) is a
   "public capability entrypoint with no non-test caller" — exactly the

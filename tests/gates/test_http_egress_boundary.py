@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.security.check_http_egress_boundary import validate
+from scripts.check_http_egress_boundary import validate
 
 
 def test_direct_http_client_is_rejected(tmp_path: Path) -> None:

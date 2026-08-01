@@ -6,7 +6,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "agent_utilities"
 FACTORY = Path("agent_utilities/core/http_client.py")
 

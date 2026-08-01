@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.security.check_current_only_contract import check
+from scripts.check_current_only_contract import check
 
 
 def test_gate_rejects_retired_configuration_switch(tmp_path: Path) -> None:

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts" / "security" / "check_swallowed_errors.py"
+SCRIPT = ROOT / "scripts" / "check_swallowed_errors.py"
 
 
 def _run(target: str) -> subprocess.CompletedProcess[str]:

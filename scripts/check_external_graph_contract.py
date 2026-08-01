@@ -8,7 +8,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "agent_utilities/core/config.py"
 REGISTRY = ROOT / "agent_utilities/knowledge_graph/core/connection_registry.py"
 SCHEMA = ROOT / "agent_utilities/knowledge_graph/ingestion/external_graph_schema.py"

@@ -148,7 +148,7 @@ CONTRACT_CHECK_GLOB = "scripts/security/check_*.py"
 #: Ceiling for the whole contract-check step **against the merged tree** — the
 #: candidate-facing, always-fresh half of the check. Measured cost of the four
 #: live scripts is ~1-9 s combined (see docs/architecture/merge-queue.md), so this
-#: is still comfortable headroom for the (now 11-script) discovered set, not a
+#: is still comfortable headroom for the (now 8-script) discovered set, not a
 #: tuning knob.
 CONTRACT_CHECK_BUDGET_SECONDS = 60
 
@@ -195,13 +195,16 @@ BASELINE_CACHE_DIRNAME = "test-baseline-cache"
 CONTRACT_BASELINE_CACHE_DIRNAME = "contract-baseline-cache"
 
 #: D-MW-9: contract checks are independent, read-only scripts run against the
-#: SAME tree — measured SEQUENTIAL cost for the discovered set after moving the
-#: 6 boundary/contract gates into scripts/security/ (11 scripts total, several
-#: AST-walking all of agent_utilities/ or tests/) is ~73s, on its own ~40% of
-#: FAST_GATE_BUDGET_SECONDS. Run concurrently instead — subprocess.run releases
-#: the GIL while waiting on the child — so wall time tracks the SLOWEST single
-#: script (~30s measured) rather than the sum. Not a tuning knob so much as
-#: "more than the discovered set will realistically ever be at once."
+#: SAME tree — measured SEQUENTIAL cost for the discovered ``scripts/security/
+#: check_*.py`` set (several AST-walking all of agent_utilities/ or tests/,
+#: including the fast-tier forwarders that subprocess out to the slower
+#: canonical scripts still kept at bare ``scripts/`` — see
+#: ``scripts/security/_fast_tier_forward.py``) is dominated by the slowest
+#: single script (~30s measured, the ContextCompiler boundary scan). Run
+#: concurrently instead — subprocess.run releases the GIL while waiting on the
+#: child — so wall time tracks that slowest script rather than the sum. Not a
+#: tuning knob so much as "more than the discovered set will realistically
+#: ever be at once."
 CONTRACT_CHECK_MAX_WORKERS = 8
 
 #: Candidates merged into one trial commit and gated together. Failure bisects, so

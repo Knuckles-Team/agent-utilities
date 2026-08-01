@@ -6,7 +6,7 @@ from pathlib import Path
 
 def _load_gate():
     root = Path(__file__).resolve().parents[3]
-    path = root / "scripts/security/check_external_graph_contract.py"
+    path = root / "scripts/check_external_graph_contract.py"
     spec = importlib.util.spec_from_file_location("external_graph_gate", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
