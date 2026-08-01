@@ -2873,9 +2873,15 @@ class TaskManagerMixin(GraphEngineProtocol):
                         # Filter valid properties
                         valid_keys = schema_cache.get(label)
                         props = {k: v for k, v in node.items() if v is not None}
-                        # Preserve original semantic type for Code nodes (file/symbol/module)
+                        # Preserve original semantic type for Code nodes (file/symbol/module).
+                        # The Code table declares ``symbol_type`` (not a bare ``type``, which
+                        # the schema retired in favor of ``node_type``) for exactly this — the
+                        # same column parse.py/graph_compute.py/blast_radius.py already read
+                        # and write. Writing "type" here used to alias the schema's generic
+                        # column; now it would be silently dropped by the valid_keys filter
+                        # below, so route it to the dedicated column instead.
                         if label == "Code" and raw_type and raw_type != "code":
-                            props["type"] = raw_type
+                            props["symbol_type"] = raw_type
 
                         # Collect extra properties into metadata dict, mirroring sync.py logic
                         if valid_keys is not None and "metadata" in valid_keys:
