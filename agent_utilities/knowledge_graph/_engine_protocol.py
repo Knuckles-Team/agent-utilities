@@ -63,7 +63,20 @@ class _EngineProtocol(Protocol):
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]: ...
 
-    def search_hybrid(self, query: str, top_k: int = 10) -> list[dict[str, Any]]: ...
+    def search_hybrid(
+        self,
+        query: str,
+        top_k: int = 10,
+        include_archived: bool = False,
+        skip_quality_gate: bool = False,
+        relevance_threshold: float | None = None,
+        target_paths: list[str] | None = None,
+        mode: str = "standard",
+        self_correct: bool = False,
+        corpus_id: str | None = None,
+        as_of: str | None = None,
+        session: GraphSession | None = None,
+    ) -> list[dict[str, Any]]: ...
 
     # Hybrid retriever (set in __init__)
     hybrid_retriever: Any
