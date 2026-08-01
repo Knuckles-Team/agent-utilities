@@ -55,22 +55,27 @@ def test_worker_crash_mid_lease_is_reclaimed_and_completes_exactly_once(loadgen)
         engine, item_id=item_id, token="worker-a", now=0.0, lease_ttl_s=30.0
     )
     assert claim_a is not None
+    # "leased" and "running" are one engine-native ownership decision (see
+    # work_item.py's mark_running docstring) — precedent:
+    # tests/unit/orchestration/test_work_item.py:610.
     assert (
-        wi.get_work_item(engine, item_id)["status"] == "running"
+        wi.get_work_item(engine, item_id)["status"] in ("leased", "running")
     )
+    assert claim_a["fence_token"] == 1
 
-    # 90s later (well past the 30s lease), the reaper sweeps expired leases —
-    # exactly what a live dispatch-worker fleet's periodic reap does.
+    # 90s later (well past the 30s lease). A reap sweep is confirmation-only
+    # (AU-P1-1: no Python-side reaper transition writer — ClaimWorkItem
+    # reclaims expired leases atomically as part of selection), so it always
+    # no-ops; the item's state is unchanged until the next real claim below.
     reaped = wi.reap_expired_leases(engine, now=90.0)
-    assert item_id in reaped["reaped_ready"]
-    item = wi.get_work_item(engine, item_id)
-    assert item["status"] == "ready"
-    assert item["lease_epoch"] == 2  # fenced past worker A's epoch (1)
+    assert reaped == {"reaped_ready": [], "reaped_dead_letter": []}
+    assert wi.get_work_item(engine, item_id)["lease_epoch"] == 1  # still A's epoch
 
-    # Worker B claims the reclaimed item and completes it for real.
+    # Worker B claims the item — the expired lease makes it a valid candidate
+    # again, bumping the fencing epoch past worker A's in the SAME claim call.
     claim_b = wi.claim_and_start(engine, item_id=item_id, token="worker-b", now=91.0)
     assert claim_b is not None
-    assert claim_b["fence_token"] == 3
+    assert claim_b["fence_token"] == 2  # bumped past worker A's epoch (1)
     side_effects.append(f"executed:{item_id}:{claim_b['attempt']}")
     outcome = wi.commit_result(
         engine, item_id, claim_b, outcome="succeeded", result_ref="ok", now=92.0
