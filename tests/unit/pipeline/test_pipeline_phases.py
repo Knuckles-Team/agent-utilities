@@ -31,8 +31,8 @@ def mock_pipeline_ctx():
 @pytest.mark.asyncio
 async def test_execute_centrality(mock_pipeline_ctx):
     # Add some nodes and edges
-    mock_pipeline_ctx.graph.add_edge("A", "B")
-    mock_pipeline_ctx.graph.add_edge("B", "C")
+    mock_pipeline_ctx.graph.add_edge("A", "B", relationship="connects_to")
+    mock_pipeline_ctx.graph.add_edge("B", "C", relationship="connects_to")
 
     result = await execute_centrality(mock_pipeline_ctx, {})
 

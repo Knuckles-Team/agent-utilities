@@ -90,6 +90,8 @@ possible — see ``docs/architecture/merge-queue.md`` for the budget derivation.
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -145,6 +147,13 @@ CONTRACT_CHECK_BUDGET_SECONDS = 60
 #: Above this many selected test files the targeted selection has stopped being
 #: "targeted" and is just a slow full run wearing a costume. Defer to Tier-slow.
 MAX_TARGETED_TEST_FILES = 40
+
+#: Where the shared, content-addressed test-baseline cache lives inside the
+#: arbitration dir (CONCEPT:AU-OS.governance.test-regression-baseline). Keyed by
+#: (base commit sha, sorted selection, interpreter) so ``main`` — static within a
+#: batch — is measured once per selection and every later candidate, in this batch
+#: or a later one, reuses the answer instead of paying for a second full run.
+BASELINE_CACHE_DIRNAME = "test-baseline-cache"
 
 #: Candidates merged into one trial commit and gated together. Failure bisects, so
 #: a bad candidate costs ceil(log2(N)) extra gate runs, not N.
@@ -771,6 +780,242 @@ def run_contract_checks(
     )
 
 
+# ---------------------------------------------------------------------------
+# Tier fast — differential (regression) gating for targeted tests
+# CONCEPT:AU-OS.governance.test-regression-baseline
+#
+# ``main`` itself can be red — ``contract_baseline`` already established that a
+# gate must compare the merged tree against the base rather than judge it in
+# isolation; this section applies the identical idea to ``targeted-tests``, the
+# one step that previously had no baseline concept at all. A candidate that
+# touches an already-red module was being rejected for main's own failures, even
+# when it strictly improved them (measured: a branch that fixed 21 of 30 failing
+# tests on the same two files was still rejected because 9 remained red).
+#
+# The rule stays narrow on purpose (see the module docstring's "gate must be
+# cheaper than bypassing it" and this codebase's repeated fail-open failures): a
+# failing test id is permitted ONLY when that EXACT id already fails, identically,
+# on the base ref. Never by file, module, pattern, or count — an id-level compare
+# is the only shape that cannot be gamed into masking a real regression.
+# ---------------------------------------------------------------------------
+
+#: pytest exit codes under which the ``-rfE`` short summary can be trusted to
+#: name every failing/erroring test id: 0 = all green, 1 = some tests failed,
+#: 5 = the selection collected zero tests (an honest empty, not a degraded read).
+#: 2 (interrupted, e.g. a collection error), 3 (internal error), and 4 (usage
+#: error) are NOT here — none of them enumerates failures reliably, so a run
+#: that exits one of those is unreadable, not "zero failures".
+_PYTEST_READABLE_EXIT_CODES = frozenset({0, 1, 5})
+
+
+@dataclass(frozen=True)
+class BaselineResult:
+    """The failing-test-id set one selection already produces on the base ref.
+
+    ``readable=False`` is the fail-closed case (:data:`_PYTEST_READABLE_EXIT_CODES`
+    missed, or the run timed out/crashed) — callers MUST refuse the candidate
+    rather than treat a missing baseline as "no pre-existing failures", which
+    would silently become the exact allow-everything fallback this design forbids.
+    """
+
+    readable: bool
+    base_sha: str = ""
+    failing: frozenset[str] = frozenset()
+    detail: str = ""
+
+
+def _parse_failing_test_ids(stdout: str) -> set[str]:
+    """Test ids pytest's ``-rfE`` short summary reports as failed or errored.
+
+    Parsed from pytest's own ``FAILED <nodeid> - reason`` / ``ERROR <nodeid>``
+    lines — pytest's stable, documented short-summary contract (every CI
+    dashboard that greps test output already relies on this exact shape) — rather
+    than a machine report format, so this needs no extra plugin dependency and no
+    schema of our own to keep in sync with a pytest upgrade.
+    """
+    ids: set[str] = set()
+    for line in stdout.splitlines():
+        for prefix in ("FAILED ", "ERROR "):
+            if line.startswith(prefix):
+                nodeid = line[len(prefix) :].split(" - ", 1)[0].strip()
+                if nodeid:
+                    ids.add(nodeid)
+    return ids
+
+
+def _baseline_cache_path(
+    scope: LaneScope, base_sha: str, tests: list[str], *, interpreter: str
+) -> Path:
+    """Content-addressed cache location for one ``(base_sha, selection, interpreter)``.
+
+    Lives under the same shared, unversioned arbitration dir as the queue itself
+    (see :func:`queue_store`) — identical from every worktree, never rewritten by
+    a checkout/reset/merge. Two runners computing the same key write the same
+    deterministic content, so a race between them is harmless (see
+    :func:`_store_cached_baseline`'s atomic replace); nothing needs the queue's
+    APPEND-ONLY discipline here because a cache entry is never edited, only
+    replaced by an identical write or a fresh key.
+    """
+    digest = hashlib.sha256(
+        (base_sha + "\n" + interpreter + "\n" + "\n".join(sorted(tests))).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return (
+        scope.arbitration_dir
+        / QUEUE_DIRNAME
+        / BASELINE_CACHE_DIRNAME
+        / f"{digest}.json"
+    )
+
+
+def _load_cached_baseline(path: Path) -> BaselineResult | None:
+    """A cached baseline, or ``None`` on a miss — including a corrupt entry.
+
+    A corrupt file is treated as a miss (recompute), not as an unreadable
+    baseline: the fail-closed contract is about the TEST RUN's own honesty, not
+    about this cache's storage layer, and refusing every future candidate because
+    one cache file got truncated would be a self-inflicted, permanent denial.
+    """
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return BaselineResult(
+            readable=True,
+            base_sha=str(data["base_sha"]),
+            failing=frozenset(data["failing"]),
+            detail=str(data.get("detail", "")),
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _store_cached_baseline(path: Path, result: BaselineResult) -> None:
+    """Cache a baseline — but only a READABLE one.
+
+    An unreadable run may be a transient fluke (disk pressure, an interpreter
+    crash) rather than a durable property of ``base_sha``. Caching it would turn
+    one bad run into a standing refusal for every future candidate touching this
+    selection until someone notices and clears the cache by hand — worse than the
+    cost of retrying. The write is atomic (`write to a pid-suffixed temp file,
+    then replace`) so a concurrent second writer computing the identical answer
+    can never observe a half-written cache file.
+    """
+    if not result.readable:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(
+        json.dumps(
+            {
+                "base_sha": result.base_sha,
+                "failing": sorted(result.failing),
+                "detail": result.detail,
+            }
+        ),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+
+
+def compute_test_baseline(
+    repo: Path,
+    base_ref: str,
+    tests: list[str],
+    *,
+    scope: LaneScope,
+    interpreter: str,
+    env: dict[str, str],
+) -> BaselineResult:
+    """The failing-test-id set the SAME targeted selection already produces on
+    *base_ref* — cached, so ``main`` (static within a batch) is paid for once per
+    distinct selection rather than once per candidate.
+
+    A selected file that does not exist on *base_ref* at all contributes zero
+    baseline failures (it is wholly new on this candidate) rather than making the
+    whole baseline unreadable — running pytest against a base-relative path that
+    does not exist there is a usage error, not evidence about pre-existing red, so
+    those paths are filtered out before the base run rather than left to fail.
+    """
+    base_sha = _require_git(["rev-parse", base_ref], repo)
+    cache_path = _baseline_cache_path(scope, base_sha, tests, interpreter=interpreter)
+    cached = _load_cached_baseline(cache_path)
+    if cached is not None:
+        return cached
+
+    with materialized(repo, base_sha, scope=scope) as base_tree:
+        present = [t for t in tests if (base_tree / t).is_file()]
+        if not present:
+            result = BaselineResult(
+                readable=True,
+                base_sha=base_sha,
+                failing=frozenset(),
+                detail=(
+                    f"none of the {len(tests)} selected test file(s) exist on "
+                    f"{base_ref} ({base_sha[:12]}) — a genuine empty baseline, not "
+                    "a degraded read: every failure in the merged tree for this "
+                    "selection is necessarily new"
+                ),
+            )
+            _store_cached_baseline(cache_path, result)
+            return result
+        basetemp = (
+            partitioned_paths(scope.tree).pytest_basetemp / "merge-queue-baseline"
+        )
+        basetemp.mkdir(parents=True, exist_ok=True)
+        proc, secs = _timed_run(
+            [
+                interpreter,
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:randomly",
+                "-rfE",
+                f"--basetemp={basetemp}",
+                *present,
+            ],
+            base_tree,
+            timeout=TARGETED_TEST_BUDGET_SECONDS,
+            env=env,
+        )
+
+    if proc is None:
+        return BaselineResult(
+            readable=False,
+            base_sha=base_sha,
+            detail=(
+                f"baseline run on {base_ref} ({base_sha[:12]}) exceeded "
+                f"{TARGETED_TEST_BUDGET_SECONDS}s — an unproducible baseline is "
+                "REFUSED, never silently treated as 'no pre-existing failures' "
+                f"(took {secs:.1f}s before timing out)"
+            ),
+        )
+    if proc.returncode not in _PYTEST_READABLE_EXIT_CODES:
+        return BaselineResult(
+            readable=False,
+            base_sha=base_sha,
+            detail=(
+                f"baseline run on {base_ref} ({base_sha[:12]}) exited "
+                f"{proc.returncode} (collection/usage/internal error, not a test "
+                "outcome) — an unreadable baseline is REFUSED, never silently "
+                "treated as 'no pre-existing failures'\n"
+                + proc.stdout[-2000:]
+                + "\n"
+                + proc.stderr[-1000:]
+            ),
+        )
+    result = BaselineResult(
+        readable=True,
+        base_sha=base_sha,
+        failing=frozenset(_parse_failing_test_ids(proc.stdout)),
+        detail=f"{len(present)} test file(s) evaluated on {base_ref} ({base_sha[:12]})",
+    )
+    _store_cached_baseline(cache_path, result)
+    return result
+
+
 def run_fast_gate(
     tree: Path,
     *,
@@ -901,6 +1146,7 @@ def run_fast_gate(
                 "-q",
                 "-p",
                 "no:randomly",
+                "-rfE",
                 f"--basetemp={basetemp}",
                 *tests,
             ],
@@ -909,6 +1155,12 @@ def run_fast_gate(
             env=env,
         )
         if proc is None:
+            # Preserve the existing budget-overrun contract verbatim (CONCEPT:
+            # AU-OS.governance.tiered-merge-gate): exceeding the ceiling is a
+            # DEFER to the post-merge suite, not a fail — and, distinctly from a
+            # baseline that can't be produced (see compute_test_baseline), this is
+            # the run we already had no regression claim to make, so there is
+            # nothing here for a baseline to change.
             checks.append(
                 Check(
                     "targeted-tests",
@@ -922,19 +1174,141 @@ def run_fast_gate(
                     ),
                 )
             )
-        else:
+        elif proc.returncode not in _PYTEST_READABLE_EXIT_CODES:
+            # The merged tree itself did not collect/run cleanly (D-OB-17's shape,
+            # or worse). Per CONCEPT:AU-OS.governance.test-regression-baseline this
+            # is refused outright without consulting the baseline: "a collection
+            # error is not a pass" on EITHER tree, and an unreadable merged run
+            # gives no failing-id set to diff against a baseline in the first
+            # place — there is nothing to compare.
             checks.append(
                 Check(
                     "targeted-tests",
-                    ok=proc.returncode == 0,
+                    ok=False,
                     seconds=secs,
                     detail=(
-                        ""
-                        if proc.returncode == 0
-                        else (proc.stdout[-4000:] + "\n" + proc.stderr[-2000:])
+                        f"the merged tree's targeted-test run exited "
+                        f"{proc.returncode} (collection/usage/internal error, not "
+                        "a test outcome) — refused; a run that cannot enumerate "
+                        "its failures cannot be diffed against the base\n"
+                        + proc.stdout[-2000:]
+                        + "\n"
+                        + proc.stderr[-1000:]
                     ),
                 )
             )
+        else:
+            merged_failing = _parse_failing_test_ids(proc.stdout)
+            # The baseline is computed whenever the merged run itself is readable
+            # — not only when it has failures — so that a candidate which FIXES a
+            # pre-existing failure gets that improvement reported even when nothing
+            # else in the selection is red (adversarial property (d)). The batch
+            # (not each individual candidate) pays for this: `tests` here is the
+            # union selection for the whole batch/sub-batch attempt
+            # (:func:`integrate_batch`), and :func:`compute_test_baseline` caches
+            # on ``(base_sha, selection, interpreter)`` — main is static within a
+            # batch, so a repeated or later attempt against the same selection is
+            # answered from disk rather than run again.
+            baseline = compute_test_baseline(
+                scope.main_tree,
+                base_ref,
+                tests,
+                scope=scope,
+                interpreter=interpreter,
+                env=env,
+            )
+
+            def _ids(label: str, ids: list[str], limit: int = 25) -> str:
+                shown = ", ".join(ids[:limit])
+                more = f" (+{len(ids) - limit} more)" if len(ids) > limit else ""
+                return f"{len(ids)} {label}: {shown}{more}"
+
+            if not merged_failing:
+                # Nothing failed on the merged tree, so there is NO POSSIBLE
+                # regression no matter what the baseline says — mathematically,
+                # `merged_failing - baseline.failing` is empty whenever
+                # `merged_failing` is, regardless of whether `baseline.failing` is
+                # even known. So an unreadable baseline here does not refuse: fail-
+                # closed (property 2) governs cases where the baseline's answer
+                # could change the verdict, and here it cannot.
+                base_label = (
+                    f"{base_ref} ({baseline.base_sha[:12]})"
+                    if baseline.readable
+                    else base_ref
+                )
+                detail = f"{len(tests)} test file(s) green on {interpreter}"
+                if baseline.readable and baseline.failing:
+                    detail += "\n" + _ids(
+                        f"test(s) this candidate FIXES relative to {base_label}",
+                        sorted(baseline.failing),
+                    )
+                elif not baseline.readable:
+                    detail += (
+                        f" (improvement delta unavailable — {base_ref} baseline "
+                        f"could not be produced: {baseline.detail})"
+                    )
+                checks.append(
+                    Check("targeted-tests", ok=True, seconds=secs, detail=detail)
+                )
+            elif not baseline.readable:
+                # Fail-closed (CONCEPT:AU-OS.governance.test-regression-baseline,
+                # property 2): an unproducible baseline REFUSES the candidate.
+                # It must never fall back to "no pre-existing failures", which
+                # would silently permit every failing id as if it were known-red.
+                checks.append(
+                    Check(
+                        "targeted-tests",
+                        ok=False,
+                        seconds=secs,
+                        detail=(
+                            f"REFUSED: {len(merged_failing)} test(s) failed on "
+                            f"the merged tree and the {base_ref} baseline "
+                            "needed to tell a regression from pre-existing red "
+                            f"could not be produced: {baseline.detail}"
+                        ),
+                    )
+                )
+            else:
+                new_failures = sorted(merged_failing - baseline.failing)
+                pre_existing = sorted(merged_failing & baseline.failing)
+                fixed = sorted(baseline.failing - merged_failing)
+                base_label = f"{base_ref} ({baseline.base_sha[:12]})"
+
+                if new_failures:
+                    detail = _ids(
+                        "NEW failure(s) not present on " + base_label, new_failures
+                    )
+                    if pre_existing:
+                        detail += "\n" + _ids(
+                            f"pre-existing failure(s) also on {base_label} (not blocking)",
+                            pre_existing,
+                        )
+                    if fixed:
+                        detail += "\n" + _ids(
+                            f"test(s) this candidate FIXES relative to {base_label}",
+                            fixed,
+                        )
+                    checks.append(
+                        Check("targeted-tests", ok=False, seconds=secs, detail=detail)
+                    )
+                else:
+                    # Every merged-tree failure is identically present on the
+                    # base: pre-existing red the branch did not cause, ALLOWED
+                    # — but reported explicitly, with counts, so it never reads
+                    # as a silent success (property 1: not a masking mechanism).
+                    detail = _ids(
+                        f"pre-existing failure(s) also failing on {base_label} "
+                        "(allowed — not caused by this candidate)",
+                        pre_existing,
+                    )
+                    if fixed:
+                        detail += "\n" + _ids(
+                            f"test(s) this candidate FIXES relative to {base_label}",
+                            fixed,
+                        )
+                    checks.append(
+                        Check("targeted-tests", ok=True, seconds=secs, detail=detail)
+                    )
 
     return GateResult(
         ok=all(c.ok for c in checks),

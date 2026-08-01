@@ -126,6 +126,7 @@ _LOCATION_FIELDS = frozenset(
         "pdf_url",
         "root_path",
         "source_uri",
+        "source_url",
         "uri",
         "url",
         "web_url",

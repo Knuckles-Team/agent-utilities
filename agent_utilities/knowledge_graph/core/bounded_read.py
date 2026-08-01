@@ -69,6 +69,11 @@ def iter_nodes_by_types(
 
     BOUNDED on the engine (per-label fetch); a full pass only on a graph with no
     ``get_nodes_by_label`` (small/local). See module docstring.
+
+    Reads ``node_type`` first, falling back to the retired bare ``type`` key so
+    pre-migration rows (e.g. a legacy ``:MediaAsset`` node written before the
+    ``node_type`` convention existed) are still found by a type-filtered scan —
+    write paths emit only ``node_type``.
     """
     wanted = {_type_value(t).lower() for t in types}
     by_label = getattr(graph, "get_nodes_by_label", None)
@@ -86,7 +91,10 @@ def iter_nodes_by_types(
                         if (
                             nid not in out
                             and isinstance(data, dict)
-                            and str(data.get("node_type", "")).lower() in wanted
+                            and str(
+                                data.get("node_type") or data.get("type") or ""
+                            ).lower()
+                            in wanted
                         ):
                             out[nid] = data
         # TRUST the bounded result — do NOT full-scan an empty type (that is the
@@ -100,6 +108,7 @@ def iter_nodes_by_types(
         return
     for nid, data in node_iter:
         if isinstance(data, dict) and (
-            not wanted or str(data.get("node_type", "")).lower() in wanted
+            not wanted
+            or str(data.get("node_type") or data.get("type") or "").lower() in wanted
         ):
             yield nid, data

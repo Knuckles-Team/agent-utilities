@@ -90,14 +90,26 @@ def test_semantic_compactor():
     assert deleted_count == 3
 
     # Check that it executed queries to merge the summary, link it, and delete the processes
+    # compact_traces persists through security.persistence_privacy.
+    # persistence_reference (CONCEPT:AU-KG.query.vendor-agnostic-traversal):
+    # the raw agent_id is deliberately never written into a durable
+    # id/property field (summary_id, the summary's own "agent_id" property,
+    # or its human-readable "name") — only a stable, non-reversible
+    # reference is. Compute the same reference the production code does
+    # rather than asserting the raw id would appear verbatim.
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    agent_ref = persistence_reference(
+        "trace_agent", "agent-123", namespace="semantic-compaction"
+    )
     mock_engine.backend.execute.assert_any_call(
         ANY,
         {
-            "summary_id": "summary:agent:agent-123:3_compacted",
-            "name": "Compacted Trace Summary for Agent agent-123",
+            "summary_id": f"summary:agent:{agent_ref}:3_compacted",
+            "name": "Compacted Trace Summary",
             "compacted_count": 3,
             "total_tokens": 350,
-            "agent_id": "agent-123",
+            "agent_id": agent_ref,
         },
     )
     mock_engine.backend.execute.assert_any_call(ANY, {"pid": "process:1"})
