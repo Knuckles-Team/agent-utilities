@@ -970,10 +970,19 @@ def _execute_orchestrator_turn(
     orch = Orchestrator(engine)
 
     async def _invoke() -> Any:
+        # D-25-4: pin run_id to the orchestrator job_id (never leave it to
+        # execute_agent's own new_run_id() default) so the :RunTrace this run
+        # writes is deterministically findable by the SAME id a caller already
+        # holds (the WorkItem/job_id) -- see manager.get_run_trace's own
+        # id derivation (observability.trace_ontology.trace_id). Without this,
+        # the real output execute_agent returns was computed and then
+        # discarded: only an opaque result_ref marker survived past this
+        # function, and no caller had any id to look the real output up by.
         return await orch.execute_agent(
             agent_name=envelope.agent_name,
             task=claim["description"],
             session_id=envelope.session_id,
+            run_id=envelope.job_id,
         )
 
     from agent_utilities.orchestration import work_item as _wi
