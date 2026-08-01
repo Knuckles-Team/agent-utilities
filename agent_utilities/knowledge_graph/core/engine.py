@@ -33,6 +33,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .session import GraphSession
 
 from ...core.registry.kg_adapter import FocusedSubgraph, RegistryMixin
+from ...models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    RegistryNode,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 from ...security.identifiers import validate_identifier
 from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
@@ -252,7 +258,7 @@ class IntelligenceGraphEngine(
             registry = ServiceRegistry.instance()
             registry.initialize()
             count = registry.register_with_kg(self)
-            self._services_registered = True
+            self._services_registered = count > 0
             logger.info(
                 "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] Registered %d services with KG engine",
                 count,
@@ -279,6 +285,45 @@ class IntelligenceGraphEngine(
 
             self._memory_manager = MemoryEngine(engine=self)
         return self._memory_manager
+
+    @property
+    def statechart(self) -> Any:
+        """The native ``eg-statechart`` namespace (``define``/``instantiate``/
+        ``send_event``/``get_state``/``list`` — see
+        ``epistemic_graph.client.StatechartClient``).
+
+        Statechart instances are NOT graph-scoped (their own
+        ``statecharts.redb``, owner-scoped to the caller's ``(tenant,
+        actor)``, like ``JobsClient``) but the RPC itself still requires the
+        task-local verified :class:`~.session.GraphSession` bound into the
+        native client's signed request context, exactly like every other
+        engine RPC (``GraphComputeEngine._send``). The bare process client
+        (``self.graph_compute.client``) is NOT session-routed — only a
+        ``for_graph()`` view rebuilds its namespaces (``_CLIENT_NAMESPACES``,
+        which now includes ``"statechart"``) over ``_SessionRoutedAsyncClient``,
+        whose ``_send`` resolves ``current_session()`` and binds
+        ``use_verified_context`` before every call. Calling the bare client's
+        ``.statechart`` directly sent an unauthenticated request and the
+        engine correctly rejected it ("Authentication failed"). Route through
+        the ambient session's graph view instead, mirroring
+        ``envelope_ingest._native_session``'s ``compute.for_graph(graph)``.
+
+        Callers across the Loop/agent-lifecycle durability surface
+        (``research.loops``, ``orchestration.agent_activation``,
+        ``orchestration.work_item``) call ``engine.statechart.X(...)``
+        directly on whatever ``engine`` they were handed — this is what makes
+        that contract hold for a plain ``IntelligenceGraphEngine`` (e.g. the
+        one ``core.sessions.run_goal_loop`` acquires via
+        ``IntelligenceGraphEngine.get_or_create()``).
+        """
+        from .session import current_session, resolve_session
+
+        session = resolve_session(current_session())
+        compute = self.graph_compute
+        view_factory = getattr(compute, "for_graph", None)
+        if callable(view_factory) and session.graph:
+            compute = view_factory(session.graph)
+        return compute.client.statechart
 
     @classmethod
     def get_active(cls) -> IntelligenceGraphEngine | None:
@@ -411,21 +456,16 @@ class IntelligenceGraphEngine(
 
     def _serialize_node(self, node: Any, label: str | None = None) -> dict[str, Any]:
         """Serialize a Pydantic node for backend storage, handling Enums and JSON fields."""
-        data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
+        # Every RegistryNode subclass carries the node class as a Pydantic `type`
+        # field, but the engine's sole canonical node-class PROPERTY is
+        # `node_type` — both EpistemicGraphBackend.add_node and
+        # GraphComputeEngine.add_node raise on a stray 'type' key. The rename is
+        # owned by the one named projection on the model.
+        if isinstance(node, RegistryNode):
+            data = node.to_graph_properties()
+        else:
+            data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
         clean_data = {}
-
-        # Every RegistryNode subclass still carries a Pydantic `type` field, but the
-        # engine retired the 'type' node PROPERTY in favor of 'node_type' (add_node's
-        # own explicit argument) — EpistemicGraphBackend.add_node/GraphComputeEngine.add_node
-        # both raise on a stray 'type' key. Fold it into 'node_type' here, mirroring
-        # the same rename ``core/ogm.py``'s ``KGMapper._serialize`` already performs, so
-        # every caller of this helper (``_upsert_node``/``add_node``-bound) emits the
-        # current property name instead of the retired one.
-        if "type" in data:
-            node_type_value = data.pop("type")
-            data.setdefault(
-                "node_type", getattr(node_type_value, "value", node_type_value)
-            )
 
         # Define fields that Ladybug supports as native arrays
         ARRAY_FIELDS = [
@@ -439,6 +479,16 @@ class IntelligenceGraphEngine(
 
         # Filter by schema if label is provided
         allowed_cols = self._get_allowed_columns(label) if label else None
+        # The schema's declared column is still the retired 'type' name across
+        # the whole SCHEMA table (agent_utilities/models/schema_definition.py
+        # never picked up the type -> node_type rename this method performs
+        # just above). Without this, the fold above is undone immediately:
+        # 'node_type' isn't a declared column, so the whitelist below silently
+        # drops it again, and every schema-labeled write loses its node_type
+        # -- exactly the retired-property-silently-matching-nothing pattern
+        # (D-OTR-1) on the WRITE side instead of the read side.
+        if allowed_cols is not None and "type" in allowed_cols:
+            allowed_cols = [*allowed_cols, "node_type"]
 
         for k, v in data.items():
             if v is None:
@@ -449,7 +499,17 @@ class IntelligenceGraphEngine(
             if isinstance(v, Enum):
                 clean_data[k] = v.value
             elif isinstance(v, dict | list) and k not in ARRAY_FIELDS:
-                clean_data[k] = json.dumps(v)
+                # Every caller of this helper follows the same convention: a
+                # `label`-less call feeds `self.graph.add_node(...)` (the
+                # native compute layer, which stores nested maps/lists
+                # natively), while a `label=...` call feeds the schema-aware
+                # backend/mirror leg (`_upsert_node`, whose own encoding
+                # policy this mirrors). JSON-encoding here unconditionally
+                # was correct for the backend leg but silently lossy for the
+                # compute leg -- a caller reading `engine.graph.nodes[id][k]`
+                # back got a JSON string instead of the dict/list it wrote
+                # (same masking-bug class as D-OTR-5's KGMapper._serialize).
+                clean_data[k] = json.dumps(v) if label is not None else v
             else:
                 clean_data[k] = v
         return clean_data
@@ -582,6 +642,37 @@ class IntelligenceGraphEngine(
 
         label = self._normalize_label(label)
         prepared = self._prepare_node_props(label, data)
+        # The MERGE pattern below always binds `$id` (and the typed native
+        # path always passes `"id": node_id` explicitly) — but `data` isn't
+        # guaranteed to carry an "id" key itself; some callers build props
+        # from scratch and pass the node id ONLY as this method's own
+        # `node_id` argument. Without this, the raw-Cypher/MERGE branch below
+        # sent `$id` in the query text with no matching key in the params
+        # dict, and the native parser rejected it outright ("Parameter id not
+        # found") rather than silently mismatching.
+        prepared.setdefault("id", node_id)
+
+        # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard):
+        # stamp tenant/owner governance AND a durable ACL classification on
+        # EVERY node write through this one generic upsert seam — the single
+        # chokepoint ~50+ ingestion/write call sites across the codebase all
+        # funnel through (directly, or via IntelligenceGraphEngine.add_node).
+        # secured_reads.permit() is default-deny for any node with no
+        # registered ACL; before this, nothing on the write path ever
+        # registered one, so data was writable but permanently unreadable —
+        # even by its own creator. secured_reads._hydrate_missing_acls reads
+        # these exact durable properties back at query time to reconstruct
+        # the ACL lazily (the read-time fallback layer of this same defence).
+        # Best-effort: writes with no bound actor (system/background/
+        # control-plane paths) proceed unstamped exactly as before this seam
+        # existed, not a hidden failure.
+        try:
+            from .tenant_sharing import stamp_classification, stamp_ownership
+
+            stamp_ownership(prepared)
+            stamp_classification(prepared, label)
+        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
+            pass
 
         typed_support = getattr(self.backend, "typed_mutation_support", "")
         if typed_support == "native":
@@ -907,9 +998,7 @@ class IntelligenceGraphEngine(
         node_type = self._normalize_label(node_type)
         props = dict(properties or {})
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is retired; use the node_type argument"
-            )
+            raise retired_node_type_property_error()
         props["node_type"] = node_type
         # Flag types outside an EXCLUSIVE pack, observe-only (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
         self._audit_candidate_type("node", node_type)
@@ -958,15 +1047,9 @@ class IntelligenceGraphEngine(
         if not str(rel_type).strip():
             raise ValueError("rel_type is required")
 
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            properties
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(properties)
         if aliases:
-            names = ", ".join(sorted(aliases))
-            raise ValueError(
-                f"edge relationship aliases are retired ({names}); "
-                "use the rel_type argument"
-            )
+            raise retired_edge_relationship_property_error(aliases)
 
         with use_actor(session.actor):
             if self.backend and not ephemeral:

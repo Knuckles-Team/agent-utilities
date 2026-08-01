@@ -1206,8 +1206,22 @@ def register_analysis_tools(mcp):
 
                 if not query:
                     return "Error: contradictions needs the new claim text in `query`."
+                # skip_quality_gate=True: this is a propose-only friction SCAN, not
+                # a confident-answer retrieval — the quality gate exists to avoid
+                # presenting a low-relevance result AS the answer, which doesn't
+                # apply here. ContradictionDetector.check() below does its own
+                # independent opposition/similarity scoring per candidate, so a
+                # weak neighbour is still legitimate input for human-judgment
+                # review (never auto-resolved); the gate would otherwise silently
+                # zero out every candidate and make the whole action a no-op
+                # whenever relevance is merely borderline.
                 neighbours = (
-                    await run_blocking_ordered(engine.search_hybrid, query, top_k=top_k)
+                    await run_blocking_ordered(
+                        engine.search_hybrid,
+                        query,
+                        top_k=top_k,
+                        skip_quality_gate=True,
+                    )
                     or []
                 )
                 existing = [
@@ -1365,8 +1379,20 @@ def register_analysis_tools(mcp):
                     return "Error: recommend needs a query/intent in `query`."
 
                 def _recommend() -> list[Any] | None:
+                    # CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval — pass the
+                    # served call's ambient GraphSession so candidate nodes are
+                    # ACL/owner-scope filtered before they reach the recommender
+                    # (see search_hybrid's docstring — a no-op for callers that
+                    # pass no session).
+                    from agent_utilities.knowledge_graph.core.session import (
+                        current_session,
+                    )
+
                     candidates = (
-                        engine.search_hybrid(query, top_k=max(top_k * 4, 20)) or []
+                        engine.search_hybrid(
+                            query, top_k=max(top_k * 4, 20), session=current_session()
+                        )
+                        or []
                     )
                     items = []
                     for c in candidates:
@@ -2410,16 +2436,19 @@ def register_analysis_tools(mcp):
         description=(
             "Structural and operational KG analysis. Actions: inspect | "
             "enrichment_coverage | process_writeback | placement_plan | "
-            "infra_sweep | security_scan. Use graph_code, graph_research, "
-            "graph_evaluate, graph_explain, or graph_observe for their focused domains. "
-            "Returns the sole typed EvidenceBundle response."
+            "infra_sweep | security_scan | distill_memory (KG-2.316/2.318 — "
+            "export consolidated/procedural memory to a SFT/DPO/GRPO corpus and "
+            "optionally submit=true to dispatch a live data-science-mcp train; "
+            "poll_job_id=<id> reads a submitted job's status back). Use graph_code, "
+            "graph_research, graph_evaluate, graph_explain, or graph_observe for "
+            "their focused domains. Returns the sole typed EvidenceBundle response."
         ),
         tags=["graph-os", "analyze"],
     )
     async def graph_analyze(
         action: str = Field(
             default="inspect",
-            description="inspect | enrichment_coverage | process_writeback | placement_plan | infra_sweep | security_scan",
+            description="inspect | enrichment_coverage | process_writeback | placement_plan | infra_sweep | security_scan | distill_memory",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(default=10, description="Result or complexity bound."),
@@ -2427,6 +2456,14 @@ def register_analysis_tools(mcp):
         depth: int = Field(default=2, description="Traversal depth."),
         target: str = Field(default="", description="Analysis target."),
     ) -> EvidenceBundle:
+        # CONCEPT:AU-KG.memory.memory-weights-distillation-export — "distill_memory" is handled
+        # by the shared action core (_run_analysis_action) below but was left out
+        # of this tool's own allowlist when graph_analyze's other ~24 actions were
+        # split into the focused graph_code/graph_research/graph_evaluate/
+        # graph_explain/graph_observe suite (analyze_suite.py); none of those
+        # picked it up either, so it was unreachable from any live MCP/REST
+        # surface. It doesn't fit those five focused domains, so it stays here
+        # on graph_analyze's structural/operational surface.
         allowed = {
             "inspect",
             "enrichment_coverage",
@@ -2434,6 +2471,7 @@ def register_analysis_tools(mcp):
             "placement_plan",
             "infra_sweep",
             "security_scan",
+            "distill_memory",
         }
         if action not in allowed:
             return EvidenceBundle.from_payload(
@@ -2660,7 +2698,13 @@ def register_analysis_tools(mcp):
                 "GraphQL sources use a read-only runtime adapter; "
                 "their connection, mapping, auth, TLS, and variables documents remain "
                 "separate refs, and every ingest rechecks the approved schema and "
-                "mapping-policy digests."
+                "mapping-policy digests. Stardog instance-data actions: "
+                "push_to_stardog, pull_from_stardog, stardog_sparql, and "
+                "stardog_export_graph/stardog_import_graph (bulk Turtle backup/"
+                "restore/migrate of one named graph — config_value.graph_uri "
+                "optional, defaults to the resolved connection's own dedicated "
+                "mirror graph if any; stardog_import_graph requires "
+                "config_value.turtle)."
             ),
         ),
         config_key: str = Field(
@@ -3531,7 +3575,13 @@ def register_analysis_tools(mcp):
                 # optional single mirror name; empty = all mirrors).
                 return json.dumps(inner.reconcile(config_key or None), default=str)
             # ── CONCEPT:AU-KG.query.stardog-instance-data: Stardog instance-data push / pull / query ──
-            if action in ("push_to_stardog", "pull_from_stardog", "stardog_sparql"):
+            if action in (
+                "push_to_stardog",
+                "pull_from_stardog",
+                "stardog_sparql",
+                "stardog_export_graph",
+                "stardog_import_graph",
+            ):
                 try:
                     opts = json.loads(config_value) if config_value else {}
                 except Exception:
@@ -3588,6 +3638,49 @@ def register_analysis_tools(mcp):
                         )
                     return json.dumps(
                         {"results": sd_backend.execute_sparql(query)}, default=str
+                    )
+
+                # ── CONCEPT:AU-KG.backend.mirror-target-graph: bulk Turtle
+                # export/import (D-MT-1). SparqlAdapter.upload_graph/download_graph
+                # existed with no production caller before this — a real backup/
+                # restore/migrate-between-instances primitive for a Stardog mirror or
+                # ad-hoc connection, complementary to (not a replacement for) the
+                # per-node/edge push_to_stardog/pull_from_stardog above. Omitting
+                # config_value.graph_uri targets the resolved backend's own dedicated
+                # mirror graph, if any (a per-source graph_uri from D-MT-4 is reached
+                # by naming it explicitly).
+                if action in ("stardog_export_graph", "stardog_import_graph"):
+                    if not hasattr(sd_backend, "download_graph") or not hasattr(
+                        sd_backend, "upload_graph"
+                    ):
+                        return json.dumps(
+                            {
+                                "error": f"{type(sd_backend).__name__} does not "
+                                "support Turtle graph export/import"
+                            }
+                        )
+                    graph_uri = opts.get("graph_uri")
+                    if action == "stardog_export_graph":
+                        return json.dumps(
+                            {
+                                "status": "ok",
+                                "graph_uri": graph_uri,
+                                "turtle": sd_backend.download_graph(graph_uri),
+                            },
+                            default=str,
+                        )
+                    # stardog_import_graph
+                    ttl_content = opts.get("turtle")
+                    if not isinstance(ttl_content, str) or not ttl_content.strip():
+                        return json.dumps(
+                            {
+                                "error": "config_value.turtle (a Turtle document) "
+                                "is required"
+                            }
+                        )
+                    sd_backend.upload_graph(ttl_content, graph_uri)
+                    return json.dumps(
+                        {"status": "ok", "graph_uri": graph_uri}, default=str
                     )
 
                 authority = kg_server.get_connection_registry().get_engine(None)

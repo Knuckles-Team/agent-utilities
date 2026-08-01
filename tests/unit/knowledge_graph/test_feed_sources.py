@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from agent_utilities.automation.feed_sources import (
@@ -13,11 +15,28 @@ from agent_utilities.automation.feed_sources import (
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 
 
 class _Engine:
+    """A bare ``EpistemicGraphBackend()`` resolves ``resolve_routing_graph(None)``
+    to the ambient tenant's SHARED default graph -- an explicit name the
+    autouse ``isolate_graph_compute_engine`` fixture's redirect can't catch
+    (it only matches literal ``None``/``"__commons__"``/``"__secrets__"``, not
+    an already-tenant-resolved name). Sequential tests each constructing their
+    own bare ``_Engine()`` then collide on that ONE shared graph:
+    ``RuntimeError: ... STALE_FENCE``. Retargeting a per-instance session at
+    an explicit, uniquely-named graph (same shape as
+    tests/integration/knowledge_graph/test_engine_helpers.py's ``engine``
+    fixture and tests/unit/knowledge_graph/test_topological_analogy.py's
+    ``base_graph``) gives every ``_Engine()`` its own isolated graph.
+    """
+
     def __init__(self):
-        self.backend = EpistemicGraphBackend()
+        graph_name = f"test_feed_sources_{uuid.uuid4().hex[:12]}"
+        self._session_cm = use_session(GraphSession.from_ambient().with_graph(graph_name))
+        self._session_cm.__enter__()
+        self.backend = EpistemicGraphBackend(graph_name=graph_name)
 
     def add_node(self, node_id, node_type, properties=None):
         self.backend.add_node(node_id, node_type=node_type, **(properties or {}))

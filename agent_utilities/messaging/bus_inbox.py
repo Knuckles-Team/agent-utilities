@@ -195,7 +195,7 @@ def _properties(
         consent_basis=str(clean_meta.get("consent_basis") or ""),
         consent_granted_at=clean_meta.get("consent_granted_at"),
         consent_expires_at=clean_meta.get("consent_expires_at"),
-    ).model_dump(exclude={"id", "type"})
+    ).to_graph_properties(exclude={"id"})
     work["node_type"] = "WorkItem"
     outcome = {
         "id": outcome_id,

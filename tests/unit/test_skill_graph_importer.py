@@ -39,11 +39,34 @@ class _Edges:
 
 
 class _Graph:
+    def __init__(self, nodes, edges):
+        self._nodes, self._edges = nodes, edges
+
     async def community_detection(self, resolution=1.0):
         return []
 
     async def semantic_search(self, emb, n_results=5):
         return []
+
+    async def get_subgraph(self, node_ids):
+        # SkillGraphDistiller.fetch_subgraph() batches node properties + the
+        # induced edges through ONE GetSubgraph round-trip; mirror that
+        # response shape ({"nodes": [{"id", "properties"}], "edges":
+        # [{"source", "target", "properties"}]}) from this fake's own
+        # nodes/edges tables instead of the retired per-node/per-edge calls.
+        wanted = set(node_ids)
+        return {
+            "nodes": [
+                {"id": nid, "properties": props}
+                for nid, props in self._nodes.items()
+                if nid in wanted
+            ],
+            "edges": [
+                {"source": s, "target": d, "properties": p}
+                for s, d, p in self._edges
+                if s in wanted and d in wanted
+            ],
+        }
 
 
 class FakeClient:
@@ -54,7 +77,7 @@ class FakeClient:
             adj.setdefault(d, set()).add(s)
         self.nodes = _Nodes(nodes, {k: sorted(v) for k, v in adj.items()})
         self.edges = _Edges(edges)
-        self.graph = _Graph()
+        self.graph = _Graph(nodes, edges)
 
     async def close(self):
         pass

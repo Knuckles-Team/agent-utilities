@@ -1,0 +1,310 @@
+"""FreshRSS world-model source + relevance gate — /116/117."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+
+import agent_utilities.knowledge_graph.core.source_sync as ss
+from agent_utilities.automation.research_pipeline import (
+    RELEVANCE_PROFILES,
+    RELEVANCE_TAXONOMY,
+    WORLD_MODEL_TAXONOMY,
+    ResearchPipelineRunner,
+    score_text,
+)
+
+
+@pytest.fixture(autouse=True)
+def _source_sync_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
+
+
+from agent_utilities.automation.worldmodel_pipeline import (
+    WorldModelConfig,
+    WorldModelPipelineRunner,
+)
+from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
+    MCP_TOOL_PRESETS,
+)
+
+# ── preset ────────────────────────────────────────────────────────────────────
+
+
+def test_freshrss_preset_is_not_duplicated_in_the_hub():
+    assert "freshrss" not in MCP_TOOL_PRESETS
+
+
+# ── relevance scorer strangle (research path stays identical) ───────────────────
+
+
+def test_score_paper_delegates_to_score_text():
+    title, abstract = "Agentic planning", "reasoning and planning with memory and tools"
+    runner = ResearchPipelineRunner(engine=None)
+    assert runner.score_paper(title, abstract) == score_text(
+        title, abstract, RELEVANCE_TAXONOMY
+    )
+
+
+def test_relevance_profiles_registered():
+    assert RELEVANCE_PROFILES["research"] is RELEVANCE_TAXONOMY
+    assert RELEVANCE_PROFILES["world_model"] is WORLD_MODEL_TAXONOMY
+
+
+def test_world_model_scoring_finance():
+    score, domains = score_text(
+        "Nvidia earnings beat",
+        "earnings stock equities valuation",
+        WORLD_MODEL_TAXONOMY,
+    )
+    assert score > 3.0
+    assert "markets_finance" in domains and "companies" in domains
+
+
+# ── gate tiering ────────────────────────────────────────────────────────────
+
+
+def test_tier_matrix():
+    r = WorldModelPipelineRunner(engine=None, config=WorldModelConfig())
+    # forced always wins
+    assert r._tier(0.0, None, True) == "relevant"
+    # high score, unknown novelty → relevant
+    assert r._tier(5.0, None, False) == "relevant"
+    # high score but already-covered (low novelty) → demoted to marginal
+    assert r._tier(5.0, 0.1, False) == "marginal"
+    # mid score → marginal
+    assert r._tier(1.5, None, False) == "marginal"
+    # low score, highly novel → marginal
+    assert r._tier(0.5, 0.9, False) == "marginal"
+    # below everything → skipped
+    assert r._tier(0.0, 0.0, False) == "skipped"
+
+
+def test_is_research_detects_arxiv_feed():
+    rec_research = {"categories": [{"label": "Research (ScholarX)"}], "origin": {}}
+    rec_news = {"categories": [{"label": "Markets & Finance"}], "origin": {}}
+    assert WorldModelPipelineRunner._is_research(rec_research) is True
+    assert WorldModelPipelineRunner._is_research(rec_news) is False
+    assert (
+        WorldModelPipelineRunner._is_research(
+            {"origin": {"htmlUrl": "https://arxiv.org/list/cs.AI"}}
+        )
+        is True
+    )
+
+
+def _doc(rid, title, text, record):
+    return SimpleNamespace(
+        id=rid,
+        title=title,
+        text=text,
+        metadata={"record": record},
+        source_uri=f"mcp-tool://freshrss-mcp/freshrss_reader/{rid}",
+        updated_at=record.get("published"),
+    )
+
+
+def test_run_gated_ingest_tiers_without_engine():
+    # engine=None → no writes, but tiering/counting still runs (best-effort).
+    docs = [
+        _doc(
+            "i1",
+            "Nvidia earnings beat",
+            "earnings stock equities valuation",
+            {"published": "1700000100", "categories": [{"label": "Markets & Finance"}]},
+        ),
+        _doc(
+            "i2",
+            "Fed watch",
+            "inflation outlook",
+            {"published": "1700000050", "categories": [{"label": "Macro"}]},
+        ),
+        _doc(
+            "i3",
+            "Cat picture",
+            "a fluffy cat naps",
+            {"published": "1700000010", "categories": [{"label": "Misc"}]},
+        ),
+        _doc(
+            "i4",
+            "New transformer paper",
+            "a novel attention mechanism",
+            {
+                "published": "1700000200",
+                "categories": [{"label": "Research (ScholarX)"}],
+            },
+        ),
+    ]
+    report = WorldModelPipelineRunner(engine=None).run_gated_ingest(docs)
+    assert report.items_seen == 4
+    assert report.relevant == 1
+    assert report.marginal == 1
+    assert report.skipped == 1
+    assert report.research == 1
+    assert report.ingested == 3
+
+
+# ── batched dedup (CONCEPT:AU-KG.ingest.instead) ────────────────────────────────────────
+
+
+def test_batch_known_ids_one_round_trip_via_has_batch():
+    """The whole batch's known-check is ONE ``has_batch`` round-trip, not N×~4
+    per-item ``has_node`` calls; present keys map back to their owning doc id."""
+    runner = WorldModelPipelineRunner(engine=None)
+    known_key = runner._node_id("news:freshrss:", "i1")  # i1 already in the KG
+
+    calls: list[list[str]] = []
+
+    def has_batch(ids):
+        calls.append(list(ids))
+        return {k: (k == known_key) for k in ids}
+
+    engine = SimpleNamespace(graph=SimpleNamespace(has_batch=has_batch))
+    runner = WorldModelPipelineRunner(engine=engine)
+    docs = [
+        _doc(
+            "i1", "Nvidia earnings beat", "earnings stock equities", {"published": "1"}
+        ),
+        _doc("i3", "Cat picture", "a fluffy cat naps", {"published": "2"}),
+    ]
+    known_ids = runner._batch_known_ids(docs)
+    assert known_ids == {"i1"}
+    assert len(calls) == 1  # exactly one bulk round-trip for the whole batch
+
+
+def test_batch_known_ids_falls_back_when_no_bulk_primitive():
+    """A graph without ``has_batch`` (no bulk support) ⇒ ``None`` so the caller
+    uses the per-item ``_is_known`` path."""
+    engine = SimpleNamespace(graph=SimpleNamespace(nodes=set()))  # no has_batch
+    runner = WorldModelPipelineRunner(engine=engine)
+    assert runner._batch_known_ids([_doc("i1", "t", "x", {})]) is None
+
+
+def test_run_gated_ingest_skips_batch_known_item():
+    """End-to-end: a doc already in the KG is skipped via the batched check, with
+    no per-item ``has_node`` calls."""
+    runner = WorldModelPipelineRunner(engine=None)
+    known_key = runner._node_id("news:freshrss:", "i1")
+    engine = SimpleNamespace(
+        graph=SimpleNamespace(has_batch=lambda ids: {k: k == known_key for k in ids})
+    )
+    docs = [
+        _doc(
+            "i1", "Nvidia earnings beat", "earnings stock equities", {"published": "1"}
+        ),
+        _doc("i3", "Cat picture", "a fluffy cat naps", {"published": "2"}),
+    ]
+    report = WorldModelPipelineRunner(engine=engine).run_gated_ingest(docs)
+    assert report.items_seen == 2
+    assert report.skipped == 2  # i1 already-known, i3 below threshold
+
+
+# ── delta handler ─────────────────────────────────────────────────────────────
+
+
+def test_sync_freshrss_skips_when_unconfigured(monkeypatch):
+    monkeypatch.delenv("FRESHRSS_URL", raising=False)
+    # No freshrss-mcp server registered either → genuinely unconfigured.
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_tool._load_mcp_config",
+        lambda: {},
+    )
+    res = ss.sync_source(MagicMock(), "freshrss", mode="delta")
+    assert res["status"] == "skipped"
+
+
+def test_sync_freshrss_gates_and_watermarks(monkeypatch):
+    monkeypatch.setenv("FRESHRSS_URL", "http://freshrss.arpa")
+    monkeypatch.setattr(ss, "_read_envelope_watermark", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "agent_utilities.automation.feed_sources.upsert_feed_source",
+        lambda *a, **k: "feed:freshrss:fixture",
+    )
+    committed: list[dict] = []
+    monkeypatch.setattr(
+        ss,
+        "_ingest_graph_slice_via_envelope",
+        lambda *a, **k: committed.append(k) or {"status": "success"},
+    )
+
+    docs = [
+        SimpleNamespace(updated_at="1700000100"),
+        SimpleNamespace(updated_at="1700000300"),
+        SimpleNamespace(updated_at=None),
+    ]
+    fake_conn = SimpleNamespace(poll_all=lambda **kw: docs)
+    connector_configs: list[dict] = []
+
+    def build_connector(_source_type, config):
+        connector_configs.append(config)
+        return fake_conn
+
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.registry.build_connector",
+        build_connector,
+    )
+
+    class FakeRunner:
+        def __init__(self, engine=None, config=None, connector="", source_instance=""):
+            pass
+
+        def run_gated_ingest(self, docs):
+            return SimpleNamespace(
+                ingested=2,
+                relevant=1,
+                marginal=1,
+                research=0,
+                skipped=1,
+                failed=0,
+            )
+
+    monkeypatch.setattr(
+        "agent_utilities.automation.worldmodel_pipeline.WorldModelPipelineRunner",
+        FakeRunner,
+    )
+
+    engine = MagicMock()
+    engine.backend = MagicMock()
+    res = ss.sync_source(engine, "freshrss", mode="delta")
+
+    assert res["status"] == "ok" and res["source"] == "freshrss"
+    assert res["details"]["items_seen"] == 3
+    assert res["details"]["relevant"] == 1
+    assert res["details"]["marginal"] == 1
+    assert res["details"]["skipped_unchanged"] == 1
+    assert committed == [{"checkpoint": "1700000300"}]
+    assert connector_configs == [{"preset": "freshrss"}]
+
+
+def test_ingest_full_uses_native_document_processor():
+    """A relevant feed item becomes one native document-slice transaction."""
+    eng = SimpleNamespace(backend=None)
+    runner = WorldModelPipelineRunner(engine=eng)
+    processed: list[dict] = []
+
+    class _Processor:
+        def process(self, text, **kwargs):
+            processed.append({"text": text, **kwargs})
+
+    runner._proc = _Processor()
+    doc = SimpleNamespace(
+        id="item1",
+        title="Oil markets shift on Hormuz risk",
+        text="Full article body " * 20,
+        metadata={},
+        source_uri="https://example/1",
+    )
+    rec = {"origin": {"title": "EIA"}, "canonical": [{"href": "https://example/1"}]}
+    runner._ingest_full(doc, rec, score=4.0, domains=["energy"])
+
+    assert len(processed) == 1
+    item = processed[0]
+    assert item["document_id"].startswith("doc:freshrss:")
+    assert item["text"].strip()
+    assert item["metadata"]["domains"] == ["energy"]
+    assert item["connector"] == "freshrss"

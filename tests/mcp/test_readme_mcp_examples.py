@@ -6,7 +6,6 @@ import json
 import re
 from pathlib import Path
 
-from agent_utilities.deployment.codex_registration import graphos_stdio_spec
 from agent_utilities.mcp import readme_mcp_examples as gen
 from agent_utilities.mcp.env_sources import example_env_pairs, is_agent_only
 
@@ -171,21 +170,46 @@ def _readme_section(heading: str) -> str:
 
 
 def test_self_contained_readme_uses_installed_portable_entry_point() -> None:
-    section = _readme_section("### Self-hosted, self-contained installation")
-    spec = graphos_stdio_spec()
-    expected = f"codex mcp add graph-os -- {spec['command']} " + " ".join(spec["args"])
-    assert expected in section
+    # Heading text as of the mcpServers-JSON rewrite (was: "### Self-hosted,
+    # self-contained installation" — retired along with the "codex mcp add"
+    # CLI-onboarding narrative this section used to document; the README now
+    # documents the generic mcpServers JSON form Claude Code/Cursor/Codex all
+    # accept instead, see D-OTD-4). graphos_stdio_spec() itself (the Codex-CLI
+    # -specific registration payload) is exercised directly by
+    # tests/unit/deployment/test_codex_registration.py, not needed here.
+    section = _readme_section(
+        "### Self-contained (zero-infra) — the engine ships in the same install"
+    )
+    assert '"command": "uvx"' in section
+    assert '"--from", "agent-utilities", "graph-os"' in section
     assert "mcp_config.json" not in section
-    assert "${workspaceFolder}" not in section
+    # No host-specific data: a real absolute filesystem path or literal IP
+    # would be a leak; the documented ``${workspaceFolder}`` IDE-substitution
+    # placeholder is expected and is NOT one (it is never resolved in the
+    # doc itself, only by the reader's own editor).
+    assert not re.search(r"tcp://(?:\d{1,3}\.){3}\d{1,3}", section)
+    assert "/home/" not in section and "/Users/" not in section
 
 
 def test_shared_engine_readme_keeps_host_and_secrets_runtime_only() -> None:
-    section = _readme_section("### Shared engine")
-    assert "codex mcp add graph-os -- graph-os --transport stdio" in section
-    launcher = section.split("The corresponding XDG AgentConfig", 1)[0]
-    assert "GRAPH_SERVICE_ENDPOINTS" not in launcher
-    assert "OIDC_CLIENT_SECRET" not in launcher
-    assert "mcp_config.json" not in launcher
+    # Heading text as of the mcpServers-JSON rewrite (was: "### Shared
+    # engine" — see D-OTD-4). The README now shows ONE combined mcpServers
+    # JSON block (env-connection + fleet-auth groups together) rather than a
+    # separate bare "launcher" snippet split from a config-file section (the
+    # "The corresponding XDG AgentConfig" phrase this test used to split on
+    # no longer exists) -- so the security invariant that matters is checked
+    # directly: secrets/hosts are only ever shown as PLACEHOLDER references,
+    # never real committed values.
+    section = _readme_section(
+        "### Shared engine (split-storage / Keycloak-protected fleet)"
+    )
+    assert '"command": "uvx"' in section
+    assert '"--from", "agent-utilities", "graph-os"' in section
+    assert "GRAPH_SERVICE_ENDPOINTS" in section  # documented, but as a placeholder host
+    assert "OIDC_CLIENT_SECRET" in section  # documented, but as an OpenBao reference
+    assert '"OIDC_CLIENT_SECRET": "<from OpenBao: bao kv get apps/graph-os>"' in section
+    assert not re.search(r"tcp://(?:\d{1,3}\.){3}\d{1,3}", section)
+    assert "/home/" not in section and "/Users/" not in section
 
     readme = (Path(__file__).resolve().parents[2] / "README.md").read_text(
         encoding="utf-8"

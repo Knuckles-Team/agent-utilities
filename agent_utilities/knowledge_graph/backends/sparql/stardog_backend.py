@@ -58,7 +58,7 @@ from ..mirror_target import (
     resolve_mirror_target,
 )
 from .base import SparqlAdapter
-from .source_partition import graph_uri_for, route_graph_uri
+from .source_partition import graph_uri_for, route_graph_uri, source_of
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +161,8 @@ class StardogSparqlBackend(SparqlAdapter):
     def mirror_target_locator(self) -> str:
         """Name the resolved target the way a Stardog operator would."""
         where = (
-            f"named graph <{self._mirror_graph}>"
+            f"named graph <{self._mirror_graph}> and its per-source "
+            f"<{self._mirror_graph}:source:*> children (D-MT-4)"
             if self._mirror_graph
             else "its source-partitioned + default graphs"
         )
@@ -510,6 +511,28 @@ class StardogSparqlBackend(SparqlAdapter):
     def _graph_close(graph_uri: str | None) -> str:
         return " }" if graph_uri else ""
 
+    def _mirror_source_graph(self, props: dict[str, Any] | None) -> str | None:
+        """The per-source graph *inside* a dedicated mirror (D-MT-4).
+
+        CONCEPT:AU-KG.backend.mirror-target-graph. A dedicated mirror graph takes
+        precedence over source partitioning at the TOP level — nothing this backend
+        writes can ever reach the instance's own ``urn:source:*`` graphs or default
+        graph, which is the safety property this mode exists for (a shared instance's
+        own ``urn:source:leanix`` would otherwise collide with a mirrored copy of the
+        same source). Within that safe namespace, though, source partitioning is worth
+        preserving as real named-graph structure rather than flattening to a property:
+        data with a real ``source_system`` lands in
+        ``<mirror graph>:source:<system>`` (still uniquely prefixed by the mirror name,
+        so it can never collide with the instance's own ``urn:source:*``); data with no
+        real source (internal/derived nodes) lands in the mirror's own root graph,
+        unchanged. ``source_system`` is additionally still written as a property either
+        way, so a query that only knows the property still works.
+        """
+        if not self._mirror_graph:
+            return None
+        source = source_of(props)
+        return f"{self._mirror_graph}:source:{source}" if source else self._mirror_graph
+
     def _upsert_node_triples(self, label: str, params: dict[str, Any]) -> None:
         """Emit an idempotent node upsert: type assertion + per-property replace,
         routed into the source's named graph."""
@@ -517,16 +540,13 @@ class StardogSparqlBackend(SparqlAdapter):
         if node_id is None:
             return
         s = self._iri(node_id)
-        # A dedicated mirror graph (CONCEPT:AU-KG.backend.mirror-target-graph) takes
-        # precedence over source partitioning: EVERY triple lands in that one graph
-        # so the whole mirror is one droppable context, and nothing this backend
-        # writes can reach the instance's default or ``urn:source:*`` graphs. The
-        # ``source_system`` property is still written, so the partition remains
-        # queryable inside the mirror graph. Otherwise: guarded source routing —
-        # records a default-graph landing by label (leak observability) and, under
-        # strict mode, refuses an un-sourced external entity
-        # (CONCEPT:AU-KG.ingest.default-graph-leak-guard).
-        g = self._mirror_graph or route_graph_uri(params, label)
+        # A dedicated mirror graph takes precedence over source partitioning at the
+        # top level (see _mirror_source_graph); everything the mirror writes stays
+        # under the ``<mirror graph>[:source:<system>]`` namespace. Absent a dedicated
+        # mirror: guarded source routing — records a default-graph landing by label
+        # (leak observability) and, under strict mode, refuses an un-sourced external
+        # entity (CONCEPT:AU-KG.ingest.default-graph-leak-guard).
+        g = self._mirror_source_graph(params) or route_graph_uri(params, label)
         go, gc = self._graph_open(g), self._graph_close(g)
         ops: list[str] = [f"INSERT DATA {{ {go}{s} a {self._iri(label)} .{gc} }}"]
         for key, val in params.items():
@@ -552,8 +572,8 @@ class StardogSparqlBackend(SparqlAdapter):
         if source_id is None or target_id is None:
             return
         # Dedicated mirror graph wins over source partitioning — see
-        # ``_upsert_node_triples`` (CONCEPT:AU-KG.backend.mirror-target-graph).
-        g = self._mirror_graph or graph_uri_for(props or {})
+        # ``_mirror_source_graph`` (CONCEPT:AU-KG.backend.mirror-target-graph).
+        g = self._mirror_source_graph(props) or graph_uri_for(props or {})
         go, gc = self._graph_open(g), self._graph_close(g)
         triple = f"{self._iri(source_id)} {self._iri(rel)} {self._iri(target_id)} ."
         self.execute_sparql_update(f"INSERT DATA {{ {go}{triple}{gc} }}")

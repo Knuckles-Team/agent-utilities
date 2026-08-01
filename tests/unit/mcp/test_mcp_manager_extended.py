@@ -1275,7 +1275,10 @@ async def test_link_knowledge_nodes_success() -> None:
     result = await kt.link_knowledge_nodes(ctx, "a", "b", "depends_on")
     assert "Successfully established" in result
     assert "depends_on" in result
-    ctx.deps.knowledge_engine.backend.execute.assert_called_once()
+    # link_knowledge_nodes now goes through the engine's typed link_nodes API,
+    # not a raw backend.execute Cypher call (same migration already reflected
+    # in test_sync_mcp_agents_success_path's add_node/link_nodes assertions).
+    ctx.deps.knowledge_engine.link_nodes.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -1371,7 +1374,7 @@ async def test_sync_feature_to_memory_updates_existing(
     # Pre-seed graph with existing memory
     ctx.deps.knowledge_engine.graph.add_node(
         "mem:existing",
-        type="memory",
+        node_type="memory",
         name="SDD Feature Memory: feat-001",
     )
     fake_manager = MagicMock()
@@ -1402,8 +1405,10 @@ async def test_log_heartbeat_success() -> None:
     ctx = _mock_ctx()
     result = await kt.log_heartbeat(ctx, "agent1", "ok", issues=["i1"])
     assert "Heartbeat logged" in result
-    # Two queries: MERGE heartbeat + MERGE relationship
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    # Typed engine API, not raw backend.execute: Heartbeat node + Agent node,
+    # linked HEARTBEAT_OF.
+    assert ctx.deps.knowledge_engine.add_node.call_count == 2
+    assert ctx.deps.knowledge_engine.link_nodes.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1464,8 +1469,9 @@ async def test_create_user_with_client_id() -> None:
     ctx = _mock_ctx()
     result = await kt.create_user(ctx, "Alice", role="admin", client_id="c1")
     assert "User created" in result
-    # Two queries: MERGE user + MATCH...MERGE relationship
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    # Typed engine API: User node, linked BELONGS_TO the client.
+    assert ctx.deps.knowledge_engine.add_node.call_count == 1
+    assert ctx.deps.knowledge_engine.link_nodes.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1474,7 +1480,9 @@ async def test_create_user_no_client_id() -> None:
     ctx = _mock_ctx()
     result = await kt.create_user(ctx, "Alice")
     assert "User created" in result
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 1
+    # No client_id -> only the User node write, no link_nodes call.
+    assert ctx.deps.knowledge_engine.add_node.call_count == 1
+    assert ctx.deps.knowledge_engine.link_nodes.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -1505,7 +1513,9 @@ async def test_save_preference_success() -> None:
     ctx = _mock_ctx()
     result = await kt.save_preference(ctx, "u1", "lang", "python")
     assert "Preference saved" in result
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    # Typed engine API: Preference node, linked PREFERS to the user.
+    assert ctx.deps.knowledge_engine.add_node.call_count == 1
+    assert ctx.deps.knowledge_engine.link_nodes.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1536,7 +1546,9 @@ async def test_save_chat_message_success() -> None:
     ctx = _mock_ctx()
     result = await kt.save_chat_message(ctx, "t1", "user", "hi")
     assert "Message saved" in result
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    # Typed engine API: Message node + Thread node, linked PART_OF.
+    assert ctx.deps.knowledge_engine.add_node.call_count == 2
+    assert ctx.deps.knowledge_engine.link_nodes.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1567,7 +1579,9 @@ async def test_log_cron_execution_success() -> None:
     ctx = _mock_ctx()
     result = await kt.log_cron_execution(ctx, "j1", "ok", "done")
     assert "Cron execution logged" in result
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    # Typed engine API: Log node + Job node, linked EXECUTED_BY.
+    assert ctx.deps.knowledge_engine.add_node.call_count == 2
+    assert ctx.deps.knowledge_engine.link_nodes.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1772,7 +1786,7 @@ async def test_get_kb_article_found() -> None:
     ctx = _mock_ctx()
     ctx.deps.knowledge_engine.graph.add_node(
         "art:1",
-        type="article",
+        node_type="article",
         name="My Article",
         content="# Heading\ntext",
     )

@@ -258,7 +258,7 @@ class VariantPool:
         for pred in self.engine.graph.predecessors(variant_id):
             for succ in self.engine.graph.successors(pred):
                 node_data = self.engine.graph.nodes.get(succ, {})
-                if node_data.get("type") == "outcome_evaluation":
+                if node_data.get("node_type") == "outcome_evaluation":
                     reward = node_data.get("reward", 0.0)
                     rewards.append(float(reward))
 
@@ -307,7 +307,7 @@ class VariantPool:
                 edge_data = self.engine.graph.get_edge_data(succ, base_id)
                 if edge_data:
                     for _, edata in edge_data.items():
-                        if edata.get("type") == RegistryEdgeType.VARIANT_OF:
+                        if edata.get("relationship") == RegistryEdgeType.VARIANT_OF:
                             fitness = self.evaluate_fitness(succ)
                             ndata = self.engine.graph.nodes.get(succ, {})
                             meta = ndata.get("metadata", {})

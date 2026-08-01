@@ -134,10 +134,17 @@ def test_default_retriever_binds_facade_engine_not_bare_graph_compute(monkeypatc
         backend = object()  # the attribute the bare compute engine did not expose
 
     active = _FacadeEngine()
+    # engine_cross_modal_candidates calls IntelligenceGraphEngine.get_or_create(),
+    # which reads the class attribute `_ACTIVE_ENGINE` directly (NOT via
+    # get_active()) to decide whether to reuse the live singleton or construct
+    # a fresh engine. Patching get_active() alone left _ACTIVE_ENGINE unset, so
+    # get_or_create() fell through to `cls(**kwargs)` -- constructing a real
+    # IntelligenceGraphEngine, which then built its own HybridRetriever(...,
+    # schema_pack=...) before this test's monkeypatched _RecordingRetriever
+    # (whose __init__ takes no schema_pack) ever got a chance to bind to
+    # `active`.
     monkeypatch.setattr(
-        engine_mod.IntelligenceGraphEngine,
-        "get_active",
-        classmethod(lambda cls: active),
+        engine_mod.IntelligenceGraphEngine, "_ACTIVE_ENGINE", active
     )
 
     seen: dict = {}

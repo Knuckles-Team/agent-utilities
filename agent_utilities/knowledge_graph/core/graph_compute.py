@@ -17,7 +17,13 @@ from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from agent_utilities.core.config import setting
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+from agent_utilities.security.log_redaction import redact_for_log
 
 try:
     from opentelemetry import trace as _otel_trace
@@ -308,6 +314,7 @@ _CLIENT_NAMESPACES: tuple[str, ...] = (
     "rbac",
     "admin",
     "jobs",
+    "statechart",
 )
 
 
@@ -606,7 +613,7 @@ class _SessionRoutedAsyncClient:
                     logger.warning(
                         "placement-routed endpoint %s stayed unreachable after %d "
                         "reconnect attempt(s) (%s); giving up",
-                        route.endpoint,
+                        redact_for_log(route.endpoint),
                         _MAX_ROUTE_RECONNECT_ATTEMPTS,
                         type(exc).__name__,
                     )
@@ -615,7 +622,7 @@ class _SessionRoutedAsyncClient:
                     "placement-routed endpoint %s unreachable (%s: %s); "
                     "invalidating the cached route and re-resolving via any "
                     "healthy seed (attempt %d/%d)",
-                    route.endpoint,
+                    redact_for_log(route.endpoint),
                     type(exc).__name__,
                     exc,
                     connect_attempt,
@@ -1249,6 +1256,32 @@ def connect_external_read_transport(
     else:
         raise ValueError("external engine endpoint must use tls://, tcp://, or unix://")
     return SyncEpistemicGraphClient.connect(**connect)
+
+
+@functools.lru_cache(maxsize=8)
+def _query_unified_accepts_reorder_kwarg(unified_method: Any) -> bool:
+    """Whether the installed ``epistemic_graph`` client's ``query.unified`` accepts
+    ``reorder_filter_selectivity`` (D-W2X-4).
+
+    ``GraphComputeEngine.query_unified`` assumes a client signature newer than
+    what the frozen ``au 2.0.0`` / ``eg 2.23.1`` pin currently installs;
+    passing the kwarg unconditionally against an older client raises
+    ``TypeError: unified() got an unexpected keyword argument``. Cached (keyed
+    on the bound method itself — hashable, and stable for the client
+    instance's lifetime) so this introspection runs once per client, not once
+    per call.
+    """
+    import inspect
+
+    try:
+        return (
+            "reorder_filter_selectivity" in inspect.signature(unified_method).parameters
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):  # pragma: no cover - defensive: unintrospectable callable
+        return False
 
 
 class GraphComputeEngine:
@@ -2215,9 +2248,7 @@ class GraphComputeEngine:
         props = dict(properties or {})
         props.update(kwargs)
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is not supported; use canonical 'node_type'"
-            )
+            raise retired_node_type_property_error()
         declared_id = props.get("id")
         if declared_id is not None and str(declared_id) != str(node_id):
             raise ValueError("node property 'id' must match the native node identity")
@@ -2225,6 +2256,27 @@ class GraphComputeEngine:
         # field. Stamping it on every typed write removes the Python-side
         # virtual-id interpreter and keeps point predicates inside the engine.
         props["id"] = str(node_id)
+
+        # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard),
+        # mirroring IntelligenceGraphEngine._upsert_node's stamp: this method IS
+        # ``self.graph``/``self.graph_compute`` — the class docstring's own
+        # invariant is that they name the SAME native graph authority as
+        # ``self.backend`` in the standard (EpistemicGraphBackend) topology —
+        # so every ``engine.graph.add_node(...)`` call across the ingestion
+        # fleet (kb/ingestion.py, pipeline/document_*.py, security/*_ingestor.py,
+        # …) that bypasses IntelligenceGraphEngine._upsert_node lands here
+        # directly and needs the same governance stamp to avoid the identical
+        # "written but permanently unreadable" gap. Best-effort: writes with no
+        # bound actor (system/background/control-plane paths) proceed unstamped
+        # exactly as before this seam existed.
+        try:
+            from .tenant_sharing import stamp_classification, stamp_ownership
+
+            stamp_ownership(props)
+            stamp_classification(props, props.get("node_type"))
+        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
+            pass
+
         props = clean_props(props)
         self._client.nodes.add(node_id, props)
 
@@ -2268,15 +2320,9 @@ class GraphComputeEngine:
 
         props = dict(properties or {})
         props.update(kwargs)
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            props
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
         if aliases:
-            names = ", ".join(sorted(aliases))
-            raise ValueError(
-                f"edge relationship aliases are not supported ({names}); "
-                "use canonical 'relationship'"
-            )
+            raise retired_edge_relationship_property_error(aliases)
         if not props.get("relationship"):
             raise ValueError("edge property 'relationship' is required")
         props = clean_props(props)
@@ -2362,9 +2408,7 @@ class GraphComputeEngine:
         props = dict(properties or {})
         props.update(kwargs)
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is not supported; use canonical 'node_type'"
-            )
+            raise retired_node_type_property_error()
         declared_id = props.get("id")
         if declared_id is not None and str(declared_id) != str(node_id):
             raise ValueError("node property 'id' must match the native node identity")
@@ -2515,7 +2559,7 @@ class GraphComputeEngine:
         reorder_filter_selectivity: float | None = None,
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:AU-KG.compute.kg-2).
+        """Run ONE cross-modal unified plan in a single costed round-trip.
 
         ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
         ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
@@ -2524,7 +2568,7 @@ class GraphComputeEngine:
         traverse via petgraph BFS, rank via the native ANN, RRF fusion in-plan).
         This is the engine doing filter+traverse+vector+rerank itself instead of
         the old hand-orchestrated Python pipeline of siloed round-trips
-        (CONCEPT:AU-KG.compute.vector/214/215). Returns ``[{"id": str, "score": float|None}]``
+        Returns ``[{"id": str, "score": float|None}]``
         in the plan's final (post-``Rank``) order.
 
         Requires an engine built with the ``query`` feature; on a build without it
@@ -2542,12 +2586,26 @@ class GraphComputeEngine:
                 policy labels — never fabricated, resolved server-side. See
                 ``docs/architecture/epistemic-columns-currency.md``.
         """
-        rows = (
-            self._client.query.unified(
-                plan, reorder_filter_selectivity=reorder_filter_selectivity
+        # D-W2X-4: the installed epistemic_graph client's query.unified() may
+        # predate reorder_filter_selectivity (a version skew under the
+        # au 2.0.0/eg 2.23.1 freeze) -- only pass it when the client's own
+        # signature accepts it, rather than assuming the newest wire contract.
+        unified_fn = self._client.query.unified
+        if _query_unified_accepts_reorder_kwarg(unified_fn):
+            rows = (
+                unified_fn(plan, reorder_filter_selectivity=reorder_filter_selectivity)
+                or []
             )
-            or []
-        )
+        else:
+            if reorder_filter_selectivity is not None:
+                logger.warning(
+                    "query_unified: installed epistemic_graph client's "
+                    "query.unified() does not accept reorder_filter_selectivity "
+                    "(version skew under the au/eg freeze) -- calling without it "
+                    "instead of raising; the caller's requested reordering hint "
+                    "is dropped, not silently honored."
+                )
+            rows = unified_fn(plan) or []
         if include_epistemic:
             from .epistemic_row import attach_epistemic_rows
 
@@ -3113,7 +3171,15 @@ class GraphComputeEngine:
 
         # The wire call needs the RAW client of the pattern engine, not its
         # breaker proxy (CONCEPT:AU-OS.observability.no-op-without-metrics).
-        return self._client.graph.vf2_subgraph_match(unwrap_client(pattern._client))
+        # The underlying client method returns the engine's typed
+        # ``{"matches": [...], "truncated": bool}`` envelope (its own
+        # docstring: "Returns {'matches': [...], 'truncated': bool}") — this
+        # wrapper's declared contract is a bare match list, so unwrap it here
+        # rather than leaking the envelope to every caller.
+        result = self._client.graph.vf2_subgraph_match(unwrap_client(pattern._client))
+        if isinstance(result, dict):
+            return list(result.get("matches") or [])
+        return list(result or [])
 
     # ── Ledger Operations ────────────────────────────────────────────────
 
@@ -3283,6 +3349,10 @@ class GraphComputeEngine:
                     "SET r.metadata = $meta"
                 )
                 try:
+                    # cypher-write-subset-allow: flush_ledger_to_backend's sole
+                    # caller (agent_utilities/workflows/epistemic_sync.py) always
+                    # passes a LadybugBackend, which hands the query to Kuzu's
+                    # full openCypher engine, not the native subset parser.
                     backend.execute_write(
                         query,
                         parameters={
@@ -3718,7 +3788,7 @@ class GraphComputeEngine:
         merge_threshold: float = 0.92,
         node_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Native entity-resolution candidate generation (CONCEPT:AU-KG.compute.when-exposes-native).
+        """Native entity-resolution candidate generation.
 
         Returns merge proposals (``{canonical, members, score, kind}``;
         ``kind`` = ``same_as`` | ``extends``) — the server-side escalation tier the
@@ -3835,7 +3905,7 @@ class GraphComputeEngine:
         """
         return self._client.lifecycle.evict_lru(max_nodes)
 
-    # ── Native multiplexed engine transport (CONCEPT:AU-KG.compute.when-exposes) ────────────
+    # ── Native multiplexed engine transport ────────────
     # The current client demultiplexes many in-flight requests by request id on
     # the ONE authenticated process transport. An auxiliary connection pool is
     # redundant and would pin one caller's authority into long-lived clients.

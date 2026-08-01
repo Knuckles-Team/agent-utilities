@@ -1410,14 +1410,37 @@ class SkillGraphPipeline:
         tmp_ref = tmp / "reference"
         try:
             _write_reference_tree(tmp_ref, bundles, 50)
+
+            def _content_hash(p: Path) -> str:
+                # write_okf_conformance's add_frontmatter() permanently stamps
+                # OKF frontmatter onto every live reference/ file at build
+                # time, but this delta only ever compares AGAINST a freshly
+                # rendered tmp_ref tree (which never has that frontmatter —
+                # refresh_one never re-runs write_okf_conformance). Hashing
+                # raw bytes would therefore see every untouched file as
+                # "changed" (frontmatter present vs. absent) on every refresh
+                # after the first build. Hash the frontmatter-stripped body so
+                # the delta reflects real content changes only.
+                from .okf_bundle import read_frontmatter
+
+                _fm, body = read_frontmatter(p.read_text(encoding="utf-8"))
+                return sha256_text(body)
+
             new = {
-                p.relative_to(tmp_ref).as_posix(): sha256_bytes(p.read_bytes())
+                p.relative_to(tmp_ref).as_posix(): _content_hash(p)
                 for p in tmp_ref.rglob("*.md")
             }
+            # Exclude the OKF-conformance index.md/log.md sidecars a prior
+            # build wrote into the live reference/ (write_okf_conformance's
+            # write_dir_index()) — they are not source docs and the fresh
+            # tmp_ref tree above never has them, so leaving them in `old`
+            # would misreport every one of them as "removed" on every refresh,
+            # even when nothing actually changed.
             old = (
                 {
-                    p.relative_to(ref).as_posix(): sha256_bytes(p.read_bytes())
+                    p.relative_to(ref).as_posix(): _content_hash(p)
                     for p in ref.rglob("*.md")
+                    if p.name not in {"index.md", "log.md"}
                 }
                 if ref.is_dir()
                 else {}
@@ -1464,7 +1487,10 @@ class SkillGraphPipeline:
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-        md_files = sorted(ref.rglob("*.md"))
+        # See the `old` dict comment above re: index.md/log.md exclusion.
+        md_files = sorted(
+            p for p in ref.rglob("*.md") if p.name not in {"index.md", "log.md"}
+        )
         source_url = ", ".join(
             b.spec.uri for b in bundles if b.spec.uri.startswith("http")
         )
@@ -1542,7 +1568,12 @@ class SkillGraphPipeline:
             return {"name": d.name, "status": "skipped", "reason": "not managed"}
         data = json.loads(mpath.read_text(encoding="utf-8"))
         ref = d / "reference"
-        md_files = sorted(ref.rglob("*.md"))
+        # Exclude the OKF-conformance index.md/log.md sidecars written by a
+        # prior build (write_okf_conformance's write_dir_index()) — they are
+        # not source docs; see validate_skill_graph's identical exclusion.
+        md_files = sorted(
+            p for p in ref.rglob("*.md") if p.name not in {"index.md", "log.md"}
+        )
         fm = (
             parse_frontmatter((d / "SKILL.md").read_text(encoding="utf-8"))
             if (d / "SKILL.md").exists()

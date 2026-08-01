@@ -181,6 +181,39 @@ class WorkItemTasksExtension(ServerExtension):
             raise MCPError(code=-32603, message="IntelligenceGraphEngine not active.")
         return getattr(engine, "_work_item_engine", engine)
 
+    @staticmethod
+    def _run_trace(task_id: str) -> dict[str, Any] | None:
+        """Best-effort ``:RunTrace`` lookup for ``task_id`` (D-25-4).
+
+        ``None`` on ANY failure (no active engine, no correlated trace) --
+        this is a best-effort enrichment layered on top of the WorkItem
+        outcome that already answers a completed task authoritatively; a
+        RunTrace lookup hiccup must never turn an otherwise-successful
+        ``tasks/get`` read into an error.
+        """
+        try:
+            from agent_utilities.mcp import kg_server
+            from agent_utilities.orchestration.manager import Orchestrator
+
+            engine = kg_server._get_engine()
+            if engine is None:
+                return None
+            trace = Orchestrator(engine).get_run_trace(task_id)
+        except Exception as exc:  # noqa: BLE001 — best-effort enrichment, see docstring
+            logger.warning(
+                "tasks_extension: RunTrace lookup for task %s failed: %s",
+                task_id,
+                exc,
+            )
+            return None
+        # `get_run_trace`'s found-path always stamps `trace_id` -- the
+        # unambiguous "this really is a RunTrace row" signal (its `status`
+        # field is otherwise indistinguishable from a legitimate run outcome
+        # value like "succeeded"/"failed").
+        if "trace_id" not in trace:
+            return None
+        return trace
+
     async def _handle_get(
         self, ctx: ServerRequestContext[Any, Any], params: _GetTaskParams
     ) -> _GetTaskResult:
@@ -256,10 +289,31 @@ class WorkItemTasksExtension(ServerExtension):
         if status == "input_required":
             result.input_requests = {"request": pending}
         elif status == "completed":
+            # D-25-4: `result_ref` is only ever an opaque completion marker
+            # (e.g. "orchestrator:<job>:completed") -- never the real agent
+            # output. `_execute_orchestrator_turn` pins the run's :RunTrace to
+            # THIS SAME task_id (`run_id=envelope.job_id`), so the real output
+            # is one more read away via the SAME `Orchestrator.get_run_trace`
+            # `graph_jobs(action="status", job_id="trace:...")` already uses --
+            # this module has direct engine access (unlike the isolated
+            # gateway sidecar), so it calls it in-process rather than proxying
+            # through another tool call.
+            trace = self._run_trace(task_id)
             ref = item.get("result_ref")
-            result.result = (
-                {"resultRef": ref} if ref is not None else {"status": "completed"}
-            )
+            if trace is not None and trace.get("result_preview"):
+                result.result = {
+                    "resultPreview": trace["result_preview"],
+                    "runId": trace.get("run_id") or task_id,
+                }
+            elif trace is not None and trace.get("error"):
+                result.result = {
+                    "error": trace["error"],
+                    "runId": trace.get("run_id") or task_id,
+                }
+            elif ref is not None:
+                result.result = {"resultRef": ref}
+            else:
+                result.result = {"status": "completed"}
         elif status == "failed":
             result.error = {"code": -32603, "message": "GraphOS WorkItem failed"}
         return result

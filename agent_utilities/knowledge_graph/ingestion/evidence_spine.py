@@ -69,12 +69,16 @@ table inside a section reconstructs exactly.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import unicodedata
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .change_envelope import ChangeEnvelope
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ARTIFACT_NODE_TYPE",
@@ -84,7 +88,16 @@ __all__ = [
     "HAS_CHILD_FRAGMENT_EDGE",
     "PARENT_FRAGMENT_EDGE",
     "NEXT_FRAGMENT_EDGE",
+    "HAS_ARTIFACT_EDGE",
+    "ARTIFACT_OF_EDGE",
     "FRAGMENT_KINDS",
+    "fragment_markdown",
+    "fragment_pdf",
+    "fragment_record",
+    "fragment_rowset",
+    "ingest_artifact",
+    "load_fragments",
+    "citation_status",
     "FragmentKind",
     "Artifact",
     "Fragment",
@@ -107,6 +120,8 @@ FRAGMENT_OF_EDGE = "FRAGMENT_OF"
 HAS_CHILD_FRAGMENT_EDGE = "HAS_CHILD_FRAGMENT"
 PARENT_FRAGMENT_EDGE = "PARENT_FRAGMENT"
 NEXT_FRAGMENT_EDGE = "NEXT_FRAGMENT"
+HAS_ARTIFACT_EDGE = "HAS_ARTIFACT"
+ARTIFACT_OF_EDGE = "ARTIFACT_OF"
 
 #: The structural kinds a fragment may take.  Deliberately aligned with the
 #: engine's ``ArtifactLocus.kind`` vocabulary (``document_span`` /
@@ -129,6 +144,15 @@ FRAGMENT_KINDS: frozenset[str] = frozenset(
         "span",
         "record",
         "field",
+        # The domain-pack framework's three additional structural units
+        # (CONCEPT:AU-KG.ingest.domain-pack-framework, D-GP2-2) — a corpus
+        # structure the generic markdown/PDF/record fragmenters above don't
+        # themselves produce, but which the SAME addressable-citation
+        # contract (this module, not a rival stand-in) must still be able to
+        # name so every consumer speaks one Fragment vocabulary:
+        "frontmatter_key",  # one YAML frontmatter key/value pair
+        "link",  # one inline `[text](href)` markdown link
+        "json_field",  # one dotted-path field in a JSON document/API record
     }
 )
 FragmentKind = Literal[
@@ -147,6 +171,9 @@ FragmentKind = Literal[
     "span",
     "record",
     "field",
+    "frontmatter_key",
+    "link",
+    "json_field",
 ]
 
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
@@ -332,13 +359,22 @@ class Fragment:
 
     @property
     def version_id(self) -> str:
-        """``<fragment_id>@<short content hash>`` — a content-pinned citation.
+        """``<fragment_id>#<short content hash>`` — a content-pinned citation.
 
         Use this when a citation must be immutable (an audit record, a published
         claim's evidence).  Use :attr:`fragment_id` when it must *follow* the
         fragment through edits.  Both are needed; neither substitutes.
+
+        Separator is ``#``, not ``@``: the engine's ``ApplyChangeEnvelope``
+        commit path (``change_envelope.rs``'s ``validate_safe_text``) rejects
+        any ``@`` in inline text outright as an email/host-leak privacy guard —
+        by design, and correctly so; a blanket exemption for ``@`` would weaken
+        that guard fleet-wide. ``#`` carries the same "pin a version" meaning
+        (a URL fragment identifier pins a specific view of a resource) without
+        colliding with the privacy scan (see D-GM-4 / D-GS856-6 / D-MW-1 /
+        D-MW-2 in the deferred ledger for the full investigation).
         """
-        return f"{self.fragment_id}@{self.content_hash[7:23]}"
+        return f"{self.fragment_id}#{self.content_hash[7:23]}"
 
     def to_locus(self) -> dict[str, Any]:
         """Render an engine ``ArtifactLocus``-shaped selector for this fragment.
@@ -413,8 +449,11 @@ class Artifact:
         byte_length: Size of the retrieved content in bytes.
         content_ref: Where the bytes live when they are not inline (a blob key /
             URI — the envelope's ``blob_ref``), else ``""``.
-        envelope_id / idempotency_key / source_version / schema_version: The
-            delivery this artifact was extracted from.
+        envelope_id / idempotency_key / source_version / schema_version /
+            ontology_mapping_version: The delivery this artifact was extracted
+            from — ``ontology_mapping_version`` is the domain-pack revision
+            that mapped the raw payload onto graph facts, the last link in a
+            source-to-claim lineage walk (CONCEPT:AU-KG.retrieval.source-to-claim-lineage).
         classification / retention / legal_hold / external_access: Governance,
             copied from the envelope.
         fragments: The artifact's fragments in document order.
@@ -436,6 +475,7 @@ class Artifact:
     idempotency_key: str = ""
     source_version: str = ""
     schema_version: str = "1"
+    ontology_mapping_version: str = ""
     tenant: str = ""
 
     classification: str = "internal"
@@ -471,15 +511,23 @@ class Artifact:
         fragments: tuple[Fragment, ...] | list[Fragment] = (),
         title: str = "",
         fragmenter: str = "",
+        source_object_id: str = "",
     ) -> Artifact:
         """Build an artifact for the object *envelope* delivered.
 
         Governance, source identity, and revision are read off the envelope
         rather than re-derived — the envelope is the gate that already decided
         them, and re-deriving is how a payload gets to spoof its own ACL.
+
+        ``source_object_id`` overrides the envelope's own object id for the
+        SINGLE case where the envelope's id is content-derived (the
+        ``DocumentProcessor`` path hashes content into its ``doc_id``).  The
+        artifact must key to the stable *object* — the path/URL — or every edit
+        forks a new artifact and every citation to it is orphaned.
         """
+        object_id = source_object_id or envelope.source_object_id
         artifact_id = artifact_id_for(
-            envelope.connector, envelope.source_instance, envelope.source_object_id
+            envelope.connector, envelope.source_instance, object_id
         )
         raw = content.encode("utf-8") if isinstance(content, str) else content
         provenance = dict(envelope.provenance)
@@ -489,7 +537,7 @@ class Artifact:
             artifact_id=artifact_id,
             connector=envelope.connector,
             source_instance=envelope.source_instance,
-            source_object_id=envelope.source_object_id,
+            source_object_id=object_id,
             media_type=media_type or _media_type_for(envelope.payload_type),
             content_hash=content_digest(content),
             byte_length=len(raw),
@@ -498,6 +546,7 @@ class Artifact:
             idempotency_key=envelope.idempotency_key,
             source_version=envelope.source_version,
             schema_version=envelope.schema_version,
+            ontology_mapping_version=envelope.ontology_mapping_version,
             tenant=envelope.tenant,
             classification=envelope.classification.value,
             retention=envelope.retention,
@@ -528,6 +577,7 @@ class Artifact:
             "idempotency_key": self.idempotency_key,
             "source_version": self.source_version,
             "schema_version": self.schema_version,
+            "ontology_mapping_version": self.ontology_mapping_version,
             "classification": self.classification,
             "legal_hold": self.legal_hold,
         }
@@ -541,15 +591,38 @@ class Artifact:
             row["external_access"] = self.external_access
         return row
 
-    def to_graph_slice(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def to_graph_slice(
+        self, *, document_id: str = ""
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Return ``(entities, relationships)`` for ``ingest_graph_slice``.
 
         The artifact is entity[0] — the slice's primary object — and every
         fragment follows, so the whole spine commits in ONE atomic envelope
         rather than as a fragment-per-write stream that could half-land.
+
+        Args:
+            document_id: When this artifact was retrieved alongside an extracted
+                ``Document`` node (the ``DocumentProcessor`` path), link the two
+                so a reader can pivot from the retrieval unit (``Chunk``) to the
+                citation unit (``Fragment``) through their shared source object.
         """
         entities: list[dict[str, Any]] = [self.to_node()]
         relationships: list[dict[str, Any]] = []
+        if document_id:
+            relationships.append(
+                {
+                    "source": document_id,
+                    "target": self.artifact_id,
+                    "relationship": HAS_ARTIFACT_EDGE,
+                }
+            )
+            relationships.append(
+                {
+                    "source": self.artifact_id,
+                    "target": document_id,
+                    "relationship": ARTIFACT_OF_EDGE,
+                }
+            )
         by_parent: dict[str | None, list[Fragment]] = {}
         for fragment in self.fragments:
             entities.append(fragment.to_node())
@@ -638,3 +711,680 @@ def resolve_fragment(
         if len(matches) == 1:
             return matches[0]
     return None
+
+
+# ── Markdown fragmenter ──────────────────────────────────────────────────────
+# The reference producer: a real markdown document -> its fragment tree.
+# Dependency-free by design (Dependency discipline: core is the serving plane) —
+# ATX headings, fenced code, pipe tables, blockquotes, lists, paragraphs.
+
+_ATX_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+_FENCE_RE = re.compile(r"^\s*(```+|~~~+)\s*(\S*)")
+_LIST_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
+_TABLE_DIVIDER_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+
+
+class _Scope:
+    """One open heading scope while fragmenting — the parent of what follows."""
+
+    __slots__ = ("level", "path", "fragment_id", "counters", "slugs")
+
+    def __init__(
+        self, level: int, path: tuple[str, ...], fragment_id: str | None
+    ) -> None:
+        self.level = level
+        self.path = path
+        self.fragment_id = fragment_id
+        # Ordinals are counted PER (parent, kind), not per parent.  Inserting a
+        # code block therefore never renumbers the paragraphs around it — one
+        # more edit class the addresses survive.
+        self.counters: dict[str, int] = {}
+        # Duplicate heading slugs under the same parent get a deterministic
+        # suffix, so two "## Notes" sections never collide onto one address.
+        self.slugs: dict[str, int] = {}
+
+    def next_ordinal(self, kind: str) -> int:
+        value = self.counters.get(kind, 0)
+        self.counters[kind] = value + 1
+        return value
+
+    def unique_label(self, label: str) -> str:
+        slug = slugify(label)
+        seen = self.slugs.get(slug, 0)
+        self.slugs[slug] = seen + 1
+        return label if seen == 0 else f"{label} {seen + 1}"
+
+
+def fragment_markdown(text: str, *, artifact_id: str) -> tuple[Fragment, ...]:
+    """Fragment a markdown document into its addressable citation units.
+
+    CONCEPT:AU-KG.ingest.stable-fragment-address.  Returns fragments in document
+    order (``sequence`` 0..N-1), each nested under the innermost enclosing
+    heading, with table rows nested under their table.  Character spans are
+    tracked against the ORIGINAL string so a fragment can be re-read verbatim.
+
+    Re-running this on unchanged text yields byte-identical ``fragment_id``s;
+    that is the property :func:`fragment_markdown`'s callers depend on and the
+    wiring test asserts against a real file.
+    """
+    root = _Scope(0, (), None)
+    stack: list[_Scope] = [root]
+    fragments: list[Fragment] = []
+    lines = (text or "").splitlines(keepends=True)
+
+    # Precompute each line's start offset so every fragment carries a true span.
+    offsets: list[int] = []
+    cursor = 0
+    for line in lines:
+        offsets.append(cursor)
+        cursor += len(line)
+    end_of = lambda i: offsets[i] + len(lines[i])  # noqa: E731 — local span helper
+
+    def emit(
+        kind: FragmentKind,
+        *,
+        body: str,
+        start: int,
+        end: int,
+        label: str = "",
+        scope: _Scope | None = None,
+        parent_id: str | None = None,
+        attributes: dict[str, Any] | None = None,
+    ) -> Fragment:
+        owner = scope if scope is not None else stack[-1]
+        ordinal = owner.next_ordinal(kind)
+        fragment = Fragment.at(
+            artifact_id=artifact_id,
+            kind=kind,
+            parent_path=owner.path,
+            text=body,
+            label=label,
+            ordinal=ordinal,
+            sequence=len(fragments),
+            parent_fragment_id=(
+                parent_id if parent_id is not None else owner.fragment_id
+            ),
+            char_start=start,
+            char_end=end,
+            attributes=attributes or {},
+        )
+        fragments.append(fragment)
+        return fragment
+
+    index = 0
+    total = len(lines)
+    while index < total:
+        raw = lines[index]
+        stripped = raw.strip()
+
+        if not stripped:
+            index += 1
+            continue
+
+        # ── fenced code block ────────────────────────────────────────────────
+        fence = _FENCE_RE.match(raw)
+        if fence:
+            marker, language = fence.group(1), fence.group(2)
+            start = offsets[index]
+            close = index + 1
+            while close < total and not lines[close].strip().startswith(marker[:3]):
+                close += 1
+            last = min(close, total - 1)
+            body = "".join(lines[index + 1 : close])
+            emit(
+                "code_block",
+                body=body,
+                start=start,
+                end=end_of(last),
+                attributes={"language": language} if language else {},
+            )
+            index = close + 1
+            continue
+
+        # ── ATX heading — opens a new scope ──────────────────────────────────
+        heading = _ATX_RE.match(raw)
+        if heading:
+            level = len(heading.group(1))
+            title = heading.group(2).strip()
+            while len(stack) > 1 and stack[-1].level >= level:
+                stack.pop()
+            parent = stack[-1]
+            label = parent.unique_label(title)
+            fragment = emit(
+                "heading",
+                body=title,
+                start=offsets[index],
+                end=end_of(index),
+                label=label,
+                scope=parent,
+                attributes={"level": level},
+            )
+            scope = _Scope(level, fragment.path, fragment.fragment_id)
+            stack.append(scope)
+            index += 1
+            continue
+
+        # ── pipe table — rows are child fragments ────────────────────────────
+        if stripped.startswith("|") and index + 1 < total:
+            if _TABLE_DIVIDER_RE.match(lines[index + 1]):
+                header = stripped
+                close = index + 2
+                while close < total and lines[close].strip().startswith("|"):
+                    close += 1
+                last = close - 1
+                table = emit(
+                    "table",
+                    body=header,
+                    start=offsets[index],
+                    end=end_of(last),
+                    # A table rarely has a caption; its HEADER ROW is its real
+                    # name and is stable under row insert/delete/sort, so it
+                    # anchors the address.
+                    label=header,
+                    attributes={"row_count": close - index - 2},
+                )
+                table_scope = _Scope(0, table.path, table.fragment_id)
+                for row_index in range(index + 2, close):
+                    cells = _split_row(lines[row_index])
+                    emit(
+                        "table_row",
+                        body=lines[row_index].strip(),
+                        start=offsets[row_index],
+                        end=end_of(row_index),
+                        # The first cell is a row's key in every table that has
+                        # one, so a re-sorted table keeps every row address.
+                        label=cells[0] if cells else "",
+                        scope=table_scope,
+                        parent_id=table.fragment_id,
+                        attributes={"cells": len(cells)},
+                    )
+                index = close
+                continue
+
+        # ── blockquote ───────────────────────────────────────────────────────
+        if stripped.startswith(">"):
+            close = index
+            while close < total and lines[close].strip().startswith(">"):
+                close += 1
+            body = "\n".join(
+                lines[i].strip().lstrip(">").strip() for i in range(index, close)
+            )
+            emit("quote", body=body, start=offsets[index], end=end_of(close - 1))
+            index = close
+            continue
+
+        # ── list — each item is its own citable fragment ─────────────────────
+        if _LIST_RE.match(raw):
+            close = index
+            while close < total and (
+                _LIST_RE.match(lines[close]) or lines[close].strip()
+            ):
+                if lines[close].strip() and not _LIST_RE.match(lines[close]):
+                    # A continuation line belongs to the item above it.
+                    close += 1
+                    continue
+                close += 1
+            for item_index in range(index, close):
+                match = _LIST_RE.match(lines[item_index])
+                if not match:
+                    continue
+                emit(
+                    "list_item",
+                    body=match.group(1).strip(),
+                    start=offsets[item_index],
+                    end=end_of(item_index),
+                )
+            index = close
+            continue
+
+        # ── paragraph — everything up to the next blank line ─────────────────
+        close = index
+        while (
+            close < total
+            and lines[close].strip()
+            and not _is_block_start(lines[close], close, lines)
+        ):
+            close += 1
+        if close == index:
+            close = index + 1
+        body = "".join(lines[index:close]).strip()
+        emit("paragraph", body=body, start=offsets[index], end=end_of(close - 1))
+        index = close
+
+    return tuple(fragments)
+
+
+def _is_block_start(line: str, index: int, lines: list[str]) -> bool:
+    """True when *line* begins a non-paragraph block (so a paragraph ends here)."""
+    if index == 0:
+        return False
+    stripped = line.strip()
+    if _ATX_RE.match(line) or _FENCE_RE.match(line) or _LIST_RE.match(line):
+        return True
+    if stripped.startswith(">"):
+        return True
+    return (
+        stripped.startswith("|")
+        and index + 1 < len(lines)
+        and bool(_TABLE_DIVIDER_RE.match(lines[index + 1]))
+    )
+
+
+def _split_row(line: str) -> list[str]:
+    """Split one markdown table row into its cell texts."""
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    return [cell.strip() for cell in body.split("|")]
+
+
+# ── PDF fragmenter ────────────────────────────────────────────────────────────
+# D-ES-3: fragment_markdown() was the only producer even though Fragment/
+# Artifact already carry the ``page``/``record``/``field``/``table_cell`` kinds
+# and the engine's ``ArtifactLocus`` vocabulary (``page_box``/``row_version``/
+# ``table_cell_range``) for the rest — the gap was producers, not contract.
+# ``extraction/pdf.py``'s ``read_pdf_pages`` already does the sandboxed
+# extraction (subprocess, byte/page/time limits); this fragments text it is
+# HANDED rather than a path, so the resource-sandboxing concern (a genuinely
+# different, security-adjacent surface) stays exactly where it already lived.
+_BLOCK_SPLIT_RE = re.compile(r"\n\s*\n")
+
+
+def fragment_pdf(pages: Sequence[str], *, artifact_id: str) -> tuple[Fragment, ...]:
+    """Fragment already-extracted PDF page text into ``page`` + ``paragraph``.
+
+    ``pages`` is per-page text (see
+    :func:`~..extraction.pdf.read_pdf_pages`, which preserves page
+    boundaries — ``read_pdf_text``'s single joined string cannot, since a
+    ``"\\n"`` inside one page's own extracted text is indistinguishable from
+    a page break once joined). Each page becomes a ``page`` fragment
+    (``locus_kind="page_box"``, matching the engine's ``ArtifactLocus``);
+    each blank-line-separated block of text within it becomes a child
+    ``paragraph`` fragment — PDF text extraction carries no markdown syntax,
+    so there is no heading/table structure to recover, only page + block.
+    """
+    fragments: list[Fragment] = []
+    for page_index, page_text in enumerate(pages):
+        page_number = page_index + 1
+        page = Fragment.at(
+            artifact_id=artifact_id,
+            kind="page",
+            parent_path=(),
+            text="",
+            label=f"page {page_number}",
+            ordinal=page_index,
+            sequence=len(fragments),
+            parent_fragment_id=None,
+            attributes={"page_number": page_number},
+            locus_kind="page_box",
+        )
+        fragments.append(page)
+        block_ordinal = 0
+        for block in _BLOCK_SPLIT_RE.split(page_text or ""):
+            body = block.strip()
+            if not body:
+                continue
+            fragments.append(
+                Fragment.at(
+                    artifact_id=artifact_id,
+                    kind="paragraph",
+                    parent_path=page.path,
+                    text=body,
+                    ordinal=block_ordinal,
+                    sequence=len(fragments),
+                    parent_fragment_id=page.fragment_id,
+                )
+            )
+            block_ordinal += 1
+    return tuple(fragments)
+
+
+# ── JSON / row fragmenters ───────────────────────────────────────────────────
+# D-ES-3: a JSON object -> record/field fragments keyed by JSON-pointer-shaped
+# path segments (a naturally stable address — renaming a sibling key never
+# moves this one), and DB rows -> the same, keyed by primary key instead of
+# row position (a naturally stable address across a re-sort or an insert
+# elsewhere in the result set).
+
+
+def fragment_record(value: Any, *, artifact_id: str) -> tuple[Fragment, ...]:
+    """Fragment one JSON-like value into ``record``/``list``/``field`` fragments.
+
+    The JSON analogue of :func:`fragment_markdown`: a ``dict`` becomes a
+    ``record`` fragment and each of its scalar values a child ``field``
+    fragment addressed by its key (slugified, mirroring how a heading anchors
+    a markdown section); a ``list``/``tuple`` becomes a ``list`` fragment and
+    each scalar item a child ``list_item``. A nested ``dict``/``list`` value
+    recurses into its own nested ``record``/``list`` fragment rather than a
+    leaf, so the tree — and every fragment's ``parent_fragment_id`` chain —
+    exactly mirrors the JSON structure.
+    """
+    fragments: list[Fragment] = []
+    _fragment_value(
+        value,
+        artifact_id=artifact_id,
+        kind="record",
+        parent_path=(),
+        parent_id=None,
+        label="",
+        ordinal=0,
+        fragments=fragments,
+    )
+    return tuple(fragments)
+
+
+def fragment_rowset(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    artifact_id: str,
+    key_field: str | Sequence[str] = "id",
+) -> tuple[Fragment, ...]:
+    """Fragment a set of DB rows, each keyed by its primary key.
+
+    Each row becomes a top-level ``record`` fragment (see
+    :func:`fragment_record`) whose path is anchored to the row's
+    ``key_field`` value(s) instead of its position in ``rows`` — a re-sort or
+    an insert elsewhere in the result set moves no other row's address.
+    ``key_field`` may name a composite key (``("tenant_id", "id")``); the
+    fallback to the row's ordinal (only used when every key field is missing)
+    still guarantees distinct addresses.
+    """
+    fragments: list[Fragment] = []
+    keys = (key_field,) if isinstance(key_field, str) else tuple(key_field)
+    for row_index, row in enumerate(rows):
+        pk = "/".join(str(row.get(k, "")) for k in keys).strip("/")
+        _fragment_value(
+            row,
+            artifact_id=artifact_id,
+            kind="record",
+            parent_path=(),
+            parent_id=None,
+            label=pk,
+            ordinal=row_index,
+            fragments=fragments,
+        )
+    return tuple(fragments)
+
+
+def _fragment_value(
+    value: Any,
+    *,
+    artifact_id: str,
+    kind: FragmentKind,
+    parent_path: tuple[str, ...],
+    parent_id: str | None,
+    label: str,
+    ordinal: int,
+    fragments: list[Fragment],
+) -> Fragment:
+    """Recursively fragment one JSON value; appends to *fragments* in order."""
+    if isinstance(value, Mapping):
+        node = Fragment.at(
+            artifact_id=artifact_id,
+            kind=kind,
+            parent_path=parent_path,
+            text="",
+            label=label,
+            ordinal=ordinal,
+            sequence=len(fragments),
+            parent_fragment_id=parent_id,
+            attributes={"keys": len(value)},
+        )
+        fragments.append(node)
+        for key, item in value.items():
+            child_kind = _child_kind(item, is_named=True)
+            _fragment_value(
+                item,
+                artifact_id=artifact_id,
+                kind=child_kind,
+                parent_path=node.path,
+                parent_id=node.fragment_id,
+                label=str(key),
+                ordinal=0,
+                fragments=fragments,
+            )
+        return node
+
+    if isinstance(value, list | tuple):
+        node = Fragment.at(
+            artifact_id=artifact_id,
+            kind=kind,
+            parent_path=parent_path,
+            text="",
+            label=label,
+            ordinal=ordinal,
+            sequence=len(fragments),
+            parent_fragment_id=parent_id,
+            attributes={"item_count": len(value)},
+        )
+        fragments.append(node)
+        for item_index, item in enumerate(value):
+            child_kind = _child_kind(item, is_named=False)
+            _fragment_value(
+                item,
+                artifact_id=artifact_id,
+                kind=child_kind,
+                parent_path=node.path,
+                parent_id=node.fragment_id,
+                label="",
+                ordinal=item_index,
+                fragments=fragments,
+            )
+        return node
+
+    # Leaf scalar (str/int/float/bool/None).
+    node = Fragment.at(
+        artifact_id=artifact_id,
+        kind=kind,
+        parent_path=parent_path,
+        text="" if value is None else str(value),
+        label=label,
+        ordinal=ordinal,
+        sequence=len(fragments),
+        parent_fragment_id=parent_id,
+    )
+    fragments.append(node)
+    return node
+
+
+def _child_kind(value: Any, *, is_named: bool) -> FragmentKind:
+    """The fragment kind for one child value — a dict/list child recurses."""
+    if isinstance(value, Mapping):
+        return "record"
+    if isinstance(value, list | tuple):
+        return "list"
+    return "field" if is_named else "list_item"
+
+
+# ── Ingest wiring ────────────────────────────────────────────────────────────
+
+
+def ingest_artifact(
+    engine: Any,
+    artifact: Artifact,
+    *,
+    document_id: str = "",
+    checkpoint: str | None = None,
+) -> dict[str, Any]:
+    """Commit an artifact and its whole fragment tree atomically.
+
+    Rides the EXISTING ingestion path — :func:`..ingestion.envelope_ingest.ingest_graph_slice`,
+    which wraps the slice in one ``ChangeEnvelope`` and one native
+    ``ApplyChangeEnvelope`` transaction — rather than opening a second write
+    route.  A half-written spine (an artifact whose fragments did not land, or
+    fragments orphaned from their artifact) is not a state any reader should
+    ever have to handle, so it is not a state this can produce.
+
+    ``version_field="content_hash"`` makes re-ingesting an unchanged artifact
+    dedupe on the envelope's idempotency ledger instead of rewriting the slice.
+    """
+    from .envelope_ingest import ingest_graph_slice
+
+    entities, relationships = artifact.to_graph_slice(document_id=document_id)
+    return ingest_graph_slice(
+        engine,
+        artifact.connector,
+        entities,
+        relationships,
+        source_instance=artifact.source_instance,
+        checkpoint=checkpoint,
+        version_field="content_hash",
+    )
+
+
+def load_fragments(
+    engine: Any, *, artifact_id: str = "", document_id: str = ""
+) -> tuple[Fragment, ...]:
+    """Read a materialized fragment spine back out of the graph, in document order.
+
+    Either key works: ``artifact_id`` addresses the source object directly,
+    ``document_id`` resolves through the ``HAS_ARTIFACT`` join the
+    ``DocumentProcessor`` path writes.  Returns an empty tuple (never raises)
+    when nothing is stored — an absent spine is a legitimate answer, and a
+    citation check must not fail closed into "cannot tell".
+    """
+    if engine is None or not (artifact_id or document_id):
+        return ()
+    if artifact_id:
+        cypher = (
+            f"MATCH (f:{FRAGMENT_NODE_TYPE}) WHERE f.artifact_id = $key "
+            "RETURN f.id AS id, f.artifact_id AS artifact_id, "
+            "f.fragment_kind AS fragment_kind, f.address AS address, "
+            "f.text AS text, f.content_hash AS content_hash, "
+            "f.ordinal AS ordinal, f.sequence AS sequence, f.depth AS depth, "
+            "f.parent_fragment_id AS parent_fragment_id, "
+            "f.char_start AS char_start, f.char_end AS char_end, "
+            "f.label AS label, f.locus_kind AS locus_kind"
+        )
+        params = {"key": artifact_id}
+    else:
+        cypher = (
+            f"MATCH (d:Document)-[:{HAS_ARTIFACT_EDGE}]->(a:{ARTIFACT_NODE_TYPE})"
+            f"-[:{HAS_FRAGMENT_EDGE}]->(f:{FRAGMENT_NODE_TYPE}) "
+            "WHERE d.id = $key "
+            "RETURN f.id AS id, f.artifact_id AS artifact_id, "
+            "f.fragment_kind AS fragment_kind, f.address AS address, "
+            "f.text AS text, f.content_hash AS content_hash, "
+            "f.ordinal AS ordinal, f.sequence AS sequence, f.depth AS depth, "
+            "f.parent_fragment_id AS parent_fragment_id, "
+            "f.char_start AS char_start, f.char_end AS char_end, "
+            "f.label AS label, f.locus_kind AS locus_kind"
+        )
+        params = {"key": document_id}
+
+    try:
+        run = getattr(engine, "query_cypher", None)
+        if callable(run):
+            rows = list(run(cypher, params) or [])
+        else:
+            backend = getattr(engine, "backend", None)
+            execute = getattr(backend, "execute", None)
+            rows = list(execute(cypher, params) or []) if callable(execute) else []
+    except Exception as exc:  # noqa: BLE001 — a spine read is advisory: an unavailable/uningested graph is reported as "no fragments stored", never as a citation failure; the cause is preserved on the debug record below
+        logger.debug(
+            "fragment spine read failed for %r: %s", artifact_id or document_id, exc
+        )
+        return ()
+
+    fragments: list[Fragment] = []
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("address"):
+            continue
+        try:
+            fragments.append(
+                Fragment(
+                    fragment_id=str(row.get("id") or ""),
+                    artifact_id=str(row.get("artifact_id") or ""),
+                    kind=str(row.get("fragment_kind") or "span"),  # type: ignore[arg-type]
+                    path=tuple(str(row["address"]).split("/")),
+                    text=str(row.get("text") or ""),
+                    content_hash=str(row.get("content_hash") or ""),
+                    ordinal=int(row.get("ordinal") or 0),
+                    sequence=int(row.get("sequence") or 0),
+                    depth=int(row.get("depth") or 0),
+                    parent_fragment_id=row.get("parent_fragment_id") or None,
+                    char_start=int(row.get("char_start", -1) or -1),
+                    char_end=int(row.get("char_end", -1) or -1),
+                    label=str(row.get("label") or ""),
+                    locus_kind=str(row.get("locus_kind") or "document_span"),
+                )
+            )
+        except (ValueError, TypeError) as exc:
+            # A stored row that fails Fragment's own invariants (a mismatched
+            # address/id pair, a missing digest) is CORRUPT evidence.  Dropping
+            # it is right — returning it would let a citation resolve against a
+            # fragment whose address no longer proves anything — but it is never
+            # dropped silently.
+            logger.warning("discarding corrupt Fragment row %r: %s", row.get("id"), exc)
+    fragments.sort(key=lambda f: f.sequence)
+    return tuple(fragments)
+
+
+def citation_status(
+    fragments: tuple[Fragment, ...] | list[Fragment],
+    *,
+    fragment_id: str = "",
+    content_hash: str = "",
+) -> dict[str, Any]:
+    """Report what happened to a citation since it was made.
+
+    Four honest outcomes, because collapsing them is how a citation silently
+    starts pointing at text it never supported:
+
+    * ``current`` — the address resolved AND the content is unchanged.
+    * ``moved`` — exactly one fragment still carries the cited content, at a
+      different address; the citation is re-pointable to ``fragment_id``.
+    * ``stale`` — the address resolved but the content changed and the cited
+      content exists nowhere else; the fragment is still there, the quote is not.
+    * ``lost`` — neither resolves (or the content is ambiguous across several
+      fragments).  Reported, never guessed.
+
+    ``moved`` is checked BEFORE ``stale`` deliberately.  When a same-kind sibling
+    is inserted above a fragment, the *address* is inherited by the newcomer
+    while the cited text is still present one slot down — reporting that as
+    "stale" would tell the reader their quote was rewritten when in fact it just
+    shifted, and would leave the recoverable citation unrecovered.
+    """
+    at_address = next(
+        (f for f in fragments if fragment_id and f.fragment_id == fragment_id), None
+    )
+    if at_address is not None and (
+        not content_hash or at_address.content_hash == content_hash
+    ):
+        return {
+            "status": "current",
+            "fragment_id": at_address.fragment_id,
+            "address": at_address.address,
+            "content_hash": at_address.content_hash,
+            "cited_content_hash": content_hash,
+            "text": at_address.text,
+        }
+    relocated = resolve_fragment(fragments, content_hash=content_hash)
+    if relocated is not None and relocated is not at_address:
+        return {
+            "status": "moved",
+            "fragment_id": relocated.fragment_id,
+            "address": relocated.address,
+            "content_hash": relocated.content_hash,
+            "cited_content_hash": content_hash,
+            "text": relocated.text,
+        }
+    if at_address is not None:
+        return {
+            "status": "stale",
+            "fragment_id": at_address.fragment_id,
+            "address": at_address.address,
+            "content_hash": at_address.content_hash,
+            "cited_content_hash": content_hash,
+            "text": at_address.text,
+        }
+    return {
+        "status": "lost",
+        "fragment_id": "",
+        "address": "",
+        "content_hash": "",
+        "cited_content_hash": content_hash,
+        "text": "",
+    }

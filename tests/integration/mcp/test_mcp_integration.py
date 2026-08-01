@@ -50,8 +50,13 @@ def test_mcp_server_ingestion_and_discovery(mock_create_model, graph_engine):
     )
 
     # 2. Verify CallableResources exist
+    # D-ACL-6: query_cypher's ACL guard fails closed on any non-aggregate
+    # projection missing a governed node id (secured_reads.row_node_ids /
+    # _row_node_id looks for `id`/`node_id`/`n.id`/`_id`) -- project r.id
+    # like sessions.py::_persist_goal's _GOAL_RETURN already has to.
     res = graph_engine.query_cypher(
-        "MATCH (r:CallableResource) RETURN r.name as name, r.resource_type as type"
+        "MATCH (r:CallableResource) "
+        "RETURN r.id as id, r.name as name, r.resource_type as type"
     )
     assert len(res) == 2
     names = [r["name"] for r in res]
@@ -73,7 +78,8 @@ def test_mcp_server_ingestion_and_discovery(mock_create_model, graph_engine):
 
     # 5. Verify agent is linked to tools
     links = graph_engine.query_cypher(
-        "MATCH (a:SpawnedAgent {id: $aid})-[:USES]->(r:CallableResource) RETURN r.name as name",
+        "MATCH (a:SpawnedAgent {id: $aid})-[:USES]->(r:CallableResource) "
+        "RETURN r.id as id, r.name as name",
         {"aid": agent_id},
     )
     assert len(links) > 0
@@ -92,10 +98,13 @@ def test_mcp_metadata_linkage(graph_engine):
     graph_engine.ingest_mcp_server("DocServer", "http://docs.local", tools)
 
     # Query via metadata tags
+    # D-ACL-6: project r.id alongside r.name so secured_reads' fail-closed
+    # governed-id guard has an identity to authorize against (see the note
+    # in test_mcp_server_ingestion_and_discovery above).
     query = """
     MATCH (r:CallableResource)-[:HAS_METADATA]->(m:ToolMetadata)
     WHERE 'docs' IN m.tags
-    RETURN r.name as name
+    RETURN r.id as id, r.name as name
     """
     res = graph_engine.query_cypher(query)
     assert len(res) > 0

@@ -32,7 +32,7 @@ class ExperienceAlignmentEngine:
         self.engine.add_node(
             node_id=experience.id,
             node_type="Experience",
-            properties=experience.model_dump(),
+            properties=experience.to_graph_properties(),
         )
         return experience.id
 

@@ -14,17 +14,30 @@ from agent_utilities.runtime.events import FileEditAction
 
 
 class _RecordingEngine:
-    """Honours the file_gap_topic contract: add_node + link_nodes."""
+    """A plain node/edge recorder driven through the ``graph_writer`` test seam.
+
+    ``file_gap_topic``'s ``_commit_graph_slice`` (agent_utilities/knowledge_graph/
+    adaptation/failure_analyzer.py) documents that production callers get NO
+    legacy per-node fallback -- an unavailable native ChangeEnvelope authority
+    fails closed. ``graph_writer`` is the sanctioned in-memory test adapter
+    (``FailureAnalyzer`` and ``file_gap_topic`` both already accept it); this
+    engine just records what the writer is handed, matching the shape
+    ``_commit_graph_slice`` passes: ``graph_writer(entities, relationships)``.
+    """
 
     def __init__(self):
         self.nodes: list[tuple[str, str, dict]] = []
         self.links: list[tuple[str, str, str]] = []
 
-    def add_node(self, node_id, node_type, properties=None):
-        self.nodes.append((node_id, node_type, properties or {}))
-
-    def link_nodes(self, source_id, target_id, rel_type="", properties=None):
-        self.links.append((source_id, target_id, rel_type))
+    def write(self, entities, relationships):
+        for entity in entities:
+            props = {k: v for k, v in entity.items() if k not in ("id", "node_type")}
+            self.nodes.append((entity["id"], entity["node_type"], props))
+        for rel in relationships:
+            self.links.append(
+                (rel["source"], rel["target"], rel.get("relationship", ""))
+            )
+        return {"ok": True}
 
 
 def _results():
@@ -45,7 +58,7 @@ def test_only_unresolved_become_failure_records():
 
 def test_remediate_files_gap_concepts_for_unresolved():
     engine = _RecordingEngine()
-    summary = remediate(_results(), engine, run_cycle=False)
+    summary = remediate(_results(), engine, run_cycle=False, graph_writer=engine.write)
     assert summary["unresolved"] == 2
     # one failure_gap Concept per distinct failure pattern
     gap_nodes = [n for n in engine.nodes if n[1] == "Concept"]
@@ -63,7 +76,9 @@ def test_remediate_runs_golden_cycle_with_gap_topics():
             captured["topics"] = topics
             return {"ok": True, "topics_seen": len(topics or [])}
 
-    summary = remediate(_results(), engine, loop_controller=_Loop(), run_cycle=True)
+    summary = remediate(
+        _results(), engine, loop_controller=_Loop(), run_cycle=True, graph_writer=engine.write
+    )
     assert summary["cycle"]["ok"] is True
     assert captured["topics"] == summary["gaps"]  # the filed gaps drive the cycle
 
