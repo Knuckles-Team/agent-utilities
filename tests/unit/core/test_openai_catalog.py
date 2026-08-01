@@ -16,7 +16,14 @@ from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
 pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.openai-catalog-verification")
 
-_FAKE_KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
+# Self-identifying synthetic fixture: the literal carries the "example"
+# marker `scripts/check_fleet_supply_chain.py` (SC-SEC-002 /
+# SYNTHETIC_TOKEN_MARKERS) uses to tell a test double from live credential
+# material, while keeping the exact `sk-proj-` shape the redactors match
+# (`agent_utilities/security/persistence_privacy.py`,
+# `agent_utilities/http/redaction.py`), so the test still exercises the
+# real redaction path.
+_FAKE_KEY = "sk-proj-example-abcdefghijklmnopqrstuvwxyz0123456789"
 
 
 @pytest.mark.asyncio

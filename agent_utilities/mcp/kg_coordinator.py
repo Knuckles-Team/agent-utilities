@@ -47,7 +47,7 @@ class KGCoordinator:
             httpx.get(url, timeout=3.0)
             # Any HTTP status code (including 404 Not Found) means the web server is alive and responding!
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — health probe, a failed probe already returns False to the caller
             logger.debug(f"KG server health check failed: {e}")
             return False
 
@@ -82,7 +82,7 @@ class KGCoordinator:
                             terminated = True
                         except Exception:
                             pass
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort process-listing lookup, another fallback method follows
             logger.debug(f"psutil.net_connections lookup failed: {e}")
 
         # 2. Terminate any lingering kg_server.py processes

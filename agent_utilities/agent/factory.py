@@ -283,6 +283,7 @@ def create_agent(
     current_port: int | None = None,
     permissions_kernel: Any | None = None,
     agent_identity: Any | None = None,
+    secrets_client: Any | None = None,
     isolate_mcp: bool = False,
     # Reliability & Capabilities
     stuck_loop_detection: bool = True,
@@ -348,6 +349,13 @@ def create_agent(
         current_port: Port of the current process for loopback detection.
         permissions_kernel: Optional explicitly injected permissions kernel.
         agent_identity: Optional signed identity paired with the injected kernel.
+        secrets_client: Dependency injection for the durable secret store used to
+            SELF-PROVISION a signing authority when neither ``permissions_kernel``
+            nor ``agent_identity`` is injected (see
+            :func:`~agent_utilities.security.permissions_kernel.provision_signing_key`).
+            Runtime call sites omit this (the real engine-backed client is used);
+            it exists so a bounded test can reach the self-provisioning branch
+            without a live engine (D-WS-2).
         isolate_mcp: Whether to isolate MCP tools from the main agent.
         content_guardrails: Whether to attach the default-ON PII-redaction,
             secret-leak-blocking, and output-schema content guardrails
@@ -477,6 +485,7 @@ def create_agent(
                 required=bool(initialized_mcp_toolsets),
                 agent_subject=name,
                 capabilities=capabilities or (),
+                secrets_client=secrets_client,
             )
             if initialized_mcp_toolsets:
                 if permission_context is None:  # defensive: required=True above

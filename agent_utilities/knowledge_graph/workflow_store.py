@@ -618,10 +618,25 @@ class WorkflowStore:
             return
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         try:
-            self.engine.backend.execute(
-                "MATCH (w:WorkflowDefinition {id: $wid}) "
-                "SET w.use_count = COALESCE(w.use_count, 0) + 1, w.last_used = $ts",
-                {"wid": workflow_id, "ts": ts},
+            # D-W2C-5: the original single-statement rewrite SET a
+            # function-call value (``COALESCE(...)``), which the native
+            # engine's write subset rejects (SET values must be
+            # literals/parameters). Split into a bounded read (a plain
+            # MATCH, no write keyword) that resolves the PRIOR use_count,
+            # the increment done in Python, then a typed ``add_node`` field-
+            # merge write — the SAME typed API this class already uses to
+            # create the node in the first place (see ``store_workflow``
+            # above), so ``node_type``/ACL stamping stays consistent.
+            rows = self.engine.backend.execute(
+                "MATCH (w:WorkflowDefinition {id: $wid}) RETURN w.use_count AS use_count",
+                {"wid": workflow_id},
+            )
+            prior_use_count = rows[0].get("use_count") if rows else None
+            prior_use_count = 0 if prior_use_count is None else int(prior_use_count)
+            self.engine.add_node(
+                workflow_id,
+                "WorkflowDefinition",
+                properties={"use_count": prior_use_count + 1, "last_used": ts},
             )
         except Exception:
             pass  # nosec — usage tracking is best-effort

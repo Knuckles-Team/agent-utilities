@@ -177,9 +177,7 @@ def set_clause(
     # keys reaching this helper are already identifier-safe (dict/**kwargs
     # keys), so a bare identifier is safe here; only quote for other backends
     # whose (Neo4j-flavored) dialect expects/tolerates it.
-    backtick = not (
-        backend and backend.__class__.__name__ == "EpistemicGraphBackend"
-    )
+    backtick = not (backend and backend.__class__.__name__ == "EpistemicGraphBackend")
     sets = []
     for k in data:
         if k == "id":

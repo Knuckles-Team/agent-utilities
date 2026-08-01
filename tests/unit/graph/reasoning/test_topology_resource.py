@@ -1,5 +1,7 @@
 """Unit tests for the versioned, graph-addressable topology resource."""
 
+import pytest
+
 from agent_utilities.graph.reasoning.budgets import TerminationProof, TerminationReason
 from agent_utilities.graph.reasoning.cot import COT_SPEC
 from agent_utilities.graph.reasoning.rap import RAP_SPEC
@@ -80,8 +82,17 @@ def test_record_topology_outcome_never_scores_a_degraded_run_as_success():
     record_topology_outcome(
         engine, COT_SPEC.topology_id, success=True, quality_score=0.9, proof=proof
     )
-    _query, params = engine.backend.calls[-1]
-    assert params["score"] == 0.0
+    # Two calls: a bounded read to resolve the prior reward/task_count (D-W2C-5
+    # -- the write's SET values must be literals, so the EMA math moved to
+    # Python), then the literal-valued write. A degraded run's EMA target is
+    # score=0.0, so starting from the default prior reward (0.5) the new
+    # reward must move DOWN, never reflect a clean-success update.
+    assert len(engine.backend.calls) == 2
+    _read_query, read_params = engine.backend.calls[0]
+    assert read_params == {"tid": COT_SPEC.topology_id}
+    _write_query, write_params = engine.backend.calls[1]
+    assert write_params["reward"] < 0.5
+    assert write_params["task_count"] == 1
 
 
 def test_record_topology_outcome_scores_clean_success():
@@ -89,8 +100,10 @@ def test_record_topology_outcome_scores_clean_success():
     record_topology_outcome(
         engine, COT_SPEC.topology_id, success=True, quality_score=0.9
     )
-    _query, params = engine.backend.calls[-1]
-    assert params["score"] == 0.9
+    _write_query, write_params = engine.backend.calls[-1]
+    # EMA from the default prior reward (0.5): 0.5*(1-0.15) + 0.15*0.9 = 0.56.
+    assert write_params["reward"] == pytest.approx(0.56)
+    assert write_params["task_count"] == 1
 
 
 def test_record_topology_outcome_never_raises_without_a_backend():

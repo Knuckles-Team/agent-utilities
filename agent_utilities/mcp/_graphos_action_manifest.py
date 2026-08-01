@@ -1187,11 +1187,23 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {"tool": "graph_ask", "action": None, "name": "graph_ask"},
     {"tool": "graph_audit", "action": "for_target", "name": "graph_audit_for_target"},
+    {"tool": "graph_audit", "action": "lineage", "name": "graph_audit_lineage"},
     {"tool": "graph_audit", "action": "verify", "name": "graph_audit_verify"},
     {"tool": "graph_broker", "action": None, "name": "graph_broker"},
     {"tool": "graph_bus", "action": None, "name": "graph_bus"},
+    {
+        "tool": "graph_candidate_claims",
+        "action": "propose",
+        "name": "graph_candidate_claims_propose",
+    },
+    {
+        "tool": "graph_candidate_claims",
+        "action": "resolve_identities",
+        "name": "graph_candidate_claims_resolve_identities",
+    },
     {"tool": "graph_claims", "action": "accept", "name": "graph_claims_accept"},
     {"tool": "graph_claims", "action": "deprecate", "name": "graph_claims_deprecate"},
+    {"tool": "graph_claims", "action": "evaluate", "name": "graph_claims_evaluate"},
     {"tool": "graph_claims", "action": "get", "name": "graph_claims_get"},
     {"tool": "graph_claims", "action": "list", "name": "graph_claims_list"},
     {"tool": "graph_claims", "action": "propose", "name": "graph_claims_propose"},
@@ -1520,6 +1532,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_evaluate",
+        "action": "evolve_code",
+        "name": "graph_evaluate_evolve_code",
+    },
+    {
+        "tool": "graph_evaluate",
         "action": "evolve_model",
         "name": "graph_evaluate_evolve_model",
     },
@@ -1631,6 +1648,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_explain_executable_rag",
     },
     {"tool": "graph_explain", "action": "explain", "name": "graph_explain_explain"},
+    {"tool": "graph_explain", "action": "recommend", "name": "graph_explain_recommend"},
     {
         "tool": "graph_federated_search",
         "action": None,
@@ -1842,7 +1860,9 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_ingest_sync_second_brain",
     },
     {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
+    {"tool": "graph_jobs", "action": "dead_letter", "name": "graph_jobs_dead_letter"},
     {"tool": "graph_jobs", "action": "dispatch", "name": "graph_jobs_dispatch"},
+    {"tool": "graph_jobs", "action": "drain", "name": "graph_jobs_drain"},
     {"tool": "graph_jobs", "action": "input", "name": "graph_jobs_input"},
     {"tool": "graph_jobs", "action": "status", "name": "graph_jobs_status"},
     {

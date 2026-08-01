@@ -48,7 +48,7 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import Field
@@ -2355,8 +2355,10 @@ def register_engine_surface_tools(mcp) -> None:
                     provenance=params.pop("provenance", None),
                 )
                 ocel_mode = str(params.pop("ocel_mode", "mine") or "mine").strip()
-                if ocel_mode not in {"mine", "validate"}:
-                    raise ValueError("ocel_mode must be 'mine' or 'validate'")
+                if ocel_mode not in {"mine", "validate", "derive"}:
+                    raise ValueError(
+                        "ocel_mode must be 'mine', 'validate', or 'derive'"
+                    )
                 exported = export_ocel_json(slice_)
                 # Merge fix (feat/retrieval-eval-policy x fix/sweep-orch-skills):
                 # the process_signal evidence snapshot below reads `envelope`
@@ -2367,7 +2369,9 @@ def register_engine_surface_tools(mcp) -> None:
                 # best-effort observability snapshot never blocks the import;
                 # each mode branch still computes its OWN envelope for the
                 # actual commit (the `mine` branch's includes the perspective).
-                envelope = slice_.to_change_envelope(tenant=tenant, provenance=provenance)
+                envelope = slice_.to_change_envelope(
+                    tenant=tenant, provenance=provenance
+                )
                 evidence = {
                     "mode": "ocel_2.0",
                     "tenant": tenant,
@@ -2395,6 +2399,76 @@ def register_engine_surface_tools(mcp) -> None:
                         "OCEL process_signal evidence record failed for %s: %s",
                         evidence.get("idempotency_key"),
                         exc,
+                    )
+                if ocel_mode == "derive":
+                    # CONCEPT:AU-KG.mining.incremental-object-centric-derivation —
+                    # the ONE surface exposure of
+                    # ``ingestion/object_centric_derivation.py``. That module was
+                    # implemented and unit-tested but reachable from no gateway/MCP
+                    # path at all (check_surface_parity's "unexposed capability"),
+                    # i.e. built-but-not-wired. It is read-only by construction:
+                    # ``derive`` replays the imported slice through the incremental
+                    # deriver and returns the derived aggregate directly-follows
+                    # graph, per-object timelines, and derivation generation. It
+                    # commits nothing — that stays exclusive to ``mine``.
+                    from agent_utilities.knowledge_graph.ingestion.object_centric_derivation import (
+                        IncrementalObjectCentricDeriver,
+                    )
+
+                    deriver = IncrementalObjectCentricDeriver()
+                    for business_object in slice_.objects:
+                        deriver.observe_object_attributes(
+                            business_object.object_id, business_object.attributes
+                        )
+                    observed_at = datetime.now(UTC)
+                    for event in sorted(
+                        slice_.events,
+                        key=lambda item: (
+                            item.occurred_at,
+                            item.sequence_tiebreaker,
+                            item.event_id,
+                        ),
+                    ):
+                        for participation in event.objects:
+                            deriver.ingest_event(
+                                event,
+                                object_id=participation.object_id,
+                                state_id=(
+                                    f"{slice_.log_id}:{participation.object_id}:"
+                                    f"{event.event_id}"
+                                ),
+                                observed_at=observed_at,
+                            )
+                    object_ids = sorted(
+                        {
+                            participation.object_id
+                            for event in slice_.events
+                            for participation in event.objects
+                        }
+                    )
+                    return json.dumps(
+                        {
+                            "surface": "mining",
+                            "action": action,
+                            "ocel_mode": "derive",
+                            "tenant": tenant,
+                            "generation": deriver.generation,
+                            "directly_follows": [
+                                {"from": pair[0], "to": pair[1], "count": count}
+                                for pair, count in sorted(
+                                    deriver.dfg_snapshot().items()
+                                )
+                            ],
+                            "timelines": {
+                                object_id: [
+                                    event.event_id
+                                    for event in deriver.timeline(object_id)
+                                ]
+                                for object_id in object_ids
+                            },
+                            "tekg": evidence,
+                        },
+                        default=_json_default,
                     )
                 if ocel_mode == "validate":
                     envelope = slice_.to_change_envelope(
