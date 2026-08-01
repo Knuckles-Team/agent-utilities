@@ -113,7 +113,7 @@ def test_openai_catalog_live_reports_unverified_models_without_leaking_key(
         ]
     )
     monkeypatch.setattr(mr, "_ACTIVE_REGISTRY", registry, raising=False)
-    secret = "sk-should-never-appear-in-report"
+    secret = "sk-should-never-appear-in-report"  # sanitizer:ignore - synthetic fixture value, not a live credential
     monkeypatch.setattr(
         creds_module.CredentialResolver,
         "resolve",

@@ -2452,6 +2452,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
   - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: One uniform mirror *target* concept resolved once in the fan-out layer and mapped by each external
     backend onto its native isolation unit
 - id: AU-KG.backend.multi-connection-registry
@@ -4581,6 +4582,7 @@ concepts:
   - agent_utilities/kvcache/worthiness.py
   - agent_utilities/mcp/tools/engine_surface_tools.py
   - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/patterns/prioritization.py
   doc: Construct-then-evaluate is cheap
 - id: AU-KG.memory.decay-scanner-merge
   name: decay scanner + semantic merge

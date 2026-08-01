@@ -7,6 +7,7 @@ modules without changing tool behavior or names.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from pydantic import Field
@@ -18,6 +19,8 @@ from agent_utilities.knowledge_graph.orchestration.engine_query import (
 from agent_utilities.mcp import kg_server
 from agent_utilities.models.evidence_bundle import EvidenceBundle
 from agent_utilities.security.error_surface import public_error_json, public_error_text
+
+logger = logging.getLogger(__name__)
 
 # CONCEPT:AU-KG.query.query-aggregation — `is_aggregation_cypher` (imported above)
 # is re-exported here so `from agent_utilities.mcp.tools.query_tools import
@@ -531,7 +534,62 @@ def register_query_tools(mcp):
                 )
             return engine.query_cypher(cypher, parsed_params, as_of=as_of or None)
 
-        results, fan_errors = kg_server.fanout_execute(entries, _fanout_query)
+        if _union_read:
+            # CONCEPT:AU-KG.ingest.unified-query-routing — mirror `graph_search`'s
+            # primary/supplementary split (see the `graph_search` implementation
+            # above). Before this, an implicit-default `graph_query` shared ONE
+            # `DEFAULT_FANOUT_TIMEOUT_S` (30s) budget across every resolved
+            # content-graph entry, including the `default` connection. Under a
+            # wide implicit fan-out (dozens of idle/unreachable `code:*`/`src:*`
+            # graphs) the primary was queued behind the hung ones on the same
+            # 8-worker pool and timed out too — a plain Cypher read against the
+            # live default graph could take minutes even though the engine
+            # itself (`engine_query action=cypher`, which bypasses this router)
+            # answers instantly. The primary/`default` connection now always
+            # grounds at the full budget, run separately and first; only the
+            # SUPPLEMENTARY content connections take the short
+            # `DEFAULT_CONTENT_FANOUT_TIMEOUT_S` skip-budget. An explicit
+            # `target='all'`/list is a deliberate cross-repo request and is
+            # NEVER `_union_read` (see its definition above), so it is
+            # unaffected and keeps the full per-target budget below.
+            primary = [(n, e) for n, e in entries if n == "default"]
+            supplementary = [(n, e) for n, e in entries if n != "default"]
+            # Robustness: if the resolver produced no `default` entry, treat the
+            # first as primary so SOMETHING always grounds at the full budget.
+            if not primary and entries:
+                primary, supplementary = [entries[0]], entries[1:]
+            results = {}
+            fan_errors = {}
+            for name, engine in primary:
+                # Same partial-success contract `fanout_execute` gives every
+                # target below (and the ACL/tenant denial path relies on): a
+                # backend that legitimately REJECTS this query (e.g. a
+                # permission/ACL denial from `engine.query_cypher`'s own
+                # enforcement) must land in `fan_errors`, not crash the whole
+                # tool call — the primary is queried directly (not through
+                # `fanout_execute`) only to skip its concurrency/timeout
+                # machinery, not its error handling.
+                try:
+                    results[name] = _fanout_query(name, engine)
+                except Exception as exc:  # noqa: BLE001 — mirrors fanout_execute's per-target catch below (same generic, non-leaking label): a denied/failed primary must surface as a labeled error, never propagate raw or silently vanish
+                    logger.warning(
+                        "Graph fan-out primary target failed (exception_type=%s)",
+                        type(exc).__name__,
+                    )
+                    fan_errors[name] = "target_operation_failed"
+            if supplementary:
+                sup_results, sup_errors = kg_server.fanout_execute(
+                    supplementary,
+                    _fanout_query,
+                    timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
+                )
+                results.update(sup_results)
+                fan_errors.update(sup_errors)
+        else:
+            # Explicit cross-repo fan-out (`target='all'`/list) — per-target
+            # timeout at the full budget so one slow backend can't stall the set.
+            results, fan_errors = kg_server.fanout_execute(entries, _fanout_query)
+
         if _union_read:
             # Merge the per-graph row lists into one id-deduped canonical row set.
             merged: list[Any] = []

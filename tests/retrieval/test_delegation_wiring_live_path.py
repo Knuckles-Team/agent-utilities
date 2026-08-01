@@ -189,6 +189,53 @@ class TestContextAssemblyRoundTrips:
                 "are still serialized"
             )
 
+    def test_hydration_is_batched_across_base_nodes_not_per_base_node(
+        self, monkeypatch
+    ):
+        """N base nodes falling through to the BFS fallback must hydrate their
+        discovered ids in ONE ``properties_batch`` round-trip TOTAL, not one
+        per base node (CONCEPT:AU-KG.retrieval.batch-hydrate).
+
+        Regression target: ``_batch_node_properties`` is itself already a
+        single-RPC batch, but it used to sit INSIDE the per-base-node loop —
+        called once per base node — so N base nodes cost N round-trips for
+        hydration that the engine can answer in one. Live-pod measurement
+        (``scripts/delegation_probe.py --profile``) showed exactly this
+        signature: ``nodes.properties_batch`` called 78 times across one
+        delegation, ~5.6s each, dominating the grounding compile's wall time.
+        """
+
+        class _FakeNodesNS:
+            def __init__(self, props):
+                self._props = props
+                self.batch_calls = 0
+                self.batch_call_sizes: list[int] = []
+
+            def properties_batch(self, ids):
+                self.batch_calls += 1
+                self.batch_call_sizes.append(len(ids))
+                return {nid: dict(self._props.get(nid, {})) for nid in ids}
+
+        class _FakeClient:
+            def __init__(self, nodes_ns):
+                self.nodes = nodes_ns
+
+        n = 8
+        graph = self._graph(n)
+        nodes_ns = _FakeNodesNS(graph._props)
+        graph._client = _FakeClient(nodes_ns)
+        retriever = _retriever(graph, monkeypatch)
+        retriever.retrieve_hybrid("anything", context_window=n, skip_quality_gate=True)
+
+        assert nodes_ns.batch_calls == 1, (
+            f"properties_batch was called {nodes_ns.batch_calls} times across "
+            f"{n} base nodes — hydration is no longer batched across base "
+            f"nodes and the per-base-node N+1 is back"
+        )
+        # The one call carries every base node's discovered id — nothing was
+        # dropped by collapsing the per-node calls into one.
+        assert nodes_ns.batch_call_sizes == [n]
+
 
 class TestNeighbourBatchContract:
     """``_neighbors_batch`` must preserve authority and never fake an answer."""

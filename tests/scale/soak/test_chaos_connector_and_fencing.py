@@ -179,8 +179,13 @@ def test_claim_churn_fencing_epoch_strictly_increases_and_completes_exactly_once
         stale_claims.append(claim)
         # This worker "crashes" without committing; advance well past its lease.
         now += 100.0
+        # Confirmation-only (AU-P1-1: no Python-side reaper transition writer —
+        # ClaimWorkItem reclaims expired leases atomically as part of
+        # selection), so this always no-ops; the next cycle's claim_and_start
+        # above is what actually proves the reclaim (asserted via the strictly-
+        # increasing `epochs` check below).
         reaped = wi.reap_expired_leases(engine, now=now)
-        assert item_id in reaped["reaped_ready"], f"cycle {cycle}: not reclaimed"
+        assert reaped == {"reaped_ready": [], "reaped_dead_letter": []}
 
     # Fencing epoch is strictly monotonically increasing across every cycle —
     # never repeats, never goes backward (the core "no double execution" guard).
@@ -259,9 +264,20 @@ def test_claim_churn_never_allows_two_simultaneously_live_claims(loadgen):
 
 def test_heartbeating_worker_survives_reap_then_reclaimed_once_it_stops(loadgen):
     """A long-running turn heartbeats twice, extending its lease each time — a
-    reaper sweep BETWEEN heartbeats must not reclaim it (it is still healthy).
-    Once the worker stops heartbeating (simulated crash), the reaper must
-    reclaim it, but only after the LAST extended deadline, not the original."""
+    competing claim attempt BETWEEN heartbeats must not succeed (it is still
+    healthy). Once the worker stops heartbeating (simulated crash), a claim
+    attempt must reclaim it, but only after the LAST extended deadline, not
+    the original.
+
+    ``reap_expired_leases`` itself is confirmation-only here (AU-P1-1: no
+    Python-side reaper transition writer — ClaimWorkItem reclaims expired
+    leases atomically as part of selection; see
+    tests/unit/orchestration/test_work_item.py::
+    test_reap_expired_lease_requeues_to_ready_and_stale_commit_is_fenced), so
+    the "not reclaimed while healthy" / "reclaimed once dead" properties are
+    proven via actual competing claim attempts, not the reap sweep's return
+    value.
+    """
     engine = _engine(loadgen)
     wi = loadgen.wi
 
@@ -272,47 +288,46 @@ def test_heartbeating_worker_survives_reap_then_reclaimed_once_it_stops(loadgen)
         engine, item_id=item_id, token="worker-1", now=0.0, lease_ttl_s=10.0
     )
     assert claim is not None
+    assert claim["fence_token"] == 1
 
-    # A reap sweep right at t=9 (before the original 10s lease expires) must
-    # not touch it — this is the baseline "still healthy" case.
+    # A reap sweep right at t=9 (before the original 10s lease expires) is
+    # always a no-op under the current contract.
     reaped = wi.reap_expired_leases(engine, now=9.0)
-    assert item_id not in reaped["reaped_ready"]
+    assert reaped == {"reaped_ready": [], "reaped_dead_letter": []}
 
     # Heartbeat at t=9.5 extends the lease to 9.5+10=19.5.
     assert wi.heartbeat(engine, item_id, claim, now=9.5, lease_ttl_s=10.0)
-    # A reap sweep at t=15 is PAST the ORIGINAL 10s deadline but well before
-    # the heartbeat-extended one — the reaper must respect the extension, not
-    # the stale original expiry, or a healthy long-running turn would be
-    # wrongly reclaimed out from under its own worker.
-    reaped_mid = wi.reap_expired_leases(engine, now=15.0)
-    assert item_id not in reaped_mid["reaped_ready"], (
-        "reaper reclaimed a heartbeat-extended lease before its new deadline"
+    # A competing claim at t=15 is PAST the ORIGINAL 10s deadline but well
+    # before the heartbeat-extended one — it must be rejected: the extension
+    # must be respected, not the stale original expiry, or a healthy
+    # long-running turn would be wrongly reclaimed out from under its worker.
+    racer_mid = wi.claim_specific(engine, item_id, token="racer-mid", now=15.0)
+    assert racer_mid is None, (
+        "a competing claim reclaimed a heartbeat-extended lease before its new deadline"
     )
     assert (
-        wi.get_work_item(engine, item_id)["status"] == "running"
+        wi.get_work_item(engine, item_id)["status"] in ("leased", "running")
     )
+    assert wi.get_work_item(engine, item_id)["lease_epoch"] == 1  # unchanged
 
     # Heartbeat again at t=16, extending to 16+10=26.
     assert wi.heartbeat(engine, item_id, claim, now=16.0, lease_ttl_s=10.0)
 
-    # Now the worker actually crashes (no more heartbeats). A reap sweep at
-    # t=20 is still before the t=26 extended deadline — must not reclaim yet.
-    reaped_still_alive = wi.reap_expired_leases(engine, now=20.0)
-    assert item_id not in reaped_still_alive["reaped_ready"]
+    # Now the worker actually crashes (no more heartbeats). A competing claim
+    # at t=20 is still before the t=26 extended deadline — must still be
+    # rejected.
+    racer_still_alive = wi.claim_specific(engine, item_id, token="racer-alive", now=20.0)
+    assert racer_still_alive is None
 
-    # Only once t=26 has truly passed does the reaper reclaim it — proving
-    # both directions: no premature reclaim of a healthy heartbeating worker,
-    # and eventual reclaim once it genuinely goes silent.
-    reaped_final = wi.reap_expired_leases(engine, now=27.0)
-    assert item_id in reaped_final["reaped_ready"]
-    item = wi.get_work_item(engine, item_id)
-    assert item["status"] == "ready"
-    assert item["lease_epoch"] == 2  # fenced past the dead worker's epoch
-
-    # A fresh worker claims and finishes it; the dead worker's belated
-    # heartbeat/commit attempts (fenced on the OLD epoch) must be rejected.
+    # Only once t=26 has truly passed does a claim attempt reclaim it —
+    # proving both directions: no premature reclaim of a healthy heartbeating
+    # worker, and eventual reclaim once it genuinely goes silent.
     new_claim = wi.claim_and_start(engine, item_id=item_id, token="worker-2", now=28.0)
     assert new_claim is not None
+    assert new_claim["fence_token"] == 2  # fenced past the dead worker's epoch (1)
+
+    # The dead worker's belated heartbeat/commit attempts (fenced on the OLD
+    # epoch) must be rejected.
     assert wi.heartbeat(engine, item_id, claim, now=29.0) is False  # stale epoch
     outcome = wi.commit_result(
         engine, item_id, new_claim, outcome="succeeded", result_ref="ok", now=30.0

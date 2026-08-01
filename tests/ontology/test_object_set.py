@@ -42,7 +42,12 @@ class FakeGraph:
         self._in.setdefault(node_id, [])
 
     def add_edge(self, src: str, tgt: str, edge_type: str, **props) -> None:
-        ep = {"type": edge_type, **props}
+        # GraphView._edge_type() (object_set.py) reads the edge's "relationship"
+        # property -- the same key used throughout the KG (document_processing.py's
+        # HAS_CHUNK/CHUNK_OF edges, section_tree's HAS_SECTION/SECTION_OF/
+        # HAS_SUBSECTION), not "type" (that's the NODE-type property key elsewhere
+        # in this same fixture, e.g. add_node(..., type="document")).
+        ep = {"relationship": edge_type, **props}
         self._out.setdefault(src, []).append((tgt, ep))
         self._in.setdefault(tgt, []).append((src, ep))
 
