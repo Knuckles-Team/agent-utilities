@@ -12,10 +12,13 @@ agent runner via ``use_actor``); callers may override per-call.
 """
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...security.brain_context import ActorContext, current_actor
 from .company_brain_runtime import get_company_brain
+
+if TYPE_CHECKING:
+    from ...models.company_brain import DataClassification
 
 
 def _verified_actor(actor: ActorContext | None) -> ActorContext:
@@ -91,7 +94,7 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
         rows = execute_read(
             "MATCH (n) WHERE n.id IN $ids RETURN n.id AS id, "
             "n.tenant_id AS tenant_id, n.classification AS classification, "
-            "n.external_access AS external_access",
+            "n.external_access AS external_access, n._owner_id AS owner_id",
             {"ids": list(node_ids)},
         )
     except Exception as exc:
@@ -116,12 +119,50 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
             "tenant_id": row.get("tenant_id"),
             "classification": row.get("classification"),
             "external_access": external_access,
+            "owner_id": row.get("owner_id"),
         }
     return result
 
 
+def _parse_classification(raw: Any) -> DataClassification | None:
+    """Best-effort ``DataClassification`` parse; ``None`` for anything unrecognized."""
+    from ...models.company_brain import DataClassification
+
+    try:
+        return DataClassification(str(raw or ""))
+    except ValueError:
+        return None
+
+
 def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
-    """Rebuild process-local ACL entries from governed durable node metadata."""
+    """Rebuild process-local ACL entries from governed durable node metadata.
+
+    Two independent durable-metadata shapes are understood, mirroring the two
+    write-time governance stamps (CONCEPT:AU-KG.backend.company-brain-write-guard):
+
+    1. **Connector-sourced access** (``external_access``, a source-connector
+       ``ExternalAccess`` descriptor) — synced via :func:`sync_access`,
+       unchanged from before.
+    2. **First-party write-time stamp** (``classification`` +
+       ``_owner_id``/``tenant_id``, stamped by
+       ``tenant_sharing.stamp_classification``/``stamp_ownership`` at the
+       ``IntelligenceGraphEngine._upsert_node`` / ``GraphComputeEngine.add_node``
+       chokepoints) — synthesized directly into a :class:`NodeACL` here. First-
+       party (non-connector) nodes never carry an ``external_access``
+       descriptor — only Documents ingested through a source connector do — so
+       without this fallback EVERY internally-created node (Memory, Episode,
+       Skill, CallableResource, Concept, ...) had no durable ACL material the
+       connector-oriented gate above understood, and stayed permanently
+       denied — even to its own owning actor, in production, not just tests.
+
+    A node with neither ``external_access`` nor a stamped ``_owner_id``/
+    ``PUBLIC`` classification (unowned/system data, or first-party data
+    written before this fix existed) is left unregistered and stays denied —
+    fail-closed, exactly as before this fallback existed. This only unblocks a
+    node's own real, verified owner or genuinely PUBLIC data; it never widens
+    access for anyone else, and the cross-tenant check above still gates
+    every branch.
+    """
 
     from ...models.company_brain import DataClassification
     from ...protocols.source_connectors.base import ExternalAccess
@@ -135,16 +176,33 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
         if str(properties.get("tenant_id") or "") != actor.tenant_id:
             continue
         raw_access = properties.get("external_access")
-        if not isinstance(raw_access, dict):
+        if isinstance(raw_access, dict):
+            try:
+                access = ExternalAccess.model_validate(raw_access)
+                classification = DataClassification(
+                    str(properties.get("classification") or "")
+                )
+                sync_access(node_id, access, classification=classification)
+            except Exception as exc:
+                raise PermissionError("Durable ACL metadata is invalid") from exc
             continue
-        try:
-            access = ExternalAccess.model_validate(raw_access)
-            classification = DataClassification(
-                str(properties.get("classification") or "")
+
+        # No connector descriptor: synthesize from the first-party write-time
+        # stamp instead of leaving the node permanently unclassified.
+        parsed_classification = _parse_classification(properties.get("classification"))
+        owner_id = str(properties.get("owner_id") or "").strip()
+        if parsed_classification is DataClassification.PUBLIC:
+            get_company_brain().permissions.classify_node(
+                node_id, DataClassification.PUBLIC
             )
-            sync_access(node_id, access, classification=classification)
-        except Exception as exc:
-            raise PermissionError("Durable ACL metadata is invalid") from exc
+        elif owner_id:
+            get_company_brain().permissions.classify_node(
+                node_id,
+                parsed_classification or DataClassification.CONFIDENTIAL,
+                data_owner=owner_id,
+            )
+        # else: no owner and not PUBLIC -> nothing to synthesize; the node
+        # stays denied (fail closed), identical to pre-fix behavior.
 
 
 def audit_read(

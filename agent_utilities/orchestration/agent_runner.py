@@ -852,9 +852,19 @@ async def run_agent(
 
     if skill_name:
         if not agent_meta.get("skill_id"):
-            reason = await _call_without_blocking(
+            reason, degraded = await _call_without_blocking(
                 _skill_unrunnable_reason, engine, skill_name
             )
+            if degraded:
+                # D-SNV-5: the precondition READ failed (e.g. a transient
+                # engine/session error) — that is not an honest negative and
+                # must never be phrased as "is not runnable", which a caller
+                # or an operator reading the log would take as a confirmed,
+                # actionable finding about the skill itself.
+                raise RuntimeError(
+                    f"could not determine whether skill '{skill_name}' is "
+                    f"runnable: {reason}"
+                )
             raise LookupError(
                 f"ingested skill '{skill_name}' is not runnable: {reason}"
             )
@@ -1787,8 +1797,10 @@ def _unresolved_agent_meta() -> dict[str, Any]:
     }
 
 
-def _skill_unrunnable_reason(engine: IntelligenceGraphEngine, skill_name: str) -> str:
-    """Explain WHY ``skill_name`` cannot run, naming the unmet precondition.
+def _skill_unrunnable_reason(
+    engine: IntelligenceGraphEngine, skill_name: str
+) -> tuple[str, bool]:
+    """Explain WHY ``skill_name`` appears unrunnable, naming the unmet precondition.
 
     CONCEPT:AU-ORCH.dispatch.named-runnable-precondition — "not found or
     runnable" collapsed four very different states into one unactionable
@@ -1798,6 +1810,13 @@ def _skill_unrunnable_reason(engine: IntelligenceGraphEngine, skill_name: str) -
     (``runnable_blocked_by``), so the failure can name it. Diagnostic only —
     it never makes a skill runnable, and any failure to *read* the reason is
     reported as such rather than masquerading as "not found".
+
+    Returns ``(reason, degraded)``. ``degraded=True`` means the precondition
+    itself could not be READ (e.g. a transient engine/session failure) — that
+    is NOT an honest negative and the caller must not phrase it as "is not
+    runnable" (D-SNV-5): a failed read proves nothing about runnability, only
+    that this diagnostic could not complete. ``degraded=False`` means the
+    graph was actually consulted and the returned reason is a real finding.
     """
     try:
         # ``backend.execute`` is the parameterized read path the rest of this
@@ -1818,19 +1837,21 @@ def _skill_unrunnable_reason(engine: IntelligenceGraphEngine, skill_name: str) -
             exc_info=True,
         )
         return (
-            f"its blocking precondition could not be read ({type(exc).__name__}: {exc})"
+            f"its blocking precondition could not be read ({type(exc).__name__}: {exc})",
+            True,
         )
     if not rows:
         return (
             "no Skill node with that name is ingested (unmet precondition "
-            "'skill_ingested')"
+            "'skill_ingested')",
+            False,
         )
     row = rows[0] or {}
     blocked = str(row.get("blocked") or "").strip()
     server = str(row.get("server") or "").strip()
     where = f" served by '{server}'" if server else ""
     if blocked:
-        return f"unmet precondition '{blocked}'{where}"
+        return f"unmet precondition '{blocked}'{where}", False
     # No recorded block reason. Do NOT assume the runnable resource is missing —
     # asserting an absence without checking is how a diagnostic starts lying.
     # Check, then report whichever is actually true.
@@ -1851,7 +1872,10 @@ def _skill_unrunnable_reason(engine: IntelligenceGraphEngine, skill_name: str) -
             type(exc).__name__,
             exc_info=True,
         )
-        return f"its runnable resource could not be confirmed ({type(exc).__name__}: {exc})"
+        return (
+            f"its runnable resource could not be confirmed ({type(exc).__name__}: {exc})",
+            True,
+        )
     if bound:
         # The resource EXISTS, so resolution failed later — in
         # ``_hydrate_skill_runnable``, which fails closed on an incomplete body,
@@ -1859,11 +1883,13 @@ def _skill_unrunnable_reason(engine: IntelligenceGraphEngine, skill_name: str) -
         return (
             f"its runnable resource exists{where} but failed hydration — its "
             "instruction body, digest, or source_ref is incomplete or no longer "
-            "matches (unmet precondition 'runnable_metadata_intact')"
+            "matches (unmet precondition 'runnable_metadata_intact')",
+            False,
         )
     return (
         f"it is ingested{where} but has no runnable CallableResource "
-        "(unmet precondition 'skill_body_served')"
+        "(unmet precondition 'skill_body_served')",
+        False,
     )
 
 

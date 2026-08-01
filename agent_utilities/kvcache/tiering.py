@@ -14,8 +14,9 @@ so they share one tiering rule, one eligibility gate, and one audit record:
    sufficient reason) but does NOT skip the eligibility gate for disk.
 2. **Agent-invoked** — :meth:`TieredCheckpointManager.recommend` produces the structured
    advisory the model reads, and the model then calls
-   :meth:`TieredCheckpointManager.checkpoint_now` with ``initiator="agent"`` if it
-   decides to act. The system recommends; the model chooses.
+   :meth:`TieredCheckpointManager.checkpoint_now` with ``trigger="agent"`` if it
+   decides to act. The system recommends; the model chooses *whether*; the authority the
+   model is running under decides *whether it may*.
 3. **System-autonomous** — :meth:`TieredCheckpointManager.observe`. No LLM in the loop:
    the scorers run, and if the verdict clears the threshold the checkpoint is taken on
    the spot. The payload is passed as a callable so a run that is *not* checkpoint-worthy
@@ -31,18 +32,28 @@ Two tiers, and the second is not a bigger version of the first
   session. This is data-at-rest and a retention decision, so it requires BOTH a
   materially higher worthiness bar (:class:`~agent_utilities.kvcache.worthiness.DiskPromotionRule`)
   AND an affirmative verdict from the registered
-  :mod:`~agent_utilities.kvcache.eligibility` gate, whose default denies.
+  :mod:`~agent_utilities.kvcache.eligibility` gate, which derives eligibility from the
+  caller's verified authority and the labels of every source that contributed to the
+  context (CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility).
 
 **RAM never implies disk consent.** Promotion re-runs the full eligibility check even
-for a checkpoint that has already been sitting in RAM for hours.
+for a checkpoint that has already been sitting in RAM for hours — and re-derives the
+authority at that moment, so an expired credential or a revoked delegation refuses a
+promotion that would have been permitted an hour earlier.
+
+**Which trigger fired is provenance, not authority.** All three paths are gated
+identically; ``trigger`` is recorded and never read by the eligibility decision.
 
 Inspectability
 --------------
 Every checkpoint carries the recommendation that produced it and the eligibility
-decision that permitted (or refused) it. :meth:`TieredCheckpointManager.explain` returns
-that record for a RAM checkpoint, and for a persisted one the same material is written
-into the ``:KVCheckpoint`` node's ``provenance`` — so "why was this persisted?" is
-answerable from the graph long after the session ended.
+decision that permitted (or refused) it — including the full
+:class:`~agent_utilities.kvcache.eligibility.PersistenceDerivation` (whose authority,
+through which delegation chain, against which sources' composed labels, and every
+check's verdict). :meth:`TieredCheckpointManager.explain` returns that record for a RAM
+checkpoint, and for a persisted one the same material is flattened into the
+``:KVCheckpoint`` node's ``provenance`` — so "why was this persisted?" is answerable
+from the graph long after the session ended.
 """
 
 from __future__ import annotations
@@ -64,10 +75,12 @@ from agent_utilities.kvcache.checkpoint import (
     KVCheckpointRecord,
 )
 from agent_utilities.kvcache.eligibility import (
+    ContributingSource,
     EligibilityDecision,
     Initiator,
     PersistenceEligibilityGate,
     PersistenceRequest,
+    derive_caller_authority,
     get_persistence_eligibility_gate,
 )
 from agent_utilities.kvcache.worthiness import (
@@ -128,6 +141,12 @@ class RAMCheckpointRecord(BaseModel):
     created_at: str = ""
     trigger: Initiator = "system"
     recommendation: CheckpointRecommendation | None = None
+    #: Every source that contributed material to the checkpointed context. Recorded at
+    #: RAM-tier time because that is when the context is in hand; ``promote`` re-reads
+    #: it rather than re-deriving it, so the labels a checkpoint is judged against are
+    #: the ones its content actually came from. EMPTY DENIES at promotion — an
+    #: unprovenanced RAM checkpoint is fine, an unprovenanced durable one is not.
+    sources: tuple[ContributingSource, ...] = ()
     #: Set once this RAM checkpoint has been promoted to the durable tier, so the same
     #: context is never persisted twice and ``explain`` can follow the promotion.
     promoted: bool = False
@@ -239,6 +258,7 @@ class RAMCheckpointStore:
         point: str = "",
         trigger: Initiator = "system",
         recommendation: CheckpointRecommendation | None = None,
+        sources: tuple[ContributingSource, ...] = (),
     ) -> RAMCheckpointRecord:
         """Store ``data`` in the RAM tier under ``key``'s deterministic checkpoint id."""
         if not data:
@@ -257,6 +277,7 @@ class RAMCheckpointStore:
             created_at=_now(),
             trigger=trigger,
             recommendation=recommendation,
+            sources=tuple(sources),
         )
         with self._lock:
             existing = self._entries.pop(record.checkpoint_id, None)
@@ -392,11 +413,17 @@ class TieredCheckpointManager:
         ram_store: RAMCheckpointStore | None = None,
         disk_store: Any | None = None,
         eligibility_gate: PersistenceEligibilityGate | None = None,
+        durable_region: str = "",
     ) -> None:
         self.advisor = advisor or CheckpointAdvisor()
         self.ram_store = ram_store or RAMCheckpointStore()
         self.disk_store = disk_store
         self._eligibility_gate = eligibility_gate
+        #: The region ``disk_store`` physically writes into. A fact about deployment
+        #: topology, not a policy value, and it is only consulted when a contributing
+        #: source actually restricts residency — where it is unknown, such a source
+        #: denies.
+        self.durable_region = durable_region
 
     @property
     def eligibility_gate(self) -> PersistenceEligibilityGate:
@@ -438,8 +465,8 @@ class TieredCheckpointManager:
         point: str = "",
         trigger: Initiator = "user",
         persist: bool = False,
-        operator_grant: bool = False,
         observation: CheckpointObservation | None = None,
+        sources: tuple[ContributingSource, ...] = (),
         session: Any | None = None,
     ) -> CheckpointOutcome:
         """Take a checkpoint **now**, because someone explicitly asked.
@@ -453,6 +480,10 @@ class TieredCheckpointManager:
         ``persist=True`` additionally attempts a durable write, which DOES go through
         the full eligibility gate. A refused persistence is not an error: the RAM
         checkpoint still exists, and the outcome carries the refusal reason.
+
+        ``sources`` are the labelled sources that contributed to this context. They are
+        the material half of the eligibility derivation (the authority half is read from
+        the caller's verified session), and an empty set refuses durable persistence.
         """
         recommendation = (
             self.advisor.evaluate(observation) if observation is not None else None
@@ -465,6 +496,7 @@ class TieredCheckpointManager:
                 point=point,
                 trigger=trigger,
                 recommendation=recommendation,
+                sources=sources,
             )
         except KVCheckpointError as exc:
             _record_tier_op(trigger, "ram", "error")
@@ -494,7 +526,6 @@ class TieredCheckpointManager:
             ram_record.checkpoint_id,
             requesting_tenant=key.tenant,
             trigger=trigger,
-            operator_grant=operator_grant,
             session=session,
             base_outcome=outcome,
         )
@@ -508,6 +539,7 @@ class TieredCheckpointManager:
         payload: bytes | Callable[[], bytes],
         run_id: str = "",
         point: str = "",
+        sources: tuple[ContributingSource, ...] = (),
         session: Any | None = None,
     ) -> CheckpointOutcome:
         """Score the moment and checkpoint autonomously if it clears the bar.
@@ -516,11 +548,13 @@ class TieredCheckpointManager:
         checkpoint — so a moment that is not worth freezing never pays to serialize KV
         state. That laziness is the reason this path can be called often.
 
-        The autonomous path can reach the RAM tier on its own. It can never reach disk
-        on its own: the default eligibility gate refuses a ``system`` initiator, so an
-        autonomous run that scores high enough for durable persistence still produces a
-        RAM checkpoint plus a recorded, refused eligibility verdict — visible evidence
-        that the system *wanted* to persist and was not permitted to.
+        The autonomous path can reach the RAM tier on its own. Whether it reaches disk
+        is **not** decided by it being autonomous: the gate reads the authority the run
+        is executing under, so a scheduled run carrying a verified session whose
+        authority dominates the contributing sources' labels persists, and one that does
+        not produces a RAM checkpoint plus a recorded, refused verdict — visible evidence
+        that the system *wanted* to persist and was not permitted to. A daemon tick with
+        no session at all has no authority and is therefore always refused.
 
         Unlike :meth:`recommend`, this deliberately does **not** publish an advisory to
         the model: this path *acts*, so telling the model "checkpoint-worthy, consider
@@ -546,6 +580,7 @@ class TieredCheckpointManager:
                 point=point or observation.point,
                 trigger="system",
                 recommendation=recommendation,
+                sources=sources,
             )
         except KVCheckpointError as exc:
             _record_tier_op("system", "ram", "error")
@@ -571,7 +606,6 @@ class TieredCheckpointManager:
             ram_record.checkpoint_id,
             requesting_tenant=key.tenant,
             trigger="system",
-            operator_grant=False,
             session=session,
             base_outcome=outcome,
         )
@@ -583,7 +617,6 @@ class TieredCheckpointManager:
         *,
         requesting_tenant: str,
         trigger: Initiator = "user",
-        operator_grant: bool = False,
         session: Any | None = None,
         base_outcome: CheckpointOutcome | None = None,
     ) -> CheckpointOutcome:
@@ -593,9 +626,20 @@ class TieredCheckpointManager:
         that has been resident in RAM since the session began: having been kept in
         memory is not consent to write the same context to disk.
 
+        **The authority is derived here, at promotion time, not at checkpoint time.**
+        :func:`~agent_utilities.kvcache.eligibility.derive_caller_authority` reads the
+        caller's verified ``GraphSession`` and any active ``SpawnDelegation`` at the
+        moment of the write, so a credential that has expired or a delegation that has
+        been revoked since the RAM checkpoint was taken refuses the promotion. Nothing
+        the caller passes in can substitute for that: there is no grant flag, and a
+        payload-supplied tenant is checked *against* the verified one rather than
+        trusted.
+
         A refusal leaves the RAM checkpoint intact and returns an outcome whose
-        ``eligibility`` explains why — the refusal is recorded on the RAM record too, so
-        :meth:`explain` can answer "why wasn't this persisted?" later.
+        ``eligibility`` explains why — including the full
+        :class:`~agent_utilities.kvcache.eligibility.PersistenceDerivation`, recorded on
+        the RAM record too, so :meth:`explain` can answer "why wasn't this persisted?"
+        later.
         """
         ram_record, data = self.ram_store.fetch(
             checkpoint_id, requesting_tenant=requesting_tenant
@@ -615,11 +659,13 @@ class TieredCheckpointManager:
             run_id=ram_record.run_id,
             point=ram_record.point,
             size_bytes=ram_record.size_bytes,
-            initiator=trigger,
-            operator_grant=operator_grant,
+            trigger=trigger,
             worthiness_score=(
                 ram_record.recommendation.score if ram_record.recommendation else 0.0
             ),
+            authority=derive_caller_authority(session=session),
+            sources=ram_record.sources,
+            target_region=self.durable_region,
         )
         gate = self.eligibility_gate
         decision = gate.evaluate(request)
@@ -721,6 +767,35 @@ class TieredCheckpointManager:
             "promoted_from_tier": CheckpointTier.RAM.value,
             "promoted_at": _now(),
         }
+        if decision.derivation is not None:
+            # The derivation is what makes a durable checkpoint auditable long after the
+            # session ended: WHOSE authority permitted it, through WHICH delegation
+            # chain, and against WHICH sources' composed labels. Flattened to value
+            # types because the node stores properties, not nested models.
+            derivation = decision.derivation
+            provenance.update(
+                {
+                    "authorized_actor": derivation.authority.actor_id,
+                    "authorized_tenant": derivation.authority.tenant,
+                    "authorized_clearance": derivation.authority.clearance_label,
+                    "delegation_chain": list(derivation.authority.delegation_chain),
+                    "delegation_principal": derivation.authority.delegation_principal,
+                    "composed_classification": derivation.label.classification,
+                    "composed_residency_regions": sorted(
+                        derivation.label.residency_regions
+                    ),
+                    "composed_retention_days": derivation.label.retention_days,
+                    "composed_markings": sorted(derivation.label.markings),
+                    "contributing_sources": [
+                        c.source_id for c in derivation.label.contributions
+                    ],
+                    "eligibility_rule": derivation.rule,
+                    "eligibility_checks": [
+                        f"{c.name}={'pass' if c.passed else 'FAIL'}: {c.detail}"
+                        for c in derivation.checks
+                    ],
+                }
+            )
         if record.recommendation is not None:
             provenance.update(
                 {
