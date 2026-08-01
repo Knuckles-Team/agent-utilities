@@ -35,6 +35,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(ROOT))
 
+from _gate_interpreter import require_project_interpreter  # noqa: E402
+
+# Re-exec under this repo's declared interpreter BEFORE importing the MCP
+# server surface: under an out-of-contract python this gate does not fail,
+# it stops functioning. See scripts/_gate_interpreter.py.
+require_project_interpreter(ROOT)
+
 import gen_capability_power as gcp  # noqa: E402
 
 from agent_utilities.knowledge_graph.retrieval.capability_power_descriptor import (  # noqa: E402
