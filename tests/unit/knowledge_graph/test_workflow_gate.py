@@ -60,6 +60,62 @@ class FakeEngine:
         self.backend = None
 
 
+class FakeBackend:
+    """Minimal Cypher-shaped stand-in for the backend/persistent-store branch of
+    :func:`workflow_gate._find_workflow` (D-WS-6) — a real deployment's ``execute()``
+    on a connected backend, honoring the exact two queries that function issues
+    (``MATCH (w:WorkflowDefinition) WHERE w.name = $name ...`` and the
+    ``-[:HAS_STEP]->`` step lookup), never the NX/compute-graph branch
+    :class:`FakeGraph` exercises.
+    """
+
+    def __init__(self):
+        self._definitions: dict[str, dict] = {}
+        self._steps: dict[str, list[dict]] = {}
+
+    def add_workflow(self, wid, name, step_count, steps=None):
+        self._definitions[name] = {"wid": wid, "name": name, "step_count": step_count}
+        self._steps[wid] = steps or []
+
+    def execute(self, query, params):
+        if "WorkflowDefinition) WHERE w.name" in query:
+            row = self._definitions.get(params.get("name"))
+            return [row] if row else []
+        if "HAS_STEP" in query:
+            return self._steps.get(params.get("wid"), [])
+        return []
+
+
+class FakeBackendEngine:
+    """Engine stand-in whose ``backend`` is set — routes ``_find_workflow`` down
+    the backend branch, never the ``graph`` (compute-mirror) branch, exactly as a
+    real connected-backend deployment does.
+    """
+
+    def __init__(self):
+        self.backend = FakeBackend()
+        self.graph = None
+
+
+def _seed_backend_workflow(
+    engine, name="invoice_flow", step_count=2, steps=None, *, acl=True
+):
+    wid = f"workflow:{name}:abc123"
+    if acl:
+        from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
+        from agent_utilities.models.company_brain import DataClassification
+
+        build_acl(wid, DataClassification.PUBLIC)
+    if steps is None:
+        steps = [{"step_id": "review"}, {"step_id": "archive"}]
+    step_rows = [
+        {"sid": f"{wid}:step:{i}", "step_order": i, **step}
+        for i, step in enumerate(steps)
+    ]
+    engine.backend.add_workflow(wid, name, step_count, step_rows)
+    return wid
+
+
 def _seed_workflow(engine, name="invoice_flow", step_count=2, steps=None, *, acl=True):
     wid = f"workflow:{name}:abc123"
     engine.graph.add_node(
@@ -163,6 +219,38 @@ class TestShapeGate:
         from agent_utilities.core.config import AgentConfig
 
         assert AgentConfig().kg_workflow_shape_gate is True
+
+
+class TestShapeGateBackendPath:
+    """D-WS-6 — mirrors :class:`TestShapeGate` against the backend/persistent-store
+    branch of ``_find_workflow`` (``engine.backend`` set, real Cypher-shaped
+    queries), not just the NX/compute-graph branch every other test in this file
+    exercises. A real deployment uses the backend branch exclusively — this
+    file previously had zero coverage proving it behaves identically.
+    """
+
+    def test_valid_workflow_passes(self):
+        engine = FakeBackendEngine()
+        wid = _seed_backend_workflow(engine)
+        gate = gate_workflow_execution(engine, "invoice_flow")
+        assert gate["allowed"] is True
+        assert gate["workflow_id"] == wid
+        assert gate["violations"] == []
+
+    def test_zero_step_workflow_refused(self):
+        engine = FakeBackendEngine()
+        _seed_backend_workflow(engine, name="empty_flow", step_count=0, steps=[])
+        gate = gate_workflow_execution(engine, "empty_flow")
+        assert gate["allowed"] is False
+        assert any(
+            "step" in str(v.get("message", "")).lower() for v in gate["violations"]
+        )
+
+    def test_unstored_workflow_is_refused(self):
+        engine = FakeBackendEngine()
+        gate = gate_workflow_execution(engine, "dynamic_adhoc_flow")
+        assert gate["allowed"] is False
+        assert gate["workflow_id"] is None
 
 
 class TestPermissionGate:
