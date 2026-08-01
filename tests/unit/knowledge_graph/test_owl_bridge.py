@@ -115,3 +115,40 @@ def test_bridge_eligibility(mock_engine, ontology_path):
     )
 
     backend.close()
+
+
+def test_bridge_eligibility_camelcase_node_type():
+    """D-TC-5 follow-on: ``_is_eligible_node`` must fold a CamelCased
+    ``node_type`` (how the native compute engine round-trips it -- see
+    ``_node_type_to_snake``'s docstring) back to the lowercase snake_case
+    ``PROMOTABLE_NODE_TYPES`` convention, mirroring ``_promote_stable_edges``'s
+    existing case-fold for the ``relationship`` property (D-GS7-1). No live
+    engine needed: ``_is_eligible_node`` never touches ``self.graph``.
+    """
+    bridge = OWLBridge(graph=None, owl_backend=None, backend=None)
+
+    assert (
+        bridge._is_eligible_node(
+            "host:1", {"node_type": "Host", "importance_score": 0.9}
+        )
+        is True
+    )
+    assert (
+        bridge._is_eligible_node(
+            "gpu:1", {"node_type": "GPUAccelerator", "importance_score": 0.9}
+        )
+        is True
+    )
+    assert (
+        bridge._is_eligible_node(
+            "storage:1", {"node_type": "StorageArray", "importance_score": 0.9}
+        )
+        is True
+    )
+    # A genuinely non-promotable type stays ineligible regardless of case.
+    assert (
+        bridge._is_eligible_node(
+            "x:1", {"node_type": "TotallyUnknownType", "importance_score": 0.9}
+        )
+        is False
+    )

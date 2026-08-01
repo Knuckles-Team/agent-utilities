@@ -3565,6 +3565,13 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/messaging/router.py
   doc: migrate_legacy_assets_bulk progress callback failed
+- id: AU-KG.identity.canonical-id-non-idempotence
+  name: AU-KG.identity.canonical-id-non-idempotence
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/kg_audit_sink.py
+  doc: AU-KG.identity.canonical-id-non-idempotence
 - id: AU-KG.identity.entity-resolution-candidates
   name: exposed as a standalone
   pillar: AU-KG
@@ -6713,13 +6720,6 @@ concepts:
   code_paths:
   - agent_utilities/runtime/provenance.py
   doc: Workspace-Action Provenance Graph
-- id: AU-KG.trace.canonical-id-non-idempotence
-  name: AU-KG.trace.canonical-id-non-idempotence
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/capabilities/kg_audit_sink.py
-  doc: AU-KG.trace.canonical-id-non-idempotence
 - id: AU-KG.txn.git-like-versioning
   name: Provides git-like transactional mutation for KG evolution
   pillar: AU-KG

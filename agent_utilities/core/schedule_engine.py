@@ -58,6 +58,11 @@ _ADAPTIVE_MAX_BACKOFF_MULT = 16
 _MAX_SCHEDULE_PAYLOAD_BYTES = 64 * 1024
 _MAX_SCHEDULE_TEXT_BYTES = 32 * 1024
 _MAX_SCHEDULE_IDENTIFIER_BYTES = 128
+# Hard backstop on a scheduled ``kind in (workflow, agent)`` dispatch
+# (CONCEPT:AU-ORCH.scheduling.hard-io-deadline) -- generous enough for a
+# multi-step workflow run, bounded so a stuck dispatch can never hang a
+# scheduler tick indefinitely.
+_WORKFLOW_DISPATCH_TIMEOUT_S = 1800.0
 _SCHEDULE_KINDS = frozenset(
     {"maint", "research_feed", "feed_sweep", "skill", "workflow", "agent", "script"}
 )
@@ -797,14 +802,40 @@ def _dispatch_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, A
         return {"status": "skipped", "reason": "host_script_execution_retired"}
     if kind in ("workflow", "agent"):
         try:
-            import asyncio
+            # ``engine`` here is the raw IntelligenceGraphEngine (it has no
+            # ``execute_workflow`` of its own) -- the governed dispatch surface
+            # is Orchestrator.execute_workflow, which is also the D-WS-8
+            # chokepoint that runs the SHACL+ACL gate
+            # (agent_utilities.knowledge_graph.core.workflow_gate) before any
+            # step runs. Routing through it here (instead of calling a
+            # nonexistent method on the bare engine) both fixes this dispatch
+            # path and means scheduled workflow/agent jobs inherit the same
+            # governance as every other caller.
+            #
+            # The one production caller of this dispatcher
+            # (IntelligenceGraphEngine._run_background_task, engine_tasks.py)
+            # is itself an async method calling ``run_scheduled_job``
+            # synchronously from inside an ALREADY-RUNNING event loop --
+            # ``asyncio.get_event_loop().run_until_complete(coro)`` would
+            # raise "This event loop is already running" every time it is
+            # actually reached, another silent-failure shape layered on top
+            # of the missing-method bug. ``_run_async`` (shared with
+            # ticket_playbooks._dispatch_workflow, the sibling D-WS-8 caller)
+            # runs the coroutine on a fresh loop in a worker thread whether or
+            # not a loop is already running, and bounds the wait so a stuck
+            # workflow can never hang the scheduler tick indefinitely.
+            from agent_utilities.orchestration.manager import Orchestrator
+            from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
+                _run_async,
+            )
 
-            coro = engine.execute_workflow(
+            orchestrator = Orchestrator(engine)
+            coro = orchestrator.execute_workflow(
                 workflow_id=payload.get("ref", payload.get("name", "")),
                 task=payload.get("task", payload.get("description", "")),
                 **(payload.get("kwargs") or {}),
             )
-            asyncio.get_event_loop().run_until_complete(coro)
+            _run_async(coro, timeout=_WORKFLOW_DISPATCH_TIMEOUT_S)
             return {"status": "ok"}
         except Exception as exc:  # noqa: BLE001
             from agent_utilities.security.error_surface import public_error_payload

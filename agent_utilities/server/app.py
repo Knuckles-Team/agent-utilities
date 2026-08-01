@@ -799,7 +799,7 @@ def build_agent_app(
                             )
                     return sorted(skills, key=lambda x: x.get("name", "").lower())
 
-                helpers = {
+                helpers: dict[str, Any] = {
                     "agent_name": _name,
                     "agent_description": identity_meta.get(
                         "description", DEFAULT_AGENT_DESCRIPTION

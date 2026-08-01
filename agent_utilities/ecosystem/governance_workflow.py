@@ -449,7 +449,7 @@ class GovernanceWorkflow:
             else:
                 results["staleness"] = "skipped (not due)"
         except Exception as e:
-            logger.debug("[ECO-4.9] Staleness audit failed: %s", e)
+            logger.warning("[ECO-4.9] Staleness audit failed: %s", e)
             results["staleness"] = f"error: {e}"
 
         # 2. Check for pending reflector proposals in KG
@@ -471,7 +471,7 @@ class GovernanceWorkflow:
                     )
                     self.submit(proposal)
         except Exception as e:
-            logger.debug("[ECO-4.9] Reflector check failed: %s", e)
+            logger.warning("[ECO-4.9] Reflector check failed: %s", e)
             results["reflector_proposals"] = 0
 
         # 3. Generate combined report
@@ -554,4 +554,4 @@ class GovernanceWorkflow:
                 },
             )
         except Exception as e:
-            logger.debug("[ECO-4.9] KG persist failed: %s", e)
+            logger.warning("[ECO-4.9] KG persist failed: %s", e)

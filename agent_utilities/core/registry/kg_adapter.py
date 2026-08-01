@@ -174,8 +174,6 @@ class RegistryMixin(_Base):
         cm_node_id = codemap_id
         if self.graph.has_node(cm_node_id):
             data = dict(self.graph._get_node_properties(cm_node_id) or {})
-            from ...models.codemap import CodemapArtifact
-
             # Same JSON-string normalization as the backend-Cypher path below:
             # complex fields can come back JSON-serialized (the add_node write
             # path's clean_props/serialize does not round-trip lists back to
@@ -183,6 +181,8 @@ class RegistryMixin(_Base):
             # (the "codemap:"-prefixed lookup key never matched what
             # store_codemap actually wrote), so this gap was latent.
             import json
+
+            from ...models.codemap import CodemapArtifact
 
             for k in ["hierarchy", "nodes", "edges", "evidence_refs"]:
                 if k in data and isinstance(data[k], str):

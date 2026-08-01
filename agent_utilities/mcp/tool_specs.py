@@ -122,6 +122,13 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_message": ("act",),
         "graph_feeds": ("act", "ask"),
         "graph_research": ("ask", "act"),
+        # Track 4/5 of the universal-ingestion program. ``propose`` runs a
+        # schema-constrained extraction pass and ``resolve_identities`` compares
+        # records — both produce CANDIDATES with no path to becoming a fact
+        # through this tool, so neither is a read: ``act`` is primary.
+        # ``resolve_identities(persist=true)`` writes POSSIBLE_SAME_AS hint
+        # edges, the one write this family makes, hence the second verb.
+        "graph_candidate_claims": ("act", "write"),
         "engine_txn": ("act",),
         "engine_consensus": ("act",),
         "engine_channels": ("act",),

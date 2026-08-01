@@ -138,7 +138,7 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 #
 # The image build resolves from THIS PACKAGE, in an isolated kaniko context with no
 # sibling checkouts and no workspace root. The ecosystem's real dependency policy lives
-# in `/home/apps/workspace/pyproject.toml`'s `[tool.uv] override-dependencies`, which uv
+# in `${WORKSPACE_ROOT}/pyproject.toml`'s `[tool.uv] override-dependencies`, which uv
 # honours ONLY from the workspace root — and which plain pip cannot read at all (it is a
 # uv-only table). So a plain-pip build of this package silently resolves a DIFFERENT
 # dependency set than the workspace lock. That is not a theoretical hazard: it is exactly

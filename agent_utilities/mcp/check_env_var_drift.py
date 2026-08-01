@@ -315,6 +315,45 @@ def _env_names_from_tree(tree: ast.AST) -> set[str]:
     writes, which a line-oriented regular expression cannot do reliably.
     """
     found: set[str] = set()
+    # Same-module one-level indirection: ``_LOG_LEVEL_ENV = "MCP_V2_GATEWAY_LOG_LEVEL"``
+    # followed by ``os.environ.get(_LOG_LEVEL_ENV)``. The var name never appears
+    # literally next to a reader call, so a literal-argument-only scan reported it as
+    # DEAD ("declared in compose, read by nothing") even though it is read on every
+    # start-up — a FALSE finding no edit to the compose file can satisfy. Only names
+    # that are BOTH bound to an env-name literal here AND passed to a reader below are
+    # counted, so this stays a read detector and never degenerates into "any uppercase
+    # string constant is an env var".
+    _alias_literals: dict[str, str] = {}
+    for node in ast.walk(tree):
+        alias_value: ast.expr | None
+        if isinstance(node, ast.Assign):
+            alias_targets: list[ast.expr] = list(node.targets)
+            alias_value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            alias_targets = [node.target]
+            alias_value = node.value
+        else:
+            continue
+        literal = _literal_env_name(alias_value)
+        if not literal:
+            continue
+        for target in alias_targets:
+            if isinstance(target, ast.Name):
+                _alias_literals[target.id] = literal
+            elif isinstance(target, ast.Attribute):
+                _alias_literals[target.attr] = literal
+
+    def _env_name_arg(node: ast.AST | None) -> str | None:
+        """Resolve a reader argument: a literal, or a same-module alias to one."""
+        literal = _literal_env_name(node)
+        if literal:
+            return literal
+        if isinstance(node, ast.Name):
+            return _alias_literals.get(node.id)
+        if isinstance(node, ast.Attribute):
+            return _alias_literals.get(node.attr)
+        return None
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             direct_reader = isinstance(node.func, ast.Name) and node.func.id in {
@@ -333,7 +372,7 @@ def _env_names_from_tree(tree: ast.AST) -> set[str]:
                 and _is_environ(node.func.value)
             )
             if (direct_reader or os_getenv or environ_get) and node.args:
-                name = _literal_env_name(node.args[0])
+                name = _env_name_arg(node.args[0])
                 if name:
                     found.add(name)
 
@@ -355,7 +394,7 @@ def _env_names_from_tree(tree: ast.AST) -> set[str]:
             and isinstance(node.ctx, ast.Load)
             and _is_environ(node.value)
         ):
-            name = _literal_env_name(node.slice)
+            name = _env_name_arg(node.slice)
             if name:
                 found.add(name)
 
