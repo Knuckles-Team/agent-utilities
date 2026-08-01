@@ -197,7 +197,10 @@ def load_governed_active_capabilities(
         if not record.class_name:
             continue  # never passed static validation — nothing to reconcile
         spec = get_spec(engine, spec_id_for(_spec_title(record.name)))
-        cleared = bool(spec) and spec.get("status") in ("approved", "published")
+        # `spec is not None` (not `bool(spec)`) both narrows the type for the
+        # `.get()` below and matches get_spec's real found/not-found contract
+        # (it never returns an empty-but-found dict).
+        cleared = spec is not None and spec.get("status") in ("approved", "published")
         if cleared and record.status != "active":
             # Re-validate + re-mark active from the ALREADY-WRITTEN source (never
             # re-executes agent-supplied code through any other path) now that

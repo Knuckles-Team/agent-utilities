@@ -293,7 +293,14 @@ class KVCacheLayeringPolicy:
         if not worthy:
             reasons.append("one_off_short_prompt")
         elif threshold_scale != 1.0:
-            reasons.append(f"foreground_priority_bias({effective_priority.value})")
+            # threshold_scale != 1.0 only when effective_priority is INTERACTIVE
+            # (see the assignment above), so this is never reached with an
+            # untagged (None) priority — the "is not None" guard mirrors the
+            # ``signals["priority"]`` construction below for the same reason.
+            reasons.append(
+                f"foreground_priority_bias("
+                f"{effective_priority.value if effective_priority is not None else None})"
+            )
 
         # Score: fraction of the total against the context threshold, capped, plus a
         # multi-turn bonus. Purely for telemetry/ranking; the verdict is boolean.

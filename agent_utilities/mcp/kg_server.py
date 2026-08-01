@@ -3248,6 +3248,13 @@ async def _ensure_process_authority_current() -> Any:
             ambient.ensure_authority_current(minimum_ttl_seconds=30)
         except SessionExpiredError:
             ambient = await asyncio.to_thread(_refresh_process_authority, ambient)
+        if ambient is None:
+            # `_refresh_process_authority` is typed `Any` (it renews in place and
+            # returns the same session), so this should be unreachable in
+            # practice — but if it ever did return nothing, failing closed with
+            # the same PermissionError the no-ambient-session branch below uses
+            # is correct, not an opaque AttributeError on the next line.
+            raise PermissionError("Verified GraphSession required")
         ambient.ensure_authority_current(minimum_ttl_seconds=30)
         return ambient
     session = _PROCESS_SESSION

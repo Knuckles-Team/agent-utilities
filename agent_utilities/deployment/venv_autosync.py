@@ -57,7 +57,7 @@ import argparse
 import json
 import logging
 import os
-import random
+import secrets
 import shlex
 import subprocess
 import sys
@@ -75,6 +75,8 @@ from agent_utilities.deployment.venv_sync import (
     NATIVE,
     SOURCE_ONLY,
     LockBusyError,
+    SyncOutcome,
+    UpgradeOutcome,
     VenvSyncError,
     Workspace,
     classify_change,
@@ -601,7 +603,7 @@ def trigger(
         change_class = METADATA
 
     intent = Intent(
-        id=f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}-{random.randrange(1 << 24):06x}",
+        id=f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}-{secrets.randbelow(1 << 24):06x}",
         created_at=datetime.now(UTC).isoformat(),
         repo=str(repo),
         branch=branch,
@@ -700,6 +702,7 @@ def drain(workspace: Workspace, *, ignore_activity: bool = False) -> dict[str, A
 
     try:
         with exclusive_lock(workspace):
+            outcome: UpgradeOutcome | SyncOutcome
             if worst.change_class == METADATA and config.on_metadata_change == "relock":
                 outcome = upgrade(
                     workspace,

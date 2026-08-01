@@ -29,6 +29,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from agent_utilities.capabilities.checkpointing import CheckpointStore
 from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.execution_manifest import ExecutionManifest, ExecutionResult
 from agent_utilities.models.graph import (
@@ -314,7 +315,7 @@ def _content_digest(value: str) -> str:
     return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
 
 
-class _CapturingCheckpointStore:
+class _CapturingCheckpointStore(CheckpointStore):
     """Wrap a ``CheckpointStore``, capturing every saved checkpoint id.
 
     The conductor agent is given a real ``CheckpointMiddleware`` (one message-

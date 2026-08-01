@@ -985,7 +985,7 @@ class IngestionEngine:
 
     async def _enrich_payload(
         self, payload: dict[str, Any], default_source_type: str
-    ) -> dict[str, int]:
+    ) -> dict[str, Any]:
         """Enrich one ``enrichable`` payload — the unit a downstream ENRICH worker runs.
 
         Best-effort: a failed payload counts zero and never propagates, so a slow or
@@ -1450,7 +1450,7 @@ class IngestionEngine:
         enrich_concepts: bool = True,
         enrich_facts: bool = True,
         enrich_entities: bool = True,
-    ) -> dict[str, int]:
+    ) -> dict[str, Any]:
         """Unified always-on intelligence layer for any text-bearing ingestion.
 
         The single seam every content type funnels text through so enrichment is
