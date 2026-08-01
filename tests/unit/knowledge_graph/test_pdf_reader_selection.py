@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_utilities.knowledge_graph.core import engine_tasks
-from agent_utilities.knowledge_graph.extraction.pdf import read_pdf_text
+from agent_utilities.knowledge_graph.extraction.pdf import read_pdf_pages, read_pdf_text
 
 
 def _fake_pypdf(
@@ -40,6 +40,55 @@ class PdfReader:
     pdf = tmp_path / "document.pdf"
     pdf.write_bytes(b"%PDF fixture")
     assert read_pdf_text(pdf, max_chars=8, timeout_seconds=5) == "first\nse"
+
+
+def test_read_pdf_pages_preserves_page_boundaries(tmp_path, monkeypatch) -> None:
+    """D-ES-3: page boundaries must survive extraction for fragment_pdf.
+
+    ``read_pdf_text`` joins pages on ``"\\n"`` — indistinguishable from a
+    ``"\\n"`` that already occurs inside a page's own extracted text.
+    ``read_pdf_pages`` must return the pages as a list instead, and
+    ``read_pdf_text``'s own output must be unaffected by the refactor.
+    """
+    _fake_pypdf(
+        tmp_path,
+        monkeypatch,
+        """
+class Page:
+    def __init__(self, text): self.text = text
+    def extract_text(self): return self.text
+class PdfReader:
+    is_encrypted = False
+    def __init__(self, *args, **kwargs):
+        self.pages = [Page('line one\\nline two'), Page('second page')]
+""",
+    )
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+
+    assert read_pdf_pages(pdf, timeout_seconds=5) == [
+        "line one\nline two",
+        "second page",
+    ]
+    # read_pdf_text's own contract (join on "\n") is unchanged by the refactor.
+    assert (
+        read_pdf_text(pdf, timeout_seconds=5)
+        == "line one\nline two\nsecond page"
+    )
+
+
+def test_read_pdf_pages_fails_closed_like_read_pdf_text(tmp_path, monkeypatch) -> None:
+    _fake_pypdf(
+        tmp_path,
+        monkeypatch,
+        """
+class PdfReader:
+    def __init__(self, *args, **kwargs): raise RuntimeError('parser detail')
+""",
+    )
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    assert read_pdf_pages(pdf, timeout_seconds=5) == []
 
 
 def test_hung_worker_is_killed_at_wall_deadline(tmp_path, monkeypatch) -> None:
