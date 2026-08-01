@@ -233,7 +233,9 @@ def test_broken_link_creates_dangling_placeholder_and_keeps_edge():
     text = "# Doc\nSee [Other](other.md) and [Site](https://x/y).\n"
     result = proc.process(text, text=text, source="home.md", persist=False)
 
-    link_edges = [e for e in result.edges if e["type"] == "LINKS_TO"]
+    # Edge dicts key their type as "relationship" (the retired bare "type" key
+    # was replaced repo-wide; see document_processing.py's edge payloads).
+    link_edges = [e for e in result.edges if e["relationship"] == "LINKS_TO"]
     assert {e["href"] for e in link_edges} == {"other.md", "https://x/y"}
     # broken/forward link target → a dangling placeholder node (edge never dropped)
     dangling = {n["id"]: n for n in result.link_nodes}
@@ -251,7 +253,9 @@ def test_extract_links_off_by_default_is_byte_identical():
     text = "# Doc\nSee [Other](other.md).\n"
     result = proc.process(text, text=text, source="home.md", persist=False)
     assert result.link_nodes == []
-    assert all(e["type"] in ("HAS_CHUNK", "CHUNK_OF") for e in result.edges)
+    # Edge dicts key their type as "relationship" (the retired bare "type" key
+    # was replaced repo-wide; see document_processing.py's edge payloads).
+    assert all(e["relationship"] in ("HAS_CHUNK", "CHUNK_OF") for e in result.edges)
 
 
 # ── OKF writeback sink on the existing graph_writeback surface ───────────────

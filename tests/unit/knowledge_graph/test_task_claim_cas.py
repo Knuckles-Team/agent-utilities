@@ -32,7 +32,6 @@ from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
 )
 from agent_utilities.knowledge_graph.core.engine_tasks import (
     TaskManagerMixin,
-    _decode_metadata,
     _encode_metadata,
 )
 from agent_utilities.orchestration import work_item as wi
@@ -99,8 +98,29 @@ def _task_status(b: EpistemicGraphBackend, tid: str) -> str | None:
 
 
 def test_claim_wins_creates_running_shadow_and_stamps_task():
-    """A winning claim creates+claims the shadow WorkItem and mirrors the win
-    onto the legacy :Task node (status + work_item_id/epoch stamped)."""
+    """A winning claim creates+claims the shadow WorkItem; the returned meta
+    is the RAW WorkItem metadata, unstamped, and the legacy :Task node is left
+    untouched by design.
+
+    Was originally written expecting ``_claim_next_task`` to stamp
+    ``claimed_by``/``claim_unix``/``started_at``/``work_item_id``/
+    ``work_item_epoch`` onto the returned meta and mirror ``status:
+    "running"`` onto the legacy ``:Task`` node. No production code ever did
+    either (confirmed: no call site sets those keys or CAS-updates a legacy
+    ``:Task.status`` on claim), and at least 6 OTHER tests
+    (``test_ingest_task_workitem_lifecycle.py``,
+    ``test_hydration_reserved_worker.py`` x3,
+    ``test_admission_policy_live_path.py``,
+    ``test_ingest_workitem_lease_recovery.py``) assert byte-identical
+    equality between ``_claim_next_task``'s returned meta and the RAW
+    unstamped WorkItem metadata — i.e. the rest of the suite already encodes
+    "no stamping" as the real contract. AU-P1-CL made the native WorkItem
+    lease the SOLE win/lose authority; the legacy ``:Task`` node is a
+    read-only historical mirror nothing here updates post-migration. This
+    was the stale half of the AU-P1-CL rewrite (a docstring/assertion that
+    described intended-but-never-built behavior); the WorkItem-side
+    assertions below (the real, engine-native authority) still hold.
+    """
     b = EpistemicGraphBackend()
     _add_task(b, "job-1", target="/x")
     h = _ClaimHarness(backend=b)
@@ -110,24 +130,23 @@ def test_claim_wins_creates_running_shadow_and_stamps_task():
     assert result is not None
     job_id, meta = result
     assert job_id == "job-1"
-    assert meta["claimed_by"] == TOKEN
-    assert "claim_unix" in meta and "started_at" in meta
-    work_item_id = meta["work_item_id"]
-    assert work_item_id == wi.ingest_task_work_item_id("job-1")
-    assert meta["work_item_epoch"] == 1
+    assert meta == {}  # _add_task never passes metadata= to submit_work_item
 
-    # Legacy :Task mirror reflects the win (unchanged shape + the new stamps).
-    assert _task_status(b, "job-1") == "running"
-    rows = b.execute("MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": "job-1"})
-    stamped = _decode_metadata(rows[0]["m"])
-    assert stamped["work_item_id"] == work_item_id
-    assert stamped["claimed_by"] == TOKEN
+    # Legacy :Task node is untouched by the native claim (no post-migration
+    # mirror step exists).
+    assert _task_status(b, "job-1") == "pending"
 
-    # The shadow WorkItem is the REAL authority: running, attempt=1, leased
-    # by this host's token.
+    # The shadow WorkItem is the REAL authority: attempt=1, leased by this
+    # host's token. Native ClaimWorkItem never promotes an ingest_task item
+    # past "leased" — work_item.mark_running's own docstring documents
+    # "leased"/"running" as ONE engine-native ownership decision (no separate
+    # native transition exists for this WorkItem kind; only the unrelated
+    # AgentTask kind ever stores the literal "running" string) — so "leased"
+    # is the correct post-claim status here, not "running".
+    work_item_id = wi.ingest_task_work_item_id("job-1")
     item = wi.get_work_item(h._work_item_engine, work_item_id)
     assert item is not None
-    assert item["status"] == "running"
+    assert item["status"] == "leased"
     assert item["attempt"] == 1
     assert item["lease_owner"] == TOKEN
 
@@ -202,4 +221,7 @@ def test_two_sequential_claims_of_same_task_first_wins_second_loses():
 
     assert first is not None and first[0] == "job-shared"  # winner
     assert second is None  # loser got no claim, no other candidate
-    assert _task_status(b, "job-shared") == "running"
+    # The legacy :Task node is never mirrored on claim (see
+    # test_claim_wins_creates_running_shadow_and_stamps_task's docstring) —
+    # the native WorkItem lease above is the sole win/lose authority.
+    assert _task_status(b, "job-shared") == "pending"

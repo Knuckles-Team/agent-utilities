@@ -3113,7 +3113,15 @@ class GraphComputeEngine:
 
         # The wire call needs the RAW client of the pattern engine, not its
         # breaker proxy (CONCEPT:AU-OS.observability.no-op-without-metrics).
-        return self._client.graph.vf2_subgraph_match(unwrap_client(pattern._client))
+        # The underlying client method returns the engine's typed
+        # ``{"matches": [...], "truncated": bool}`` envelope (its own
+        # docstring: "Returns {'matches': [...], 'truncated': bool}") — this
+        # wrapper's declared contract is a bare match list, so unwrap it here
+        # rather than leaking the envelope to every caller.
+        result = self._client.graph.vf2_subgraph_match(unwrap_client(pattern._client))
+        if isinstance(result, dict):
+            return list(result.get("matches") or [])
+        return list(result or [])
 
     # ── Ledger Operations ────────────────────────────────────────────────
 

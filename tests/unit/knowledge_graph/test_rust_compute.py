@@ -7,6 +7,7 @@ import uuid
 import pytest
 from _test_engine import TEST_AGENT_ID, TEST_AUDIENCE, TEST_POLICY_VERSION, TEST_TENANT
 
+from agent_utilities.knowledge_graph.core.engine_breaker import unwrap_client
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.models.company_brain import ActorType
@@ -38,7 +39,13 @@ def engine():
         g = GraphComputeEngine(backend_type="rust", graph_name=name)
         if g._client:
             try:
-                g._client.create_graph(name)
+                # ``create_graph`` is not a client method (there is no such
+                # RPC); durable registration is ``tenants.create``. This root
+                # graph is usually already registered by __init__'s own
+                # connect path, so a failure here (AlreadyExists or similar)
+                # is expected and harmless — only ``.clear()`` below needs to
+                # succeed.
+                g._client.tenants.create(name)
             except Exception:
                 pass
             g._client.clear()
@@ -164,11 +171,26 @@ def test_rust_vf2_subgraph_matching(engine):
     """Verify subgraph isomorphism matching natively on the optimized Tokio-based epistemic_graph service."""
     import uuid
 
-    engine.add_node("A", {"node_type": "class"})
-    engine.add_node("B", {"node_type": "function"})
-    engine.add_node("C", {"node_type": "function"})
-    engine.add_edge("A", "B", {"relationship": "connects"})
-    engine.add_edge("A", "C", {"relationship": "connects"})
+    # NOTE: "type" here is a plain, arbitrary VF2-matched *property* (the
+    # engine's own vf2_subgraph_match compares it as an ordinary property
+    # value, per epistemic-graph/tests/test_epistemic_graph.py::
+    # test_vf2_subgraph_match) — NOT the graph's node-label system field, so
+    # the repo-wide retired-bare-"type"-key -> "node_type" migration does not
+    # apply to it. A prior sweep (6bb38954) mistakenly rewrote it to
+    # "node_type", which the engine's VF2 matcher never looks at, so every
+    # candidate pair silently failed its type-compatibility check (0
+    # matches). GraphComputeEngine.add_node's own policy hard-rejects a
+    # literal "type" property (reserved for "node_type"), so VF2's nodes are
+    # built through the raw client's nodes/edges namespace instead — exactly
+    # what the reference test does. Edge properties are empty, matching the
+    # same reference test (VF2 only needs edge topology here, not edge
+    # properties).
+    raw_engine = unwrap_client(engine._client)
+    raw_engine.nodes.add("A", {"type": "class"})
+    raw_engine.nodes.add("B", {"type": "function"})
+    raw_engine.nodes.add("C", {"type": "function"})
+    raw_engine.edges.add("A", "B", {})
+    raw_engine.edges.add("A", "C", {})
 
     pattern_name = f"test_pattern_{uuid.uuid4().hex[:8]}"
     with use_session(_session_for(pattern_name)):
@@ -177,14 +199,25 @@ def test_rust_vf2_subgraph_matching(engine):
         )
         if pattern._client:
             try:
-                pattern._client.create_graph(pattern_name)
+                # ``create_graph`` is not a client method (there is no such
+                # RPC — it silently AttributeErrors and was swallowed by this
+                # bare except, so the pattern graph was never actually
+                # registered and the later cross-graph vf2_subgraph_match
+                # RPC failed with "Graph ... not found"). Durable
+                # registration is ``tenants.create``; unlike the root
+                # ``engine`` graph (created by __init__'s own connect path)
+                # this second named graph — reached via get_or_create()'s
+                # scoped view over the SAME shared transport — is never
+                # auto-registered, so this call must actually succeed.
+                pattern._client.tenants.create(pattern_name)
             except Exception:
                 pass
             pattern._client.clear()
 
-        pattern.add_node("P1", {"node_type": "class"})
-        pattern.add_node("P2", {"node_type": "function"})
-        pattern.add_edge("P1", "P2", {"relationship": "connects"})
+        raw_pattern = unwrap_client(pattern._client)
+        raw_pattern.nodes.add("P1", {"type": "class"})
+        raw_pattern.nodes.add("P2", {"type": "function"})
+        raw_pattern.edges.add("P1", "P2", {})
 
     matches = engine.vf2_subgraph_match(pattern)
     assert len(matches) == 2
@@ -220,7 +253,10 @@ def test_rust_reactive_state_ledger(engine):
         )
         if engine2._client:
             try:
-                engine2._client.create_graph(engine2_name)
+                # See test_rust_vf2_subgraph_matching: ``create_graph`` is not
+                # a real client method; durable registration is
+                # ``tenants.create``.
+                engine2._client.tenants.create(engine2_name)
             except Exception:
                 pass
             engine2._client.clear()
@@ -238,7 +274,10 @@ def test_rust_reactive_state_ledger(engine):
         )
         if engine3._client:
             try:
-                engine3._client.create_graph(engine3_name)
+                # See test_rust_vf2_subgraph_matching: ``create_graph`` is not
+                # a real client method; durable registration is
+                # ``tenants.create``.
+                engine3._client.tenants.create(engine3_name)
             except Exception:
                 pass
             engine3._client.clear()
