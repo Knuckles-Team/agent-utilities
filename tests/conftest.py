@@ -541,6 +541,46 @@ _TEST_ENGINE_AVAILABLE = False
 #: ``tiny_engine`` fixture returns this; ``engine_graph`` re-asserts it per test.
 _SESSION_ENGINE_SOCKET: "str | None" = None
 
+#: Generous headroom above the longest full-suite run observed (~37 minutes) —
+#: see :func:`_acquire_engine_daemon_lease`. The default ``hold_lease`` TTL
+#: (30 minutes) would let the lease be reclaimed as "dead" out from under a
+#: still-running holder, which would defeat the whole point of taking it.
+_ENGINE_DAEMON_LEASE_TTL_SECONDS = 3 * 60 * 60
+
+
+def _acquire_engine_daemon_lease(*, operation: str) -> Any:
+    """Take the workspace `epistemic-graph-daemon` LEASE, or defer the whole session.
+
+    CONCEPT:AU-OS.governance.shared-scope-lease
+    (docs/architecture/lane-concurrency.md). An externally-provided
+    ``GRAPH_SERVICE_ENDPOINTS`` is, by construction, ``engine_resolver``'s
+    share-running-local/autostart-shared-supervised daemon: ONE process every
+    entrypoint on the host deliberately shares (it is not PARTITIONed per lane
+    — that would defeat the sharing it exists for). A lane's 37-minute
+    full-suite run once logged 1,234 ``ConnectionRefusedError: Cannot connect
+    to epistemic-graph service`` occurrences while two sibling lanes'
+    full-suite runs and an ``--all-files`` pre-commit drove the same daemon at
+    once; this lease is what makes the next lane defer instead of piling on.
+
+    Returns the entered lease context manager — the caller is responsible for
+    ``lease_cm.__exit__(None, None, None)`` at teardown. Mirrors the
+    ``agent-utilities lane lease`` CLI convention exactly: unavailable ⇒ defer
+    rather than proceed, surfaced here as ``pytest.exit(..., returncode=75)``,
+    pytest's own equivalent of the CLI's exit code 75.
+    """
+    from agent_utilities.governance import lanes
+
+    lease_cm = lanes.hold_lease(
+        "epistemic-graph-daemon",
+        operation=operation,
+        ttl_seconds=_ENGINE_DAEMON_LEASE_TTL_SECONDS,
+    )
+    try:
+        lease_cm.__enter__()
+    except lanes.LeaseUnavailable as exc:
+        pytest.exit(f"[lane-guard] deferring — {exc}", returncode=75)
+    return lease_cm
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _session_engine():
@@ -579,13 +619,26 @@ def _session_engine():
     )
 
     # An externally-managed engine (its own socket) is reused verbatim — don't
-    # start (or stop) one of our own.
+    # start (or stop) one of our own. This is exactly the shared singleton
+    # LEASE-class ``epistemic-graph-daemon`` guards (CONCEPT:AU-OS.governance.shared-scope-lease):
+    # every lane resolving to the SAME external endpoint is about to drive the
+    # SAME daemon for the whole session, so take the lease before doing that,
+    # not after — see ``_acquire_engine_daemon_lease``.
     external = os.environ.get("GRAPH_SERVICE_ENDPOINTS")
     if external and external.startswith("unix://") and "," not in external:
         external_socket = external.removeprefix("unix://")
+        lease_cm = _acquire_engine_daemon_lease(
+            operation="pytest full-suite session against the shared external "
+            "epistemic-graph engine"
+        )
         _TEST_ENGINE_AVAILABLE = True
         _SESSION_ENGINE_SOCKET = external_socket
-        yield external_socket
+        try:
+            yield external_socket
+        finally:
+            lease_cm.__exit__(None, None, None)
+            _TEST_ENGINE_AVAILABLE = False
+            _SESSION_ENGINE_SOCKET = None
         return
 
     try:
