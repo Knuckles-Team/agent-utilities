@@ -790,7 +790,180 @@ def test_unreadable_baseline_is_not_cached(
     )
     assert first.readable is False
     base_sha = mq._require_git(["rev-parse", "main"], canonical)
-    cache_path = mq._baseline_cache_path(
-        scope, base_sha, tests, interpreter=interpreter
+    cache_path = mq._baseline_cache_path(scope, base_sha, interpreter=interpreter)
+    assert mq._load_file_baseline_cache(cache_path) == {}
+
+
+def test_baseline_cache_is_per_file_and_serves_a_subset_selection_free(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-MW-10: a selection that is a SUBSET of one already baselined at the same
+    base_sha must be answered entirely from cache — no subprocess, no
+    materialized() worktree — because this is exactly the shape
+    integrate_batch's bisection produces on every retry (a sub-batch's selection
+    is by construction a subset of its parent batch's)."""
+    _write(canonical, "pkg/a.py", "A = 1\n")
+    _write(canonical, "pkg/b.py", "B = 1\n")
+    _write(canonical, "tests/unit/test_a.py", "def test_a():\n    assert True\n")
+    _write(
+        canonical,
+        "tests/unit/test_b.py",
+        "def test_b():\n    assert False\n",
     )
-    assert not cache_path.is_file()
+    _commit(canonical, "main: two independent test files, one pre-existing red")
+    scope = lanes.lane_scope(canonical)
+    interpreter = mq._interpreter(canonical)
+    env = dict(os.environ)
+    superset = ["tests/unit/test_a.py", "tests/unit/test_b.py"]
+
+    parent = mq.compute_test_baseline(
+        canonical, "main", superset, scope=scope, interpreter=interpreter, env=env
+    )
+    assert parent.readable is True
+    assert parent.failing == {"tests/unit/test_b.py::test_b"}
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise AssertionError(
+            "materialized() must not run again for a subset already covered "
+            "by the parent batch's baseline"
+        )
+
+    monkeypatch.setattr(mq, "materialized", _boom)
+    monkeypatch.setattr(
+        mq,
+        "_timed_run",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("no subprocess needed for an all-cached subset")
+        ),
+    )
+    for subset in (["tests/unit/test_a.py"], ["tests/unit/test_b.py"], superset):
+        sub = mq.compute_test_baseline(
+            canonical, "main", subset, scope=scope, interpreter=interpreter, env=env
+        )
+        assert sub.readable is True
+        assert sub.failing == {
+            fid for fid in parent.failing if fid.split("::")[0] in subset
+        }
+
+
+def test_baseline_only_runs_the_not_yet_cached_delta(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A selection that PARTIALLY overlaps an already-baselined one only pays for
+    the genuinely new file — the already-known file is not re-run."""
+    _write(canonical, "tests/unit/test_a.py", "def test_a():\n    assert True\n")
+    _write(canonical, "tests/unit/test_c.py", "def test_c():\n    assert True\n")
+    _commit(canonical, "main")
+    scope = lanes.lane_scope(canonical)
+    interpreter = mq._interpreter(canonical)
+    env = dict(os.environ)
+
+    mq.compute_test_baseline(
+        canonical,
+        "main",
+        ["tests/unit/test_a.py"],
+        scope=scope,
+        interpreter=interpreter,
+        env=env,
+    )
+
+    real_timed_run = mq._timed_run
+    seen: list[list[str]] = []
+
+    def _tracking(argv: list[str], *a: object, **k: object) -> object:
+        seen.append(list(argv))
+        return real_timed_run(argv, *a, **k)
+
+    monkeypatch.setattr(mq, "_timed_run", _tracking)
+    result = mq.compute_test_baseline(
+        canonical,
+        "main",
+        ["tests/unit/test_a.py", "tests/unit/test_c.py"],
+        scope=scope,
+        interpreter=interpreter,
+        env=env,
+    )
+    assert result.readable is True
+    assert result.failing == frozenset()
+    assert len(seen) == 1
+    (argv,) = seen
+    assert "tests/unit/test_a.py" not in argv
+    assert "tests/unit/test_c.py" in argv
+
+
+# ---------------------------------------------------------------------------
+# D-MW-9: differential contract-check gating proves the hole is closed — a
+# contract script that ALREADY carries debt on main (exactly
+# check_current_only_contract.py's real shape: ~490 pre-existing violations)
+# must not deadlock the queue, while a candidate that adds a genuinely NEW
+# violation to that same already-red script must still be rejected.
+# ---------------------------------------------------------------------------
+
+ITEMIZED_CONTRACT = '''\
+import pathlib, sys
+root = pathlib.Path(sys.argv[sys.argv.index("--repository-root") + 1])
+src = (root / "pkg" / "core.py").read_text()
+violations = sorted(line.strip() for line in src.splitlines() if line.strip().startswith("BAD_"))
+if violations:
+    print("itemized gate failed:")
+    for v in violations:
+        print(f"- {v}")
+    sys.exit(1)
+sys.exit(0)
+'''
+
+
+def _with_itemized_contract(canonical: Path) -> None:
+    """Give the fixture repo a contract with ONE pre-existing violation already
+    on main — the real shape of check_current_only_contract.py right now."""
+    _write(canonical, "pkg/core.py", "VALUE = 1\nBAD_existing = 1\n")
+    _write(canonical, "scripts/security/check_itemized_contract.py", ITEMIZED_CONTRACT)
+    _commit(canonical, "main: a contract with one pre-existing, unfixed violation")
+
+
+def test_new_violation_on_an_already_red_contract_script_is_rejected(
+    canonical: Path,
+) -> None:
+    """The itemized-diff proof: main is ALREADY red for this script (BAD_existing),
+    and a candidate that adds a SECOND, distinct violation to the same file must
+    still be rejected — proving new-vs-pre-existing is judged per violation LINE,
+    not merely by whether the script was already failing."""
+    _with_itemized_contract(canonical)
+    lane = _branch(
+        canonical,
+        "lane-adds-new-violation",
+        {"pkg/core.py": "VALUE = 1\nBAD_existing = 1\nBAD_new = 2\n"},
+    )
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 0 and result["rejected"] == 1
+    gate = result["outcomes"][0]["gate"]
+    check = next(c for c in gate["checks"] if c["name"] == "contract-checks")
+    assert check["ok"] is False
+    assert "NEW violation" in check["detail"]
+    assert "BAD_new = 2" in check["detail"]
+    assert "pre-existing" in check["detail"]
+    assert "BAD_existing" not in check["detail"].split("NEW violation")[1].split(
+        "pre-existing"
+    )[0]
+
+
+def test_pre_existing_contract_debt_does_not_block_an_unrelated_candidate(
+    canonical: Path,
+) -> None:
+    """The escape-the-deadlock proof: main already carries contract debt (exactly
+    the ~490-violation check_current_only_contract.py shape), and a candidate that
+    never touches the offending file must land — the debt is reported, not
+    silenced, but it is not blocking."""
+    _with_itemized_contract(canonical)
+    lane = _branch(
+        canonical, "lane-unrelated", {"pkg/elsewhere.py": "UNRELATED = 1\n"}
+    )
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 1 and result["rejected"] == 0
+    gate = result["outcomes"][0]["gate"]
+    check = next(c for c in gate["checks"] if c["name"] == "contract-checks")
+    assert check["ok"] is True
+    assert "BAD_existing" in check["detail"]
+    assert "pre-existing" in check["detail"]
