@@ -15,20 +15,44 @@ import time
 
 import pytest
 
+from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+    EpistemicGraphBackend,
+)
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+
+class _FakeEmbed:
+    """Deterministic embedding model matching this fixture's seeded node
+    vectors (the same no-network pattern
+    tests/unit/knowledge_graph/test_unified_plan_retrieval.py uses): "python"
+    text embeds near py1/py2's stored vectors, "rust" near rs1's, so ANN
+    ranking is fully determined without a real embedding provider.
+    """
+
+    def get_text_embedding(self, text: str) -> list[float]:
+        lowered = text.lower()
+        if "python" in lowered:
+            return [1.0, 0.1, 0.0, 0.0]
+        if "rust" in lowered:
+            return [0.0, 0.0, 1.0, 0.1]
+        return [0.0, 0.0, 0.0, 0.0]
 
 
 @pytest.fixture
-def engine(monkeypatch):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.engine.get_active_backend",
-        lambda: None,
+def engine(engine_graph):
+    # A bare GraphComputeEngine(backend_type="rust")/IntelligenceGraphEngine(
+    # db_path=":memory:") pair each resolve their OWN routing graph
+    # independently -- the former via the autouse isolate_graph_compute_engine
+    # redirect, the latter via create_backend's bare EpistemicGraphBackend(),
+    # which bypasses that same redirect (resolve_routing_graph(None) resolves
+    # to the ambient tenant graph, not None/__commons__/__secrets__) -- so
+    # `eng.graph` ends up bound to a DIFFERENT graph than the session the
+    # test's actor is scoped to, and every write raises PermissionError: "A
+    # graph-scoped view cannot retarget the verified GraphSession". Bind both
+    # explicitly to the one isolated per-test engine_graph tenant instead.
+    eng = IntelligenceGraphEngine(
+        backend=EpistemicGraphBackend(graph_name=engine_graph.graph_name)
     )
-    g = GraphComputeEngine(backend_type="rust")
-    for node in g.node_ids():
-        g.remove_node(node)
-    eng = IntelligenceGraphEngine(db_path=":memory:")
     now = time.time()
     eng.graph.add_node(
         "py1",
@@ -51,7 +75,25 @@ def engine(monkeypatch):
         embedding=[0.0, 0.0, 1.0, 0.1],
         event_time=now,
     )
-    return eng
+    # add_node(..., embedding=[...]) only stores it as a regular property --
+    # it does NOT index it into the engine's ANN structure. search_hybrid's
+    # vector arm (_engine_vector_search) queries that ANN index, not node
+    # properties directly, so without this the vector arm always finds zero
+    # candidates regardless of a working embed_model (same seeding pattern
+    # test_unified_plan_retrieval.py uses: graph.add_embedding(...)).
+    eng.graph.add_embedding("py1", [1.0, 0.1, 0.0, 0.0])
+    eng.graph.add_embedding("py2", [0.9, 0.2, 0.0, 0.0])
+    eng.graph.add_embedding("rs1", [0.0, 0.0, 1.0, 0.1])
+    # No embedding provider is configured in this test environment
+    # ("No embedding model is configured"), so search_hybrid's vector arm
+    # never ran and fell to the scoreless keyword path, which the retrieval
+    # quality gate always rejects (composite=0.0) -- these tests assert real
+    # ScoreGate/ChronoID/ADORE annotations, which need the vector arm to
+    # actually run. Inject the deterministic fake embedder directly (the
+    # lazy embed_model property has a setter for exactly this).
+    eng.hybrid_retriever.embed_model = _FakeEmbed()
+    yield eng
+    IntelligenceGraphEngine._ACTIVE_ENGINE = None
 
 
 def test_score_gate_and_time_bucket_default_on(engine):
