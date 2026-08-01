@@ -3,6 +3,7 @@ from __future__ import annotations
 
 """Tests for CONCEPT:AU-KG.query.object-graph-mapper — KG Object-Graph Mapper (OGM)."""
 
+import json
 
 from agent_utilities.knowledge_graph.core.ogm import KGMapper, kg_label, resolve_label
 from agent_utilities.models.knowledge_graph import (
@@ -130,8 +131,6 @@ class TestKGMapperUpsert:
         # storage and reversed by _deserialize (see test_load_from_graph's
         # roundtrip below) -- the raw graph property is a JSON string, not
         # the live dict.
-        import json
-
         assert json.loads(nx_data["domain_success_rates"]) == {"gitlab": 0.85}
 
 

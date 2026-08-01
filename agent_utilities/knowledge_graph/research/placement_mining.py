@@ -1568,7 +1568,7 @@ def run_placement_mining_cycle(
                 claim.id,
                 "PlacementProposal",
                 properties={
-                    **claim.model_dump(mode="json", exclude={"type"}),
+                    **claim.to_graph_properties(),
                     "status": "proposal",
                     "kind": prop.kind,
                     "target": prop.target,
@@ -1710,7 +1710,7 @@ def run_placement_mining_cycle(
                     claim.id,
                     "PlacementProposal",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": new_status,
                         "kind": prop.kind,
                         "target": prop.target,

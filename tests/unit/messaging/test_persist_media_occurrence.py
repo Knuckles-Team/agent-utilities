@@ -124,3 +124,54 @@ async def test_persist_media_noop_without_media(monkeypatch: pytest.MonkeyPatch)
     )
     await router._persist_media(object(), ev, message_memory_id="mem:1")
     assert store.calls == []
+
+
+class _FlakyStore:
+    """``store_media`` raises for the FIRST attachment, succeeds after."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def store_media(self, data: bytes, **kwargs):
+        self.calls.append(kwargs)
+        if len(self.calls) == 1:
+            raise RuntimeError("engine BLOB write failed")
+        return object()
+
+
+@pytest.mark.asyncio
+async def test_persist_media_one_bad_attachment_does_not_skip_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-DSTO-7 (reports/deferred/lane-dst-orch.md): ``store_media`` used to
+    be unguarded inside the per-attachment loop — a failure on attachment 1
+    propagated out of the whole ``for att in media[:8]`` loop, silently
+    dropping every attachment after it in the SAME message's batch. Two
+    attachments here, the first engineered to fail store_media; the second
+    must still be attempted."""
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeHttpxClient)
+    store = _FlakyStore()
+    monkeypatch.setattr(router, "_resolve_media_store", lambda engine: store)
+
+    ev = InboundEvent(
+        event_type=EventType.MESSAGE,
+        platform="slack",
+        channel_id="C1",
+        thread_id="T1",
+        user_id="u1",
+        message=Message(
+            id="m1",
+            author_id="u1",
+            channel_id="C1",
+            attachments=[
+                MediaAttachment(media_type=MediaType.IMAGE, url="http://x/1.png"),
+                MediaAttachment(media_type=MediaType.IMAGE, url="http://x/2.png"),
+            ],
+        ),
+    )
+
+    await router._persist_media(object(), ev, message_memory_id="mem:1")
+
+    # Both attachments were ATTEMPTED -- the first's failure didn't abort the
+    # loop before the second was even tried (the bug: this would be 1).
+    assert len(store.calls) == 2

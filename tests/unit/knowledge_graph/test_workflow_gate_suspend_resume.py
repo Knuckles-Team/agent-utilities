@@ -56,10 +56,14 @@ class FakeEngine:
         self.backend = None
 
     def add_node(self, node_id, node_type, properties=None, **props):
-        self.graph.add_node(node_id, {"type": node_type, **(properties or props or {})})
+        # Mirrors the real engine: the canonical node-class property is node_type.
+        self.graph.add_node(
+            node_id, {**(properties or props or {}), "node_type": node_type}
+        )
 
     def link_nodes(self, source, target, rel_type, properties=None):
-        self.graph.add_edge(source, target, type=rel_type, **(properties or {}))
+        # Mirrors the real engine: the sole edge property is `relationship`.
+        self.graph.add_edge(source, target, relationship=rel_type, **(properties or {}))
 
 
 def _plan_with_gate():

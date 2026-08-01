@@ -110,7 +110,7 @@ _SET_FUNCTION_CALL_RE = re.compile(r"=\s*(?!current_timestamp\()[A-Za-z_]\w*\s*\
 _ALLOWLIST: dict[tuple[str, int], str] = {
     (
         "agent_utilities/knowledge_graph/core/graph_compute.py",
-        3357,
+        3352,
     ): (
         "flush_ledger_to_backend's sole caller "
         "(agent_utilities/workflows/epistemic_sync.py) always passes a "

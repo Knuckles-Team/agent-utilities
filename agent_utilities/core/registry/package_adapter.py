@@ -501,7 +501,7 @@ class AgentRegistry:
                     "dependencies": pkg.dependencies,
                 },
             )
-            self.engine.graph.add_node(node.id, **node.model_dump())
+            self.engine.graph.add_node(node.id, **node.to_graph_properties())
             logger.debug("Registered package %s in KG", pkg.name)
         except Exception as e:  # noqa: BLE001 — install()'s authoritative state is the installed/available JSON files (list_installed/list_available read disk directly, never the KG); no other code path reads this pkg:{name} SpecialistPackageNode, so a failed KG mirror write doesn't affect install correctness, only KG-based discovery of the package
             logger.debug("Failed to register package %s in KG: %s", pkg.name, e)

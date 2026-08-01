@@ -670,12 +670,12 @@ class GEPAOptimizer:
             g_traj = GraphNode(
                 id=traj.id,
                 labels=["Trajectory"],
-                properties=traj.model_dump(exclude_none=True),
+                properties=traj.to_graph_properties(exclude_none=True),
             )
             g_eval = GraphNode(
                 id=outcome_eval.id,
                 labels=["OutcomeEvaluation"],
-                properties=outcome_eval.model_dump(exclude_none=True),
+                properties=outcome_eval.to_graph_properties(exclude_none=True),
             )
 
             await create_or_merge_node(g_traj)

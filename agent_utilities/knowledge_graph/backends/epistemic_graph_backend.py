@@ -22,6 +22,11 @@ import logging
 import re
 from typing import Any
 
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 from agent_utilities.security.identifiers import (
     InvalidIdentifierError,
     validate_identifier,
@@ -361,7 +366,7 @@ class EpistemicGraphBackend(GraphBackend):
         properties without compiling a second mutation language in Python.
         """
         if "type" in properties:
-            raise ValueError("node property 'type' is retired; use node_type")
+            raise retired_node_type_property_error()
         node_type = str(properties.get("node_type") or label).strip()
         if not node_type:
             raise ValueError("node_type is required")
@@ -388,11 +393,9 @@ class EpistemicGraphBackend(GraphBackend):
         **properties: Any,
     ) -> None:
         """Add or replace one edge through the typed native operation."""
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            properties
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(properties)
         if aliases:
-            raise ValueError("edge relationship aliases are retired; use relationship")
+            raise retired_edge_relationship_property_error(aliases)
         relationship = str(properties.get("relationship") or rel_type).strip()
         if not relationship:
             raise ValueError("relationship is required")
