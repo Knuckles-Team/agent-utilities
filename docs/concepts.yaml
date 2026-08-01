@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1132
+total_concepts: 1133
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -8921,6 +8921,16 @@ concepts:
   - agent_utilities/cli/__init__.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: atomic concept-ID reservation
+- id: AU-OS.governance.authority-derived-persistence-eligibility
+  name: '**how** that gate'
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/kvcache/eligibility.py
+  - agent_utilities/kvcache/tiering.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  - agent_utilities/models/company_brain.py
+  doc: '**how** that gate'
 - id: AU-OS.governance.autonomy-change-proposer
   name: earned-autonomy ramp
   pillar: AU-OS
