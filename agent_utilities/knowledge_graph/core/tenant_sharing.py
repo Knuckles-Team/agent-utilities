@@ -263,25 +263,64 @@ def filter_visible(
 
 
 def apply_visibility(
-    cypher: str, actor: ActorContext | None = None, var: str = "n"
+    cypher: str, actor: ActorContext | None = None, var: str | None = None
 ) -> str:
     """AND the owner/scope visibility predicate into a Cypher read query.
 
     Mirrors the injection discipline of
-    :meth:`TenancyManager.scope_cypher_query`: insert after the first
-    ``WHERE`` (case-insensitive) or, lacking one, before the first ``RETURN``.
-    Queries with no ``RETURN`` (writes/DDL) are returned unchanged.
+    :meth:`~agent_utilities.knowledge_graph.core.company_brain.TenancyManager.scope_cypher_query`:
+    insert after the first ``WHERE`` (case-insensitive) or, lacking one, before
+    the first ``RETURN``. Queries with no ``WHERE``/``RETURN`` (writes/DDL) are
+    returned unchanged.
+
+    Args:
+        cypher: The Cypher read query text.
+        actor: The requesting actor (privileged actors get no restriction).
+        var: Optional explicit node variable to scope against. ``None`` (the
+            default) derives it from the query's own first ``MATCH (<var>...``
+            clause (CONCEPT:AU-KG.backend.company-brain-write-guard) instead of
+            the historical hardcoded ``"n"`` — a query binding its node under a
+            different name (``MATCH (x:Entity) RETURN x``) previously got a
+            predicate referencing an unbound ``n``, silently mis-scoping (or,
+            on a lenient backend, silently returning zero rows) instead of
+            raising.
+
+    Raises:
+        UnscopableQueryError: ``var`` is omitted, the query has a
+            ``WHERE``/``RETURN`` clause to inject into, and no bound node
+            variable can be derived from it.
     """
-    cond = visibility_predicate(actor, var=var)
+    # Privileged bypass short-circuits BEFORE variable derivation: a privileged
+    # actor gets no predicate at all (matching visibility_predicate's own
+    # contract), so an unscopable query must not be refused on their behalf
+    # for a restriction that was never going to be applied.
+    if is_privileged(actor):
+        return cypher
+
+    where_match = re.search(r"\bWHERE\b", cypher, flags=re.IGNORECASE)
+    return_match = re.search(r"\bRETURN\b", cypher, flags=re.IGNORECASE)
+    if not where_match and not return_match:
+        return cypher
+
+    resolved_var = var
+    if resolved_var is None:
+        from .cypher_scoping import first_bound_node_variable
+
+        resolved_var = first_bound_node_variable(cypher)
+
+    cond = visibility_predicate(actor, var=resolved_var)
     if cond is None:
         return cypher
-    m = re.search(r"\bWHERE\b", cypher, flags=re.IGNORECASE)
-    if m:
-        return cypher[: m.end()] + f" {cond} AND" + cypher[m.end() :]
-    m = re.search(r"\bRETURN\b", cypher, flags=re.IGNORECASE)
-    if m:
-        return cypher[: m.start()] + f"WHERE {cond} " + cypher[m.start() :]
-    return cypher
+
+    from .cypher_scoping import inject_and_predicate
+
+    # inject_and_predicate parenthesizes any PRE-EXISTING WHERE body as a unit
+    # before ANDing `cond` in — a bare `cond AND <existing>` textual splice
+    # would mis-group against a top-level OR already in `existing` (AND binds
+    # tighter), letting a disjunct bypass this visibility predicate entirely.
+    # `cond` itself is already a single parenthesized term (see
+    # visibility_predicate above), so it never needs re-wrapping.
+    return inject_and_predicate(cypher, cond)
 
 
 # ---------------------------------------------------------------------------
