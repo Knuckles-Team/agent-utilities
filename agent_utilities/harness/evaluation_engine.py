@@ -306,7 +306,7 @@ class EvaluationEngine:
                     citations, retrieved_ids, gold_doc_ids or set()
                 )
                 citation_metrics = report.model_dump()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — one optional metric computation, other metrics still returned
                 logger.debug("Citation metrics failed: %s", e)
 
         return {

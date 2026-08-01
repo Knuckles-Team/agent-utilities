@@ -273,7 +273,7 @@ class KGRuleBackend(ProviderBackend):
                             applicable_when=data.get("applicable_when", {}),
                         )
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — per-rule best-effort skip while loading many rules
                     logger.debug("Failed to load KG rule %s: %s", nid, e)
 
         return sorted(rules, key=lambda r: r.priority, reverse=True)

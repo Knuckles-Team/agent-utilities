@@ -208,7 +208,7 @@ class TenancyManager:
         tm.add_member("agent:code-reviewer", ActorType.AI_AGENT,
                        "engineering", role="member")
         # Scope a query to a tenant
-        scoped = tm.scope_cypher_query(
+        scoped, extra_params = tm.scope_cypher_query(
             "MATCH (n:Entity) RETURN n", tenant_id="engineering"
         )
     """
@@ -281,7 +281,9 @@ class TenancyManager:
             t = self._tenants.get(t.parent_tenant_id)
         return ancestors
 
-    def scope_cypher_query(self, query: str, tenant_id: str) -> str:
+    def scope_cypher_query(
+        self, query: str, tenant_id: str
+    ) -> tuple[str, dict[str, Any]]:
         """Inject tenant scoping into a Cypher read query.
 
         Hardened over the original naive ``str.replace``: the tenant id is
@@ -310,29 +312,15 @@ class TenancyManager:
         predicate entirely. Real callers hit exactly this shape (``WHERE
         p.name CONTAINS $q OR p.description CONTAINS $q``).
 
-        D-ACL-3 (commons-fallback convergence): the injected predicate admits
-        a row when ``<var>.tenant_id`` equals the actor's tenant **or is
-        untagged** (``IS NULL`` or ``''``) — the same three-way fallback
-        :meth:`~agent_utilities.knowledge_graph.backends.postgresql_backend
-        .PostgreSQLBackend.rls_statements` has always documented and enforced
-        at the SQL layer (*"that org's rows + commons (tenant_id '' /
-        NULL)"*). Before this fix the two enforcement layers disagreed: SQL
-        RLS treated untagged/commons rows as visible to every tenant, while
-        this Cypher-side predicate silently denied them (a strict equality
-        with no fallback) — the exact "wave-2 tenant-predicate lane" gap
-        flagged in :mod:`.cypher_scoping`'s convergence note (that lane
-        deliberately did not adopt ``fix/green-slice-7``'s commons fallback,
-        leaving it as an open policy question). This resolves it in favor of
-        the SQL layer's contract, which is the older, deliberately-documented
-        one and is consistent with the codebase-wide ``__commons__``/
-        untagged-data-is-shared convention (``shard_topology.DEFAULT_GRAPH``,
-        ``tenant_sharing``'s own ``_owner_id IS NULL`` → visible-to-all
-        fallback at the finer KG-2.60 layer). A backend that runs this
-        Cypher-derived predicate now agrees with a backend enforcing RLS
-        directly on the same rows — see
-        ``test_cypher_scope_and_sql_rls_commons_fallback_agree`` in
-        ``tests/unit/knowledge_graph/core/test_tenancy_scope_cypher_query.py``,
-        which fails if the two drift apart again.
+        D-W2T-2: the tenant id is now injected as a **bound Cypher parameter**
+        (``$_tenant_scope_id``) rather than spliced into the query text as a
+        string literal. The allowlist validation above already made this safe
+        against quote-injection, but a literal splice is still not real
+        defense-in-depth — a future validation regression would be a straight
+        injection hole. Returns ``(scoped_query, extra_params)``; the caller
+        MUST merge ``extra_params`` into whatever params dict it executes
+        ``scoped_query`` with (mirrors the existing ``_clearance_level``
+        system-param convention in ``engine_query.py``).
 
         Raises:
             UnscopableQueryError: the query has a ``WHERE``/``RETURN`` clause to
@@ -343,7 +331,7 @@ class TenancyManager:
         from .cypher_scoping import first_bound_node_variable, inject_and_predicate
 
         if not tenant_id:
-            return query
+            return query, {}
         if not re.fullmatch(r"[A-Za-z0-9_:\-]+", tenant_id):
             logger.warning("Refusing to scope with unsafe tenant id %r", tenant_id)
             # Fail closed: an unsafe tenant id yields an impossible predicate.
@@ -352,17 +340,23 @@ class TenancyManager:
         where_match = re.search(r"\bWHERE\b", query, flags=re.IGNORECASE)
         return_match = re.search(r"\bRETURN\b", query, flags=re.IGNORECASE)
         if not where_match and not return_match:
-            return query
+            return query, {}
 
         var = first_bound_node_variable(query)
-        # D-ACL-3: match PostgreSQLBackend.rls_statements' commons fallback —
-        # a row belongs to the actor's own tenant OR carries no tenant tag at
-        # all (untagged/commons data, shared across every tenant).
+        # D-ACL-3 (commons-fallback convergence): admit a row when
+        # `<var>.tenant_id` equals the actor's tenant OR is untagged (IS NULL /
+        # ''), the same three-way fallback PostgreSQLBackend.rls_statements has
+        # always enforced at the SQL layer ("that org's rows + commons"). Before
+        # this, the two layers disagreed: SQL RLS treated untagged/commons rows as
+        # visible to every tenant while this Cypher predicate silently denied them.
+        # Parenthesized as one atom so inject_and_predicate's AND cannot mis-group
+        # against the inner OR. Kept on D-W2T-2's BOUND PARAMETER form -- the
+        # commons fallback must not reintroduce a literal splice.
         cond = (
-            f"({var}.tenant_id = '{tenant_id}' "
+            f"({var}.tenant_id = $_tenant_scope_id "
             f"OR {var}.tenant_id IS NULL OR {var}.tenant_id = '')"
         )
-        return inject_and_predicate(query, cond)
+        return inject_and_predicate(query, cond), {"_tenant_scope_id": tenant_id}
 
     def is_member(self, actor_id: str, tenant_id: str) -> bool:
         return tenant_id in self.get_actor_tenants(actor_id)

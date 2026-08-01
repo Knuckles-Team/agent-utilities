@@ -324,10 +324,13 @@ def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]
     # still satisfies is harmless); it is reported as context on the outcome so a real
     # failure names its cause instead of just its symptom.
     shadow_req, manifest = _source_shadow_floor("fastmcp", "mcp")
-    diverged = shadow_req is not None and str(shadow_req.specifier) != str(
-        fastmcp_req.specifier
-    )
-    if diverged:
+    divergence: str | None = None
+    # `shadow_req is not None` must gate the body directly (not via a separately
+    # stored bool) so mypy keeps shadow_req narrowed to non-None inside — a bool
+    # computed from the same check and re-tested in `if diverged:` loses that
+    # narrowing, which is what produced the prior `Any | None` "has no attribute
+    # 'specifier'" errors here.
+    if shadow_req is not None and str(shadow_req.specifier) != str(fastmcp_req.specifier):
         divergence = (
             f"source/installed divergence: the imported source ({manifest}) declares "
             f"fastmcp '{shadow_req.specifier}' under [mcp] while the installed "
@@ -336,8 +339,6 @@ def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]
             f"now runs"
         )
         fastmcp_req = shadow_req
-    else:
-        divergence = None
 
     try:
         if not fastmcp_req.specifier.contains(installed_fastmcp, prereleases=True):

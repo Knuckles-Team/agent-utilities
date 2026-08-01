@@ -29,6 +29,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from agent_utilities.capabilities.checkpointing import Checkpoint, CheckpointStore
+
 from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.execution_manifest import ExecutionManifest, ExecutionResult
 from agent_utilities.models.graph import (
@@ -314,7 +316,7 @@ def _content_digest(value: str) -> str:
     return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
 
 
-class _CapturingCheckpointStore:
+class _CapturingCheckpointStore(CheckpointStore):
     """Wrap a ``CheckpointStore``, capturing every saved checkpoint id.
 
     The conductor agent is given a real ``CheckpointMiddleware`` (one message-
@@ -325,18 +327,18 @@ class _CapturingCheckpointStore:
     depending on ``GraphCheckpointStore.list()`` (not yet a real Cypher query).
     """
 
-    def __init__(self, inner: Any) -> None:
+    def __init__(self, inner: CheckpointStore) -> None:
         self._inner = inner
         self.ids: list[str] = []
 
-    async def save(self, checkpoint: Any) -> None:
+    async def save(self, checkpoint: Checkpoint) -> None:
         await self._inner.save(checkpoint)
         self.ids.append(checkpoint.id)
 
-    async def get(self, checkpoint_id: str) -> Any:
+    async def get(self, checkpoint_id: str) -> Checkpoint | None:
         return await self._inner.get(checkpoint_id)
 
-    async def list(self, limit: int = 10) -> list[Any]:
+    async def list(self, limit: int = 10) -> list[Checkpoint]:
         return await self._inner.list(limit=limit)
 
 

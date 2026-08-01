@@ -2455,7 +2455,11 @@ class MCPMultiplexer:
         self._probe_tasks.add(task)
         if not force:
             self._probe_inflight[server] = task
-        task.add_done_callback(lambda t, _s=server: self._settle_probe_task(_s, t))
+        # `server` is this call's own parameter (not a mutating loop variable), so a
+        # plain closure captures it correctly without the default-arg-capture trick —
+        # which also lets mypy infer the callback's type against
+        # ``Task.add_done_callback``'s single-argument signature.
+        task.add_done_callback(lambda t: self._settle_probe_task(server, t))
         return task
 
     async def probe_catalog(

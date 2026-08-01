@@ -686,7 +686,20 @@ class IntelligenceGraphEngine(
                 **{
                     **prepared,
                     "id": node_id,
-                    "node_type": label,
+                    # D-GS7-2: PRESERVE the caller's own `node_type` when
+                    # `prepared` already carries one (e.g. every
+                    # `_serialize_node(node, label=...)` caller, which folds
+                    # `RegistryNodeType.value` — lowercase snake_case, e.g.
+                    # 'host' — into `data['node_type']` before calling this
+                    # method). Only fall back to `label` (the schema-cased
+                    # table name, e.g. 'Host') when the caller supplied no
+                    # `node_type` at all. The previous unconditional
+                    # `"node_type": label` silently overwrote the correct
+                    # lowercase value with the PascalCase schema label on
+                    # every native typed-add upsert, breaking every
+                    # lowercase-keyed `node_type` consumer downstream (e.g.
+                    # owl_bridge.PROMOTABLE_NODE_TYPES membership checks).
+                    "node_type": prepared.get("node_type", label),
                 },
             )
             return None
@@ -886,6 +899,22 @@ class IntelligenceGraphEngine(
         Attempts to resolve source and target names to existing node IDs using
         string matching before linking them. If backend is present, this is pushed
         down to Cypher to avoid O(N) memory scans on large enterprise graphs.
+
+        D-W2C-2: the original single-statement rewrite —
+        ``MATCH (s) ... MATCH (t) ... WITH s, t LIMIT 1 MERGE (s)-[r:TYPE]->(t)``
+        — combined two ``MATCH`` clauses, a ``WITH``, and an edge ``MERGE`` in
+        one write statement, exceeding the native engine's write subset
+        (``epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184``: at most
+        one leading ``MATCH``, ``MERGE`` on a single bare node only) — it never
+        executed successfully against the native engine. Split into a bounded
+        **read** (the identical two-``MATCH``/``WITH``/``LIMIT 1`` shape, minus
+        the ``MERGE`` — reads tolerate multiple ``MATCH`` stages, so this keeps
+        the SAME backend-side CONTAINS push-down the docstring above promises,
+        no full-graph pull into Python) that resolves ``sid``/``tid``, followed
+        by a typed :meth:`link_nodes` call for the actual edge write — the same
+        bounded-read + Python-resolution + typed-write pattern
+        ``maintainer.py``'s ``link_topics_to_policies_and_processes`` already
+        established for this exact defect class.
         """
 
         from agent_utilities.security.brain_context import use_actor
@@ -894,25 +923,34 @@ class IntelligenceGraphEngine(
 
         session = resolve_session(session, required_scope="kg:write")
         if self.backend and not ephemeral:
-            # Push-down resolution to backend via CONTAINS to avoid O(N) memory scan
             rel_type = validate_identifier(rel_type, kind="relationship type")
-            props = properties or {}
-            set_clause = self._get_set_clause(props, alias="r")
-            q = f"""
+            q = """
             MATCH (s) WHERE toLower(s.name) CONTAINS toLower($source) OR toLower($source) CONTAINS toLower(s.name)
             MATCH (t) WHERE toLower(t.name) CONTAINS toLower($target) OR toLower($target) CONTAINS toLower(t.name)
             WITH s, t LIMIT 1
-            MERGE (s)-[r:{rel_type}]->(t){set_clause}
             RETURN s.id AS sid, t.id AS tid
             """
             params = {
                 "source": source_name,
                 "target": target_name,
             }
-            params.update(props)
             with use_actor(session.actor):
                 res = self.backend.execute(q, params)
-            return len(res) > 0
+                if not res:
+                    return False
+                sid = res[0].get("sid")
+                tid = res[0].get("tid")
+                if not sid or not tid:
+                    return False
+                self.link_nodes(
+                    sid,
+                    tid,
+                    rel_type,
+                    properties,
+                    ephemeral=ephemeral,
+                    session=session,
+                )
+            return True
 
         return False
 

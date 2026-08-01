@@ -93,7 +93,7 @@ def _probe_fleet(multiplexer: Any = None) -> dict[str, dict]:
             return {}
         try:
             mux = MCPMultiplexer(config_path)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — fleet catalog probe, sibling handler below carries the same reason
             logger.debug("ard: multiplexer build failed: %s", exc)
             return {}
     try:

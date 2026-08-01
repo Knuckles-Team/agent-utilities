@@ -2307,13 +2307,18 @@ def register_analysis_tools(mcp):
                     build_code_metrics,
                 )
 
-                metrics = await run_blocking_ordered(
+                # Named distinctly from the `metrics` local used by the unrelated
+                # `quant_strategy` branch above (a `StrategyMetrics` instance) —
+                # this whole dispatch function shares one scope, so reusing the
+                # name there made mypy unify the two branches' incompatible types
+                # onto a single inferred variable type.
+                code_metrics_result = await run_blocking_ordered(
                     build_code_metrics,
                     engine,
                     scope=(target or query).strip(),
                     top_k=top_k,
                 )
-                return _json.dumps(metrics, default=str)
+                return _json.dumps(code_metrics_result, default=str)
             elif action == "arch_report":
                 # CONCEPT:AU-KG.retrieval.architecture-report — a regenerable architecture report (the
                 # GRAPH_REPORT.md analog): summary, god nodes, community hubs,

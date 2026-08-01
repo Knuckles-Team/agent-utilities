@@ -40,6 +40,9 @@ import random
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Literal
+
+BlockingTier = Literal["exact", "lsh"]
 
 # --- tunables (module constants per Configuration discipline — not env flags) ---
 
@@ -148,7 +151,7 @@ class ResolutionResult:
         low_entropy: count of ids rejected by the entropy gate (tier 2).
     """
 
-    merge_pairs: list[tuple[str, str, float, str]] = field(default_factory=list)
+    merge_pairs: list[tuple[str, str, float, BlockingTier]] = field(default_factory=list)
     resolved_ids: set[str] = field(default_factory=set)
     residual_ids: set[str] = field(default_factory=set)
     variants: list[tuple[str, str, float, str]] = field(default_factory=list)

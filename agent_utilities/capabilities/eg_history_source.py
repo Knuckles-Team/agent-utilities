@@ -443,6 +443,12 @@ class EgStepStore:
     async def latest_snapshot(
         self, *, run_id: str, include_interrupted: bool = False
     ) -> Any:
+        # `include_interrupted` is part of the fixed `StepStore` protocol signature
+        # (pydantic_ai_harness.step_persistence.StepStore.latest_snapshot) and must
+        # keep this exact keyword name for structural conformance, even though this
+        # facade doesn't implement snapshot storage yet. Referenced (not dropped or
+        # whitelisted) so it stays honestly "read but unused" rather than dead.
+        _ = include_interrupted
         raise NotImplementedError(
             self._UNSUPPORTED.format(
                 method="EgStepStore.latest_snapshot",
@@ -494,5 +500,7 @@ def build_conversation_search_capability(
     """
     from pydantic_ai_harness.conversation_search import ConversationSearch
 
-    source = ScopedEgHistorySource(engine=engine, session=session, root_run_id=root_run_id)
+    source = ScopedEgHistorySource(
+        engine=engine, session=session, root_run_id=root_run_id
+    )
     return ConversationSearch(source=source, scope=scope)

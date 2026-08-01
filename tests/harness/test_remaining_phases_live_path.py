@@ -56,14 +56,21 @@ class _StubBackend:
 
 
 @pytest.mark.asyncio
-async def test_distill_grows_eval_set_from_failures():
+async def test_distill_grows_eval_set_from_failures(tmp_path):
     """ORCH-1.55 — every distilled round's failures grow the compounding eval set."""
     traces = [
         {"id": "t0", "name": "task0", "score": 0.9, "error": ""},
         {"id": "t1", "name": "task1", "score": 0.1, "error": "boom"},
         {"id": "t2", "name": "task2", "score": 0.05, "error": "kaboom"},
     ]
-    d = TraceDistiller(_StubBackend(traces), config=DistillationConfig())
+    # D-TS-2: default evidence_output_dir is relative (".specify/evidence")
+    # and resolves against the process cwd -- isolate it under tmp_path so
+    # distill() doesn't overwrite the tracked .specify/evidence/r1.json
+    # fixture on every full-suite run.
+    d = TraceDistiller(
+        _StubBackend(traces),
+        config=DistillationConfig(evidence_output_dir=str(tmp_path / "evidence")),
+    )
     assert len(d.eval_set) == 0
     await d.distill("r1")
     # The two failures became eval cases (the eval set grows = compounding IP).
