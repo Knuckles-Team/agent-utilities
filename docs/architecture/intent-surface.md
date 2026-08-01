@@ -147,10 +147,11 @@ follow-up (§7). All four landed together on `feat/au-seam8-complete`:
   `write`/`act`/`manage`/`why` remain in `skill_coverage.INTENTIONALLY_UNSKILLED` (correctly —
   a meta concern never claims verb coverage), with the comment there pointing at that section.
 - **A/B selection-accuracy measurement** — `scripts/measure_intent_routing_accuracy.py` +
-  `agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py` (a 21-case hand-labelled
-  corpus across all five dispatching verbs) + the `tests/unit/test_intent_selection_accuracy.py`
-  regression tripwire. Measured 2026-07-11: **top-1 76.19%, top-3 85.71%** against this corpus (a
-  live run of the real resolver, not a fabricated number) — see §7.
+  `agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py` (originally a 21-case
+  hand-labelled corpus across all five dispatching verbs, now 25 — see D-ORC-19 in §7) + the
+  `tests/unit/test_intent_selection_accuracy.py` regression tripwire. Measured 2026-07-11: **top-1
+  76.19%, top-3 85.71%** against the original 21-case corpus (a live run of the real resolver, not
+  a fabricated number) — see §7.
 
 ## 5. Skill sweep — preserving every kg-\* skill under the condensed intent surface
 
@@ -359,11 +360,31 @@ All five items below shipped together; each is cross-referenced to where it land
 
 **A/B selection-accuracy measurement** (design doc §4 phase 4) also shipped in this slice:
 `scripts/measure_intent_routing_accuracy.py` (CLI) +
-`agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py` (the 21-case corpus +
-measurement function) + `tests/unit/test_intent_selection_accuracy.py` (CI regression tripwire).
-Measured against the real, CPD-backed resolver: **top-1 76.19% (16/21)**, **top-3 85.71%
-(18/21)** — a live run, not a fabricated number (see the module docstring for methodology and
-why "naming the tool directly" is the 100%-by-definition baseline this is traded against, not a
-competing measurement). A model-in-the-loop task-success soak (vs. a small/cheap model, per the
+`agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py` (originally the 21-case
+corpus + measurement function) + `tests/unit/test_intent_selection_accuracy.py` (CI regression
+tripwire). Measured against the real, CPD-backed resolver: **top-1 76.19% (16/21)**, **top-3
+85.71% (18/21)** — a live run, not a fabricated number (see the module docstring for methodology
+and why "naming the tool directly" is the 100%-by-definition baseline this is traded against, not
+a competing measurement). A model-in-the-loop task-success soak (vs. a small/cheap model, per the
 original phase-4 wording) remains a natural follow-up once a model-eval harness is wired to this
 corpus — this slice measures resolver accuracy alone, which is the mechanism Seam 8 itself owns.
+
+**D-ORC-19 / D-INT-4 (2026-08-01)** — the 21-case corpus above measured resolver accuracy in
+general but contained exactly ONE delegation case, and it only passed because its wording
+contained the target tool's own name-token ("orchestrate"). No case named an ingested SKILL, the
+actual operator delegation workflow, so the floor stayed green while unpinned delegation ("act:
+Delegate to the servicenow-incident-management skill: ...") routed to an unrelated tool 100% of
+the time — the skill's own name tokenized to `servicenow/incident/management`, which out-scored
+`graph_orchestrate`'s single `skill` doc-token hit (`graph_incident` 0.3383 vs `graph_orchestrate`
+0.1111). Fixed by (1) adding four skill-naming delegation cases (none containing "orchestrate") to
+the corpus, growing it to 25, and (2) teaching the resolver a structural
+**skill-delegation shape**: any CPD that declares a `skill_name` input parameter (today only
+`graph_orchestrate` — derived from `typed_io.input_params`, not the tool's name, so a future
+delegation façade qualifies automatically) gets a flat `+0.5` score bonus whenever the intent text
+matches a hyphenated-slug-adjacent-to-the-word-"skill" pattern (`_SKILL_DELEGATION_RE`) —
+independent of what domain words make up the slug, so naming *any* skill no longer fights the
+router. Re-measured on the 25-case corpus at the same commit: **top-1 76.00% (19/25), top-3 84.00%
+(21/25)**, with all 5 delegation cases (the original plus the 4 new ones) now top-1 hits; the same
+corpus against the pre-fix resolver measured top-1 64.00% (16/25), top-3 80.00% (20/25). Unpinned
+plain-language skill delegation is therefore now correctly routed; pinning
+(`hints_json={"tool": "graph_orchestrate"}`) remains supported and unaffected.
