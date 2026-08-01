@@ -8,6 +8,8 @@ in-memory writer mirroring the backend contract — no daemon required.
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.knowledge_graph.ontology.document_processing import (
     HAS_SECTION_EDGE,
     HAS_SUBSECTION_EDGE,
@@ -55,6 +57,40 @@ class _FakeWriter:
 class _FakeFacade:
     def __init__(self, writer):
         self.store = writer
+
+
+class _FakeMarkingStore:
+    """Minimal durable-store double for the mandatory marking authority.
+
+    DocumentProcessor.process's write path always calls sync_access ->
+    apply_marking, which requires a resolved marking store
+    (agent_utilities/knowledge_graph/ontology/permissioning.py) --
+    process-wide and cached-once, so an unavailable store fails every test in
+    the process, not just the first. use_marking_authority is the sanctioned
+    DI/test seam (see tests/ontology/test_permissioning.py's
+    clean_permissioning autouse fixture for the established pattern).
+    """
+
+    def __init__(self) -> None:
+        self.persisted: dict[str, dict] = {}
+
+    def execute(self, query, params):
+        if query.startswith("MATCH"):
+            return list(self.persisted.values())
+        self.persisted[params["id"]] = {
+            "node_id": params["n"],
+            "tenant_id": params["tenant"],
+            "markings": params["marks"],
+        }
+        return []
+
+
+@pytest.fixture(autouse=True)
+def _isolated_marking_authority():
+    from agent_utilities.knowledge_graph.ontology import permissioning as p
+
+    with p.use_marking_authority(_FakeMarkingStore()):
+        yield
 
 
 def test_markdown_tree_structure_and_ids():
@@ -112,12 +148,15 @@ def test_summaries_are_populated_when_requested():
 def test_nodes_edges_roundtrip():
     roots = build_section_tree(MD, config=SectionTreeConfig(thin=False))
     nodes, edges = section_nodes_and_edges("doc:1", roots)
-    assert all(n["type"] == SECTION_NODE_TYPE for n in nodes)
+    assert all(n["node_type"] == SECTION_NODE_TYPE for n in nodes)
     n_sections = len(iter_sections(roots))
-    assert sum(1 for e in edges if e["type"] == HAS_SECTION_EDGE) == n_sections
-    assert sum(1 for e in edges if e["type"] == SECTION_OF_EDGE) == n_sections
+    assert sum(1 for e in edges if e["relationship"] == HAS_SECTION_EDGE) == n_sections
+    assert sum(1 for e in edges if e["relationship"] == SECTION_OF_EDGE) == n_sections
     # HAS_SUBSECTION for every non-root node.
-    assert sum(1 for e in edges if e["type"] == HAS_SUBSECTION_EDGE) == n_sections - 1
+    assert (
+        sum(1 for e in edges if e["relationship"] == HAS_SUBSECTION_EDGE)
+        == n_sections - 1
+    )
 
     rebuilt = rebuild_section_tree(nodes)
     assert len(iter_sections(rebuilt)) == n_sections

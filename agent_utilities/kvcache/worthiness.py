@@ -308,6 +308,42 @@ class CheckpointObservation(BaseModel):
         fields.update(overrides)
         return cls(**fields)
 
+    @classmethod
+    def from_prioritization(
+        cls,
+        engine: Any,
+        task_id: str,
+        /,
+        context_keys: Any = None,
+        **overrides: Any,
+    ) -> CheckpointObservation:
+        """Populate the predicted-reuse axis from a genuine context-*overlap* signal.
+
+        CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring (closes D-KCI-2's honest
+        half). Duck-typed on
+        :class:`~agent_utilities.patterns.prioritization.PrioritizationEngine`'s
+        ``predicted_reuse_from_context_overlap`` (never imported, for the same
+        import-hygiene reason as :meth:`from_evidence_bundle`) so this stays optional:
+        an engine that has not adopted ``context_keys`` fingerprinting yet returns
+        ``(None, None)`` and :class:`PredictedReuseScorer` abstains exactly as before —
+        this method never invents a count of its own.
+
+        ``context_keys`` lets a caller pass the CURRENT prospective context's
+        fingerprint directly (e.g. before it has been recorded on the task itself);
+        omitted, the engine falls back to whatever it already has on file for
+        ``task_id``.
+        """
+        predictor = getattr(engine, "predicted_reuse_from_context_overlap", None)
+        fields: dict[str, Any] = {}
+        if predictor is not None:
+            siblings, queued = predictor(task_id, context_keys)
+            if siblings is not None:
+                fields["sibling_task_count"] = siblings
+            if queued is not None:
+                fields["queued_task_count"] = queued
+        fields.update(overrides)
+        return cls(**fields)
+
 
 class CheckpointSignal(BaseModel):
     """One scorer's contribution — a value, or an explicit abstention."""
@@ -441,13 +477,19 @@ class RebuildCostScorer(_BaseScorer):
 class PredictedReuseScorer(_BaseScorer):
     """How many other tasks would hit this same context.
 
-    **Honest limitation:** this platform has no reuse-probability model today — the task
-    graph carries dependencies (``TASK_DEPENDS_ON``) but nothing predicts context
-    overlap between siblings, and deriving it would need work this scorer cannot do
-    cheaply on the decision path. So the scorer consumes counts the *caller* supplies
-    from whatever task view it has, and **abstains** when neither is supplied rather
-    than inventing a reuse estimate. When a real predictor lands, it populates these
-    fields and nothing here changes.
+    The scorer itself never guesses: it consumes counts the *caller* supplies and
+    **abstains** when neither is supplied. What supplies them is a separate concern —
+    the task graph alone carries only dependencies (``TASK_DEPENDS_ON``), and "B
+    depends on A" is not "B would hit A's warm context", so a caller that fed raw
+    dependency-adjacency counts in here would be inventing a reuse estimate, which is
+    exactly what the abstention exists to prevent.
+    :meth:`CheckpointObservation.from_prioritization` (D-KCI-2) is the honest predictor:
+    it filters dependency adjacency by a genuine recorded context-*overlap* fingerprint
+    (:attr:`~agent_utilities.patterns.prioritization.PrioritizedTask.context_keys`) via
+    :meth:`~agent_utilities.patterns.prioritization.PrioritizationEngine.predicted_reuse_from_context_overlap`,
+    and still abstains (returns ``None, None``) when no fingerprint was ever recorded —
+    so a deployment that has not adopted context fingerprinting sees no behaviour
+    change at all.
     """
 
     name = "predicted_reuse"

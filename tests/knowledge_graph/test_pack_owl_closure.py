@@ -27,8 +27,10 @@ def _no_active_engine(monkeypatch):
 
 
 def _has_edge(g, u, v, rel):
+    # OWLBridge._python_reasoning/_downfeed_inferences read/write the edge
+    # type under "relationship", not "type" (owl_bridge.py:913, :1086).
     data = g.get_edge_data(u, v) or {}
-    return any(e.get("type") == rel for e in data.values())
+    return any(e.get("relationship") == rel for e in data.values())
 
 
 def _bridge(graph, pack):
@@ -41,9 +43,9 @@ def _research_graph():
     g = nx.MultiDiGraph()
     for n in ("A", "B", "C", "P", "Q"):
         g.add_node(n, type="concept")
-    g.add_edge("A", "B", type="supports_belief")
-    g.add_edge("B", "C", type="supports_belief")
-    g.add_edge("P", "Q", type="cites_source")
+    g.add_edge("A", "B", relationship="supports_belief")
+    g.add_edge("B", "C", relationship="supports_belief")
+    g.add_edge("P", "Q", relationship="cites_source")
     return g
 
 
@@ -82,7 +84,7 @@ def test_symmetric_pack_property():
     g = nx.MultiDiGraph()
     g.add_node("X", type="concept")
     g.add_node("Y", type="concept")
-    g.add_edge("X", "Y", type="weakens")
+    g.add_edge("X", "Y", relationship="weakens")
     pack = SchemaPack(
         name="sym",
         owl_object_properties=[OwlObjectProperty(edge_type="weakens", symmetric=True)],

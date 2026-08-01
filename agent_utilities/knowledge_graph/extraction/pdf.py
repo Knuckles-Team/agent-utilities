@@ -17,6 +17,13 @@ MAX_PDF_ADDRESS_SPACE_BYTES = 512 * 1024 * 1024
 MAX_PDF_CPU_SECONDS = 15
 MAX_PDF_WALL_SECONDS = 20.0
 
+#: Sentinel the worker joins pages on instead of ``"\n"`` so a page boundary
+#: is recoverable on the parent side (D-ES-3, ``read_pdf_pages``). A NUL byte
+#: never survives ``str`` text extraction, so it cannot collide with real
+#: content. ``read_pdf_text`` replaces it back with ``"\n"``, so its output is
+#: byte-identical to before this sentinel existed.
+_PAGE_SEP = "\x00"
+
 
 def _apply_worker_limits(cpu_seconds: int, address_space_bytes: int) -> None:
     """Apply best-effort Unix process limits without weakening wall-time control."""
@@ -78,7 +85,7 @@ def _pdf_worker(
                     text = text[:remaining]
                 parts.append(text)
                 remaining -= len(text)
-            payload = "\n".join(parts)[:max_chars].encode("utf-8")
+            payload = _PAGE_SEP.join(parts)[:max_chars].encode("utf-8")
             if len(payload) > max_output_bytes:
                 return
             connection.send_bytes(payload)
@@ -130,23 +137,26 @@ def _valid_limits(
     )
 
 
-def read_pdf_text(
+def _extract_pdf_raw(
     source: str | Path,
     *,
-    max_bytes: int = MAX_PDF_BYTES,
-    max_pages: int = MAX_PDF_PAGES,
-    max_chars: int = MAX_PDF_CHARS,
-    max_output_bytes: int = MAX_PDF_OUTPUT_BYTES,
-    cpu_seconds: int = MAX_PDF_CPU_SECONDS,
-    address_space_bytes: int = MAX_PDF_ADDRESS_SPACE_BYTES,
-    timeout_seconds: float = MAX_PDF_WALL_SECONDS,
+    max_bytes: int,
+    max_pages: int,
+    max_chars: int,
+    max_output_bytes: int,
+    cpu_seconds: int,
+    address_space_bytes: int,
+    timeout_seconds: float,
 ) -> str:
-    """Extract text in a resource-limited worker, failing closed on timeout.
+    """Extract in a resource-limited worker; pages joined on :data:`_PAGE_SEP`.
 
-    The caller process never parses document structures. Symlinks, non-files,
-    oversized inputs, excessive page counts, encrypted or malformed documents,
-    worker crashes, oversized IPC output, and deadline expiration all return an
-    empty string. Callers may lower any limit but cannot raise the hard ceilings.
+    Shared by :func:`read_pdf_text` (which replaces the sentinel with
+    ``"\\n"``, an output-preserving refactor) and :func:`read_pdf_pages`
+    (which splits on it). The caller process never parses document
+    structures. Symlinks, non-files, oversized inputs, excessive page counts,
+    encrypted or malformed documents, worker crashes, oversized IPC output,
+    and deadline expiration all return ``""``. Callers may lower any limit
+    but cannot raise the hard ceilings.
     """
 
     if not _valid_limits(
@@ -199,3 +209,68 @@ def read_pdf_text(
         parent.close()
         if process.pid is not None:
             _stop_worker(process)
+
+
+def read_pdf_text(
+    source: str | Path,
+    *,
+    max_bytes: int = MAX_PDF_BYTES,
+    max_pages: int = MAX_PDF_PAGES,
+    max_chars: int = MAX_PDF_CHARS,
+    max_output_bytes: int = MAX_PDF_OUTPUT_BYTES,
+    cpu_seconds: int = MAX_PDF_CPU_SECONDS,
+    address_space_bytes: int = MAX_PDF_ADDRESS_SPACE_BYTES,
+    timeout_seconds: float = MAX_PDF_WALL_SECONDS,
+) -> str:
+    """Extract text in a resource-limited worker, failing closed on timeout.
+
+    The caller process never parses document structures. Symlinks, non-files,
+    oversized inputs, excessive page counts, encrypted or malformed documents,
+    worker crashes, oversized IPC output, and deadline expiration all return an
+    empty string. Callers may lower any limit but cannot raise the hard ceilings.
+    """
+    raw = _extract_pdf_raw(
+        source,
+        max_bytes=max_bytes,
+        max_pages=max_pages,
+        max_chars=max_chars,
+        max_output_bytes=max_output_bytes,
+        cpu_seconds=cpu_seconds,
+        address_space_bytes=address_space_bytes,
+        timeout_seconds=timeout_seconds,
+    )
+    return raw.replace(_PAGE_SEP, "\n")
+
+
+def read_pdf_pages(
+    source: str | Path,
+    *,
+    max_bytes: int = MAX_PDF_BYTES,
+    max_pages: int = MAX_PDF_PAGES,
+    max_chars: int = MAX_PDF_CHARS,
+    max_output_bytes: int = MAX_PDF_OUTPUT_BYTES,
+    cpu_seconds: int = MAX_PDF_CPU_SECONDS,
+    address_space_bytes: int = MAX_PDF_ADDRESS_SPACE_BYTES,
+    timeout_seconds: float = MAX_PDF_WALL_SECONDS,
+) -> list[str]:
+    """Extract text per-page, preserving page boundaries (D-ES-3).
+
+    Same bounded worker and fail-closed contract as :func:`read_pdf_text`
+    (returns ``[]`` instead of ``""`` on any of the same failure conditions)
+    but keeps each page separately addressable, which :func:`read_pdf_text`'s
+    single joined string cannot: two adjacent ``"\\n"`` characters inside one
+    page's own extracted text are indistinguishable from a page boundary once
+    joined. This is what
+    :func:`~..ingestion.evidence_spine.fragment_pdf` fragments.
+    """
+    raw = _extract_pdf_raw(
+        source,
+        max_bytes=max_bytes,
+        max_pages=max_pages,
+        max_chars=max_chars,
+        max_output_bytes=max_output_bytes,
+        cpu_seconds=cpu_seconds,
+        address_space_bytes=address_space_bytes,
+        timeout_seconds=timeout_seconds,
+    )
+    return raw.split(_PAGE_SEP) if raw else []
