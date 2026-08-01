@@ -1,7 +1,7 @@
 # Dependency override file for image builds (uv `--override` / `UV_OVERRIDE`).
 #
 # THIS FILE IS THE IMAGE-BUILD MIRROR OF THE WORKSPACE ROOT'S `[tool.uv]
-# override-dependencies` (/home/apps/workspace/pyproject.toml). uv honours that table
+# override-dependencies` (${WORKSPACE_ROOT}/pyproject.toml). uv honours that table
 # ONLY from the workspace root manifest, and an image build resolves from THIS PACKAGE
 # alone (an isolated build context with no sibling checkouts), so the root override is
 # structurally invisible to it. Without this file the image silently resolves a
