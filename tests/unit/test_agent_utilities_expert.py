@@ -40,6 +40,34 @@ _PROMPT_PATH = (
 )
 
 
+def _isolated_engine() -> IntelligenceGraphEngine:
+    """Build an ``IntelligenceGraphEngine`` bound to THIS test's isolated graph.
+
+    A bare ``IntelligenceGraphEngine(db_path=":memory:")`` constructs a bare
+    ``EpistemicGraphBackend()``, which independently resolves the ambient
+    tenant's SHARED default graph (``resolve_routing_graph(None)``) rather
+    than the per-test isolated graph the autouse
+    ``isolate_graph_compute_engine`` fixture provisions (that redirect only
+    intercepts a literal ``None``/``"__commons__"``/``"__secrets__"``
+    ``graph_name`` passed straight to ``GraphComputeEngine.__init__``, which
+    a bare ``EpistemicGraphBackend()`` bypasses). Construct the isolated
+    ``GraphComputeEngine`` first and rebind the backend to it before
+    constructing the engine — the same idiom already established for this
+    exact defect (D-OTR-2/D-OTR-3).
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.graph_compute import (
+        GraphComputeEngine,
+    )
+
+    compute = GraphComputeEngine(backend_type="rust")
+    backend = EpistemicGraphBackend()
+    backend._graph = compute
+    return IntelligenceGraphEngine(backend=backend)
+
+
 def test_expert_prompt_is_canonical_and_loadable() -> None:
     """The prompt file is canonical-valid and renders a real persona body."""
     data = json.loads(_PROMPT_PATH.read_text(encoding="utf-8"))
@@ -65,7 +93,12 @@ def test_expert_loads_from_registry() -> None:
     """``load_specialized_prompts`` resolves the expert from the prompt registry."""
     rendered = load_specialized_prompts(EXPERT)
     assert isinstance(rendered, str)
-    assert "Agent Utilities Ecosystem Expert" in rendered
+    # StructuredPrompt.render() emits the instructions/rules body, not the raw
+    # identity.role label (test_expert_prompt_is_canonical_and_loadable already
+    # covers this exact contract with the same marker) -- assert on rendered
+    # content that only the real expert persona (not a generic placeholder)
+    # would produce.
+    assert "epistemic-graph" in rendered
 
 
 def test_expert_is_a_dispatchable_agent_template(monkeypatch, tmp_path: Path) -> None:
@@ -96,7 +129,7 @@ def test_expert_is_a_dispatchable_agent_template(monkeypatch, tmp_path: Path) ->
     assert "graph-os" in tmpl["toolset_ids"]
     assert "repository-manager-mcp" in tmpl["toolset_ids"]
 
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    engine = _isolated_engine()
     if engine.backend is None:  # pragma: no cover - backend-less env
         return
     engine.backend.create_schema()
@@ -118,13 +151,32 @@ def test_expert_is_a_dispatchable_agent_template(monkeypatch, tmp_path: Path) ->
     meta = _resolve_agent_from_kg(engine, EXPERT)
     assert meta["type"] == "agent_template"
     assert "graph-os" in meta["capabilities"]
-    assert "Agent Utilities Ecosystem Expert" in meta["system_prompt"]
+    # Same StructuredPrompt.render() contract as test_expert_loads_from_registry:
+    # the rendered body carries the instructions/rules text, not the raw
+    # identity.role label.
+    assert "epistemic-graph" in meta["system_prompt"]
 
     # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — resolution surfaces the persona AND the toolset_ids;
     # _build_execution_config must turn those toolset_ids into LIVE MCP toolsets so
     # the dispatched expert can query graph-os and ground its answer (the fix that
     # stops the prompt-only hallucination). Assert the binding + the routing
     # predicate that sends it down the direct grounding loop.
+    #
+    # This hermetic test environment has no configured chat_models, so
+    # _configured_model_for_class would raise "configured standard model
+    # class is unavailable" — same reason
+    # test_agent_template_rejects_explicit_undeclared_tool_allow_list (below)
+    # already stubs it out. Only the id/routing metadata matters here, not
+    # which real model gets selected.
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.agent_runner._configured_model_for_class",
+        lambda _model_class: SimpleNamespace(
+            id="synthetic-model",
+            provider="test",
+            base_url=None,
+            api_key_ref=None,
+        ),
+    )
     config = _build_execution_config(
         engine,
         EXPERT,
@@ -140,7 +192,7 @@ def test_expert_is_a_dispatchable_agent_template(monkeypatch, tmp_path: Path) ->
         "a bound AgentTemplate must route to the direct grounding loop, not the planner"
     )
     # The persona (not the bare 'Specialized agent' placeholder) drives the run.
-    assert "Agent Utilities Ecosystem Expert" in config["tag_prompts"][EXPERT]
+    assert "epistemic-graph" in config["tag_prompts"][EXPERT]
     native = next(toolset for toolset in bound if toolset.id == "graph-os")
     assert native.metadata == {"graphos_native": True}
     assert list(native.tools) == ["graph_analyze"]
@@ -236,7 +288,7 @@ def test_resolve_toolset_ids_binds_live_toolsets(monkeypatch) -> None:
     path uses), binding one callable ``MCPToolset`` per id.
     """
     monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.example.test/mcp")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    engine = _isolated_engine()
     ids = ["repository-manager-mcp", "data-science-mcp"]
     toolsets = _resolve_toolset_ids(engine, ids)
     assert len(toolsets) == len(ids)

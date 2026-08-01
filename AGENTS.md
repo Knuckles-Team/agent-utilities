@@ -774,14 +774,13 @@ So the default for any non-trivial change is:
    `python3 scripts/uv_workspace.py doctor` to verify the source and lock provenance.
 2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
    is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
-3. **Before merging back, sync `main` INTO your branch and resolve conflicts THERE, then
-   merge to `main` locally** (now a clean fast-forward). `main` drifts while you're checked
-   out, so always `git merge origin/main` *down into* the feature branch first and fix every
-   conflict on the branch — never resolve conflicts against the shared `main` tree. Then
-   **clean up**: remove the worktree and delete the now-merged branch
-   (`git worktree remove <path> && git branch -d <topic>`, or `rm_worktree remove <repo>
-   <branch> --delete-branch`; `git worktree prune` clears stale entries). Push only when
-   the user asks. See *Finishing work in a worktree* below for the full sequence.
+3. **Land each chunk as it finishes, through the merge queue** —
+   `agent-utilities merge-queue enqueue`. Do not merge to `main` by hand and do not
+   save work up for a bulk merge at the end. The queue syncs, gates the candidate
+   **as merged**, fast-forwards `main`, and prunes your worktree and branch for you;
+   if it reports a conflict, resolve it **on your branch** (`git merge origin/main`
+   down into it) and re-enqueue — never against the shared `main` tree. Push only
+   when the user asks. Full sequence: *Concurrent development* below.
 4. A plain feature branch in the main checkout is **not** sufficient isolation — a sibling session's
    `git checkout` still mutates the shared tree. Use a worktree for real isolation.
 
@@ -1111,17 +1110,58 @@ everything, including pre-existing, no `--no-verify`):
    bare `pre-commit run --all-files` here.
 
 2. **Commit** in the worktree.
-3. **Sync `main` INTO your branch first and resolve every conflict there** —
-   `git fetch origin && git merge origin/main` — never against the shared `main` tree.
-4. **Merge back** under the lease, now a clean fast-forward:
-   `agent-utilities lane lease --resource reconciliation-merge --operation merge -- git -C <canonical> merge --ff-only <branch>`.
-   Push only when the user asks.
-5. **Clean up** — `git worktree remove <path> && git branch -d <branch>`.
+3. **Enqueue — do not merge by hand, and do not save work up for the end.**
+   ```
+   agent-utilities merge-queue enqueue        # returns immediately; verifies nothing yet
+   ```
+   Land each coherent chunk **as it finishes**. Bulk merges are gone: their only
+   value was the adversarial review, and the review is now automated
+   (CONCEPT:AU-OS.governance.serialized-merge-queue). Long-lived branches cost more
+   than they saved — they produced two `CandidateClaim` classes, two `Fragment`
+   shapes and two fixes for one bug, all because branches were invisible to each
+   other and each lane surveyed a `main` that had already moved.
+4. **The queue runs it** (`merge-queue run`, serialized on the *same*
+   `reconciliation-merge` lease — no second arbiter). Per batch, inside a published
+   **180-second** budget: merge-cleanliness (~25 ms), a **cross-branch
+   duplicate-symbol scan** across every candidate in flight, an import smoke and
+   **targeted tests over changed paths — run against the tree AS MERGED**, never as
+   it sat on your branch (`D-OB-17`: git merges two branches cleanly into a tree
+   that `ImportError`s), plus every `scripts/security/check_*.py` **discovered in
+   the merged tree**. ⚠ **Zero conflicts is not a safety property** — it is the
+   *expected* signal for a whole defect class. Git answers "did two people edit the
+   same lines", about text, on your branch; that is never an answer about whether
+   the merged tree still upholds an invariant. A lane that forks *after* a fix and
+   reverts it merges perfectly cleanly and lands the revert. So never reason
+   "it merged clean, therefore it's safe" — and when you add an invariant, add it as
+   a contract script, which the gate then enforces on the merged tree for free. The
+   **full suite stays outside** the queue, on `main`,
+   after landing: at 43 minutes it makes the queue diverge at any concurrency, and a
+   gate too costly to run gets bypassed (`D-OP-4`, `D-KCI-6`). Candidates are
+   **batched and bisected on failure**, so throughput scales and one bad candidate
+   never rejects seven innocent ones. `main` only ever **fast-forwards**; the merge
+   is built as git objects, so no conflict is ever resolved in the canonical tree.
+5. **Prune is automatic** — the queue removes the worktree and branch on landing via
+   repository-manager's guarded prune (anchor `refs/lane-backup/<branch>`, re-check
+   `--is-ancestor` at delete time, `git branch -d` **never** `-D`). That is why 79
+   worktrees cannot happen again.
+6. **Rejected?** The JSON names the failing checks and *both* sides of every
+   duplicate symbol — combine them and re-enqueue. **Exit 75** = another runner
+   holds the lease: defer.
+
+**Merging is not deploying** (CONCEPT:AU-OS.governance.merge-deploy-decoupling). The
+fleet NFS-mounts the canonical checkout at `/au` with `PYTHONPATH=/au`, so a merge
+**arms** a deploy that fires on the next unplanned restart. Merge freely to `main`;
+ship only by an explicit fast-forward of `refs/heads/deployed` to a SHA the full
+suite has since passed. Check with `merge-queue promotion`.
 
 **Worked example — deferring is the correct outcome.** A lane finished a fix for this
 exact hazard and then *declined to merge it*, because the canonical checkout held
 unrelated uncommitted changes and merging into a dirty canonical tree is the hazard it
-had just fixed. It recorded the deferral instead. Do that.
+had just fixed. It recorded the deferral instead. The queue now does this for you —
+`guarded_tree_mutation` refuses, your candidate stays queued, nothing is lost.
+
+Budget derivation, measured costs, what is now *impossible* rather than discouraged,
+and the residual gaps: [`docs/architecture/merge-queue.md`](docs/architecture/merge-queue.md).
 
 ## Project Structure (generated)
 
@@ -1141,15 +1181,15 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 1120 concepts across 9 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1136 concepts across 9 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
-| **AU-AHE** | 117 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
+| **AU-AHE** | 118 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
 | **AU-ECO** | 127 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
-| **AU-KG** | 482 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
-| **AU-ORCH** | 212 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
-| **AU-OS** | 150 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
+| **AU-KG** | 488 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, trace, txn |
+| **AU-ORCH** | 213 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
+| **AU-OS** | 158 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
 | **EG-KG** | 29 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
 | **EG-ORCH** | 1 | routing |

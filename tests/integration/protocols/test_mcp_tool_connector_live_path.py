@@ -13,7 +13,6 @@ is imported, and no child process is spawned.
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 from fastmcp import FastMCP
@@ -26,18 +25,41 @@ from agent_utilities.knowledge_graph.ingestion.engine import (
 from agent_utilities.knowledge_graph.ontology import build_ontology_system
 
 
-class _RecordingBackend:
-    """A duck-typed graph backend that records nodes/edges."""
+def _activate_isolated_engine():
+    """Stand up a real, fixture-isolated engine and make it process-active.
 
-    def __init__(self):
-        self.nodes: dict[str, dict] = {}
-        self.edges: list[tuple] = []
+    The CONNECTOR ingestion adaptor resumes from "the engine-owned typed
+    cursor" (engine.py's own comment: "A separate Python manifest must
+    never advance independently of the graph material it describes") via
+    ``read_change_cursor(self.kg, ...)`` — there is deliberately no legacy
+    SQLite-manifest fallback (engine.py: "no legacy cursor fallback").
+    ``IngestionEngine.__init__`` resolves ``self.kg`` from
+    ``IntelligenceGraphEngine.get_active()`` when no ``kg_engine`` is passed
+    explicitly (as both ``run_connector`` and this file's direct
+    ``IngestionEngine(kg_engine=None, ...)`` call do) — with no active
+    engine at all, the cursor read fails closed ("native connector cursor
+    unavailable"). A previous version of this fixture also constructed a
+    duck-typed ``_RecordingBackend`` and passed it as an explicit
+    ``backend=`` override, expecting IT to receive every node/edge write —
+    it does not: once a genuinely native engine is active, the CONNECTOR
+    adaptor's materialization goes through ITS OWN native
+    ``graph_compute`` unconditionally (a duck-typed backend is only ever
+    consulted as a *non-native* fallback), so a recording double stayed
+    permanently empty regardless of what ran. Return the real engine so
+    callers assert against ``engine.graph_compute`` directly instead.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    def add_node(self, node_id, **props):
-        self.nodes[node_id] = props
-
-    def add_edge(self, source, target, rel_type=None, **props):
-        self.edges.append((source, target, rel_type))
+    compute = GraphComputeEngine(backend_type="rust")
+    cursor_backend = EpistemicGraphBackend()
+    cursor_backend._graph = compute
+    engine = IntelligenceGraphEngine(backend=cursor_backend)
+    IntelligenceGraphEngine.set_active(engine)
+    return engine
 
 
 def make_sql_server() -> FastMCP:
@@ -124,8 +146,8 @@ async def test_mcp_tool_sql_source_through_run_connector_entry_point(
     """The facade the source_connector MCP tool + /connector/run route call."""
     # Isolate the DeltaManifest checkpoint store (global SQLite otherwise).
     monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
-    backend = _RecordingBackend()
-    ontology = build_ontology_system(SimpleNamespace(backend=backend))
+    engine = _activate_isolated_engine()
+    ontology = build_ontology_system(None)
 
     result = await ontology.run_connector(
         "mcp_tool",
@@ -150,12 +172,20 @@ async def test_mcp_tool_sql_source_through_run_connector_entry_point(
     assert result["documents"] == 3
     assert result["checkpoint_advanced"] is True
 
-    docs = [n for n in backend.nodes.values() if n.get("type") == "Document"]
-    chunks = [n for n in backend.nodes.values() if n.get("type") == "Chunk"]
+    # The connector materializes through the native active engine's own
+    # graph_compute (a genuinely native engine is the sole write authority
+    # once one is active — a duck-typed backend like _RecordingBackend is
+    # only ever consulted as a non-native fallback), not through any
+    # ``backend=`` override handed to build_ontology_system/IngestionEngine.
+    all_nodes = list(engine.graph_compute.nodes(data=True))
+    docs = [props for _nid, props in all_nodes if props.get("node_type") == "Document"]
+    chunks = [props for _nid, props in all_nodes if props.get("node_type") == "Chunk"]
     assert len(docs) == 3
     assert {d.get("name") for d in docs} == {"Graphs", "Ontologies", "Retrieval"}
     assert len(chunks) >= 3
-    rels = {e[2] for e in backend.edges}
+    rels = {
+        data.get("relationship") for _u, _v, data in engine.graph_compute.edges(data=True)
+    }
     assert "HAS_CHUNK" in rels and "CHUNK_OF" in rels
 
 
@@ -167,8 +197,8 @@ async def test_mcp_tool_objectstore_source_incremental_reingest(tmp_path, monkey
     # Isolate the DeltaManifest checkpoint store (global SQLite otherwise).
     monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
 
-    backend = _RecordingBackend()
-    engine = IngestionEngine(kg_engine=None, backend=backend)
+    kg_engine = _activate_isolated_engine()
+    engine = IngestionEngine(kg_engine=None, backend=None)
     server = make_objectstore_server()
     manifest = IngestionManifest(
         content_type=ContentType.CONNECTOR,
@@ -186,7 +216,14 @@ async def test_mcp_tool_objectstore_source_incremental_reingest(tmp_path, monkey
     result = await engine.ingest(manifest)
     assert result.status == "success"
     assert result.details["documents"] == 2
-    docs = [n for n in backend.nodes.values() if n.get("type") == "Document"]
+    # Materializes through the native active engine's own graph_compute —
+    # see the sibling test's comment for why (a genuinely native engine is
+    # the sole write authority once one is active).
+    docs = [
+        props
+        for _nid, props in kg_engine.graph_compute.nodes(data=True)
+        if props.get("node_type") == "Document"
+    ]
     assert len(docs) == 2
 
     # Second run resumes from the stored checkpoint: nothing newer than the

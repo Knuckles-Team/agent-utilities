@@ -327,6 +327,47 @@ def test_privacy_gate_still_rejects_nonopaque_sensitive_payload_identity(
         )
 
 
+def test_privacy_gate_preserves_24_hex_truncated_digest_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-GM-3 regression: a 24-hex/96-bit truncated digest must be exempt.
+
+    ``engine.py``'s ``_ingest_connector`` adaptor computes
+    ``object_key = sha256(portable_uri).hexdigest()[:24]`` for EVERY
+    connector's DocumentProcessor-owned Document node id
+    (``doc:<source_type>:<object_key>``), and
+    ``GitMarkdownConnector._object_key``/``_document_node_id`` deliberately
+    reuse the identical 24-hex truncation so a caller can cross-reference the
+    two. Before this fix, only an exact 32/64-hex digest was exempt, so this
+    id fell through to the full privacy-pattern scan and its case-insensitive
+    IBAN check (``[A-Z]{2}\\d{2}(?:[A-Z0-9]){11,30}``) rejected it whenever
+    the digest happened to start with two letters then two digits — a
+    coincidence hit 3 of 96 real ``docs/pillars`` files in the git-markdown
+    connector's own live-engine proof.
+    """
+
+    monkeypatch.setattr(
+        "agent_utilities.security.persistence_privacy._runtime_deny_terms",
+        lambda: (),
+    )
+    # Deliberately shaped like the IBAN false-positive: two letters, two
+    # digits, then hex — this is exactly the class of id D-GM-3 rejected.
+    digest_24 = "ba00" + ("7" * 20)
+    assert len(digest_24) == 24
+    doc_id = f"doc:git_markdown:{digest_24}"
+
+    sanitized = module._privacy_gate(
+        _envelope(
+            source_object_id=doc_id,
+            typed_payload={"id": doc_id, "type": "Document"},
+        )
+    )
+
+    assert sanitized.source_object_id == doc_id
+    assert sanitized.typed_payload is not None
+    assert sanitized.typed_payload["id"] == doc_id
+
+
 def test_native_cursor_read_uses_the_same_hashed_source_partition() -> None:
     compute = _Compute("graph-cursor")
     partition = module._cursor_partition("instance-a")

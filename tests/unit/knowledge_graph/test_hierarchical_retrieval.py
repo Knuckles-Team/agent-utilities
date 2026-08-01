@@ -23,11 +23,11 @@ def _graph():
     # Community A — retrieval/vector topic
     g.add_node("a1", name="vector index hnsw tuning")
     g.add_node("a2", name="graph database vector search")
-    g.add_edge("a1", "a2", type="related")
+    g.add_edge("a1", "a2", relationship="related")
     # Community B — cooking topic
     g.add_node("b1", name="cooking pasta recipe")
     g.add_node("b2", name="tomato sauce simmer")
-    g.add_edge("b1", "b2", type="related")
+    g.add_edge("b1", "b2", relationship="related")
     return g
 
 

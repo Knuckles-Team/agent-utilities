@@ -14,6 +14,24 @@ CANONICAL_AGENT_BOUNDARY = "agent_utilities/core/contextual_model.py"
 RAW_PROVIDER_ALLOWLIST = {
     "agent_utilities/core/model_factory.py",
     "agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py",
+    # Model-catalog verification only (client.models.retrieve(model_id)) — it
+    # never sends a completion/response request, so there is no inference to
+    # govern; create_context_agent has nothing to wrap here.
+    "agent_utilities/core/openai_catalog.py",
+}
+# Files whose Agent(...) construction is intentionally metadata-only (no
+# model is ever invoked through it) and therefore cannot go through
+# create_context_agent, which requires and governs an explicit model
+# (contextual_model.py: "governed agent construction requires an explicit
+# model"). Each entry must be justified inline at its call site, not just
+# here.
+METADATA_ONLY_AGENT_ALLOWLIST = {
+    # GraphOSWorkflowAgent.__init__ builds `Agent(model=None, ...,
+    # defer_model_check=True)` purely as a WrapperAgent facade carrying a
+    # step's name/description for host tooling (approval prompts, tracing) —
+    # actual execution is dispatched to the GraphOS orchestrator, never to
+    # this Agent instance's own model (it deliberately has none).
+    "agent_utilities/capabilities/governed_dynamic_workflow.py",
 }
 
 
@@ -88,7 +106,7 @@ def _source_violations(relative: str, source: str) -> list[str]:
                     continue
                 local_name = alias.asname or alias.name
                 pydantic_agent_aliases.add(local_name)
-                if not canonical:
+                if not canonical and relative not in METADATA_ONLY_AGENT_ALLOWLIST:
                     failures.append(
                         f"{relative}:{node.lineno}: direct PydanticAI Agent import "
                         f"{local_name!r}; use create_context_agent"
@@ -131,6 +149,8 @@ def _source_violations(relative: str, source: str) -> list[str]:
         if not (module_agent_call or named_agent_call):
             continue
         if canonical and owners.get(node) == "create_context_agent":
+            continue
+        if relative in METADATA_ONLY_AGENT_ALLOWLIST:
             continue
         failures.append(
             f"{relative}:{node.lineno}: direct Agent construction {called}; "
