@@ -158,6 +158,52 @@
             sh:path :object_id ] ;
     sh:targetClass :ObjectEdit .
 
+:ArtifactShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-KG.ingest.evidence-spine-artifact — an Artifact is the root of the evidence spine, so it MUST carry the content hash a citation is verified against and the source identity it was retrieved under. An artifact without a hash cannot prove anything." ;
+    sh:name "Evidence Spine Artifact Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Artifact must carry a sha256:<hex> content_hash — evidence without a digest cannot be verified." ;
+            sh:minCount 1 ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ;
+            sh:path :content_hash ],
+        [ sh:datatype xsd:string ;
+            sh:message "Artifact must name the connector that retrieved it." ;
+            sh:minCount 1 ;
+            sh:path :connector ],
+        [ sh:datatype xsd:string ;
+            sh:message "Artifact must name the upstream object it is a retrieval of." ;
+            sh:minCount 1 ;
+            sh:path :source_object_id ] ;
+    sh:targetClass :Artifact .
+
+:FragmentShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-KG.ingest.stable-fragment-address — a Fragment is the citation unit, so it MUST link to its parent Artifact, carry the structural address its stable id was derived from, and carry the content hash that detects staleness. A fragment missing any of the three is uncitable." ;
+    sh:name "Evidence Spine Fragment Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Fragment must reference its parent artifact_id — an orphaned fragment has no provenance." ;
+            sh:minCount 1 ;
+            sh:path :artifact_id ],
+        [ sh:datatype xsd:string ;
+            sh:message "Fragment must carry a sha256:<hex> content_hash so a citation can detect that the text changed." ;
+            sh:minCount 1 ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ;
+            sh:path :content_hash ],
+        [ sh:datatype xsd:string ;
+            sh:message "Fragment must carry the structural address its stable id was derived from." ;
+            sh:minCount 1 ;
+            sh:path :address ],
+        [ sh:datatype xsd:string ;
+            sh:message "Fragment must declare its structural fragment_kind." ;
+            sh:minCount 1 ;
+            sh:path :fragment_kind ],
+        [ sh:datatype xsd:integer ;
+            sh:maxCount 1 ;
+            sh:message "Fragment must carry exactly one document-order sequence." ;
+            sh:minCount 1 ;
+            sh:minInclusive 0 ;
+            sh:path :sequence ] ;
+    sh:targetClass :Fragment .
+
 :ChunkShape a sh:NodeShape ;
     sh:description "A document Chunk must reference its parent document and carry an ordinal position (CONCEPT:KG-2.48)." ;
     sh:name "Document Chunk Shape" ;

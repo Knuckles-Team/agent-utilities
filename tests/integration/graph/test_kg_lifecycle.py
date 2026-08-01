@@ -10,18 +10,47 @@ Integration tests for KG lifecycle management:
 
 import pytest
 
+from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+    EpistemicGraphBackend,
+)
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.schema_definition import SCHEMA
+
+
+def _isolated_engine(test_graph_name: str) -> IntelligenceGraphEngine:
+    """Build an ``IntelligenceGraphEngine`` bound to the fixture's own test graph.
+
+    ``IntelligenceGraphEngine(db_path=":memory:")`` routes through
+    ``EpistemicGraphBackend(graph_name=None)``, which resolves the *ambient
+    actor's tenant-default* graph (``resolve_routing_graph``) — a name that
+    (a) was never registered as a tenant (only the autouse
+    ``isolate_graph_compute_engine`` fixture's own redirected construction
+    registers one, for ITS ``_test_graph_name``, not this derived one) and
+    (b) does not match the ambient ``GraphSession.graph`` the same fixture
+    sets (also ``_test_graph_name``). Depending on what else in the test had
+    already constructed a ``GraphComputeEngine``, that mismatch surfaced as
+    either "Graph ... not found" or the engine's own fail-closed
+    "a graph-scoped view cannot retarget the verified GraphSession" guard —
+    correct behavior; the bug was the fixture handing the engine the wrong
+    identity, not the guard.
+
+    Passing the exact ``test_graph_name`` the ``isolate_graph_compute_engine``
+    fixture yields makes ``resolve_routing_graph`` return it verbatim, so this
+    engine's graph identity matches the ambient ``GraphSession`` the rest of
+    the test executes under, and the first construction (mirroring the
+    fixture's own redirect logic) registers it as a real tenant.
+    """
+    backend = EpistemicGraphBackend(graph_name=test_graph_name)
+    return IntelligenceGraphEngine(backend=backend)
+
 
 # ── Fixtures ──
 
 
 @pytest.fixture
-def engine():
+def engine(isolate_graph_compute_engine):
     """Create a lightweight IntelligenceGraphEngine for testing."""
-    GraphComputeEngine(backend_type="rust")
-    return IntelligenceGraphEngine(db_path=":memory:")
+    return _isolated_engine(isolate_graph_compute_engine)
 
 
 # ── Gap 1: DiffEntry Schema ──
@@ -89,7 +118,13 @@ def test_archived_node_excluded_from_graph_search(engine):
         status="ARCHIVED",
     )
 
-    results = engine.search_hybrid("TaxService")
+    # This test's own concern is the ARCHIVED-status filter, not ranking
+    # quality; the retrieval relevance quality gate (LOW_RELEVANCE_TOPK) needs
+    # a real embedding model, which the test environment doesn't configure —
+    # the established convention elsewhere in the suite (e.g.
+    # tests/test_backlink_boost.py) is ``skip_quality_gate=True`` for exactly
+    # this case.
+    results = engine.search_hybrid("TaxService", skip_quality_gate=True)
     result_ids = [r.get("id") for r in results]
 
     assert "active-node" in result_ids, "Active node should appear in search"
@@ -120,10 +155,9 @@ def test_archived_node_visible_via_direct_graph_query(engine):
 
 
 @pytest.mark.asyncio
-async def test_soft_delete_pipeline_uses_archived_status():
+async def test_soft_delete_pipeline_uses_archived_status(isolate_graph_compute_engine):
     """DocumentDeletionPipeline._soft_delete must set status=ARCHIVED, not is_deleted."""
-    GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    engine = _isolated_engine(isolate_graph_compute_engine)
     engine.graph.add_node("doc-001", name="TestDoc", content="test", status="ACTIVE")
 
     from agent_utilities.knowledge_graph.pipeline.document_deletion import (
@@ -142,10 +176,9 @@ async def test_soft_delete_pipeline_uses_archived_status():
 
 
 @pytest.mark.asyncio
-async def test_restore_document_resets_to_active():
+async def test_restore_document_resets_to_active(isolate_graph_compute_engine):
     """Restoring a soft-deleted document must set status=ACTIVE."""
-    GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    engine = _isolated_engine(isolate_graph_compute_engine)
     engine.graph.add_node(
         "doc-002",
         name="TestDoc",
@@ -170,10 +203,9 @@ async def test_restore_document_resets_to_active():
 
 
 @pytest.mark.asyncio
-async def test_document_update_rejects_archived():
+async def test_document_update_rejects_archived(isolate_graph_compute_engine):
     """DocumentUpdatePipeline must reject updates to ARCHIVED documents."""
-    GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    engine = _isolated_engine(isolate_graph_compute_engine)
     engine.graph.add_node("doc-003", name="Archived", content="old", status="ARCHIVED")
 
     from agent_utilities.knowledge_graph.pipeline.document_update import (
@@ -212,9 +244,17 @@ def test_task_submit_and_list(engine):
 
 
 def test_task_schema_has_status_column():
-    """Task schema must include a 'status' column for lifecycle tracking."""
-    task_def = next(n for n in SCHEMA.nodes if n.name == "Task")
-    assert "status" in task_def.columns, "Task schema must have a 'status' column"
+    """Task/WorkItem schema must include a 'status' column for lifecycle tracking.
+
+    The native ingestion task queue's node type is ``WorkItem`` (see the
+    "Native WorkItem Queue Wiring" tests above and ``engine_tasks.py``'s
+    ``MATCH (w:WorkItem)`` queries) — there has been no ``Task`` node type in
+    ``SCHEMA.nodes`` since the task/work-item consolidation. This test's
+    assertion is unchanged; only the node name it looks up is corrected to
+    match the current schema authority.
+    """
+    task_def = next(n for n in SCHEMA.nodes if n.name == "WorkItem")
+    assert "status" in task_def.columns, "WorkItem schema must have a 'status' column"
 
 
 def test_article_schema_exists():

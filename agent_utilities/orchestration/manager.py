@@ -509,6 +509,22 @@ class Orchestrator:
         or a retrieval-quality-gate failure rather than silently answering ungrounded;
         ``"best_effort"``/``"none"`` opt into degraded operation, marked explicitly in
         the model messages, the RunTrace, and the OTel span).
+        CONCEPT:AU-ORCH.execution.delegation-hot-path-authority — keep a long delegation authorized for its whole run, on every entrypoint, not just MCP dispatch.
+
+        Every delegation entrypoint (MCP ``graph_orchestrate``, the agent-webui/REST
+        gateway, the messaging router, the autonomous ``agent_dispatch_worker``,
+        ``org_runtime``, a governed dynamic workflow, and the parallel engine)
+        converges on this ONE method, so it opens
+        :func:`~agent_utilities.mcp.kg_server.authority_keepalive_scope` itself rather
+        than relying on the MCP tool-dispatch path having already opened one (D-SNV-5
+        follow-up). A delegation that runs longer than the process's renewable session
+        TTL renews its own authority instead of failing closed mid-flight with
+        ``SessionExpiredError``, on every surface, not just MCP-dispatched calls. The
+        scope is idempotent/reentrant: a call that already arrived through the MCP
+        dispatch guard (which opens the same scope) does not start a second renewal
+        loop, and a caller-presented bearer JWT (no server-held ``credential_lease``)
+        is never proactively renewed here — see the scope's own docstring for the full
+        security contract.
         """
         response_format = validate_response_format(response_format)
         execution_mode = validate_execution_mode(execution_mode)
@@ -538,6 +554,11 @@ class Orchestrator:
         )
         from agent_utilities.core.contextual_model import use_grounding_policy
 
+        # D-SNV-5 follow-up: renew a renewable session's authority for the whole
+        # delegation, not just while an MCP tool dispatch is on the stack — see the
+        # CONCEPT note above and authority_keepalive_scope's own docstring.
+        from agent_utilities.mcp.kg_server import authority_keepalive_scope
+
         # CONCEPT:AU-OS.observability.delegation-run-metrics — the in-process
         # delegation path had no telemetry; this is the one seam every
         # execute_agent call passes through, so count/duration/outcome land here
@@ -549,32 +570,33 @@ class Orchestrator:
             use_grounding_policy(grounding),
             delegation_span("agent", agent_name),
         ):
-            result = await run_agent(
-                agent_name=agent_name,
-                task=task,
-                engine=self.engine,
-                max_steps=max_steps,
-                return_mermaid=return_mermaid,
-                context=context,
-                budget_tokens=budget_tokens,
-                context_ref=context_ref,
-                allowed_tools=allowed_tools,
-                required_tools=required_tools,
-                skill_name=skill_name,
-                tool_server=tool_server,
-                execution_mode=execution_mode,
-                cred_ref=cred_ref,
-                session_id=session_id,
-                open_channel=open_channel,
-                memento_source=memento_source,
-                execution_profile=execution_profile,
-                reasoning_effort=reasoning_effort,
-                model_class=model_class,
-                response_format=response_format,
-                run_id=run_id,
-                include_run_summary=include_run_summary,
-                progress_sink=progress_sink,
-            )
+            async with authority_keepalive_scope():
+                result = await run_agent(
+                    agent_name=agent_name,
+                    task=task,
+                    engine=self.engine,
+                    max_steps=max_steps,
+                    return_mermaid=return_mermaid,
+                    context=context,
+                    budget_tokens=budget_tokens,
+                    context_ref=context_ref,
+                    allowed_tools=allowed_tools,
+                    required_tools=required_tools,
+                    skill_name=skill_name,
+                    tool_server=tool_server,
+                    execution_mode=execution_mode,
+                    cred_ref=cred_ref,
+                    session_id=session_id,
+                    open_channel=open_channel,
+                    memento_source=memento_source,
+                    execution_profile=execution_profile,
+                    reasoning_effort=reasoning_effort,
+                    model_class=model_class,
+                    response_format=response_format,
+                    run_id=run_id,
+                    include_run_summary=include_run_summary,
+                    progress_sink=progress_sink,
+                )
         return result
 
     def resolve_capability(self, task: str, agent_name: str = "") -> dict[str, Any]:

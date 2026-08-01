@@ -104,6 +104,22 @@ For trivial tasks, use judgment; the bias here is correctness over speed.
   before and after". For multi-step work, state the short plan and the check for each
   step, then loop until the checks pass. **"Done" means a live path actually invokes it**
   (see *Wire-First*) **and the unit suite is green** — not merely that the code compiles.
+- **Stand your evidence up before you act on it.** Four ways this failed for real, all in
+  one day: **(a) premises rot.** A deferred item records the world as it was *when
+  written*; ~8 items were worked whose stated blocker had since become false ("the engine
+  has no endpoint" — it had been in `main` all along; "36 repos drifted" — 33; "the
+  generator deletes 2,367 lines" — it reformats; "pinned to fastmcp 3.3.1" — already
+  4.0.0b1). **Re-verify the premise of any item you did not just write**; if it is false,
+  closing it with that finding *is* the work. **(b) Measure with the instrument you are
+  making a claim about** — a verdict is only ever about the interpreter, checkout and
+  branch you actually ran. The ambient `python3` instead of the repo `.venv` produced **47
+  false "environment-blocked" verdicts**; the wrong checkout read a green release gate as
+  red. **(c) A refuted hypothesis is a successful investigation** — report "I looked, it is
+  not happening" and stop; do not keep digging until something finding-shaped appears.
+  **(d) Never manufacture a closure** — *done* (point at it), *`ACCEPTED-RISK`* (with the
+  reasoning), or *open with a named blocker* are all fine; a fabricated "done" is not, and
+  costs more than ten honest "open"s because it makes every other entry unverifiable. Full
+  incidents: [`docs/architecture/empirical-development-standards.md`](docs/architecture/empirical-development-standards.md).
 
 ## Query the code KG before you grep (READ BEFORE exploring code)
 
@@ -532,6 +548,11 @@ All four are required; none substitutes for another. Name them `*_wiring`/`*_con
    test flag deleting the production branch** — `AGENT_UTILITIES_TESTING=true` makes `create_agent`
    skip its MCP-toolset governance block entirely, so restore production conditions first.
 7. **No silent storage.** A value set in `__init__`/a setter and read nowhere is a bug.
+8. **Measure with the instrument you are claiming about.** The same confusion one level
+   up: a green/red verdict is a statement about the interpreter, checkout and profile you
+   actually ran. Use the repo `.venv`, in *your* worktree, before attributing a failure to
+   the environment — "environment-blocked" needs the same evidence as any other conclusion
+   (*Working Discipline*; 47 false verdicts came from the ambient `python3`).
 
 ### Writing one costs four lines
 ```python
@@ -551,6 +572,45 @@ the existing suite mocks).
 and serialisation are only proven by running the thing. `scripts/check_wiring.py
 --wire-first-report` answers "does anything import or call this?" statically: a *finder of
 suspects*, not a gate (blind to decorator/entry-point registration and out-of-repo callers).
+
+## Fail closed — a degraded read must never grant permission (READ BEFORE writing a gate, a reader, or a status flag)
+
+Nearly every defect found in the last sweep belongs to **one family: a component that
+cannot do its job returns a value its caller reads as "all clear."** The component is
+usually well written and defensively coded — that *is* the problem, because tolerance at
+the boundary of a safety decision is permission. Incidents + code shapes:
+[`docs/architecture/empirical-development-standards.md`](docs/architecture/empirical-development-standards.md).
+
+1. **Return `None` on failure, never an empty success.** A reader that swallows its
+   exception and returns `[]`/`0`/`False` is **indistinguishable at the call site** from a
+   healthy "nothing found". Five safety gates were found doing this against the same KG —
+   rate limiter (no recent calls → allow), blast-radius (affects nothing → allow),
+   autoscaler cooldown (`0` → scale), CI retry cap (`0` prior attempts → retry),
+   prompt-scanner preflight (no policies → pass) — so **all five stand down together at
+   exactly the moment the KG is degraded**, the moment they exist for. Make failure a
+   distinct value (`None`, or raise) and make every caller **deny, defer, or escalate** on
+   it; `[]` must be free to mean "empty". Test: for each `except: return []`, ask "if this
+   dependency were down, what would each caller do?" — any "proceed" means the *reader* is
+   the bug. CONCEPT:AU-OS.governance.fail-closed-degraded-read
+2. **Never advance state on an unverified write** ("write-then-mark-seen"). A
+   `consumed`/`processed`/cursor/status flag set *regardless of whether the operation it
+   guards succeeded* forecloses the retry **permanently** — the record is now invisible to
+   every future run, which is strictly worse than crashing, since a crash retries. Several
+   live instances (queue drains, ingestion cursors, reconciliation). The advance must be
+   **derived from the write's confirmed result** and ordered after it: `record.consumed =
+   result.ok`, never unconditional. Cannot confirm → do not advance.
+   CONCEPT:AU-OS.governance.verified-write-state-advance
+3. **One rule, one message.** The same violation reported by three checks in three
+   wordings reads as three problems, gets three half-fixes, and still fires twice after one
+   is fixed. Emit it from the single check that owns it; the others defer.
+4. **A tool whose cost makes people avoid it is broken.** Avoidance and breakage are
+   indistinguishable in the outcome, so "it works, people just don't run it" is a bug
+   report, not a defence. Two live examples: a manifest generator whose *faithful* output
+   looked like a 2,367-line deletion (costly to disprove, so it stopped being run and the
+   manifests drifted), and a pre-commit chain too slow to run per-commit. Fix the cost —
+   stage gates by price (`stages:` already exists), split the expensive check out of the
+   hot path, and make scary-but-correct output legible instead of leaving it to be
+   disproved by hand.
 
 ## Native by default — every enhancement is always-on and woven into the flow (READ BEFORE gating a feature)
 
@@ -766,7 +826,7 @@ So the default for any non-trivial change is:
    Do all edits, builds, and tests under that path. (`${XDG_STATE_HOME}/repository-worktrees/` is the convention.)
    Because this location is intentionally outside the ecosystem's uv workspace,
    run dependency-aware commands through `python3 scripts/uv_workspace.py`
-   (for example, `python3 scripts/uv_workspace.py run pytest -q`). The launcher
+   (for example, `python3 scripts/uv_workspace.py run --all-extras pytest -q`). The launcher
    creates a generated workspace view in XDG state, symlinks source members,
    substitutes this worktree for the canonical `agent-utilities` member, and
    uses generated copies of the canonical manifest and lock with forced
@@ -774,14 +834,13 @@ So the default for any non-trivial change is:
    `python3 scripts/uv_workspace.py doctor` to verify the source and lock provenance.
 2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
    is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
-3. **Before merging back, sync `main` INTO your branch and resolve conflicts THERE, then
-   merge to `main` locally** (now a clean fast-forward). `main` drifts while you're checked
-   out, so always `git merge origin/main` *down into* the feature branch first and fix every
-   conflict on the branch — never resolve conflicts against the shared `main` tree. Then
-   **clean up**: remove the worktree and delete the now-merged branch
-   (`git worktree remove <path> && git branch -d <topic>`, or `rm_worktree remove <repo>
-   <branch> --delete-branch`; `git worktree prune` clears stale entries). Push only when
-   the user asks. See *Finishing work in a worktree* below for the full sequence.
+3. **Land each chunk as it finishes, through the merge queue** —
+   `agent-utilities merge-queue enqueue`. Do not merge to `main` by hand and do not
+   save work up for a bulk merge at the end. The queue syncs, gates the candidate
+   **as merged**, fast-forwards `main`, and prunes your worktree and branch for you;
+   if it reports a conflict, resolve it **on your branch** (`git merge origin/main`
+   down into it) and re-enqueue — never against the shared `main` tree. Push only
+   when the user asks. Full sequence: *Concurrent development* below.
 4. A plain feature branch in the main checkout is **not** sufficient isolation — a sibling session's
    `git checkout` still mutates the shared tree. Use a worktree for real isolation.
 
@@ -971,31 +1030,21 @@ pre-commit run --all-files
 ```
 
 > ⚠ **`--all-files` can DESTROY your own or another session's unstaged work
-> (D-OB-12) — read this before running it.** Under the hood, `--all-files`
-> `git stash`es every UNSTAGED change before running hooks and restores it
-> after. When a **file-rewriting hook** (`ruff-format`, `turtle-format`,
-> `guardrail-docs-contract --write`, …) touches a path that also had unstaged
-> edits, the restore can **silently drop those edits instead of merging
-> them** — this repo lost a full round of regenerated docs to exactly this
-> during the fastmcp-4 migration. It is acutely dangerous here because
-> **`docs/concept_reservations.yaml` is a shared, cross-session coordination
-> ledger deliberately left unstaged** (concurrent sessions append to it
-> without staging/committing) — one careless `--all-files` run can destroy
-> another session's in-flight concept reservations.
+> (D-OB-12).** It `git stash`es every UNSTAGED change around the run, and a
+> file-rewriting hook (`ruff-format`, `turtle-format`, `guardrail-docs-contract
+> --write`, …) touching the same path can make the restore **silently drop those
+> edits** — it once ate a full round of regenerated docs, and it can destroy
+> another session's in-flight `docs/concept_reservations.yaml` entries (a shared
+> cross-session ledger deliberately left unstaged).
 >
 > **Always run it through the safe wrapper, never bare:**
 > ```bash
 > python3 scripts/safe_precommit_all_files.py
 > ```
-> It backs up your full unstaged diff before the run (so nothing is
-> unrecoverable), prints an explicit warning if `docs/concept_reservations.yaml`
-> (or another known shared-ledger file) is unstaged going in, and verifies
-> afterward that your unstaged changes still apply — pointing at the backup
-> and the exact `git apply --3way` recovery command if a hook silently
-> altered or dropped them. If you must invoke bare `pre-commit` directly
-> (e.g. a **targeted** run against specific files/hooks, which does not carry
-> this risk the same way), prefer that narrower form over `--all-files`
-> whenever you don't need every hook re-run.
+> It backs up your unstaged diff, warns on an unstaged shared ledger, and verifies
+> afterward that your changes still apply. Mechanism, recovery command and the
+> targeted-run carve-out:
+> [`docs/architecture/lane-concurrency.md`](docs/architecture/lane-concurrency.md).
 
 Resolve **every** issue it reports — failures, lint errors, type errors, and
 warnings — **including problems that pre-date your change and were not caused by
@@ -1005,6 +1054,16 @@ no warnings**. Do not silence checks (`# noqa`, `# type: ignore`, `SKIP=`,
 file as a known, unavoidable limitation. Only commit once `pre-commit run
 --all-files` (via the safe wrapper above) passes cleanly; if a check legitimately
 cannot pass, stop and explain why rather than bypassing it.
+
+**And never silence a *failure*.** Silencing a check and silencing a red test are
+different moves with the same effect, and only the first was written down here before.
+Do not `xfail`, `skip`/`skipif`, delete, or loosen an assertion (`== 4` → `>= 0`) to turn
+a failing test green. The reasoning that produces all four is "this failure isn't mine
+and it's in my way" — wrong at the second clause: **a newly-visible failure is
+information the project did not have five minutes ago**, most often a suite that has
+started collecting a previously-excluded test against code that was broken all along.
+Attribute it to its cause and fix it, or stop and report it with the attribution you
+have. Both are acceptable; a suite that went green by narrowing what it checks is not.
 
 **ALL gates, always green — pre-commit AND CI.** "Green" means more than the
 pre-commit hooks: **every CI gate must pass and stay passing — never knowingly merge
@@ -1054,6 +1113,17 @@ agent-utilities lane env      # your private cargo target / pytest basetemp / sc
 In an agent-utilities worktree use `python3 scripts/uv_workspace.py run <cmd>` instead
 of bare `uv run`, and `... lock --locked` instead of bare `uv lock`.
 
+**Name the extras that provide your tool** — `run --all-extras pytest`, not `run pytest`.
+The launcher partitions the virtualenv by dependency selection, so each selection gets its
+own `.venv-<label>` and concurrent lanes can no longer rewrite one environment underneath
+each other (`uv-project-environment`, PARTITION). The base selection is 42 distributions and
+does **not** contain `pytest`; a bare `run pytest` used to fall through to the *system*
+pytest and run the suite under `/usr/bin/python` against system site-packages, reporting
+`fastmcp 3.3.1` and "environment-blocked" with total conviction (D-SP-4). The launcher now
+**refuses** that instead of doing it, and names the fix in the refusal — but you save a
+round trip by requesting the extras up front. `python -m <tool>` is always safe: it can only
+resolve inside the environment.
+
 **The rules, and what enforces them:**
 1. **Never edit the canonical checkout** (`agent-packages/<repo>`). The `lane-guard`
    pre-commit hook **refuses** a non-merge commit authored there. Carve-outs are
@@ -1088,7 +1158,19 @@ of bare `uv run`, and `... lock --locked` instead of bare `uv lock`.
    through `lanes.guarded_tree_mutation(path, operation=…, owner=…)`, or
    `agent-utilities lane guard --reset <path> --owner <you>`. It refuses any tree
    holding uncommitted work you do not own. **Skip that tree. Never force.**
-7. **One document for readers, one fragment per writer.** Read `reports/PROGRAM.md`
+7. **Assume you will be interrupted — commit early and often.** At this concurrency
+   interruption is the norm, not the exception: **six lanes died mid-run in one day.**
+   Commit after each meaningful **batch**, not when the task is finished — a commit is the
+   only artifact a reset, a sibling's global tree mutation, or a dead harness cannot take
+   (cf. rule 2) — and **report your branch head SHA** so your work is recoverable by
+   someone who is not you. Two corollaries: **start a multi-minute gate once** — never
+   re-launch `pre-commit` in a retry loop (one lane restarted it three times, discarding
+   three near-complete runs, and ended with less information than one uninterrupted run);
+   if it stalls, commit and report which hooks completed. And **`ps -p <pid>` is ground
+   truth** for "is it still running" — a harness "no live background children" signal is
+   bookkeeping, not the OS, and goes **stale while the process is still working**; trusting
+   it wrongly declared four lanes' work dead.
+8. **One document for readers, one fragment per writer.** Read `reports/PROGRAM.md`
    (generated charter + register). Write only your own
    `reports/deferred/<lane>.md` (`scripts/deferred_registry.py open`) or your own
    charter fragment.
@@ -1101,24 +1183,61 @@ everything, including pre-existing, no `--no-verify`):
    agent-utilities lane lease --resource precommit-all-files --operation gate -- \
      python3 scripts/safe_precommit_all_files.py
    ```
-   The **lease** stops two lanes running `--all-files` at once. The **wrapper**
-   (D-OB-12, CONCEPT:AU-OS.governance.precommit-all-files-safety) exists because
-   `pre-commit run --all-files` internally `git stash`es every UNSTAGED change and
-   can silently DROP it on restore when a file-rewriting hook touches the same
-   path — which is how a full round of regenerated docs was once eaten, and which
-   would destroy another session's in-flight `docs/concept_reservations.yaml`
-   entries (a shared cross-session ledger deliberately left unstaged). Never call
-   bare `pre-commit run --all-files` here.
+   The **lease** stops two lanes running `--all-files` at once; the **wrapper**
+   (D-OB-12, CONCEPT:AU-OS.governance.precommit-all-files-safety) protects unstaged
+   work from the hooks themselves — rationale in *Quality Bar* above, which owns that
+   rule. Never call bare `pre-commit run --all-files` here.
 
 2. **Commit** in the worktree.
-3. **Sync `main` INTO your branch first and resolve every conflict there** —
-   `git fetch origin && git merge origin/main` — never against the shared `main` tree.
-4. **Merge back** under the lease, now a clean fast-forward:
-   `agent-utilities lane lease --resource reconciliation-merge --operation merge -- git -C <canonical> merge --ff-only <branch>`.
-   Push only when the user asks.
-5. **Clean up** — `git worktree remove <path> && git branch -d <branch>`.
+3. **Enqueue — do not merge by hand, and do not save work up for the end.**
+   ```
+   agent-utilities merge-queue enqueue        # returns immediately; verifies nothing yet
+   ```
+   Land each coherent chunk **as it finishes**. Bulk merges are gone: their only
+   value was the adversarial review, and the review is now automated
+   (CONCEPT:AU-OS.governance.serialized-merge-queue). Long-lived branches cost more
+   than they saved — they produced two `CandidateClaim` classes, two `Fragment`
+   shapes and two fixes for one bug, all because branches were invisible to each
+   other and each lane surveyed a `main` that had already moved.
+4. **The queue runs it** (`merge-queue run`, serialized on the *same*
+   `reconciliation-merge` lease — no second arbiter). Per batch, inside a published
+   **180-second** budget: merge-cleanliness (~25 ms), a **cross-branch
+   duplicate-symbol scan** across every candidate in flight, an import smoke and
+   **targeted tests over changed paths — run against the tree AS MERGED**, never as
+   it sat on your branch (`D-OB-17`: git merges two branches cleanly into a tree
+   that `ImportError`s), plus every `scripts/security/check_*.py` **discovered in
+   the merged tree**. ⚠ **Zero conflicts is not a safety property** — it is the
+   *expected* signal for a whole defect class. Git answers "did two people edit the
+   same lines", about text, on your branch; that is never an answer about whether
+   the merged tree still upholds an invariant. A lane that forks *after* a fix and
+   reverts it merges perfectly cleanly and lands the revert. So never reason
+   "it merged clean, therefore it's safe" — and when you add an invariant, add it as
+   a contract script, which the gate then enforces on the merged tree for free. The
+   **full suite stays outside** the queue, on `main`,
+   after landing: at 43 minutes it makes the queue diverge at any concurrency, and a
+   gate too costly to run gets bypassed (`D-OP-4`, `D-KCI-6`). Candidates are
+   **batched and bisected on failure**, so throughput scales and one bad candidate
+   never rejects seven innocent ones. `main` only ever **fast-forwards**; the merge
+   is built as git objects, so no conflict is ever resolved in the canonical tree.
+5. **Prune is automatic** — the queue removes the worktree and branch on landing via
+   repository-manager's guarded prune (anchor `refs/lane-backup/<branch>`, re-check
+   `--is-ancestor` at delete time, `git branch -d` **never** `-D`). That is why 79
+   worktrees cannot happen again.
+6. **Rejected?** The JSON names the failing checks and *both* sides of every
+   duplicate symbol — combine them and re-enqueue. **Exit 75** = another runner
+   holds the lease: defer.
+
+**Merging is not deploying** (CONCEPT:AU-OS.governance.merge-deploy-decoupling). The
+fleet NFS-mounts the canonical checkout at `/au` with `PYTHONPATH=/au`, so a merge
+**arms** a deploy that fires on the next unplanned restart. Merge freely to `main`;
+ship only by an explicit fast-forward of `refs/heads/deployed` to a SHA the full
+suite has since passed. Check with `merge-queue promotion`.
 
 **Worked example — deferring is the correct outcome.** A lane finished a fix for this
 exact hazard and then *declined to merge it*, because the canonical checkout held
 unrelated uncommitted changes and merging into a dirty canonical tree is the hazard it
-had just fixed. It recorded the deferral instead. Do that.
+had just fixed. It recorded the deferral instead. The queue now does this for you —
+`guarded_tree_mutation` refuses, your candidate stays queued, nothing is lost.
+
+Budget derivation, measured costs, what is now *impossible* rather than discouraged,
+and the residual gaps: [`docs/architecture/merge-queue.md`](docs/architecture/merge-queue.md).

@@ -62,13 +62,27 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
-def _field(value: Any, *names: str) -> Any:
+def _field(
+    value: Any, *names: str, attr_names: tuple[str, ...] | None = None
+) -> Any:
+    """Look up ``names`` on a JSON-shaped mapping, or ``attr_names`` (falling
+    back to ``names``) on an object.
+
+    The two orders are deliberately independent (D-FE-4,
+    reports/deferred/lane-frontends.md): on the wire, an MCP ``Tool`` is JSON
+    with the camelCase key ``inputSchema``, so a ``Mapping`` must check that
+    name — ``input_schema`` never appears there. A live SDK *object*, however,
+    should be read in v2's canonical ``input_schema`` order first: MCP SDK v2
+    renamed the field and kept ``inputSchema`` only as a ``DeprecationWarning``
+    -emitting compatibility property, so checking it first on an object would
+    unconditionally trigger the warning on every already-v2 tool.
+    """
     if isinstance(value, Mapping):
         for name in names:
             if name in value:
                 return value[name]
         return None
-    for name in names:
+    for name in attr_names or names:
         if hasattr(value, name):
             return getattr(value, name)
     return None
@@ -79,7 +93,10 @@ def canonical_input_schema(
 ) -> dict[str, Any]:
     """Return a stable JSON-compatible input schema for one MCP tool object."""
 
-    raw = _field(tool, "inputSchema", "input_schema") or {}
+    raw = (
+        _field(tool, "inputSchema", "input_schema", attr_names=("input_schema", "inputSchema"))
+        or {}
+    )
     schema = _jsonable(raw)
     if not isinstance(schema, dict):
         raise ToolSchemaContractError("live MCP tool input schema is not an object")
