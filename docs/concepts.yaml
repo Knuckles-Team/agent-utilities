@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1135
+total_concepts: 1136
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4653,6 +4653,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/memory/weights_distillation.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: Memory→weights distillation EXPORT path
 - id: AU-KG.memory.observational-memory-bridge
   name: Observational Memory Bridge
@@ -9449,6 +9450,14 @@ concepts:
   code_paths:
   - agent_utilities/observability/custom_observability.py
   doc: D-OG-2
+- id: AU-OS.observability.log-location-privacy
+  name: a raw filesystem path, network
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/venv_sync.py
+  - agent_utilities/security/log_redaction.py
+  doc: a raw filesystem path, network
 - id: AU-OS.observability.multiprocess-registry-guard
   name: the classic
   pillar: AU-OS

@@ -50,6 +50,42 @@ ONTOLOGY_PATH = (
 
 ISO_TS = "2026-01-01T00:00:00Z"
 
+
+def _quant_ontology_text() -> str:
+    """Read the federated ``quant`` domain ontology's turtle text.
+
+    CONCEPT:AU-KG.ontology.package-federation-migration (commit ``f2d3db94``,
+    "migrate 15 domain ontologies to owning packages", KG-2.325): the FIBO
+    finance classes plus the generic Dublin Core/PROV-O/SKOS alignments these
+    tests check were originally bundled together in ``agent_utilities/
+    knowledge_graph/ontology_quant.ttl``. That file was deliberately DELETED
+    from this wheel and moved into its owning package's
+    ``emerald_exchange/ontology/quant.ttl``, federated back in by IRI
+    (``core.ontology_federation.REGISTERED_FEDERATED_IRIS`` carries
+    ``http://knuckles.team/kg/quant``) — AU no longer bundles this content at
+    all in a provider-less base install. Resolve it the same way production
+    does (workspace-mounted sibling-repo discovery), and skip rather than
+    hard-fail when the owning package isn't checked out in this workspace —
+    a bare ``pip install agent-utilities`` never has it.
+    """
+    from agent_utilities.knowledge_graph.core.ontology_federation import (
+        resolve_provider_ontologies,
+        resolve_workspace_provider_ontologies,
+    )
+
+    for provider, ttl_path in (
+        *resolve_provider_ontologies(),
+        *resolve_workspace_provider_ontologies(),
+    ):
+        if provider == "emerald-exchange" and ttl_path.name == "quant.ttl":
+            return ttl_path.read_text(encoding="utf-8")
+    pytest.skip(
+        "emerald-exchange (owning package of the federated 'quant' domain "
+        "ontology, CONCEPT:AU-KG.ontology.package-federation-migration) is "
+        "not checked out in this workspace"
+    )
+    raise AssertionError("unreachable")  # pragma: no cover
+
 # ---------------------------------------------------------------------------
 # Standard Ontology Node Types — enum existence
 # ---------------------------------------------------------------------------
@@ -139,7 +175,7 @@ class TestOntologyFile:
 
     def test_prov_o_provenance_properties(self) -> None:
         """Verify PROV-O property alignments exist."""
-        content = (ONTOLOGY_PATH.parent / "ontology_quant.ttl").read_text()
+        content = _quant_ontology_text()
         assert ":wasGeneratedBy" in content
         assert ":wasDerivedFrom" in content
         assert ":wasAttributedTo" in content
@@ -147,7 +183,7 @@ class TestOntologyFile:
 
     def test_skos_taxonomy_properties(self) -> None:
         """Verify full SKOS taxonomy property support."""
-        content = (ONTOLOGY_PATH.parent / "ontology_quant.ttl").read_text()
+        content = _quant_ontology_text()
         assert ":broader" in content
         assert ":narrower" in content
         assert ":related" in content
@@ -160,7 +196,7 @@ class TestOntologyFile:
 
     def test_dublin_core_metadata_properties(self) -> None:
         """Verify Dublin Core datatype properties."""
-        content = (ONTOLOGY_PATH.parent / "ontology_quant.ttl").read_text()
+        content = _quant_ontology_text()
         assert ":title" in content
         assert ":subject" in content
         assert ":identifier" in content
@@ -171,7 +207,7 @@ class TestOntologyFile:
 
     def test_finance_domain_classes(self) -> None:
         """Verify FIBO-aligned finance classes."""
-        content = (ONTOLOGY_PATH.parent / "ontology_quant.ttl").read_text()
+        content = _quant_ontology_text()
         assert ":FinancialInstrument" in content
         assert ":FinancialTransaction" in content
         assert ":Account" in content

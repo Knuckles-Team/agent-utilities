@@ -1181,7 +1181,7 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 1135 concepts across 9 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1136 concepts across 9 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
@@ -1189,7 +1189,7 @@ _Auto-generated from `docs/concepts.yaml` (single source of truth). 1135 concept
 | **AU-ECO** | 127 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
 | **AU-KG** | 488 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, trace, txn |
 | **AU-ORCH** | 213 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
-| **AU-OS** | 157 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
+| **AU-OS** | 158 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
 | **EG-KG** | 29 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
 | **EG-ORCH** | 1 | routing |
