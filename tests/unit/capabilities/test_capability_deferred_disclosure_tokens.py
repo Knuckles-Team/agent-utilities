@@ -49,11 +49,15 @@ import pytest
 pytest.importorskip("tiktoken")
 pydantic_ai_capabilities = pytest.importorskip("pydantic_ai.capabilities")
 
-from pydantic_ai import Agent  # noqa: E402
 from pydantic_ai.capabilities import Capability  # noqa: E402
 from pydantic_ai.messages import ModelResponse, TextPart  # noqa: E402
 from pydantic_ai.models.function import AgentInfo, FunctionModel  # noqa: E402
 from pydantic_ai.profiles import ModelProfile  # noqa: E402
+
+from agent_utilities.core.contextual_model import (  # noqa: E402
+    create_context_agent,
+    use_grounding_policy,
+)
 
 #: No native tool-search support declared — forces pydantic-ai's LOCAL discovery
 #: fallback (``Model._resolve_native_tool_swap`` rule 3: an undiscovered deferred
@@ -177,10 +181,13 @@ def _capture_agent_info(capability: Capability) -> AgentInfo:
         captured["info"] = info
         return ModelResponse(parts=[TextPart(content="ok")])
 
-    agent: Agent[None, str] = Agent(
-        FunctionModel(_capture, profile=_NON_NATIVE_PROFILE), capabilities=[capability]
+    agent = create_context_agent(
+        FunctionModel(_capture, profile=_NON_NATIVE_PROFILE),
+        capabilities=[capability],
+        default_capabilities=False,
     )
-    agent.run_sync("hello")
+    with use_grounding_policy("none"):
+        agent.run_sync("hello")
     return captured["info"]
 
 
