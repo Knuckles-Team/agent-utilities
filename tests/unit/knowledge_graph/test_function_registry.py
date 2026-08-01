@@ -108,17 +108,17 @@ class TestFunctionRegistryMixin:
 
     def test_discover_functions_by_type(self, mock_engine):
         mock_engine.graph.add_node(
-            "fn:a", type="callable_resource", resource_type="MCP_TOOL", name="alpha"
+            "fn:a", node_type="callable_resource", resource_type="MCP_TOOL", name="alpha"
         )
         mock_engine.graph.add_node(
-            "fn:b", type="callable_resource", resource_type="A2A_AGENT", name="beta"
+            "fn:b", node_type="callable_resource", resource_type="A2A_AGENT", name="beta"
         )
 
         # Filter MCP_TOOL only
         results = [
             {"id": n, **d}
             for n, d in mock_engine.graph.nodes(data=True)
-            if d.get("type") == "callable_resource"
+            if d.get("node_type") == "callable_resource"
             and d.get("resource_type") == "MCP_TOOL"
         ]
         assert len(results) == 1
