@@ -623,16 +623,29 @@ class DocumentProcessor:
                 )
                 result.access_synced = result.persisted
             else:
-                from ...protocols.source_connectors.permission_sync import sync_access
+                # sync_access requires the mandatory-marking store, which
+                # (unlike self.graph/self._resolve_writer()) reads the
+                # GLOBAL active process-owned engine, not this instance's
+                # own graph — calling it when this processor has nothing to
+                # persist to (self.graph is None, e.g. the offline/hermetic
+                # path _persist() below already no-ops for) raised
+                # unconditionally even though there is no real access grant
+                # to synchronize. Gate it the same way _persist() already
+                # gates its own write.
+                has_writer = self._resolve_writer() is not None
+                if has_writer:
+                    from ...protocols.source_connectors.permission_sync import (
+                        sync_access,
+                    )
 
-                access_edges = [
-                    (edge["source"], edge["target"])
-                    for edge in [*edges, *result.section_edges]
-                    if edge.get("relationship")
-                    in {HAS_CHUNK_EDGE, HAS_SECTION_EDGE, HAS_SUBSECTION_EDGE}
-                ]
-                sync_access(doc_id, access, access_edges)
-                result.access_synced = True
+                    access_edges = [
+                        (edge["source"], edge["target"])
+                        for edge in [*edges, *result.section_edges]
+                        if edge.get("relationship")
+                        in {HAS_CHUNK_EDGE, HAS_SECTION_EDGE, HAS_SUBSECTION_EDGE}
+                    ]
+                    sync_access(doc_id, access, access_edges)
+                result.access_synced = has_writer
                 result.persisted = self._persist(
                     document_node, chunk_nodes + link_nodes, edges
                 )
