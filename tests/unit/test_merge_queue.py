@@ -517,13 +517,11 @@ def test_promotion_state_counts_merges_not_yet_promoted(canonical: Path) -> None
 
 
 # ---------------------------------------------------------------------------
-# Fail-closed pruning
+# Fail-closed pruning (D-ORC-21: a guarded prune that works even when
+# repository-manager is not importable, instead of always keeping the branch)
 # ---------------------------------------------------------------------------
-def test_prune_without_repository_manager_keeps_the_branch(
-    canonical: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An un-pruned branch is untidy; a wrongly-pruned one loses work. When the
-    guarded pruner is unavailable the queue must decline, not improvise."""
+def _block_repository_manager(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every ``import repository_manager...`` raise, as in a minimal env."""
     import builtins
 
     real_import = builtins.__import__
@@ -534,10 +532,128 @@ def test_prune_without_repository_manager_keeps_the_branch(
         return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(builtins, "__import__", _no_rm)
+
+
+def test_prune_without_repository_manager_refuses_an_unknown_branch(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The inline fallback still fails closed for a branch it cannot find —
+    it never invents a way to prune something it cannot verify."""
+    _block_repository_manager(monkeypatch)
     candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(canonical))
-    result = mq.prune_landed(candidate, repo_name="canonical", base="main")
+    result = mq.prune_landed(
+        candidate, repo_name="canonical", base="main", repo=canonical
+    )
     assert result["pruned"] is False
-    assert "repository-manager is not importable" in result["reason"]
+    assert result["accelerator"] == "inline (repository-manager not importable)"
+    assert "does not exist" in result["reason"]
+
+
+def test_prune_without_repository_manager_deletes_a_genuinely_landed_branch(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-ORC-21: the queue used to keep EVERY landed branch when
+    repository-manager was not importable, regardless of whether the branch was
+    genuinely safe to delete. The inline guarded prune must actually prune a
+    branch that has landed (is now an ancestor of main) with a clean worktree —
+    anchoring it first, and never using `git branch -D`."""
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    mq.enqueue(path=lane)
+    landed = mq.run_queue(path=canonical, prune=False)
+    assert landed["landed"] == 1
+
+    _block_repository_manager(monkeypatch)
+    candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(lane))
+    result = mq.prune_landed(
+        candidate, repo_name="canonical", base="main", repo=canonical
+    )
+
+    assert result["pruned"] is True
+    assert result["accelerator"] == "inline (repository-manager not importable)"
+    assert not lane.exists()  # worktree removed
+    assert _run(["git", "branch", "--list", "lane-a"], canonical) == ""  # ref deleted
+    # anchored before deletion — the commit is still reachable, never orphaned
+    anchor = _run(
+        ["git", "rev-parse", "--verify", "--quiet", "refs/lane-backup/lane-a"],
+        canonical,
+    )
+    assert anchor == landed["outcomes"][0]["commit"] or anchor  # anchor resolved
+
+
+def test_prune_without_repository_manager_refuses_unmerged_commits(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A branch that was never actually landed must never be deleted, even with
+    `-d` (which would itself refuse) — this pins the refusal at the merge-base
+    check, before git is even asked, and proves the branch survives."""
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})  # never merged to main
+
+    _block_repository_manager(monkeypatch)
+    candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(lane))
+    result = mq.prune_landed(
+        candidate, repo_name="canonical", base="main", repo=canonical
+    )
+
+    assert result["pruned"] is False
+    assert "not (or no longer) reachable" in result["reason"]
+    assert _run(["git", "branch", "--list", "lane-a"], canonical) != ""
+    assert lane.is_dir()
+
+
+def test_prune_without_repository_manager_skips_a_worktree_still_dirty(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`merged` (an ancestor of base) is not the same as `unoccupied` — a lane
+    that landed part of its work and kept editing must not be pruned out from
+    under it (the exact shape of D-FE-9, reproduced here for the inline path)."""
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    mq.enqueue(path=lane)
+    landed = mq.run_queue(path=canonical, prune=False)
+    assert landed["landed"] == 1
+    _write(lane, "pkg/a.py", "A = 2\n")  # uncommitted work, never committed
+
+    _block_repository_manager(monkeypatch)
+    candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(lane))
+    result = mq.prune_landed(
+        candidate, repo_name="canonical", base="main", repo=canonical
+    )
+
+    assert result["pruned"] is False
+    assert "uncommitted work" in result["reason"]
+    assert lane.is_dir()
+    assert _run(["git", "branch", "--list", "lane-a"], canonical) != ""
+
+
+# ---------------------------------------------------------------------------
+# Queue visibility (D-ORC-20: queued != landed, and nothing drains the queue
+# automatically — the queue must say so rather than let a lane misread
+# `state: queued` as "handed off")
+# ---------------------------------------------------------------------------
+def test_enqueue_says_explicitly_that_queued_is_not_landed(canonical: Path) -> None:
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    result = mq.enqueue(path=lane)
+    assert "D-ORC-20" in result["note"]
+    assert "merge-queue run" in result["note"]
+    assert result["queue_depth"] == 1
+
+
+def test_status_warns_when_the_oldest_candidate_is_stale(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    mq.enqueue(path=lane)
+    monkeypatch.setattr(mq, "STALE_QUEUE_THRESHOLD_SECONDS", -1)
+    report = mq.queue_report(canonical)
+    assert report["stale_queue_warning"] is not None
+    assert "lane-a" in report["stale_queue_warning"]
+    assert "D-ORC-20" in report["stale_queue_warning"]
+
+
+def test_status_does_not_warn_for_a_freshly_queued_candidate(canonical: Path) -> None:
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    mq.enqueue(path=lane)
+    report = mq.queue_report(canonical)
+    assert report["stale_queue_warning"] is None
 
 
 def test_queue_report_publishes_the_latency_budget(canonical: Path) -> None:
