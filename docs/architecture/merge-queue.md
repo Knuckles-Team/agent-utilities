@@ -300,6 +300,48 @@ reverted line into an otherwise-clean merged tree flips the check from
 > underneath a running gate. Neither may happen inside a merge gate, whose entire
 > value is that its verdict is trustworthy.
 
+## Differential (regression) gating for targeted tests
+
+`main` itself is not always green. Judging `targeted-tests` against the merged tree
+in isolation — the original shape of this step — meant a candidate that touched an
+already-red module was rejected for `main`'s own failures, even when it strictly
+*improved* them: measured on a real branch, the merged tree failed only 9 of the
+same two test files where `main` already failed 30, fixing 21, and it was still
+rejected. `contract_baseline` (above) already established the fix for contract
+checks — compare the merged tree against the base, not against a fixed target —
+and `compute_test_baseline` applies the identical idea one level down, at the
+individual failing-test-id.
+
+* **Id-level only, never by file/module/pattern/count.** A failing test id is
+  permitted exactly when that same id already fails, identically, on the base ref.
+  This is the only shape that cannot be gamed into masking a real regression — see
+  the module's own `AU-OS.governance.test-regression-baseline` block for the
+  reasoning against each looser alternative.
+* **Fail-closed on a degraded read; pass on an honest absence.** If the base run
+  cannot be produced — it times out, crashes, or does not even collect
+  (`_PYTEST_READABLE_EXIT_CODES = {0, 1, 5}`; a collection/usage/internal-error exit
+  is not in that set) — the candidate is **refused**, never treated as "the base has
+  no pre-existing failures." A base that genuinely produces zero failures for the
+  selection is the other case, and *that* means any merged-tree failure is
+  unambiguously new.
+* **Cached, content-addressed.** Keyed by `(base_sha, sorted selection,
+  interpreter)` under the same shared, unversioned arbitration directory the queue
+  itself uses. `main` is static within a batch — `select_tests` already computes
+  one selection per batch/sub-batch attempt, not per candidate — so the expensive
+  run happens once per distinct selection and every later call is a cache hit.
+  Only a *readable* result is cached: an unreadable run may be a transient fluke,
+  and caching that would turn one bad run into a standing refusal.
+* **Measured cost.** Against this repo's own real, pre-existing red
+  (`tests/integration/knowledge_graph/test_engine_helpers.py` +
+  `test_knowledge_tools.py`, 30 failing / 1 passing on `main` at the time of
+  writing): a cold baseline run took **~34 s** (well inside the 120 s
+  `TARGETED_TEST_BUDGET_SECONDS` ceiling) and a cache hit took **~4 ms**. The
+  baseline is only ever computed after the merged-tree run is itself readable, so a
+  candidate whose merged tree is fully green pays nothing extra beyond a cache
+  lookup when a baseline already exists for that exact selection, and a candidate
+  whose merged tree fails pays the cold cost at most once per distinct selection
+  per base commit.
+
 ## The cross-branch duplicate-symbol scan
 
 CONCEPT:AU-OS.governance.cross-branch-duplicate-symbol
