@@ -73,6 +73,7 @@ from agent_utilities.observability.gateway_metrics import (
     MCP_CHILD_QUEUE_DEPTH,
     MCP_CHILD_RESTARTS,
 )
+from agent_utilities.security.log_redaction import redact_for_log
 
 # MCP protocol error (e.g. a terminated streamable-http session). SDK v2
 # (>=2.0.0, the floor `fastmcp>=4.0.0b1` pulls in) renamed `McpError` ->
@@ -515,12 +516,18 @@ class ChildRuntime:
                     self._set_state("failed")
                     first.set_exception(e)
                     return
-                # Log the real cause, not just its class. The line-keyed
-                # swallowed-error ratchet re-flagged this unchanged handler
-                # after the imports above shifted it, so it is closed on the
-                # merits rather than re-baselined: a reconnect that keeps
-                # failing is undiagnosable from `exception_type=OSError` alone.
-                logger.warning("Reconnect to child server failed: %r", e)
+                # A reconnect that keeps failing is undiagnosable from
+                # `exception_type=OSError` alone, but the raw exception text
+                # can carry the child's connection endpoint (a transport
+                # error's message commonly embeds the socket path/host).
+                # redact_for_log gives a stable, non-reversible tag so
+                # repeated failures against the SAME cause still correlate
+                # in the log stream without disclosing it.
+                logger.warning(
+                    "Reconnect to child server failed (%s: %s)",
+                    type(e).__name__,
+                    redact_for_log(e),
+                )
             finally:
                 self._ready.clear()
                 self._sessions = []
