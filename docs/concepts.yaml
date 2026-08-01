@@ -3601,6 +3601,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/harness/program_optimization.py
+  - agent_utilities/knowledge_graph/ontology/evolution.py
   - agent_utilities/knowledge_graph/orchestration/research_orchestrator.py
   - agent_utilities/knowledge_graph/research/candidate_insight.py
   - agent_utilities/knowledge_graph/research/evidence.py
