@@ -889,3 +889,81 @@ def test_baseline_only_runs_the_not_yet_cached_delta(
     (argv,) = seen
     assert "tests/unit/test_a.py" not in argv
     assert "tests/unit/test_c.py" in argv
+
+
+# ---------------------------------------------------------------------------
+# D-MW-9: differential contract-check gating proves the hole is closed — a
+# contract script that ALREADY carries debt on main (exactly
+# check_current_only_contract.py's real shape: ~490 pre-existing violations)
+# must not deadlock the queue, while a candidate that adds a genuinely NEW
+# violation to that same already-red script must still be rejected.
+# ---------------------------------------------------------------------------
+
+ITEMIZED_CONTRACT = '''\
+import pathlib, sys
+root = pathlib.Path(sys.argv[sys.argv.index("--repository-root") + 1])
+src = (root / "pkg" / "core.py").read_text()
+violations = sorted(line.strip() for line in src.splitlines() if line.strip().startswith("BAD_"))
+if violations:
+    print("itemized gate failed:")
+    for v in violations:
+        print(f"- {v}")
+    sys.exit(1)
+sys.exit(0)
+'''
+
+
+def _with_itemized_contract(canonical: Path) -> None:
+    """Give the fixture repo a contract with ONE pre-existing violation already
+    on main — the real shape of check_current_only_contract.py right now."""
+    _write(canonical, "pkg/core.py", "VALUE = 1\nBAD_existing = 1\n")
+    _write(canonical, "scripts/security/check_itemized_contract.py", ITEMIZED_CONTRACT)
+    _commit(canonical, "main: a contract with one pre-existing, unfixed violation")
+
+
+def test_new_violation_on_an_already_red_contract_script_is_rejected(
+    canonical: Path,
+) -> None:
+    """The itemized-diff proof: main is ALREADY red for this script (BAD_existing),
+    and a candidate that adds a SECOND, distinct violation to the same file must
+    still be rejected — proving new-vs-pre-existing is judged per violation LINE,
+    not merely by whether the script was already failing."""
+    _with_itemized_contract(canonical)
+    lane = _branch(
+        canonical,
+        "lane-adds-new-violation",
+        {"pkg/core.py": "VALUE = 1\nBAD_existing = 1\nBAD_new = 2\n"},
+    )
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 0 and result["rejected"] == 1
+    gate = result["outcomes"][0]["gate"]
+    check = next(c for c in gate["checks"] if c["name"] == "contract-checks")
+    assert check["ok"] is False
+    assert "NEW violation" in check["detail"]
+    assert "BAD_new = 2" in check["detail"]
+    assert "pre-existing" in check["detail"]
+    assert "BAD_existing" not in check["detail"].split("NEW violation")[1].split(
+        "pre-existing"
+    )[0]
+
+
+def test_pre_existing_contract_debt_does_not_block_an_unrelated_candidate(
+    canonical: Path,
+) -> None:
+    """The escape-the-deadlock proof: main already carries contract debt (exactly
+    the ~490-violation check_current_only_contract.py shape), and a candidate that
+    never touches the offending file must land — the debt is reported, not
+    silenced, but it is not blocking."""
+    _with_itemized_contract(canonical)
+    lane = _branch(
+        canonical, "lane-unrelated", {"pkg/elsewhere.py": "UNRELATED = 1\n"}
+    )
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 1 and result["rejected"] == 0
+    gate = result["outcomes"][0]["gate"]
+    check = next(c for c in gate["checks"] if c["name"] == "contract-checks")
+    assert check["ok"] is True
+    assert "BAD_existing" in check["detail"]
+    assert "pre-existing" in check["detail"]

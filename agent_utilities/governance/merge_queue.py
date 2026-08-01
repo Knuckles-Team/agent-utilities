@@ -1121,9 +1121,12 @@ def run_contract_checks(
             else:
                 # new_lines empty and merged_lines non-empty => merged_lines is
                 # entirely a subset of base.lines => pre_existing == merged_lines.
+                shown = "\n".join(sorted(pre_existing)[:10])
+                more = f" (+{len(pre_existing) - 10} more)" if len(pre_existing) > 10 else ""
                 notes.append(
                     f"{rel}: {len(pre_existing)} pre-existing violation(s) on "
-                    "the base ref (allowed — not caused by this candidate)"
+                    f"the base ref (allowed — not caused by this candidate):\n"
+                    f"{shown}{more}"
                 )
         elif not base.ok:
             # Non-itemized script (a static message or a bare nonzero exit
