@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from types import SimpleNamespace
 
 import pytest
@@ -42,6 +43,48 @@ def test_live_contract_validates_name_arguments_and_compatibility_fingerprint():
 
     assert contract.compatibility_sha256 == expected
     assert len(contract.schema_sha256) == 64
+
+
+def test_v1_object_with_only_inputschema_still_reads_via_fallback():
+    """D-FE-4: an MCP SDK v1-shaped object (only the old attribute) must keep
+    working — ``_field`` falls back to ``inputSchema`` when ``input_schema``
+    is absent."""
+    tool = _tool()
+    assert not hasattr(tool, "input_schema")
+    schema = canonical_input_schema(tool, include_presentation=False)
+    assert schema["properties"]["action"]["type"] == "string"
+
+
+def test_v2_object_prefers_input_schema_and_never_touches_the_deprecated_alias():
+    """D-FE-4: a v2-shaped object exposing both ``input_schema`` (real field)
+    and ``inputSchema`` (deprecated compatibility property) must be read via
+    ``input_schema`` only — touching the deprecated property at all is what
+    emits ``FastMCPDeprecationWarning`` on every governed schema check."""
+
+    class _DeprecatedAlias:
+        def __get__(self, obj: object, objtype: type | None = None) -> object:
+            warnings.warn(
+                "Accessing 'Tool.inputSchema' is deprecated; MCP SDK v2 "
+                "renamed this field to 'input_schema'",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return obj._real_input_schema  # type: ignore[attr-defined]
+
+    class _V2Tool:
+        inputSchema = _DeprecatedAlias()
+
+        def __init__(self, schema: dict) -> None:
+            self.name = "records"
+            self.input_schema = schema
+            self._real_input_schema = schema
+
+    tool = _V2Tool(_tool().inputSchema)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        schema = canonical_input_schema(tool, include_presentation=False)
+    assert not caught, f"unexpected warnings: {[str(w.message) for w in caught]}"
+    assert schema["properties"]["action"]["type"] == "string"
 
 
 def test_presentation_drift_does_not_invalidate_signed_compatibility_pin():

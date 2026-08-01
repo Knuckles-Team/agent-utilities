@@ -1,11 +1,23 @@
-"""Operational-Cypher subset interpreter for the in-memory L1 backend.
+"""Operational-Cypher subset coverage for ``EpistemicGraphBackend``.
 
 The orchestration engine's persistent Task queue drives status transitions via
-``MATCH ... SET`` and polls with ``MATCH (t:Task {status: 'pending'})``. The
-epistemic-graph (in-memory) backend has no Cypher engine, so
-``EpistemicGraphBackend.execute`` interprets that operational subset directly.
-A regression here re-introduces the infinite task re-claim loop (status writes
-silently dropped → tasks never leave ``pending``). (CONCEPT:AU-KG.query.object-graph-mapper)
+``MATCH ... SET`` and polls with ``MATCH (t:Task {status: 'pending'})``.
+``EpistemicGraphBackend.execute`` is a thin adapter: Cypher is parsed,
+planned, authorized, and executed by the native Rust engine (see the module
+docstring on ``epistemic_graph_backend.py``), so these are integration tests
+against the REAL engine (CONCEPT:AU-KG.memory.provides-real-ephemeral-one),
+not a Python-side interpreter. A regression here re-introduces the infinite
+task re-claim loop (status writes silently dropped → tasks never leave
+``pending``). (CONCEPT:AU-KG.query.object-graph-mapper)
+
+Every fixture binds to the per-test ``engine_graph`` tenant via an explicit
+``graph_name=`` — a bare ``EpistemicGraphBackend()`` resolves its own routing
+graph (``resolve_routing_graph``) to a *tenant-scoped* name that is not
+``None``/``__commons__``/``__secrets__``, so it silently bypasses the autouse
+``isolate_graph_compute_engine`` per-test redirect and every such test in the
+process collides on the SAME shared graph identity — the engine's fail-closed
+fencing then rejects the losing writer (``STALE_FENCE``), not a real product
+bug.
 """
 
 from __future__ import annotations
@@ -25,8 +37,8 @@ def _enc(d: dict) -> str:
 
 
 @pytest.fixture()
-def backend() -> EpistemicGraphBackend:
-    b = EpistemicGraphBackend()
+def backend(engine_graph) -> EpistemicGraphBackend:
+    b = EpistemicGraphBackend(graph_name=engine_graph.graph_name)
     meta = _enc({"target": "/repo", "type": "codebase"})
     b.add_node("job-1", node_type="Task", status="pending", metadata=meta)
     b.add_node("job-2", node_type="Task", status="pending", metadata=meta)
@@ -229,9 +241,9 @@ def test_rel_match_accepts_inline_literal_anchor_id(backend):
 
 
 @pytest.fixture()
-def edged() -> EpistemicGraphBackend:
+def edged(engine_graph) -> EpistemicGraphBackend:
     """A small graph with three typed edges for global edge-read tests."""
-    b = EpistemicGraphBackend()
+    b = EpistemicGraphBackend(graph_name=engine_graph.graph_name)
     for n in ("a", "b", "c"):
         b.add_node(n, node_type="Node")
     b.add_edge("a", "b", relationship="KNOWS")
@@ -261,8 +273,8 @@ def test_unanchored_edge_count_filtered_by_rel_type(edged):
 
 
 @pytest.fixture()
-def kinds() -> EpistemicGraphBackend:
-    b = EpistemicGraphBackend()
+def kinds(engine_graph) -> EpistemicGraphBackend:
+    b = EpistemicGraphBackend(graph_name=engine_graph.graph_name)
     b.add_node("t1", node_type="Tool", server="egeria", weight=2)
     b.add_node("t2", node_type="Tool", server="egeria", weight=4)
     b.add_node("t3", node_type="Tool", server="gitlab", weight=10)
@@ -298,18 +310,18 @@ def test_bare_count_still_collapses_to_total(kinds):
 # --- Read queries whose alias/property contains a write keyword (KG-2.63) ------
 
 
-def test_read_alias_containing_create_substring_not_misrouted():
+def test_read_alias_containing_create_substring_not_misrouted(engine_graph):
     # ``created`` ⊃ CREATE: a read aliasing to ``created`` must execute, not be
     # routed to the legacy reader (which returned []) by a naive substring guard.
-    b = EpistemicGraphBackend()
+    b = EpistemicGraphBackend(graph_name=engine_graph.graph_name)
     b.add_node("n1", node_type="Doc")
     rows = b.execute("MATCH (n:Doc) RETURN n.id AS created LIMIT 1")
     assert rows == [{"created": "n1"}]
 
 
-def test_read_property_containing_merge_substring_not_misrouted():
+def test_read_property_containing_merge_substring_not_misrouted(engine_graph):
     # ``merge_status`` ⊃ MERGE: must not be mistaken for a MERGE write.
-    b = EpistemicGraphBackend()
+    b = EpistemicGraphBackend(graph_name=engine_graph.graph_name)
     b.add_node("n1", node_type="Doc", merge_status="ok")
     rows = b.execute("MATCH (n:Doc) RETURN n.merge_status AS merge_status")
     assert rows == [{"merge_status": "ok"}]

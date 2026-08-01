@@ -284,8 +284,18 @@ def _connect_db():
 
 # Goal definitions/observability live on a develop ``Concept`` projection. The
 # sole writable lifecycle authority is its deterministic WorkItem.
+#
+# ``c.id AS id`` is required (in addition to the ``goal_id`` alias the rest of
+# this module reads) because ``secured_reads.row_node_ids``/``_row_node_id``
+# governance enforcement (CONCEPT:AU-KG.query.vendor-agnostic-traversal) demands
+# every returned row carry an identifiable governed node id under one of
+# "id"/"node_id"/"n.id"/"_id" — a row with a custom-named identity column only
+# (here, "goal_id") is rejected as ungovernable and the whole query raises
+# PermissionError, which callers swallow into a silent None/[] result. Mirrors
+# ``agent_dispatch_worker.load_goal_run``'s query, which already carries both
+# aliases for the same reason.
 _GOAL_RETURN = (
-    "c.id AS goal_id, c.session_id AS session_id, "
+    "c.id AS id, c.id AS goal_id, c.session_id AS session_id, "
     "c.objective AS objective, c.owner_host AS owner_host, c.summary AS summary, "
     "c.error AS error, c.total_iterations AS total_iterations, "
     "c.total_duration_ms AS total_duration_ms, c.total_tool_calls AS total_tool_calls, "
@@ -365,6 +375,34 @@ def _persist_goal(goal_id: str) -> None:
         engine.add_node(goal_id, "Concept", properties=props)
     except Exception as e:  # noqa: BLE001 — best-effort persist
         logger.error(f"Error persisting goal {goal_id} to KG: {e}")
+        return
+    # Deliberate classification refinement (CONCEPT:AU-KG.research.these-properties-carry):
+    # the write-time chokepoint (IntelligenceGraphEngine._upsert_node /
+    # tenant_sharing.stamp_classification) already stamps every node —
+    # including this one — CONFIDENTIAL + owner as a safe default, which
+    # already makes this goal readable by its own creator. But "Concept" is an
+    # overloaded label used for more than goals, so the bare label alone can't
+    # tell the generic chokepoint that THIS Concept is specifically a user's
+    # goal record. This call site knows that and refines the classification to
+    # INTERNAL accordingly (matches CompanyBrain.classify_node's own documented
+    # usage) — it does not change whether the actor can read it (already
+    # true), only the label used for entailment-propagation strictness
+    # ordering (secured_reads.inherit_inferred_acl) and audit posture.
+    try:
+        from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+            get_company_brain,
+        )
+        from agent_utilities.models.company_brain import DataClassification
+        from agent_utilities.security.brain_context import current_actor
+
+        actor = current_actor()
+        get_company_brain().permissions.classify_node(
+            goal_id,
+            DataClassification.INTERNAL,
+            data_owner=actor.actor_id,
+        )
+    except Exception as e:  # noqa: BLE001 — best-effort; the chokepoint default already covers correctness, this only refines the label
+        logger.debug(f"Goal {goal_id} ACL classification refinement failed: {e}")
 
 
 def _goal_row_to_entry(row: dict[str, Any]) -> dict[str, Any]:

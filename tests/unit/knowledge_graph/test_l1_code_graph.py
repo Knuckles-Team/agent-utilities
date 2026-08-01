@@ -9,6 +9,8 @@ shapes — WHERE-anchored single-hop (find_references) and bounded var-length
 
 import re
 
+import pytest
+
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
@@ -78,12 +80,97 @@ class MutableFakeGraph:
                 out.append((n, dict(p)))
         return out[:limit] if limit else out
 
+    def _project_rows(self, rows, ret):
+        """Project (node_id, props) pairs through a RETURN clause's column list."""
+        out = []
+        for nid, props in rows:
+            row = {}
+            for item in ret.split(","):
+                item = item.strip()
+                mi = re.match(r"(\w+)\.(\w+)\s+AS\s+(\w+)", item, re.I)
+                if mi:
+                    _, prop, alias = mi.groups()
+                    row[alias] = props.get(prop)
+                    continue
+                mi = re.match(r"(\w+)\s+AS\s+(\w+)", item, re.I)
+                if mi:
+                    _, alias = mi.groups()
+                    row[alias] = nid
+            out.append(row)
+        return out
+
+    def _reachable(self, seeds, *, forward, depth):
+        """BFS over successors (forward) or predecessors (not forward), up to
+        ``depth`` hops, excluding the seeds themselves — the fake's stand-in for
+        the engine's bounded ``[:calls*1..depth]`` variable-length traversal."""
+        step = self.get_successors if forward else self.get_predecessors
+        frontier = set(seeds)
+        found: dict[str, None] = {}
+        for _ in range(depth):
+            nxt: set[str] = set()
+            for nid in frontier:
+                for neighbor in step(nid):
+                    if neighbor not in found and neighbor not in seeds:
+                        found[neighbor] = None
+                        nxt.add(neighbor)
+            if not nxt:
+                break
+            frontier = nxt
+        return list(found)
+
     def query_cypher(self, query):
-        """Minimal stand-in for the native engine's Cypher executor, covering
-        exactly the plain ``MATCH (v:Label) WHERE v.prop = 'literal' RETURN
-        ...`` shape ``build_code_nav_query('find_definition', ...)`` emits
-        (CONCEPT:AU-P0-2). Real callers hit the real engine; this fake exists
-        so the test doesn't need a live one."""
+        """Minimal stand-in for the native engine's Cypher executor, covering the
+        shapes ``build_code_nav_query`` emits (CONCEPT:AU-P0-2):
+
+        * ``find_definition``: ``MATCH (v:Label) WHERE v.prop = 'literal' RETURN ...``
+        * ``find_references``: ``MATCH (caller:Code)-[:calls]->(def:Code) WHERE
+          def.prop = 'literal' RETURN caller...`` (one-hop predecessors of the
+          WHERE-anchored node)
+        * ``trace_call_graph``/``impact_of_change``: the same shape with a bounded
+          ``[:calls*1..N]`` variable-length edge, walking successors (forward,
+          anchor on the LEFT var) or predecessors (anchor on the RIGHT var).
+
+        Real callers hit the real engine; this fake exists so the test doesn't
+        need a live one.
+        """
+        m = re.match(
+            r"MATCH\s*\((\w+):(\w+)\)-\[:(\w+)(?:\*1\.\.(\d+))?\]->\((\w+):(\w+)\)\s*"
+            r"WHERE\s*(\w+)\.(\w+)\s*=\s*'([^']*)'\s*"
+            r"RETURN\s+(?:DISTINCT\s+)?(.+?)(?:\s+LIMIT\s+(\d+))?$",
+            query,
+            re.I,
+        )
+        if m:
+            (
+                var1,
+                _label1,
+                _rel,
+                depth_str,
+                var2,
+                label2,
+                where_var,
+                wprop,
+                wval,
+                ret,
+                limit,
+            ) = m.groups()
+            depth = int(depth_str) if depth_str else 1
+            anchor_label = label2 if where_var == var2 else _label1
+            anchors = {
+                nid
+                for nid, props in self.get_nodes_by_label(anchor_label, 0)
+                if props.get(wprop) == wval
+            }
+            # where_var == var2 (the RIGHT-hand node, e.g. `def`/`t`) → return
+            # var1 (upstream: predecessors). where_var == var1 (e.g. `s`) →
+            # return var2 (downstream: successors).
+            forward = where_var == var1
+            result_ids = self._reachable(anchors, forward=forward, depth=depth)
+            rows = [(nid, self._get_node_properties(nid)) for nid in result_ids]
+            if limit:
+                rows = rows[: int(limit)]
+            return self._project_rows(rows, ret)
+
         m = re.match(
             r"MATCH\s*\((\w+):(\w+)\)\s*WHERE\s*(\w+)\.(\w+)\s*=\s*'([^']*)'\s*"
             r"RETURN\s+(.+?)(?:\s+LIMIT\s+(\d+))?$",
@@ -102,22 +189,7 @@ class MutableFakeGraph:
         ]
         if limit:
             rows = rows[: int(limit)]
-        out = []
-        for nid, props in rows:
-            row = {}
-            for item in ret.split(","):
-                item = item.strip()
-                mi = re.match(r"(\w+)\.(\w+)\s+AS\s+(\w+)", item, re.I)
-                if mi:
-                    _, prop, alias = mi.groups()
-                    row[alias] = props.get(prop)
-                    continue
-                mi = re.match(r"(\w+)\s+AS\s+(\w+)", item, re.I)
-                if mi:
-                    _, alias = mi.groups()
-                    row[alias] = nid
-            out.append(row)
-        return out
+        return self._project_rows(rows, ret)
 
 
 def _backend():
@@ -133,15 +205,24 @@ def _names(rows):
 
 
 def test_unwind_to_per_row_translation():
-    out = EpistemicGraphBackend._unwind_to_per_row(
-        "UNWIND $batch AS row MERGE (n:Code {id: row.id}) SET n.`name` = row.`name`"
-    )
-    assert out == "MERGE (n:Code {id: $id}) SET n.`name` = $name"
-    # Non-UNWIND passes through unchanged.
-    assert (
-        EpistemicGraphBackend._unwind_to_per_row("MATCH (n) RETURN n")
-        == "MATCH (n) RETURN n"
-    )
+    """The UNWIND-to-per-row Python mutation compiler is retired on
+    ``EpistemicGraphBackend`` (CONCEPT:AU-P0-2): batch writes must go through
+    native ChangeEnvelope ingestion instead of a second Python mutation
+    compiler — see ``execute_batch``'s docstring, and the same invariant is
+    independently enforced by ``tests/unit/test_native_cypher_routing.py``
+    (``retired`` tuple, which lists ``_unwind_to_per_row`` among the helper
+    names that must never reappear in ``execute``/``execute_read``/
+    ``execute_write``/``execute_batch``'s source). ``_unwind_to_per_row``
+    now lives only on ``LadybugBackend`` (a different, contrib backend that
+    still executes raw UNWIND batches itself)."""
+    assert not hasattr(EpistemicGraphBackend, "_unwind_to_per_row")
+
+    b = _backend()
+    with pytest.raises(RuntimeError, match="ChangeEnvelope"):
+        b.execute_batch(
+            "UNWIND $batch AS row MERGE (n:Code {id: row.id}) SET n.`name` = row.`name`",
+            [{"id": "x", "name": "x"}],
+        )
 
 
 def _seed(b):

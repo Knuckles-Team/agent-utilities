@@ -94,6 +94,10 @@ class MemoryRetriever:
                 edge_data = self.engine.graph.get_edge_data(SELF_MODEL_ANCHOR, succ)
                 if edge_data:
                     for _, edata in edge_data.items():
+                        # 'relationship' is the canonical edge property
+                        # (upsert_edge writes edge_props = {"relationship":
+                        # edge_type, ...}); 'type' is retired and
+                        # add_edge's public API rejects it as an alias.
                         if edata.get("relationship") == RegistryEdgeType.CURRENT_SELF_MODEL:
                             ndata = dict(self.engine.graph.nodes[succ])
                             return self.ogm._deserialize(ndata, MemoryRetrieverNode)

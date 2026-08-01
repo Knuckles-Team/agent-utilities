@@ -55,11 +55,19 @@ from .change_envelope import ChangeEnvelope
 
 logger = logging.getLogger(__name__)
 
-_OPAQUE_INTERNAL_ID_RE = re.compile(r"^[0-9a-f]{32}(?:[0-9a-f]{32})?$")
+#: Opaque digest lengths this gate exempts from the full privacy-pattern scan
+#: (D-GM-3): 24-hex/96-bit (``engine.py``'s ``_ingest_connector`` object_key —
+#: ``sha256(portable_uri).hexdigest()[:24]`` — and the matching
+#: ``GitMarkdownConnector._document_node_id``/``_object_key`` truncation),
+#: 32-hex/128-bit, and 64-hex/256-bit full digests. A truncated 24-hex digest
+#: previously fell through to the full scan and could trip the case-insensitive
+#: IBAN pattern by chance (~1 in 20 sha256 digests), rejecting a genuine
+#: connector-owned document/record id with no PII involved.
+_OPAQUE_INTERNAL_ID_RE = re.compile(r"^(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$")
 _OPAQUE_NAMESPACED_ID_RE = re.compile(
     r"^(?P<namespace>[a-z][a-z0-9._-]{0,63}"
     r"(?::[a-z][a-z0-9._-]{0,63}){0,7}):"
-    r"[0-9a-f]{32}(?:[0-9a-f]{32})?$"
+    r"(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$"
 )
 
 __all__ = [
@@ -1867,6 +1875,8 @@ def ingest_graph_slice(
     source_instance: str = "",
     checkpoint: str | None = None,
     version_field: str = "updatedAt",
+    ontology_mapping_version: str = "",
+    classification: str = "",
 ) -> dict[str, Any]:
     """Commit a connector-produced multi-node graph slice atomically.
 
@@ -1875,6 +1885,21 @@ def ingest_graph_slice(
     source has no explicit version, a deterministic content digest supplies the
     idempotent version without advancing a source cursor. The Epistemic Graph
     authority is resolved from ``engine`` and missing native support fails closed.
+
+    ``ontology_mapping_version`` (CONCEPT:AU-KG.ingest.domain-pack-framework)
+    stamps the resulting envelope's ``ChangeEnvelope.ontology_mapping_version``
+    — the domain-pack framework's caller (``domain_packs.envelope_bridge``)
+    passes its pack's ``"<pack>@<version>"`` so every fact this slice produces
+    traces back to the exact mapping revision that produced it. Defaults to
+    ``""`` (unchanged behavior for every existing caller).
+
+    ``classification`` (CONCEPT:AU-KG.ingest.domain-pack-framework), one of
+    ``DataClassification``'s lowercase values (``"public"``/``"internal"``/
+    ``"confidential"``/``"restricted"``), overrides the envelope's
+    ``ChangeEnvelope.classification``. Defaults to ``""``, which leaves
+    ``from_connector_record``'s own fail-closed default (``PUBLIC`` only when
+    the record's ``external_access`` says so, else ``INTERNAL``) unchanged for
+    every existing caller.
     """
     relationships = relationships or []
     if not entities and not relationships:
@@ -1936,6 +1961,11 @@ def ingest_graph_slice(
             default=str,
         ).encode("utf-8")
     ).hexdigest()
+    overrides: dict[str, Any] = {}
+    if classification:
+        from ...models.company_brain import DataClassification
+
+        overrides["classification"] = DataClassification(classification)
     envelope = ChangeEnvelope.from_connector_record(
         primary,
         connector=connector,
@@ -1943,6 +1973,8 @@ def ingest_graph_slice(
         id_field="id",
         version_field=version_field,
         checkpoint=checkpoint,
+        ontology_mapping_version=ontology_mapping_version,
+        **overrides,
     )
     # Batch identity must cover every auxiliary node and relationship. Keeping
     # only the primary row's upstream timestamp would replay-skip a changed

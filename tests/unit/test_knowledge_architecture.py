@@ -28,17 +28,17 @@ def sample_graph() -> GraphComputeEngine:
     g = GraphComputeEngine(backend_type="rust")
 
     # Add nodes with types
-    g.add_node("agent_1", type="agent", name="TestAgent", description="A test agent")
-    g.add_node("tool_1", type="tool", name="CodeSearch", description="Search code")
-    g.add_node("concept_1", type="concept", name="AU-KG.query.vendor-agnostic-traversal", description="Architecture")
-    g.add_node("policy_1", type="policy", name="NoDelete", description="No deletions")
-    g.add_node("server_1", type="server", name="MCPServer", description="MCP endpoint")
-    g.add_node("goal_1", type="goal", name="Governance", description="Full governance")
+    g.add_node("agent_1", node_type="agent", name="TestAgent", description="A test agent")
+    g.add_node("tool_1", node_type="tool", name="CodeSearch", description="Search code")
+    g.add_node("concept_1", node_type="concept", name="AU-KG.query.vendor-agnostic-traversal", description="Architecture")
+    g.add_node("policy_1", node_type="policy", name="NoDelete", description="No deletions")
+    g.add_node("server_1", node_type="server", name="MCPServer", description="MCP endpoint")
+    g.add_node("goal_1", node_type="goal", name="Governance", description="Full governance")
 
     # Add edges
-    g.add_edge("agent_1", "tool_1", type="provides")
-    g.add_edge("agent_1", "concept_1", type="impacts_concept")
-    g.add_edge("policy_1", "concept_1", type="motivated_by")
+    g.add_edge("agent_1", "tool_1", relationship="provides")
+    g.add_edge("agent_1", "concept_1", relationship="impacts_concept")
+    g.add_edge("policy_1", "concept_1", relationship="motivated_by")
 
     return g
 
