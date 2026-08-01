@@ -68,6 +68,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from agent_utilities.core._env import setting
 from agent_utilities.core.config import config
+from agent_utilities.security.log_redaction import redact_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -818,7 +819,7 @@ class DocumentProcessor:
                     logger.warning(
                         "verbatim read of %s failed (%s); the evidence spine will "
                         "address the extracted text instead",
-                        path,
+                        redact_for_log(path),
                         exc,
                     )
             return fallback
