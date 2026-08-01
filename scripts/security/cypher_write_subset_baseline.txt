@@ -8,12 +8,13 @@
 # file on the next --update-baseline; never hand-add an entry to make
 # a real violation disappear.
 agent_utilities/graph/reasoning/topology.py	158	set_function_call_value	# MATCH (t:ReasoningTopologyVersion) WHERE t.id = $tid SET t.reward = coalesce(t.reward, 0.5) * (1 - $alpha) + $alpha * $score, t.task_count = coalesce(t.task_cou
-agent_utilities/knowledge_graph/core/engine.py	854	multiple_match_clauses	# MATCH (s) WHERE toLower(s.name) CONTAINS toLower($source) OR toLower($source) CONTAINS toLower(s.name) MATCH (t) WHERE toLower(t.name) CONTAINS toLower($target)
+agent_utilities/knowledge_graph/core/engine.py	855	multiple_match_clauses	# MATCH (s) WHERE toLower(s.name) CONTAINS toLower($source) OR toLower($source) CONTAINS toLower(s.name) MATCH (t) WHERE toLower(t.name) CONTAINS toLower($target)
+agent_utilities/knowledge_graph/core/graph_compute.py	3311	comma_pattern_match	# MATCH (a {id: $src}), (b {id: $tgt}) MERGE (a)-[r:X]->(b) SET r.metadata = $meta
 agent_utilities/knowledge_graph/core/inference_engine.py	76	merge_on_edge_pattern	# MATCH (a)-[:DEPENDS_ON]->(b)-[:DEPENDS_ON]->(c) WHERE NOT (a)-[:DEPENDS_ON_INDIRECT]->(c) AND a.id <> c.id MERGE (a)-[r:DEPENDS_ON_INDIRECT]->(c) SET r.inferred
 agent_utilities/knowledge_graph/core/inference_engine.py	80	merge_on_edge_pattern	# MATCH (sub)-[:INHERITS_FROM]->(sup)-[:HAS_METHOD]->(m) WHERE NOT (sub)-[:INHERITS_METHOD]->(m) MERGE (sub)-[r:INHERITS_METHOD]->(m) SET r.inferred = true, r.inf
 agent_utilities/knowledge_graph/core/inference_engine.py	84	merge_on_edge_pattern	# MATCH (a1:Agent)-[:USES]->(t:CallableResource)<-[:USES]-(a2:Agent) WHERE a1.id <> a2.id AND NOT (a1)-[:POTENTIAL_COLLABORATOR]->(a2) MERGE (a1)-[r:POTENTIAL_COL
 agent_utilities/knowledge_graph/core/materialization.py	305	multiple_match_clauses	# MATCH (s {id: $source}) MATCH (t {id: $target}) MERGE (s)-[r:X]->(t)X
-agent_utilities/knowledge_graph/core/ogm.py	315	comma_pattern_match	# MATCH (a {id: $src}), (b {id: $tgt}) MERGE (a)-[r:X]->(b) X
+agent_utilities/knowledge_graph/core/ogm.py	312	comma_pattern_match	# MATCH (a {id: $src}), (b {id: $tgt}) MERGE (a)-[r:X]->(b) X
 agent_utilities/knowledge_graph/core/owl_bridge.py	1176	comma_pattern_match	# MATCH (s {id: $sid}), (t {id: $tid}) MERGE (s)-[r:X]->(t) SET r.inferred = true, r.inferred_from = 'owl_reasoner'
 agent_utilities/knowledge_graph/core/subgraph_checkout.py	249	comma_pattern_match	# MATCH (a {id: $source_id}), (b {id: $target_id}) MERGE (a)-[r:X]->(b)
 agent_utilities/knowledge_graph/enrichment/writeback/spec_link.py	94	set_function_call_value	# MERGE (n {id: $id}) SET n.trackedBy = $tb, n.domain = coalesce(n.domain,'sdd')
