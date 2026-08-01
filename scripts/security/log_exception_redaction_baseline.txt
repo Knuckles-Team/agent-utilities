@@ -12,18 +12,3 @@
 # check_log_exception_redaction.py. Fixing a baselined site shrinks
 # this file on the next --update-baseline; never hand-add an entry to
 # make a real violation disappear.
-agent_utilities/mcp/multiplexer.py	167	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	1187	# logger=logger e
-agent_utilities/mcp/multiplexer.py	1704	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	1736	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	1745	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	1769	# logger=logger exc.category
-agent_utilities/mcp/multiplexer.py	1817	# logger=logger exc.category
-agent_utilities/mcp/multiplexer.py	2233	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	2244	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	2397	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	2634	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	3190	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	3363	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	3465	# logger=logger exc
-agent_utilities/mcp/multiplexer.py	3475	# logger=logger exc
