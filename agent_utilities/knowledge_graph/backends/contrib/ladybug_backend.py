@@ -689,35 +689,45 @@ class LadybugBackend(GraphBackend):
         *,
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Execute inside a Ladybug/Kuzu read-only transaction."""
+        """Execute inside a Ladybug/Kuzu read-only transaction.
+
+        The transient-connection close (test/ephemeral mode,
+        ``AGENT_UTILITIES_TESTING``) must happen AFTER row extraction, not in
+        the same ``finally`` as the transaction itself: ``result``/
+        ``result_set`` are lazy handles onto the live connection —
+        ``rows_as_dict()`` reads through them — so closing right after
+        ``COMMIT`` (before that read) made every read in transient mode raise
+        ``RuntimeError: Query result is closed`` instead of returning rows.
+        """
         if include_epistemic:
             return []
-        with self._get_lock():
-            self._ensure_connection()
-            connection = self.conn
-            if connection is None:
-                raise RuntimeError("LadybugDB read connection is unavailable")
-            try:
-                connection.execute("BEGIN TRANSACTION READ ONLY")
-                result = connection.execute(query, params or {})
-                connection.execute("COMMIT")
-            except Exception:
+        try:
+            with self._get_lock():
+                self._ensure_connection()
+                connection = self.conn
+                if connection is None:
+                    raise RuntimeError("LadybugDB read connection is unavailable")
                 try:
-                    connection.execute("ROLLBACK")
+                    connection.execute("BEGIN TRANSACTION READ ONLY")
+                    result = connection.execute(query, params or {})
+                    connection.execute("COMMIT")
                 except Exception:
-                    pass
-                raise
-            finally:
-                if self.transient:
-                    self.close()
-        if isinstance(result, list):
-            result_sets = result
-        else:
-            result_sets = [result]
-        rows: list[dict[str, Any]] = []
-        for result_set in result_sets:
-            rows.extend(result_set.rows_as_dict().get_all())
-        return rows
+                    try:
+                        connection.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise
+            if isinstance(result, list):
+                result_sets = result
+            else:
+                result_sets = [result]
+            rows: list[dict[str, Any]] = []
+            for result_set in result_sets:
+                rows.extend(result_set.rows_as_dict().get_all())
+            return rows
+        finally:
+            if self.transient:
+                self.close()
 
     @staticmethod
     def _unwind_to_per_row(query: str) -> str:

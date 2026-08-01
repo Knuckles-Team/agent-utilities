@@ -583,6 +583,24 @@ class IntelligenceGraphEngine(
         label = self._normalize_label(label)
         prepared = self._prepare_node_props(label, data)
 
+        # Stamp tenant/owner governance properties (CONCEPT:AU-KG.backend.company-brain-write-guard)
+        # on EVERY node write through this one generic upsert seam, not only
+        # writes routed through the BrainGuardedBackend proxy. The read path
+        # (QueryMixin.query_cypher) applies TenancyManager.scope_cypher_query's
+        # ``WHERE <var>.tenant_id = '<tenant>'`` unconditionally to every read,
+        # for every backend — so a write that skipped stamping made its own
+        # data permanently unreadable through query_cypher (matched zero rows,
+        # not an error) whenever the active backend wasn't wrapped by
+        # BrainGuardedBackend. Best-effort: writes with no bound actor (system/
+        # background/control-plane paths) proceed unstamped exactly as before.
+        if not prepared.get("tenant_id"):
+            try:
+                from .tenant_sharing import stamp_ownership
+
+                stamp_ownership(prepared)
+            except PermissionError:
+                pass
+
         typed_support = getattr(self.backend, "typed_mutation_support", "")
         if typed_support == "native":
             typed_add = getattr(self.backend, "add_node", None)
