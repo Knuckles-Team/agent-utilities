@@ -12,6 +12,7 @@ import pytest
 from agent_utilities.knowledge_graph.security.rule_ingestor import (
     RuleIngestor,
     _extract_list_items,
+    _node_props,
     _parse_frontmatter,
     _split_by_h2,
     parse_mini_markdown,
@@ -380,10 +381,14 @@ class MockEngine:
         self.hybrid_retriever = MockHybridRetriever()
 
     def link_nodes(self, src, tgt, edge_type, metadata=None):
-        self.graph.add_edge(src, tgt, relationship=edge_type, **(metadata or {}))
+        # add_edge's public API forbids the retired 'type'/'rel_type' aliases
+        # and requires the canonical 'relationship' (GraphComputeEngine
+        # rejects the old kwarg outright).
+        relationship = str(getattr(edge_type, "value", edge_type))
+        self.graph.add_edge(src, tgt, relationship=relationship, **(metadata or {}))
 
     def _serialize_node(self, node, label=None):
-        return node.to_graph_properties()
+        return _node_props(node)
 
     def _upsert_node(self, label, node_id, data):
         return None
@@ -410,7 +415,7 @@ class TestRuleIngestor:
             author="Robert C. Martin",
             domain_tags=["architecture"],
         )
-        engine.graph.add_node(book_node.id, **book_node.to_graph_properties())
+        engine.graph.add_node(book_node.id, **_node_props(book_node))
 
         count = ingestor._ingest_rules_from_parsed(
             parsed,
@@ -431,7 +436,9 @@ class TestRuleIngestor:
         ]
         assert len(rule_nodes) == 8
 
-        # Verify edges
+        # Verify edges. 'relationship' is the canonical edge property (not
+        # 'type'/'node_type', which MockEngine.link_nodes -- fixed to match
+        # add_edge's public API -- now writes).
         derived_edges = [
             (u, v)
             for u, v, d in engine.graph.edges(data=True)
@@ -447,7 +454,7 @@ class TestRuleIngestor:
             name="Clean Architecture",
             book_id="clean-architecture",
         )
-        engine.graph.add_node(book_node.id, **book_node.to_graph_properties())
+        engine.graph.add_node(book_node.id, **_node_props(book_node))
 
         ingestor._ingest_rules_from_parsed(
             parsed,
@@ -473,7 +480,7 @@ class TestRuleIngestor:
             name="Clean Architecture",
             book_id="clean-architecture",
         )
-        engine.graph.add_node(book_node.id, **book_node.to_graph_properties())
+        engine.graph.add_node(book_node.id, **_node_props(book_node))
 
         ingestor._ingest_rules_from_parsed(
             parsed,
@@ -511,8 +518,8 @@ class TestRuleIngestor:
             task_relevance_tags=["code-quality"],
         )
 
-        engine.graph.add_node(node_a.id, **node_a.to_graph_properties())
-        engine.graph.add_node(node_b.id, **node_b.to_graph_properties())
+        engine.graph.add_node(node_a.id, **_node_props(node_a))
+        engine.graph.add_node(node_b.id, **_node_props(node_b))
 
         # Wire conflict edge
         engine.link_nodes(

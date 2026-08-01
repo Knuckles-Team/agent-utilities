@@ -1001,6 +1001,33 @@ class TelemetryEngine:
         self._lazy_init()
         return self._otel_configured
 
+    @property
+    def tracer_provider(self) -> Any:
+        """The REAL ``opentelemetry.sdk.trace.TracerProvider`` :meth:`_setup_otel`
+        built (wired with a ``BatchSpanProcessor`` + ``OTLPSpanExporter`` pointed at
+        the live collector), or ``None`` when no endpoint is configured.
+
+        Triggers lazy init first, mirroring :meth:`is_otel_configured`. This is the
+        seam external instrumentation (e.g. pydantic-ai's
+        ``pydantic_ai.capabilities.Instrumentation``, whose own
+        ``InstrumentationSettings.tracer_provider`` otherwise defaults to the
+        ambient global provider — typically configured via ``logfire.configure()``,
+        which this codebase does not run) uses to land its spans on THIS engine's
+        pipeline instead of a second, unconfigured one. See
+        ``agent_utilities.capabilities.telemetry_instrumentation``.
+        """
+        self._lazy_init()
+        return self._tracer_provider
+
+    @property
+    def meter_provider(self) -> Any:
+        """The REAL ``opentelemetry.sdk.metrics.MeterProvider`` :meth:`_setup_otel`
+        built, or ``None`` when no metrics-capable collector is configured. See
+        :attr:`tracer_provider`.
+        """
+        self._lazy_init()
+        return self._meter_provider
+
     def shutdown(self) -> None:
         """Flush and shut down the OTel providers, if configured. Never raises."""
         for provider in (self._tracer_provider, self._meter_provider):

@@ -119,7 +119,7 @@ def test_gate_routes_research_item_through_grade_and_enqueue(_patched, monkeypat
     assert eng.submitted and eng.submitted[-1]["task_type"] == "research_paper_fetch"
 
 
-def test_research_feed_schedule_registered_default_on():
+def test_research_feed_schedule_registered_default_on(engine_graph):
     from agent_utilities.core import schedule_engine as se
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,
@@ -127,7 +127,18 @@ def test_research_feed_schedule_registered_default_on():
     from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
     inst = TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
-    inst.backend = EpistemicGraphBackend()
+    # A bare EpistemicGraphBackend() resolves its own routing graph
+    # (resolve_routing_graph(None) -> the ambient tenant graph), which
+    # bypasses the autouse isolate_graph_compute_engine per-test redirect and
+    # collides with every other test's bare-constructed backend on the same
+    # shared graph identity (STALE_FENCE). Bind explicitly to the per-test
+    # engine_graph tenant instead.
+    inst.backend = EpistemicGraphBackend(graph_name=engine_graph.graph_name)
+    # schedule_engine._load_all's _control_backend requires engine.control_backend
+    # explicitly (IntelligenceGraphEngine._build_control_backend just returns
+    # self.backend today -- there is no separate control store) -- __new__
+    # bypasses __init__ entirely, so nothing sets it here otherwise.
+    inst.control_backend = inst.backend
     inst._register_maintenance_schedules()
     specs = {s.name: s for s in se._load_all(inst)}
     rf = specs["research_feed"]

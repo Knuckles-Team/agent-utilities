@@ -31,17 +31,30 @@ def memory_tmpdir(tmp_path: Path):
 
 
 @pytest.fixture()
-def engine():
-    """Create a minimal IntelligenceGraphEngine for testing."""
+def engine(engine_graph):
+    """Create a minimal IntelligenceGraphEngine for testing.
+
+    ``g`` (the seed writer) and the returned engine's ``.backend`` must be
+    bound to the SAME isolated tenant graph (``engine_graph.graph_name``) —
+    a bare ``GraphComputeEngine(backend_type="rust")`` / ``EpistemicGraphBackend()``
+    each resolve their own routing graph independently and can land on
+    different (or session-mismatched) graphs, which the engine's fail-closed
+    session guard then rejects (``PermissionError: A graph-scoped view cannot
+    retarget the verified GraphSession``) rather than silently using the
+    wrong data.
+    """
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    g = GraphComputeEngine(backend_type="rust")
+    g = engine_graph
 
     # Seed with test data
     g.add_node(
         "user_1",
-        node_type="user",
+        node_type="User",
         name="Test User",
         role="developer",
         communication_style="concise",
@@ -49,7 +62,7 @@ def engine():
     )
     g.add_node(
         "pref_1",
-        node_type="preference",
+        node_type="Preference",
         name="Dark mode preference",
         value="Prefers dark mode in all tools",
         category="ui",
@@ -59,7 +72,7 @@ def engine():
     )
     g.add_node(
         "obs_1",
-        node_type="observation",
+        node_type="Observation",
         name="Decision about KG",
         content="User decided to use KG-first architecture",
         description="KG-first architecture",
@@ -71,7 +84,7 @@ def engine():
     )
     g.add_node(
         "obs_2",
-        node_type="observation",
+        node_type="Observation",
         name="CI fix session",
         content="Codex session focused on CI pipeline fixes",
         description="CI pipeline fixes",
@@ -83,7 +96,7 @@ def engine():
     )
     g.add_node(
         "ref_1",
-        node_type="reflection",
+        node_type="Reflection",
         name="KG architecture pattern",
         content="Agent consistently prefers graph-native persistence",
         description="Graph-native persistence",
@@ -94,7 +107,7 @@ def engine():
     )
     g.add_node(
         "fact_1",
-        node_type="fact",
+        node_type="Fact",
         name="Python version",
         content="Project uses Python 3.12",
         description="Python 3.12",
@@ -103,7 +116,7 @@ def engine():
     )
     g.add_node(
         "goal_1",
-        node_type="goal",
+        node_type="Goal",
         name="Complete memory bridge",
         goal_text="Implement cross-agent memory bridge (KG-2.7)",
         description="Memory bridge",
@@ -113,7 +126,7 @@ def engine():
     )
     g.add_node(
         "ep_1",
-        node_type="episode",
+        node_type="Episode",
         name="Morning session",
         summary="Refactored KG ingestion pipeline",
         source="claude",
@@ -123,27 +136,16 @@ def engine():
     )
     g.add_node(
         "thread_1",
-        node_type="thread",
+        node_type="Thread",
         name="Memory Bridge Implementation",
         title="Memory Bridge Implementation",
         created_at="2026-05-17T10:00:00Z",
         id="thread_1",
     )
 
-    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
-        EpistemicGraphBackend,
+    engine = IntelligenceGraphEngine(
+        backend=EpistemicGraphBackend(graph_name=g.graph_name)
     )
-
-    # Bind both the NX-style ``.graph`` facade AND ``.backend``'s Cypher path to
-    # this same session-scoped engine — a bare ``EpistemicGraphBackend()``/
-    # ``IntelligenceGraphEngine(db_path=...)`` independently resolves its OWN
-    # tenant-routed graph (``resolve_routing_graph``), which does not match the
-    # per-test isolated graph the verified ``GraphSession`` carries, and every
-    # engine RPC fail-closed rejects a graph-scoped view retargeting a verified
-    # session (CONCEPT:AU-KG.compute.graph-compute-engine "Session currency").
-    backend = EpistemicGraphBackend()
-    backend._graph = g
-    engine = IntelligenceGraphEngine(backend=backend)
     yield engine
     IntelligenceGraphEngine._ACTIVE_ENGINE = None
 

@@ -218,6 +218,23 @@ class _BatchedBackend:
             from .provenance import stamp_source
 
             stamp_source(props, self._source_system)
+        # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard):
+        # this buffered batch path flushes straight through the engine's bulk
+        # RPC (``graph.bulk_mutate``/``batch_update``), bypassing
+        # IntelligenceGraphEngine._upsert_node/GraphComputeEngine.add_node and
+        # BrainGuardedBackend.add_node entirely — the other three chokepoints
+        # this same fix stamps. Without this, every code-symbol node ingested
+        # through this batching seam (the dominant KG-2.9g repo-ingest path)
+        # shared the identical "written but permanently unreadable" gap.
+        # Best-effort: writes with no bound actor proceed unstamped exactly as
+        # before this seam existed.
+        try:
+            from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+            stamp_ownership(props)
+            stamp_classification(props, props.get("node_type"))
+        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
+            pass
         self._nodes.append(
             {
                 "op": "add_node",

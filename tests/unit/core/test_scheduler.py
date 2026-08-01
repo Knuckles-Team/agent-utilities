@@ -441,7 +441,10 @@ def test_append_cron_log_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_append_cron_log_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Happy path executes CREATE log query."""
+    """Happy path: a typed Log node upsert + a typed HAS_LOG link (a single
+    "CREATE ... WITH ... MATCH ... MERGE" statement exceeds the engine's
+    native Cypher write subset -- one leading MATCH, no WITH between write
+    clauses; epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184)."""
     engine = _fake_engine_with_rows()
     fake_kg = MagicMock()
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
@@ -451,15 +454,16 @@ def test_append_cron_log_success(monkeypatch: pytest.MonkeyPatch) -> None:
         fake_kg,
     )
     scheduler.append_cron_log("t1", "Task", "output", status="success", chat_id="c1")
-    engine.backend.execute.assert_called_once()
-    call_args = engine.backend.execute.call_args[0]
-    assert "CREATE (l:Log" in call_args[0]
-    params = call_args[1]
-    assert params["task_id"] == "t1"
-    assert params["task_name"] == "Task"
-    assert params["status"] == "success"
-    assert params["chat_id"] == "c1"
-    assert params["id"].startswith("log:t1:")
+    engine.add_node.assert_called_once()
+    node_args = engine.add_node.call_args[0]
+    assert node_args[0].startswith("log:t1:")
+    assert node_args[1] == "Log"
+    props = node_args[2]
+    assert props["task_id"] == "t1"
+    assert props["task_name"] == "Task"
+    assert props["status"] == "success"
+    assert props["chat_id"] == "c1"
+    engine.link_nodes.assert_called_once_with("t1", node_args[0], "HAS_LOG")
 
 
 def test_append_cron_log_error_status(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -473,8 +477,8 @@ def test_append_cron_log_error_status(monkeypatch: pytest.MonkeyPatch) -> None:
         fake_kg,
     )
     scheduler.append_cron_log("t1", "Task", "bad", status="error")
-    params = engine.backend.execute.call_args[0][1]
-    assert params["status"] == "error"
+    props = engine.add_node.call_args[0][2]
+    assert props["status"] == "error"
 
 
 # ---------------------------------------------------------------------------
@@ -510,8 +514,45 @@ def test_cleanup_cron_log_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_cleanup_cron_log_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Happy path: deletes old logs via SKIP query."""
-    engine = _fake_engine_with_rows()
+    """Happy path: reads timestamps (ORDER BY DESC, supported on a read),
+    then prunes everything at/before the cutoff with a single
+    MATCH+WHERE+DETACH DELETE write -- "MATCH ... WITH ... ORDER BY ... SKIP
+    ... DETACH DELETE" exceeds the engine's native Cypher write subset
+    (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184: only
+    MATCH/WHERE may precede a write clause, no WITH pipeline)."""
+    engine = MagicMock()
+    engine.backend = MagicMock()
+    # 3 logs, newest first; max_entries=2 keeps the first two and prunes
+    # anything strictly older than the 2nd-newest timestamp.
+    engine.backend.execute.return_value = [
+        {"ts": "2026-07-30T00:00:00"},
+        {"ts": "2026-07-29T00:00:00"},
+        {"ts": "2026-07-28T00:00:00"},
+    ]
+    fake_kg = MagicMock()
+    fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "agent_utilities.knowledge_graph.core.engine",
+        fake_kg,
+    )
+    scheduler.cleanup_cron_log(max_entries=2)
+    assert engine.backend.execute.call_count == 2
+    read_query = engine.backend.execute.call_args_list[0][0][0]
+    assert "ORDER BY l.timestamp DESC" in read_query
+    delete_call = engine.backend.execute.call_args_list[1]
+    assert "DETACH DELETE" in delete_call[0][0]
+    assert delete_call[0][1] == {"cutoff": "2026-07-29T00:00:00"}
+
+
+def test_cleanup_cron_log_fewer_than_max_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing to prune when there are <= max_entries logs: only the read
+    happens, no DETACH DELETE write."""
+    engine = MagicMock()
+    engine.backend = MagicMock()
+    engine.backend.execute.return_value = [{"ts": "2026-07-30T00:00:00"}]
     fake_kg = MagicMock()
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
@@ -521,9 +562,6 @@ def test_cleanup_cron_log_success(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     scheduler.cleanup_cron_log(max_entries=50)
     engine.backend.execute.assert_called_once()
-    call_args = engine.backend.execute.call_args[0]
-    assert "DETACH DELETE" in call_args[0]
-    assert call_args[1] == {"skip": 50}
 
 
 def test_cleanup_cron_log_default_max_entries(
@@ -532,7 +570,13 @@ def test_cleanup_cron_log_default_max_entries(
     """Default max_entries uses config value."""
     from agent_utilities.core.config import DEFAULT_MAX_CRON_LOG_ENTRIES
 
-    engine = _fake_engine_with_rows()
+    engine = MagicMock()
+    engine.backend = MagicMock()
+    rows = [
+        {"ts": f"2026-07-{30 - i:02d}T00:00:00"}
+        for i in range(DEFAULT_MAX_CRON_LOG_ENTRIES + 5)
+    ]
+    engine.backend.execute.return_value = rows
     fake_kg = MagicMock()
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
@@ -541,8 +585,10 @@ def test_cleanup_cron_log_default_max_entries(
         fake_kg,
     )
     scheduler.cleanup_cron_log()
-    params = engine.backend.execute.call_args[0][1]
-    assert params["skip"] == DEFAULT_MAX_CRON_LOG_ENTRIES
+    delete_call = engine.backend.execute.call_args_list[1]
+    assert delete_call[0][1] == {
+        "cutoff": rows[DEFAULT_MAX_CRON_LOG_ENTRIES - 1]["ts"]
+    }
 
 
 # ---------------------------------------------------------------------------

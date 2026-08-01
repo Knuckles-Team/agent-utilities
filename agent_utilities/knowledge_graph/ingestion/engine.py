@@ -638,6 +638,34 @@ def _changed_source_files(repo_path: str, since_sha: str) -> list[Path] | None:
     return out
 
 
+def _deepcopy_safe_metadata(value: Any) -> Any:
+    """Recursively reduce ``value`` to something ``copy.deepcopy`` can handle.
+
+    Manifest metadata may legitimately carry LIVE object references some
+    connectors need only for their own run (e.g. mcp_tool's injected fastmcp
+    ``client`` — a whole server/session object, sometimes holding a class
+    attribute or similar non-deep-copyable internal). ``_privacy_safe_result``
+    below deep-copies the WHOLE ``IngestionResult`` for a persisted/historical
+    snapshot; a live object anywhere inside it crashes that copy outright
+    ("cannot pickle 'mappingproxy' object", or similar) rather than just
+    failing to serialize gracefully. Dicts/lists/tuples are walked; anything
+    that already round-trips through ``copy.deepcopy`` is kept as-is (so
+    ordinary provenance data is byte-identical); anything that doesn't is
+    replaced with an inert placeholder string.
+    """
+    import copy
+
+    if isinstance(value, dict):
+        return {k: _deepcopy_safe_metadata(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_deepcopy_safe_metadata(v) for v in value]
+    try:
+        copy.deepcopy(value)
+    except Exception:  # noqa: BLE001 - value is opaque; only its copyability matters
+        return f"<non-serializable {type(value).__name__}>"
+    return value
+
+
 # ── IngestionEngine ───────────────────────────────────────────────────────
 
 
@@ -754,6 +782,16 @@ class IngestionEngine:
             persistence_reference,
             sanitize_for_persistence,
         )
+
+        # Reduce metadata to deep-copyable data BEFORE the model-wide deep
+        # copy below — a connector config value that is a live object
+        # reference (e.g. mcp_tool's injected client) is needed only for
+        # this run, not for a persisted/historical snapshot, and would
+        # otherwise crash the deep copy outright.
+        safe_manifest = result.manifest.model_copy(
+            update={"metadata": _deepcopy_safe_metadata(result.manifest.metadata)}
+        )
+        result = result.model_copy(update={"manifest": safe_manifest})
 
         safe = result.model_copy(deep=True)
         safe_metadata, _ = sanitize_for_persistence(safe.manifest.metadata)
@@ -2537,6 +2575,15 @@ class IngestionEngine:
                     "source_kind": "web-document",
                     "fetch_backend": "bounded-http",
                     "fetched_at": _now(),
+                    # The raw URL for immediate in-process use (e.g. the
+                    # downstream doc.file_path fallback at
+                    # manifest.metadata.get("source_url")) -- source_uri
+                    # above is the privacy-abstracted reference instead.
+                    # 'source_url' is in the persistence privacy guard's
+                    # _LOCATION_FIELDS allowlist, so it is redacted before
+                    # crossing the durable/telemetry boundary
+                    # (_privacy_safe_result).
+                    "source_url": url,
                 },
                 force=manifest.force,
             )

@@ -76,10 +76,15 @@ class TestKGSourceResolverWithEngine:
     """Test resolution with a mocked KG engine."""
 
     def setup_method(self):
-        import uuid
-
-        graph_name = f"test_graph_{uuid.uuid4().hex}"
-        self.graph = GraphComputeEngine(backend_type="rust", graph_name=graph_name)
+        # No explicit graph_name: the autouse `isolate_graph_compute_engine`
+        # fixture (tests/conftest.py) binds the ambient GraphSession's
+        # `.graph` to its OWN per-test unique name and every native op routes
+        # via that ambient session graph, not via whichever `graph_name` this
+        # constructor was given. Passing a second, independently-generated
+        # custom name here left `self.graph`'s node/edge ops silently
+        # targeting a graph that only the fixture's default name actually
+        # provisions — trust the fixture's default instead of rolling our own.
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.engine = MagicMock()
         self.engine.graph = self.graph
         self.engine.hybrid_retriever = None

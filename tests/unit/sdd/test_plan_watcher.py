@@ -85,7 +85,16 @@ def test_ingest_plan_version():
     )
 
     assert plan_id == "plan:feat1:v2"
-    assert mock_engine.backend.execute.call_count >= 3
+    # Node writes go through the raw backend (the ImplementationPlan node
+    # itself); relationship/typed-node writes are dispatched through the
+    # typed engine API (link_nodes/add_node) rather than raw multi-MATCH
+    # Cypher, per the native engine's write-subset contract
+    # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+    assert mock_engine.backend.execute.call_count >= 1
+    assert mock_engine.add_node.call_count == 2  # SoftwareFeature + Session
+    assert (
+        mock_engine.link_nodes.call_count == 4
+    )  # SUPERSEDES, PLAN_FOR_FEATURE, Project HAS_ARTIFACT, Session HAS_ARTIFACT
 
 
 def test_ingest_tasks_version():
@@ -103,7 +112,12 @@ def test_ingest_tasks_version():
     )
 
     assert tasks_id == "tasks:feat1:v1"
-    assert mock_engine.backend.execute.call_count >= 2
+    # version=1 has no prior version, so no SUPERSEDES link; the Tasks node
+    # write goes through the raw backend, the SoftwareFeature link through
+    # the typed engine API (see test_ingest_plan_version).
+    assert mock_engine.backend.execute.call_count >= 1
+    assert mock_engine.add_node.call_count == 1  # SoftwareFeature
+    assert mock_engine.link_nodes.call_count == 1  # TASKS_FOR_FEATURE
 
 
 def test_process_plan_file(tmp_path):

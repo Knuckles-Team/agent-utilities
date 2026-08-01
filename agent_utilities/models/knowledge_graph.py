@@ -727,6 +727,9 @@ class RegistryEdgeType(StrEnum):
     PRESET_OF = "preset_of"
     RAN_PRESET = "ran_preset"
     TASK_DEPENDS_ON = "task_depends_on"
+    # Dead-letter drain lineage (CONCEPT:AU-KG.ingest.dead-letter-drain): the
+    # original dead-lettered WorkItem -> its explicitly-requeued replacement.
+    DRAINED_AS = "drained_as"
     # Risk Scoring Ontology (CONCEPT:AU-KG.research.research-pipeline-runner)
     ASSESSED_RISK = "assessed_risk"
     HAS_RISK_FACTOR = "has_risk_factor"
@@ -1002,6 +1005,22 @@ class RegistryEdgeType(StrEnum):
     # from COMPATIBLE_WITH_MODEL, which is a routing-eligibility edge, not an
     # observed-usage one). See ops_causal_crosswalk / ops_causal_graph.
     USED_MODEL = "used_model"
+
+    # Entity-resolution candidates (CONCEPT:AU-KG.identity.entity-resolution-candidates,
+    # universal-ingestion program Track 5). POSSIBLE_SAME_AS is the ONLY edge an
+    # identity-resolution pass writes on its own — it preserves ambiguity
+    # ("these two records MIGHT be the same entity") rather than collapsing
+    # nodes, carrying its evidence/confidence as edge properties. SAME_AS is
+    # written ONLY by the explicit, human/governance-reviewed confirm step
+    # (knowledge_graph.assimilation.identity_candidates.confirm_merge) and is
+    # reversible: `reverted`/`reverted_at` properties mark it inactive without
+    # deleting it, so the decision stays inspectable and undoable with its
+    # originating evidence retained. Distinct from the existing SIMILAR_TO/
+    # SUPERSEDES pair (assimilation/dedup.py), which auto-applies for the
+    # narrower Feature/Article/SDDFeature research-corpus case; general entity
+    # identity must never auto-merge (a wrong merge is worse than no merge).
+    POSSIBLE_SAME_AS = "possible_same_as"
+    SAME_AS = "same_as"
 
 
 # ── The model → graph-engine property contract ────────────────────────────────
@@ -3453,6 +3472,10 @@ class EvaluationRecordNode(RegistryNode):
     composite_score: float = Field(default=0.0, ge=0.0, le=1.0)
     evaluator: str = "llm-judge"  # llm-judge, human, automated
     rubric_id: str | None = None
+    #: CONCEPT:AU-AHE.evaluation.judge-calibration — the rubric's version at evaluation time, so a later
+    #: rubric edit is diagnosable against historical records sharing the same
+    #: ``rubric_id`` instead of drifting under one unversioned identity.
+    rubric_version: str | None = None
     evidence: str = ""
     session_id: str = ""
 

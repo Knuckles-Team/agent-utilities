@@ -32,19 +32,28 @@ def engine():
     # independently resolves its OWN tenant-routed default graph
     # (resolve_routing_graph(None) -> the shared "tenant__<tenant>____commons__"
     # graph), NOT the per-test isolated graph tests/conftest.py's
-    # isolate_graph_compute_engine fixture provisions. Every test in a
-    # multi-test run that took this bare path collided on that ONE shared
-    # durable tenant graph -- durable lifecycle registrations against it raced
-    # across tests and failed STALE_FENCE ("lifecycle batch ... is no longer
-    # current"). Constructing the isolated GraphComputeEngine first and
-    # rebinding the backend to it keeps this test on its own graph, matching
-    # the idiom already established in test_kg_native_orchestration.py.
+    # isolate_graph_compute_engine fixture provisions. Constructing the
+    # isolated GraphComputeEngine first and rebinding the backend to it keeps
+    # this test on its own graph (same idiom as D-OTR-3/test_kg_native_orchestration.py).
     compute = GraphComputeEngine(backend_type="rust")
     backend = EpistemicGraphBackend()
     backend._graph = compute
     e = IntelligenceGraphEngine(backend=backend)
     IntelligenceGraphEngine.set_active(e)
     return e
+
+
+def _node_kwargs(model) -> dict:
+    """``model_dump()`` a RegistryNode subclass into ``add_node``-safe kwargs.
+
+    Every ``RegistryNode`` still carries a Pydantic ``type`` field, but
+    ``GraphComputeEngine.add_node`` hard-rejects a stray ``type`` property
+    (retired in favor of the canonical ``node_type``) — mirrors
+    ``IntelligenceGraphEngine._serialize_node``'s own rename.
+    """
+    props = model.model_dump()
+    props["node_type"] = props.pop("type")
+    return props
 
 
 @pytest.mark.concept("CONCEPT:AU-AHE.evaluation.interpretability-tests")
@@ -111,7 +120,7 @@ class TestTeamConfigLookup:
             specialist_ids=["security_analyst"],
             success_rate=0.9,
         )
-        engine.graph.add_node(tc.id, **tc.to_graph_properties())
+        engine.graph.add_node(tc.id, **_node_kwargs(tc))
 
         results = engine.find_matching_team_config("audit the repository")
         assert len(results) >= 1
@@ -131,7 +140,7 @@ class TestTeamConfigLookup:
                 task_pattern=f"deploy service number {i}",
                 success_rate=0.5 + i * 0.1,
             )
-            engine.graph.add_node(tc.id, **tc.to_graph_properties())
+            engine.graph.add_node(tc.id, **_node_kwargs(tc))
 
         results = engine.find_matching_team_config("deploy service", top_k=2)
         assert len(results) <= 2
@@ -150,7 +159,7 @@ class TestPromoteCoalition:
             agents_spawned=3,
             task_description="Analyze repository",
         )
-        engine.graph.add_node(coalition.id, **coalition.to_graph_properties())
+        engine.graph.add_node(coalition.id, **_node_kwargs(coalition))
 
         result = engine.promote_coalition_to_template(
             coalition_id=coalition.id,
@@ -168,7 +177,7 @@ class TestPromoteCoalition:
             name="Edge Test Coalition",
             agents_spawned=2,
         )
-        engine.graph.add_node(coalition.id, **coalition.to_graph_properties())
+        engine.graph.add_node(coalition.id, **_node_kwargs(coalition))
 
         result = engine.promote_coalition_to_template(
             coalition_id=coalition.id,
@@ -192,7 +201,7 @@ class TestRecordTeamOutcome:
             task_pattern="test outcome",
             success_rate=0.5,
         )
-        engine.graph.add_node(tc.id, **tc.to_graph_properties())
+        engine.graph.add_node(tc.id, **_node_kwargs(tc))
 
         engine.record_team_outcome("tc:outcome", reward=1.0)
 
@@ -208,7 +217,7 @@ class TestRecordTeamOutcome:
             task_pattern="test count",
             usage_count=5,
         )
-        engine.graph.add_node(tc.id, **tc.to_graph_properties())
+        engine.graph.add_node(tc.id, **_node_kwargs(tc))
 
         engine.record_team_outcome("tc:count", reward=0.8)
 
@@ -222,17 +231,25 @@ class TestLinkPromptToAgent:
 
     def test_creates_uses_prompt_edge(self, engine):
         """Should create a USES_PROMPT edge."""
-        engine.graph.add_node("agent:test", type="agent", name="Test Agent")
-        engine.graph.add_node("prompt:test", type="prompt", name="Test Prompt")
+        engine.graph.add_node("agent:test", node_type="agent", name="Test Agent")
+        engine.graph.add_node("prompt:test", node_type="prompt", name="Test Prompt")
 
         engine.link_prompt_to_agent("agent:test", "prompt:test")
 
         assert engine.graph.has_edge("agent:test", "prompt:test")
         edge_data = engine.graph.get_edge_data("agent:test", "prompt:test")
-        # The graph engine canonicalizes a relationship under ``rel_type`` (the
-        # uppercased relationship-type slot), so assert against that contract.
+        # GraphComputeEngine.add_edge stores the relationship type verbatim
+        # under the canonical ``relationship`` property key (add_edge hard-
+        # rejects the retired ``type``/``rel_type``/... aliases outright), so
+        # assert against that contract instead of a nonexistent "rel_type"
+        # canonicalization. link_prompt_to_agent (with a backend attached, as
+        # here) dispatches through IntelligenceGraphEngine.link_nodes, which
+        # unconditionally upper-cases the relationship type to the
+        # Cypher/Neo4j convention (engine.py's ``rel_type = rel_type.upper()``)
+        # -- so the stored value is the canonical UPPER form, not the
+        # lowercase ``RegistryEdgeType`` enum value.
         assert any(
-            e.get("rel_type") == RegistryEdgeType.USES_PROMPT.name
+            e.get("relationship") == RegistryEdgeType.USES_PROMPT.value.upper()
             for e in edge_data.values()
         )
 

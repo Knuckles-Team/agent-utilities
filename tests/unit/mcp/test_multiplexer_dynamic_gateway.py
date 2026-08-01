@@ -17,6 +17,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from agent_utilities.mcp.multiplexer import (
+    _LOCAL_SESSION_META_KEY,
     MCPMultiplexer,
     SessionVisibilityMiddleware,
     _make_forwarder,
@@ -939,8 +940,24 @@ async def test_meta_tools_registered_and_load_exposes(tmp_path):
 
 
 async def test_per_session_disclosure_isolation(tmp_path):
-    """Plan Phase 5: one session's load_tools must not leak to another session."""
+    """Plan Phase 5: one session's load_tools must not leak to another session.
+
+    D-W2-6: the underlying MCP SDK (fastmcp 4.0.0b1 / mcp 2.0.0) gives NO
+    stable ambient per-connection identity for stdio/in-memory transports —
+    ``Context.session_id``, the low-level ``ServerSession``, and its
+    ``Connection`` are all reconstructed fresh on EVERY request, even within
+    one open client connection (verified empirically against the pinned SDK,
+    see :func:`agent_utilities.mcp.multiplexer._explicit_local_session_key`).
+    Two concurrent local ``Client`` connections therefore cannot be told apart
+    by the server unless they say who they are — exactly like two concurrent
+    HTTP requests would be indistinguishable without a session/auth header.
+    Each session here declares itself via the standard MCP request ``_meta``
+    (``_LOCAL_SESSION_META_KEY``), which is carried on every request INCLUDING
+    ``tools/list`` (via the low-level ``ClientSession.list_tools(params=...)``
+    — the high-level ``Client.list_tools()`` wrapper doesn't expose ``meta``).
+    """
     from fastmcp import Client, FastMCP
+    from mcp.types import PaginatedRequestParams
 
     mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
     mcp = FastMCP("test-mux")
@@ -954,16 +971,36 @@ async def test_per_session_disclosure_isolation(tmp_path):
     }
     mcp.add_middleware(SessionVisibilityMiddleware(mux))
 
+    async def _list_tool_names(client: Client, session_id: str) -> set[str]:
+        result = await client.session.list_tools(
+            params=PaginatedRequestParams(meta={_LOCAL_SESSION_META_KEY: session_id})
+        )
+        return {t.name for t in result.tools}
+
     async with Client(mcp) as a:
         # Session A loads the container server's tools.
-        await a.call_tool("load_tools", {"servers": [CNT]})
-        a_tools = {t.name for t in await a.list_tools()}
+        await a.call_tool(
+            "load_tools",
+            {"servers": [CNT]},
+            meta={_LOCAL_SESSION_META_KEY: "session-A"},
+        )
+        a_tools = await _list_tool_names(a, "session-A")
         # A fresh session B has loaded nothing.
         async with Client(mcp) as b:
-            b_tools = {t.name for t in await b.list_tools()}
-            # B cannot even call A's tool (gated until B loads it).
-            with pytest.raises(ToolError):
-                await b.call_tool(CNT_PREFIXED, {})
+            b_tools = await _list_tool_names(b, "session-B")
+            # B cannot even call A's tool (gated until B loads it). Matched on
+            # the SessionVisibilityMiddleware's own gate message (not just
+            # "any ToolError") — this test's fixture forwards to a mocked
+            # child session that ALSO raises ToolError("delegated_child_tool_failed")
+            # on ANY call, loaded or not, so an unmatched ``pytest.raises``
+            # here would pass even if the session gate were wide open (see
+            # D-W2-6 closure notes). The precise match is the difference
+            # between "never reached the child" (gate held) and "reached the
+            # child, which then failed" (gate did NOT hold).
+            with pytest.raises(ToolError, match="not loaded in this session"):
+                await b.call_tool(
+                    CNT_PREFIXED, {}, meta={_LOCAL_SESSION_META_KEY: "session-B"}
+                )
 
     # A sees its loaded tool + the meta-tools; B sees only the meta-tools.
     assert CNT_PREFIXED in a_tools
@@ -1190,7 +1227,16 @@ async def test_list_catalog_mounted_matches_dispatch_reality_across_sessions(
     """End-to-end reproduction of the control-plane desync report: session A's
     load_tools call makes a tool globally registered, but list_catalog must
     tell a DIFFERENT session B the truth about what B can dispatch — not what
-    the child process happens to be doing."""
+    the child process happens to be doing.
+
+    D-W2-6: session A and session B are two concurrent LOCAL (non-HTTP)
+    ``Client`` connections, which the pinned SDK cannot distinguish on its own
+    (see the isolation-regression note on ``test_per_session_disclosure_isolation``).
+    Both declare themselves via ``_LOCAL_SESSION_META_KEY`` on every
+    ``call_tool`` — including the ``list_catalog``/``load_tools`` META-TOOL
+    calls, which (unlike raw ``tools/list``) are ordinary tool calls and so
+    support ``meta=`` through the high-level ``Client`` API directly.
+    """
     from fastmcp import Client, FastMCP
 
     mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
@@ -1208,10 +1254,18 @@ async def test_list_catalog_mounted_matches_dispatch_reality_across_sessions(
     mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
 
     async with Client(mcp) as a:
-        await a.call_tool("load_tools", {"servers": [CNT]})
+        await a.call_tool(
+            "load_tools",
+            {"servers": [CNT]},
+            meta={_LOCAL_SESSION_META_KEY: "session-A"},
+        )
 
         async with Client(mcp) as b:
-            cat_b = await b.call_tool("list_catalog", {"server": CNT})
+            cat_b = await b.call_tool(
+                "list_catalog",
+                {"server": CNT},
+                meta={_LOCAL_SESSION_META_KEY: "session-B"},
+            )
             payload_b = cat_b.structured_content
             entry_b = next(
                 t for t in payload_b["tools"] if t["prefixed_name"] == CNT_PREFIXED
@@ -1221,17 +1275,133 @@ async def test_list_catalog_mounted_matches_dispatch_reality_across_sessions(
             # ...but session B never loaded it, so list_catalog must NOT claim
             # it's dispatchable — and an actual call must agree with that claim.
             assert entry_b["mounted"] is False
-            with pytest.raises(ToolError):
-                await b.call_tool(CNT_PREFIXED, {})
+            # Precise match (see the analogous note in
+            # test_per_session_disclosure_isolation): this fixture's mocked
+            # child session fails on ANY invocation, so only a message match
+            # proves the SESSION GATE — not the mock — rejected the call.
+            with pytest.raises(ToolError, match="not loaded in this session"):
+                await b.call_tool(
+                    CNT_PREFIXED, {}, meta={_LOCAL_SESSION_META_KEY: "session-B"}
+                )
 
         # Session A, which DID load it, is told the truth the other way.
-        cat_a = await a.call_tool("list_catalog", {"server": CNT})
+        cat_a = await a.call_tool(
+            "list_catalog",
+            {"server": CNT},
+            meta={_LOCAL_SESSION_META_KEY: "session-A"},
+        )
         entry_a = next(
             t
             for t in cat_a.structured_content["tools"]
             if t["prefixed_name"] == CNT_PREFIXED
         )
         assert entry_a["mounted"] is True
+
+
+async def test_three_concurrent_local_sessions_blast_radius(tmp_path):
+    """D-W2-6 blast-radius proof: reproduces the independently-observed symptom
+    ("...leaks process-global multiplexer session visibility and creates three
+    downstream legacy sessions per public task dispatch") with THREE concurrent
+    local sessions sharing one in-process multiplexer/FastMCP instance — the
+    shape a task-dispatch orchestrator that fans a public task out into several
+    internal sessions would produce.
+
+    Severity check: confirms the leak is (or after the fix, is NOT) BOTH a tool
+    NAME-disclosure issue (visible in ``tools/list``) AND a cross-session
+    INVOCATION issue (actually callable) — the two are independent and must be
+    checked separately, since a name-only leak is a much lower-severity finding
+    than one that also lets a session invoke a tool it never loaded.
+    """
+    from fastmcp import Client, FastMCP
+    from mcp.types import PaginatedRequestParams
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mux._global_visible = {
+        "find_tools",
+        "list_catalog",
+        "load_tools",
+        "unload_tools",
+        "multiplexer_status",
+    }
+    mcp.add_middleware(SessionVisibilityMiddleware(mux))
+
+    async def _tool_names(client: Client, session_id: str) -> set[str]:
+        result = await client.session.list_tools(
+            params=PaginatedRequestParams(meta={_LOCAL_SESSION_META_KEY: session_id})
+        )
+        return {t.name for t in result.tools}
+
+    async with (
+        Client(mcp) as owner,
+        Client(mcp) as sibling_one,
+        Client(mcp) as sibling_two,
+    ):
+        # The "owning" task session loads and uses the container tool.
+        await owner.call_tool(
+            "load_tools",
+            {"servers": [CNT]},
+            meta={_LOCAL_SESSION_META_KEY: "task-owner"},
+        )
+        owner_tools = await _tool_names(owner, "task-owner")
+
+        # Two SIBLING task sessions, spawned alongside the owner in the same
+        # public-task dispatch, never loaded it.
+        sibling_one_tools = await _tool_names(sibling_one, "task-sibling-1")
+        sibling_two_tools = await _tool_names(sibling_two, "task-sibling-2")
+
+        # Severity finding 1: NAME DISCLOSURE — siblings must not see the tool.
+        assert CNT_PREFIXED in owner_tools
+        assert CNT_PREFIXED not in sibling_one_tools
+        assert CNT_PREFIXED not in sibling_two_tools
+
+        # Severity finding 2: INVOCATION — siblings must not be able to call it
+        # either, even by naming it directly (skipping discovery entirely).
+        # Matched on the session-gate's own message: this fixture's mocked
+        # child ALWAYS raises ToolError("delegated_child_tool_failed") once a
+        # call reaches it, loaded or not, so an unmatched ``pytest.raises``
+        # would pass even with the gate wide open — see D-W2-6 severity notes.
+        with pytest.raises(ToolError, match="not loaded in this session"):
+            await sibling_one.call_tool(
+                CNT_PREFIXED, {}, meta={_LOCAL_SESSION_META_KEY: "task-sibling-1"}
+            )
+        with pytest.raises(ToolError, match="not loaded in this session"):
+            await sibling_two.call_tool(
+                CNT_PREFIXED, {}, meta={_LOCAL_SESSION_META_KEY: "task-sibling-2"}
+            )
+
+
+def test_local_session_meta_cannot_override_an_authenticated_http_session(
+    monkeypatch,
+):
+    """D-W2-6 trust-boundary proof: the caller-declared local-session id
+    (``_LOCAL_SESSION_META_KEY``) must NEVER be consulted once a real,
+    authenticated HTTP request context exists — otherwise an HTTP caller could
+    simply declare another session's id in its own request ``_meta`` and
+    inherit that session's loaded tools. This is why
+    :func:`agent_utilities.mcp.multiplexer._explicit_local_session_key` is only
+    ever consulted from the non-HTTP except-arms of ``_session_key`` — never
+    from the HTTP try-body — so scoping this correlator can only ever ADD
+    isolation between local, same-process callers; it can never be used to
+    cross the HTTP trust boundary.
+    """
+    mock_request = MagicMock()
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_http_request",
+        lambda: mock_request,
+    )
+    mock_context = MagicMock()
+    mock_context.session_id = "real-authenticated-http-session"
+    mock_context.request_context.meta = {
+        _LOCAL_SESSION_META_KEY: "someone-elses-declared-session"
+    }
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_context",
+        lambda: mock_context,
+    )
+
+    assert _session_key() == "real-authenticated-http-session"
 
 
 async def test_notify_tools_changed_returns_false_without_request_context():
@@ -1354,3 +1524,54 @@ async def test_aclose_cancels_a_forced_probe_too(tmp_path):
     await mux.aclose()
     assert forced.cancelled()
     assert not mux._probe_tasks
+
+
+async def test_load_tools_changes_the_wire_tool_list_a_live_client_observes(tmp_path):
+    """Track 9 of the pydantic-ai native-adoption program (provider prompt-cache
+    discipline, CONCEPT:AU-ORCH.optimization.provider-prompt-cache — see
+    ``reports/program/pydantic-ai-native-adoption.md``): proves that ``load_tools``
+    changes the ACTUAL tool list an already-connected MCP client's ``list_tools()``
+    returns, not just an internal bookkeeping flag.
+
+    Why this matters for prompt-cache discipline: ``agent_utilities.caching.
+    prompt_cache.fold_prompt_cache_hint`` sets Anthropic's
+    ``anthropic_cache_tool_definitions=True`` by DEFAULT on every agent call —
+    a cache breakpoint at the end of the tools block, banking on that block
+    staying byte-identical across a run. A downstream client's toolset
+    (e.g. ``pydantic_ai.mcp.MCPToolset``, whose own docs state its cached tool
+    list "is cached and invalidated by `notifications/tools/list_changed`")
+    rebuilds ``ModelRequestParameters.function_tools`` from a FRESH
+    ``list_tools()`` the moment it is notified — and ``_notify_tools_changed``
+    (proven elsewhere in this file to fire on every ``load_tools``/``unload_tools``)
+    is exactly that notification. This test proves the tool list the notification
+    refers to is genuinely different, not merely re-sent unchanged: the cache
+    breakpoint at the tools block is invalidated on every dynamic load/unload
+    mid-run, for any client honoring the notification as designed. Pydantic-ai's
+    native `Capability`/`ToolSearch` deferred-disclosure model (Track 1/2 of the
+    same program) does NOT have this cost — the full tool set is registered from
+    turn one and only a message-history-appended exchange changes, which is
+    prompt-cache-safe by the framework's own design (see
+    ``pydantic_ai.capabilities.ToolSearch``'s docstring).
+    """
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    async with Client(mcp) as client:
+        before = {t.name for t in await client.list_tools()}
+        assert CNT_PREFIXED not in before
+
+        result = await client.call_tool("load_tools", {"servers": [CNT]})
+        assert result.structured_content["notified"] is True
+
+        after = {t.name for t in await client.list_tools()}
+
+    # The exact wire-visible tool set changed mid-session — a client's next
+    # model request carries a DIFFERENT tools array than its first, which is
+    # precisely what invalidates a provider's cache breakpoint set at the end
+    # of that array.
+    assert after != before
+    assert CNT_PREFIXED in after

@@ -166,8 +166,16 @@ class TestMCPConfigParsing:
 
     def test_parse_multi_server_config(self):
         """Parse Antigravity IDE config with 3 servers."""
-        if not ANTIGRAVITY_MCP_CONFIG.exists():
-            pytest.skip("Antigravity mcp_config.json not found")
+        # This probes the CURRENT MACHINE's real, ambient IDE config (not a
+        # repo fixture) — an empty file (present but 0 bytes, as on a host
+        # that has the directory but never populated it) carries the same
+        # "nothing to test against" meaning as the file being absent, so it
+        # skips the same way rather than failing on JSONDecodeError.
+        if (
+            not ANTIGRAVITY_MCP_CONFIG.exists()
+            or not ANTIGRAVITY_MCP_CONFIG.read_text(encoding="utf-8").strip()
+        ):
+            pytest.skip("Antigravity mcp_config.json not found or empty")
 
         engine = _create_engine()
         config = json.loads(ANTIGRAVITY_MCP_CONFIG.read_text(encoding="utf-8"))

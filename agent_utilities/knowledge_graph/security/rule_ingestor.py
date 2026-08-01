@@ -46,6 +46,26 @@ from ...models.knowledge_graph import (
 logger = logging.getLogger(__name__)
 
 
+def _node_props(node: Any) -> dict[str, Any]:
+    """A registry node's ``model_dump()`` with 'type' folded to 'node_type'.
+
+    Every ``RegistryNode`` subclass still carries a Pydantic ``type`` field,
+    but the graph's node property is the canonical ``node_type``
+    (``GraphComputeEngine.add_node``/``EpistemicGraphBackend.add_node`` both
+    reject a stray ``type`` key outright). Unlike ``engine._serialize_node``
+    this does NOT JSON-stringify list fields outside its column-typed-backend
+    ``ARRAY_FIELDS`` allowlist -- list properties (``domain_tags``,
+    ``task_relevance_tags``, ...) stay native Python lists, which is what the
+    in-memory graph's own readers (e.g. ``query_rules_for_task``'s
+    ``tag in rule_tags`` membership check) expect.
+    """
+    data = node.model_dump()
+    type_value = data.pop("type", None)
+    if type_value is not None:
+        data.setdefault("node_type", getattr(type_value, "value", type_value))
+    return data
+
+
 def get_bundled_rules_path() -> Path:
     """Resolve the path to the bundled engineering rules data.
 
@@ -399,8 +419,15 @@ class RuleIngestor:
                 elif tier == "full":
                     book_node.full_rule_count = total_rules
 
-            # Re-persist book node with updated metadata
-            self.engine.graph.nodes[book_node.id].update(book_node.model_dump())
+            # Re-persist book node with updated metadata, folding the model's
+            # 'type' field to the canonical in-memory 'node_type' property
+            # (GraphComputeEngine.add_node rejects a stray 'type' key
+            # outright; _serialize_node also JSON-stringifies list fields not
+            # in its ARRAY_FIELDS allowlist -- fine for a column-typed
+            # backend, but it would turn domain_tags/task_relevance_tags into
+            # opaque strings here, breaking query_rules_for_task's `tag in
+            # rule_tags` membership checks against the live in-memory node).
+            self.engine.graph.nodes[book_node.id].update(_node_props(book_node))
             if self.engine.backend:
                 data = self.engine._serialize_node(book_node, label="RuleBook")
                 self.engine._upsert_node("RuleBook", book_node.id, data)
@@ -446,7 +473,12 @@ class RuleIngestor:
             except Exception as e:  # noqa: BLE001 — this module (despite living under knowledge_graph/security/) ingests engineering-convention rule books, not authz/ACL rules; the RuleBookNode is still created and persisted unconditionally right below regardless of embedding success, only its semantic-similarity retrievability is reduced (it remains reachable by direct id/graph traversal)
                 logger.debug("Failed to embed book %s: %s", book_id, e)
 
-        self.engine.graph.add_node(node.id, **node.to_graph_properties())
+        # _node_props folds the model's 'type' field into the canonical
+        # 'node_type' property without _serialize_node's JSON-stringification
+        # of list fields (see the analogous comment in _ingest_rules_books
+        # above) -- GraphComputeEngine.add_node rejects a stray 'type' key
+        # from a raw model_dump() outright.
+        self.engine.graph.add_node(node.id, **_node_props(node))
         if self.engine.backend:
             data = self.engine._serialize_node(node, label="RuleBook")
             self.engine._upsert_node("RuleBook", book_id, data)
@@ -574,7 +606,12 @@ class RuleIngestor:
                 logger.debug("Failed to embed rule %s: %s", rule_id, e)
 
         # Persist
-        self.engine.graph.add_node(node.id, **node.to_graph_properties())
+        # _node_props folds the model's 'type' field into the canonical
+        # 'node_type' property without _serialize_node's JSON-stringification
+        # of list fields (see the analogous comment in _ingest_rules_books
+        # above) -- GraphComputeEngine.add_node rejects a stray 'type' key
+        # from a raw model_dump() outright.
+        self.engine.graph.add_node(node.id, **_node_props(node))
         if self.engine.backend:
             data = self.engine._serialize_node(node, label="EngineeringRule")
             self.engine._upsert_node("EngineeringRule", rule_id, data)
