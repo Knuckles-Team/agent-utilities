@@ -735,14 +735,14 @@ def _venv_signature(interpreter: str) -> str:
         dist_infos.extend(p.name for p in site_packages.glob("*.dist-info"))
         dist_infos.extend(p.name for p in site_packages.glob("*.egg-info"))
     if dist_infos:
-        return hashlib.sha256("\n".join(sorted(dist_infos)).encode("utf-8")).hexdigest()[
-            :16
-        ]
+        return hashlib.sha256(
+            "\n".join(sorted(dist_infos)).encode("utf-8")
+        ).hexdigest()[:16]
     try:
         stat = Path(interpreter).stat()
     except OSError:
         return "unknown"
-    return hashlib.sha256(f"{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8")).hexdigest()[
+    return hashlib.sha256(f"{stat.st_mtime_ns}:{stat.st_size}".encode()).hexdigest()[
         :16
     ]
 

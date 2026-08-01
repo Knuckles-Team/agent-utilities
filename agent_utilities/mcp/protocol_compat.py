@@ -330,7 +330,9 @@ def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]
     # computed from the same check and re-tested in `if diverged:` loses that
     # narrowing, which is what produced the prior `Any | None` "has no attribute
     # 'specifier'" errors here.
-    if shadow_req is not None and str(shadow_req.specifier) != str(fastmcp_req.specifier):
+    if shadow_req is not None and str(shadow_req.specifier) != str(
+        fastmcp_req.specifier
+    ):
         divergence = (
             f"source/installed divergence: the imported source ({manifest}) declares "
             f"fastmcp '{shadow_req.specifier}' under [mcp] while the installed "

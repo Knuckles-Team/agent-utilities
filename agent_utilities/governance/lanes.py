@@ -322,13 +322,30 @@ def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
     short ``~/.al/<token>`` path outside any repo's ``.git`` — see that
     function's docstring for why (D-ORC-16: AF_UNIX ``sun_path`` overflow +
     a git-identity leak that both traced to the same `.git`-nested location).
+
+    ``temp_root`` is created here (``mkdir(parents=True, exist_ok=True)``),
+    mirroring :func:`workspace_arbitration_dir`'s same pattern for the other
+    host-wide resource root. Without it, a freshly-hashed token's directory
+    does not exist yet, and pytest's own ``TempPathFactory.getbasetemp()``
+    creates only ``--basetemp`` itself (``mkdir(exist_ok=True)``, no
+    ``parents=True``) — so the very first ``pytest`` invocation under a new
+    lane's exported ``PYTEST_ADDOPTS`` failed with a raw
+    ``FileNotFoundError`` on ``<temp_root>/pytest``, one lane env call before
+    any test code ran.
     """
     scope = lane_scope(path)
     temp_root = _lane_temp_root(scope)
+    temp_root.mkdir(parents=True, exist_ok=True)
+    scratch_dir = temp_root / "scratch"
+    # Unlike pytest_basetemp (pytest creates that leaf itself, exist_ok=True,
+    # once its parent exists), TMPDIR has no such self-creating consumer —
+    # every ordinary tempfile.mkstemp()/mkdtemp() caller assumes the
+    # directory it names already exists.
+    scratch_dir.mkdir(parents=True, exist_ok=True)
     return PartitionedPaths(
         cargo_target_dir=scope.tree / "target-isolated",
         pytest_basetemp=temp_root / "pytest",
-        scratch_dir=temp_root / "scratch",
+        scratch_dir=scratch_dir,
         stash_ref=f"refs/lane/{scope.lane}/stash",
     )
 
