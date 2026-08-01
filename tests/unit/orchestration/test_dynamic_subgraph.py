@@ -14,6 +14,18 @@ def test_dynamic_subgraph_synthesize_team():
     mock_backend = Mock()
     mock_engine.backend = mock_backend
 
+    # Topology scoping now runs on the epistemic-graph compute layer FIRST
+    # (get_blast_radius over the out-of-process engine), which bounds the
+    # candidate agents to the domain sub-graph before the roster/tool
+    # Cypher queries below ever run (agent_utilities/orchestration/engine.py's
+    # synthesize_team). Without this, `candidate_ids` derives from iterating
+    # a bare Mock() and raises "TypeError: 'Mock' object is not iterable".
+    mock_engine.graph_compute.get_blast_radius.return_value = [
+        {"id": "agent_a"},
+        {"id": "agent_b"},
+        {"id": "agent_c"},
+    ]
+
     # Mock agents return
     mock_backend.execute.side_effect = [
         # Query 1: Retrieve candidate agents
@@ -62,6 +74,13 @@ def test_dynamic_subgraph_with_delegated_authority():
     mock_engine = Mock()
     mock_backend = Mock()
     mock_engine.backend = mock_backend
+
+    # Same topology-scoping prerequisite as test_dynamic_subgraph_synthesize_team
+    # above (candidate_ids is derived from get_blast_radius before the
+    # authority-restricted roster query runs).
+    mock_engine.graph_compute.get_blast_radius.return_value = [
+        {"id": "agent_secure"},
+    ]
 
     # Mock agents return (simulating the graph returning authorized agents)
     mock_backend.execute.side_effect = [

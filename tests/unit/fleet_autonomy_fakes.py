@@ -153,6 +153,18 @@ class FakeEngine:
         )
         return job_id
 
+    def get_task_status(self, job_id: str) -> dict[str, Any] | None:
+        """Read back the WorkItem node ``submit_task`` created.
+
+        ``deploy_watch._load_spec`` depends on this to resume a watch's exact
+        original spec (including ``deadline_unix``). Without it, every caller
+        falls into the exception fallback, which re-derives a FRESH window from
+        the global default (300s) rather than the caller's requested one — with
+        ``sleep`` stubbed to a no-op in tests, that turned into a tight loop
+        spinning on real wall-clock time until pytest-timeout killed it at 300s.
+        """
+        return self.nodes.get(job_id)
+
 
 class FakeObserver:
     """Scriptable FleetObserver double."""

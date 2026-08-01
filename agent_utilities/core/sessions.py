@@ -1272,21 +1272,39 @@ async def get_goal_iterations(request: Request) -> JSONResponse:
 
 
 async def cancel_goal(request: Request) -> JSONResponse:
-    """Cancel an active autonomous goal loop."""
+    """Cancel an active autonomous goal loop.
+
+    CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — the gateway never runs a goal loop
+    in-process: a queued goal has no ``background_goal_runs`` entry on THIS host
+    (some agent-dispatch-worker owns/will own it). Requiring one before
+    cancellation is legitimate for a locally-running task, but 404s every
+    queued goal outright — inconsistent with :func:`cancel_session_run`
+    (same file) already treating "no local task" as a tolerable no-op rather
+    than a not-found. Mirror that: cancel the local task when one exists
+    (best-effort), but a goal known to `active_goals`/`rehydrate_goals`'s KG
+    fallback is still cancellable even with nothing running on this host.
+    """
     from agent_utilities.knowledge_graph.core.session import resolve_session
 
     resolve_session(required_scope="kg:write")
     goal_id = request.path_params.get("goal_id")
-    if not goal_id or goal_id not in background_goal_runs:
+    if not goal_id:
         return JSONResponse({"error": "Active goal run not found"}, status_code=404)
 
-    run = background_goal_runs[goal_id]
-    task = run["task"]
-    if not task.done():
-        task.cancel()
+    session_id = ""
+    run = background_goal_runs.get(goal_id)
+    if run is not None:
+        task = run["task"]
+        if not task.done():
+            task.cancel()
+        session_id = run["session_id"]
+        background_goal_runs.pop(goal_id, None)
 
-    session_id = run["session_id"]
-    background_goal_runs.pop(goal_id, None)
+    rehydrate_goals()
+    if goal_id not in active_goals:
+        return JSONResponse({"error": "Active goal run not found"}, status_code=404)
+    if not session_id:
+        session_id = active_goals[goal_id].get("session_id", "")
 
     if goal_id in active_goals:
         active_goals[goal_id]["status"] = "cancelled"
