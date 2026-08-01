@@ -127,9 +127,9 @@ class FederatedSparqlIngestor:
 
                     # Add provenance edge (Operational constraint mapping)
                     self.engine.add_edge(
-                        source_id=subj_uri,
-                        target_id=endpoint_ref,
-                        type=RegistryEdgeType.WAS_GENERATED_BY,
+                        subj_uri,
+                        endpoint_ref,
+                        RegistryEdgeType.WAS_GENERATED_BY,
                         method="sparql_federation",
                     )
                     total_ingested += 1

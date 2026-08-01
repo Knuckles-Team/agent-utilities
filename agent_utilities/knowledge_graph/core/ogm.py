@@ -182,12 +182,9 @@ class KGMapper:
         """
         import json
 
-        data = node.model_dump()
-        node_type = data.pop("type")
-        props: dict[str, Any] = {
-            "node_type": getattr(node_type, "value", node_type),
-        }
-        for key, value in data.items():
+        # The one model -> engine projection (``type`` -> canonical ``node_type``).
+        props: dict[str, Any] = {}
+        for key, value in node.to_graph_properties().items():
             if value is None:
                 continue
             if isinstance(value, dict | list):

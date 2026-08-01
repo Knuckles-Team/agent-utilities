@@ -136,7 +136,7 @@ def test_ontological_guardrails_kg_integration():
         (
             "policy1",
             {
-                "type": "SecurityPolicyNode",
+                "node_type": "SecurityPolicyNode",
                 "target": "restricted_dir",
                 "name": "Restricted Directory Policy",
             },

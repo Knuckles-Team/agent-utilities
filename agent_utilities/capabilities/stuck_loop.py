@@ -130,7 +130,7 @@ class StuckLoopDetection(AbstractCapability[Any]):
                 engine.add_node(
                     eval_node.id,
                     str(eval_node.type),
-                    properties=eval_node.model_dump(exclude={"id", "type"}),
+                    properties=eval_node.to_graph_properties(exclude={"id"}),
                 )
 
         if self.action == "error":

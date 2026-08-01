@@ -58,11 +58,7 @@ class TestDataConnectorKGNodes:
         g = GraphComputeEngine(backend_type="rust")
         for name, priority in [("yahoo", 0), ("polygon", 1), ("alpha", 2)]:
             node = DataConnectorNode(id=f"dc:{name}", name=name, priority=priority)
-            # 'type' is the retired node property; add_node requires the
-            # canonical 'node_type' instead.
-            props = node.model_dump()
-            props["node_type"] = props.pop("type")
-            g.add_node(node.id, **props)
+            g.add_node(node.id, **node.to_graph_properties())
 
         g.add_edge(
             "dc:yahoo", "dc:polygon", relationship=RegistryEdgeType.FALLS_BACK_TO

@@ -17,6 +17,11 @@ from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from agent_utilities.core.config import setting
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
 from agent_utilities.security.log_redaction import redact_for_log
 
@@ -2243,9 +2248,7 @@ class GraphComputeEngine:
         props = dict(properties or {})
         props.update(kwargs)
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is not supported; use canonical 'node_type'"
-            )
+            raise retired_node_type_property_error()
         declared_id = props.get("id")
         if declared_id is not None and str(declared_id) != str(node_id):
             raise ValueError("node property 'id' must match the native node identity")
@@ -2317,15 +2320,9 @@ class GraphComputeEngine:
 
         props = dict(properties or {})
         props.update(kwargs)
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            props
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
         if aliases:
-            names = ", ".join(sorted(aliases))
-            raise ValueError(
-                f"edge relationship aliases are not supported ({names}); "
-                "use canonical 'relationship'"
-            )
+            raise retired_edge_relationship_property_error(aliases)
         if not props.get("relationship"):
             raise ValueError("edge property 'relationship' is required")
         props = clean_props(props)
@@ -2411,9 +2408,7 @@ class GraphComputeEngine:
         props = dict(properties or {})
         props.update(kwargs)
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is not supported; use canonical 'node_type'"
-            )
+            raise retired_node_type_property_error()
         declared_id = props.get("id")
         if declared_id is not None and str(declared_id) != str(node_id):
             raise ValueError("node property 'id' must match the native node identity")
