@@ -855,7 +855,9 @@ async def run_agent(
             reason = await _call_without_blocking(
                 _skill_unrunnable_reason, engine, skill_name
             )
-            raise LookupError(f"ingested skill '{skill_name}' is not runnable: {reason}")
+            raise LookupError(
+                f"ingested skill '{skill_name}' is not runnable: {reason}"
+            )
         if tool_server:
             agent_meta = await _call_without_blocking(
                 _bind_explicit_tool_server,
@@ -1604,7 +1606,9 @@ async def run_agent(
             run_id=run_id,
             stage="checkpoint",
             status="degraded" if (degraded or not _trace_recorded) else "ok",
-            detail="run trace recorded" if _trace_recorded else "run trace write failed",
+            detail="run trace recorded"
+            if _trace_recorded
+            else "run trace write failed",
             evidence={"trace_ref": _trace_id_ck(run_id)} if _trace_recorded else {},
         )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
@@ -1783,9 +1787,7 @@ def _unresolved_agent_meta() -> dict[str, Any]:
     }
 
 
-def _skill_unrunnable_reason(
-    engine: IntelligenceGraphEngine, skill_name: str
-) -> str:
+def _skill_unrunnable_reason(engine: IntelligenceGraphEngine, skill_name: str) -> str:
     """Explain WHY ``skill_name`` cannot run, naming the unmet precondition.
 
     CONCEPT:AU-ORCH.dispatch.named-runnable-precondition — "not found or
@@ -1815,7 +1817,9 @@ def _skill_unrunnable_reason(
             type(exc).__name__,
             exc_info=True,
         )
-        return f"its blocking precondition could not be read ({type(exc).__name__}: {exc})"
+        return (
+            f"its blocking precondition could not be read ({type(exc).__name__}: {exc})"
+        )
     if not rows:
         return (
             "no Skill node with that name is ingested (unmet precondition "
@@ -3606,12 +3610,33 @@ def _record_execution_trace(
             # EXECUTED_ON links to the actual server whose tools ran — the bound server
             # for a skill-driven run (agent_name is the skill, not a Server), else the
             # agent's own server node.
+            #
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE on
+            # a single bare node only;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # ``link_nodes`` dispatches through the typed engine API for a
+            # native authority (which -- unlike the portable Cypher fallback
+            # used for a non-native store -- requires the Server/skill
+            # resource to already exist) and falls back to the portable
+            # multi-clause Cypher for a non-native store, mirroring
+            # ``record_outcome``'s TRACE_PRODUCED_OUTCOME_EDGE link above.
+            # Each link is caught locally: the RunTrace/OutcomeEvaluation
+            # nodes above are ALREADY durably written by this point, so a
+            # missing auxiliary Server/skill node (same silent-no-op the
+            # original MATCH gave a non-native store) must not flip this
+            # function's return to False and make a successfully recorded
+            # trace look unrecorded.
             server_name = bound_server or agent_name
-            engine.backend.execute(
-                "MATCH (s:Server {id: $sid}), (t:RunTrace {id: $tid}) "
-                "MERGE (t)-[:EXECUTED_ON]->(s)",
-                {"sid": f"srv:{server_name}", "tid": trace_id},
-            )
+            try:
+                engine.link_nodes(trace_id, f"srv:{server_name}", "EXECUTED_ON")
+            except Exception as exc:  # noqa: BLE001 — auxiliary EXECUTED_ON edge only; the RunTrace/Outcome nodes are already persisted, logged and skipped rather than reported as a trace-recording failure
+                logger.debug(
+                    "EXECUTED_ON link skipped for trace %r (server=%r): %s",
+                    trace_id,
+                    server_name,
+                    exc,
+                )
             # Skill-utilization provenance: which skill's SOP drove this run. Match the
             # skill node by ID — the engine cannot resolve a node by a non-id property
             # (name) in a write, which silently dropped this edge; EXECUTED_ON matches by
@@ -3619,11 +3644,15 @@ def _record_execution_trace(
             # canonical ``resource:skill:<name>`` id.
             if skill_used:
                 rid = skill_id or f"resource:skill:{skill_used}"
-                engine.backend.execute(
-                    "MATCH (r:CallableResource {id: $rid}), (t:RunTrace {id: $tid}) "
-                    "MERGE (t)-[:USES_SKILL]->(r)",
-                    {"rid": rid, "tid": trace_id},
-                )
+                try:
+                    engine.link_nodes(trace_id, rid, "USES_SKILL")
+                except Exception as exc:  # noqa: BLE001 — auxiliary USES_SKILL edge only; same rationale as EXECUTED_ON above
+                    logger.debug(
+                        "USES_SKILL link skipped for trace %r (skill=%r): %s",
+                        trace_id,
+                        rid,
+                        exc,
+                    )
     except Exception as e:
         # D-DST-6 + D-DG-7 (reconciliation-gate-2 resolution of two lanes that
         # edited this handler concurrently).
