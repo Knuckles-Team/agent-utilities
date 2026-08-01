@@ -384,7 +384,7 @@ def _write_node(
                 dict(graph.nodes.get(node_id, {})) if node_id in graph.nodes else {}
             )
             existing.update(props)
-            existing["type"] = node_type
+            existing["node_type"] = node_type
             graph.add_node(node_id, **existing)
     except Exception:  # noqa: BLE001
         logger.debug("org_runtime: node write skipped for %s", node_id)

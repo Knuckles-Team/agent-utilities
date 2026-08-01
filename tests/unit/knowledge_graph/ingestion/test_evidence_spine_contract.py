@@ -82,7 +82,9 @@ def test_fragments_action_returns_an_addressable_spine(tool) -> None:
     for fragment in out["fragments"]:
         assert fragment["address"]
         assert fragment["content_hash"].startswith("sha256:")
-        assert fragment["version_id"].startswith(fragment["fragment_id"] + "@")
+        # '#', not '@' -- see D-GM-4 / D-GS856-6 / D-MW-1 / D-MW-2.
+        assert fragment["version_id"].startswith(fragment["fragment_id"] + "#")
+        assert "@" not in fragment["version_id"]
     kinds = {f["kind"] for f in out["fragments"]}
     assert {"heading", "paragraph", "table", "table_row"} <= kinds
 

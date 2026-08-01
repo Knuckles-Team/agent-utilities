@@ -318,7 +318,7 @@ async def enrich_pending_documents(engine: Any, *, limit: int = 200) -> dict[str
                 connector="document-enrichment",
                 source_instance="pending-document-sweep",
             )
-            await ing._enrich_text(doc_id, text, d.get("domain") or "document", title)
+            await ing.enrich_text(doc_id, text, d.get("domain") or "document", title)
             result["enriched"] += 1
         except Exception as exc:  # noqa: BLE001 — one bad document never aborts the sweep
             result["failed"] += 1

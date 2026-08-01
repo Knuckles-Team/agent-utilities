@@ -45,7 +45,7 @@ def _make_ctx(
             g._client.clear()
     else:
         g = graph
-    ctx = PipelineContext(config=cfg, nx_graph=g, backend=backend)
+    ctx = PipelineContext(config=cfg, graph=g, backend=backend)
     return ctx
 
 
@@ -74,9 +74,9 @@ async def test_centrality_with_nodes() -> None:
     )
 
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("a", type="file")
-    g.add_node("b", type="file")
-    g.add_edge("a", "b")
+    g.add_node("a", node_type="file")
+    g.add_node("b", node_type="file")
+    g.add_edge("a", "b", relationship="connects")
     ctx = _make_ctx(graph=g)
     result = await execute_centrality(ctx, {})
     assert result["centrality_calculated"] is True
@@ -126,7 +126,7 @@ async def test_communities_with_graph() -> None:
     g = GraphComputeEngine(backend_type="rust")
     g.add_node("a")
     g.add_node("b")
-    g.add_edge("a", "b")
+    g.add_edge("a", "b", relationship="connects")
     ctx = _make_ctx(graph=g)
     result = await execute_communities(ctx, {})
     assert result["communities"] >= 1
@@ -175,14 +175,14 @@ async def test_mro_symbol_class_relationship() -> None:
     g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "Parent",
-        type="symbol",
+        node_type="symbol",
         subtype="Class",
         name="Parent",
         args=[],
     )
     g.add_node(
         "Child",
-        type="symbol",
+        node_type="symbol",
         subtype="Class",
         name="Child",
         args=["Parent"],
@@ -201,8 +201,8 @@ async def test_mro_class_type_without_subtype() -> None:
     )
 
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("Parent", type="Class", name="Parent", args=[])
-    g.add_node("Child", type="Class", name="Child", args=["Parent"])
+    g.add_node("Parent", node_type="Class", name="Parent", args=[])
+    g.add_node("Child", node_type="Class", name="Child", args=["Parent"])
     ctx = _make_ctx(graph=g)
     result = await execute_mro(ctx, {})
     assert result["resolved_mro"] == 1
@@ -218,7 +218,7 @@ async def test_mro_unknown_base_is_skipped() -> None:
     g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "Child",
-        type="symbol",
+        node_type="symbol",
         subtype="Class",
         name="Child",
         args=["UnknownBase"],
@@ -253,12 +253,12 @@ async def test_reference_resolves_calls() -> None:
     )
 
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("caller", type="symbol", name="caller")
-    g.add_node("target", type="symbol", name="do_thing")
+    g.add_node("caller", node_type="symbol", name="caller")
+    g.add_node("target", node_type="symbol", name="do_thing")
     g.add_edge(
         "caller",
         "unresolved",
-        type="calls_raw",
+        relationship="calls_raw",
         raw="do_thing",
     )
     ctx = _make_ctx(graph=g)
@@ -274,12 +274,12 @@ async def test_reference_method_call_dot_notation() -> None:
     )
 
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("caller", type="Function", name="caller")
-    g.add_node("method_target", type="Method", name="my_method")
+    g.add_node("caller", node_type="Function", name="caller")
+    g.add_node("method_target", node_type="Method", name="my_method")
     g.add_edge(
         "caller",
         "unresolved",
-        type="calls_raw",
+        relationship="calls_raw",
         raw="self.my_method",
     )
     ctx = _make_ctx(graph=g)
@@ -295,8 +295,8 @@ async def test_reference_unresolvable_skipped() -> None:
     )
 
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("caller", type="symbol", name="caller")
-    g.add_edge("caller", "nowhere", type="calls_raw", raw="does_not_exist")
+    g.add_node("caller", node_type="symbol", name="caller")
+    g.add_edge("caller", "nowhere", relationship="calls_raw", raw="does_not_exist")
     ctx = _make_ctx(graph=g)
     result = await execute_reference(ctx, {})
     assert result == {"resolved_references": 0}
@@ -329,12 +329,12 @@ async def test_memory_with_shared_backend() -> None:
     backend = _fake_backend()
     # First call: nodes; second: edges
     backend.execute.side_effect = [
-        [{"n": {"id": "n1", "type": "file", "name": "a.py"}}],
+        [{"n": {"id": "n1", "node_type": "file", "name": "a.py"}}],
         [{"u": "n1", "v": "n2", "t": "CALLS"}],
     ]
     ctx = _make_ctx(backend=backend)
     # Add n2 so the edge has both ends
-    ctx.nx_graph.add_node("n2")
+    ctx.graph.add_node("n2")
     result = await execute_memory(ctx, {})
     assert result["nodes_loaded"] >= 1
     assert "duration_ms" in result
@@ -496,20 +496,20 @@ async def test_resolve_absolute_import_match() -> None:
     g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "src",
-        type="file",
+        node_type="file",
         name="src.py",
         file_path="/a/src.py",
     )
     g.add_node(
         "tgt",
-        type="file",
+        node_type="file",
         name="target.py",
         file_path="/a/target.py",
     )
     g.add_edge(
         "src",
         "raw",
-        type="depends_on_raw",
+        relationship="depends_on_raw",
         raw="target",
     )
     ctx = _make_ctx(graph=g)
@@ -527,17 +527,17 @@ async def test_resolve_relative_import() -> None:
     g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "src",
-        type="file",
+        node_type="file",
         name="src.py",
         file_path="/a/src.py",
     )
     g.add_node(
         "tgt",
-        type="file",
+        node_type="file",
         name="models.py",
         file_path="/a/models.py",
     )
-    g.add_edge("src", "raw", type="depends_on_raw", raw=".models")
+    g.add_edge("src", "raw", relationship="depends_on_raw", raw=".models")
     ctx = _make_ctx(graph=g)
     result = await execute_resolve(ctx, {})
     assert result["resolved_dependencies"] == 1
@@ -626,9 +626,9 @@ async def test_sync_happy_path() -> None:
     g = GraphComputeEngine(backend_type="rust")
     if g._client:
         g._client.clear()
-    g.add_node("n1", type="tool", name="t1")
-    g.add_node("n2", type="agent", name="a1")
-    g.add_edge("n1", "n2", type="uses")
+    g.add_node("n1", node_type="tool", name="t1")
+    g.add_node("n2", node_type="agent", name="a1")
+    g.add_edge("n1", "n2", relationship="uses")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     assert result["nodes_synced"] == 2
@@ -646,7 +646,7 @@ async def test_sync_unknown_type_fallback() -> None:
     g = GraphComputeEngine(backend_type="rust")
     if g._client:
         g._client.clear()
-    g.add_node("n1", type="some_custom_type", name="x")
+    g.add_node("n1", node_type="some_custom_type", name="x")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     assert result["nodes_synced"] == 1
@@ -681,9 +681,9 @@ async def test_sync_edge_type_filtered_to_alnum() -> None:
     g = GraphComputeEngine(backend_type="rust")
     if g._client:
         g._client.clear()
-    g.add_node("n1", type="tool", name="t")
-    g.add_node("n2", type="tool", name="t2")
-    g.add_edge("n1", "n2", type="has-child!@#")
+    g.add_node("n1", node_type="tool", name="t")
+    g.add_node("n2", node_type="tool", name="t2")
+    g.add_edge("n1", "n2", relationship="has-child!@#")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     assert result["edges_synced"] == 1
@@ -700,9 +700,9 @@ async def test_sync_edge_type_all_filtered_empty_skipped() -> None:
     g = GraphComputeEngine(backend_type="rust")
     if g._client:
         g._client.clear()
-    g.add_node("n1", type="tool", name="t")
-    g.add_node("n2", type="tool", name="t2")
-    g.add_edge("n1", "n2", type="!@#$%")  # All non-alnum
+    g.add_node("n1", node_type="tool", name="t")
+    g.add_node("n2", node_type="tool", name="t2")
+    g.add_edge("n1", "n2", relationship="!@#$%")  # All non-alnum
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     assert result["edges_synced"] == 0
@@ -724,7 +724,7 @@ async def test_sync_node_execute_raises() -> None:
 
     backend.execute_batch.side_effect = boom
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("n1", type="tool", name="t")
+    g.add_node("n1", node_type="tool", name="t")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
     # Failed, but no exception raised

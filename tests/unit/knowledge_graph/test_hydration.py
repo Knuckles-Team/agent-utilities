@@ -515,7 +515,26 @@ def test_hydrate_message_protocol(mock_engine):
 
 
 def test_hydrate_leanix_mirrors_factsheets(mock_engine):
-    """_hydrate_leanix injects a live client into the extractor and batch-ingests."""
+    """_hydrate_leanix injects a live client into the extractor and, via the
+    AU-P1-5 envelope-native sync path, commits one native ChangeEnvelope per
+    fact sheet plus a relationship-projection envelope.
+
+    Stale-test note (category 2): this test previously asserted the OLDER
+    ``mock_engine.ingest_external_batch(domain, entities, relationships)``
+    call shape shared by the other ``_hydrate_X`` sources in this file.
+    ``_hydrate_leanix`` -> ``source_sync._sync_leanix`` has since migrated to
+    the envelope-native path (its own docstring: "AU-P1-5 envelope-native
+    ... Migrated first as the flagship delta connector"), which commits
+    through ``envelope_ingest.ingest_envelope`` instead. A bare
+    ``MagicMock()`` cannot satisfy that path's
+    ``_resolve_native_authority``, which relies on ``getattr(x, attr, None)``
+    sentinel checks — a MagicMock auto-vivifies every attribute access, so it
+    can never look like "capability genuinely absent" and always raises
+    ``NativeChangeEnvelopeUnavailable``. Patch the native commit boundary
+    (``ingest_envelope``) instead, matching how other boundary-mocked tests
+    in this session (SSRF-safe HTTP wrappers, A2A discovery) stub the actual
+    transport instead of fighting deep mock plumbing.
+    """
     from types import SimpleNamespace
 
     fake_client = SimpleNamespace(
@@ -545,22 +564,46 @@ def test_hydrate_leanix_mirrors_factsheets(mock_engine):
         }.get(type, []),
     )
 
-    with patch(
-        "agent_utilities.ecosystem.ea_clients.get_leanix_client",
-        return_value=fake_client,
+    with (
+        patch(
+            "agent_utilities.ecosystem.ea_clients.get_leanix_client",
+            return_value=fake_client,
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope",
+            return_value={"status": "success"},
+        ) as mock_ingest,
     ):
         res = HydrationManager().hydrate_source(mock_engine, "leanix")
 
     assert res["status"] == "ok"
-    assert res["nodes_hydrated"] == 2
-    assert res["relations_hydrated"] == 1
-    mock_engine.ingest_external_batch.assert_called_once()
-    domain, entities, relationships = mock_engine.ingest_external_batch.call_args[0]
-    assert domain == "leanix"
-    assert {e["id"] for e in entities} == {"app:a1", "itcomponent:ic1"}
-    assert all(e["domain"] == "leanix" for e in entities)
-    assert all(e["externalToolId"] for e in entities)
-    assert relationships[0]["type"] == "REL_APPLICATION_TO_IT_COMPONENT"
+    # nodes_hydrated/relations_hydrated aren't canonical EtlResult fields
+    # (sync_source's model_validate projection, agent_utilities/knowledge_graph
+    # /core/source_sync.py) — they land under "details" alongside every other
+    # connector-specific diagnostic.
+    assert res["details"]["nodes_hydrated"] == 2
+    assert res["details"]["relations_hydrated"] == 1
+    # 2 fact-sheet (entity) envelopes + 1 relationship-projection envelope.
+    assert mock_ingest.call_count == 3
+    envelopes = [call.args[1] for call in mock_ingest.call_args_list]
+    assert all(env.connector == "leanix" for env in envelopes)
+    entity_envelopes = [
+        env for env in envelopes if env.typed_payload.get("type") != "SourceRelationshipProjection"
+    ]
+    assert {env.source_object_id for env in entity_envelopes} == {
+        "app:a1",
+        "itcomponent:ic1",
+    }
+    relation_envelope = next(
+        env
+        for env in envelopes
+        if env.typed_payload.get("type") == "SourceRelationshipProjection"
+    )
+    assert relation_envelope.typed_payload["relationship_count"] == 1
+    assert (
+        relation_envelope.typed_payload["_links"][0]["type"]
+        == "REL_APPLICATION_TO_IT_COMPONENT"
+    )
 
 
 def test_hydrate_leanix_no_client_skips(mock_engine):

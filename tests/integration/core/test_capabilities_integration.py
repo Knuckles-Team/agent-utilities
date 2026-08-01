@@ -67,8 +67,9 @@ async def test_stuck_loop_repeated(mock_deps):
         )
 
     assert "identical arguments" in str(exc.value)
-    # Verify graph write
-    mock_deps.graph_engine.graph.add_node.assert_called()
+    # Verify graph write (capabilities now write via ctx.deps.graph_engine.add_node
+    # directly, not the raw graph_engine.graph object — see stuck_loop.py)
+    mock_deps.graph_engine.add_node.assert_called()
 
 
 @pytest.mark.asyncio
@@ -121,7 +122,7 @@ async def test_context_warner(mock_deps):
     new_req = await cap.before_model_run(ctx, req)
     assert isinstance(new_req.parts[0], SystemPromptPart)
     assert "CRITICAL" in new_req.parts[0].content
-    mock_deps.graph_engine.graph.add_node.assert_called()
+    mock_deps.graph_engine.add_node.assert_called()
 
 
 @pytest.mark.asyncio
@@ -141,7 +142,7 @@ async def test_output_eviction(mock_deps):
 
     assert "EVICTED" in final_result
     assert len(final_result) < len(large_result)
-    mock_deps.graph_engine.graph.add_node.assert_called()
+    mock_deps.graph_engine.add_node.assert_called()
 
 
 @pytest.mark.asyncio
@@ -178,4 +179,4 @@ async def test_teams(mock_deps):
     assert task_id.startswith("task_")
 
     # Verify graph edges
-    mock_deps.graph_engine.graph.add_edge.assert_called()
+    mock_deps.graph_engine.add_edge.assert_called()

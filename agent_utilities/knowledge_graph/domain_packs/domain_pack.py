@@ -50,7 +50,7 @@ deliberately NOT a rival:
   that pattern-matches on those enums (the engine's ``HybridRetriever``,
   the entity extractor, ``owl_bridge``). A new, additive format was the
   smaller, non-breaking change.
-* **Entity-identity is deliberately NOT re-declared here.** A sibling
+* **Entity-identity is deliberately NOT redeclared here.** A sibling
   universal-ingestion lane (Track 5, entity resolution) added
   :class:`~agent_utilities.models.schema_pack.IdentityRule` to
   ``SchemaPack`` — resolution-time "are these two already-extracted records
@@ -109,7 +109,6 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..ontology.connector_manifest import ConnectorManifest, IntegrityInfo
-from .fragment_contract import FRAGMENT_TYPES
 
 __all__ = [
     "SEMVER_RE",
@@ -130,14 +129,6 @@ __all__ = [
 # be traced to the exact pack revision that produced it via
 # ``ChangeEnvelope.ontology_mapping_version``.
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
-
-
-def _check_fragment_type(value: str) -> str:
-    if value not in FRAGMENT_TYPES:
-        raise ValueError(
-            f"fragment_type must be one of {sorted(FRAGMENT_TYPES)}, got {value!r}"
-        )
-    return value
 
 
 class ColumnMapping(BaseModel):
@@ -176,6 +167,14 @@ class FrontmatterMapping(BaseModel):
     relation: str | None = None
     edge_target_type: str | None = None
     edge_target_id_template: str | None = None
+
+    @model_validator(mode="after")
+    def _require_field_matching_produce(self) -> FrontmatterMapping:
+        if self.produce == "property" and not self.property:
+            raise ValueError("produce=='property' requires 'property'")
+        if self.produce == "edge" and not self.relation:
+            raise ValueError("produce=='edge' requires 'relation'")
+        return self
 
 
 class TableMapping(BaseModel):
@@ -249,6 +248,14 @@ class JSONFieldMapping(BaseModel):
     edge_target_type: str | None = None
     edge_target_id_template: str | None = None
 
+    @model_validator(mode="after")
+    def _require_field_matching_produce(self) -> JSONFieldMapping:
+        if self.produce == "property" and not self.property:
+            raise ValueError("produce=='property' requires 'property'")
+        if self.produce == "edge" and not self.relation:
+            raise ValueError("produce=='edge' requires 'relation'")
+        return self
+
 
 MappingRule = Annotated[
     FrontmatterMapping | TableMapping | HeadingMapping | LinkMapping | JSONFieldMapping,
@@ -312,6 +319,20 @@ class DomainPackManifest(BaseModel):
     mappings: list[MappingRule] = Field(default_factory=list)
     evaluation_cases: list[EvaluationCase] = Field(default_factory=list)
     default_classification: str = "internal"
+    promotion_confidence_threshold: float | None = Field(
+        default=None,
+        description=(
+            "This pack's own minimum governed-promotion confidence "
+            "(CONCEPT:AU-KG.ingest.governed-claim-promotion) — consulted by "
+            "``ingestion.promotion.resolve_confidence_threshold`` BEFORE the "
+            "process-wide ``AgentConfig.ingestion_confidence_thresholds`` "
+            "mapping, so a pack author states its own risk tolerance "
+            "alongside its mappings instead of an operator having to "
+            "separately configure the SAME name in two places. ``None`` "
+            "(the default) defers entirely to that mapping/the conservative "
+            "global fallback — a pack does not have to declare one."
+        ),
+    )
     provenance: DomainPackProvenance
 
     @field_validator("version")
@@ -319,6 +340,15 @@ class DomainPackManifest(BaseModel):
     def _valid_semver(cls, value: str) -> str:
         if not SEMVER_RE.match(value):
             raise ValueError(f"version must be semver (X.Y.Z), got {value!r}")
+        return value
+
+    @field_validator("promotion_confidence_threshold")
+    @classmethod
+    def _valid_promotion_confidence_threshold(cls, value: float | None) -> float | None:
+        if value is not None and not 0.0 <= value <= 1.0:
+            raise ValueError(
+                f"promotion_confidence_threshold must be in [0.0, 1.0], got {value!r}"
+            )
         return value
 
     @field_validator("default_classification")

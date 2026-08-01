@@ -511,9 +511,31 @@ def _enabled_maintenance_names() -> set[str]:
         EpistemicGraphBackend,
     )
     from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     inst = TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
-    inst.backend = EpistemicGraphBackend()
+    # This helper is called twice per test (flag True, then False); each call
+    # constructs its own GraphComputeEngine directly, which trips the
+    # "process graph transport already exists" guard on the second call
+    # unless the singleton left by the first call's internal machinery is
+    # cleared first.
+    GraphComputeEngine._PROCESS_ENGINE = None
+    # A bare EpistemicGraphBackend() resolves its own routing graph via
+    # resolve_routing_graph(None) BEFORE GraphComputeEngine is ever asked for
+    # one, bypassing the isolate_graph_compute_engine fixture's redirect (same
+    # family as test_kg_native_orchestration.py). Bind directly to an
+    # already-isolated GraphComputeEngine instead.
+    compute = GraphComputeEngine(backend_type="rust")
+    backend = object.__new__(EpistemicGraphBackend)
+    backend._graph = compute
+    backend.graph_name = compute.graph_name
+    backend.create_schema()
+    inst.backend = backend
+    # _control_backend() (schedule_engine.py) reads engine.control_backend,
+    # not engine.backend -- a real IntelligenceGraphEngine sets both
+    # (_build_control_backend() returns self.backend for the single-client
+    # profile); this hand-built TaskManagerMixin instance needs the same.
+    inst.control_backend = backend
     inst._register_maintenance_schedules()
     return {s.name for s in _se._load_all(inst) if s.enabled}
 

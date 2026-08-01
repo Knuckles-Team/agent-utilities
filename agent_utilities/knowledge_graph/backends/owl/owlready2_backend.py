@@ -156,8 +156,11 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "legal_entity": "LegalEntity",
     "company": "Company",
     "ein_application": "EINApplication",
-    # Infrastructure additions
-    "host": "BladeServer",
+    # Infrastructure additions. "host" maps to the engine-native :Host class
+    # (ontology_infrastructure.ttl) -- NOT :BladeServer, an unrelated class
+    # from a different vendor ontology namespace in the same file that
+    # happens to share no relationship with the LPG "host" node type.
+    "host": "Host",
     "container": "Container",
     "container_stack": "ContainerStack",
     "platform_service": "PlatformService",
@@ -466,8 +469,15 @@ class Owlready2Backend(OWLBackend):
         return None
 
     def _get_owl_property(self, edge_type: str):
-        """Resolve a LPG edge type string to an owlready2 object property."""
-        prop_name = _EDGE_TYPE_TO_OWL_PROP.get(edge_type)
+        """Resolve a LPG edge type string to an owlready2 object property.
+
+        ``link_nodes()`` writes the edge's ``relationship`` property upper-cased
+        (the converged relationship-type convention used by every call site), but
+        ``_EDGE_TYPE_TO_OWL_PROP`` is keyed in lowercase snake_case. Lower-case the
+        lookup key here rather than weakening the upper-casing convention upstream
+        (D-GS7-1).
+        """
+        prop_name = _EDGE_TYPE_TO_OWL_PROP.get(edge_type.lower())
         if not prop_name or not self._world:
             return None
         import owlready2

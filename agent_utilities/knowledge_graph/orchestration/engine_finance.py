@@ -103,7 +103,7 @@ class FinanceEngineMixin(_Base):
         )
         # Sample size travels with the priors: a Sharpe measured over 5 trades
         # must not carry the same weight as one measured over 5000.
-        props = {**node.model_dump(), "n_trades": n_trades}
+        props = {**node.to_graph_properties(), "n_trades": n_trades}
         self.graph.add_node(node.id, **props)
 
         if self.backend:
@@ -132,11 +132,12 @@ class FinanceEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="ExecutionSignal")
             self._upsert_node("ExecutionSignal", signal_id, data)
-            self.backend.execute(
-                "MATCH (s:TradingStrategy {id: $sid}), (sig:ExecutionSignal {id: $sigid}) "
-                "MERGE (s)-[:GENERATES_SIGNAL]->(sig)",
-                {"sid": strategy_id, "sigid": signal_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # ``link_nodes`` dispatches through the typed engine API.
+            self.link_nodes(strategy_id, signal_id, "GENERATES_SIGNAL")
         return signal_id
 
     def calculate_kelly_size(
@@ -164,11 +165,9 @@ class FinanceEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="KellySizing")
             self._upsert_node("KellySizing", kelly_id, data)
-            self.backend.execute(
-                "MATCH (sig:ExecutionSignal {id: $sigid}), (k:KellySizing {id: $kid}) "
-                "MERGE (sig)-[:SIZED_BY]->(k)",
-                {"sigid": signal_id, "kid": kelly_id},
-            )
+            # See generate_execution_signal above for why this is a typed
+            # link, not a comma-pattern MATCH + edge MERGE.
+            self.link_nodes(signal_id, kelly_id, "SIZED_BY")
         return kelly_id
 
     def commit_order(self, signal_id: str, portfolio_id: str, fill_price: float) -> str:
@@ -189,16 +188,10 @@ class FinanceEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="OrderCommitRecord")
             self._upsert_node("OrderCommitRecord", order_id, data)
-            self.backend.execute(
-                "MATCH (sig:ExecutionSignal {id: $sigid}), (o:OrderCommitRecord {id: $oid}) "
-                "MERGE (sig)-[:PLACED_ORDER]->(o)",
-                {"sigid": signal_id, "oid": order_id},
-            )
-            self.backend.execute(
-                "MATCH (o:OrderCommitRecord {id: $oid}), (p {id: $pid}) "
-                "MERGE (o)-[:BELONGS_TO_PORTFOLIO]->(p)",
-                {"oid": order_id, "pid": portfolio_id},
-            )
+            # See generate_execution_signal above for why these are typed
+            # links, not comma-pattern MATCH + edge MERGE.
+            self.link_nodes(signal_id, order_id, "PLACED_ORDER")
+            self.link_nodes(order_id, portfolio_id, "BELONGS_TO_PORTFOLIO")
         return order_id
 
     # --- Markov Regime Detection (CONCEPT:AU-KG.research.research-pipeline-runner) ---
@@ -280,11 +273,12 @@ class FinanceEngineMixin(_Base):
                     "model_id": f"markov_regime_{asset_class}",
                 },
             )
-            self.backend.execute(
-                "MATCH (s:TradingStrategy {id: $sid}), (m:MarkovTransitionMatrix {id: $mid}) "
-                "MERGE (s)-[:MODELS_REGIME]->(m)",
-                {"sid": strategy_id, "mid": matrix_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # ``link_nodes`` dispatches through the typed engine API.
+            self.link_nodes(strategy_id, matrix_id, "MODELS_REGIME")
 
         # Also persist the current regime state
         if model.regime_states is not None and len(model.regime_states) > 0:
@@ -306,11 +300,9 @@ class FinanceEngineMixin(_Base):
             if self.backend:
                 data = self._serialize_node(regime_node, label="MarkovRegimeState")
                 self._upsert_node("MarkovRegimeState", regime_id, data)
-                self.backend.execute(
-                    "MATCH (m:MarkovTransitionMatrix {id: $mid}), (r:MarkovRegimeState {id: $rid}) "
-                    "MERGE (m)-[:DETECTED_REGIME]->(r)",
-                    {"mid": matrix_id, "rid": regime_id},
-                )
+                # See fit_markov_regime above for why this is a typed link,
+                # not a comma-pattern MATCH + edge MERGE.
+                self.link_nodes(matrix_id, regime_id, "DETECTED_REGIME")
 
         logger.info(
             "[CONCEPT:AU-KG.research.research-pipeline-runner] Fitted Markov regime model for strategy %s: %s",
@@ -341,7 +333,7 @@ class FinanceEngineMixin(_Base):
         # Find the latest regime matrix for this strategy
         matrix_data = None
         for _, data in self.graph.nodes(data=True):
-            if data.get("type") == "markov_transition_matrix" and data.get(
+            if data.get("node_type") == "markov_transition_matrix" and data.get(
                 "asset_class"
             ):
                 matrix_data = data
@@ -433,11 +425,9 @@ class FinanceEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="RegimeSignal")
             self._upsert_node("RegimeSignal", signal_id, data)
-            self.backend.execute(
-                "MATCH (s:TradingStrategy {id: $sid}), (sig:RegimeSignal {id: $sigid}) "
-                "MERGE (s)-[:GENERATES_SIGNAL]->(sig)",
-                {"sid": strategy_id, "sigid": signal_id},
-            )
+            # See generate_execution_signal above for why this is a typed
+            # link, not a comma-pattern MATCH + edge MERGE.
+            self.link_nodes(strategy_id, signal_id, "GENERATES_SIGNAL")
 
         return signal_id
 
@@ -462,6 +452,6 @@ class FinanceEngineMixin(_Base):
         # Fallback to in-memory graph
         regime_nodes = []
         for _, data in self.graph.nodes(data=True):
-            if data.get("type") == "markov_regime_state":
+            if data.get("node_type") == "markov_regime_state":
                 regime_nodes.append(data)
         return sorted(regime_nodes, key=lambda x: x.get("timestamp", ""))

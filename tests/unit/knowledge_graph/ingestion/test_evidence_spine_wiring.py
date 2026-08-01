@@ -38,6 +38,7 @@ from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
     artifact_id_for,
 )
 from agent_utilities.knowledge_graph.ontology.document_processing import (
+    CHUNK_NODE_TYPE,
     ChunkingConfig,
     DocumentProcessor,
 )
@@ -193,6 +194,35 @@ def test_reingesting_the_unchanged_file_produces_identical_fragment_ids(
     ]
     assert ids(first) == ids(second)
     assert hashes(first) == hashes(second)
+
+
+def test_chunks_embed_verbatim_markdown_structure_not_flattened_text(
+    runbook: Path,
+) -> None:
+    """D-ES-1: the Chunk pipeline must address the same text the spine cites.
+
+    Before the fix, ``chunk_text`` ran over ``KBDocumentParser``'s rendering,
+    which — for a file short enough to land in one of its own internal
+    chunks (true here) — reduces to ``" ".join(text.split())``: EVERY
+    newline in the file, including the blank lines between paragraphs, the
+    heading's own line break, and the one-row-per-line table, collapses to a
+    single space. A chunk built from that rendering can therefore never
+    contain a newline at all. Chunking the verbatim source instead means the
+    paragraph/heading/table-row line structure survives into the chunk text.
+    """
+    envelope = ingest(runbook)
+    chunks = rows(envelope, CHUNK_NODE_TYPE)
+    assert chunks, "the document must materialize at least one chunk"
+
+    assert any("\n" in c["content"] for c in chunks), (
+        "no chunk retained a newline — the pipeline is still chunking "
+        "KBDocumentParser's whitespace-flattened rendering, which cannot "
+        "contain one (D-ES-1 regression)"
+    )
+    assert any("## Failure Modes" in c["content"].splitlines() for c in chunks), (
+        "the heading must survive as its OWN LINE, not merely as a "
+        "substring embedded mid-sentence in flattened prose"
+    )
 
 
 def test_editing_one_paragraph_moves_only_that_fragments_hash(runbook: Path) -> None:

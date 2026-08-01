@@ -132,7 +132,18 @@ class DataClassification(StrEnum):
 
     Values:
         PUBLIC: Visible to all authenticated actors.
-        INTERNAL: Visible to all actors within the tenant.
+        INTERNAL: D-ACL-5 — NOT currently tenant-wide in enforcement. This
+            label is intended for content visible to every actor within the
+            owning tenant, but ``DataLevelPermissions.check_permission``
+            (``agent_utilities/knowledge_graph/core/company_brain.py``) has
+            no tenant-membership parameter and never special-cases
+            ``INTERNAL`` in its read branch — today it is enforced
+            identically to ``CONFIDENTIAL`` (owner/explicit-actor/role-gated
+            only). Implementing the tenant-wide read this label promises
+            needs a reviewed, tested change to ``check_permission``'s
+            signature and read-allow logic (plus a cross-tenant-denial
+            test) — do not assume ``INTERNAL`` grants broader access than
+            ``CONFIDENTIAL`` until that lands.
         CONFIDENTIAL: Visible only to actors with explicit grant.
         RESTRICTED: Visible only to designated data owners and admins.
             Requires audit logging on every access.

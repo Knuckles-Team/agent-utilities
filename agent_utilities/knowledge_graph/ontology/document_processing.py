@@ -68,6 +68,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from agent_utilities.core._env import setting
 from agent_utilities.core.config import config
+from agent_utilities.security.log_redaction import redact_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -311,6 +312,29 @@ def _segment(text: str, cfg: ChunkingConfig) -> list[tuple[str, int, int]]:
     return atoms
 
 
+def _fragment_ids_for_span(start: int, end: int, fragments: Sequence[Any]) -> list[str]:
+    """Fragment ids whose evidence-spine character span overlaps ``[start, end)``.
+
+    CONCEPT:AU-KG.retrieval.fragment-cited-chunk — links the retrieval unit
+    (a fixed-size, overlapping :class:`ChunkSpan`) to the citation unit (a
+    structurally addressed :class:`~..ingestion.evidence_spine.Fragment`),
+    both derived from the SAME extracted text so their character offsets are
+    directly comparable. A fragment with no linear span (``char_start``/
+    ``char_end`` == -1 — e.g. a non-document artifact) never matches; an
+    artifact with no fragments at all yields an empty citation list for every
+    chunk, which is the honest answer, not a computed one.
+    """
+    ids: list[str] = []
+    for frag in fragments:
+        f_start = getattr(frag, "char_start", -1)
+        f_end = getattr(frag, "char_end", -1)
+        if f_start < 0 or f_end < 0:
+            continue
+        if f_start < end and start < f_end:
+            ids.append(frag.fragment_id)
+    return ids
+
+
 # ── Materialized ontology objects ────────────────────────────────────────────
 
 
@@ -333,6 +357,18 @@ class DocumentChunk(BaseModel):
     embedding: list[float] | None = None
     embedding_dim: int = 0
     context: str = ""
+    # CONCEPT:AU-KG.retrieval.fragment-cited-chunk — mandatory evidence citation.
+    # The evidence-spine Fragment id(s) (CONCEPT:AU-KG.ingest.stable-fragment-address)
+    # whose [char_start, char_end) span overlaps this chunk's, derived from the SAME
+    # extracted text (see DocumentProcessor.process). A chunk that cannot cite a
+    # fragment is not citable — retrieval consumers must resolve a result back to
+    # real, addressable evidence, never a bare span of characters.
+    fragment_ids: list[str] = Field(default_factory=list)
+    # CONCEPT:AU-KG.retrieval.embedding-version-identity — the embedding version
+    # (``"provider:model"``) that produced ``embedding``. Empty when ``embedding``
+    # is ``None`` (the offline/no-embedder degrade path) — there is no version to
+    # claim for a vector that was never produced.
+    embedding_version: str = ""
 
 
 class ProcessedDocument(BaseModel):
@@ -528,7 +564,29 @@ class DocumentProcessor:
             "classification": "public" if access.is_public else "internal",
         }
 
-        spans = chunk_text(raw_text, self.chunking)
+        # CONCEPT:AU-KG.ingest.stable-fragment-address (D-ES-1). Computed HERE,
+        # before chunking, so the chunk/embedding pipeline addresses the same
+        # text the evidence spine cites instead of ``raw_text`` —
+        # ``KBDocumentParser``'s whitespace-normalized rendering, which has
+        # already destroyed every heading/table/list boundary by the time
+        # ``chunk_text`` would otherwise see it. For formats whose bytes ARE
+        # the document (.md/.txt/.rst/…, see ``_VERBATIM_SUFFIXES``) this is
+        # the untouched source; for formats that genuinely need extraction
+        # (pdf/docx) it falls back to ``raw_text``, so chunking behavior for
+        # those is unchanged.
+        verbatim = self._verbatim_source_text(document, text=text, fallback=raw_text)
+
+        spans = chunk_text(verbatim, self.chunking)
+
+        # CONCEPT:AU-KG.ingest.evidence-spine-artifact — the addressable evidence
+        # spine rides the SAME extraction, always on, and is computed BEFORE chunks
+        # so each chunk can cite the fragment(s) its span overlaps (CONCEPT:AU-KG.retrieval.fragment-cited-chunk).
+        # Chunks are the retrieval unit (fixed-size, overlapping, embedded);
+        # fragments are the *citation* unit (structural, stably addressed, hashed).
+        from ..ingestion.evidence_spine import artifact_id_for, fragment_markdown
+
+        artifact_id = artifact_id_for(connector, source_instance, doc_id)
+        fragments = fragment_markdown(raw_text, artifact_id=artifact_id)
 
         # CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — contextual-retrieval enrichment. Situate each chunk
         # within the whole document and embed ``context + chunk`` (Anthropic
@@ -536,13 +594,37 @@ class DocumentProcessor:
         # stored on the Chunk node for display/lexical match. Computed BEFORE
         # embedding. Off by default → no behaviour change for existing callers.
         contexts = self._enrich_contexts(
-            raw_text, [sp.text for sp in spans], final_title
+            verbatim, [sp.text for sp in spans], final_title
         )
         embed_inputs = [
             f"{ctx}\n\n{sp.text}" if ctx else sp.text
             for sp, ctx in zip(spans, contexts, strict=False)
         ]
         embeddings = self._embed(embed_inputs)
+        # CONCEPT:AU-KG.retrieval.embedding-version-identity — tag every PRODUCED
+        # vector with the model that produced it, so a later config change (a new
+        # default embedding model) can never be silently compared against these.
+        # Resolved once per document, and only when at least one embedding was
+        # actually produced — the offline/no-embedder degrade path (every entry
+        # ``None``) has no version to claim and must not raise for having none
+        # configured.
+        embedding_version = ""
+        if any(emb is not None for emb in embeddings):
+            from ..retrieval.embedding_versioning import (
+                EmbeddingVersionUnresolvedError,
+                resolve_current_embedding_version,
+            )
+
+            try:
+                embedding_version = resolve_current_embedding_version().id
+            except EmbeddingVersionUnresolvedError as exc:
+                logger.warning(
+                    "[KG-2.48] embeddings were produced but the active embedding "
+                    "version could not be resolved — chunks will carry no "
+                    "embedding_version, which disables re-index staleness "
+                    "detection for this document: %s",
+                    exc,
+                )
 
         chunks: list[DocumentChunk] = []
         for sp, emb, ctx in zip(spans, embeddings, contexts, strict=False):
@@ -560,6 +642,10 @@ class DocumentProcessor:
                     embedding=emb,
                     embedding_dim=len(emb) if emb else 0,
                     context=ctx,
+                    fragment_ids=_fragment_ids_for_span(
+                        sp.char_start, sp.char_end, fragments
+                    ),
+                    embedding_version=embedding_version if emb is not None else "",
                 )
             )
 
@@ -599,13 +685,10 @@ class DocumentProcessor:
         # citations that traverse them, survive a revision.
         artifact_source_id = src_label or doc_id
         artifact_id = artifact_id_for(connector, source_instance, artifact_source_id)
-        # ``raw_text`` is the EXTRACTOR's rendering — KBDocumentParser flattens a
-        # markdown file into whitespace-normalized chunks, which is fine for
-        # embedding-oriented chunks and useless for structural addressing (every
-        # heading, table and list is gone by then).  The spine fragments the
-        # verbatim source instead, so a citation addresses the document the
-        # author actually wrote.
-        verbatim = self._verbatim_source_text(document, text=text, fallback=raw_text)
+        # ``verbatim`` (computed above, and now also fed to ``chunk_text`` /
+        # ``_enrich_contexts`` — D-ES-1) is the untouched source for formats
+        # whose bytes ARE the document; the spine fragments it so a citation
+        # addresses the document the author actually wrote.
         fragments = fragment_markdown(verbatim, artifact_id=artifact_id)
 
         result = ProcessedDocument(
@@ -658,16 +741,33 @@ class DocumentProcessor:
                 )
                 result.access_synced = result.persisted
             else:
-                from ...protocols.source_connectors.permission_sync import sync_access
-
+                # No graph configured at all (``self.graph is None``): per this
+                # class's own contract ("the processor runs offline ... but
+                # performs no graph writes"), ``sync_access`` — which WRITES
+                # through ``apply_marking``'s mandatory-marking persistence —
+                # must be skipped the same way ``_persist`` below already
+                # no-ops via ``_resolve_writer() is None``, not attempted and
+                # left to hard-fail the whole chunking pass. Enforcement is
+                # unaffected: whenever a real writer IS configured, this
+                # branch is not taken at all (the ``self.engine is not None``
+                # branch above applies the ACL/markings natively), so no
+                # document that is actually persisted anywhere ever skips its
+                # mandatory marking.
                 access_edges = [
                     (edge["source"], edge["target"])
                     for edge in [*edges, *result.section_edges]
                     if edge.get("relationship")
                     in {HAS_CHUNK_EDGE, HAS_SECTION_EDGE, HAS_SUBSECTION_EDGE}
                 ]
-                sync_access(doc_id, access, access_edges)
-                result.access_synced = True
+                if self._resolve_writer() is not None:
+                    from ...protocols.source_connectors.permission_sync import (
+                        sync_access,
+                    )
+
+                    sync_access(doc_id, access, access_edges)
+                    result.access_synced = True
+                else:
+                    result.access_synced = False
                 result.persisted = self._persist(
                     document_node, chunk_nodes + link_nodes, edges
                 )
@@ -744,24 +844,37 @@ class DocumentProcessor:
         return "", label, "document", label
 
     def _read_file(self, path: Path) -> str:
-        """Extract text from a file, reusing the KB parser, then enrichment reader.
+        """Extract text from a file, reusing the KB parser's format readers.
 
-        ``KBDocumentParser`` handles md/txt/html/pdf/docx/epub (pypdf/pdfminer for
-        PDF via its ``_read_pdf``); the enrichment ``read_document_text`` is a
-        second, lighter reader. Either returning empty text leads to the explicit
-        :class:`DocumentExtractionError` in :meth:`process`.
+        CONCEPT:AU-KG.ingest.verbatim-extraction-before-fragmenting (D-ES-1 fix).
+        Calls ``KBDocumentParser._read_file`` directly instead of its
+        ``parse_file()``: ``parse_file`` additionally runs the extracted text
+        through ``_chunk_text`` — a WORD-COUNT splitter (``text.split()`` then
+        ``" ".join(...)``) meant for KBDocumentParser's own retrieval use, which
+        collapses every whitespace boundary (blank lines between paragraphs,
+        heading/list/table line breaks) before this method ever sees the text.
+        Both this processor's OWN chunker (``chunk_text``) and the evidence-spine
+        fragmenter (``fragment_markdown``) then ran on that already-flattened
+        text, so a markdown file's headings/paragraphs/tables were invisible to
+        BOTH — fragments degraded to whole-document granularity, defeating the
+        structural addressing evidence_spine exists for. Reading the format
+        reader's OUTPUT (still md/txt/html verbatim, or genuinely-extracted
+        pdf/docx/epub text — those formats have no "verbatim" original to
+        preserve) instead of its post-processed chunks fixes this with strictly
+        MORE information, never less: nothing upstream of ``_chunk_text`` is
+        skipped, only the mangling step is.
         """
-        from ..enrichment.extractors.document import read_document_text
-        from ..kb.parser import KBDocumentParser
+        from ..kb.parser import SUPPORTED_EXTENSIONS, KBDocumentParser
 
+        source_type = SUPPORTED_EXTENSIONS.get(path.suffix.lower(), "txt")
         try:
-            parsed = KBDocumentParser(chunk_size=10_000).parse_file(path)
-            if parsed and parsed.chunks:
-                joined = "\n".join(c.content for c in parsed.chunks).strip()
-                if joined:
-                    return joined
+            extracted = KBDocumentParser()._read_file(path, source_type)  # noqa: SLF001 — the verbatim-per-format reader; parse_file()'s own post-chunking is what this bypasses
+            if extracted and extracted.strip():
+                return extracted
         except Exception as exc:  # noqa: BLE001 — fall through to lighter reader
-            logger.debug("KBDocumentParser failed (%s)", type(exc).__name__)
+            logger.debug("KBDocumentParser._read_file failed (%s)", type(exc).__name__)
+
+        from ..enrichment.extractors.document import read_document_text
 
         try:
             return read_document_text(str(path))
@@ -801,7 +914,7 @@ class DocumentProcessor:
                     logger.warning(
                         "verbatim read of %s failed (%s); the evidence spine will "
                         "address the extracted text instead",
-                        path,
+                        redact_for_log(path),
                         exc,
                     )
             return fallback
@@ -983,6 +1096,14 @@ class DocumentProcessor:
         if chunk.context:
             node["context"] = chunk.context
             node["contextual_summary"] = chunk.context
+        # CONCEPT:AU-KG.retrieval.fragment-cited-chunk — mandatory evidence citation:
+        # every retrievable Chunk carries the Fragment id(s) it resolves to. Stored
+        # even when empty (an artifact with no fragments — e.g. non-markdown text)
+        # so the absence is an observable fact, not a missing key a reader might
+        # mistake for "not yet computed".
+        node["fragment_ids"] = list(chunk.fragment_ids)
+        if chunk.embedding_version:
+            node["embedding_version"] = chunk.embedding_version
         return node
 
     def _build_edges(

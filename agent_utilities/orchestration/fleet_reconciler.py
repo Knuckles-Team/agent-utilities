@@ -207,17 +207,13 @@ def registry_server_aliases(registry_path: str | Path | None = None) -> dict[str
     return aliases
 
 
-def registry_server_alias(
-    package: str, registry_path: str | Path | None = None
-) -> str:
+def registry_server_alias(package: str, registry_path: str | Path | None = None) -> str:
     """The registered server alias for one provider distribution — or fail closed."""
 
     aliases = registry_server_aliases(registry_path)
     alias = aliases.get(str(package))
     if not alias:
-        raise FleetRegistryError(
-            "provider is not registered in the MCP fleet registry"
-        )
+        raise FleetRegistryError("provider is not registered in the MCP fleet registry")
     return alias
 
 
@@ -494,6 +490,12 @@ class FleetReconciler:
         # Human-granted approvals get their own budget: a backlog of new
         # divergences must not starve actions an operator already sanctioned.
         approved = self._drain_approved(self.max_actions)
+        # C3/Phase 3a: the leader-only tick this reconcile() pass IS also
+        # sweeps 'blocked' :AgentTask nodes whose dependencies just
+        # completed, firing them to 'ready'. fire_ready_agent_tasks() never
+        # raises (degrades to [] on an unreachable engine/failed query), so
+        # this never destabilizes the rest of the report.
+        fired_agent_tasks = fire_ready_agent_tasks(self.engine)
         report = {
             "divergences": len(proposals),
             "processed": len(actions),
@@ -501,6 +503,7 @@ class FleetReconciler:
             "actions": actions,
             "approved_drained": approved,
             "actuator": getattr(self.actuator, "name", "?"),
+            "fired_agent_tasks": fired_agent_tasks,
         }
         self._record(report)
         return report

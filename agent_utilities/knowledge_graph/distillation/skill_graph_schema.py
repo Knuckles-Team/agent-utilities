@@ -142,7 +142,17 @@ def validate_skill_graph(skill_dir: str | Path) -> list[str]:
     # the provenance-manifest contract; native graphs are recognized by absence of
     # reference/ and presence of body content.
     if ref.exists():
-        md_files = sorted(p for p in ref.rglob("*.md"))
+        # index.md is an OKF-conformance sidecar auto-written into every
+        # reference/ dir (and subdir) by write_okf_conformance's
+        # write_dir_index() — it is not a source doc and that function's own
+        # per-file stamping loop already excludes it (and log.md) from its
+        # counts for the same reason. An uncounted index.md here would
+        # otherwise permanently desync file_count (computed BEFORE OKF
+        # conformance runs) from validate_skill_graph's own actual count
+        # (which runs after).
+        md_files = sorted(
+            p for p in ref.rglob("*.md") if p.name not in {"index.md", "log.md"}
+        )
         if not md_files:
             errors.append(f"{d.name}: reference/ exists but contains no .md files")
         errors.extend(_validate_sources_manifest(d, ref, fm, md_files))

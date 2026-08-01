@@ -45,7 +45,7 @@ async def set_output_style(ctx: RunContext[Any], style_name: str) -> str:
             # For simplicity, we search by name in the graph
             for node_id, node_data in engine.graph.nodes(data=True):
                 if (
-                    node_data.get("type") == "article"
+                    node_data.get("node_type") == "article"
                     and node_data.get("name") == style_name
                 ):
                     style_content = node_data.get("content")
@@ -69,7 +69,7 @@ async def list_output_styles(ctx: RunContext[Any]) -> str:
     engine = getattr(ctx.deps, "graph_engine", None)
     if engine:
         for node_id, node_data in engine.graph.nodes(data=True):
-            if node_data.get("type") == "article" and "style" in node_data.get(
+            if node_data.get("node_type") == "article" and "style" in node_data.get(
                 "tags", []
             ):
                 styles.append(node_data.get("name"))

@@ -795,7 +795,7 @@ def submit_work_item(
         consent_expires_at=consent_expires_at,
     )
     _authority(engine).add_node(
-        item_id, _NODE_LABEL, properties=node.model_dump(exclude={"id", "type"})
+        item_id, _NODE_LABEL, properties=node.to_graph_properties(exclude={"id"})
     )
 
     edge_type = _task_depends_on_edge_type()
@@ -1441,9 +1441,17 @@ def submit_work_item_input(
 #
 # Makes WorkItem authoritative for `:AgentTask` claim/execute/writeback when
 # `AGENT_CLAIM_BACKEND=workitem` (engine_claim.py). Mirrors the legacy
-# `:AgentTask.status` and a companion `:AgentLease` node (never reads them)
-# so unmigrated consumers (`fleet_reconciler.fire_ready_agent_tasks`,
-# dashboards) keep working unchanged.
+# `:AgentTask.status` (never read back) so unmigrated consumers
+# (`fleet_reconciler.fire_ready_agent_tasks`, dashboards) keep working
+# unchanged. Does NOT mirror a companion `:AgentLease` node: per
+# `docs/architecture/graph-authority-convergence.md`, lease/fencing
+# capabilities are held only by the executing process and are never copied
+# into another graph node — `AgentLease` is not an operational work-state
+# model, and an architecture guard test
+# (`test_no_agentlease_writer_remains`) enforces the absence of any
+# `AgentLease` writer. `fire_ready_agent_tasks` never reads an `AgentLease`
+# node either (only the `AgentTask.status` mirror above), so there is no
+# live consumer to preserve.
 
 _AGENT_TASK_ALREADY_TERMINAL = "completed"
 
@@ -1519,23 +1527,24 @@ def claim_agent_task_via_work_item(
 ) -> dict[str, Any] | None:
     """Claim one ``:AgentTask`` through the WorkItem state machine (MIGRATED path).
 
-    Same return contract as :func:`agent_utilities.orchestration.engine_claim.
-    claim_agent_task` (``task_id``/``lease_id``/``dag_id``/``checkpoint_id``/
-    ``depends_on_task_ids``/``fence_token``) — plus an internal
-    ``_work_item_id`` key so a caller can additionally commit through
-    :func:`commit_result` (dependency release, DLQ, idempotent commit all
-    apply; see :func:`commit_agent_task_work_item`, this module's ready-made
-    wrapper for that). Selected via ``AGENT_CLAIM_BACKEND=workitem``
-    (:mod:`~agent_utilities.orchestration.engine_claim`).
+    Same legacy-shaped fields as the retired KG-``:AgentLease`` claim path
+    (``task_id``/``lease_id``/``dag_id``/``checkpoint_id``/
+    ``depends_on_task_ids``/``fence_token``), so a caller that only reads
+    those is unaffected — PLUS ``work_item_id`` and ``lease_owner``, which
+    :class:`~agent_utilities.orchestration.agent_dispatch_worker.WorkItemLeaseGuard`
+    / :func:`~agent_utilities.orchestration.agent_dispatch_worker._work_item_fence_still_valid`
+    / :func:`heartbeat` require to renew and verify authority against THIS
+    (WorkItem-native) fence, not the retired AgentLease one. Consumed by
+    :func:`~agent_utilities.orchestration.agent_dispatch_worker.execute_agent_task_turn`,
+    which also commits the outcome through :func:`commit_agent_task_work_item`
+    (dependency release, DLQ, idempotent commit all apply). Selected via
+    ``AGENT_CLAIM_BACKEND=workitem`` (:mod:`~agent_utilities.orchestration.engine_claim`).
 
-    NOT YET WIRED (D-W2-12, verified 2026-07-31): the intended top-level
-    orchestrator, ``agent_utilities.orchestration.agent_dispatch_worker.
-    execute_agent_task_turn(engine, task_id, agent_id=..., executor=...)``,
-    does not exist in that module — only its test,
-    ``tests/unit/test_agent_dispatch_work_item_backend.py``, and this
-    docstring describe it. This function and :func:`commit_agent_task_work_item`
-    are the claim/commit halves it would call; nobody currently calls them
-    for the ``:AgentTask`` dispatch path.
+    NOT YET LIVE-WIRED (D-W2-12): ``agent_dispatch_worker.execute_agent_task_turn``
+    now exists (D-DSTO-5), but its only caller today is
+    ``tests/unit/test_agent_dispatch_work_item_backend.py`` — no production
+    dispatch loop invokes it yet. This function and
+    :func:`commit_agent_task_work_item` are the claim/commit halves it calls.
     """
     token = token or _default_token()
     now = now if now is not None else _now()
@@ -1560,24 +1569,11 @@ def claim_agent_task_via_work_item(
             e,
         )
 
+    # Opaque lease identifier for the return contract below — NOT a graph
+    # node id. No `:AgentLease` node is written for it (see the module note
+    # above): lease/fencing state lives only in the WorkItem claim
+    # (`claim_specific`/`mark_running` above already committed it).
     lease_id = f"lease:{task_id}:{claim['fence_token']}"
-    try:
-        engine.add_node(
-            lease_id,
-            "AgentLease",
-            properties={
-                "name": f"Lease: {task_id}",
-                "owner_token": claim["lease_owner"],
-                "resource_id": task_id,
-                "acquired_at": now,
-                "lease_expires_at": now + claim_ttl_s,
-                "lease_epoch": claim["fence_token"],
-            },
-        )
-    except Exception as e:  # noqa: BLE001 — mirror is best-effort
-        logger.warning(
-            "work_item bridge: AgentLease mirror failed for %s: %s", task_id, e
-        )
 
     dag_id = ""
     checkpoint_id = None
@@ -1603,7 +1599,8 @@ def claim_agent_task_via_work_item(
         "checkpoint_id": checkpoint_id,
         "depends_on_task_ids": list(item.get("depends_on") or []),
         "fence_token": claim["fence_token"],
-        "_work_item_id": item_id,
+        "lease_owner": claim.get("lease_owner"),
+        "work_item_id": item_id,
     }
 
 
