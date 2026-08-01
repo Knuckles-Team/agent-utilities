@@ -20,6 +20,8 @@ shadow is already claimed elsewhere; two sequential claims of the same row
 must produce one winner and one loser.
 """
 
+import threading
+
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
@@ -201,3 +203,67 @@ def test_two_sequential_claims_of_same_task_first_wins_second_loses():
     assert first is not None and first[0] == "job-shared"  # winner
     assert second is None  # loser got no claim, no other candidate
     assert _task_status(b, "job-shared") == "running"
+
+
+class _MetaStampHarness:
+    """Minimal ``TaskManagerMixin`` host that mocks the ingestion-queue
+    ``IngestionMixin._claim_next_task`` (``engine_tasks.py``) plumbing rather
+    than exercising a real ``EpistemicGraphBackend`` — this proves the D-W2-12
+    fix (the returned ``meta`` dict is stamped with the winning claim's own
+    lease identity) without depending on the live engine's control-plane
+    wiring, which the other tests in this file need for their real
+    ``:Task``/``:WorkItem`` state machine coverage.
+    """
+
+    control_backend = object()
+    backend = object()
+    # Never dereferenced -- claim_next/mark_running are mocked below, so this
+    # only needs to exist as an opaque attribute the real _claim_next_task
+    # passes through unexamined.
+    _work_item_engine = object()
+
+    def __init__(self) -> None:
+        self._active_work_item_claims: dict = {}
+        self._active_work_item_claims_lock = threading.Lock()
+
+    def _get_host_token(self) -> str:
+        return "claimhost:9:1700000009"
+
+    def _ingest_task_metadata(self, job_id: str) -> dict:
+        return {"type": "document", "target": "/x"}
+
+    _remember_work_item_claim = TaskManagerMixin._remember_work_item_claim
+    _active_work_item_claim = TaskManagerMixin._active_work_item_claim
+    _claim_next_task = TaskManagerMixin._claim_next_task
+
+
+def test_claim_next_task_stamps_claimed_by_and_work_item_epoch_onto_meta(monkeypatch):
+    """D-W2-12: ``_claim_next_task`` must surface WHO claimed a task and under
+    which lease epoch on the ``meta`` dict it hands back — previously it
+    silently dropped both, even though the winning ``claim`` already carries
+    them (``lease_owner``/``lease_epoch``, CONCEPT:AU-KG native WorkItem
+    lease fields)."""
+    h = _MetaStampHarness()
+    fake_claim = {
+        "work_item_id": "wi:ingest_task:job-1",
+        "kind": "ingest_task",
+        "payload_ref": "job-1",
+        "lease_owner": h._get_host_token(),
+        "lease_epoch": 1,
+        "fence_token": 1,
+        "fencing_token": 1,
+        "attempt": 1,
+        "max_attempts": 3,
+        "_native": True,
+    }
+    monkeypatch.setattr(wi, "claim_next", lambda *a, **kw: fake_claim)
+    monkeypatch.setattr(wi, "mark_running", lambda *a, **kw: True)
+
+    result = h._claim_next_task()
+
+    assert result is not None
+    job_id, meta = result
+    assert job_id == "job-1"
+    assert meta["claimed_by"] == h._get_host_token()
+    assert meta["work_item_epoch"] == 1
+    assert meta["work_item_id"] == "wi:ingest_task:job-1"
