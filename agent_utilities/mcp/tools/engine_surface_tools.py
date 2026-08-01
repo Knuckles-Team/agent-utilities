@@ -2367,7 +2367,9 @@ def register_engine_surface_tools(mcp) -> None:
                 # best-effort observability snapshot never blocks the import;
                 # each mode branch still computes its OWN envelope for the
                 # actual commit (the `mine` branch's includes the perspective).
-                envelope = slice_.to_change_envelope(tenant=tenant, provenance=provenance)
+                envelope = slice_.to_change_envelope(
+                    tenant=tenant, provenance=provenance
+                )
                 evidence = {
                     "mode": "ocel_2.0",
                     "tenant": tenant,

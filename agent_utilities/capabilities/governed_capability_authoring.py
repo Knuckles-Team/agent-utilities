@@ -163,9 +163,7 @@ def submit_authored_capability_for_review(
     return result
 
 
-def load_governed_active_capabilities(
-    engine: Any, directory: Path | str
-) -> list[Any]:
+def load_governed_active_capabilities(engine: Any, directory: Path | str) -> list[Any]:
     """The governed replacement for ``CapabilityStore.load_active()``.
 
     An authored capability activates ONLY once its originating ``:SpecProposal`` has
