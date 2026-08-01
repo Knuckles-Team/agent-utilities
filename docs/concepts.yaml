@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1139
+total_concepts: 1143
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -7353,6 +7353,13 @@ concepts:
   code_paths:
   - agent_utilities/orchestration/agent_runner.py
   doc: returned INSTEAD of falling through to the
+- id: AU-ORCH.execution.no-silent-success-on-empty-workflow
+  name: AU-ORCH.execution.no-silent-success-on-empty-workflow
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/workflows/runner.py
+  doc: AU-ORCH.execution.no-silent-success-on-empty-workflow
 - id: AU-ORCH.execution.node-direct-end
   name: a node may END the run directly with End[GraphResponse
   pillar: AU-ORCH
