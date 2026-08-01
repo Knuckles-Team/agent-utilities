@@ -170,11 +170,22 @@ def scope(
     cypher: str,
     actor: ActorContext | None = None,
 ) -> str:
-    """Tenant-scope a Cypher read query for ``actor`` (``n.tenant_id = <tenant>``).
+    """Tenant-scope a Cypher read query for ``actor`` (``<bound var>.tenant_id = <tenant>``).
 
     Cross-org isolation, the primary boundary (KG-2.6). Kept to a simple,
     portable equality; finer owner/scope visibility (KG-2.60) is applied as a
     mandatory post-filter in :func:`visible`.
+
+    The injected predicate is written against the query's own first bound
+    node variable (:func:`~.cypher_scoping.first_bound_node_variable`), never
+    a hardcoded ``n`` — a caller-written query keeps whatever variable name it
+    chose (``MATCH (p:Policy) ...``, ``MATCH (f:ProcessFlow) ...``). When
+    ``cypher`` has a ``WHERE``/``RETURN`` clause to scope but no derivable
+    bound node variable, ``scope_cypher_query`` raises
+    :class:`~.cypher_scoping.UnscopableQueryError` (a ``PermissionError``
+    subclass) rather than silently emitting an unscoped or mis-scoped read;
+    this fails the same way here, wrapped below like every other scoping
+    failure.
     """
     actor = _verified_actor(actor)
     try:
