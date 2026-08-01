@@ -343,13 +343,22 @@ class Fragment:
 
     @property
     def version_id(self) -> str:
-        """``<fragment_id>@<short content hash>`` — a content-pinned citation.
+        """``<fragment_id>#<short content hash>`` — a content-pinned citation.
 
         Use this when a citation must be immutable (an audit record, a published
         claim's evidence).  Use :attr:`fragment_id` when it must *follow* the
         fragment through edits.  Both are needed; neither substitutes.
+
+        Separator is ``#``, not ``@``: the engine's ``ApplyChangeEnvelope``
+        commit path (``change_envelope.rs``'s ``validate_safe_text``) rejects
+        any ``@`` in inline text outright as an email/host-leak privacy guard —
+        by design, and correctly so; a blanket exemption for ``@`` would weaken
+        that guard fleet-wide. ``#`` carries the same "pin a version" meaning
+        (a URL fragment identifier pins a specific view of a resource) without
+        colliding with the privacy scan (see D-GM-4 / D-GS856-6 / D-MW-1 /
+        D-MW-2 in the deferred ledger for the full investigation).
         """
-        return f"{self.fragment_id}@{self.content_hash[7:23]}"
+        return f"{self.fragment_id}#{self.content_hash[7:23]}"
 
     def to_locus(self) -> dict[str, Any]:
         """Render an engine ``ArtifactLocus``-shaped selector for this fragment.
@@ -410,7 +419,7 @@ class Artifact:
     An artifact is the *object* — a markdown file, a PDF, an API record, a row
     set — not one delivery of it.  :attr:`artifact_id` is therefore keyed to
     source identity and stays put across revisions, while
-    :attr:`content_hash` identifies the revision.  Governance is NOT re-declared
+    :attr:`content_hash` identifies the revision.  Governance is NOT redeclared
     here: it is carried verbatim off the envelope, which is the trust boundary
     that decided it.
 
