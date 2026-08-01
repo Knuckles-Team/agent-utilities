@@ -454,12 +454,22 @@ def register_query_tools(mcp):
         if _union_read and is_aggregation_cypher(cypher):
             engine = kg_server._get_engine()
             try:
-                results = engine.query_cypher(
-                    cypher,
-                    parsed_params,
-                    as_of=as_of or None,
-                    include_epistemic=include_epistemic_flag,
-                )
+                # Same defensive kwarg omission as the single-connection and
+                # fan-out branches below: only pass `include_epistemic` when
+                # actually requested, so a `query_cypher` implementation (real
+                # or test double) that predates this parameter and doesn't
+                # accept it keeps working.
+                if include_epistemic_flag:
+                    results = engine.query_cypher(
+                        cypher,
+                        parsed_params,
+                        as_of=as_of or None,
+                        include_epistemic=True,
+                    )
+                else:
+                    results = engine.query_cypher(
+                        cypher, parsed_params, as_of=as_of or None
+                    )
                 return json.dumps({"rows": results}, default=str)
             except Exception as e:
                 return public_error_json(e)
