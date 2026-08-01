@@ -28,6 +28,17 @@ resources:
     evidence: >-
       ~28 concurrent pytest processes shared a basetemp and made a baseline
       measurement read materially worse, nearly causing a false regression call.
+      D-ORC-16: the per-lane instance originally lived at
+      <git-common-dir>/agent-lanes/lanes/<lane>/pytest, ~99 chars deep, which
+      left AF_UNIX's 108-byte sun_path under 10 bytes of headroom for
+      anything a fixture appended (its own subdir + a socket filename) --
+      every Unix-socket fixture under a lane basetemp failed deterministically
+      on path length alone -- and being nested inside .git let a supposedly
+      hermetic `git -C <tmp_path> remote get-url origin` resolve to the
+      CANONICAL repo's own origin. Fixed by moving the per-lane instance to
+      `~/.al/<hash(common_dir, lane)>/pytest` (see `_lane_temp_root()`) --
+      short, outside any .git, still per-lane. The class stays PARTITION;
+      only the location changed.
 
   - name: git-stash
     class: partition
@@ -66,7 +77,10 @@ resources:
     mechanism: partitioned_paths().scratch_dir
     evidence: >-
       Lanes writing scratch into the repo tree or a shared temp dir overwrite
-      each other's intermediate state.
+      each other's intermediate state. D-ORC-16: this is also the `TMPDIR`
+      `lane env` exports, and it shared the pytest-tmp row's AF_UNIX
+      sun_path/git-identity-leak defect (same `_lane_temp_root()` fix, same
+      relocation to `~/.al/<hash(common_dir, lane)>/scratch`).
 
   - name: concept-reservations
     class: append-only
