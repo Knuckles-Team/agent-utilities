@@ -47,7 +47,7 @@ def test_scopes_a_where_less_aggregate_query_by_its_own_variable():
     assert "n.tenant_id" not in scoped
     # Injected before RETURN, same discipline as the n-variable case.
     assert scoped == (
-        "MATCH (w:WorkItem) WHERE w.tenant_id = $_tenant_scope_id RETURN count(w) AS c"
+        "MATCH (w:WorkItem) WHERE (w.tenant_id = $_tenant_scope_id OR w.tenant_id IS NULL OR w.tenant_id = '') RETURN count(w) AS c"
     )
     assert extra_params == {"_tenant_scope_id": "acme"}
 
@@ -61,7 +61,7 @@ def test_still_scopes_the_conventional_n_variable_case_unchanged():
         "MATCH (n:Entity) RETURN n", tenant_id="acme"
     )
 
-    assert scoped == "MATCH (n:Entity) WHERE n.tenant_id = $_tenant_scope_id RETURN n"
+    assert scoped == "MATCH (n:Entity) WHERE (n.tenant_id = $_tenant_scope_id OR n.tenant_id IS NULL OR n.tenant_id = '') RETURN n"
     assert extra_params == {"_tenant_scope_id": "acme"}
 
 

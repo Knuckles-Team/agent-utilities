@@ -343,7 +343,19 @@ class TenancyManager:
             return query, {}
 
         var = first_bound_node_variable(query)
-        cond = f"{var}.tenant_id = $_tenant_scope_id"
+        # D-ACL-3 (commons-fallback convergence): admit a row when
+        # `<var>.tenant_id` equals the actor's tenant OR is untagged (IS NULL /
+        # ''), the same three-way fallback PostgreSQLBackend.rls_statements has
+        # always enforced at the SQL layer ("that org's rows + commons"). Before
+        # this, the two layers disagreed: SQL RLS treated untagged/commons rows as
+        # visible to every tenant while this Cypher predicate silently denied them.
+        # Parenthesized as one atom so inject_and_predicate's AND cannot mis-group
+        # against the inner OR. Kept on D-W2T-2's BOUND PARAMETER form -- the
+        # commons fallback must not reintroduce a literal splice.
+        cond = (
+            f"({var}.tenant_id = $_tenant_scope_id "
+            f"OR {var}.tenant_id IS NULL OR {var}.tenant_id = '')"
+        )
         return inject_and_predicate(query, cond), {"_tenant_scope_id": tenant_id}
 
     def is_member(self, actor_id: str, tenant_id: str) -> bool:

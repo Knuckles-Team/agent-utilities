@@ -128,7 +128,7 @@ def test_scope_cypher_query_conventional_n_variable_unchanged():
     scoped, extra_params = tm.scope_cypher_query(
         "MATCH (n:Entity) RETURN n", tenant_id="tenant-a"
     )
-    assert scoped == "MATCH (n:Entity) WHERE n.tenant_id = $_tenant_scope_id RETURN n"
+    assert scoped == "MATCH (n:Entity) WHERE (n.tenant_id = $_tenant_scope_id OR n.tenant_id IS NULL OR n.tenant_id = '') RETURN n"
     assert extra_params == {"_tenant_scope_id": "tenant-a"}
 
 
@@ -187,7 +187,8 @@ def test_scope_cypher_query_closes_the_or_bypass_for_find_relevant_policies():
     # p.name CONTAINS $q OR p.description CONTAINS $q`, which would let any
     # row matching the description clause alone bypass tenant scoping.
     assert (
-        "(p.tenant_id = $_tenant_scope_id) AND (p.name CONTAINS $q OR p.description CONTAINS $q)"
+        "(p.tenant_id = $_tenant_scope_id OR p.tenant_id IS NULL OR p.tenant_id = '') "
+        "AND (p.name CONTAINS $q OR p.description CONTAINS $q)"
         in scoped
     )
     assert extra_params == {"_tenant_scope_id": "tenant-a"}
@@ -198,13 +199,23 @@ def test_scope_cypher_query_closes_the_or_bypass_for_find_relevant_policies():
 # ---------------------------------------------------------------------------
 
 
-def _eval_predicate(predicate: str, row: dict) -> bool:
+def _eval_predicate(predicate: str, row: dict, params: dict | None = None) -> bool:
     """Closed-form evaluator for the tiny WHERE-predicate subset this module
     emits (`var.prop = 'val'`, `var.prop CONTAINS 'val'`, composed with
     AND/OR/parens) -- proves whether a GIVEN ROW is actually matched by the
     predicate text this module generated, not just that the text looks right.
     """
+    params = params or {}
     expr = predicate
+    # `IS NULL` must be translated BEFORE the `=` rule, and bound parameters
+    # ($_tenant_scope_id) resolved from `params`, or the D-ACL-3 commons
+    # fallback predicate reaches eval() as raw Cypher and SyntaxErrors.
+    expr = re.sub(r"\w+\.(\w+)\s+IS\s+NULL", r"(row.get('\1') is None)", expr)
+    expr = re.sub(
+        r"\w+\.(\w+)\s*=\s*\$(\w+)",
+        lambda m: f"(row.get({m.group(1)!r}) == {params.get(m.group(2))!r})",
+        expr,
+    )
     expr = re.sub(r"\w+\.(\w+)\s*=\s*'([^']*)'", r"(row.get('\1') == '\2')", expr)
     expr = re.sub(
         r"\w+\.(\w+)\s+CONTAINS\s+'([^']*)'",

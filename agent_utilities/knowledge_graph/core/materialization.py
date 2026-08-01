@@ -242,6 +242,21 @@ def write_entities(
     """
     from ..enrichment.provenance import stamp_source
 
+    # Defence-in-depth ACL registration (D-ACL-4, CONCEPT:AU-KG.backend.company-brain-write-guard):
+    # this is the fifth write surface the four-chokepoint ACL-registration fix
+    # (IntelligenceGraphEngine._upsert_node, GraphComputeEngine.add_node,
+    # BrainGuardedBackend.add_node, enrichment/pipeline.py's buffered batch)
+    # did not reach — every connector/materialize source (``write_batch`` ->
+    # here) and internal offline batch (finance/synthesize, source=None)
+    # funnels through this one writer. Without this stamp, an internal batch
+    # with no connector-supplied ``external_access`` landed with no owner and
+    # no classification: written but permanently unreadable under
+    # ``secured_reads.permit()``'s default-deny (identical gap to the one the
+    # four chokepoints already closed elsewhere). Best-effort, same as those
+    # four: writes with no bound actor (system/background/control-plane
+    # materialization) proceed unstamped exactly as before this seam existed.
+    from .tenant_sharing import stamp_classification, stamp_ownership
+
     rels = relationships or []
     for index, row in enumerate(entities):
         if "type" in row:
@@ -249,6 +264,11 @@ def write_entities(
         if not row.get("id") or not row.get("node_type"):
             raise ValueError(f"entity[{index}] requires id and node_type")
         stamp_source(row, domain)
+        try:
+            stamp_ownership(row)
+            stamp_classification(row, row.get("node_type"))
+        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
+            pass
     for index, row in enumerate(rels):
         aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)
         if aliases:
