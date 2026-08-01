@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1134
+total_concepts: 1136
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2104,6 +2104,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/registry/kg_adapter.py
+  - agent_utilities/knowledge_graph/core/tenant_sharing.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   doc: Self-Describing Function Registry
 - id: AU-ECO.toolkit.self-documenting-plugin-bundle
@@ -2310,9 +2311,15 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
+  - agent_utilities/knowledge_graph/backends/brain_guarded_backend.py
+  - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/core/company_brain.py
   - agent_utilities/knowledge_graph/core/cypher_scoping.py
+  - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/secured_reads.py
   - agent_utilities/knowledge_graph/core/tenant_sharing.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
   doc: wrap with the Company Brain write-path guard
 - id: AU-KG.backend.concept-2
   name: ──
@@ -4646,6 +4653,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/memory/weights_distillation.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: Memory→weights distillation EXPORT path
 - id: AU-KG.memory.observational-memory-bridge
   name: Observational Memory Bridge
@@ -5740,6 +5748,13 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/query_tools.py
   doc: read-only SQL over the KG via the engine
+- id: AU-KG.query.register-each-user-table
+  name: does the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/chat_persistence.py
+  doc: does the
 - id: AU-KG.query.skip-assimilated-papers
   name: Skip assimilated papers
   pillar: AU-KG
@@ -5790,6 +5805,7 @@ concepts:
   - agent_utilities/__init__.py
   - agent_utilities/core/background_throttle.py
   - agent_utilities/core/config.py
+  - agent_utilities/core/sessions.py
   - agent_utilities/core/workspace_config.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/knowledge_graph/assimilation/__init__.py
@@ -9434,6 +9450,14 @@ concepts:
   code_paths:
   - agent_utilities/observability/custom_observability.py
   doc: D-OG-2
+- id: AU-OS.observability.log-location-privacy
+  name: a raw filesystem path, network
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/venv_sync.py
+  - agent_utilities/security/log_redaction.py
+  doc: a raw filesystem path, network
 - id: AU-OS.observability.multiprocess-registry-guard
   name: the classic
   pillar: AU-OS

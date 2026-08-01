@@ -18,7 +18,6 @@ import pytest
 
 from agent_utilities.core.config import config
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.observability.custom_observability import (
     get_otel_status_summary,
     setup_otel,
@@ -28,18 +27,78 @@ from agent_utilities.observability.custom_observability import (
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def engine(tmp_path_factory):
-    """Create a test IntelligenceGraphEngine in memory-only mode.
+    """Create a test IntelligenceGraphEngine bound to one explicit, isolated graph.
 
-    Uses GraphComputeEngine (no LadybugDB backend) for workflow tests since the
-    test schema doesn't need persistent storage.
+    Function-scoped (not module-scoped): the autouse
+    ``isolate_graph_compute_engine`` fixture (tests/conftest.py) is itself
+    function-scoped and binds the verified actor/GraphSession context every
+    ``GraphComputeEngine`` construction now requires
+    (``security.brain_context.IdentityRequiredError`` fail-closed guard).
+    pytest sets up broader-scoped fixtures before function-scoped ones, so a
+    module-scoped version of this fixture used to construct its
+    ``GraphComputeEngine`` BEFORE that actor context existed for the module's
+    first test. Each test's workflow assertions already tolerate an
+    independently-seeded engine (see ``TestWorkflowStore.test_workflow_mermaid``'s
+    "may be None" comment), so sharing across the module was never required.
+
+    ``IntelligenceGraphEngine(db_path=":memory:")`` alone still isn't enough:
+    with no explicit ``graph``/``backend``, it resolves its OPERATIONAL,
+    tenant-routed default graph (``EpistemicGraphBackend()`` ->
+    ``shard_topology.resolve_routing_graph(None)`` -> the ambient actor's
+    *tenant* graph, e.g. ``tenant__tenant_test____commons__``) — a DIFFERENT
+    identity than the per-test unique graph the isolate fixture's ambient
+    ``GraphSession.graph`` actually points at. Since a prior
+    ``GraphComputeEngine(backend_type="rust")`` warm-up call in this fixture
+    had already claimed the process-engine singleton under the isolate
+    fixture's per-test name, the tenant-routed lookup came back as a
+    graph-SCOPED view (``_fixed_graph`` set) instead of the singleton root,
+    and that view's fixed graph didn't match the ambient session graph —
+    ``PermissionError: A graph-scoped view cannot retarget the verified
+    GraphSession``. Mirror the same fix the ``engine_graph`` fixture in
+    ``tests/conftest.py`` already applies for exactly this class of bug: mint
+    one explicit graph name, bind BOTH the ambient ``GraphSession`` and the
+    ``EpistemicGraphBackend`` to it via ``use_session``, so nothing falls
+    through to tenant-based resolution.
     """
+    import uuid
+
+    from _test_engine import (
+        TEST_AGENT_ID,
+        TEST_AUDIENCE,
+        TEST_POLICY_VERSION,
+        TEST_TENANT,
+    )
+
     from agent_utilities.core.paths import ensure_dirs
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
 
     ensure_dirs()
-    GraphComputeEngine(backend_type="rust")
-    return IntelligenceGraphEngine(db_path=":memory:")
+    graph_name = f"obspipe_{uuid.uuid4().hex[:12]}"
+    actor = ActorContext(
+        actor_id=TEST_AGENT_ID,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=TEST_TENANT,
+        scopes=frozenset({"kg:read", "kg:write", "kg:admin", "*"}),
+        graph=graph_name,
+        policy_version=TEST_POLICY_VERSION,
+        audience=TEST_AUDIENCE,
+    )
+    with use_session(session):
+        backend = EpistemicGraphBackend(graph_name=graph_name)
+        yield IntelligenceGraphEngine(backend=backend, graph=backend.graph)
 
 
 @pytest.fixture(scope="module")
@@ -61,13 +120,35 @@ class TestOTelPipelineSetup:
         assert report["initialized"] is True
         assert report["logfire_available"] is True
 
-    def test_otel_endpoint_configured(self, otel_setup):
-        """CONCEPT:AU-OS.config.secrets-authentication — OTLP endpoint is set."""
+    def test_otel_endpoint_configured(self, otel_setup, monkeypatch):
+        """CONCEPT:AU-OS.config.secrets-authentication — OTLP endpoint is set.
+
+        The hermetic test environment (``tests/conftest.py``'s per-test
+        ``os.environ`` isolation) carries no ambient ``OTEL_EXPORTER_OTLP_*``
+        configuration at all, so ``verify_otel_pipeline()`` legitimately
+        reports nothing configured — this is not the fail-closed transport
+        guard rejecting anything (a plain non-loopback endpoint would raise,
+        not silently report unconfigured). Supply a loopback endpoint, the
+        one cleartext exemption ``_validated_langfuse_host`` itself grants
+        (``agent_utilities/core/config.py::_validated_langfuse_host``), so
+        this test exercises the real resolution path instead of leaning on
+        infrastructure this repo checkout does not have.
+        """
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318")
         report = verify_otel_pipeline()
         assert report["endpoint_configured"], "OTLP endpoint should be configured"
 
-    def test_otel_headers_generated(self, otel_setup):
-        """CONCEPT:AU-OS.config.secrets-authentication — Auth headers are generated from Langfuse keys."""
+    def test_otel_headers_generated(self, otel_setup, monkeypatch):
+        """CONCEPT:AU-OS.config.secrets-authentication — Auth headers are generated from Langfuse keys.
+
+        Same hermetic-environment gap as ``test_otel_endpoint_configured``:
+        supply the endpoint plus a raw ``OTEL_EXPORTER_OTLP_HEADERS`` value
+        (the one input ``_resolve_otel_headers`` accepts with no secrets-ref
+        resolution at all) so header generation is exercised without needing
+        real Langfuse/vault credentials.
+        """
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Basic dGVzdA==")
         report = verify_otel_pipeline()
         assert report["headers_set"] is True, "OTLP headers should be set"
 
@@ -120,9 +201,25 @@ class TestTracingDecorator:
         result = await my_async_func(4)
         assert result == 12
 
-    def test_trace_nesting(self, otel_setup):
-        """CONCEPT:AU-OS.config.secrets-authentication — Nested @trace creates parent-child hierarchy."""
+    def test_trace_nesting(self, otel_setup, monkeypatch):
+        """CONCEPT:AU-OS.config.secrets-authentication — Nested @trace creates parent-child hierarchy.
+
+        ``@trace`` is a no-op (context vars never set) unless
+        ``tracing._tracing_active()`` is true, which requires
+        ``config.trace_export_enabled`` AND a non-empty
+        ``config.langfuse_secret_key_ref`` — independent of the OTel/OTLP
+        endpoint config ``otel_setup`` attempts (and, in this hermetic
+        environment, fails) to resolve. The credential ref only needs to be
+        non-empty here: ``_tracing_active()`` checks truthiness, and any
+        actual Langfuse export attempt inside ``_emit_trace`` is wrapped in a
+        blanket ``except Exception`` (best-effort, never breaks the traced
+        call), so a dummy/non-resolving ref is sufficient to exercise the
+        real context-propagation path under test.
+        """
         from agent_utilities.harness.tracing import get_trace_id, trace
+
+        monkeypatch.setattr(config, "trace_export_enabled", True)
+        monkeypatch.setattr(config, "langfuse_secret_key_ref", "vault://test/dummy")
 
         outer_trace_id = None
         inner_trace_id = None
