@@ -1045,20 +1045,28 @@ class RegistryMixin(_Base):
             agent_id: The agent node ID.
             prompt_id: The prompt node ID.
         """
-        self.graph.add_edge(
-            agent_id,
-            prompt_id,
-            {
-                "relationship": RegistryEdgeType.USES_PROMPT,
-            },
-        )
         if self.backend:
             # A comma-pattern MATCH plus an edge MERGE both exceed the
             # engine's native Cypher write subset (one leading MATCH, MERGE
             # on a single bare node only, never an edge;
             # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
-            # ``link_nodes`` dispatches through the typed engine API instead.
+            # ``link_nodes`` dispatches through the typed engine API instead
+            # of a direct ``self.graph.add_edge`` -- it already handles the
+            # graph_compute write itself (tiered: backend first, then the
+            # scratchpad only when it is a distinct, non-authoritative view),
+            # so a redundant direct call here double-writes the same edge:
+            # once with the raw (lowercase) ``RegistryEdgeType`` value, once
+            # more with ``link_nodes``'s own uppercased ``rel_type`` -- the
+            # second overwrites the first with mismatched casing.
             self.link_nodes(agent_id, prompt_id, RegistryEdgeType.USES_PROMPT)
+        else:
+            self.graph.add_edge(
+                agent_id,
+                prompt_id,
+                {
+                    "relationship": RegistryEdgeType.USES_PROMPT,
+                },
+            )
         logger.info("Linked agent to prompt (USES_PROMPT)")
 
     # ─────────────────────────────────────────────────────────────────────

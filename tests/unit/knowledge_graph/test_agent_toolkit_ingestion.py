@@ -22,7 +22,7 @@ import pytest
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # -- Test fixtures paths (real configs from agent-packages) ---
-AGENTS_DIR = Path(__file__).resolve().parents[1] / ".." / "agents"
+AGENTS_DIR = Path(__file__).resolve().parents[3] / ".." / "agents"
 
 # Known config paths for agent-packages
 _MCP_CONFIGS = {
@@ -54,8 +54,21 @@ def _create_engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    compute = GraphComputeEngine(backend_type="rust")
+    # Bind both the NX-style ``.graph`` facade AND ``.backend``'s Cypher path to
+    # this same session-scoped engine — a bare ``EpistemicGraphBackend()``/
+    # ``IntelligenceGraphEngine(db_path=...)`` independently resolves its OWN
+    # tenant-routed graph (``resolve_routing_graph``), which does not match the
+    # per-test isolated graph the verified ``GraphSession`` carries, and every
+    # engine RPC fail-closed rejects a graph-scoped view retargeting a verified
+    # session (CONCEPT:AU-KG.compute.graph-compute-engine "Session currency").
+    backend = EpistemicGraphBackend()
+    backend._graph = compute
+    engine = IntelligenceGraphEngine(backend=backend)
     return engine
 
 
@@ -153,8 +166,16 @@ class TestMCPConfigParsing:
 
     def test_parse_multi_server_config(self):
         """Parse Antigravity IDE config with 3 servers."""
-        if not ANTIGRAVITY_MCP_CONFIG.exists():
-            pytest.skip("Antigravity mcp_config.json not found")
+        # This probes the CURRENT MACHINE's real, ambient IDE config (not a
+        # repo fixture) — an empty file (present but 0 bytes, as on a host
+        # that has the directory but never populated it) carries the same
+        # "nothing to test against" meaning as the file being absent, so it
+        # skips the same way rather than failing on JSONDecodeError.
+        if (
+            not ANTIGRAVITY_MCP_CONFIG.exists()
+            or not ANTIGRAVITY_MCP_CONFIG.read_text(encoding="utf-8").strip()
+        ):
+            pytest.skip("Antigravity mcp_config.json not found or empty")
 
         engine = _create_engine()
         config = json.loads(ANTIGRAVITY_MCP_CONFIG.read_text(encoding="utf-8"))

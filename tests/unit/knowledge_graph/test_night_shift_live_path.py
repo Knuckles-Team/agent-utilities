@@ -1,10 +1,10 @@
-"""Live-path: graph_analyze action='night_shift' runs the vault swarm (KG-2.84).
+"""Live-path: graph_research action='night_shift' runs the vault swarm (KG-2.84).
 
 Wire-First proof — the night-shift swarm is reachable through the real
-graph_analyze tool (MCP + REST twin /graph/analyze) over a vault directory.
+graph_research tool (the ``graph_analyze`` catch-all was split into focused
+suite tools; 'night_shift' lives on 'graph_research' alongside the rest of the
+research/assimilation pipeline actions) over a vault directory.
 """
-
-import json
 
 import pytest
 
@@ -30,9 +30,12 @@ async def test_night_shift_action_runs_over_vault(tmp_path, monkeypatch):
     monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
     kg_server.ensure_tools_registered()
     res = await kg_server._execute_tool(
-        "graph_analyze", action="night_shift", target=str(tmp_path)
+        "graph_research", action="night_shift", target=str(tmp_path)
     )
-    report = json.loads(res)
+    # graph_research returns the sole typed EvidenceBundle response (not a JSON
+    # string) — night_shift's payload has no "rows"/"results" key, so
+    # EvidenceBundle.from_payload wraps the whole dict as the sole claim.
+    report = res.claims[0]
     assert report["atoms_created"] >= 2
     assert "briefing_path" in report
     # The contradiction between the two sources is surfaced for human judgment.

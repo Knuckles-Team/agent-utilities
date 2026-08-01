@@ -4,17 +4,17 @@
 
 ```bash
 # Run tests (unit + integration, excludes live)
-python3 scripts/uv_workspace.py run pytest -x -v
+python3 scripts/uv_workspace.py run --all-extras pytest -x -v
 
 # Run with coverage
-python3 scripts/uv_workspace.py run pytest --cov=agent_utilities --cov-report=term-missing
+python3 scripts/uv_workspace.py run --all-extras pytest --cov=agent_utilities --cov-report=term-missing
 
 # Lint
-python3 scripts/uv_workspace.py run ruff check agent_utilities/ tests/
-python3 scripts/uv_workspace.py run ruff format --check agent_utilities/ tests/
+python3 scripts/uv_workspace.py run --all-extras ruff check agent_utilities/ tests/
+python3 scripts/uv_workspace.py run --all-extras ruff format --check agent_utilities/ tests/
 
 # Type check
-python3 scripts/uv_workspace.py run mypy agent_utilities/
+python3 scripts/uv_workspace.py run --all-extras mypy agent_utilities/
 
 # Run the server (development)
 python3 scripts/uv_workspace.py run python -m agent_utilities --debug --provider openai --model-id llama-3.2-3b-instruct
@@ -67,15 +67,15 @@ Default: `pytest -m "not live"` runs unit + integration.
 
 ### Pre-Flight Checks
 Before modifying any file, verify:
-1. `python3 scripts/uv_workspace.py run pytest -x` passes (baseline green)
-2. `python3 scripts/uv_workspace.py run ruff check agent_utilities/` is clean
+1. `python3 scripts/uv_workspace.py run --all-extras pytest -x` passes (baseline green)
+2. `python3 scripts/uv_workspace.py run --all-extras ruff check agent_utilities/` is clean
 
 ### Post-Change Verification
 After every change:
-1. Run `python3 scripts/uv_workspace.py run pytest -x -v` — all tests must pass
-2. Run `python3 scripts/uv_workspace.py run ruff check --fix agent_utilities/ tests/`
-3. Run `python3 scripts/uv_workspace.py run ruff format agent_utilities/ tests/`
-4. Run `python3 scripts/uv_workspace.py run mypy agent_utilities/` — no new errors
+1. Run `python3 scripts/uv_workspace.py run --all-extras pytest -x -v` — all tests must pass
+2. Run `python3 scripts/uv_workspace.py run --all-extras ruff check --fix agent_utilities/ tests/`
+3. Run `python3 scripts/uv_workspace.py run --all-extras ruff format agent_utilities/ tests/`
+4. Run `python3 scripts/uv_workspace.py run --all-extras mypy agent_utilities/` — no new errors
 
 ### Diagnostics
 If tests fail unexpectedly:

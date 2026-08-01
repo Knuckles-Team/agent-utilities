@@ -94,6 +94,25 @@ class LatencyModel:
         )
 
 
+def _negative_claim(reason: str) -> dict[str, Any]:
+    return {
+        "schema_version": "1",
+        "claimed": False,
+        "reason": reason,
+        "work_item_id": None,
+        "kind": None,
+        "payload_ref": None,
+        "lease_holder_ref": None,
+        "lease_epoch": None,
+        "fencing_token": None,
+        "lease_expires_at_ms": None,
+        "attempt": None,
+        "max_attempts": None,
+        "tenant_in_flight": 0,
+        "changed_work_item_ids": [],
+    }
+
+
 class FakeScaleEngine:
     """Dict-backed node store implementing the engine surface WorkItem + AgentBus need.
 
@@ -183,6 +202,194 @@ class FakeScaleEngine:
             self.cas_wins += 1
             self.write_count += 1
             return True
+
+    # -- engine-native WorkItem verbs (D-OTD-2) ------------------------------
+    #
+    # ``work_item.py``'s claim/renew/commit/cancel/defer primitives dispatch
+    # exclusively through these five generated verbs (mirroring
+    # ``graph_compute.py``'s real ``self._client.work_items.*`` bridge) — there
+    # is no Python-side CAS-scan fallback in production. This mirrors
+    # ``tests/unit/orchestration/test_work_item.py``'s ``CasEngine`` double
+    # (the load generator's own module docstring claimed this pattern but never
+    # actually implemented it — these five methods were missing until D-OTD-2,
+    # which is why every soak/chaos scenario driving a real claim/commit cycle
+    # failed with ``NativeWorkItemRequired`` the first time this directory was
+    # ever collected by pytest).
+
+    @staticmethod
+    def _owns(node: dict[str, Any] | None, request: dict[str, Any]) -> bool:
+        return bool(
+            node
+            and node.get("lease_owner") == request.get("worker_ref")
+            and node.get("lease_epoch") == request.get("expected_epoch")
+            and node.get("fencing_token") == request.get("fencing_token")
+        )
+
+    def _candidate(self, request: Any) -> tuple[str, dict[str, Any]] | None:
+        item_id = request.work_item_id
+        candidates = (
+            [(str(item_id), self.nodes.get(str(item_id)))]
+            if item_id
+            else sorted(
+                self.nodes.items(),
+                key=lambda pair: (
+                    int(pair[1].get("prio_bucket") or 0),
+                    float(pair[1].get("created_at") or 0),
+                ),
+            )
+        )
+        now = float(request.now_ms) / 1000.0
+        for candidate_id, node in candidates:
+            if not node or node.get("label") != "WorkItem":
+                continue
+            if request.queue_ref and node.get("queue") != request.queue_ref:
+                continue
+            if (
+                request.resource_class
+                and node.get("resource_class") != request.resource_class
+            ):
+                continue
+            status = node.get("status")
+            if status in {"leased", "running"}:
+                if float(node.get("lease_expires_at") or 0) >= now:
+                    continue
+            elif status != "ready":
+                continue
+            if float(node.get("next_retry_at") or 0) > now:
+                continue
+            return candidate_id, node
+        return None
+
+    def claim_work_item(self, request: Any) -> dict[str, Any]:
+        self._pace(self.latency.write_delay())
+        with self._lock:
+            self.cas_attempts += 1
+            selected = self._candidate(request)
+            if selected is None:
+                return _negative_claim("empty")
+            item_id, node = selected
+            attempt = int(node.get("attempt") or 0) + 1
+            if attempt > int(node.get("max_attempts") or 1):
+                node.update(status="dead_letter", error_ref="lease_exhausted")
+                return _negative_claim("empty")
+            epoch = int(node.get("lease_epoch") or 0) + 1
+            node.update(
+                status="leased",
+                lease_owner=request.worker_ref,
+                lease_epoch=epoch,
+                fencing_token=epoch,
+                attempt=attempt,
+                lease_expires_at=float(request.now_ms + request.lease_ms) / 1000.0,
+            )
+            self.cas_wins += 1
+            self.write_count += 1
+            return {
+                "schema_version": "1",
+                "claimed": True,
+                "reason": "claimed",
+                "work_item_id": item_id,
+                "kind": node.get("kind"),
+                "payload_ref": node.get("payload_ref"),
+                "lease_holder_ref": request.worker_ref,
+                "lease_epoch": epoch,
+                "fencing_token": epoch,
+                "lease_expires_at_ms": request.now_ms + request.lease_ms,
+                "attempt": attempt,
+                "max_attempts": node["max_attempts"],
+                "tenant_in_flight": 1,
+                "changed_work_item_ids": [item_id],
+            }
+
+    def renew_work_item_lease(self, request: dict[str, Any]) -> dict[str, Any]:
+        self._pace(self.latency.write_delay())
+        with self._lock:
+            node = self.nodes.get(request["work_item_id"])
+            if not self._owns(node, request):
+                return {"renewed": False}
+            assert node is not None
+            node["lease_expires_at"] = float(request["now_unix"]) + float(
+                request["lease_ttl"]
+            )
+            self.write_count += 1
+            return {"renewed": True}
+
+    def commit_work_item_result(self, request: dict[str, Any]) -> dict[str, Any]:
+        self._pace(self.latency.write_delay())
+        with self._lock:
+            node = self.nodes.get(request["work_item_id"])
+            if node is None:
+                return {"status": "missing"}
+            if node.get("status") in _wi.TERMINAL_WORK_ITEM_STATUSES:
+                return {"status": "noop"}
+            if not self._owns(node, request):
+                return {"status": "fenced"}
+            self.write_count += 1
+            outcome = request["outcome"]
+            if outcome == "failed" and request["retryable"]:
+                if int(node["attempt"]) >= int(node["max_attempts"]):
+                    node.update(status="dead_letter", error_ref=request.get("error_ref"))
+                    return {"status": "dead_letter"}
+                node.update(
+                    status="ready",
+                    next_retry_at=float(request["now_unix"])
+                    + float(node["backoff_base_s"]) * (2 ** (int(node["attempt"]) - 1)),
+                    lease_epoch=int(node["lease_epoch"]) + 1,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                )
+                return {"status": "retry_scheduled"}
+            node.update(
+                status=outcome,
+                result_ref=request.get("result_ref"),
+                error_ref=request.get("error_ref"),
+                completed_at=request["now_unix"],
+                lease_owner=None,
+                lease_expires_at=None,
+            )
+            if outcome == "succeeded":
+                for child_id in node.get("downstream_ids") or []:
+                    child = self.nodes[child_id]
+                    child["dep_count"] = max(0, int(child["dep_count"]) - 1)
+                    if child["dep_count"] == 0:
+                        child["status"] = "ready"
+            return {"status": "committed"}
+
+    def cancel_work_item(self, request: dict[str, Any]) -> dict[str, Any]:
+        self._pace(self.latency.write_delay())
+        with self._lock:
+            node = self.nodes.get(request["work_item_id"])
+            if node is None:
+                return {"status": "missing"}
+            if node.get("status") == "cancelled":
+                return {"status": "cancelled"}
+            if node.get("status") in _wi.TERMINAL_WORK_ITEM_STATUSES:
+                return {"status": "not_cancellable"}
+            node["status"] = "cancelled"
+            self.write_count += 1
+            return {"status": "cancelled"}
+
+    def defer_work_item(self, request: dict[str, Any]) -> dict[str, Any]:
+        self._pace(self.latency.write_delay())
+        with self._lock:
+            node = self.nodes.get(request["work_item_id"])
+            if not self._owns(node, request) or float(
+                (node or {}).get("lease_expires_at") or 0
+            ) < float(request["now_unix"]):
+                return {"status": "fenced"}
+            assert node is not None
+            next_epoch = int(node.get("lease_epoch") or 0) + 1
+            node.update(
+                status="ready",
+                next_retry_at=request["next_retry_at"],
+                attempt=max(0, int(node.get("attempt") or 0) - 1),
+                defer_count=int(node.get("defer_count") or 0) + 1,
+                lease_owner=None,
+                lease_expires_at=None,
+                lease_epoch=next_epoch,
+                fencing_token=next_epoch,
+            )
+            self.write_count += 1
+            return {"status": "deferred"}
 
     # -- read surface ----------------------------------------------------------
 

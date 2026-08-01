@@ -529,7 +529,19 @@ class DocumentProcessor:
             "classification": "public" if access.is_public else "internal",
         }
 
-        spans = chunk_text(raw_text, self.chunking)
+        # CONCEPT:AU-KG.ingest.stable-fragment-address (D-ES-1). Computed HERE,
+        # before chunking, so the chunk/embedding pipeline addresses the same
+        # text the evidence spine cites instead of ``raw_text`` —
+        # ``KBDocumentParser``'s whitespace-normalized rendering, which has
+        # already destroyed every heading/table/list boundary by the time
+        # ``chunk_text`` would otherwise see it. For formats whose bytes ARE
+        # the document (.md/.txt/.rst/…, see ``_VERBATIM_SUFFIXES``) this is
+        # the untouched source; for formats that genuinely need extraction
+        # (pdf/docx) it falls back to ``raw_text``, so chunking behavior for
+        # those is unchanged.
+        verbatim = self._verbatim_source_text(document, text=text, fallback=raw_text)
+
+        spans = chunk_text(verbatim, self.chunking)
 
         # CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — contextual-retrieval enrichment. Situate each chunk
         # within the whole document and embed ``context + chunk`` (Anthropic
@@ -537,7 +549,7 @@ class DocumentProcessor:
         # stored on the Chunk node for display/lexical match. Computed BEFORE
         # embedding. Off by default → no behaviour change for existing callers.
         contexts = self._enrich_contexts(
-            raw_text, [sp.text for sp in spans], final_title
+            verbatim, [sp.text for sp in spans], final_title
         )
         embed_inputs = [
             f"{ctx}\n\n{sp.text}" if ctx else sp.text
@@ -600,13 +612,10 @@ class DocumentProcessor:
         # citations that traverse them, survive a revision.
         artifact_source_id = src_label or doc_id
         artifact_id = artifact_id_for(connector, source_instance, artifact_source_id)
-        # ``raw_text`` is the EXTRACTOR's rendering — KBDocumentParser flattens a
-        # markdown file into whitespace-normalized chunks, which is fine for
-        # embedding-oriented chunks and useless for structural addressing (every
-        # heading, table and list is gone by then).  The spine fragments the
-        # verbatim source instead, so a citation addresses the document the
-        # author actually wrote.
-        verbatim = self._verbatim_source_text(document, text=text, fallback=raw_text)
+        # ``verbatim`` (computed above, and now also fed to ``chunk_text`` /
+        # ``_enrich_contexts`` — D-ES-1) is the untouched source for formats
+        # whose bytes ARE the document; the spine fragments it so a citation
+        # addresses the document the author actually wrote.
         fragments = fragment_markdown(verbatim, artifact_id=artifact_id)
 
         result = ProcessedDocument(

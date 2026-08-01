@@ -59,22 +59,25 @@ logger = logging.getLogger(__name__)
 #: (D-GM-3): 24-hex/96-bit (``engine.py``'s ``_ingest_connector`` object_key —
 #: ``sha256(portable_uri).hexdigest()[:24]`` — and the matching
 #: ``GitMarkdownConnector._document_node_id``/``_object_key`` truncation),
-#: 32-hex/128-bit, and 64-hex/256-bit full digests. A truncated 24-hex digest
-#: previously fell through to the full scan and could trip the case-insensitive
-#: IBAN pattern by chance (~1 in 20 sha256 digests), rejecting a genuine
-#: connector-owned document/record id with no PII involved.
+#: 32-hex/128-bit, 40-hex/160-bit (``evidence_spine.py``'s
+#: ``artifact_id_for``/``fragment_id_for`` — ``sha256(...).hexdigest()[:40]``),
+#: and 64-hex/256-bit full digests. A truncated digest previously fell through
+#: to the full scan and could trip the case-insensitive IBAN pattern by chance
+#: (~1 in 20 sha256 digests), rejecting a genuine connector-owned document/
+#: record id with no PII involved.
 #:
-#: Also exempts 40-hex/160-bit digests (``evidence_spine.py``'s
-#: ``artifact_id_for``/``fragment_id_for`` — ``sha256(...).hexdigest()[:40]``)
-#: and an optional trailing ``@<16-hex>`` content-pin suffix
-#: (``Fragment.version_id`` — ``f"{fragment_id}@{content_hash[7:23]}"``, a
-#: content-pinned citation address). Same class of defect as D-GM-3, on the
-#: same shared gate: a fragment's ``fragment:<40-hex>@<16-hex>`` version_id
-#: fell through to the full scan (neither length nor the ``@`` suffix was
-#: recognised) and reproducibly tripped the IBAN pattern, rejecting entire
-#: git-markdown connector documents with no PII involved.
+#: Also exempts an optional trailing ``#<16-hex>`` content-pin suffix
+#: (``Fragment.version_id`` — ``f"{fragment_id}#{content_hash[7:23]}"``, a
+#: content-pinned citation address; see the module docstring on
+#: ``Fragment.version_id`` in ``evidence_spine.py`` for why the separator is
+#: ``#`` and not ``@``: the engine's ``ApplyChangeEnvelope`` privacy guard
+#: rejects any ``@`` outright, D-GM-4/D-GS856-6/D-MW-1/D-MW-2). Same class of
+#: defect as D-GM-3, on the same shared gate: without this, a fragment's
+#: ``fragment:<40-hex>#<16-hex>`` version_id falls through to the full scan and
+#: can reproducibly trip the IBAN pattern, rejecting entire connector documents
+#: with no PII involved.
 _OPAQUE_DIGEST = r"(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64})"
-_OPAQUE_VERSION_PIN = r"(?:@[0-9a-f]{16})?"
+_OPAQUE_VERSION_PIN = r"(?:#[0-9a-f]{16})?"
 _OPAQUE_INTERNAL_ID_RE = re.compile(f"^{_OPAQUE_DIGEST}{_OPAQUE_VERSION_PIN}$")
 _OPAQUE_NAMESPACED_ID_RE = re.compile(
     r"^(?P<namespace>[a-z][a-z0-9._-]{0,63}"
@@ -88,6 +91,8 @@ __all__ = [
     "ingest_envelope",
     "ingest_graph_slice",
     "read_change_cursor",
+    "validate_envelope",
+    "validate_rows_against_shacl",
 ]
 
 
@@ -278,6 +283,21 @@ def _shacl_validate_rows(
         )
 
 
+def validate_rows_against_shacl(
+    client: Any, rows: list[tuple[str, dict[str, Any]]]
+) -> None:
+    """Public reuse point for :func:`_shacl_validate_rows` (CONCEPT:AU-KG.ingest.governed-claim-promotion).
+
+    The connector ingestion boundary's fail-closed SHACL gate — unavailable
+    validator, missing shapes, malformed report, or non-conforming data all
+    ``raise`` — exposed so another governed-write caller (e.g.
+    ``knowledge_graph.ingestion.promotion``'s candidate-claim promotion gate)
+    can reuse the SAME unconditional validate-or-raise contract instead of a
+    second SHACL implementation.
+    """
+    _shacl_validate_rows(client, rows)
+
+
 def _shacl_violation_summary(report: dict[str, Any], *, limit: int = 5) -> str:
     """Summarize a non-conforming SHACL report as a short, bounded string."""
     results = report.get("results")
@@ -354,6 +374,18 @@ def _validate_envelope(envelope: ChangeEnvelope) -> list[str]:
             "policy and runtime ACL projection cannot diverge"
         )
     return violations
+
+
+def validate_envelope(envelope: ChangeEnvelope) -> list[str]:
+    """Public reuse point for :func:`_validate_envelope` (CONCEPT:AU-KG.ingest.governed-claim-promotion).
+
+    Lets another governed-write caller (e.g. a candidate-claim promotion gate
+    deciding whether a claim's proposed materialization is even well-formed
+    before a steward reviews it) run the SAME fail-closed schema + policy
+    checks ``ingest_envelope`` itself enforces at the write boundary — never a
+    second, potentially-drifting policy implementation. Empty list = OK.
+    """
+    return _validate_envelope(envelope)
 
 
 def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:

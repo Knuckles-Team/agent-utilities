@@ -34,8 +34,16 @@ class GraphNode(BaseModel):
         return self
 
     def to_cypher_props(self) -> dict[str, Any]:
-        """Ready for Cypher parameter binding."""
-        data = self.model_dump(by_alias=True, exclude_none=True)
+        """Ready for Cypher parameter binding.
+
+        ``mode="json"`` so datetime fields (created_at/last_updated/
+        valid_from/valid_to) serialize to ISO-8601 strings instead of raw
+        ``datetime.datetime`` objects — the native engine's msgpack wire
+        format cannot encode those directly ("can not serialize
+        'datetime.datetime' object"), so every write of a GraphNode with its
+        (always-populated, default-factory) timestamp fields would fail.
+        """
+        data = self.model_dump(mode="json", by_alias=True, exclude_none=True)
         # Flatten properties for Cypher
         props = data.pop("properties", {})
         return {**data, **props}

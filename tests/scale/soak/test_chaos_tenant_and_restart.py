@@ -133,15 +133,22 @@ def test_full_restart_cold_activation_recovers_in_flight_work(loadgen):
         wi.get_work_item(restarted, done_id)["status"]
         == "succeeded"
     )
+    # "leased" and "running" are one engine-native ownership decision (see
+    # work_item.py's mark_running docstring) — precedent:
+    # tests/unit/orchestration/test_work_item.py:610.
     assert (
         wi.get_work_item(restarted, in_flight_id)["status"]
-        == "running"
+        in ("leased", "running")
     )
 
-    # A post-restart reap sweep (the fleet's crash-recovery pass, run on any
-    # surviving/replacement host) reclaims the in-flight item — it is not lost.
+    # A post-restart reap sweep is confirmation-only (AU-P1-1: no Python-side
+    # reaper transition writer — ClaimWorkItem reclaims expired leases
+    # atomically as part of selection, so this always no-ops; see
+    # tests/unit/orchestration/test_work_item.py::
+    # test_reap_expired_lease_requeues_to_ready_and_stale_commit_is_fenced).
+    # The actual reclaim is proven below by the post-restart claim succeeding.
     reaped = wi.reap_expired_leases(restarted, now=1000.0)
-    assert in_flight_id in reaped["reaped_ready"]
+    assert reaped == {"reaped_ready": [], "reaped_dead_letter": []}
 
     # A post-restart worker claims and finishes it for real — exactly once.
     post_claim = wi.claim_and_start(
@@ -198,10 +205,13 @@ def test_rolling_upgrade_worker_pool_replacement_has_no_gap(loadgen):
         assert claim is not None
         old_claims[item_id] = claim
 
-    # Upgrade completes; old generation is gone. New-generation workers come up
-    # and a reap sweep reclaims everything the old generation left in flight.
+    # Upgrade completes; old generation is gone. A reap sweep is
+    # confirmation-only (AU-P1-1: no Python-side reaper transition writer —
+    # ClaimWorkItem reclaims expired leases atomically as part of selection),
+    # so it always no-ops here; the actual reclaim is proven below by every
+    # new-generation claim succeeding with no gap.
     reaped = wi.reap_expired_leases(engine, now=100.0)
-    assert set(reaped["reaped_ready"]) == set(old_claims)
+    assert reaped == {"reaped_ready": [], "reaped_dead_letter": []}
 
     # New generation claims + completes every item — continuity maintained.
     for item_id in old_claims:
