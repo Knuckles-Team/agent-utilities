@@ -183,6 +183,40 @@ def test_privacy_gate_scans_immutable_no_git_snapshot(tmp_path):
     assert privacy._runtime_source_artifacts(tmp_path) == [runtime]
 
 
+def test_privacy_baseline_excuses_only_listed_leaks_and_never_a_new_one(tmp_path):
+    """The D-CIP-10 baseline must be a ratchet, not an exemption.
+
+    The scope fix took the gate from 7 reported leaks to 37, all of them
+    pre-existing but previously invisible. They are baselined so `main` stays
+    green while the debt is tracked — which is only defensible if a *new* leak
+    still fails. That is what this pins, in both directions.
+    """
+    privacy = _load_script("check_tracked_privacy.py")
+    baselined = privacy.Violation(
+        "docker/job.yaml", 12, "machine-specific home path in runtime source"
+    )
+    fresh = privacy.Violation(
+        "docker/job.yaml", 99, "machine-specific home path in runtime source"
+    )
+
+    baseline_file = tmp_path / "tracked_privacy_baseline.txt"
+    baseline_file.write_text(
+        "# header comment is skipped\n"
+        f"{baselined.path}\t{baselined.line}\t{baselined.category}\n",
+        encoding="utf-8",
+    )
+    privacy.BASELINE = baseline_file
+    loaded = privacy._load_baseline()
+
+    assert privacy._baseline_key(baselined) in loaded
+    # A leak on a different LINE of the same already-baselined file is new.
+    assert privacy._baseline_key(fresh) not in loaded
+
+    # A missing baseline must read as EMPTY, i.e. stricter — never laxer.
+    privacy.BASELINE = tmp_path / "does_not_exist.txt"
+    assert privacy._load_baseline() == set()
+
+
 def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path):
     """D-CIP-10: a leak that landed in an earlier commit must still be caught.
 

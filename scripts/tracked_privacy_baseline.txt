@@ -21,7 +21,6 @@
 # shrinks this file on the next --update-baseline; never hand-add an
 # entry to make a real leak disappear.
 agent_utilities/base_utilities.py	270	hard-coded internal endpoint in runtime source
-agent_utilities/deployment/venv_sync.py	287	machine-specific home path in runtime source
 agent_utilities/knowledge_graph/core/nl_planner.py	81	hard-coded internal endpoint in runtime source
 agent_utilities/mcp/server_factory.py	555	hard-coded internal endpoint in runtime source
 agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	86	credential-bearing URI in runtime source
@@ -58,10 +57,3 @@ docker/graphos-unified-skill-runtime-kaniko-job.yaml	23	local account or host id
 docker/graphos-unified-skill-runtime-kaniko-job.yaml	56	machine-specific home path in runtime source
 docker/graphos-unified-skill-runtime-kaniko-job.yaml	60	machine-specific home path in runtime source
 docker/graphos-unified-skill-runtime-kaniko-job.yaml	64	machine-specific home path in runtime source
-docs/architecture/merge-queue.md	453	machine-specific home path
-docs/architecture/merge-queue.md	479	machine-specific home path
-docs/architecture/merge-queue.md	480	machine-specific home path
-docs/architecture/merge-queue.md	486	machine-specific home path
-docs/architecture/merge-queue.md	489	machine-specific home path
-docs/architecture/rca-mcp-tool-state-desync.md	6	machine-specific home path
-docs/architecture/rca-mcp-tool-state-desync.md	299	machine-specific home path
