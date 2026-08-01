@@ -14,6 +14,17 @@ TODO_KEYWORDS = [
     "FUTURE ENHANCEMENT",
 ]
 
+# "STUB" is an ordinary English verb/noun ("stub it out", "a trivial stub app",
+# "not a stub") that shows up constantly in test-comment prose with no relation to
+# an actual deferred-work marker -- unlike "TODO"/"FIXME"/etc., which are already
+# never used that way in this codebase's comments. A bare case-insensitive
+# \bSTUB\b match therefore has a very high false-positive rate for this one
+# keyword specifically. Every genuine marker in this codebase (see the "TODO:"
+# convention already in use) is written as an explicit, capitalized "KEYWORD:"
+# tag, so require that same marker form -- case-sensitive, colon-terminated --
+# for STUB only, instead of loosening the gate globally or excluding files/paths.
+MARKER_ONLY_KEYWORDS = {"STUB": re.compile(r"\bSTUB\s*:")}
+
 
 def check_file_for_stubs(filepath):
     """
@@ -183,9 +194,15 @@ def check_file_for_stubs(filepath):
         if "#" in clean_line:
             comment_part = clean_line.split("#", 1)[1]
             for kw in TODO_KEYWORDS:
-                if re.search(
-                    r"\b" + re.escape(kw) + r"\b", comment_part, re.IGNORECASE
-                ):
+                marker_re = MARKER_ONLY_KEYWORDS.get(kw)
+                matched = (
+                    marker_re.search(comment_part)
+                    if marker_re is not None
+                    else re.search(
+                        r"\b" + re.escape(kw) + r"\b", comment_part, re.IGNORECASE
+                    )
+                )
+                if matched:
                     findings.append(
                         {
                             "type": "TODO_COMMENT",

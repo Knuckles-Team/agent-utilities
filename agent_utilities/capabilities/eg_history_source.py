@@ -390,7 +390,7 @@ class EgStepStore:
         # write-side StepStore has no `root_run_id` concept to bound it by, so this
         # deliberately stays narrow (single run_id lookups only) rather than growing
         # into a second, unscoped read path next to ScopedEgHistorySource.
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: deliberately unscoped write-side path refused by design; see class docstring
             "EgStepStore.list_runs is intentionally unimplemented: use "
             "ScopedEgHistorySource for scoped read access instead of adding a second, "
             "unscoped enumeration path."
@@ -425,7 +425,7 @@ class EgStepStore:
         )
 
     async def list_events(self, *, run_id: str) -> list[Any]:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no StepEvent-shaped substrate exists yet; fails loud rather than fake
             self._UNSUPPORTED.format(
                 method="EgStepStore.list_events",
                 what="a StepEvent-shaped read distinct from ToolCallRecord",
@@ -433,7 +433,7 @@ class EgStepStore:
         )
 
     async def save_snapshot(self, snapshot: Any) -> None:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no full-fidelity snapshot substrate; silent no-op would risk silent data loss on resume
             self._UNSUPPORTED.format(
                 method="EgStepStore.save_snapshot",
                 what="a full-fidelity list[ModelMessage] snapshot store",
@@ -443,7 +443,7 @@ class EgStepStore:
     async def latest_snapshot(
         self, *, run_id: str, include_interrupted: bool = False
     ) -> Any:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no full-fidelity snapshot substrate; silent no-op would risk silent data loss on resume
             self._UNSUPPORTED.format(
                 method="EgStepStore.latest_snapshot",
                 what="a full-fidelity list[ModelMessage] snapshot store",
@@ -451,7 +451,7 @@ class EgStepStore:
         )
 
     async def record_tool_effect(self, record: Any) -> None:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no tool-effect status ledger substrate exists yet; fails loud rather than fake
             self._UNSUPPORTED.format(
                 method="EgStepStore.record_tool_effect",
                 what="a tool-effect status ledger",
@@ -459,7 +459,7 @@ class EgStepStore:
         )
 
     async def get_tool_effect(self, *, run_id: str, tool_call_id: str) -> Any:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no tool-effect status ledger substrate exists yet; fails loud rather than fake
             self._UNSUPPORTED.format(
                 method="EgStepStore.get_tool_effect",
                 what="a tool-effect status ledger",
@@ -467,7 +467,7 @@ class EgStepStore:
         )
 
     async def list_unresolved_tool_effects(self, *, run_id: str) -> list[Any]:
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: no tool-effect status ledger substrate exists yet; fails loud rather than fake
             self._UNSUPPORTED.format(
                 method="EgStepStore.list_unresolved_tool_effects",
                 what="a tool-effect status ledger",
