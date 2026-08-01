@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1125
+total_concepts: 1127
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -243,6 +243,16 @@ concepts:
   - agent_utilities/tools/team_tools.py
   - agent_utilities/workflows/distillation_hook.py
   doc: Find historically successful model combinations
+- id: AU-AHE.evaluation.judge-calibration
+  name: which judge prompt version produced
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/harness/continuous_evaluation_engine.py
+  - agent_utilities/harness/g_eval.py
+  - agent_utilities/harness/judge_calibration.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: which judge prompt version produced
 - id: AU-AHE.evaluation.longmemeval-validation-harness
   name: LongMemEval-S validation harness
   pillar: AU-AHE
@@ -344,6 +354,7 @@ concepts:
   pillar: AU-AHE
   status: live
   code_paths:
+  - agent_utilities/capabilities/governed_capability_authoring.py
   - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
   - agent_utilities/knowledge_graph/adaptation/skill_evolver.py
   - agent_utilities/knowledge_graph/assimilation/plan_synthesis.py
@@ -537,6 +548,7 @@ concepts:
   pillar: AU-AHE
   status: live
   code_paths:
+  - agent_utilities/capabilities/content_guardrails.py
   - agent_utilities/graph/state.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/orchestration/agent_runner.py
@@ -6577,6 +6589,13 @@ concepts:
   code_paths:
   - agent_utilities/runtime/provenance.py
   doc: Workspace-Action Provenance Graph
+- id: AU-KG.trace.canonical-id-non-idempotence
+  name: AU-KG.trace.canonical-id-non-idempotence
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/kg_audit_sink.py
+  doc: AU-KG.trace.canonical-id-non-idempotence
 - id: AU-KG.txn.git-like-versioning
   name: Provides git-like transactional mutation for KG evolution
   pillar: AU-KG
