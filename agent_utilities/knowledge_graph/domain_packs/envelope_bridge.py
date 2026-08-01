@@ -22,9 +22,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ..ingestion.evidence_spine import Artifact, Fragment
 from .domain_pack import DomainPackManifest
 from .dsl import MappingResult, evaluate_mapping
-from .fragment_contract import ArtifactLike, FragmentLike
 
 __all__ = ["PackRunPreview", "preview_pack", "run_pack"]
 
@@ -43,8 +43,8 @@ class PackRunPreview:
 
 def preview_pack(
     manifest: DomainPackManifest,
-    artifact: ArtifactLike,
-    fragments: list[FragmentLike],
+    artifact: Artifact,
+    fragments: list[Fragment],
 ) -> PackRunPreview:
     """Evaluate a pack's mappings and return the facts it WOULD produce.
 
@@ -65,8 +65,8 @@ def preview_pack(
 def run_pack(
     engine: Any,
     manifest: DomainPackManifest,
-    artifact: ArtifactLike,
-    fragments: list[FragmentLike],
+    artifact: Artifact,
+    fragments: list[Fragment],
     *,
     dry_run: bool = True,
 ) -> PackRunPreview | dict[str, Any]:

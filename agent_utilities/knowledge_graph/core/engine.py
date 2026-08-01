@@ -499,7 +499,17 @@ class IntelligenceGraphEngine(
             if isinstance(v, Enum):
                 clean_data[k] = v.value
             elif isinstance(v, dict | list) and k not in ARRAY_FIELDS:
-                clean_data[k] = json.dumps(v)
+                # Every caller of this helper follows the same convention: a
+                # `label`-less call feeds `self.graph.add_node(...)` (the
+                # native compute layer, which stores nested maps/lists
+                # natively), while a `label=...` call feeds the schema-aware
+                # backend/mirror leg (`_upsert_node`, whose own encoding
+                # policy this mirrors). JSON-encoding here unconditionally
+                # was correct for the backend leg but silently lossy for the
+                # compute leg -- a caller reading `engine.graph.nodes[id][k]`
+                # back got a JSON string instead of the dict/list it wrote
+                # (same masking-bug class as D-OTR-5's KGMapper._serialize).
+                clean_data[k] = json.dumps(v) if label is not None else v
             else:
                 clean_data[k] = v
         return clean_data

@@ -45,20 +45,25 @@ Any one of these failing raises before the pack is usable; there is no
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import json
+import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from ..ingestion.evidence_spine import Artifact, Fragment
 from ..ontology import ontology_integrity
 from ..ontology.connector_manifest import OntologySpec
 from ..ontology.manifest_compiler import compile_manifest
 from .domain_pack import DomainPackManifest
 from .dsl import evaluate_mapping
-from .fragment_contract import Artifact, Fragment
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "DomainPackError",
@@ -67,6 +72,8 @@ __all__ = [
     "pack_integrity_hash",
     "load_pack",
     "DomainPackRegistry",
+    "get_default_registry",
+    "reset_default_registry",
 ]
 
 
@@ -361,18 +368,90 @@ class DomainPackRegistry:
     def get(self, pack: str) -> LoadedDomainPack | None:
         return self._packs.get(pack)
 
-    def list(self) -> list[LoadedDomainPack]:
+    def list(self) -> builtins.list[LoadedDomainPack]:
+        # `builtins.list[...]` (not the bare `list[...]` generic syntax),
+        # deliberately: a method on THIS class is itself named `list`, which
+        # shadows the builtin `list` name within this class body's annotation
+        # scope and makes mypy misresolve `list[LoadedDomainPack]` as a
+        # reference to this method rather than the builtin generic (a real,
+        # pre-existing mypy 'valid-type' error) — the explicit `builtins.`
+        # prefix sidesteps the collision without renaming the (well-established)
+        # method.
         return sorted(self._packs.values(), key=lambda p: p.manifest.pack)
 
-    def discover_and_install_all(self) -> list[LoadedDomainPack]:
+    def discover_and_install_all(self) -> builtins.list[LoadedDomainPack]:
         """Install every ``<root>/<pack>/domain_pack.yml`` found. Fails closed:
         one bad pack raises immediately rather than silently skipping it —
         an operator debugging "why didn't my pack load" must never learn the
         answer is "the loader swallowed the error"."""
-        loaded: list[LoadedDomainPack] = []
+        loaded: builtins.list[LoadedDomainPack] = []
         if not self._root.is_dir():
             return loaded
         for child in sorted(self._root.iterdir()):
             if child.is_dir() and (child / "domain_pack.yml").is_file():
                 loaded.append(self.install(child))
         return loaded
+
+
+# ── Process-wide default registry (CONCEPT:AU-KG.ingest.domain-pack-framework) ──
+# Mirrors ``models.schema_pack_loader.get_active_pack``/``set_active_pack``'s
+# lazy-singleton shape, adapted to this module's "many packs coexist" model
+# (see ``DomainPackRegistry``'s own docstring for why that's a REGISTRY, not a
+# single active pack) — one process-wide registry, resolved lazily from
+# ``AgentConfig.domain_packs_root`` on first use, so callers that only need
+# "whichever packs are installed" (e.g.
+# ``ingestion.promotion.resolve_confidence_threshold`` consulting a pack's own
+# ``promotion_confidence_threshold``) don't each have to construct and
+# discover their own registry.
+_registry_lock = threading.RLock()
+_default_registry: DomainPackRegistry | None = None
+
+
+def get_default_registry() -> DomainPackRegistry:
+    """Return the process-wide default :class:`DomainPackRegistry`, discovering
+    every pack under ``AgentConfig.domain_packs_root`` on first use.
+
+    Best-effort at this layer, deliberately NOT fail-closed like
+    :meth:`DomainPackRegistry.discover_and_install_all` itself: a caller that
+    only wants an optional, best-effort per-pack override (the confidence
+    threshold consult being the first) must not have its own unrelated
+    operation break because some OTHER pack on disk is malformed. A discovery
+    failure is logged and yields an EMPTY registry for the remainder of the
+    process — an operator debugging "why isn't my pack's setting taking
+    effect" can still find the loud failure in the log; a caller resolving one
+    unrelated threshold does not need it re-raised into their own call.
+    ``root`` unset (the default, ``""``) is not an error — it simply means no
+    packs are installed, and every registry read returns ``None``/empty.
+    """
+    global _default_registry
+    with _registry_lock:
+        if _default_registry is not None:
+            return _default_registry
+        from agent_utilities.core.config import config
+
+        root = str(getattr(config, "domain_packs_root", "") or "")
+        registry = DomainPackRegistry(root)
+        if root:
+            try:
+                registry.discover_and_install_all()
+            except DomainPackError as exc:
+                logger.error(
+                    "domain_packs: default registry discovery under %r failed "
+                    "(%s) -- proceeding with whatever packs installed before "
+                    "the failure; fix the pack or DOMAIN_PACKS_ROOT",
+                    root,
+                    exc,
+                )
+        _default_registry = registry
+        return _default_registry
+
+
+def reset_default_registry() -> None:
+    """Drop the cached default registry so the next :func:`get_default_registry`
+    call re-discovers from the current ``AgentConfig.domain_packs_root`` —
+    mirrors ``schema_pack_loader``'s reset-for-tests shape. Tests and an
+    operator who just changed ``DOMAIN_PACKS_ROOT`` at runtime both need this;
+    production code otherwise never calls it."""
+    global _default_registry
+    with _registry_lock:
+        _default_registry = None

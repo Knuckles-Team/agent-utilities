@@ -1035,7 +1035,14 @@ class OWLBridge:
 
         for src, tgt, attrs in self.graph.edges(data=True):
             edge_type = attrs.get("relationship", "")
-            if edge_type in self._effective_edge_types:
+            # ``link_nodes()`` writes the edge's ``relationship`` property
+            # upper-cased (the converged relationship-type convention used by
+            # every call site), but ``PROMOTABLE_EDGE_TYPES``/schema-pack
+            # active-edge sets are lowercase snake_case, so a bare membership
+            # check here always misses for any edge written through
+            # link_nodes -- promotion silently never fires (D-GS7-1). Fold
+            # case on the lookup rather than weakening link_nodes' casing.
+            if edge_type.lower() in self._effective_edge_types:
                 stable_edges.append(
                     {
                         "source": src,

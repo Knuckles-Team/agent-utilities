@@ -398,3 +398,85 @@ def test_dead_letter_item_is_listed_and_drainable() -> None:
     assert dead_letter.drain_dead_letter_item(
         engine, "does-not-exist", actor="operator@example.invalid"
     ) == {"status": "not_found", "item_id": "does-not-exist"}
+
+
+class TestResolveConfidenceThreshold:
+    """D-GP2-3: per-pack thresholds must genuinely differ per pack, not all
+    resolve from the ONE ``AgentConfig.ingestion_confidence_thresholds``
+    mapping — a domain pack's own ``promotion_confidence_threshold`` wins
+    over that mapping, which in turn wins over the conservative global
+    default."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_registry(self):
+        from agent_utilities.knowledge_graph.domain_packs.pack_loader import (
+            reset_default_registry,
+        )
+
+        reset_default_registry()
+        yield
+        reset_default_registry()
+
+    def test_no_pack_no_config_entry_uses_global_default(self, monkeypatch):
+        from agent_utilities.core.config import config
+
+        monkeypatch.setattr(config, "domain_packs_root", "")
+        monkeypatch.setattr(config, "ingestion_confidence_thresholds", {})
+
+        assert (
+            promotion.resolve_confidence_threshold("no-such-domain")
+            == promotion.DEFAULT_CONFIDENCE_THRESHOLD
+        )
+
+    def test_agent_config_mapping_overrides_default(self, monkeypatch):
+        from agent_utilities.core.config import config
+
+        monkeypatch.setattr(config, "domain_packs_root", "")
+        monkeypatch.setattr(
+            config, "ingestion_confidence_thresholds", {"cmdb": 0.9}
+        )
+
+        assert promotion.resolve_confidence_threshold("cmdb") == 0.9
+
+    def test_installed_pack_confidence_threshold_wins_over_agent_config(
+        self, tmp_path, monkeypatch
+    ):
+        """Two DIFFERENT packs must resolve to two DIFFERENT thresholds — the
+        exact 'packs cannot actually differ' defect this item closes."""
+        import sys
+
+        sys.path.insert(0, str(pathlib_test_dir()))
+        try:
+            import _fixtures
+        finally:
+            sys.path.remove(str(pathlib_test_dir()))
+        from agent_utilities.core.config import config
+
+        strict = _fixtures.build_manifest(
+            pack_name="strict-pack", promotion_confidence_threshold=0.95
+        )
+        lenient = _fixtures.build_manifest(
+            pack_name="lenient-pack", promotion_confidence_threshold=0.2
+        )
+        _fixtures.write_pack(tmp_path, strict)
+        _fixtures.write_pack(tmp_path, lenient)
+        monkeypatch.setattr(config, "domain_packs_root", str(tmp_path))
+        # A conflicting AgentConfig entry for the SAME name must lose to the
+        # pack's own declared threshold.
+        monkeypatch.setattr(
+            config, "ingestion_confidence_thresholds", {"strict-pack": 0.1}
+        )
+
+        assert promotion.resolve_confidence_threshold("strict-pack") == 0.95
+        assert promotion.resolve_confidence_threshold("lenient-pack") == 0.2
+        # A domain with no installed pack still falls through to AgentConfig.
+        monkeypatch.setattr(
+            config, "ingestion_confidence_thresholds", {"no-pack-domain": 0.42}
+        )
+        assert promotion.resolve_confidence_threshold("no-pack-domain") == 0.42
+
+
+def pathlib_test_dir():
+    import pathlib
+
+    return pathlib.Path(__file__).resolve().parent.parent / "domain_packs"

@@ -4497,6 +4497,15 @@ class AgentConfig(BaseSettings):
     deployments are unaffected (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw)."""
     graph_schema_pack: str = Field(default="core", alias="GRAPH_SCHEMA_PACK")
     """Registered schema pack selected for the graph ontology runtime."""
+    domain_packs_root: str = Field(default="", alias="DOMAIN_PACKS_ROOT")
+    """Filesystem root an operator installs versioned domain packs under
+    (CONCEPT:AU-KG.ingest.domain-pack-framework, ``knowledge_graph/domain_packs/
+    pack_loader.py``'s ``DomainPackRegistry``) — each immediate child directory
+    containing a ``domain_pack.yml`` is discovered and fail-closed-validated by
+    ``pack_loader.get_default_registry()``. Empty (the default) means no packs
+    are installed; every consumer of the default registry (e.g.
+    ``ingestion.promotion.resolve_confidence_threshold``) degrades to its own
+    non-pack fallback rather than erroring."""
     kg_ingest_shard_fanout: bool = Field(default=False, alias="KG_INGEST_SHARD_FANOUT")
     """Within a single routed content source, spread writes across per-shard
     content-keyed sub-graphs (``src:freshrss#0`` … ``#K-1``) instead of one graph

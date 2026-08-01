@@ -196,8 +196,10 @@ class EventLedger:
         # Fallback to Tier 2 in-memory MultiDiGraph
         if not events:
             for nid, data in self.engine.graph.nodes(data=True):
-                # The projection stores the class under the canonical
-                # ``node_type`` property as the enum value string ("event").
+                # OGM._serialize stores the canonical 'node_type' key (retired
+                # 'type' is rejected at the write boundary — see
+                # GraphComputeEngine.add_node); this read-side filter must
+                # match that same canonical key.
                 if (
                     data.get("node_type") == "event"
                     and data.get("episode_id") == run_id

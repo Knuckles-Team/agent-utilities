@@ -106,3 +106,148 @@ async def test_graph_jobs_cancel_uses_the_dispatched_work_item(monkeypatch) -> N
     assert cancelled == {"status": "cancelled", "job_id": job_id}
     assert authority.node["status"] == "cancelled"
     assert authority.cancel_requests[0]["work_item_id"] == item_id
+
+
+@pytest.mark.asyncio
+async def test_completed_task_surfaces_the_real_run_trace_output_not_the_opaque_marker(
+    monkeypatch,
+) -> None:
+    """D-25-4: a completed orchestrator task's ``tasks/get`` result must
+    surface the REAL agent output (the correlated ``:RunTrace``'s
+    ``result_preview``) rather than the opaque ``result_ref`` completion
+    marker string, when the run was pinned to the task's own id
+    (``_execute_orchestrator_turn``'s ``run_id=envelope.job_id``,
+    D-25-4's fix in ``agent_dispatch_worker.py``)."""
+    import agent_utilities.mcp.kg_server as kg
+    from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
+    from agent_utilities.observability.trace_ontology import trace_id as canonical_trace_id
+    from agent_utilities.orchestration.work_item import orchestrator_work_item_id
+
+    job_id = "job:mcp-task-result"
+    item_id = orchestrator_work_item_id(job_id)
+    trace_node_id = canonical_trace_id(job_id)
+
+    class _Authority:
+        def query_cypher(self, _query: str, params: dict | None = None):
+            if (params or {}).get("id") == item_id:
+                return [
+                    {
+                        "id": item_id,
+                        "tenant": "tenant-test",
+                        "status": "succeeded",
+                        "depends_on": [],
+                        "downstream_ids": [],
+                        "metadata": {},
+                        "result_ref": f"orchestrator:{job_id}:completed",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-01-01T00:01:00Z",
+                    }
+                ]
+            return []
+
+    class _Backend:
+        def execute(self, query: str, params: dict | None = None):
+            if (params or {}).get("tid") != trace_node_id:
+                return []
+            if "ToolCall" in query:
+                return []
+            return [
+                {
+                    "status": "succeeded",
+                    "attribution_ref": None,
+                    "task": "do the thing",
+                    "timestamp": "2026-01-01T00:01:00Z",
+                    "duration_ms": 42,
+                    "result_preview": "the real agent output text",
+                    "error": None,
+                    "execution_mode": "auto",
+                    "graph_evidence_schema_version": None,
+                    "graph_topology": None,
+                    "graph_topology_digest": None,
+                    "graph_version_digest": None,
+                    "graph_runtime_version": None,
+                    "graph_node_sequence": None,
+                    "graph_transition_sequence": None,
+                    "graph_transition_count": None,
+                    "graph_checkpoint_ids": None,
+                    "graph_resume_supported": None,
+                    "skill_ref": None,
+                    "server_ref": None,
+                    "model_ref": None,
+                    "model_class": None,
+                    "skill_instruction_digest": None,
+                    "event_sequence": None,
+                }
+            ]
+
+    authority = _Authority()
+    backend_double = _Backend()
+
+    class _Engine:
+        _work_item_engine = authority
+        backend = backend_double
+
+    engine = _Engine()
+    monkeypatch.setattr(kg, "_get_engine", lambda: engine)
+
+    extension = WorkItemTasksExtension()
+    result = extension._project(job_id)
+
+    assert result.status == "completed"
+    assert result.result == {
+        "resultPreview": "the real agent output text",
+        "runId": job_id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_completed_task_falls_back_to_opaque_marker_with_no_run_trace(
+    monkeypatch,
+) -> None:
+    """A completed WorkItem with no correlated RunTrace (a non-orchestrator
+    job kind, or a run predating D-25-4) still degrades to the prior,
+    real opaque-marker behavior -- never an error."""
+    import agent_utilities.mcp.kg_server as kg
+    from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
+    from agent_utilities.orchestration.work_item import orchestrator_work_item_id
+
+    job_id = "job:mcp-task-no-trace"
+    item_id = orchestrator_work_item_id(job_id)
+
+    class _Authority:
+        def query_cypher(self, _query: str, params: dict | None = None):
+            if (params or {}).get("id") == item_id:
+                return [
+                    {
+                        "id": item_id,
+                        "tenant": "tenant-test",
+                        "status": "succeeded",
+                        "depends_on": [],
+                        "downstream_ids": [],
+                        "metadata": {},
+                        "result_ref": f"orchestrator:{job_id}:completed",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-01-01T00:01:00Z",
+                    }
+                ]
+            return []
+
+    class _Backend:
+        def execute(self, _query: str, _params: dict | None = None):
+            return []  # no RunTrace row -- correlated trace never landed
+
+    authority = _Authority()
+    backend_double = _Backend()
+
+    class _Engine:
+        _work_item_engine = authority
+        backend = backend_double
+
+    engine = _Engine()
+    monkeypatch.setattr(kg, "_get_engine", lambda: engine)
+
+    extension = WorkItemTasksExtension()
+    result = extension._project(job_id)
+
+    assert result.status == "completed"
+    assert result.result == {"resultRef": f"orchestrator:{job_id}:completed"}
