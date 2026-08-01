@@ -122,6 +122,115 @@ def test_fold_resolves_cross_lane_state_by_recorded_time_not_lane_name_sort(
     assert mq.queued(canonical) == []  # not stuck reporting queued forever
 
 
+def _folded_state_under_old_group_last_resolve(canonical: Path, branch: str) -> str:
+    """What FragmentStore.fold()'s OLD default (group[-1], no resolve=) would
+    have reported for *branch* against the fragments as they exist RIGHT NOW.
+
+    Used only to prove a D-CVG-9 test is not vacuous (D-ORC-17): reads the
+    SAME on-disk fragments the fixed code just resolved, through the
+    UNPATCHED default resolver, so a test that would already pass under the
+    restored bug is caught rather than silently accepted."""
+    store = mq.queue_store(canonical)
+    for record in store.fold():  # no resolve= -> the pre-D-F6-1 default
+        if record.get("id") == branch:
+            return str(record.get("state", ""))
+    raise AssertionError(f"{branch!r} not found in any fragment")
+
+
+def test_withdraw_then_reenqueue_from_an_earlier_sorting_lane_is_not_silently_lost(
+    canonical: Path,
+) -> None:
+    """D-CVG-9 (production incident, lane-converge-0801): a candidate is
+    withdrawn from `canonical` (fragment "canonical.yaml"), then
+    RE-ENQUEUED from a lane whose fragment sorts ALPHABETICALLY BEFORE
+    "canonical" (e.g. "au-pc-lint-0801.yaml", 'a' < 'c'). Under the D-F6-1
+    bug, `enqueue()`'s own return value happily says {"enqueued": True,
+    "state": "queued"} (it just echoes back the record it wrote), but the
+    GLOBAL folded view -- what `queued()`/`run_queue()` actually act on --
+    stayed permanently stuck on the withdrawal, because "au-pc-lint-0801"
+    sorts BEFORE "canonical" and so its records are never last in
+    `fold()`'s lane-sorted grouping. The failure is SILENT: the CLI reports
+    success, the candidate never actually queues.
+
+    D-ORC-17: proves non-vacuousness by re-resolving the SAME on-disk
+    fragments through the OLD group[-1] resolver and asserting THAT reports
+    the wrong (stuck) state -- so this test would have caught the bug had
+    it existed when this test was written, not just today."""
+    lane = _branch(canonical, "au-pc-lint-0801", {"pkg/x.py": "X = 1\n"})
+    mq.enqueue(path=lane)
+    withdrawn = mq.queued(canonical)[0]
+    mq._record_state(withdrawn, mq.WITHDRAWN, "changed mind", canonical)
+    mq.enqueue(path=lane)  # re-enqueue, chronologically AFTER the withdrawal
+
+    old_state = _folded_state_under_old_group_last_resolve(
+        canonical, "au-pc-lint-0801"
+    )
+    assert old_state != mq.QUEUED, (
+        "D-ORC-17: this fixture does not reproduce D-CVG-9 under the OLD "
+        f"resolver (got {old_state!r}) -- the test below would be vacuous"
+    )
+
+    resolved = {c.branch: c for c in mq._all_candidates(canonical)}
+    assert resolved["au-pc-lint-0801"].state == mq.QUEUED
+    assert "au-pc-lint-0801" in {c.branch for c in mq.queued(canonical)}
+
+
+def test_withdraw_then_reenqueue_reverse_lane_ordering_is_not_silently_lost(
+    canonical: Path,
+) -> None:
+    """D-CVG-9, the mirror-image ordering: withdrawn from a lane sorting
+    AFTER "canonical" ('z' > 'c'), re-enqueued via a state transition
+    written INTO canonical's own fragment -- proving the bug (and the fix)
+    is about recency, not about which side of the alphabet a lane name
+    falls on."""
+    lane = _branch(canonical, "zzz-lane", {"pkg/z.py": "Z = 1\n"})
+    mq.enqueue(path=lane)
+    withdrawn = mq.queued(canonical)[0]
+    mq._record_state(withdrawn, mq.WITHDRAWN, "changed mind", lane)
+    # Re-enqueue via a state transition recorded from `canonical` (a
+    # DIFFERENT, alphabetically-EARLIER-sorting fragment than "zzz-lane").
+    revived = [c for c in mq._all_candidates(canonical) if c.branch == "zzz-lane"][0]
+    mq._record_state(revived, mq.QUEUED, "", canonical)
+
+    old_state = _folded_state_under_old_group_last_resolve(canonical, "zzz-lane")
+    assert old_state != mq.QUEUED, (
+        "D-ORC-17: this fixture does not reproduce D-CVG-9 (reverse "
+        f"ordering) under the OLD resolver (got {old_state!r}) -- the test "
+        "below would be vacuous"
+    )
+
+    resolved = {c.branch: c for c in mq._all_candidates(canonical)}
+    assert resolved["zzz-lane"].state == mq.QUEUED
+    assert "zzz-lane" in {c.branch for c in mq.queued(canonical)}
+
+
+def test_a_genuinely_withdrawn_candidate_is_never_resurrected(
+    canonical: Path,
+) -> None:
+    """The other half of D-CVG-9's report: the SAME class of bug also
+    revived stale entries whose fragments happened to sort after
+    "canonical". A candidate withdrawn and never touched again must stay
+    withdrawn -- not resurface as "queued" merely because of where its
+    lane's fragment file falls alphabetically. D-ORC-17: this fixture is
+    proven non-vacuous below (the restored bug DOES flip this one to
+    "queued", the opposite direction from the other two tests here)."""
+    lane = _branch(canonical, "dead-lane", {"pkg/d.py": "D = 1\n"})
+    mq.enqueue(path=lane)
+    candidate = mq.queued(canonical)[0]
+    mq._record_state(candidate, mq.WITHDRAWN, "truly abandoned", canonical)
+
+    old_state = _folded_state_under_old_group_last_resolve(canonical, "dead-lane")
+    assert old_state != mq.WITHDRAWN, (
+        "D-ORC-17: this fixture does not reproduce the false-resurrection "
+        f"half of D-CVG-9 under the OLD resolver (got {old_state!r}) -- "
+        "the test below would be vacuous"
+    )
+
+    resolved = {c.branch: c for c in mq._all_candidates(canonical)}
+    assert resolved["dead-lane"].state == mq.WITHDRAWN
+    assert "dead-lane" not in {c.branch for c in mq.queued(canonical)}
+
+
 def test_enqueue_refuses_the_base_itself(canonical: Path) -> None:
     with pytest.raises(mq.MergeQueueError, match="named branch"):
         mq.enqueue("main", path=canonical)
