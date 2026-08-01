@@ -105,9 +105,7 @@ def test_apply_visibility_parenthesizes_existing_or_predicate():
         "MATCH (p:Policy) WHERE p.name CONTAINS 'x' OR p.description CONTAINS 'x' RETURN p",
         _user("alice"),
     )
-    assert (
-        "AND (p.name CONTAINS 'x' OR p.description CONTAINS 'x')" in out
-    ), out
+    assert "AND (p.name CONTAINS 'x' OR p.description CONTAINS 'x')" in out, out
 
 
 def test_apply_visibility_injects_before_return():
@@ -340,3 +338,47 @@ def test_share_transition_rejects_cross_tenant_admin():
             store=store,
             actor=_user("root", "acme", roles=("kg:admin",)),
         )
+
+
+# --- ACL classification stamping (CONCEPT:AU-KG.backend.company-brain-write-guard) -----
+
+
+def test_stamp_classification_defaults_to_confidential():
+    props: dict = {}
+    ts.stamp_classification(props, "Memory")
+    assert props["classification"] == "confidential"
+
+
+def test_stamp_classification_public_catalog_labels():
+    for label in sorted(ts.PUBLIC_CATALOG_LABELS):
+        props: dict = {}
+        ts.stamp_classification(props, label)
+        assert props["classification"] == "public"
+
+
+def test_stamp_classification_unknown_label_is_conservative():
+    props: dict = {}
+    ts.stamp_classification(props, None)
+    assert props["classification"] == "confidential"
+    props2: dict = {}
+    ts.stamp_classification(props2, "SomeBrandNewNodeType")
+    assert props2["classification"] == "confidential"
+
+
+def test_stamp_classification_never_overwrites_existing():
+    props = {"classification": "restricted"}
+    ts.stamp_classification(props, "ToolMetadata")
+    assert props["classification"] == "restricted"
+
+
+def test_stamp_classification_does_not_require_an_actor():
+    # Unlike stamp_ownership, classification is label-driven, not
+    # actor-driven -- it must not raise even with zero ambient identity.
+    import contextvars
+
+    def isolated():
+        props: dict = {}
+        ts.stamp_classification(props, "Memory")
+        assert props["classification"] == "confidential"
+
+    contextvars.Context().run(isolated)
