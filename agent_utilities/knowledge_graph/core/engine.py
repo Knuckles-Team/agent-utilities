@@ -582,6 +582,18 @@ class IntelligenceGraphEngine(
 
         label = self._normalize_label(label)
         prepared = self._prepare_node_props(label, data)
+        # The MERGE pattern below always binds `$id` (and the typed native
+        # path always passes `"id": node_id` explicitly) — but `data` isn't
+        # guaranteed to carry an "id" key itself; some callers build props
+        # from scratch and pass the node id ONLY as this method's own
+        # `node_id` argument (e.g. skill_workflow_ingest.ingest_runnable_skill).
+        # Without this, the raw-Cypher/MERGE branch below sent `$id` in the
+        # query text with no matching key in the params dict, and the native
+        # parser rejected it outright ("Parameter id not found") rather than
+        # silently mismatching, so this failure mode wasn't just a phantom
+        # read gap — same governance-consistency principle as the tenant
+        # stamp below, generically guaranteed here for every caller.
+        prepared.setdefault("id", node_id)
 
         # Stamp tenant/owner governance properties (CONCEPT:AU-KG.backend.company-brain-write-guard)
         # on EVERY node write through this one generic upsert seam, not only
@@ -598,7 +610,7 @@ class IntelligenceGraphEngine(
                 from .tenant_sharing import stamp_ownership
 
                 stamp_ownership(prepared)
-            except PermissionError:
+            except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor (system/background/control-plane write) means nothing to stamp; the write proceeds unstamped exactly as before this seam existed, not a hidden failure
                 pass
 
         typed_support = getattr(self.backend, "typed_mutation_support", "")

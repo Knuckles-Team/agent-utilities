@@ -103,6 +103,27 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
             continue
         raw_access = properties.get("external_access")
         if not isinstance(raw_access, dict):
+            # First-party (non-connector) nodes never carry an
+            # ``external_access`` descriptor — only Documents ingested
+            # through a source connector do (tenant_sharing.stamp_ownership()
+            # only ever stamps tenant_id/_owner_id/_shared_scope, never
+            # external_access; see tenant_sharing.py's owner/scope model).
+            # Without a fallback, EVERY internally-created node (Memory,
+            # Episode, Skill, CallableResource, ...) has no durable ACL
+            # material this connector-oriented gate understands, so
+            # ``get_acl()`` stays None forever and ``check_permission``
+            # unconditionally "No ACL defined — default deny"s it — even for
+            # its own owning actor, in production, not just tests. Synthesize
+            # a private, owner-readable ACL directly from the ownership
+            # metadata tenant_sharing.py DOES stamp, mirroring its own
+            # private-by-default semantics (an unowned/system node is left
+            # with no owner and stays denied here exactly as before — this
+            # only unblocks a node's own real, verified owner).
+            owner_id = str(properties.get("_owner_id") or "").strip()
+            if owner_id:
+                get_company_brain().permissions.classify_node(
+                    node_id, DataClassification.CONFIDENTIAL, data_owner=owner_id
+                )
             continue
         try:
             access = ExternalAccess.model_validate(raw_access)

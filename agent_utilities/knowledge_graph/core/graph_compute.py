@@ -2225,6 +2225,26 @@ class GraphComputeEngine:
         # field. Stamping it on every typed write removes the Python-side
         # virtual-id interpreter and keeps point predicates inside the engine.
         props["id"] = str(node_id)
+        # Stamp tenant/owner governance properties (CONCEPT:AU-KG.backend.company-brain-write-guard)
+        # on EVERY compute-cache node write through this one generic seam —
+        # the same invariant IntelligenceGraphEngine._upsert_node already
+        # enforces for the durable backend. This IS the graph the ACL-hydration
+        # read path (secured_reads._durable_access_rows) reads node properties
+        # from, so a compute-cache write that skipped stamping left the node
+        # looking ownerless: permit() then fail-closed-denied it, and
+        # query_cypher silently returned zero rows for data that a caller
+        # (e.g. add_memory/ingest_episode building a *second*, unstamped
+        # props dict for this call after already stamping the backend write)
+        # had just written successfully. Best-effort: writes with no bound
+        # actor (system/background/control-plane paths) proceed unstamped
+        # exactly as before.
+        if not props.get("tenant_id"):
+            try:
+                from .tenant_sharing import stamp_ownership
+
+                stamp_ownership(props)
+            except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor (system/background/control-plane write) means nothing to stamp; the write proceeds unstamped exactly as before this seam existed, not a hidden failure
+                pass
         props = clean_props(props)
         self._client.nodes.add(node_id, props)
 
