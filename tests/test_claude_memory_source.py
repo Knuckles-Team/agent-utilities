@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from agent_utilities.knowledge_graph.core.source_sync import (
     _parse_memory_file,
     _sync_claude_memory,
@@ -69,6 +71,10 @@ def test_parse_memory_file(tmp_path):
     assert links == ["bar", "baz"]
 
 
+@pytest.mark.quarantine(
+    reason="D-TC-3: native ChangeEnvelope capability unavailable in this sandbox "
+    "(envelope_ingest logs NativeChangeEnvelopeUnavailable)"
+)
 def test_sync_claude_memory_ingests_typed_nodes_and_links(tmp_path, monkeypatch):
     _write(tmp_path, "foo", "Foo", "project", "links to [[bar]].")
     _write(tmp_path, "bar", "Bar", "reference", "no links here.")
@@ -96,6 +102,10 @@ def test_sync_claude_memory_ingests_typed_nodes_and_links(tmp_path, monkeypatch)
     assert {"source": "claude_memory:foo", "target": "claude_memory:bar", "type": "RELATED_TO"} in rels
 
 
+@pytest.mark.quarantine(
+    reason="D-TC-3: native ChangeEnvelope capability unavailable in this sandbox "
+    "(envelope_ingest logs NativeChangeEnvelopeUnavailable)"
+)
 def test_ids_narrows_to_slugs(tmp_path, monkeypatch):
     _write(tmp_path, "foo", "Foo", "project", "x")
     _write(tmp_path, "bar", "Bar", "project", "y")

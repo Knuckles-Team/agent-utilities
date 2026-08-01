@@ -201,16 +201,19 @@ class TestTradingPipelineIntegration:
         )
         port = PortfolioNode(id="port:main", name="Main", position_count=1)
 
-        # Add nodes
+        # Add nodes (RegistryNode.model_dump() names its type field 'type';
+        # the engine reserves that key and requires the canonical 'node_type').
         for n in [strat, signal, order, pos, port]:
-            g.add_node(n.id, **n.model_dump())
+            data = n.model_dump()
+            node_type = data.pop("type")
+            g.add_node(n.id, node_type=node_type, **data)
 
         # Add pipeline edges
-        g.add_edge(strat.id, signal.id, type=RegistryEdgeType.GENERATED_SIGNAL)
-        g.add_edge(signal.id, order.id, type=RegistryEdgeType.PLACED_ORDER)
-        g.add_edge(order.id, pos.id, type=RegistryEdgeType.OPENED_POSITION)
-        g.add_edge(pos.id, port.id, type=RegistryEdgeType.BELONGS_TO_PORTFOLIO)
-        g.add_edge(port.id, strat.id, type=RegistryEdgeType.EXECUTES_STRATEGY)
+        g.add_edge(strat.id, signal.id, relationship=RegistryEdgeType.GENERATED_SIGNAL)
+        g.add_edge(signal.id, order.id, relationship=RegistryEdgeType.PLACED_ORDER)
+        g.add_edge(order.id, pos.id, relationship=RegistryEdgeType.OPENED_POSITION)
+        g.add_edge(pos.id, port.id, relationship=RegistryEdgeType.BELONGS_TO_PORTFOLIO)
+        g.add_edge(port.id, strat.id, relationship=RegistryEdgeType.EXECUTES_STRATEGY)
 
         # Verify graph structure
         assert g.number_of_nodes() == 5
@@ -231,8 +234,10 @@ class TestTradingPipelineIntegration:
         g = GraphComputeEngine(backend_type="rust")
         strat = StrategyNode(id="strat:v1", name="V1")
         bt = BacktestRunNode(id="bt:001", name="Backtest V1", strategy_id="strat:v1")
-        g.add_node(strat.id, **strat.model_dump())
-        g.add_node(bt.id, **bt.model_dump())
-        g.add_edge(strat.id, bt.id, type=RegistryEdgeType.BACKTESTED_WITH)
+        strat_data = strat.model_dump()
+        g.add_node(strat.id, node_type=strat_data.pop("type"), **strat_data)
+        bt_data = bt.model_dump()
+        g.add_node(bt.id, node_type=bt_data.pop("type"), **bt_data)
+        g.add_edge(strat.id, bt.id, relationship=RegistryEdgeType.BACKTESTED_WITH)
 
         assert g.has_edge(strat.id, bt.id)
