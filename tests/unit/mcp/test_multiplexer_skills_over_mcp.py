@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 from agent_utilities.mcp.multiplexer import (
     _bounded_skill_catalog,
 )
-from tests.test_multiplexer_dynamic_gateway import (
+from tests.unit.mcp.test_multiplexer_dynamic_gateway import (
     CNT,
     CNT_TOOL,
     _fake_tool,
