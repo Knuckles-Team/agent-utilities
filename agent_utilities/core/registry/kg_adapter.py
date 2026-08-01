@@ -438,11 +438,13 @@ class RegistryMixin(_Base):
             data["version_number"] = next_version
             data["parent_id"] = prompt_id
             self._upsert_node("Prompt", new_id, data)
-            self.backend.execute(
-                "MATCH (a:Prompt {id: $new_id}), (b:Prompt {id: $old_id}) "
-                "MERGE (a)-[:SUPERSEDES]->(b)",
-                {"new_id": new_id, "old_id": prompt_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only, never an edge;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # ``link_nodes`` dispatches through the typed engine API instead
+            # (both endpoints are already upserted above).
+            self.link_nodes(new_id, prompt_id, RegistryEdgeType.SUPERSEDES)
 
         return {
             "id": new_id,
@@ -907,11 +909,12 @@ class RegistryMixin(_Base):
             },
         )
         if self.backend:
-            self.backend.execute(
-                "MATCH (tc {id: $tc_id}), (sc {id: $sc_id}) "
-                "MERGE (tc)-[:REUSED_TEAM]->(sc)",
-                {"tc_id": tc_id, "sc_id": coalition_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only, never an edge;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # ``link_nodes`` dispatches through the typed engine API instead.
+            self.link_nodes(tc_id, coalition_id, RegistryEdgeType.REUSED_TEAM)
 
         # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Invalidate cache after TeamConfig promotion
         from ...core.config import invalidate_registry_cache
@@ -944,26 +947,47 @@ class RegistryMixin(_Base):
         """
         alpha = 0.3
 
-        new_rate = alpha * reward + (1 - alpha) * 0.5
+        old_rate = 0.5
+        usage_count = 0
         if self.graph.has_node(team_config_id):
             data = self.graph._get_node_properties(team_config_id)
             old_rate = data.get("success_rate", 0.5)
-            new_rate = alpha * reward + (1 - alpha) * old_rate
+            usage_count = data.get("usage_count", 0)
+        elif self.backend:
+            # Compute-layer cache miss (e.g. a fresh process with a warm
+            # backend): read the current counters so the increment below is
+            # still correct rather than assuming a cold start.
+            rows = self.backend.execute(
+                "MATCH (tc:TeamConfig {id: $id}) "
+                "RETURN tc.success_rate, tc.usage_count",
+                {"id": team_config_id},
+            )
+            if rows:
+                old_rate = rows[0].get("tc.success_rate") or 0.5
+                usage_count = rows[0].get("tc.usage_count") or 0
+
+        new_rate = alpha * reward + (1 - alpha) * old_rate
+        new_usage_count = usage_count + 1
+
+        if self.graph.has_node(team_config_id):
+            data = self.graph._get_node_properties(team_config_id)
             data["success_rate"] = new_rate
-            data["usage_count"] = data.get("usage_count", 0) + 1
+            data["usage_count"] = new_usage_count
             # _get_node_properties returns a detached snapshot; persist the
             # mutated values back to the graph store so reads see the update.
             self.graph.add_node(team_config_id, data)
 
         if self.backend:
-            self.backend.execute(
-                "MATCH (tc:TeamConfig {id: $id}) "
-                "SET tc.success_rate = $rate, "
-                "    tc.usage_count = COALESCE(tc.usage_count, 0) + 1",
-                {
-                    "id": team_config_id,
-                    "rate": new_rate,
-                },
+            # ``SET tc.usage_count = COALESCE(tc.usage_count, 0) + 1`` is a
+            # function-call SET value, outside the native write subset (SET
+            # values must be literals; epistemic-graph/crates/eg-query/src/
+            # cypher/parser.rs:1184). The increment is now computed as a
+            # Python literal above; ``_upsert_node`` is the typed field-merge
+            # upsert equivalent of the old MATCH+SET for an existing node.
+            self._upsert_node(
+                "TeamConfig",
+                team_config_id,
+                {"success_rate": new_rate, "usage_count": new_usage_count},
             )
 
         logger.info(
@@ -993,10 +1017,12 @@ class RegistryMixin(_Base):
             },
         )
         if self.backend:
-            self.backend.execute(
-                "MATCH (a {id: $aid}), (p {id: $pid}) MERGE (a)-[:USES_PROMPT]->(p)",
-                {"aid": agent_id, "pid": prompt_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only, never an edge;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # ``link_nodes`` dispatches through the typed engine API instead.
+            self.link_nodes(agent_id, prompt_id, RegistryEdgeType.USES_PROMPT)
         logger.info("Linked agent to prompt (USES_PROMPT)")
 
     # ─────────────────────────────────────────────────────────────────────
