@@ -193,6 +193,37 @@ class RetrievalQualityGate:
         else:
             self._threshold = 0.6
 
+        # CONCEPT:AU-KG.retrieval.triviality-gate — HybridRetriever._lexical_fallback
+        # (tier 3/4 of the retrieval cascade) tags every result it produces with
+        # ``_fallback == "lexical"`` and a flat ``_score = 0.2`` sentinel (see its own
+        # "low confidence — it's a lexical fallback" comment) — that constant is NOT a
+        # cosine similarity and was never meant to be comparable to ``self._threshold``
+        # (calibrated for genuine embedding scores, default 0.6). Gating lexical hits
+        # against the vector threshold made the gate reject 100% of lexical-only
+        # retrievals regardless of actual keyword relevance — the query embedder being
+        # hermetically blocked/unavailable (tests, offline mode, cold-start before an
+        # index exists) always failed LOW_RELEVANCE_TOPK even when the returned nodes
+        # visibly contained the query term. A keyword/substring match already IS the
+        # relevance signal for a lexical hit, so it is graded against its own, lower,
+        # separately-calibrated threshold instead of the vector one. Set just below the
+        # 0.2 sentinel so genuine lexical fallback hits pass while a caller that
+        # constructs a degenerate near-zero fallback score still correctly fails closed.
+        env_lexical_threshold = setting("KG_MIN_LEXICAL_RELEVANCE_THRESHOLD")
+        self._lexical_threshold = (
+            float(env_lexical_threshold) if env_lexical_threshold is not None else 0.15
+        )
+
+    def _result_threshold(self, result: dict[str, Any]) -> float:
+        """The relevance threshold that applies to one retrieved result.
+
+        Lexical-fallback results (``_fallback == "lexical"``) are graded against
+        ``self._lexical_threshold``; every other result (genuine vector/cross-encoder
+        scores) against ``self._threshold``.
+        """
+        if result.get("_fallback") == "lexical":
+            return self._lexical_threshold
+        return self._threshold
+
     @property
     def enabled(self) -> bool:
         """Whether the quality gate is active."""
@@ -227,9 +258,13 @@ class RetrievalQualityGate:
             report.latency_ms = (time.monotonic() - start) * 1000
             return report
 
-        # Extract scores
+        # Extract scores. Each result is graded against its OWN threshold — a
+        # lexical-fallback hit's flat 0.2 sentinel against the lower
+        # ``_lexical_threshold``, every other (genuine vector/rerank) score against
+        # ``self._threshold`` — see ``_result_threshold``.
         scores = [r.get("_score", 0.0) for r in results]
-        above = [s for s in scores if s >= self._threshold]
+        thresholds = [self._result_threshold(r) for r in results]
+        above = [s for s, t in zip(scores, thresholds, strict=False) if s >= t]
 
         report.above_threshold = len(above)
         report.mean_relevance_score = sum(scores) / len(scores) if scores else 0.0
@@ -243,8 +278,8 @@ class RetrievalQualityGate:
         report.context_recall = min(1.0, len(above) / max(5.0, len(above) * 1.5))
 
         # Mean Reciprocal Rank: 1/rank of first above-threshold result
-        for i, s in enumerate(scores):
-            if s >= self._threshold:
+        for i, (s, t) in enumerate(zip(scores, thresholds, strict=False)):
+            if s >= t:
                 report.mean_reciprocal_rank = 1.0 / (i + 1)
                 break
 
@@ -257,7 +292,7 @@ class RetrievalQualityGate:
 
         # Failure mode detection
         report.failure_modes_detected = self._detect_failure_modes(
-            results, scores, query, upstream_provenance
+            results, scores, thresholds, query, upstream_provenance
         )
 
         # Gate decision
@@ -273,28 +308,37 @@ class RetrievalQualityGate:
         self,
         results: list[dict[str, Any]],
         scores: list[float],
+        thresholds: list[float],
         query: str,
         upstream_provenance: list[ContextProvenanceRecord] | None,
     ) -> list[RetrievalFailureMode]:
-        """Classify retrieval failures into the Ambekar taxonomy."""
+        """Classify retrieval failures into the Ambekar taxonomy.
+
+        ``thresholds`` is the per-result effective threshold from
+        :meth:`_result_threshold` (lexical-fallback hits use the lower
+        ``_lexical_threshold``, everything else ``self._threshold``) — kept
+        parallel to ``scores`` so a lexical-only result set is not misclassified
+        as low-relevance purely because its flat fallback sentinel sits below the
+        vector-similarity threshold it was never calibrated against.
+        """
         modes: list[RetrievalFailureMode] = []
 
-        # LOW_RELEVANCE_TOPK: no results above threshold
-        if all(s < self._threshold for s in scores):
+        # LOW_RELEVANCE_TOPK: no results above their own threshold
+        if all(s < t for s, t in zip(scores, thresholds, strict=False)):
             modes.append(RetrievalFailureMode.LOW_RELEVANCE_TOPK)
 
         # DRIFT: top result is above threshold but mean is very low
         # (indicates topical scatter — some relevant, mostly noise)
-        if scores and scores[0] >= self._threshold:
+        if scores and scores[0] >= thresholds[0]:
             mean_rest = (
                 sum(scores[1:]) / max(1, len(scores) - 1) if len(scores) > 1 else 0
             )
-            if mean_rest < self._threshold * 0.5:
+            if mean_rest < thresholds[0] * 0.5:
                 modes.append(RetrievalFailureMode.DRIFT)
 
         # CONTEXT_TRUNCATION: many results above threshold suggests
         # important context may be cut (>80% above threshold, >10 results)
-        above_count = sum(1 for s in scores if s >= self._threshold)
+        above_count = sum(1 for s, t in zip(scores, thresholds, strict=False) if s >= t)
         if above_count > 10 and above_count / len(scores) > 0.8:
             modes.append(RetrievalFailureMode.CONTEXT_TRUNCATION)
 
@@ -446,7 +490,9 @@ class RetrievalQualityGate:
                     report.freshness_penalty_applied = True
 
         # Filter to above-threshold only
-        filtered = [r for r in results if r.get("_score", 0.0) >= self._threshold]
+        filtered = [
+            r for r in results if r.get("_score", 0.0) >= self._result_threshold(r)
+        ]
 
         # Re-sort after freshness adjustment
         filtered.sort(key=lambda x: x.get("_score", 0.0), reverse=True)

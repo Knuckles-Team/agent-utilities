@@ -459,7 +459,12 @@ class KnowledgeGraph:
             raise PermissionError("Graph read store is unavailable")
         from .core.secured_reads import audit_read, filter_rows, scope, visible
 
-        rows = store.execute_read(scope(cypher, session.actor), params or {}) or []
+        # D-W2T-2: `scope()` returns (query, extra_params) — the tenant id is a
+        # bound `$_tenant_scope_id` Cypher parameter now, not a string-literal
+        # splice. Merge it into this call's own params dict.
+        scoped_cypher, tenant_params = scope(cypher, session.actor)
+        merged_params = {**(params or {}), **tenant_params}
+        rows = store.execute_read(scoped_cypher, merged_params) or []
         rows = visible(filter_rows(rows, session.actor), session.actor)
         # Fine-grained object permissioning is mandatory: rows without governed
         # markings/ACLs are denied and enforcement failures propagate.

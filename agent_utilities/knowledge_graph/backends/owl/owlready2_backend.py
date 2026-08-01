@@ -10,6 +10,7 @@ and its bundled HermiT/Pellet reasoner.
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,27 @@ from agent_utilities.core.config import setting
 from .base import OWLBackend
 
 logger = logging.getLogger(__name__)
+
+
+def _node_type_to_snake(node_type: str) -> str:
+    """Normalise a stored ``node_type`` value to lowercase snake_case.
+
+    A node read back from the native compute engine has its ``node_type``
+    CamelCased (e.g. ``"host"`` round-trips as ``"Host"``, ``"gpu_accelerator"``
+    as ``"GPUAccelerator"``) — see
+    ``agent_utilities.knowledge_graph.core.owl_bridge`` module docstring —
+    while ``_NODE_TYPE_TO_OWL_CLASS`` below is keyed lowercase snake_case, so
+    a bare-string ``.get()`` here always misses for a node sourced from the
+    native engine and no OWL individual is ever created for it (the D-TC-5
+    matchmaking follow-on: promotion silently no-ops). Fold case+word-boundary
+    at the lookup, mirroring ``_get_owl_property``'s existing case-fold for
+    the analogous edge-type lookup (D-GS7-1). Idempotent on an already
+    snake_case input.
+    """
+    s = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", str(node_type))
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
+    return s.lower()
+
 
 # Mapping from LPG RegistryNodeType values to OWL class local names
 _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
@@ -456,8 +478,13 @@ class Owlready2Backend(OWLBackend):
         logger.info("Loaded configured ontology")
 
     def _get_owl_class(self, node_type: str):
-        """Resolve a LPG node type string to an owlready2 class."""
-        class_name = _NODE_TYPE_TO_OWL_CLASS.get(node_type)
+        """Resolve a LPG node type string to an owlready2 class.
+
+        ``_NODE_TYPE_TO_OWL_CLASS`` is keyed in lowercase snake_case; fold the
+        lookup key here rather than weakening the native engine's CamelCase
+        convention upstream (D-GS7-1's ``_get_owl_property`` pattern, D-TC-5).
+        """
+        class_name = _NODE_TYPE_TO_OWL_CLASS.get(_node_type_to_snake(node_type))
         if not class_name or not self._world:
             return None
         # We search the world because the class might be in a sibling/imported ontology

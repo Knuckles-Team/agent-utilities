@@ -450,7 +450,7 @@ CONCEPT:AU-OS.governance.merge-deploy-decoupling
 **The hazard, precisely.** graph-os runs source-over-site-packages: the pod
 NFS-mounts the canonical checkout **read-only** at `/au` with `PYTHONPATH=/au:/skills`
 (`services/graph-os/k8s/graph-os.deployment.yaml`, volume `au-src` →
-`10.0.0.12:/home/apps/workspace/agent-packages/agent-utilities`). That NFS path is
+`10.0.0.12:${WORKSPACE_ROOT}/agent-packages/agent-utilities`). That NFS path is
 the **literal canonical working tree**, not a staged copy, so `import agent_utilities`
 resolves to whatever is on `main` right now, shadowing the baked wheel in the pinned
 image.
@@ -476,17 +476,17 @@ volumes:
     nfs:
       server: 10.0.0.12
       readOnly: true
-      # was: /home/apps/workspace/agent-packages/agent-utilities   (the `main` tree)
-      path: /home/apps/deployed/agent-utilities                    # a worktree of `deployed`
+      # was: ${WORKSPACE_ROOT}/agent-packages/agent-utilities   (the `main` tree)
+      path: ${DEPLOYED_ROOT}/agent-utilities                    # a worktree of `deployed`
 ```
 
 ```bash
 # one-time: create the promotion worktree at today's main
 git -C agent-packages/agent-utilities worktree add \
-    /home/apps/deployed/agent-utilities -b deployed main
+    ${DEPLOYED_ROOT}/agent-utilities -b deployed main
 
 # promote — explicit, deliberate, and only ever a fast-forward
-git -C /home/apps/deployed/agent-utilities merge --ff-only <a main SHA the slow tier passed>
+git -C ${DEPLOYED_ROOT}/agent-utilities merge --ff-only <a main SHA the slow tier passed>
 kubectl rollout restart deployment/graph-os -n platform
 ```
 

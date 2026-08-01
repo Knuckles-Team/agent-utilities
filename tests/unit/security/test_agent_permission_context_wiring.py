@@ -41,9 +41,14 @@ The kernel and identity are built by the test and passed *into* ``create_agent``
 — its documented DI seam ("dependency injection for bounded tests"). That is
 **input**, not the seam: ``resolve_permission_context``, ``verify_permission_context``,
 the real signature verification and ``flag_mcp_tool_definitions`` all execute for
-real. The self-provisioning branch (durable signing key out of the engine's secret
-store) is not reachable from a unit test today — see ``D-WS-2`` — so its edge is
-left to live validation rather than faked here.
+real. ``TestSelfProvisioningBranchIsReachableFromCreateAgent`` covers the sibling
+edge (D-WS-2): when NO kernel/identity is injected, ``create_agent`` must reach
+the SELF-PROVISIONING branch (a durable signing key out of the engine's secret
+store, via ``provision_signing_key``) rather than that branch being reachable
+only from a real engine or from ``resolve_permission_context``/
+``provision_signing_key`` unit tests directly. It uses the same
+``secrets_client`` dependency-injection seam ``resolve_permission_context``
+already exposed, now threaded through ``create_agent`` too.
 """
 
 from __future__ import annotations
@@ -95,6 +100,8 @@ def governed_pair() -> tuple[pk.PermissionsKernel, pk.AgentIdentity]:
 def _create_agent(
     toolset: _Toolset | None,
     pair: tuple[pk.PermissionsKernel, pk.AgentIdentity] | None = None,
+    *,
+    secrets_client: Any | None = None,
 ) -> Any:
     kernel, identity = pair if pair else (None, None)
     return agent_factory.create_agent(
@@ -103,10 +110,31 @@ def _create_agent(
         mcp_toolsets=[toolset] if toolset else None,
         permissions_kernel=kernel,
         agent_identity=identity,
+        secrets_client=secrets_client,
         skill_types=[],
         enable_skills=False,
         enable_universal_tools=False,
     )
+
+
+class _FakeSecretsClient:
+    """In-memory stand-in for the durable secret store with real CAS semantics
+    (same shape as ``tests/unit/security/test_permissions_kernel.py``'s
+    ``_FakeSecretsClient``, duplicated locally so this module does not import a
+    private test helper across files).
+    """
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+
+    def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    def set_if_absent(self, key: str, value: str, **_metadata: object) -> bool:
+        if key in self.store:
+            return False
+        self.store[key] = value
+        return True
 
 
 class TestPermissionContextWiring:
@@ -220,3 +248,87 @@ class TestPermissionContextWiring:
         text = source.read_text(encoding="utf-8")
         assert "resolve_permission_context" in text
         assert "monkeypatch.setattr" in text
+
+
+class TestSelfProvisioningBranchIsReachableFromCreateAgent:
+    """D-WS-2 — the SELF-PROVISIONING branch (no injected kernel/identity) is
+    reachable from a production ``create_agent`` call, not just from
+    ``resolve_permission_context``/``provision_signing_key`` unit tests.
+
+    Before this fix, ``create_agent`` had no way to inject the
+    ``secrets_client`` ``resolve_permission_context`` already accepted as DI
+    for bounded tests -- so the only way to exercise this branch from
+    ``create_agent`` was a real engine, which fails for an unrelated reason
+    (``secrets_client.get()`` -> ``GraphComputeEngine._send`` ->
+    ``PermissionError: A graph-scoped view cannot retarget the verified
+    GraphSession`` -- the secrets client targets the default graph while a
+    per-test tenant-graph fixture pins a different one). Threading
+    ``secrets_client`` through ``create_agent`` (the same DI shape it already
+    uses for ``permissions_kernel``/``agent_identity``) makes the branch
+    reachable with a plain in-memory double, closing that gap without needing
+    a real engine at all.
+    """
+
+    def test_create_agent_self_provisions_a_durable_kernel(self) -> None:
+        """No kernel/identity injected -> ``create_agent`` self-provisions one
+        durably (a real ``PermissionsKernel`` built from a key durably stored
+        in the injected secrets client), and that kernel — not ``None`` — is
+        what governs the toolset.
+        """
+        store = _FakeSecretsClient()
+        toolset = _Toolset()
+
+        with (
+            observe(pk, "provision_signing_key") as provisioned,
+            observe(agent_factory, "flag_mcp_tool_definitions") as flagged_seam,
+        ):
+            _create_agent(toolset, secrets_client=store)
+
+        provisioned_call = provisioned.assert_called(
+            why=(
+                "no injected kernel/identity + a toolset present must reach "
+                "the self-provisioning branch, not silently skip it"
+            )
+        )
+        assert provisioned_call.arg("secrets_client") is store
+
+        # The durable store now actually holds the provisioned signing-key
+        # document -- "a kernel was built" is not the claim; "durable
+        # provisioning happened for real" is.
+        assert pk.WELL_KNOWN_SIGNING_KEY_NAME in store.store
+
+        flagged = flagged_seam.assert_called(
+            why="the self-provisioned kernel must be what governs the toolset"
+        )
+        real_kernel = flagged.arg("permissions_kernel")
+        assert real_kernel is not None
+        assert_not_faked(real_kernel, name="PermissionsKernel")
+        assert isinstance(real_kernel, pk.PermissionsKernel)
+
+    def test_self_provisioning_is_idempotent_across_separate_create_agent_calls(
+        self,
+    ) -> None:
+        """Two independent ``create_agent`` calls sharing the same durable
+        store must converge on the SAME signing authority (durable, not a
+        fresh per-process ephemeral each time) -- an identity issued by the
+        first call's kernel must verify under the second call's kernel.
+        """
+        store = _FakeSecretsClient()
+
+        kernels: list[pk.PermissionsKernel] = []
+        for _ in range(2):
+            with observe(agent_factory, "flag_mcp_tool_definitions") as flagged_seam:
+                _create_agent(_Toolset(), secrets_client=store)
+            kernels.append(flagged_seam.assert_called().arg("permissions_kernel"))
+
+        first_kernel, second_kernel = kernels
+        assert (
+            first_kernel is not second_kernel
+        )  # separate PermissionsKernel objects...
+
+        # ...but built from the SAME durable material: an identity minted by
+        # the first is still valid under the second.
+        identity = first_kernel.issue_identity(
+            "durable-probe-agent", pk.AgentRole.SPECIALIST
+        )
+        assert second_kernel.verify_identity(identity)

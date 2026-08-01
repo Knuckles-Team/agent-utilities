@@ -284,7 +284,8 @@ class Workspace:
     ) -> Workspace:
         """Walk up from ``start`` to the nearest ``[tool.uv.workspace]`` root.
 
-        Never shells out to git: ``/home/apps/workspace`` is not a repository,
+        Never shells out to git: the workspace root (the parent of all repo
+        checkouts, e.g. ``${WORKSPACE_ROOT}``) is not itself a repository,
         which is exactly why the pre-existing ``scripts/uv_workspace.py``
         launcher cannot run there.
         """

@@ -24,6 +24,7 @@ This script is READ-ONLY end to end — it only calls ``list_graphs``/``rbac_pol
 
 import argparse
 import logging
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,27 @@ from typing import Any
 # scripts/generate_connector_capability_bundles.py for the same precedented fix).
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+
+def _workspace_root() -> Path:
+    """The shared WORKSPACE root ``reports/wave<N>/`` artifacts live under.
+
+    Works whether this script is running from agent-utilities' canonical
+    checkout or one of its worktrees, by asking git for THIS repo's own
+    common dir rather than assuming a fixed number of ``parents[...]`` hops
+    (a worktree adds a level a canonical checkout does not have) — same
+    idiom as ``scripts/rollout_lane_guard_hook.py::_workspace_root``.
+    """
+    common_dir = Path(
+        subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    ).resolve()
+    au_canonical = common_dir.parent  # .git's parent is the canonical checkout
+    return au_canonical.parent.parent  # agent-packages -> workspace root
 
 from agent_utilities.knowledge_graph.maintenance.graph_ownership import (  # noqa: E402
     EngineCatalogClient,
@@ -54,7 +76,7 @@ logger = logging.getLogger(__name__)
 #: any one repo's own git history — sibling wave-2 deliverables already live there
 #: (e.g. ``reports/wave2/ADR-identity-and-agents-as-data.md``). Overridable via
 #: ``--out`` for a local/test run.
-DEFAULT_OUT = Path("/home/apps/workspace/reports/wave2/graph-ownership-report.md")
+DEFAULT_OUT = _workspace_root() / "reports" / "wave2" / "graph-ownership-report.md"
 
 # Confirmed real legacy-corpus shape (reports/HANDOFF-2026-07-22.md §8): 82
 # `code_<repo>` graphs recovered into the durable catalog before identity/RBAC

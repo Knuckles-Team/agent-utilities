@@ -174,10 +174,14 @@ def test_aggregate_read_is_tenant_and_owner_scope_filtered_query_side(brain):
     with use_actor(actor), use_session(session):
         engine.query_cypher("MATCH (n:Doc) RETURN count(n) AS c", session=session)
 
-    sent_query, _params = backend.calls[-1]
-    assert "tenant_id = 'acme'" in sent_query
-    assert "_owner_id = 'agent:reader'" in sent_query
+    sent_query, params = backend.calls[-1]
+    # D-W2T-2: the tenant id / owner id are bound parameters now, not spliced
+    # into the query text as string literals.
+    assert "tenant_id = $_tenant_scope_id" in sent_query
+    assert "_owner_id = $_visibility_owner_id" in sent_query
     assert "_shared_scope IN ['org', 'commons']" in sent_query
+    assert params["_tenant_scope_id"] == "acme"
+    assert params["_visibility_owner_id"] == "agent:reader"
 
 
 def test_aggregate_read_on_a_non_n_variable_is_scoped_by_its_own_variable(brain):
@@ -205,11 +209,13 @@ def test_aggregate_read_on_a_non_n_variable_is_scoped_by_its_own_variable(brain)
         )
 
     assert rows == [{"c": 7}]
-    sent_query, _params = backend.calls[-1]
-    assert "w.tenant_id = 'acme'" in sent_query
-    assert "w._owner_id = 'agent:reader'" in sent_query
+    sent_query, params = backend.calls[-1]
+    assert "w.tenant_id = $_tenant_scope_id" in sent_query
+    assert "w._owner_id = $_visibility_owner_id" in sent_query
     assert "n.tenant_id" not in sent_query  # the bug: referenced an undefined var
     assert "n._owner_id" not in sent_query
+    assert params["_tenant_scope_id"] == "acme"
+    assert params["_visibility_owner_id"] == "agent:reader"
 
 
 def test_aggregate_read_privileged_actor_gets_no_owner_scope_predicate(brain):
@@ -221,9 +227,12 @@ def test_aggregate_read_privileged_actor_gets_no_owner_scope_predicate(brain):
     with use_actor(actor), use_session(session):
         engine.query_cypher("MATCH (n:Doc) RETURN count(n) AS c", session=session)
 
-    sent_query, _params = backend.calls[-1]
+    sent_query, params = backend.calls[-1]
     assert "_owner_id" not in sent_query  # no owner/scope restriction injected
-    assert "tenant_id = 'acme'" in sent_query  # tenant scoping still mandatory
+    assert (
+        "tenant_id = $_tenant_scope_id" in sent_query
+    )  # tenant scoping still mandatory
+    assert params["_tenant_scope_id"] == "acme"
 
 
 def test_aggregate_read_generic_admin_remains_owner_scoped(brain):
@@ -235,8 +244,9 @@ def test_aggregate_read_generic_admin_remains_owner_scoped(brain):
     with use_actor(actor), use_session(session):
         engine.query_cypher("MATCH (n:Doc) RETURN count(n) AS c", session=session)
 
-    sent_query, _params = backend.calls[-1]
-    assert "_owner_id = 'app-admin'" in sent_query
+    sent_query, params = backend.calls[-1]
+    assert "_owner_id = $_visibility_owner_id" in sent_query
+    assert params["_visibility_owner_id"] == "app-admin"
 
 
 # --- regression guard: the general (non-aggregate) case is unchanged --------

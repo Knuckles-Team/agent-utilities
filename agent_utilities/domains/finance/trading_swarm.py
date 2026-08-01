@@ -321,8 +321,8 @@ class TradingSwarm:
                     confidence=s.confidence,
                     subject=subject,
                 )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("calibration call record failed: %s", e)
+            except Exception as e:
+                logger.warning("calibration call record failed: %s", e)
 
     def record_market_outcome(self, realized_direction: int, subject: str = "") -> int:
         """Resolve every agent's open call against the realized direction.
@@ -343,8 +343,8 @@ class TradingSwarm:
                     subject=subject,
                 ):
                     resolved += 1
-            except Exception as e:  # noqa: BLE001
-                logger.debug("calibration outcome record failed: %s", e)
+            except Exception as e:
+                logger.warning("calibration outcome record failed: %s", e)
         return resolved
 
     def analyze(self, market_data: dict[str, Any]) -> SwarmConsensus:

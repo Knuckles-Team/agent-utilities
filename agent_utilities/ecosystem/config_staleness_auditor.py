@@ -261,7 +261,7 @@ class ConfigStalenessAuditor:
                     item.confidence = 0.5
                 items.append(item)
         except Exception as e:
-            logger.debug("[ECO-4.6] Skill audit failed: %s", e)
+            logger.warning("[ECO-4.6] Skill audit failed: %s", e)
 
         return items
 
@@ -353,4 +353,4 @@ class ConfigStalenessAuditor:
                 },
             )
         except Exception as e:
-            logger.debug("[ECO-4.6] KG persist failed: %s", e)
+            logger.warning("[ECO-4.6] KG persist failed: %s", e)

@@ -1055,7 +1055,7 @@ class ResearchPipelineRunner:
                 f"[CONCEPT:AU-KG.research.research-pipeline-runner] OWL enrichment: {inferred} inferences"
             )
             return inferred
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort OWL enrichment, caller already treats result as optional
             logger.debug(f"OWL enrichment skipped: {e}")
             return 0
 

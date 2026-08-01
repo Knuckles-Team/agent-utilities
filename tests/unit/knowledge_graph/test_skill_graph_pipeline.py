@@ -57,10 +57,6 @@ def test_parse_frontmatter_scalars_lists_bools():
     assert fm["source_types"] == ["web", "pdf"]
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-7: validate_skill_graph()/refresh() outcome contract "
-    "(error counts / status vocabulary) drifted since this test was written"
-)
 def test_validate_clean_graph(src_dir, tmp_path):
     res = _pipe().build(
         name="widget-docs",
@@ -221,10 +217,6 @@ def test_distill_writes_overview_and_links_it(src_dir, tmp_path):
     assert json.loads((graph / "sources.json").read_text())["distilled"] is True
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-7: validate_skill_graph()/refresh() outcome contract "
-    "(error counts / status vocabulary) drifted since this test was written"
-)
 def test_restyle_rerenders_without_recrawl(src_dir, tmp_path):
     pipe = _pipe()
     pipe.build(
@@ -268,10 +260,6 @@ def test_status_unknown_without_manifest(tmp_path):
 # ── hybrid-auto KG: graceful degrade ───────────────────────────────────────────
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-7: validate_skill_graph()/refresh() outcome contract "
-    "(error counts / status vocabulary) drifted since this test was written"
-)
 def test_kg_enrichment_degrades_when_ingest_fails(src_dir, tmp_path, monkeypatch):
     """kg_enrich=True but the ingest subprocess fails → kg_ingested False, graph still built."""
     import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
@@ -345,10 +333,6 @@ def test_skillgraph_ontology_interface_registered_and_owl():
     assert "SkillGraph" in DEFAULT_INTERFACE_REGISTRY.to_owl()
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-7: validate_skill_graph()/refresh() outcome contract "
-    "(error counts / status vocabulary) drifted since this test was written"
-)
 def test_refresh_writes_only_the_delta(tmp_path):
     # A multi-file web graph; refresh must touch ONLY the changed files (not rewrite
     # the whole tree), preserving unchanged files' bytes/mtime.
@@ -390,10 +374,6 @@ def test_refresh_writes_only_the_delta(tmp_path):
     assert "BETA CHANGED" in (ref / "b.md").read_text()
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-7: validate_skill_graph()/refresh() outcome contract "
-    "(error counts / status vocabulary) drifted since this test was written"
-)
 def test_refresh_no_file_delta_is_fresh(tmp_path):
     # Source bytes differ (trailing whitespace) but the optimized files are identical
     # → no file delta → fresh, no version bump.
@@ -570,10 +550,6 @@ def test_refresh_force_rewrites_unchanged(tmp_path):
     assert pipe.refresh_one(graph, force=True)["status"] == "refreshed"
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-7: validate_skill_graph()/refresh() outcome contract "
-    "(error counts / status vocabulary) drifted since this test was written"
-)
 def test_refresh_shrink_guard_keeps_content_on_moved_url(tmp_path):
     # Build a content-rich graph, then simulate the source_url having moved (re-crawl
     # returns a tiny landing page). The guard keeps the rich content + flags stale_url.

@@ -91,9 +91,25 @@ def _write_tracked_by(
     if backend is None:
         return
     try:
+        # D-W2C-5: the original single-statement MERGE+SET assigned a
+        # function-call value (``coalesce(n.domain,'sdd')``), which the
+        # native engine's write subset rejects (SET values must be
+        # literals/parameters). Split into a bounded read (a plain MATCH, no
+        # write keyword) that resolves the node's CURRENT domain, the
+        # coalesce done in Python, then the same MERGE+SET with only literal
+        # parameter values.
+        node_id = _spec_node_id(spec)
+        existing = backend.execute(
+            "MATCH (n {id: $id}) RETURN n.domain AS domain", {"id": node_id}
+        )
+        domain = (existing[0].get("domain") if existing else None) or "sdd"
         backend.execute(
-            "MERGE (n {id: $id}) SET n.trackedBy = $tb, n.domain = coalesce(n.domain,'sdd')",
-            {"id": _spec_node_id(spec), "tb": f"{target}:{issue_id}"},
+            "MERGE (n {id: $id}) SET n.trackedBy = $tb, n.domain = $domain",
+            {
+                "id": node_id,
+                "tb": f"{target}:{issue_id}",
+                "domain": domain,
+            },
         )
     except Exception:  # noqa: BLE001
         logger.debug("trackedBy write failed", exc_info=True)

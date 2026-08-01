@@ -99,7 +99,7 @@ unstructured output.
 flowchart LR
     O[Raw model output] --> C{classify}
     C -->|looks fine| V[validated output]
-    C -->|malformed_json / truncated / empty / refused| R{attempts < max_repairs?}
+    C -->|malformed_json / truncated / empty / refused| R{"attempts < max_repairs?"}
     V -->|ValidationError| C2{classify error}
     C2 -->|wrong_type / schema_invalid| R
     R -->|yes| M[ModelRetry: targeted re-ask]

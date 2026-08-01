@@ -269,3 +269,88 @@ def test_no_actor_and_public_catalog_end_to_end_permit(monkeypatch):
     with use_actor(_actor("writer:alice")):
         # The actual owner reads their own private memory.
         assert sr.permit(["mem-private"]) == ["mem-private"]
+
+
+# --- materialization.write_entities (D-ACL-4, 5th chokepoint) --------------
+
+
+def test_write_entities_stamps_governance_on_the_generic_unwind_path():
+    """D-ACL-4: ``enrichment.registry.write_batch`` -> ``materialization
+    .write_entities`` is the fifth write surface (connectors + internal
+    finance/synthesize batches with ``source=None``) that the original
+    four-chokepoint ACL-registration fix did not reach. An internal batch
+    with no connector-supplied ``external_access`` used to land with no
+    owner/classification stamp at all -- written but permanently unreadable
+    under ``secured_reads.permit()``'s default-deny, identical to the gap the
+    other four chokepoints already closed."""
+    from agent_utilities.knowledge_graph.core.materialization import write_entities
+    from tests.kg_recording_backend import RecordingGraphBackend
+
+    backend = RecordingGraphBackend()
+
+    with use_actor(_actor()):
+        write_entities(
+            backend,
+            "finance",
+            [{"id": "fact:1", "node_type": "MarketFact", "value": 42}],
+        )
+
+    props = backend.nodes["fact:1"]
+    assert props["tenant_id"] == "tenant-a"
+    assert props["_owner_id"] == "writer:alice"
+    assert props["classification"] == "confidential"
+
+
+def test_write_entities_is_best_effort_with_no_bound_actor():
+    """No bound actor (system/background materialization) -- proceeds
+    unstamped exactly as before this fix, not a hidden failure. Mirrors
+    ``test_upsert_node_is_best_effort_with_no_bound_actor``'s isolated
+    ``contextvars.Context()`` (the test session otherwise binds a default
+    actor -- see ``current_actor()`` -- so a bare call in-process is not
+    actually actor-free)."""
+    import contextvars
+
+    from agent_utilities.knowledge_graph.core.materialization import write_entities
+    from tests.kg_recording_backend import RecordingGraphBackend
+
+    backend = RecordingGraphBackend()
+
+    def isolated():
+        write_entities(
+            backend,
+            "",
+            [{"id": "fact:2", "node_type": "MarketFact", "value": 7}],
+        )
+
+    contextvars.Context().run(isolated)
+
+    props = backend.nodes["fact:2"]
+    assert "tenant_id" not in props
+    assert "_owner_id" not in props
+    assert "classification" not in props
+
+
+def test_write_batch_stamps_governance_end_to_end():
+    """The public entrypoint (``enrichment.registry.write_batch``, what every
+    connector/materialize source and internal batch actually calls) carries
+    the stamp all the way through, not just the lower-level writer."""
+    from agent_utilities.knowledge_graph.enrichment.models import (
+        ExtractionBatch,
+        GraphNode,
+    )
+    from agent_utilities.knowledge_graph.enrichment.registry import write_batch
+    from tests.kg_recording_backend import RecordingGraphBackend
+
+    backend = RecordingGraphBackend()
+    batch = ExtractionBatch(
+        category="finance",
+        nodes=[GraphNode(id="fact:3", type="MarketFact", props={"value": 1})],
+    )
+
+    with use_actor(_actor()):
+        write_batch(backend, batch)  # source=None, the untagged internal path
+
+    props = backend.nodes["fact:3"]
+    assert props["tenant_id"] == "tenant-a"
+    assert props["_owner_id"] == "writer:alice"
+    assert props["classification"] == "confidential"

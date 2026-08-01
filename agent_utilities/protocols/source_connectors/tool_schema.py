@@ -62,9 +62,7 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
-def _field(
-    value: Any, *names: str, attr_names: tuple[str, ...] | None = None
-) -> Any:
+def _field(value: Any, *names: str, attr_names: tuple[str, ...] | None = None) -> Any:
     """Look up ``names`` on a JSON-shaped mapping, or ``attr_names`` (falling
     back to ``names``) on an object.
 
@@ -94,7 +92,12 @@ def canonical_input_schema(
     """Return a stable JSON-compatible input schema for one MCP tool object."""
 
     raw = (
-        _field(tool, "inputSchema", "input_schema", attr_names=("input_schema", "inputSchema"))
+        _field(
+            tool,
+            "inputSchema",
+            "input_schema",
+            attr_names=("input_schema", "inputSchema"),
+        )
         or {}
     )
     schema = _jsonable(raw)

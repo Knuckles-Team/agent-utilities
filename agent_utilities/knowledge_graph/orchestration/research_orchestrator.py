@@ -389,7 +389,7 @@ class ResearchOrchestrator:
             try:
                 record_evidence(self.engine, from_research_evidence_node(finding))
             except Exception as e:
-                logger.debug(
+                logger.warning(
                     "Failed to record unified evidence for finding %s: %s",
                     finding.id,
                     e,

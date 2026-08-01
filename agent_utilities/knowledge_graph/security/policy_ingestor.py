@@ -519,9 +519,7 @@ class PolicyIngestor:
                 )
 
                 # See ingest_constitution's identical comment above.
-                self.engine.graph.add_node(
-                    node.id, **self.engine._serialize_node(node)
-                )
+                self.engine.graph.add_node(node.id, **self.engine._serialize_node(node))
                 if self.engine.backend:
                     data = self.engine._serialize_node(node, label="Policy")
                     self.engine._upsert_node("Policy", policy_id, data)

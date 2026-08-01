@@ -9,6 +9,7 @@ from typing import Any, TypedDict, cast
 from agent_utilities.core.capability_contract import (
     DEFAULT_TOOL_DELEGATE as _DEFAULT_DELEGATE,
 )
+from agent_utilities.core.contextual_model import GroundingPolicy
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
 from agent_utilities.observability.trace_ontology import (
@@ -479,7 +480,7 @@ class Orchestrator:
         skill_name: str | None = None,
         tool_server: str | None = None,
         execution_mode: ExecutionMode = "auto",
-        grounding: str = "required",
+        grounding: GroundingPolicy = "required",
     ) -> str:
         """Execute a single agent against a task.
 
@@ -777,7 +778,7 @@ class Orchestrator:
         reasoning_effort: str | None = None,
         model_class: str = "standard",
         response_format: ResponseFormat = "text",
-        grounding: str = "required",
+        grounding: GroundingPolicy = "required",
     ) -> dict[str, Any]:
         """Resolve and execute one task through the bounded GraphOS skill gateway.
 
@@ -966,7 +967,7 @@ class Orchestrator:
         workflow_id: str,
         task: str = "",
         max_steps: int = 30,
-        grounding: str = "required",
+        grounding: GroundingPolicy = "required",
     ) -> dict[str, Any]:
         """Execute a compiled workflow by running its STORED step-DAG.
 

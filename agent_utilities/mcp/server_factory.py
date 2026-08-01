@@ -1460,7 +1460,7 @@ async def _register_and_heartbeat_forever(name: str, url: str, ttl_secs: int) ->
             )
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — self-registration retry loop, will retry next iteration
             logger.debug(
                 "Fleet self-registration attempt failed, will retry: %s",
                 exc,

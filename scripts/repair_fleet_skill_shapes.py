@@ -75,6 +75,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -84,7 +85,29 @@ try:
 except ImportError:  # pragma: no cover — pyyaml is a base dep of the served image
     yaml = None
 
-AGENTS_ROOT = Path("/home/apps/workspace/agent-packages/agents")
+
+def _agent_packages_root() -> Path:
+    """The ``agent-packages`` directory ``agents/`` lives under, as a sibling of
+    agent-utilities. Works whether this script is running from agent-utilities'
+    canonical checkout or one of its worktrees, by asking git for THIS repo's
+    own common dir rather than assuming a fixed number of ``parents[...]`` hops
+    (a worktree adds a level a canonical checkout does not have) — same idiom
+    as ``scripts/rollout_lane_guard_hook.py::_workspace_root``.
+    """
+    here = Path(__file__).resolve().parent
+    common_dir = Path(
+        subprocess.run(
+            ["git", "-C", str(here), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    ).resolve()
+    au_canonical = common_dir.parent  # .git's parent is the canonical checkout
+    return au_canonical.parent  # agent-packages
+
+
+AGENTS_ROOT = _agent_packages_root() / "agents"
 EXCLUDE_SEGMENTS = {".venv", "node_modules", "build", "dist"}
 
 _SCRIPT_RE = re.compile(

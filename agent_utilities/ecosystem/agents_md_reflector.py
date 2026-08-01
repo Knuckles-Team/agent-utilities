@@ -272,7 +272,7 @@ class AgentsMdReflector:
                     },
                 )
             except Exception as e:
-                logger.debug("[ECO-4.2] Persist failed: %s", e)
+                logger.warning("[ECO-4.2] Persist failed: %s", e)
 
 
 def apply_proposal(workspace_path: str | Path, proposal: AgentsMdProposal) -> None:

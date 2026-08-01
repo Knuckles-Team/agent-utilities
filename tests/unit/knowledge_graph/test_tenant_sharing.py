@@ -62,10 +62,13 @@ def test_stamp_ownership_does_not_overwrite_existing_share():
 
 
 def test_visibility_predicate_for_user():
-    pred = ts.visibility_predicate(_user("alice", "acme"))
-    assert "n._owner_id = 'alice'" in pred
+    pred, extra_params = ts.visibility_predicate(_user("alice", "acme"))
+    assert "n._owner_id = $_visibility_owner_id" in pred
     assert "n._shared_scope IN ['org', 'commons']" in pred
     assert "n._owner_id IS NULL" in pred
+    # D-W2T-2: the owner id is a bound parameter, never spliced into the text.
+    assert extra_params == {"_visibility_owner_id": "alice"}
+    assert "alice" not in pred
 
 
 def test_visibility_predicate_none_for_privileged():
@@ -75,48 +78,56 @@ def test_visibility_predicate_none_for_privileged():
 
 
 def test_generic_admin_role_is_not_graph_privileged():
-    predicate = ts.visibility_predicate(_user("app-admin", roles=("admin",)))
-    assert predicate is not None
-    assert "_owner_id = 'app-admin'" in predicate
+    result = ts.visibility_predicate(_user("app-admin", roles=("admin",)))
+    assert result is not None
+    predicate, extra_params = result
+    assert "_owner_id = $_visibility_owner_id" in predicate
+    assert extra_params == {"_visibility_owner_id": "app-admin"}
 
 
 def test_visibility_predicate_unsafe_id_fails_closed():
-    pred = ts.visibility_predicate(_user("alice' OR '1'='1", "acme"))
-    assert "__no_such_owner__" in pred
+    pred, extra_params = ts.visibility_predicate(_user("alice' OR '1'='1", "acme"))
+    assert extra_params == {"_visibility_owner_id": "__no_such_owner__"}
+    assert "__no_such_owner__" not in pred  # now a param name, not spliced text
     assert "alice' OR" not in pred
 
 
 def test_apply_visibility_injects_into_where():
-    out = ts.apply_visibility("MATCH (n) WHERE n.x = 1 RETURN n", _user("alice"))
-    assert "WHERE (n._owner_id = 'alice'" in out
+    out, extra_params = ts.apply_visibility(
+        "MATCH (n) WHERE n.x = 1 RETURN n", _user("alice")
+    )
+    assert "WHERE (n._owner_id = $_visibility_owner_id" in out
     # The pre-existing WHERE body is parenthesized as its own unit before being
     # ANDed with the visibility predicate: a bare `<visibility> AND n.x = 1`
     # splice would silently mis-group against any top-level OR already in the
     # caller's own predicate (AND binds tighter than OR), letting a disjunct
     # bypass visibility scoping entirely. See cypher_scoping.inject_and_predicate.
     assert "AND (n.x = 1)" in out
+    assert extra_params == {"_visibility_owner_id": "alice"}
 
 
 def test_apply_visibility_parenthesizes_existing_or_predicate():
     """A caller's own top-level OR must not let a disjunct bypass the injected
     visibility predicate (the same class of hole this fix closes for the
     tenant predicate in TenancyManager.scope_cypher_query)."""
-    out = ts.apply_visibility(
+    out, extra_params = ts.apply_visibility(
         "MATCH (p:Policy) WHERE p.name CONTAINS 'x' OR p.description CONTAINS 'x' RETURN p",
         _user("alice"),
     )
     assert "AND (p.name CONTAINS 'x' OR p.description CONTAINS 'x')" in out, out
+    assert extra_params == {"_visibility_owner_id": "alice"}
 
 
 def test_apply_visibility_injects_before_return():
-    out = ts.apply_visibility("MATCH (n) RETURN n", _user("alice"))
-    assert "WHERE (n._owner_id = 'alice'" in out
+    out, extra_params = ts.apply_visibility("MATCH (n) RETURN n", _user("alice"))
+    assert "WHERE (n._owner_id = $_visibility_owner_id" in out
     assert out.rstrip().endswith("RETURN n")
+    assert extra_params == {"_visibility_owner_id": "alice"}
 
 
 def test_apply_visibility_noop_for_privileged():
     q = "MATCH (n) RETURN n"
-    assert ts.apply_visibility(q, _user("root", roles=("kg:admin",))) == q
+    assert ts.apply_visibility(q, _user("root", roles=("kg:admin",))) == (q, {})
 
 
 # --- accessible graphs -----------------------------------------------------
