@@ -348,7 +348,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "surveillance_signal",
     # Connector → Skill synthesis proposals (CONCEPT:AU-KG.ontology.connector-agnostic-proposal) — the distiller's
     # propose-only candidates; OWL reasoning runs transitive/inverse over their
-    # automates/derived_from/composes edges (CONCEPT:AU-KG.compute.automates).
+    # automates/derived_from/composes edges.
     "skill_proposal",
     "skill_workflow_proposal",
     # Ops / platform connectors as typed OWL entities (CONCEPT:AU-KG.compute.dockerhub-repositories–2.161).

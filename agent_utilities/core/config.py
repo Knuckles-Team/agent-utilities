@@ -1311,7 +1311,7 @@ class ChatModelConfig(BaseModel):
     max_concurrent_requests: int | None = None
     """Hard ceiling on the **aggregate** in-flight requests this model's *server*
     can serve safely — its real vLLM ``--max-num-seqs`` / KV-cache + (for a
-    unified-memory accelerator host) the shared-memory headroom (CONCEPT:AU-KG.compute.same-semantics-as).
+    unified-memory accelerator host) the shared-memory headroom.
 
     This is the ONE number the model SERVER's capacity dictates, NOT the local
     host's CPU count. It varies across edge hosts, accelerator workstations, and
@@ -1388,7 +1388,7 @@ class EmbeddingModelConfig(BaseModel):
     sequential and is always safe. CONCEPT:AU-KG.compute.concurrency-controller-sizing."""
     max_concurrent_requests: int | None = None
     """Hard ceiling on the aggregate in-flight embedding requests this model's
-    *server* can serve safely (CONCEPT:AU-KG.compute.same-semantics-as). Same semantics as
+    *server* can serve safely. Same semantics as
     :pyattr:`ChatModelConfig.max_concurrent_requests`: the SERVER's real capacity,
     capping the embedding fan-out so bulk embedding can never oversubscribe the
     endpoint. On a unified-memory host the embedder shares accelerator memory with
@@ -2634,7 +2634,7 @@ class AgentConfig(BaseSettings):
     def model_max_concurrent_requests(self, model: str | None = None) -> int | None:
         """Resolve a model's explicit server-capacity ceiling, if configured.
 
-        CONCEPT:AU-KG.compute.same-semantics-as. Returns the model's ``max_concurrent_requests`` (the
+        Returns the model's ``max_concurrent_requests`` (the
         server's real ``--max-num-seqs`` / safe in-flight budget) by id or role,
         or ``None`` when unset/unknown so the caller applies the conservative
         default. A non-positive/garbage value resolves to ``None`` (no hard cap

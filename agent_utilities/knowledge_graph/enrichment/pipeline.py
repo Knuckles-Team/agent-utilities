@@ -19,6 +19,11 @@ from typing import Any
 from pydantic import BaseModel
 
 from agent_utilities.core.config import setting
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 
 from .cards import CapabilityCard, LLMFn, generate_symbol_cards
 from .classify import TestThresholds, classify_test
@@ -181,7 +186,7 @@ class _BatchedBackend:
         self._bulk = getattr(graph, "bulk_mutate", None) or getattr(
             graph, "batch_update", None
         )
-        # Multiplexed pool fan-out (CONCEPT:AU-KG.compute.when-exposes): when the engine exposes the
+        # Multiplexed pool fan-out: when the engine exposes the
         # pooled concurrent submitter, a large flush is split into independent
         # sub-batches that ride SEPARATE pooled connections, so the engine services
         # them as parallel per-connection tasks (and coalesces their durable commits)
@@ -202,7 +207,7 @@ class _BatchedBackend:
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
         if "type" in properties:
-            raise ValueError("node property 'type' is retired; use node_type")
+            raise retired_node_type_property_error()
         props: dict[str, Any] = {"node_type": label, **properties}
         if not props.get("node_type"):
             raise ValueError("node_type is required")
@@ -243,11 +248,9 @@ class _BatchedBackend:
     def add_edge(
         self, source: str, target: str, rel_type: str = "", **properties: Any
     ) -> None:
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            properties
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(properties)
         if aliases:
-            raise ValueError("edge relationship aliases are retired")
+            raise retired_edge_relationship_property_error(aliases)
         relationship = str(properties.get("relationship") or rel_type).strip()
         if not relationship:
             raise ValueError("relationship is required")
@@ -263,7 +266,7 @@ class _BatchedBackend:
     def _submit_bulk(self, ops: list[dict[str, Any]]) -> bool:
         """Send one independent ``ops`` flush through the fastest available path.
 
-        Order of preference (CONCEPT:AU-KG.compute.when-exposes → KG-2.16): the pooled concurrent
+        Order of preference (KG-2.16): the pooled concurrent
         submitter (sub-batches fanned across separate connections) → the single bulk
         ``batch_update`` → ``False`` so the caller degrades to per-item writes.
         """

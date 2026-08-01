@@ -790,14 +790,14 @@ class CognitiveScheduler:
                 importance_score=1.0 - (proc.priority * 0.25),
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
-            self.engine.graph.add_node(proc.id, **node.model_dump())
+            self.engine.graph.add_node(proc.id, **node.to_graph_properties())
 
             # Link to agent
             if proc.agent_id and proc.agent_id in self.engine.graph:
                 self.engine.graph.add_edge(
                     proc.id,
                     proc.agent_id,
-                    type=RegistryEdgeType.EXECUTED_BY,
+                    relationship=RegistryEdgeType.EXECUTED_BY,
                 )
 
             # Link to checkpoint
@@ -805,7 +805,7 @@ class CognitiveScheduler:
                 self.engine.graph.add_edge(
                     proc.id,
                     proc.checkpoint_id,
-                    type=RegistryEdgeType.CHECKPOINTED_TO,
+                    relationship=RegistryEdgeType.CHECKPOINTED_TO,
                 )
 
         except Exception as e:  # noqa: BLE001 — this is a pure observability/audit mirror (docstring: "for observability and auditing"); AgentProcess scheduling state itself lives in self._processes in-process, not gated on this KG write, so a failed mirror never affects scheduling correctness

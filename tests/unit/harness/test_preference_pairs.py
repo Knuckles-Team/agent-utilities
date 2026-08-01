@@ -100,7 +100,22 @@ def test_token_weights_and_reflection_are_attachable():
 
 
 def test_feedback_service_exports_pairs_from_live_backend():
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    # A bare EpistemicGraphBackend() independently resolves its OWN
+    # tenant-routed default graph (resolve_routing_graph(None) -> the shared
+    # "tenant__<tenant>____commons__" graph), NOT the per-test isolated graph
+    # tests/conftest.py's isolate_graph_compute_engine fixture provisions.
+    # Every test in a multi-test run that took this bare path collided on
+    # that ONE shared durable tenant graph -- durable lifecycle registrations
+    # against it raced across tests and failed STALE_FENCE ("lifecycle batch
+    # ... is no longer current"). Constructing the isolated
+    # GraphComputeEngine first and rebinding the backend to it keeps this
+    # test on its own graph, matching the idiom already established in
+    # test_kg_native_orchestration.py.
+    compute = GraphComputeEngine(backend_type="rust")
     backend = EpistemicGraphBackend()
+    backend._graph = compute
 
     # 1) an eval case carrying a rejected output (via the real EvalCorpus path)
     EvalCorpus(backend=backend).add_case("2+2?", "4", metadata={"rejected": "5"})

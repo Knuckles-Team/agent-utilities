@@ -36,10 +36,10 @@ class MockEngine:
         self.backend = None
 
     def _upsert_node(self, label: str, node_id: str, props: dict):
-        self.graph.add_node(node_id, type="event", **props)
+        self.graph.add_node(node_id, node_type="event", **props)
 
     def link_nodes(self, src: str, tgt: str, rel_type: str, props: dict | None = None):
-        self.graph.add_edge(src, tgt, type=rel_type.upper(), **(props or {}))
+        self.graph.add_edge(src, tgt, relationship=rel_type.upper(), **(props or {}))
 
     @classmethod
     def get_active(cls):
@@ -81,7 +81,7 @@ class TestEventLedger:
         # Verify OCCURRED_DURING edge
         assert mock_engine_singleton.graph.has_edge(evt1.id, run_id)
         edge_data = mock_engine_singleton.graph.get_edge_data(evt1.id, run_id)[0]
-        assert edge_data["type"] == "OCCURRED_DURING"
+        assert edge_data["relationship"] == "OCCURRED_DURING"
 
         # 2. Append second event to check chronological linkage
         evt2 = ledger.append_event(
@@ -97,7 +97,7 @@ class TestEventLedger:
         edge_data_lineage = mock_engine_singleton.graph.get_edge_data(evt2.id, evt1.id)[
             0
         ]
-        assert edge_data_lineage["type"] == "WAS_DERIVED_FROM"
+        assert edge_data_lineage["relationship"] == "WAS_DERIVED_FROM"
 
     def test_get_run_events_sorted(self, mock_engine_singleton):
         ledger = EventLedger(engine=mock_engine_singleton)

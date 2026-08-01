@@ -1504,7 +1504,7 @@ def _as_epoch(value: Any) -> int | None:
 def _sync_freshrss(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
-    """Relevance-gated ingestion of curated FreshRSS items (CONCEPT:AU-KG.compute.homelab-rss-reader-as).
+    """Relevance-gated ingestion of curated FreshRSS items.
 
     Enumerates items via the ``freshrss`` mcp_tool preset over the Google-Reader API
     (delta = ``newer_than`` → GReader ``ot`` **unix-seconds** watermark on

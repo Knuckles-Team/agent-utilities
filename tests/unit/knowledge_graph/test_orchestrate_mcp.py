@@ -16,6 +16,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from agent_utilities.core.config import ChatModelConfig
+from agent_utilities.core.config import config as agent_config
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.models.company_brain import ActorType
@@ -31,25 +33,67 @@ def _create_engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    compute = GraphComputeEngine(backend_type="rust")
+    # Bind both the NX-style ``.graph`` facade AND ``.backend``'s Cypher path to
+    # this same session-scoped engine — a bare ``EpistemicGraphBackend()``/
+    # ``IntelligenceGraphEngine(db_path=...)`` independently resolves its OWN
+    # tenant-routed graph (``resolve_routing_graph``), which does not match the
+    # per-test isolated graph the verified ``GraphSession`` carries, and every
+    # engine RPC fail-closed rejects a graph-scoped view retargeting a verified
+    # session (CONCEPT:AU-KG.compute.graph-compute-engine "Session currency").
+    backend = EpistemicGraphBackend()
+    backend._graph = compute
+    engine = IntelligenceGraphEngine(backend=backend)
     return engine
 
 
+def _standard_model() -> list[ChatModelConfig]:
+    """A single configured 'standard' (normal-intelligence) tier model.
+
+    ``run_agent``/``_build_execution_config`` resolve their model via
+    ``_configured_model_for_class``, which fails closed ("configured standard
+    model class is unavailable") when ``config.chat_models`` has no matching
+    ``intelligence_level`` — the unit suite runs hermetically with an empty
+    ``chat_models`` by default (see
+    ``tests/unit/orchestration/test_model_class_evidence.py`` for the same
+    pattern), so any test exercising these must configure one.
+    """
+    return [
+        ChatModelConfig(
+            id="synthetic-standard",
+            provider="openai",
+            intelligence_level="normal",
+        )
+    ]
+
+
 def _session() -> GraphSession:
+    # The audience and tenant must match the REAL ephemeral test engine's
+    # configured deployment audience and the tenant the isolate fixture's
+    # engine graph was actually provisioned under (``_test_engine`` constants)
+    # — the engine's v2 signed request-context verification fail-closed
+    # rejects any other value ("request context audience/tenant does not
+    # match deployment/graph tenant"), regardless of the caller's scopes
+    # being otherwise valid.
+    from _test_engine import TEST_AGENT_ID, TEST_AUDIENCE, TEST_POLICY_VERSION, TEST_TENANT
+
     actor = ActorContext(
-        actor_id="principal:test",
+        actor_id=TEST_AGENT_ID,
         actor_type=ActorType.AUTOMATED_SERVICE,
         roles=("kg:read", "kg:write"),
-        tenant_id="tenant-test",
+        tenant_id=TEST_TENANT,
         authenticated=True,
     )
     return GraphSession(
         actor=actor,
-        tenant="tenant-test",
+        tenant=TEST_TENANT,
         scopes=frozenset({"kg:read", "kg:write"}),
-        policy_version="policy-test",
-        audience="agent-services",
+        policy_version=TEST_POLICY_VERSION,
+        audience=TEST_AUDIENCE,
     )
 
 
@@ -121,12 +165,13 @@ class TestAgentRunner:
         meta = _resolve_agent_from_kg(engine, "nonexistent-agent")
         assert meta["type"] == "unknown"
 
-    def test_build_execution_config(self):
+    def test_build_execution_config(self, monkeypatch):
         """Config builder produces valid config dict."""
         from agent_utilities.orchestration.agent_runner import (
             _build_execution_config,
         )
 
+        monkeypatch.setattr(agent_config, "chat_models", _standard_model())
         engine = _create_engine()
         agent_meta = {
             "type": "server",
@@ -173,10 +218,11 @@ class TestAgentRunner:
         )
 
     @pytest.mark.asyncio
-    async def test_run_agent_graceful_failure(self):
+    async def test_run_agent_graceful_failure(self, monkeypatch):
         """run_agent handles missing agent gracefully."""
         from agent_utilities.orchestration.agent_runner import run_agent
 
+        monkeypatch.setattr(agent_config, "chat_models", _standard_model())
         engine = _create_engine()
 
         # Patch create_graph_agent to avoid full graph materialization
@@ -199,10 +245,11 @@ class TestAgentRunner:
         assert "Test result" in result
 
     @pytest.mark.asyncio
-    async def test_run_agent_error_records_trace(self):
+    async def test_run_agent_error_records_trace(self, monkeypatch):
         """Failed execution records error trace in KG."""
         from agent_utilities.orchestration.agent_runner import run_agent
 
+        monkeypatch.setattr(agent_config, "chat_models", _standard_model())
         engine = _create_engine()
 
         with patch(
@@ -275,11 +322,18 @@ class TestDebateConsensus:
 
 
 @pytest.mark.integration
+@pytest.mark.live
 class TestLMStudioIntegration:
     """Integration tests requiring a live LM Studio instance.
 
-    These tests are skipped unless the ``integration`` marker is specified
-    and LM Studio is reachable at the configured URL.
+    ``@pytest.mark.live`` (pytest.ini's "Tests requiring live external
+    services") is the actual exclusion mechanism — the default
+    ``-m "not live"`` addopts skips this class outright. The class docstring's
+    "skipped unless the integration marker is specified" was never true on its
+    own (a marker doesn't gate collection by itself); the internal
+    ``_check_lmstudio()`` reachability probe is a second, best-effort guard for
+    the rare case this DOES run (``-m live``) against a host where LM Studio
+    happens to be down.
     """
 
     @staticmethod
