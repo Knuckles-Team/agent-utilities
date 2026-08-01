@@ -18,9 +18,11 @@ The reliability capabilities are safe to attach unconditionally: each one only a
 when its own trigger fires (compaction only over budget, eviction only on an oversized
 tool result, the warner only near the token limit, the stuck-loop guard only on
 repeated identical tool calls, KG-native audit only when a graph engine is present on
-``ctx.deps``), so a normal run is unaffected.
+``ctx.deps``, structured-output repair only when ``output_type`` is schema-validated
+and the model's first attempt fails), so a normal run is unaffected.
 """
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -44,6 +46,11 @@ def default_runtime_capabilities(
         "every_tool", "every_turn", "manual_only"
     ] = "every_tool",
     include_teams: bool = False,
+    structured_output_repair: bool = True,
+    max_output_repairs: int | None = None,
+    content_guardrails: bool = True,
+    output_schema_required_keys: Sequence[str] = (),
+    instrumentation: bool = True,
 ) -> list[AbstractCapability[Any]]:
     """Build the default-ON reliability capability set (excluding ``HooksCapability``).
 
@@ -57,10 +64,17 @@ def default_runtime_capabilities(
     had.
     """
     from .checkpointing import CheckpointMiddleware, InMemoryCheckpointStore
+    from .content_guardrails import (
+        output_schema_guardrail,
+        pii_redaction_guardrails,
+        prompt_injection_guardrail,
+        secret_leak_guardrail,
+    )
     from .context_warnings import ContextLimitWarner
     from .eviction import ToolOutputEviction
     from .kg_audit_sink import AuditLog
     from .memento import MementoCompaction
+    from .output_repair import DEFAULT_MAX_OUTPUT_REPAIRS, StructuredOutputRepair
     from .stuck_loop import StuckLoopDetection
     from .teams import TeamCapability
 
@@ -103,6 +117,49 @@ def default_runtime_capabilities(
 
     if include_teams:
         capabilities.append(TeamCapability())
+
+    # CONCEPT:AU-AHE.harness.structured-output-repair — classify → bounded targeted
+    # repair → fail closed for structured (schema-validated) agent output. A pure
+    # no-op for the many agents whose ``output_type`` is plain text (the underlying
+    # hooks never fire for unstructured output), so safe to attach unconditionally
+    # like every other capability here.
+    if structured_output_repair:
+        capabilities.append(
+            StructuredOutputRepair(
+                max_repairs=(
+                    max_output_repairs
+                    if max_output_repairs is not None
+                    else DEFAULT_MAX_OUTPUT_REPAIRS
+                )
+            )
+        )
+
+    # CONCEPT:AU-OS.safety.harness-guardrails-adoption — Harness Guardrails Adoption
+    # This is the live replacement for the dead PolicyEngine (D-48). PII redaction
+    # only fires on an actual SSN/tax-id/credit-card/email match; the secret-leak
+    # guardrail only fires on a credential-shaped token; the output-schema guardrail
+    # is a pure no-op when output_schema_required_keys is empty (the default) — so
+    # attaching all three unconditionally costs nothing on a normal run, exactly
+    # like every other capability here.
+    if content_guardrails:
+        # G8 prompt-injection defence, migrated from the deleted
+        # PolicyEngine-shaped PromptInjectionPolicy onto the same scanner.
+        capabilities.append(prompt_injection_guardrail())
+        capabilities.extend(pii_redaction_guardrails())
+        capabilities.append(secret_leak_guardrail())
+        capabilities.append(output_schema_guardrail(output_schema_required_keys))
+
+    # CONCEPT:AU-OS.observability.telemetry-observability — pydantic-ai's native
+    # `Instrumentation` capability, bound to the SAME OTel pipeline the engine's own
+    # graph.* spans export through (see `telemetry_instrumentation.py`). A clean no-op
+    # (returns None, nothing appended) when no OTLP collector is configured, exactly
+    # like every other conditionally-attached capability above.
+    if instrumentation:
+        from .telemetry_instrumentation import build_fleet_instrumentation
+
+        fleet_instrumentation = build_fleet_instrumentation()
+        if fleet_instrumentation is not None:
+            capabilities.append(fleet_instrumentation)
 
     return capabilities
 

@@ -9,6 +9,7 @@ used across the other MCP tool-surface tests (e.g.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -80,7 +81,12 @@ def _call(tool_fn, **overrides):
         as_claim=False,
     )
     defaults.update(overrides)
-    return tool_fn(**defaults)
+    # graph_ops_causal is `async def` (D-50 — event-loop isolation for sync
+    # MCP tool handlers with genuine blocking bodies). This suite calls the
+    # registered tool directly (bypassing kg_server._execute_tool, which
+    # already awaits async tools) — asyncio.run it here so every existing
+    # synchronous call site above keeps working unchanged.
+    return asyncio.run(tool_fn(**defaults))
 
 
 def test_registered_on_graphos_tool_table():

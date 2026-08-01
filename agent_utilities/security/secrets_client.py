@@ -62,6 +62,22 @@ SECRETS_GRAPH = "__secrets__"
 SECRET_LABEL = "Secret"
 
 
+def _split_versioned_key(key: str) -> tuple[str, int | None]:
+    """Split an optional trailing ``@<version>`` KV v2 pin off ``key``.
+
+    CONCEPT:AU-KG.ontology.release-key-rotation (D-OC-1) — a durable secret reference may pin
+    an exact KV v2 version (``path#field@2``) instead of implicitly reading "whatever is
+    latest". Pinning is what makes an overwrite recoverable: OpenBao KV v2 never deletes a
+    prior version, so a later, bad write to the *latest* slot cannot silently reach a consumer
+    that reads a specific, already-verified version number. Returns ``(base_key, None)`` when
+    no ``@<digits>`` suffix is present (unchanged, "read latest" behaviour).
+    """
+    base, separator, version_part = key.rpartition("@")
+    if separator and version_part.isdigit():
+        return base, int(version_part)
+    return key, None
+
+
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
@@ -489,7 +505,7 @@ class VaultBackend(SecretsBackend):
             self._token_auth_time = _time.monotonic()
             logger.info("Vault OIDC/JWT authentication succeeded")
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one candidate in _authenticate()'s auto-detect chain (oidc/approle/token/kubernetes); a loud logger.warning already fires there if every candidate fails
             logger.debug("Vault OIDC authentication failed: %s", e)
             return False
 
@@ -509,7 +525,7 @@ class VaultBackend(SecretsBackend):
             self._token_auth_time = _time.monotonic()
             logger.info("Vault: AppRole auth successful.")
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one candidate in _authenticate()'s auto-detect chain; a loud logger.warning already fires there if every candidate fails
             logger.debug("Vault AppRole authentication failed: %s", e)
             return False
 
@@ -531,7 +547,7 @@ class VaultBackend(SecretsBackend):
             self._token_auth_time = _time.monotonic()
             logger.info("Vault: Kubernetes auth successful.")
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one candidate in _authenticate()'s auto-detect chain; a loud logger.warning already fires there if every candidate fails
             logger.debug("Vault Kubernetes authentication failed: %s", e)
             return False
 
@@ -565,17 +581,32 @@ class VaultBackend(SecretsBackend):
     # -- SecretsBackend interface -------------------------------------------
 
     def get(self, key: str) -> str | None:
+        """Read one KV v2 field, at its latest version or a pinned ``@<version>``.
+
+        CONCEPT:AU-KG.ontology.release-key-rotation (D-OC-1). ``key`` is
+        ``path[#field][@version]``: an omitted ``@version`` reads the current
+        (latest) version exactly as before; a present one reads that specific,
+        immutable version — the read path a consumer pins to survive a later
+        overwrite of "latest" (see :func:`_split_versioned_key`).
+        """
         self._ensure_authenticated()
-        path, separator, field = key.partition("#")
+        base_key, version = _split_versioned_key(key)
+        path, separator, field = base_key.partition("#")
         full_key = self._full_path(path)
         try:
             resp = self._client.secrets.kv.v2.read_secret_version(
-                path=full_key, mount_point=self._mount
+                path=full_key, mount_point=self._mount, version=version
             )
             data = resp.get("data", {}).get("data", {})
             return data.get(field if separator else "value")
         except Exception as exc:
-            logger.debug("Vault secret lookup failed: %s", exc)
+            # D-SWG-2: loud, not debug — this catches BOTH "secret genuinely
+            # absent" and "Vault unreachable/unauthorized"; a caller receiving
+            # None can't tell those apart, so a systemic Vault outage would
+            # look identical to a missing key and degrade every consumer's
+            # config silently unless this is visible at a level someone
+            # actually watches.
+            logger.warning("Vault secret lookup failed for %r: %s", full_key, exc)
             return None
 
     def set(self, key: str, value: str, **metadata: Any) -> None:
@@ -709,6 +740,11 @@ class SecretsClient:
         Supported schemes:
 
         - ``vault://path/to/secret`` → backend lookup
+        - ``vault://path#field`` → backend lookup of one field within the secret
+        - ``vault://path#field@2`` → that field at pinned KV v2 **version** 2, not
+          "whatever is latest" — a :class:`VaultBackend` reads exactly that version
+          (CONCEPT:AU-KG.ontology.release-key-rotation, D-OC-1); other backends simply
+          have no second version and the pin is a no-op on them.
         - ``env://VAR_NAME`` → ``setting(VAR_NAME)``
         Args:
             ref: Secret reference string.
@@ -731,7 +767,9 @@ class SecretsClient:
                 raise ValueError("runtime secret reference is invalid")
             var_name = target
             return setting(var_name)
-        if not all(character.isalnum() or character in "_./#-" for character in target):
+        if not all(
+            character.isalnum() or character in "_./#@-" for character in target
+        ):
             raise ValueError("runtime secret reference is invalid")
         return self._backend.get(target)
 

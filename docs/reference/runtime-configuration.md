@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-543 typed fields · 347 runtime-only call-site inputs.
+547 typed fields · 356 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -129,6 +129,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | Environment key | Type | Default |
 |---|---|---|
 | `OPENAI_API_KEY` | `Union` | `explicit runtime process value only` |
+| `OPENAI_API_KEY_REF` | `Union` | `unset` |
 | `OPENAI_BASE_URL` | `Union` | `unset` |
 | `ANTHROPIC_API_KEY` | `Union` | `explicit runtime process value only` |
 | `GEMINI_API_KEY` | `Union` | `explicit runtime process value only` |
@@ -223,7 +224,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `ENABLE_WEB_UI` | `bool` | `False` |
 | `ENABLE_TERMINAL_UI` | `bool` | `False` |
 | `ENABLE_WEB_LOGS` | `bool` | `False` |
-| `ENABLE_ACP` | `bool` | `False` (deprecated; launch `agent-utilities-acp`) |
+| `ENABLE_ACP` | `bool` | `False` |
 | `ACP_SESSION_ROOT` | `str` | `.acp-sessions` |
 | `MCP_URL` | `Union` | `unset` |
 | `MCP_CONFIG` | `Union` | `unset` |
@@ -410,6 +411,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `KG_RESEARCH_FEED` | `bool` | `True` |
 | `KG_RESEARCH_FEED_INTERVAL` | `float` | `1800.0` |
 | `KG_RSS_FEEDS` | `str` | `` |
+| `KG_ARXIV_CATEGORIES` | `str` | `` |
+| `KG_ARXIV_MAX_RESULTS` | `int` | `50` |
 | `KG_SAI_FACTORY` | `bool` | `True` |
 | `KG_SAI_FACTORY_INTERVAL` | `float` | `3600.0` |
 | `KG_FAILURE_EVOLUTION` | `bool` | `False` |
@@ -664,6 +667,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `AGENT_EXECUTION_TIMEOUT` | `float` | `120.0` |
 | `CIRCUIT_BREAKER_THRESHOLD` | `int` | `3` |
 | `ENABLE_PROGRESSIVE_SYNTHESIS` | `bool` | `True` |
+| `DISTILLATION_PROMOTION_THRESHOLD` | `int` | `3` |
+| `DISTILLATION_QUALITY_SCORE_MINIMUM` | `float` | `0.6` |
 
 ## Innovation Framework (CONCEPT:AU-OS.state.cognitive-scheduler-preemption through CONCEPT:AU-OS.state.cognitive-scheduler-preemption)
 
@@ -727,6 +732,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `ASSIMILATION_ENGINE_PAGERANK` | 1 |
 | `ASSIMILATION_SYNTH_TIMEOUT_S` | 1 |
 | `AUDIT_REVIEW_TIMEOUT_S` | 1 |
+| `AU_PROMPT_CACHE` | 1 |
+| `AU_SEMANTIC_CACHE` | 1 |
 | `BACKSTAGE_FILE` | 1 |
 | `BAO_URL` | 1 |
 | `BINANCE_API_KEY` | 1 |
@@ -836,6 +843,9 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_CARD_MODEL` | 1 |
 | `KG_CONCEPT_CODE_LINK` | 2 |
 | `KG_DAEMON_LOG_LEVEL` | 1 |
+| `KG_DAEMON_METRICS` | 1 |
+| `KG_DAEMON_METRICS_HOST` | 1 |
+| `KG_DAEMON_METRICS_PORT` | 1 |
 | `KG_DAEMON_ROLE` | 5 |
 | `KG_EA_WRITEBACK` | 1 |
 | `KG_EMBED_TIMEOUT` | 1 |
@@ -923,7 +933,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MODEL_CONTEXT_ORDERING_VERSION` | 1 |
 | `MODEL_CONTEXT_REDACTION_VERSION` | 1 |
 | `MODEL_CONTEXT_TOKEN_BUDGET` | 1 |
-| `MODEL_ID` | 3 |
+| `MODEL_ID` | 2 |
 | `MODEL_LATENCY_GRADIENT_TARGET` | 1 |
 | `MODEL_MAX_CONCURRENCY` | 1 |
 | `MODEL_MAX_CONCURRENT_REQUESTS` | 1 |
@@ -941,6 +951,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `OPENMAINT_TOKEN` | 1 |
 | `OPENMAINT_URL` | 1 |
 | `OTEL_EXPORTER_OTLP_HEADERS` | 2 |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | 1 |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | 1 |
 | `OTEL_SERVICE_NAME` | 2 |
 | `OTEL_TRACES_EXPORTER` | 1 |
 | `OWL_ALLOW_REMOTE_IMPORTS` | 1 |
@@ -956,7 +968,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `POSTGRES_DSN` | 1 |
 | `POSTIZ_TOKEN` | 1 |
 | `POSTIZ_URL` | 1 |
-| `PROVIDER` | 3 |
+| `PROMETHEUS_MULTIPROC_DIR` | 1 |
+| `PROVIDER` | 2 |
 | `PYTEST_CURRENT_TEST` | 1 |
 | `QUERY_ROUTER_L1_THRESHOLD` | 1 |
 | `QUERY_ROUTER_STRATEGY` | 1 |
@@ -974,9 +987,10 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SCHOLARX_URL` | 1 |
 | `SECURITY_PROMPT_THRESHOLD` | 1 |
 | `SERVICENOW_ENABLE_WRITE` | 1 |
+| `SERVICENOW_INSTANCE` | 1 |
 | `SERVICENOW_PASSWORD` | 1 |
 | `SERVICENOW_URL` | 1 |
-| `SERVICENOW_USER` | 1 |
+| `SERVICENOW_USERNAME` | 1 |
 | `SESSION_COST_BUDGET_USD` | 1 |
 | `SESSION_ID` | 2 |
 | `SESSION_LATENCY_BUDGET_MS` | 1 |

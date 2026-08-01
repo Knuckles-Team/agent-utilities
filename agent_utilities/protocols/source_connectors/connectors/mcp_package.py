@@ -51,24 +51,49 @@ logger = logging.getLogger(__name__)
 CallToolFn = Callable[[str, dict[str, Any]], Any]
 
 
-def _run_async(coro: Any) -> Any:
+def _run_async(coro: Any, *, timeout: float | None = None) -> Any:
     """Run a coroutine to completion, safe whether or not a loop is running.
 
     The connector surface is synchronous but the MCP client is async. When called
     from inside a running loop (the async ingestion adaptor), the coroutine is run
     on a fresh loop in a worker thread to avoid ``asyncio.run`` re-entrancy.
+
+    ``timeout`` (CONCEPT:AU-ORCH.scheduling.hard-io-deadline), when given, bounds how
+    long the CALLER waits — not how long the coroutine is allowed to run. Python
+    cannot forcibly stop a thread blocked in synchronous I/O, so on expiry the
+    worker thread is abandoned (never joined) rather than waited on: the caller
+    (a durable task-queue worker in production) is freed immediately instead of
+    hanging until an uncooperative call returns on its own, while the abandoned
+    thread runs to its own eventual completion. This bounds the caller's wait;
+    it does not make the abandoned work interruptible. Callers that can pass a
+    cooperative budget into ``coro`` itself (e.g. ``MCPMultiplexer.probe_catalog``'s
+    ``budget``) should still do so — cancelling cleanly is strictly better than
+    abandoning a thread — and use ``timeout`` here as the backstop for whatever
+    that cooperative path cannot itself unblock (e.g. a child-process spawn that
+    blocks before it ever reaches an ``await``).
     """
     import asyncio
 
     try:
         asyncio.get_running_loop()
+        loop_running = True
     except RuntimeError:
+        loop_running = False
+
+    if timeout is None and not loop_running:
         return asyncio.run(coro)
 
     import concurrent.futures
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(lambda: asyncio.run(coro)).result()
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(lambda: asyncio.run(coro))
+    try:
+        return future.result(timeout=timeout)
+    finally:
+        # Never join: shutdown(wait=False) reclaims the executor's own
+        # bookkeeping without blocking this thread on a call that may never
+        # return (the whole point of the hard deadline above).
+        pool.shutdown(wait=False)
 
 
 def _load_mcp_config() -> dict[str, Any]:

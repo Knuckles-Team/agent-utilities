@@ -233,7 +233,7 @@ def pick_specialist_model(
         if agent_info is not None:
             tier = getattr(agent_info, "default_tier", tier) or tier
             required_tags = list(getattr(agent_info, "required_tags", []) or [])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — tier/required_tags already hold safe pre-lookup defaults; a registry read failure just leaves those defaults in place, identical to a specialist with no registry entry
         logger.debug(f"Registry tier lookup failed for '{node_id}': {e}")
 
     # CONCEPT:AU-OS.state.homeostatic-model-downgrade — Homeostatic Model Downgrade
@@ -265,7 +265,7 @@ def pick_specialist_model(
                         * 100,
                     )
                     tier = effective_tier
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — resource_optimizer.select_model_for_step() is an optional budget-pressure override; tier already holds the heuristic/registry value on entry, so a failure here just skips the optional downgrade
             logger.debug(
                 f"CONCEPT:AU-OS.state.homeostatic-model-downgrade homeostatic check skipped: {e}"
             )
@@ -426,7 +426,9 @@ async def _get_domain_tools(
     from ..tools.developer_tools import developer_tools
     from ..tools.sdd_tools import sdd_tools
 
-    registry = get_discovery_registry()
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+    # backend round-trip; keep it off the event loop.
+    registry = await asyncio.to_thread(get_discovery_registry)
     agent = next((a for a in registry.agents if a.name == node_id), None)
     skill_tags = agent.capabilities if agent else []
 
@@ -696,14 +698,34 @@ def spawn_usage_limits(state: Any, *, request_limit: int = 8) -> Any:
     Always bounds requests (default pydantic-ai cap is 50). When the invoking agent granted a
     token budget (``GraphState.invoker_budget_tokens``), also enforce it as
     ``total_tokens_limit`` so the spawned agent cannot exceed the budget the invoker allotted.
+    Every spawn also gets ``per_request_input_tokens_limit`` (CONCEPT:AU-ORCH.execution.execution-budget-caps)
+    so an oversized tool result terminates the spawn instead of compounding across
+    its remaining requests — this is exactly the ServiceNow production failure
+    class: a fleet tool that silently ignored an unknown ``limit`` argument
+    returned 212 KB from one call. Note the cap is checked against the
+    provider-reported ``input_tokens`` of the RESPONSE (pydantic-ai's
+    ``count_tokens_before_request`` stays at its default ``False``), so that one
+    oversized request is still sent and billed; what the cap prevents is carrying
+    it forward. See D-W15-12 in ``reports/deferred/waves1-5-gate.md``.
     """
     from pydantic_ai.usage import UsageLimits
+
+    from agent_utilities.orchestration.loop_guards import (
+        DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+    )
 
     req = setting("AGENT_REQUEST_LIMIT", request_limit)
     budget = getattr(state, "invoker_budget_tokens", None)
     if budget and int(budget) > 0:
-        return UsageLimits(request_limit=req, total_tokens_limit=int(budget))
-    return UsageLimits(request_limit=req)
+        return UsageLimits(
+            request_limit=req,
+            total_tokens_limit=int(budget),
+            per_request_input_tokens_limit=DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+        )
+    return UsageLimits(
+        request_limit=req,
+        per_request_input_tokens_limit=DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+    )
 
 
 def get_step_descriptions() -> str:
@@ -930,7 +952,8 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         try:
             cap_rows = []
             if ctx.deps.knowledge_engine.backend:
-                cap_rows = ctx.deps.knowledge_engine.backend.execute(
+                cap_rows = await asyncio.to_thread(
+                    ctx.deps.knowledge_engine.backend.execute,
                     "MATCH (a {name: $name})-[:has_capability]->(c:AgentCapability) "
                     "WHERE c.auto_activate = true RETURN c",
                     {"name": agent_name},
@@ -961,7 +984,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                             specialist=agent_name,
                             capability=cap_type,
                         )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — activated_capabilities is write-only telemetry (no downstream read of the list in this function); a lookup failure means zero capabilities auto-activate/log for this step, degrading to pre-feature behavior
             logger.debug(f"Capability auto-activation lookup failed: {e}")
 
     # CONCEPT:AU-KG.compute.workspace-attention-scoring — WorkspaceAttention scoring for specialist priority
@@ -971,12 +994,14 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
             from .workspace_attention import WorkspaceAttention
 
             wa = WorkspaceAttention(ctx.deps.knowledge_engine)
-            attention_score = wa.get_attention_score(agent_name)
+            attention_score = await asyncio.to_thread(
+                wa.get_attention_score, agent_name
+            )
             if attention_score is not None:
                 logger.info(
                     f"[GWT] Specialist '{agent_name}' attention score: {attention_score:.2f}"
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — attention_score is a best-effort priority signal (stays None on failure); the specialist dispatch below does not gate on it
             logger.debug(f"WorkspaceAttention scoring failed for '{agent_name}': {e}")
 
     agent = create_context_agent(
@@ -1030,10 +1055,18 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 from pydantic_ai.mcp import load_mcp_toolsets
 
                 from agent_utilities.core.workspace import resolve_mcp_config_path
+                from agent_utilities.mcp.protocol_compat import (
+                    force_legacy_protocol_mode,
+                    install_mcp_v2_bridge,
+                )
+
+                install_mcp_v2_bridge()
 
                 mcp_path = resolve_mcp_config_path(None)
                 if mcp_path and mcp_path.exists():
-                    all_servers = load_mcp_toolsets(mcp_path)
+                    all_servers = force_legacy_protocol_mode(
+                        load_mcp_toolsets(mcp_path)
+                    )
                     for srv in all_servers:
                         srv_id = getattr(srv, "id", getattr(srv, "name", str(srv)))
                         current = srv_id.lower().replace("-", "_")
@@ -1225,7 +1258,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 # Cache message history for potential re-dispatch
                 try:
                     ctx.deps.message_history_cache[cache_key] = res.all_messages()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — message_history_cache is a best-effort re-dispatch optimization; a failed write just means a future re-dispatch re-fetches/regenerates history instead of reusing a cached copy, it does not lose the run's actual result (already handled above)
                     logger.debug(f"Failed to update cache for '{cache_key}': {e}")
                     pass
 
@@ -1455,7 +1488,9 @@ async def _attempt_specialist_fallback(
         no suitable fallback could be identified or executed.
 
     """
-    registry = get_discovery_registry()
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+    # backend round-trip; keep it off the event loop.
+    registry = await asyncio.to_thread(get_discovery_registry)
     siblings = [
         a
         for a in registry.agents
@@ -1566,7 +1601,7 @@ async def _execute_agent_package_logic(
                     policy_labels=epistemic.get("policy_labels"),
                     model=node_id,
                 )
-            except (
+            except (  # noqa: BLE001 — result_str is already computed and written to ctx.state.results_registry above before this block; the try only forwards optional epistemic metadata to telemetry (comment: "tracing must never break the graph")
                 Exception
             ) as exc:  # pragma: no cover - tracing must never break the graph
                 logger.debug(
@@ -1575,7 +1610,9 @@ async def _execute_agent_package_logic(
     else:
         # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Unified specialist execution
         # Try specialized prompt-based execution first (loads persona, injects tools + skills)
-        registry = get_discovery_registry()
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — registry hydration is a synchronous
+        # backend round-trip; keep it off the event loop.
+        registry = await asyncio.to_thread(get_discovery_registry)
         mcp_agent = next(
             (a for a in registry.agents if agent_matches_node_id(a, node_id)),
             None,
@@ -1620,7 +1657,9 @@ async def agent_package_step(
     """
     from agent_utilities.agent.discovery import discover_agents
 
-    discovered = discover_agents()
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — discovery reads the KG registry
+    # synchronously; keep it off the event loop.
+    discovered = await asyncio.to_thread(discover_agents)
     if node_id not in discovered:
         logger.error(f"Agent package node '{node_id}' not found in discovery.")
         return "Error"
@@ -1655,16 +1694,29 @@ async def _execute_specialized_step(
         ctx_deps=ctx.deps, ctx_state=ctx.state, agent_name=prompt_name
     )
 
-    prompt = load_specialized_prompts(prompt_name)
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — the persona/memory/tool-guidance prompt
+    # loads (file I/O + registry lookup) and the registry hydration below are all SYNCHRONOUS
+    # and independent of each other; batch them into ONE thread hop instead of four.
+    def _read_specialist_bindings() -> tuple[str, str, str, Any]:
+        return (
+            load_specialized_prompts(prompt_name),
+            load_specialized_prompts("memory_instruction"),
+            load_specialized_prompts("tool_guidance"),
+            get_discovery_registry(),
+        )
+
+    (
+        prompt,
+        memory_instruction,
+        tool_guidance,
+        registry,
+    ) = await asyncio.to_thread(_read_specialist_bindings)
 
     # Dynamic Skill Distribution
     custom_tools, skill_toolsets = await _get_domain_tools(prompt_name, ctx.deps)
     logger.info(
         f"[LAYER:GRAPH:EXPERT] Specialized step '{prompt_name}' started. Tools loaded: {len(custom_tools)}, Toolsets: {len(skill_toolsets)}"
     )
-
-    memory_instruction = load_specialized_prompts("memory_instruction")
-    tool_guidance = load_specialized_prompts("tool_guidance")
 
     # Include validation feedback if this is a re-dispatch from verifier
     feedback_section = ""
@@ -1681,7 +1733,6 @@ async def _execute_specialized_step(
     from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
 
     # Resolve tags from the unified registry instead of the deprecated NODE_SKILL_MAP
-    registry = get_discovery_registry()
     agent_info = next((a for a in registry.agents if a.name == prompt_name), None)
     tool_tags = [prompt_name]
     if agent_info and agent_info.capabilities:
@@ -1756,8 +1807,13 @@ async def _execute_specialized_step(
 
     # CONCEPT:AU-ORCH.routing.conductor-per-step-model — honor a Conductor-assigned per-step model_id (ctx.inputs is
     # the current ExecutionStep/Task); falls back to override/tier routing when unset.
-    specialist_model = pick_specialist_model(
-        ctx.deps, prompt_name, step_model_id=getattr(ctx.inputs, "model_id", None)
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — internally does registry hydration +
+    # WorkspaceAttention/MemoryRetriever KG round-trips; keep it off the event loop.
+    specialist_model = await asyncio.to_thread(
+        pick_specialist_model,
+        ctx.deps,
+        prompt_name,
+        step_model_id=getattr(ctx.inputs, "model_id", None),
     )
 
     # CONCEPT:AU-ORCH.session.invoker-agent-handoff — enforce the invoker's least-privilege tool allow-list (if any).
@@ -1887,7 +1943,7 @@ async def _execute_specialized_step(
             if asyncio.iscoroutine(history):
                 history = await history
             ctx.deps.message_history_cache[prompt_name] = history
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — same best-effort re-dispatch cache as the expert-dispatch path above; result_str is already stored in ctx.state.results_registry unconditionally above this block, so the step's actual output is unaffected
             logger.debug(f"Unable to cache: {e}")
 
         # HSM: Exit action (success)

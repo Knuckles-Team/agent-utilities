@@ -113,6 +113,16 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: lane-guard
+    name: Lane guard — canonical checkout is read-only; generated views stay generated
+    # Two rules that were documented and violated anyway, now mechanical:
+    # (1) no non-merge, non-bump commit authored in the canonical checkout, and
+    # (2) no hand-edited docs/concept_reservations.yaml (it is the fold of the
+    #     per-lane append-only fragments). See docs/architecture/lane-concurrency.md.
+    entry: python3 scripts/check_lane_guard.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-concept-gaps
     name: Check Concept ID Gap contiguousness
     entry: python3 scripts/check_concept_gaps.py
@@ -145,6 +155,30 @@ repos:
   - id: check-swallowed-errors
     name: Swallowed errors — no NEW cause-dropping exception handler (ratchet)
     entry: python3 scripts/check_swallowed_errors.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-event-loop-blocking
+    name: Event-loop blocking heuristic (ratchet — no new candidate sites)
+    entry: python3 scripts/check_event_loop_blocking.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-wire-first
+    name: Wire-First — reachable != invoked (ratchet; D-OB-9/13/16)
+    # Four sweeps in one report: (1) test files under tests/ that testpaths/CI
+    # never collect (D-OB-13a), (2) MagicMock(spec=[])/patch(create=True) sites
+    # in tests/ (D-OB-13b, informational), (3) except-ImportError handlers that
+    # silently no-op instead of visibly skipping (D-OB-16, informational), and
+    # (4) public agent_utilities/ classes/functions/methods referenced ONLY
+    # from tests/ — no non-test caller (D-OB-9). (1) and (4) are ratcheted
+    # against scripts/wire_first_baseline.json: this is a large pre-existing
+    # backlog (see the audit in the lane's final report), so — matching
+    # check-swallowed-errors above — only a NEW entry beyond the frozen
+    # baseline fails the commit; the existing backlog burns down over time via
+    # `--update-wire-first-baseline` after a genuine fix, never to silence a
+    # regression.
+    entry: python3 scripts/check_wiring.py --wire-first-report
     language: system
     pass_filenames: false
     always_run: true

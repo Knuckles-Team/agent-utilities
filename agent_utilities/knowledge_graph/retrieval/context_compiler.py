@@ -264,6 +264,15 @@ class ContextBundle:
     # bundle was reconstructed from the KV layer rather than freshly assembled.
     cache_key: str = ""
     kv_cache_hit: bool = False
+    # CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — True iff the
+    # underlying retrieval's ``RetrievalQualityGate`` rejected every candidate
+    # (``gate_passed=False``) for this query. The model-transport wrapper
+    # (``core.contextual_model``) reads this to apply the caller's grounding policy
+    # instead of treating an empty/thin bundle as an ordinary "nothing ingested yet"
+    # result. ``retrieval_quality_reason`` is the comma-joined failure-mode taxonomy
+    # (e.g. ``"low_relevance_topk"``) when the gate failed, else ``""``.
+    retrieval_quality_gate_failed: bool = False
+    retrieval_quality_reason: str = ""
 
     def as_text(self) -> str:
         """Render the bundle to a citation-annotated text block for an LLM prompt.
@@ -363,6 +372,8 @@ class ContextBundle:
             "session_tenant": self.session_tenant,
             "session_actor": self.session_actor,
             "policy_version": self.policy_version,
+            "retrieval_quality_gate_failed": self.retrieval_quality_gate_failed,
+            "retrieval_quality_reason": self.retrieval_quality_reason,
         }
 
     @classmethod
@@ -387,6 +398,10 @@ class ContextBundle:
             session_tenant=str(data.get("session_tenant", "")),
             session_actor=str(data.get("session_actor", "")),
             policy_version=data.get("policy_version", ""),
+            retrieval_quality_gate_failed=bool(
+                data.get("retrieval_quality_gate_failed", False)
+            ),
+            retrieval_quality_reason=str(data.get("retrieval_quality_reason", "")),
         )
 
 
@@ -570,7 +585,16 @@ class ContextCompiler:
         *,
         as_of: str | None,
         session: GraphSession,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], Any | None]:
+        """Return ``(candidates, quality_report)``.
+
+        ``quality_report`` is the ``RetrievalQualityGate``'s
+        ``RetrievalQualityReport`` for this call when the gate ran (the preferred
+        ``engine.search_hybrid`` path, which applies it by default — CONCEPT:
+        AU-KG.retrieval.fail-closed-grounding-contract), or ``None`` when it was
+        explicitly bypassed (the bare-retriever fallback path below, which passes
+        ``skip_quality_gate=True``) — so a bypass is never mistaken for a pass.
+        """
         # Retrieval inherits the already-verified authority.  This scope is entered
         # only after ``compile`` resolves the session and requires ``kg:read``;
         # consequently no ANN/Cypher/backend call can happen before tenant/policy
@@ -578,16 +602,28 @@ class ContextCompiler:
         with use_session(session):
             search_hybrid = getattr(self.engine, "search_hybrid", None)
             if self._retriever is None and callable(search_hybrid):
-                return list(
+                nodes = list(
                     search_hybrid(query, top_k=top_k, as_of=as_of or None) or []
                 )
+                # ``last_quality_report`` is instance state on the engine's shared
+                # ``HybridRetriever`` (set synchronously inside the call just
+                # above), read back immediately — see its own docstring for the
+                # pre-existing concurrency caveat this inherits (already relied on
+                # the same way by ``HybridRetriever.plan_and_retrieve``'s
+                # self-correction trigger).
+                report = getattr(
+                    getattr(self.engine, "hybrid_retriever", None),
+                    "last_quality_report",
+                    None,
+                )
+                return nodes, report
             source = self._candidate_source()
             if source is None:
                 raise TypeError(
                     "ContextCompiler needs an engine with `search_hybrid`/"
                     "`retrieve_hybrid`, or an explicit `hybrid_retriever=`."
                 )
-            return list(
+            nodes = list(
                 source.retrieve_hybrid(
                     query,
                     context_window=top_k,
@@ -596,6 +632,7 @@ class ContextCompiler:
                 )
                 or []
             )
+            return nodes, None
 
     # ------------------------------------------------------------------
     # Per-axis scoring
@@ -761,7 +798,21 @@ class ContextCompiler:
         # replacements for the middleware-owned ambient session.
         session = resolve_session(session, required_scope="kg:read")
         pool = max(candidate_pool, top_k)
-        candidates = self._retrieve(query, pool, as_of=as_of, session=session)
+        candidates, quality_report = self._retrieve(
+            query, pool, as_of=as_of, session=session
+        )
+        quality_gate_failed = bool(
+            quality_report is not None
+            and not getattr(quality_report, "gate_passed", True)
+        )
+        quality_reason = (
+            ",".join(
+                m.value if hasattr(m, "value") else str(m)
+                for m in getattr(quality_report, "failure_modes_detected", None) or ()
+            )
+            if quality_gate_failed
+            else ""
+        )
         decisions: list[dict[str, Any]] = []
 
         # ---- 6. POLICY — the SAME fine-grained gate the live read path uses.
@@ -825,7 +876,7 @@ class ContextCompiler:
                             "cached bundle violates the persistence privacy contract"
                         )
                     cached_bundle = ContextBundle.from_dict(cached_value)
-                except (
+                except (  # noqa: BLE001 — a corrupt/incompatible cached bundle is treated as a cache MISS (falls through to recompute below) rather than a hard failure — the safe direction for a KV cache seam
                     json.JSONDecodeError,
                     UnicodeDecodeError,
                     TypeError,
@@ -1022,6 +1073,8 @@ class ContextCompiler:
             ),
             policy_version=session.policy_version,
             cache_key=cache_key,
+            retrieval_quality_gate_failed=quality_gate_failed,
+            retrieval_quality_reason=quality_reason,
         )
         logger.info(
             "[CONCEPT:AU-KG.retrieval.context-compiler] context compiled: query_ref=%s items=%d tokens=%d/%d "

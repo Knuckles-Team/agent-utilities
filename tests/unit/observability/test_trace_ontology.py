@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_utilities.models.graph import GraphExecutionEvidence
 from agent_utilities.models.schema_definition import SCHEMA
 from agent_utilities.observability.trace_ontology import (
     TRACE_PRODUCED_OUTCOME_EDGE,
@@ -16,6 +17,31 @@ from agent_utilities.observability.trace_ontology import (
     save_trace_cursor,
     tool_call_properties,
     trace_properties,
+)
+
+_GRAPH_EVIDENCE = GraphExecutionEvidence(
+    topology="multi_agent",
+    topology_digest="sha256:topology",
+    version_digest="sha256:version",
+    runtime_version="2.21.0",
+    node_sequence=["router", "dispatcher", "__end__"],
+    transitions=[
+        {
+            "sequence": 1,
+            "scheduled_tasks": [{"node_id": "router", "task_id": "task:router"}],
+        },
+        {
+            "sequence": 2,
+            "scheduled_tasks": [
+                {"node_id": "dispatcher", "task_id": "task:dispatcher"}
+            ],
+        },
+        {
+            "sequence": 3,
+            "scheduled_tasks": [{"node_id": "__end__", "task_id": "task:end"}],
+        },
+    ],
+    checkpoint_ids=["ckpt:fixture:1"],
 )
 
 
@@ -89,6 +115,7 @@ def test_runtime_properties_sanitize_machine_locations_and_identity() -> None:
         error="failed at C:\\Users\\agent-user\\private.txt",
         event_sequence=7,
         execution_mode="single_server_agent",
+        graph_execution_evidence=_GRAPH_EVIDENCE.model_dump(),
     )
     call = tool_call_properties(
         run_id="fixture-run",
@@ -116,6 +143,12 @@ def test_runtime_properties_sanitize_machine_locations_and_identity() -> None:
     assert trace["task"] == ""
     assert trace["error"] == ""
     assert trace["execution_mode"] == "single_server_agent"
+    assert trace["graph_evidence_schema_version"] == "graph-execution-evidence-v1"
+    assert trace["graph_topology"] == "multi_agent"
+    assert trace["graph_node_sequence"] == ["router", "dispatcher", "__end__"]
+    assert trace["graph_transition_count"] == 3
+    assert trace["graph_checkpoint_ids"] == ["ckpt:fixture:1"]
+    assert trace["graph_resume_supported"] is False
     assert call["args"] == ""
     assert call["result"] == ""
     assert call["error"] == ""

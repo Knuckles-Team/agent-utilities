@@ -39,7 +39,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from agent_utilities.core.config import setting
 from agent_utilities.knowledge_graph.core.session import (
@@ -55,23 +55,62 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "ContextCompilationError",
+    "GroundingPolicy",
+    "GroundingUnavailableError",
     "compile_model_context",
     "create_context_agent",
+    "current_grounding_policy",
     "disable_context_agent_instrumentation",
+    "grounding_snapshot",
     "instrument_context_agents",
     "set_context_compiler_engine",
     "set_context_compiler_cache",
     "get_context_compiler_cache",
     "use_bound_tool_grounding",
     "use_context_compiler_engine",
+    "use_grounding_policy",
     "wrap_model_with_context",
 ]
 
 _CONTEXT_MARKER = "[agent-utilities:compiled-evidence:v1]"
 _BOUND_TOOL_GROUNDING_MARKER = "[agent-utilities:bound-tool-grounding:v1]"
+_DEGRADED_GROUNDING_MARKER = "[agent-utilities:degraded-evidence:v1]"
 _bound_tool_grounding: ContextVar[bool] = ContextVar(
     "agent_utilities_bound_tool_grounding",
     default=False,
+)
+
+# CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — the explicit grounding
+# policy a caller opts into. ``"required"`` (the default) is FAIL CLOSED: a compile
+# timeout, a compile error, or a retrieval-quality-gate failure refuses the model
+# call outright (:class:`GroundingUnavailableError`) rather than silently sending an
+# ungrounded request. ``"best_effort"``/``"none"`` are explicit per-run opt-ins (see
+# :func:`use_grounding_policy`) that let the request proceed degraded — but ALWAYS
+# with an explicit marker in the messages themselves (:data:`_DEGRADED_GROUNDING_MARKER`)
+# and on the current OTel span, and the run-level outcome is tracked via
+# :func:`grounding_snapshot` so a caller (``agent_runner.run_agent``) can refuse to
+# record a degraded run as a plain success for reward/learning purposes.
+GroundingPolicy = Literal["required", "best_effort", "none"]
+
+_grounding_policy: ContextVar[str] = ContextVar(
+    "agent_utilities_grounding_policy", default="required"
+)
+# Aggregate, run-scoped outcome: was ANY model call in the current grounding_scope
+# degraded, and why (the FIRST reason is kept — the earliest/root cause).
+#
+# This is a ContextVar holding a MUTABLE dict, deliberately, and NOT a pair of
+# plain bool/str ContextVars. A ContextVar *write* made inside a child asyncio
+# Task is invisible to the parent (``asyncio.create_task``/``TaskGroup`` — and
+# ``asyncio.to_thread`` — each run in a COPY of the context), and the model call
+# that discovers the degradation frequently runs one task-boundary below the
+# ``use_grounding_policy`` scope that ``run_agent`` reads back. Measured: with
+# plain-value ContextVars the degraded outcome was silently lost across a single
+# ``create_task`` hop, so a degraded run was recorded as a plain success — the
+# exact defect this contract exists to prevent. The dict REFERENCE is what the
+# child inherits, so an in-place mutation is visible to the parent scope that
+# installed it.
+_grounding_outcome: ContextVar[dict[str, Any] | None] = ContextVar(
+    "agent_utilities_grounding_outcome", default=None
 )
 
 # Wall-clock budget for the mandatory evidence compilation at the model-transport
@@ -117,6 +156,115 @@ _MISSING_MODEL = object()
 
 class ContextCompilationError(PermissionError):
     """A model invocation could not establish its governed evidence context."""
+
+
+class GroundingUnavailableError(ContextCompilationError):
+    """Raised when governed evidence is unavailable and the caller requires it.
+
+    CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract. Raised only when the
+    ambient :data:`GroundingPolicy` is ``"required"`` (the default) AND evidence
+    compilation timed out, errored, the per-process circuit breaker is open, or the
+    retrieval-quality gate rejected every candidate. This is the fail-closed half of
+    the contract: the request never reaches the model ungrounded. A caller that
+    genuinely tolerates degraded operation opts in via :func:`use_grounding_policy`.
+    """
+
+
+@contextmanager
+def use_grounding_policy(policy: GroundingPolicy = "required") -> Iterator[None]:
+    """Scope the grounding policy (and its outcome tracking) for one delegated run.
+
+    CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract. ``"required"`` (the
+    default — this is ALSO what every caller gets who never opens this scope) fails
+    the request closed on a compile timeout/error/breaker-open or a retrieval-quality
+    gate failure. ``"best_effort"``/``"none"`` opt into degraded operation: the
+    request still proceeds, but every degraded model call carries an explicit marker
+    (:data:`_DEGRADED_GROUNDING_MARKER`) in its messages and on the current OTel
+    span, and :func:`grounding_snapshot` reports the aggregate outcome for the whole
+    scope so the caller can refuse to record a degraded run as a plain success.
+
+    Nesting resets outcome tracking to a fresh ``(False, "")`` for this scope, so a
+    caller that opens one scope per delegated run (``Orchestrator.execute_agent``)
+    gets a clean per-run signal rather than one contaminated by an unrelated prior
+    run sharing the same task/context.
+    """
+
+    policy_token = _grounding_policy.set(policy)
+    # A FRESH dict per scope (see :data:`_grounding_outcome`) — nesting therefore
+    # still gets clean per-run tracking, while every child task/thread spawned
+    # inside the scope mutates the SAME object this frame will read back.
+    outcome_token = _grounding_outcome.set({"degraded": False, "reason": ""})
+    try:
+        yield
+    finally:
+        _grounding_policy.reset(policy_token)
+        _grounding_outcome.reset(outcome_token)
+
+
+def current_grounding_policy() -> str:
+    """The ambient :data:`GroundingPolicy` for the current scope (default ``"required"``)."""
+
+    return _grounding_policy.get()
+
+
+def grounding_snapshot() -> tuple[bool, str]:
+    """``(was_degraded, reason)`` for the current :func:`use_grounding_policy` scope.
+
+    ``was_degraded`` is True iff ANY model call so far in this scope ran without
+    genuinely compiled evidence (compile timeout/error/breaker-open, or a
+    retrieval-quality gate failure) under an opted-in ``"best_effort"``/``"none"``
+    policy. ``reason`` is the FIRST such reason recorded (the root cause). Read this
+    after the delegated run completes (e.g. ``agent_runner._record_execution_trace``)
+    to stamp the RunTrace/OTel span, and to gate reward/learning writes so a
+    degraded run is never recorded as a plain success.
+
+    Outside any :func:`use_grounding_policy` scope this is ``(False, "")``: with no
+    scope the policy is the default ``"required"``, which RAISES rather than
+    degrading, so there is no degraded outcome to aggregate.
+    """
+
+    outcome = _grounding_outcome.get()
+    if outcome is None:
+        return False, ""
+    return bool(outcome.get("degraded")), str(outcome.get("reason") or "")
+
+
+def _annotate_grounding_span(status: str, reason: str = "") -> None:
+    """Best-effort: widen the CURRENT OTel span with the grounding outcome.
+
+    Mirrors ``TelemetryEngine.annotate_epistemic``/``annotate_context_compiler``'s
+    posture (``observability/__init__.py``): never opens a new span, never raises,
+    a clean no-op wherever no tracing pipeline is active.
+    """
+    try:
+        from agent_utilities.observability import get_telemetry_engine
+
+        get_telemetry_engine().annotate_grounding(status=status, reason=reason)
+    except Exception as exc:  # noqa: BLE001 — tracing must never break a model call
+        logger.debug(
+            "grounding span annotation failed (exception_type=%s)", type(exc).__name__
+        )
+
+
+def _mark_grounding_degraded(reason: str) -> None:
+    """Record one degraded model call against the run-scoped outcome (first reason wins)."""
+
+    outcome = _grounding_outcome.get()
+    if outcome is None:
+        # No :func:`use_grounding_policy` scope is open (a direct model call, a
+        # harness). Install one lazily so the outcome is still readable by a
+        # same-context caller — the pre-existing behaviour. It cannot propagate
+        # UP out of a child task (nothing above installed a container to mutate),
+        # which is exactly why the real delegated path opens the scope in
+        # ``Orchestrator.execute_agent`` before ``run_agent`` reads it back.
+        outcome = {"degraded": False, "reason": ""}
+        _grounding_outcome.set(outcome)
+    # Mutated IN PLACE, never rebound — that is what makes the write visible
+    # to the parent frame across a child-task/thread context copy.
+    if not outcome.get("degraded"):
+        outcome["reason"] = reason
+    outcome["degraded"] = True
+    _annotate_grounding_span("degraded", reason)
 
 
 class _EmptyEvidenceSource:
@@ -445,6 +593,70 @@ def _ctx_compile_note_success() -> None:
     _ctx_compile_breaker_reopen_at = 0.0
 
 
+def _degrade_for_policy(
+    messages: list[Any],
+    model_name: str,
+    *,
+    reason: str,
+    compiled_bundle: ContextBundle | None = None,
+    cause: BaseException | None = None,
+) -> tuple[list[Any], ContextBundle | None]:
+    """Apply the ambient :data:`GroundingPolicy` to a degraded/no-evidence outcome.
+
+    CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — the single choke point
+    both :func:`_compiled_evidence_and_bundle_bounded`'s timeout/error/breaker-open
+    branches and its retrieval-quality-gate-failure branch route through.
+
+    ``"required"`` (the default): marks the run degraded (for the RunTrace/OTel
+    span this run's caller reads back via :func:`grounding_snapshot`) and RAISES
+    :class:`GroundingUnavailableError` — the request never reaches the model.
+
+    ``"best_effort"``/``"none"``: marks the run degraded and returns messages with
+    an explicit ``_DEGRADED_GROUNDING_MARKER`` system-prompt prefix instructing the
+    model to never present an ungrounded claim as sourced from the knowledge graph.
+    ``compiled_bundle`` is returned as-is (not forced to ``None``) when the caller
+    already has a real (possibly empty) :class:`ContextBundle` — e.g. the retrieval
+    genuinely ran but the quality gate rejected every candidate — so TTFT/KV-cache
+    metrics attribution is unaffected; it is a marker of "no usable evidence", not
+    "no compute happened".
+
+    ``cause`` is the underlying exception when this degradation came from a failed
+    compile. It is CHAINED onto the raised :class:`GroundingUnavailableError` — the
+    ``reason`` string alone (``"error:SomeError"``) names a type but discards the
+    traceback and the ``__cause__`` behind it, which is precisely what made a
+    grounding failure undiagnosable from the caller's side.
+    """
+    policy = _grounding_policy.get()
+    _mark_grounding_degraded(reason)
+    if policy == "required":
+        raise GroundingUnavailableError(
+            f"governed model invocation for {model_name!r} could not establish "
+            f"compiled evidence ({reason}); grounding policy is 'required' (the "
+            "default) — refusing to send an ungrounded request. Pass "
+            "grounding='best_effort' or grounding='none' to explicitly opt into "
+            "degraded operation."
+        ) from cause
+    from pydantic_ai.messages import ModelRequest, SystemPromptPart
+
+    status = "none" if policy == "none" else "degraded"
+    evidence = ModelRequest(
+        parts=[
+            SystemPromptPart(
+                content=(
+                    f"{_CONTEXT_MARKER}\n{_DEGRADED_GROUNDING_MARKER}\n"
+                    f"grounding: {status}\nreason: {reason}\n"
+                    "No governed evidence bundle could be established for this "
+                    "request (the caller explicitly opted into degraded grounding "
+                    f"via grounding={policy!r}). Do not present any claim as "
+                    "sourced from the knowledge graph; state plainly that no "
+                    "verified evidence was available."
+                )
+            )
+        ]
+    )
+    return [evidence, *messages], compiled_bundle
+
+
 async def _compiled_evidence_and_bundle_bounded(
     messages: list[Any], model_name: str
 ) -> tuple[list[Any], ContextBundle | None]:
@@ -461,20 +673,14 @@ async def _compiled_evidence_and_bundle_bounded(
     resource-priority class still reach the retriever), and :func:`asyncio.wait_for`
     bounds it by :data:`_CONTEXT_COMPILE_TIMEOUT_S`.
 
-    On timeout OR any compilation error the request DEGRADES to the ungrounded
-    passthrough ``(messages, None)`` — byte-for-byte the shape used when the
-    evidence is already compiled or the escape hatch is off — because the evidence
-    boundary is best-effort at the transport edge and liveness must win over a
-    contended retrieval. Degradation is logged loudly so an ungrounded call is
-    always observable. The fast path is unchanged: a quick retrieval returns the
+    CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract: on timeout, any
+    compilation error, an OPEN circuit breaker, or a retrieval-quality-gate
+    failure (the compiled bundle carries no usable evidence), the outcome is
+    decided by the ambient :data:`GroundingPolicy` (:func:`_degrade_for_policy`) —
+    ``"required"`` (the default) RAISES rather than silently degrading; an
+    explicit ``"best_effort"``/``"none"`` opt-in degrades with a visible marker.
+    The fast path is unchanged: a quick, quality-gate-passing retrieval returns the
     full compiled bundle.
-
-    CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker: when the breaker is
-    already OPEN (``_CTX_COMPILE_BREAKER_THRESHOLD`` consecutive degradations,
-    cooldown not yet elapsed) this returns the degraded ``(messages, None)``
-    immediately — skipping the to_thread+wait_for round trip — so a persistently
-    broken/contended retrieval is not re-paid ``_CONTEXT_COMPILE_TIMEOUT_S`` on
-    every single call.
     """
     # Bound-tool grounding is a deterministic compiler-owned prefix: it performs
     # no engine retrieval, so it neither pays a thread hop nor inherits the KG
@@ -489,36 +695,60 @@ async def _compiled_evidence_and_bundle_bounded(
             _ctx_compile_degradation_streak,
             _ctx_compile_breaker_reopen_at - time.monotonic(),
         )
-        return messages, None
+        return _degrade_for_policy(messages, model_name, reason="circuit_breaker_open")
 
     try:
         result = await asyncio.wait_for(
             asyncio.to_thread(_compiled_evidence_and_bundle, messages, model_name),
             timeout=_CONTEXT_COMPILE_TIMEOUT_S,
         )
-        _ctx_compile_note_success()
-        return result
     except (
         TimeoutError
     ):  # asyncio.wait_for's timeout (asyncio.TimeoutError is this alias)
         logger.warning(
             "[CONCEPT:AU-KG.retrieval.context-compiler] evidence compilation exceeded "
-            "%.1fs and was abandoned; sending this model request WITHOUT compiled "
-            "evidence (ungrounded) to keep the event loop responsive.",
+            "%.1fs and was abandoned; applying the grounding policy instead of "
+            "silently sending this model request without compiled evidence.",
             _CONTEXT_COMPILE_TIMEOUT_S,
         )
         _record_retrieval_degraded("timeout", model_name)
         _ctx_compile_note_degradation()
-        return messages, None
-    except Exception as exc:  # noqa: BLE001 — best-effort boundary, never block/raise
+        return _degrade_for_policy(messages, model_name, reason="timeout")
+    except Exception as exc:  # noqa: BLE001 — best-effort boundary, never block
         logger.warning(
             "[CONCEPT:AU-KG.retrieval.context-compiler] evidence compilation failed "
-            "(%s); sending this model request WITHOUT compiled evidence (ungrounded).",
+            "(%s: %s); applying the grounding policy instead of silently sending "
+            "this model request without compiled evidence.",
             type(exc).__name__,
+            exc,
+            exc_info=exc,
         )
         _record_retrieval_degraded("error", model_name, error_type=type(exc).__name__)
         _ctx_compile_note_degradation()
-        return messages, None
+        return _degrade_for_policy(
+            messages, model_name, reason=f"error:{type(exc).__name__}", cause=exc
+        )
+
+    _ctx_compile_note_success()
+    governed, bundle = result
+    if bundle is not None and getattr(bundle, "retrieval_quality_gate_failed", False):
+        reason = "quality_gate:" + (
+            getattr(bundle, "retrieval_quality_reason", "") or "low_relevance_topk"
+        )
+        logger.warning(
+            "[CONCEPT:AU-KG.retrieval.context-compiler] retrieval quality gate "
+            "failed (%s); the compiled evidence bundle carries no usable "
+            "candidates — applying the grounding policy.",
+            reason,
+        )
+        # Not a compile-latency/error signal — never trips the compile-time
+        # circuit breaker, which exists for a slow/broken retrieval PATH, not a
+        # genuinely-sparse-or-noisy result for one query.
+        return _degrade_for_policy(
+            messages, model_name, reason=reason, compiled_bundle=bundle
+        )
+    _annotate_grounding_span("compiled")
+    return governed, bundle
 
 
 async def _compile_messages_bounded(messages: list[Any], model_name: str) -> list[Any]:
@@ -694,11 +924,28 @@ def create_context_agent(
             merge_capabilities,
         )
         from agent_utilities.capabilities.hooks import HooksCapability
+        from agent_utilities.capabilities.output_repair import (
+            DEFAULT_MAX_OUTPUT_REPAIRS,
+            output_repair_retries,
+        )
 
         supplied = list(kwargs.get("capabilities", ()) or ())
         defaults = default_runtime_capabilities()
         defaults.append(HooksCapability(hooks=[]))
         kwargs["capabilities"] = merge_capabilities(supplied, defaults)
+        # The default StructuredOutputRepair capability raises ModelRetry up to
+        # DEFAULT_MAX_OUTPUT_REPAIRS times before failing closed with its own typed
+        # error; pydantic-ai's own output-retry budget defaults to 1, which would
+        # otherwise raise a generic UnexpectedModelBehavior on OUR second retry and
+        # preempt the classified/attempt-recorded exhaustion path. Never override an
+        # explicit caller-supplied ``retries=``.
+        if "retries" not in kwargs:
+            retries = output_repair_retries(
+                structured_output_repair=True,
+                max_output_repairs=DEFAULT_MAX_OUTPUT_REPAIRS,
+            )
+            if retries:
+                kwargs["retries"] = retries
     toolsets = list(kwargs.get("toolsets", ()) or ())
     raw_mcp_bound = any(
         hasattr(toolset, "list_tools") or hasattr(toolset, "direct_call_tool")

@@ -198,7 +198,12 @@ Procfile          text
 # Concept governance (CONCEPT:OS-5.42) — see docs/concept_coordination.md.
 # The reservation ledger is one-line-per-record; union-merge so two worktrees
 # that each claim a concept id both survive instead of conflicting.
-docs/concept_reservations.yaml  merge=union
+# Writers append to their own docs/concept_reservations.d/<lane>.yaml fragment;
+# distinct files never conflict. union-merge is the backstop for the shared
+# baseline fragment, and the generated view is re-folded (and de-duplicated) on
+# the next reserve/reconcile.
+docs/concept_reservations.d/*.yaml  merge=union
+docs/concept_reservations.yaml      merge=union linguist-generated=true
 # concepts.yaml is generated from CONCEPT: markers — regenerate on merge rather
 # than hand-merging. The concepts-regen driver (registered by scripts/install.sh)
 # re-derives it from the merged code tree; if the driver is not installed, git

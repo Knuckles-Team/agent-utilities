@@ -266,7 +266,7 @@ def embed_and_store(
         try:
             backend.add_embedding(nid, vec)
             n += 1
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — n is only incremented on the line above the try, before the embedding write; a failed write for one node simply isn't counted, matching the return value's meaning ('how many were actually stored')
             logger.debug("Embedding write failed for %s: %s", nid, exc)
     return n
 

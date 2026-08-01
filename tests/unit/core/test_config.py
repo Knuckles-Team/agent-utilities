@@ -1,7 +1,10 @@
 """CONCEPT:AU-OS.safety.doom-loop-detection"""
 
+import json
 import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -901,3 +904,74 @@ class TestOAuth2BlockSecretPolicy:
 
     def test_plain_oauth2_parent_still_accepted(self):
         self._validate({"OAUTH2": {"client_secret": "env://OIDC_CLIENT_SECRET"}})
+
+
+class TestColdBootWithDurableKgConnections:
+    """CONCEPT:AU-OS.deployment.cold-boot-import-reentrancy (D-DM-1 sweep, 2026-07-31).
+
+    Regression for a real graph-os outage: a non-empty ``kg_connections`` entry
+    makes ``AgentConfig``'s ``_validate_durable_kg_connections`` field validator
+    import ``connection_registry.validate_persistable_connection_spec`` *during*
+    the very first XDG config load of the process. Until this fix,
+    ``connection_registry.py`` imported ``agent_utilities.knowledge_graph.backends
+    .mirror_target`` at MODULE level, which forces Python to first run
+    ``agent_utilities.knowledge_graph.backends/__init__.py`` — and that module
+    calls ``setting()`` at its own module level (``_pg_pool_size(...)``). On a
+    genuinely cold process (nothing has imported ``backends`` yet), that
+    ``setting()`` call re-enters ``_ensure_env_loaded`` -> ``_load_xdg_json_config_locked``
+    -> ``_validate_xdg_configuration_schema`` -> the SAME field validator ->
+    the SAME import statement, which is still mid-execution and only
+    partially bound — Python raises ``ImportError: cannot import name ... from
+    partially initialized module``, which the outer XDG loader then reports as
+    an opaque ``ConfigurationSourceError("xdg", "ImportError")``, indistinguishable
+    from every other config rejection. Live symptom: graph-os / graph-os-host
+    CrashLoopBackOff on every cold start once ``kg_connections`` is non-empty.
+
+    Must run as a genuinely fresh subprocess — importing ``agent_utilities.core.config``
+    or ``agent_utilities.knowledge_graph.backends`` anywhere earlier in THIS
+    process's import cache would hide the bug (the whole defect is import-order
+    dependent on a cold ``sys.modules``).
+    """
+
+    def test_kg_connections_with_mirror_target_does_not_crash_a_cold_process(self):
+        root = Path(__file__).resolve().parents[3]
+        config = {
+            "kg_connections": [
+                {
+                    "name": "team-falkor",
+                    "backend": "falkordb",
+                    "mirror_target": {"mode": "dedicated", "name": "team-mirror"},
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as cfg_dir:
+            (Path(cfg_dir) / "config.json").write_text(json.dumps(config))
+            code = (
+                "import sys\n"
+                "assert 'agent_utilities.knowledge_graph.backends' not in sys.modules\n"
+                "from agent_utilities.core.config import _ensure_env_loaded\n"
+                "_ensure_env_loaded()\n"
+                "assert 'agent_utilities.knowledge_graph.backends' in sys.modules, ("
+                "    'connection_registry should have pulled backends in by now'"
+                ")\n"
+            )
+            environment = dict(os.environ)
+            environment["PYTHONPATH"] = str(root)
+            environment["AGENT_UTILITIES_CONFIG_DIR"] = cfg_dir
+            environment.pop("AGENT_UTILITIES_TESTING", None)
+            environment["PYDANTIC_DISABLE_PLUGINS"] = "__all__"
+            completed = subprocess.run(
+                [sys.executable, "-B", "-c", code],
+                cwd=root,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+
+        assert completed.returncode == 0, (
+            f"cold boot with a durable kg_connections mirror_target crashed:\n"
+            f"stdout={completed.stdout}\nstderr={completed.stderr}"
+        )

@@ -351,7 +351,7 @@ class QueryMixin(_Base):
             )
 
             rows = visible(filter_rows(rows))
-        except Exception as exc:  # pragma: no cover - never break a read
+        except Exception as exc:  # pragma: no cover - never break a read  # noqa: BLE001 — row-visibility filtering is a defense-in-depth layer over `rows`, which is already the query result being returned either way (filtered or not) — 'never break a read' per the comment above
             logger.debug("sql() row filtering skipped: %s", exc)
         return rows
 
@@ -392,7 +392,7 @@ class QueryMixin(_Base):
             )
 
             rows = visible(filter_rows(rows))
-        except Exception as exc:  # pragma: no cover - never break a read
+        except Exception as exc:  # pragma: no cover - never break a read  # noqa: BLE001 — row-visibility filtering for sparql() — same 'never break a read' defense-in-depth layer as sql() above
             logger.debug("sparql() row filtering skipped: %s", exc)
         return rows
 
@@ -549,7 +549,7 @@ class QueryMixin(_Base):
                     if str(data.get("status", "")).upper() == "ARCHIVED":
                         continue
                     results.append(data)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — one candidate source (engine-native discover) inside a multi-source keyword search; results simply doesn't get this source's contribution, and the function already falls through to the backend/GCE-scan fallbacks below
                 logger.debug(f"engine discover keyword search unavailable: {e}")
 
         # 2. Fallback — a backend that DOES evaluate a Cypher WHERE server-side
@@ -597,7 +597,7 @@ class QueryMixin(_Base):
                         if isinstance(req_class, int) and req_class > clearance_level:
                             continue
                         results.append(node)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — one candidate source (Cypher-evaluating backend) inside the same multi-source search; the function already falls through to the last-resort GCE scan below when results is still empty
                     logger.debug(f"Backend keyword search failed: {e}")
 
         # 3. Last-resort O(N) GCE scan for name/ID matches — only when neither the

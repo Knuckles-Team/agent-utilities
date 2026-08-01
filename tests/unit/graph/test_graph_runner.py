@@ -33,6 +33,8 @@ async def test_run_graph_basic(mock_graph):
     assert response["status"] == "completed"
     assert response["results"]["output"] == "final answer"
     assert response["metadata"]["execution_mode"] == "pydantic_graph"
+    assert response["execution_evidence"]["node_sequence"] == []
+    assert response["execution_evidence"]["resume_supported"] is False
     mock_graph.run.assert_called_once()
 
 
@@ -92,6 +94,45 @@ async def test_run_graph_exception(mock_graph):
 
     assert response["status"] == "error"
     assert "test error" in response["error"]
+
+
+@pytest.mark.asyncio
+async def test_run_graph_exception_preserves_completed_tool_provenance(mock_graph):
+    """A failure after a tool call must not erase the completed side effect."""
+
+    async def tool_then_fail(*, state, deps):
+        del deps
+        state.tool_calls.append(
+            {
+                "tool_name": "servicenow_get_incidents",
+                "args": '{"limit": 1}',
+                "result": "one record",
+                "error": "",
+            }
+        )
+        raise Exception("synthetic budget exhausted")
+
+    mock_graph.run.side_effect = tool_then_fail
+    deps = MagicMock()
+    deps.mcp_toolsets = []
+    deps.tag_prompts = {}
+    deps.event_queue = None
+
+    response = await runner().execute_graph(
+        mock_graph,
+        {"deps": deps},
+        query="read one incident",
+    )
+
+    assert response["status"] == "error"
+    assert response["tool_calls"] == [
+        {
+            "tool_name": "servicenow_get_incidents",
+            "args": '{"limit": 1}',
+            "result": "one record",
+            "error": "",
+        }
+    ]
 
 
 @pytest.mark.asyncio

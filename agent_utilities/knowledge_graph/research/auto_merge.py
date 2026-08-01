@@ -74,7 +74,7 @@ def _probe_production_validator(engine: Any, policy: MergePolicy) -> Any:
         from .promotion_governance import PromotionGovernanceValidator
 
         return PromotionGovernanceValidator(engine, policy=policy)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — returns None (the documented 'validator unavailable -> fall back to hold-when-required' case) per this function's own docstring
         logger.debug("production governance validator unavailable: %s", exc)
         return None
 
@@ -266,7 +266,7 @@ class GovernedAutoMerger:
         if self._governance_validator is not None:
             try:
                 return bool(self._governance_validator(spec))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — returns False (fail CLOSED — the safe direction for a governance gate) on a validator crash, not a silent pass; this is the opposite of the fail-open shape D-DST-4/5 fixed elsewhere
                 logger.debug("governance validator failed: %s", exc)
                 return False
         # No validator wired: only pass when the policy does not require one.
@@ -276,7 +276,7 @@ class GovernedAutoMerger:
         if self._regression_check is not None:
             try:
                 return bool(self._regression_check(spec))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — returns False (fail CLOSED) on a regression-check crash — same safe-direction reasoning as _check_governance just above
                 logger.debug("regression check failed: %s", exc)
                 return False
         return True  # no tracked regression → safe
@@ -488,7 +488,7 @@ class GovernedAutoMerger:
             active_spec = self._with_active_lifecycle(spec)
             nodes, _edges = persist_synthesis(backend, active_spec)
             return nodes > 0
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — returns False (the documented 'not promoted' case); the caller's own governance/regression gates already ran before this is reached, so a persistence failure here correctly reports as 'did not promote', not a silent success
             logger.debug("auto-merge default promotion failed: %s", exc)
             return False
 

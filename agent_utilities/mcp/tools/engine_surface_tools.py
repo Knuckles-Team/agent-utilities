@@ -44,13 +44,18 @@ federated-search / promql / traces / gis).
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
+import logging
 import uuid
+from datetime import datetime
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+logger = logging.getLogger(__name__)
 
 # CONCEPT:AU-KG.mining.dsm-forecast-delegation — the fleet write-side connector (call
 # a named MCP server's tool once, synchronously, decoded) is the SAME primitive the
@@ -66,6 +71,8 @@ from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
 )
 from agent_utilities.security.error_surface import public_error_payload
 from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+
+logger = logging.getLogger(__name__)
 
 # Candidate ``(sub_client_attr, method_attr)`` probe lists per logical action. The
 # engine build / client may expose the surface under any of several plausible
@@ -195,10 +202,525 @@ def _kv_backend() -> Any:
     return EpistemicGraphKVBackend.from_env()
 
 
+class _EngineComputeAdapter:
+    """Minimal ``compute`` shape (``._client`` + ``.graph_name``) the MediaStore-style
+    graph-resource stores expect, built from the low-level engine client this module
+    already resolves (CONCEPT:AU-KG.memory.kv-checkpoint-resource). No new transport —
+    reuses the same :func:`_client` every other tool in this module rides."""
+
+    def __init__(self, client: Any, graph_name: str) -> None:
+        self._client = client
+        self.graph_name = graph_name
+
+
+def _checkpoint_error_code(exc: Exception) -> str:
+    """Map a :class:`~agent_utilities.kvcache.KVCheckpointError` to one of the
+    platform's registered public error codes (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
+
+    Deliberately coarse: :func:`~agent_utilities.security.error_surface.public_error_payload`
+    only recognizes a small fixed code vocabulary and collapses anything else to
+    ``operation_failed`` — and collapsing here is itself the correct security
+    posture, not a limitation. Distinguishing "not found" from "cross-tenant" from
+    "stale" on the PUBLIC surface would let a caller enumerate which checkpoint ids
+    exist under a tenant they don't own; only ``CrossTenantCheckpointError`` gets
+    its own (still generic) ``permission_denied`` code, everything else falls to
+    the default ``operation_failed``.
+    """
+    from agent_utilities.kvcache import CrossTenantCheckpointError
+
+    if isinstance(exc, CrossTenantCheckpointError):
+        return "permission_denied"
+    return "operation_failed"
+
+
+def _checkpoint_store(graph: str) -> Any:
+    """Build a :class:`~agent_utilities.kvcache.KVCheckpointStore` bound to the
+    live engine client for ``graph`` (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
+
+    Isolated behind this indirection so unit tests can inject a fake compute
+    object, matching every other resolver in this module.
+    """
+    from agent_utilities.kvcache.checkpoint import KVCheckpointStore
+
+    return KVCheckpointStore(_EngineComputeAdapter(_client(graph), graph))
+
+
+#: Process-lifetime RAM tier shared by every ``graph_kv_checkpoint`` call
+#: (CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring). It MUST outlive a single tool
+#: invocation — "checkpoint to RAM, then decide later whether to persist" is the whole
+#: point of the tier — so it is built once and reused, not per call.
+_RAM_CHECKPOINT_STORE: Any | None = None
+
+
+def _checkpoint_manager(graph: str) -> Any:
+    """Build a :class:`~agent_utilities.kvcache.TieredCheckpointManager` over the shared
+    RAM tier, binding the durable tier when the engine is reachable.
+
+    A durable store that cannot be built is NOT an error here: the manager works
+    RAM-only and every promotion is refused with that reason, which is the correct
+    degrade for a checkpoint layer whose default tier is RAM anyway.
+    """
+    global _RAM_CHECKPOINT_STORE
+    from agent_utilities.kvcache.tiering import (
+        RAMCheckpointStore,
+        TieredCheckpointManager,
+    )
+
+    if _RAM_CHECKPOINT_STORE is None:
+        _RAM_CHECKPOINT_STORE = RAMCheckpointStore()
+    try:
+        disk_store = _checkpoint_store(graph)
+    except Exception as exc:  # noqa: BLE001 — engine down degrades to RAM-only
+        logger.warning(
+            "[CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring] durable checkpoint "
+            "tier unavailable (%s: %s) — the manager will serve RAM only and refuse "
+            "every promotion",
+            type(exc).__name__,
+            exc,
+        )
+        disk_store = None
+    from agent_utilities.core._env import setting
+
+    return TieredCheckpointManager(
+        ram_store=_RAM_CHECKPOINT_STORE,
+        disk_store=disk_store,
+        # Where this deployment's durable store physically writes. A fact about
+        # topology, not a policy judgement, and consulted only when a contributing
+        # source actually restricts residency — unknown then denies.
+        durable_region=str(setting("DATA_RESIDENCY_REGION", "") or "").strip(),
+    )
+
+
+def _bundle_object(raw: str) -> dict[str, Any]:
+    """Decode a caller-supplied bundle, refusing anything that is not an object."""
+    bundle = json.loads(raw)
+    if not isinstance(bundle, dict):
+        raise ValueError("bundle JSON must be an object")
+    return bundle
+
+
+def _measured_fields(observation: Any) -> dict[str, Any]:
+    """The axes a bundle adapter actually populated.
+
+    ``exclude_defaults``/``exclude_none`` together mean an axis the bundle carried no
+    evidence for stays *unset* rather than being merged in as a spurious zero — the same
+    not-measured-is-not-zero rule the scorers depend on.
+    """
+    return observation.model_dump(exclude_defaults=True, exclude_none=True)
+
+
+def _session_bound_tenant(declared: str) -> str:
+    """Return the tenant a KV-checkpoint operation runs under, bound to the session.
+
+    CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility. When a verified
+    ``GraphSession`` is bound (every served boundary), ITS tenant is authoritative and a
+    payload tenant that disagrees is REFUSED rather than quietly preferred — a caller
+    may not name someone else's tenancy. With no session bound (an isolated in-process
+    harness) the declared value is used for RAM-tier isolation only; durable persistence
+    is refused regardless, because the eligibility gate has no authority to read.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        session = current_session()
+    except Exception:  # noqa: BLE001 — no bound session is a legitimate RAM-only case
+        return declared
+    if session is None:
+        # ``current_session`` returns None (rather than raising) when authority has
+        # been explicitly suspended — the same RAM-only case as the exception path.
+        return declared
+    verified = session.tenant
+    if declared and declared != verified:
+        raise ValueError(
+            f"tenant {declared!r} does not match the verified session tenant "
+            f"{verified!r}; a checkpoint operation may not name another tenancy"
+        )
+    return verified
+
+
+def _contributing_sources(
+    sources_json: str, context_bundle_json: str, *, tenant: str
+) -> tuple[Any, ...]:
+    """Resolve the sources that contributed to the checkpointed context.
+
+    CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility — the material
+    half of the derivation. Two inputs, in precedence order:
+
+    1. ``sources_json`` — an explicit list of source refs (strings) or fully-labelled
+       source objects. A bare ref is resolved through the registered
+       :class:`SourceLabelResolver`; a labelled object is taken as given.
+    2. ``context_bundle_json`` — the SAME bundle the worthiness scorers already read.
+       Its citations' ``source_refs`` are the sources that actually contributed, so the
+       common path needs no extra argument at all: a caller that hands over its context
+       bundle automatically hands over its provenance.
+
+    Every ref is resolved; a ref whose labels cannot be read comes back **unlabelled**
+    (and therefore denies, naming itself). This function never returns fewer entries
+    than it was given refs.
+    """
+    from agent_utilities.kvcache.eligibility import (
+        ContributingSource,
+        get_source_label_resolver,
+    )
+
+    labelled: list[Any] = []
+    refs: list[str] = []
+
+    raw = (sources_json or "").strip()
+    if raw and raw not in {"[]", "{}"}:
+        declared = json.loads(raw)
+        if not isinstance(declared, list):
+            raise ValueError("sources JSON must be a list")
+        for entry in declared:
+            if isinstance(entry, str):
+                refs.append(entry)
+            elif isinstance(entry, dict):
+                labelled.append(ContributingSource(**entry))
+            else:
+                raise ValueError(
+                    "each source must be a ref string or a labelled source object"
+                )
+
+    bundle_raw = (context_bundle_json or "").strip()
+    if bundle_raw and bundle_raw not in {"{}", "[]"}:
+        bundle = json.loads(bundle_raw)
+        if isinstance(bundle, dict):
+            for citation in bundle.get("citations") or []:
+                if isinstance(citation, dict):
+                    refs.extend(str(r) for r in (citation.get("source_refs") or []))
+
+    # De-duplicate refs while preserving order; a source contributing twice is still
+    # one source, and duplicating it would only duplicate its labels.
+    unique_refs = tuple(dict.fromkeys(r for r in refs if r.strip()))
+    resolved = (
+        get_source_label_resolver().resolve(unique_refs, tenant=tenant)
+        if unique_refs
+        else ()
+    )
+    return tuple(labelled) + tuple(resolved)
+
+
+def _kv_checkpoint_intelligence(
+    action: str,
+    *,
+    graph: str,
+    data_b64: str,
+    model_identity: str,
+    quantization: str,
+    serving_engine: str,
+    engine_version: str,
+    prefix_digest: str,
+    tenant: str,
+    policy_version: str,
+    run_id: str,
+    point: str,
+    checkpoint_id: str,
+    requesting_tenant: str,
+    observation_json: str,
+    evidence_bundle_json: str,
+    context_bundle_json: str,
+    sources_json: str,
+    trigger: str,
+    persist: bool,
+) -> str:
+    """The worthiness/tiering/eligibility half of ``graph_kv_checkpoint``.
+
+    CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring. Split out of the tool body so
+    the three trigger paths can be exercised directly, and so the tool function stays
+    argument-marshalling only.
+
+    CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility — **the tenant a
+    durable write is authorized under is read from the verified session, never from the
+    payload.** Before this, ``initiator="user", operator_grant=true`` were arguments an
+    agent could simply assert, which made the deny-by-default gate defeatable by any
+    caller that chose to lie. They are gone: ``trigger`` is now provenance only, and the
+    authority comes from :func:`derive_caller_authority` over the ambient
+    ``GraphSession``.
+    """
+    from agent_utilities.kvcache.checkpoint import KVCheckpointError, KVCheckpointKey
+    from agent_utilities.kvcache.worthiness import CheckpointObservation
+
+    # Validate the trigger AT THE BOUNDARY. It is a Literal on PersistenceRequest /
+    # RAMCheckpointRecord, so an unrecognized value would surface deep inside as a raw
+    # pydantic ValidationError that the KVCheckpointError handlers below never catch.
+    if trigger not in {"user", "agent", "system"}:
+        return _surface_error(
+            ValueError(f"trigger must be one of user|agent|system, got {trigger!r}"),
+            surface="kv_checkpoint",
+            action=action,
+            code="invalid_request",
+        )
+
+    manager = _checkpoint_manager(graph)
+
+    def _observation() -> Any:
+        """Build the observation from the explicit fields plus any bundles handed in.
+
+        An agent that has just run ``graph_ask`` / a context compile already holds the
+        exact shapes the grounding, contradiction and novelty scorers want, so it can
+        hand those straight over instead of transcribing four counts by hand. Explicit
+        ``observation_json`` fields always win over anything derived from a bundle —
+        the caller's direct measurement is more authoritative than an inference.
+        """
+        payload = json.loads(observation_json) if observation_json else {}
+        if not isinstance(payload, dict):
+            raise ValueError("observation_json must be a JSON object")
+        derived: dict[str, Any] = {}
+        if evidence_bundle_json.strip() not in {"", "{}"}:
+            derived.update(
+                _measured_fields(
+                    CheckpointObservation.from_evidence_bundle(
+                        _bundle_object(evidence_bundle_json)
+                    )
+                )
+            )
+        if context_bundle_json.strip() not in {"", "{}"}:
+            derived.update(
+                _measured_fields(
+                    CheckpointObservation.from_context_bundle(
+                        _bundle_object(context_bundle_json)
+                    )
+                )
+            )
+        return CheckpointObservation(**{**derived, **payload})
+
+    if action == "ram_stats":
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "result": {
+                    **manager.ram_store.stats().model_dump(mode="json"),
+                    "eligibility_gate": manager.eligibility_gate.name,
+                    # Which signals are active in THIS deployment. Without it a score
+                    # is uninterpretable — an operator who removed a default scorer or
+                    # added their own has no other way to see what produced the number.
+                    "scorers": [
+                        {"name": s.name, "weight": s.weight}
+                        for s in manager.advisor.registry.scorers()
+                    ],
+                    "ram_threshold": manager.advisor.ram_threshold,
+                },
+            }
+        )
+
+    if action == "recommend":
+        try:
+            observation = _observation()
+        except Exception as exc:  # noqa: BLE001 — caller-supplied JSON/shape
+            return _surface_error(
+                exc, surface="kv_checkpoint", action=action, code="invalid_request"
+            )
+        recommendation = manager.recommend(observation)
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "result": {
+                    **recommendation.model_dump(mode="json", exclude={"observation"}),
+                    "advisory": recommendation.as_advisory(),
+                },
+            },
+            default=_json_default,
+        )
+
+    if action == "explain":
+        try:
+            return json.dumps(
+                {
+                    "surface": "kv_checkpoint",
+                    "action": action,
+                    "result": manager.explain(
+                        checkpoint_id,
+                        requesting_tenant=_session_bound_tenant(requesting_tenant),
+                    ).model_dump(mode="json"),
+                },
+                default=_json_default,
+            )
+        except ValueError as exc:
+            return _surface_error(
+                exc, surface="kv_checkpoint", action=action, code="invalid_request"
+            )
+        except KVCheckpointError as exc:
+            return _surface_error(
+                exc,
+                surface="kv_checkpoint",
+                action=action,
+                code=_checkpoint_error_code(exc),
+            )
+
+    if action == "promote":
+        try:
+            outcome = manager.promote(
+                checkpoint_id,
+                requesting_tenant=_session_bound_tenant(requesting_tenant),
+                trigger=trigger,  # type: ignore[arg-type]
+            )
+        except ValueError as exc:
+            return _surface_error(
+                exc, surface="kv_checkpoint", action=action, code="invalid_request"
+            )
+        except KVCheckpointError as exc:
+            return _surface_error(
+                exc,
+                surface="kv_checkpoint",
+                action=action,
+                code=_checkpoint_error_code(exc),
+            )
+        return json.dumps(
+            {
+                "surface": "kv_checkpoint",
+                "action": action,
+                "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
+            },
+            default=_json_default,
+        )
+
+    # action == "checkpoint_now"
+    try:
+        data = base64.b64decode(data_b64) if data_b64 else b""
+        bound_tenant = _session_bound_tenant(tenant)
+        key = KVCheckpointKey(
+            model_identity=model_identity,
+            quantization=quantization,
+            serving_engine=serving_engine,
+            engine_version=engine_version,
+            prefix_digest=prefix_digest,
+            tenant=bound_tenant,
+            policy_version=policy_version,
+        )
+        sources = _contributing_sources(
+            sources_json, context_bundle_json, tenant=bound_tenant
+        )
+        supplied = (
+            observation_json.strip() not in {"", "{}"}
+            or evidence_bundle_json.strip() not in {"", "{}"}
+            or context_bundle_json.strip() not in {"", "{}"}
+        )
+        observation = _observation() if supplied else None
+    except Exception as exc:  # noqa: BLE001 — bad payload/key/observation
+        return _surface_error(
+            exc, surface="kv_checkpoint", action=action, code="invalid_request"
+        )
+    try:
+        outcome = manager.checkpoint_now(
+            data,
+            key=key,
+            run_id=run_id,
+            point=point,
+            trigger=trigger,  # type: ignore[arg-type]
+            persist=persist,
+            observation=observation,
+            sources=sources,
+        )
+    except KVCheckpointError as exc:
+        return _surface_error(
+            exc,
+            surface="kv_checkpoint",
+            action=action,
+            code=_checkpoint_error_code(exc),
+        )
+    return json.dumps(
+        {
+            "surface": "kv_checkpoint",
+            "action": action,
+            "result": outcome.model_dump(mode="json", exclude={"recommendation"}),
+            "advisory": (
+                outcome.recommendation.as_advisory() if outcome.recommendation else ""
+            ),
+        },
+        default=_json_default,
+    )
+
+
 def _json_default(obj: Any) -> Any:
     if isinstance(obj, bytes | bytearray):
         return {"__bytes_b64__": base64.b64encode(bytes(obj)).decode("ascii")}
     return str(obj)
+
+
+def _trace_waterfall(trace_id: str) -> str:
+    """Fetch one trace's full Span/Generation subgraph from the ALWAYS-ON KG-native
+    sink (CONCEPT:AU-OS.config.model-factory-passthrough) and flatten it into a
+    waterfall-ready node list, for ``graph_traces action='waterfall'`` (D-25-1, the
+    trace-waterfall MCP App).
+
+    Deliberately does NOT probe the raw engine observability surface (unlike
+    ``action='get'``/``'search'`` above): that surface may not exist in a given
+    engine build, while ``harness.tracing.get_kg_trace_sink()`` — the
+    ``KGTraceBackend`` every daemon installs at startup — is the one trace store
+    guaranteed present wherever this tool runs, and is graph-queryable durably (not
+    just this in-memory mirror) once persisted. Neither ``SpanNode`` nor
+    ``GenerationNode`` carries an absolute start timestamp (only a completion-time
+    ``latency_ms`` duration), so this returns a NESTED-DURATION shape — each node's
+    own ``latencyMs`` relative to the trace total, plus ``parentId`` for nesting —
+    rather than fabricating precise concurrent start offsets the data doesn't
+    support. Never raises: an absent sink or unknown trace both return a clean
+    ``degraded``/``error`` payload.
+    """
+    from agent_utilities.harness.tracing import get_kg_trace_sink
+
+    sink = get_kg_trace_sink()
+    if sink is None or not callable(getattr(sink, "get_trace", None)):
+        return _degraded("traces", "waterfall", ["harness.tracing.get_kg_trace_sink"])
+    try:
+        entry = sink.get_trace(trace_id)
+    except Exception as exc:  # noqa: BLE001 — surface as data, never raise
+        return _surface_error(exc, surface="traces", action="waterfall")
+    if entry is None:
+        return json.dumps(
+            {
+                "surface": "traces",
+                "action": "waterfall",
+                "error": "trace not found",
+                "trace_id": trace_id,
+            }
+        )
+    trace = entry.get("trace")
+    nodes: list[dict[str, Any]] = []
+    for span in entry.get("spans", []) or []:
+        nodes.append(
+            {
+                "id": span.id,
+                "parentId": span.parent_span_id or getattr(trace, "id", None),
+                "kind": span.span_kind,
+                "name": span.name,
+                "latencyMs": span.latency_ms or 0,
+                "error": span.error,
+            }
+        )
+    for gen in entry.get("generations", []) or []:
+        nodes.append(
+            {
+                "id": gen.id,
+                "parentId": gen.parent_span_id or getattr(trace, "id", None),
+                "kind": "generation",
+                "name": gen.name,
+                "latencyMs": gen.latency_ms or 0,
+                "model": gen.model,
+                "costUsd": gen.total_cost_usd,
+                "inputTokens": gen.input_tokens,
+                "outputTokens": gen.output_tokens,
+                "error": gen.error,
+            }
+        )
+    result = {
+        "trace": {
+            "id": getattr(trace, "id", trace_id),
+            "name": getattr(trace, "name", ""),
+            "status": getattr(trace, "status", "ok"),
+            "latencyMs": getattr(trace, "latency_ms", None),
+            "costUsd": getattr(trace, "total_cost_usd", 0.0),
+            "inputTokens": getattr(trace, "input_tokens", 0),
+            "outputTokens": getattr(trace, "output_tokens", 0),
+            "toolCalls": getattr(trace, "tool_calls", 0),
+        },
+        "nodes": nodes,
+    }
+    return json.dumps(
+        {"surface": "traces", "action": "waterfall", "result": result},
+        default=_json_default,
+    )
 
 
 def _degraded(surface: str, action: str, tried: list[str]) -> str:
@@ -245,6 +767,39 @@ def _surface_error(
     payload["surface"] = surface
     payload["action"] = action
     return json.dumps(payload)
+
+
+def _require_process_perspective(params: dict[str, Any]) -> Any:
+    """Mint the explicit, versioned ``ProcessPerspective`` a flattening needs.
+
+    CONCEPT:AU-KG.mining.governed-perspective-flattening — classical
+    single-case flattening (one trace per object) is a real information loss
+    over the object-centric source truth, so ``graph_mine(action="process")``
+    refuses to derive traces from a bare ``object_type`` string: a caller must
+    also disclose WHICH versioned analytical selection produced them via
+    ``perspective_id``/``derivation_version``. Pops the three params it
+    consumes; raises ``ValueError`` (caught by the caller's existing
+    invalid-request handling) when any is missing.
+    """
+    from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
+        ProcessPerspective,
+    )
+
+    object_type = str(params.pop("object_type", "") or "").strip()
+    perspective_id = str(params.pop("perspective_id", "") or "").strip()
+    derivation_version = str(params.pop("derivation_version", "") or "").strip()
+    if not object_type or not perspective_id or not derivation_version:
+        raise ValueError(
+            "classical single-case flattening requires 'object_type', "
+            "'perspective_id', and 'derivation_version' — undisclosed "
+            "flattening is refused; declare the versioned ProcessPerspective "
+            "these traces are derived under"
+        )
+    return ProcessPerspective(
+        perspective_id=perspective_id,
+        object_types=(object_type,),
+        derivation_version=derivation_version,
+    )
 
 
 def _resolve(client: Any, candidates: tuple[tuple[str, str], ...]) -> Any:
@@ -891,6 +1446,306 @@ def register_engine_surface_tools(mcp) -> None:
                     pass
 
     kg_server.REGISTERED_TOOLS["graph_kvcache"] = graph_kvcache
+
+    # ══════════════════════════════════════════════════════════════════
+    # graph_kv_checkpoint — KV-cache checkpoints as graph resources
+    # (CONCEPT:AU-KG.memory.kv-checkpoint-resource)
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_kv_checkpoint",
+        description=(
+            "CONCEPT:AU-KG.memory.kv-checkpoint-resource — checkpoint a KV-cache at a point of "
+            "ideal understanding, then initialise a new agent from it or reset a "
+            "conversation back to it. The heavy KV blob lives behind the engine's "
+            "content-addressed blob store; the response never inlines it — only "
+            "provenance (checkpoint_id/digest/blob_id) so a caller with real access to "
+            "the blob store can fetch it directly. Actions: 'create' (data_b64 + the "
+            "full key: model_identity/quantization/serving_engine/engine_version/"
+            "prefix_digest/tenant/policy_version, plus run_id/point) → checkpoint "
+            "provenance; 'instantiate_agent' (checkpoint_id + requesting_tenant + "
+            "new_run_id) → fail-closed load + an initializedFrom lineage edge from a "
+            "fresh AgentRun node; 'restore_conversation' (checkpoint_id + "
+            "conversation_id + requesting_tenant) → fail-closed load + a restoredFrom "
+            "lineage edge, or set allow_cold_start=true for an EXPLICIT, traced "
+            "cold-start fallback instead of raising. A tenant mismatch or a stale "
+            "policy_version is ALWAYS refused (cross-tenant checkpoint reuse is a "
+            "security boundary, never bypassable). "
+            "CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring adds the intelligence "
+            "actions: 'recommend' (observation_json → a scored checkpoint-worthiness "
+            "verdict with drivers, blockers and the scorers that had no evidence — "
+            "advisory only, it takes no checkpoint); 'checkpoint_now' (data_b64 + the "
+            "key; stores to the RAM tier immediately, and with persist=true ALSO "
+            "attempts a durable write); 'promote' (checkpoint_id → RAM→disk "
+            "promotion); 'explain' (checkpoint_id → why this checkpoint exists, why it "
+            "is where it is, and the full authority derivation behind that); "
+            "'ram_stats'. Durable persistence ALWAYS passes the "
+            "CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility gate, which "
+            "(CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility) "
+            "DERIVES the verdict from YOUR verified session and delegation chain "
+            "against the labels of every contributing source — most-restrictive "
+            "composition, into your own tenancy only. There is no grant flag to set: an "
+            "agent whose delegated authority already covers the material persists "
+            "automatically, one whose does not is refused with the offending source or "
+            "missing label named. An undeclared source set, or a source missing a "
+            "classification/residency/retention label, DENIES. A checkpoint already "
+            "living in RAM is NOT consent to write it to disk."
+        ),
+        tags=["graph-os", "engine", "kvcache", "checkpoint", "memory"],
+    )
+    def graph_kv_checkpoint(
+        action: str = Field(
+            default="", description="create | instantiate_agent | restore_conversation"
+        ),
+        data_b64: str = Field(
+            default="", description="Base64 KV-cache blob bytes (create only)."
+        ),
+        model_identity: str = Field(default="", description="create: key component."),
+        quantization: str = Field(default="", description="create: key component."),
+        serving_engine: str = Field(default="", description="create: key component."),
+        engine_version: str = Field(default="", description="create: key component."),
+        prefix_digest: str = Field(default="", description="create: key component."),
+        tenant: str = Field(
+            default="", description="create: owning tenant (mandatory key component)."
+        ),
+        policy_version: str = Field(
+            default="", description="create: key component (defaults to '')."
+        ),
+        run_id: str = Field(default="", description="create: the source run's id."),
+        point: str = Field(
+            default="", description="create: label for the checkpointed point."
+        ),
+        provenance_json: str = Field(
+            default="{}", description="create: free-form provenance JSON object."
+        ),
+        checkpoint_id: str = Field(
+            default="",
+            description="instantiate_agent/restore_conversation: the checkpoint to load.",
+        ),
+        requesting_tenant: str = Field(
+            default="",
+            description="instantiate_agent/restore_conversation: the caller's tenant "
+            "(checked against the checkpoint's stored tenant, fail-closed).",
+        ),
+        current_policy_version: str = Field(
+            default="",
+            description="instantiate_agent/restore_conversation: current policy "
+            "version to validate against (empty ⇒ skip the staleness check).",
+        ),
+        new_run_id: str = Field(
+            default="", description="instantiate_agent: the new run's id."
+        ),
+        conversation_id: str = Field(
+            default="", description="restore_conversation: the conversation to reset."
+        ),
+        allow_cold_start: bool = Field(
+            default=False,
+            description="restore_conversation: on an invalid/foreign/stale "
+            "checkpoint, return an explicit traced cold-start result instead of "
+            "raising.",
+        ),
+        observation_json: str = Field(
+            default="{}",
+            description="recommend/checkpoint_now: a CheckpointObservation as JSON "
+            "(rebuild cost, sibling/queued tasks, retrieved/novel items, claim/"
+            "evidence counts, contradictions, churn, phase, model_self_report). Every "
+            "field is optional; an omitted field means NOT MEASURED and its scorer "
+            "abstains rather than guessing.",
+        ),
+        evidence_bundle_json: str = Field(
+            default="{}",
+            description="recommend/checkpoint_now: an EvidenceBundle as JSON (as "
+            "returned by graph_ask/graph_query). Its claims/evidence_spans/"
+            "contradictions populate the grounding and contradiction axes directly, so "
+            "a caller need not transcribe the counts. Explicit observation_json fields "
+            "always win over anything derived here.",
+        ),
+        context_bundle_json: str = Field(
+            default="{}",
+            description="recommend/checkpoint_now: a ContextBundle as JSON. Its items/"
+            "dropped_redundant/citations populate the retrieval-saturation (novelty) "
+            "axis. Same precedence rule as evidence_bundle_json.",
+        ),
+        sources_json: str = Field(
+            default="[]",
+            description="checkpoint_now: the sources that contributed to this context, "
+            "as a JSON list of either ref strings (resolved to their governance labels) "
+            "or fully-labelled objects (source_id/classification/residency_regions/"
+            "retention_days/markings). Usually unnecessary: citations carried on "
+            "context_bundle_json already name them. An EMPTY source set refuses durable "
+            "persistence — an unprovenanced checkpoint cannot be shown to permit "
+            "data-at-rest.",
+        ),
+        trigger: str = Field(
+            default="agent",
+            description="checkpoint_now/promote: which path took this checkpoint — "
+            "'user', 'agent' or 'system'. PROVENANCE ONLY. It is recorded on the audit "
+            "record and never read by the eligibility decision, which derives authority "
+            "from your verified session instead.",
+        ),
+        persist: bool = Field(
+            default=False,
+            description="checkpoint_now: also attempt durable (cross-session) "
+            "persistence. Always subject to the eligibility gate; a refusal still "
+            "leaves the RAM checkpoint in place.",
+        ),
+        graph: str = Field(
+            default="", description="Target graph (default engine graph)."
+        ),
+    ) -> str:
+        """Thin verb over :class:`~agent_utilities.kvcache.KVCheckpointStore` (CONCEPT:AU-KG.memory.kv-checkpoint-resource)
+        and :class:`~agent_utilities.kvcache.TieredCheckpointManager`
+        (CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring)."""
+        from agent_utilities.kvcache import KVCheckpointError, KVCheckpointKey
+
+        # ── the intelligence actions: worthiness, tiering, eligibility ──────
+        # These route through TieredCheckpointManager (shared RAM tier) rather than
+        # the durable store directly, because the RAM tier is the DEFAULT and disk is
+        # a gated promotion off it.
+        if action in {
+            "recommend",
+            "checkpoint_now",
+            "promote",
+            "explain",
+            "ram_stats",
+        }:
+            return _kv_checkpoint_intelligence(
+                action,
+                graph=graph,
+                data_b64=data_b64,
+                model_identity=model_identity,
+                quantization=quantization,
+                serving_engine=serving_engine,
+                engine_version=engine_version,
+                prefix_digest=prefix_digest,
+                tenant=tenant,
+                policy_version=policy_version,
+                run_id=run_id,
+                point=point,
+                checkpoint_id=checkpoint_id,
+                requesting_tenant=requesting_tenant,
+                observation_json=observation_json,
+                evidence_bundle_json=evidence_bundle_json,
+                context_bundle_json=context_bundle_json,
+                sources_json=sources_json,
+                trigger=trigger,
+                persist=persist,
+            )
+
+        try:
+            store = _checkpoint_store(graph)
+        except Exception as exc:  # noqa: BLE001 — engine down is a normal degrade
+            return _surface_error(
+                exc,
+                surface="kv_checkpoint",
+                action=action,
+                code="dependency_unavailable",
+            )
+
+        if action == "create":
+            try:
+                data = base64.b64decode(data_b64) if data_b64 else b""
+                provenance = json.loads(provenance_json) if provenance_json else {}
+            except (ValueError, TypeError) as exc:
+                return _surface_error(
+                    exc, surface="kv_checkpoint", action=action, code="invalid_request"
+                )
+            try:
+                key = KVCheckpointKey(
+                    model_identity=model_identity,
+                    quantization=quantization,
+                    serving_engine=serving_engine,
+                    engine_version=engine_version,
+                    prefix_digest=prefix_digest,
+                    tenant=tenant,
+                    policy_version=policy_version,
+                )
+            except Exception as exc:  # noqa: BLE001 — bad/missing key component
+                return _surface_error(
+                    exc, surface="kv_checkpoint", action=action, code="invalid_request"
+                )
+            try:
+                record = store.create_checkpoint(
+                    data,
+                    key=key,
+                    run_id=run_id,
+                    point=point,
+                    provenance=provenance if isinstance(provenance, dict) else {},
+                )
+            except Exception as exc:  # noqa: BLE001 — surface engine errors as data
+                return _surface_error(exc, surface="kv_checkpoint", action=action)
+            if record is None:
+                return json.dumps(
+                    {
+                        "surface": "kv_checkpoint",
+                        "action": action,
+                        "error": "checkpoint creation failed (empty payload or engine write failure)",
+                    }
+                )
+            return json.dumps(
+                {
+                    "surface": "kv_checkpoint",
+                    "action": action,
+                    "result": record.model_dump(),
+                },
+                default=_json_default,
+            )
+
+        if action == "instantiate_agent":
+            try:
+                record = store.instantiate_agent(
+                    checkpoint_id,
+                    requesting_tenant=requesting_tenant,
+                    new_run_id=new_run_id,
+                    current_policy_version=current_policy_version or None,
+                )
+            except KVCheckpointError as exc:
+                return _surface_error(
+                    exc,
+                    surface="kv_checkpoint",
+                    action=action,
+                    code=_checkpoint_error_code(exc),
+                )
+            return json.dumps(
+                {
+                    "surface": "kv_checkpoint",
+                    "action": action,
+                    "result": record.model_dump(),
+                },
+                default=_json_default,
+            )
+
+        if action == "restore_conversation":
+            try:
+                res = store.restore_conversation(
+                    checkpoint_id,
+                    conversation_id=conversation_id,
+                    requesting_tenant=requesting_tenant,
+                    current_policy_version=current_policy_version or None,
+                    allow_cold_start=allow_cold_start,
+                )
+            except KVCheckpointError as exc:
+                return _surface_error(
+                    exc,
+                    surface="kv_checkpoint",
+                    action=action,
+                    code=_checkpoint_error_code(exc),
+                )
+            # Never inline the heavy blob bytes over the JSON tool surface — only
+            # provenance; a caller that needs the bytes fetches them directly from
+            # the engine's own blob store by digest (CONCEPT:AU-KG.memory.kv-checkpoint-resource).
+            payload = res.model_dump(exclude={"data"})
+            payload["size_bytes"] = len(res.data) if res.data is not None else 0
+            return json.dumps(
+                {"surface": "kv_checkpoint", "action": action, "result": payload},
+                default=_json_default,
+            )
+
+        return json.dumps(
+            {"surface": "kv_checkpoint", "error": f"unknown action {action!r}"}
+        )
+
+    kg_server.REGISTERED_TOOLS["graph_kv_checkpoint"] = graph_kv_checkpoint
+    kg_server.ACTION_TOOL_ROUTES["graph_kv_checkpoint"] = "/graph/kv_checkpoint"
     kg_server.ACTION_TOOL_ROUTES["graph_kvcache"] = "/graph/kvcache"
 
     # ══════════════════════════════════════════════════════════════════
@@ -1019,15 +1874,20 @@ def register_engine_surface_tools(mcp) -> None:
         description=(
             "CONCEPT:AU-KG.coordination.engine-message-broker — search or fetch distributed traces from the engine's "
             "observability surface. action='search' (filter by 'service'/'operation'/"
-            "free-form 'query', capped by 'limit') or 'get' (a single 'trace_id'). Extra "
-            "engine kwargs via params_json. Degrades cleanly when the engine build has "
-            "no trace surface."
+            "free-form 'query', capped by 'limit'), 'get' (a single 'trace_id' from the "
+            "engine's own trace surface), or 'waterfall' (a single 'trace_id''s full "
+            "Span/Generation subgraph from the always-on KG-native trace sink, flattened "
+            "for the trace-waterfall MCP App). Extra engine kwargs via params_json. "
+            "'search'/'get' degrade cleanly when the engine build has no trace surface; "
+            "'waterfall' degrades cleanly when no KG-native sink is installed."
         ),
         tags=["graph-os", "engine", "observability", "traces"],
     )
     def graph_traces(
-        action: str = Field(default="search", description="search | get"),
-        trace_id: str = Field(default="", description="Trace id (action='get')."),
+        action: str = Field(default="search", description="search | get | waterfall"),
+        trace_id: str = Field(
+            default="", description="Trace id (action='get'/'waterfall')."
+        ),
         service: str = Field(default="", description="Service name filter (search)."),
         operation: str = Field(
             default="", description="Operation/span name filter (search)."
@@ -1052,6 +1912,10 @@ def register_engine_surface_tools(mcp) -> None:
             return json.dumps(
                 {"surface": "traces", "error": "params_json must decode to an object"}
             )
+        if action == "waterfall":
+            if not trace_id:
+                return json.dumps({"surface": "traces", "error": "trace_id required"})
+            return _trace_waterfall(trace_id)
         if action == "get":
             if not trace_id:
                 return json.dumps({"surface": "traces", "error": "trace_id required"})
@@ -1303,10 +2167,30 @@ def register_engine_surface_tools(mcp) -> None:
             "sequences, repeats allowed): mines the directly-follows graph + the "
             "alpha-algorithm footprint (causal 'a>b' / parallel 'a||b' / choice 'a#b') "
             "plus start/end activity sets. Alternatively provide provenance-rich "
-            "'events' plus an explicit 'object_type' to deterministically project one "
-            "object-centric perspective without an LLM. Event projection writeback is "
-            "fail-closed until the native ProcessModel can retain source lineage. "
+            "'events' plus an explicit 'object_type' + 'perspective_id' + "
+            "'derivation_version' to deterministically project one NAMED, VERSIONED "
+            "object-centric case perspective without an LLM — classical single-case "
+            "flattening always requires and discloses this triple; there is no bare "
+            "'object_type'-only path (undisclosed flattening is refused). Or provide a "
+            "governed 'ocel_json' JSON-OCEL 2.0 document with an authorized 'tenant', "
+            "optional source_ref/mapping_version/provenance transport metadata, and "
+            "ocel_mode='mine' (default) or 'validate'. 'validate' only validates + exports a "
+            "canonical deterministic OCEL document and never writes. 'mine' additionally "
+            "requires 'object_type'/'perspective_id'/'derivation_version', commits the OCEL "
+            "source truth PLUS the disclosed ProcessPerspective as one tenant-scoped tEKG "
+            "ChangeEnvelope (real graph write — not just a plan), and mines traces under that "
+            "perspective. Event projection writeback is fail-closed until the native "
+            "ProcessModel can retain source-event lineage. "
             "Trace writeback (+ 'process_id') ⇒ :ProcessModel node. "
+            "Or provide 'traces'/'object_ids'/'allowed_edges' (a reference model's edge "
+            "set, e.g. a discovered directly-follows graph) + 'model_ref' + "
+            "'graph_as_of'/'mapping_version'/'export_digest' + the disclosed perspective "
+            "triple ('object_type'/'perspective_id'/'derivation_version') + 'tenant' to run "
+            "CONFORMANCE CHECKING — 'does THIS run's behavior fit a GIVEN model?', formally "
+            "separate from discovery (the model is NEVER re-derived from the traces being "
+            "checked). Commits one :ConformanceRun node (linked CHECKED_UNDER_PERSPECTIVE to "
+            "the perspective) + one :Deviation node per mismatch (linked HAS_DEVIATION), "
+            "querying which is what discovery's own writeback cannot answer. "
             "• root_cause — bounded-depth ('max_hops'), decaying ('decay') backward "
             "search over a weighted dependency graph ('nodes','edges' cause→effect, "
             "per-node anomaly 'scores') to rank the most-likely upstream root cause of a "
@@ -1381,7 +2265,18 @@ def register_engine_surface_tools(mcp) -> None:
             '{"events":[{"event_id":"e1","activity":"login",'
             '"occurred_at":"2026-01-01T00:00:00Z","source_ref":"src:1",'
             '"objects":[{"id":"u1","type":"User","qualifier":"actor"}]}],'
-            '"object_type":"User"} (process); '
+            '"object_type":"User","perspective_id":"case:user-view",'
+            '"derivation_version":"v1"} (process); '
+            '{"ocel_json":{"eventTypes":[],"objectTypes":[],"events":[],"objects":[]},'
+            '"tenant":"acme",'
+            '"object_type":"Order","perspective_id":"case:order-view",'
+            '"derivation_version":"v1","ocel_mode":"mine|validate"} (process); '
+            '{"traces":[["create","ship"]],"object_ids":["order-1"],'
+            '"allowed_edges":[["create","pack"]],"model_ref":"model:v1",'
+            '"graph_as_of":"2026-01-01T00:00:00Z","mapping_version":"ocel-json-2.0",'
+            '"export_digest":"abc123","object_type":"Order",'
+            '"perspective_id":"case:order-view","derivation_version":"v1",'
+            '"tenant":"acme"} (process, conformance check); '
             '{"nodes":["a","b"],"scores":[0.1,0.9],"edges":[["a","b",1.0]],"symptom":"b"} '
             "(root_cause); "
             '{"nodes":["a","b"],"seed":[1.0,0.0],"edges":[["a","b",1.0]]} '
@@ -1424,6 +2319,343 @@ def register_engine_surface_tools(mcp) -> None:
                     "actions": sorted(valid_actions),
                 }
             )
+        if action == "process" and "ocel_json" in params:
+            if "traces" in params or "events" in params:
+                return json.dumps(
+                    {
+                        "surface": "mining",
+                        "action": action,
+                        "code": "invalid_request",
+                        "error": "provide OCEL input instead of events or traces",
+                    }
+                )
+            from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+                ingest_graph_slice,
+            )
+            from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
+                project_object_centric_slice,
+            )
+            from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
+                export_ocel_json,
+                import_ocel_json,
+            )
+            from agent_utilities.usage.authorization import resolve_usage_tenant
+
+            try:
+                tenant = resolve_usage_tenant(
+                    str(params.pop("tenant", "") or "") or None
+                )
+                if not tenant:
+                    raise ValueError("tenant is required for governed OCEL import")
+                slice_, provenance = import_ocel_json(
+                    params.pop("ocel_json"),
+                    tenant=tenant,
+                    source_ref=str(params.pop("source_ref", "") or ""),
+                    mapping_version=str(params.pop("mapping_version", "") or ""),
+                    provenance=params.pop("provenance", None),
+                )
+                ocel_mode = str(params.pop("ocel_mode", "mine") or "mine").strip()
+                if ocel_mode not in {"mine", "validate"}:
+                    raise ValueError("ocel_mode must be 'mine' or 'validate'")
+                exported = export_ocel_json(slice_)
+                if ocel_mode == "validate":
+                    envelope = slice_.to_change_envelope(
+                        tenant=tenant,
+                        provenance=provenance,
+                    )
+                    evidence = {
+                        "mode": "ocel_2.0",
+                        "tenant": tenant,
+                        "content_hash": slice_.canonical_digest(),
+                        "idempotency_key": envelope.idempotency_key,
+                        "mapping_version": slice_.mapping_version,
+                        "node_count": len(envelope.typed_payload["entities"]),
+                        "relationship_count": len(
+                            envelope.typed_payload["relationships"]
+                        ),
+                    }
+                    return json.dumps(
+                        {
+                            "surface": "mining",
+                            "action": action,
+                            "ocel": exported,
+                            "tekg": evidence,
+                        },
+                        default=_json_default,
+                    )
+                # ``mine`` mode always materializes source truth AND discloses
+                # any case-notion flattening it derives from that same truth
+                # (CONCEPT:AU-KG.mining.governed-perspective-flattening) — the
+                # perspective used for the trace projection below is folded
+                # into the SAME committed slice as a real, versioned
+                # ``ProcessPerspective`` node, never a silent side channel.
+                perspective = _require_process_perspective(params)
+                projection = project_object_centric_slice(
+                    slice_,
+                    perspective=perspective,
+                )
+                committed_slice = slice_.model_copy(
+                    update={"perspectives": (*slice_.perspectives, perspective)}
+                )
+                # ``to_change_envelope`` still stamps tenant_id/ocel_provenance
+                # onto every entity/link and computes the digest-derived
+                # idempotency key — reuse that rendering — but a
+                # multi-entity slice's ``{"entities": [...], "relationships":
+                # [...]}`` typed_payload is NOT the single-row (+ optional
+                # ``_nodes``/``_links`` auxiliary) shape ``ingest_envelope``'s
+                # ``to_entity_dict``/``_prepare_node_rows`` understand: handing
+                # that envelope to ``ingest_envelope`` directly silently
+                # collapses the whole slice onto ONE untyped node (verified
+                # against a real engine — the "success" status did not mean
+                # the ProcessEvent/BusinessObject/ProcessPerspective nodes
+                # were ever created). ``ingest_graph_slice`` is the existing
+                # writer built for exactly this multi-node shape (first
+                # entity primary, the rest as governed ``_nodes``/``_links``
+                # auxiliaries) — the same one ``IngestionEngine`` already uses
+                # for its concepts/facts passes.
+                envelope = committed_slice.to_change_envelope(
+                    tenant=tenant,
+                    provenance=provenance,
+                )
+                # THE single commit of this slice. Three lanes touched this one
+                # spot: feat/ocel-roundtrip-and-derivation and
+                # feat/wire-first-reachability-gate each independently fixed the
+                # discarded ChangeEnvelope (kept ONE commit, the ocel form, which
+                # also commits the disclosed ProcessPerspective), and
+                # feat/wave6-followups-ocel then fixed the commit ITSELF: routing
+                # a {entities, relationships} payload through ingest_envelope
+                # silently collapsed every entity onto ONE untyped node while
+                # still returning status="success" (D-61-4). ingest_graph_slice is
+                # the correct writer. The degradation wrapper is wire-first's: a
+                # write-path outage surfaces as a structured error, never a crash.
+                try:
+                    engine = kg_server._get_engine()
+                    applied = ingest_graph_slice(
+                        engine,
+                        envelope.connector,
+                        envelope.typed_payload["entities"],
+                        envelope.typed_payload["relationships"],
+                        source_instance=envelope.source_instance,
+                        checkpoint=envelope.checkpoint,
+                    )
+                except Exception as exc:  # noqa: BLE001 — a write-path outage degrades graph_mine, never crashes it
+                    return _surface_error(
+                        exc,
+                        surface="mining",
+                        action=action,
+                        code="dependency_unavailable",
+                    )
+                if applied.get("status") not in {"success", "skipped"}:
+                    return json.dumps(
+                        {
+                            "surface": "mining",
+                            "action": action,
+                            "code": "write_failed",
+                            "error": (
+                                "governed OCEL ChangeEnvelope commit failed: "
+                                f"{applied.get('error') or applied.get('status')}"
+                            ),
+                            "ocel": exported,
+                            "tekg": {"idempotency_key": envelope.idempotency_key},
+                        },
+                        default=_json_default,
+                    )
+                evidence = {
+                    "mode": "ocel_2.0",
+                    "tenant": tenant,
+                    "content_hash": committed_slice.canonical_digest(),
+                    "idempotency_key": applied.get(
+                        "idempotency_key", envelope.idempotency_key
+                    ),
+                    "mapping_version": committed_slice.mapping_version,
+                    "node_count": len(envelope.typed_payload["entities"]),
+                    "relationship_count": len(envelope.typed_payload["relationships"]),
+                    "commit_status": applied.get("status"),
+                    "write_status": applied.get("status"),
+                }
+                # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
+                # D-71-1) — the process_signal channel, recorded HERE because this
+                # is the one place the import's REAL outcome is known (post-commit
+                # `applied` status and idempotency key), never re-derived by a
+                # second query. Best-effort audit overlay; never gates the import.
+                try:
+                    from agent_utilities.knowledge_graph.research.evidence import (
+                        from_process_signal,
+                        record_evidence,
+                    )
+
+                    record_evidence(engine, from_process_signal(evidence))
+                except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: a pure observability side-channel over an import that has ALREADY committed, so failing it must not fail the caller's OCEL import. The cause is preserved (interpolated) at DEBUG because the authoritative outcome is already reported through the normal return path.
+                    logger.debug(
+                        "OCEL process_signal evidence record failed for %s: %s",
+                        evidence.get("idempotency_key"),
+                        exc,
+                    )
+            except (PermissionError, TypeError, ValueError) as exc:
+                return _surface_error(
+                    exc,
+                    surface="mining",
+                    action=action,
+                    code="invalid_request",
+                )
+            except RuntimeError as exc:
+                return _surface_error(
+                    exc,
+                    surface="mining",
+                    action=action,
+                    code="commit_failed",
+                )
+            params["traces"] = projection.engine_traces()
+            response = json.loads(
+                _invoke(
+                    surface="mining",
+                    action=action,
+                    graph=graph,
+                    candidates=(("mining", action),),
+                    params=params,
+                )
+            )
+            response["projection"] = projection.public_metadata()
+            response["ocel"] = exported
+            response["tekg"] = evidence
+            return json.dumps(response, default=_json_default)
+        if action == "process" and "allowed_edges" in params:
+            # CONCEPT:AU-KG.mining.process-conformance-checking (D-61-1) — "does
+            # THIS run's behavior fit a GIVEN model?", never re-discovering the
+            # model from the same traces being checked (that would make it
+            # discovery wearing conformance's name). Pure Python compute + a
+            # graph writeback; the real engine's mining client is never called
+            # here (there is no engine-side conformance primitive to dispatch
+            # to — the whole point of the ``ConformanceWorker`` seam is that the
+            # native/default worker needs none).
+            from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+                ingest_graph_slice,
+            )
+            from agent_utilities.knowledge_graph.ingestion.process_conformance import (
+                ConformanceRun,
+                conformance_run_graph_slice,
+                run_conformance_check,
+            )
+            from agent_utilities.usage.authorization import resolve_usage_tenant
+
+            try:
+                tenant = resolve_usage_tenant(
+                    str(params.pop("tenant", "") or "") or None
+                )
+                if not tenant:
+                    raise ValueError(
+                        "tenant is required for governed conformance checking"
+                    )
+                perspective = _require_process_perspective(params)
+                traces = [tuple(trace) for trace in params.pop("traces")]
+                object_ids = list(params.pop("object_ids"))
+                allowed_edges = [
+                    (str(pair[0]), str(pair[1])) for pair in params.pop("allowed_edges")
+                ]
+                model_ref = str(params.pop("model_ref", "") or "").strip()
+                graph_as_of_raw = str(params.pop("graph_as_of", "") or "").strip()
+                mapping_version = str(params.pop("mapping_version", "") or "").strip()
+                export_digest = str(params.pop("export_digest", "") or "").strip()
+                if not model_ref or not graph_as_of_raw or not mapping_version:
+                    raise ValueError(
+                        "conformance checking requires 'model_ref', 'graph_as_of', "
+                        "and 'mapping_version'"
+                    )
+                if not export_digest:
+                    raise ValueError(
+                        "conformance checking requires 'export_digest' — the export "
+                        "digest of the source data this run executed over"
+                    )
+                graph_as_of = datetime.fromisoformat(
+                    graph_as_of_raw.replace("Z", "+00:00")
+                )
+                source_ref = str(params.pop("source_ref", "") or "")
+                run_id = (
+                    str(params.pop("run_id", "") or "")
+                    or hashlib.sha256(
+                        "\x1f".join(
+                            [
+                                source_ref,
+                                perspective.perspective_id,
+                                model_ref,
+                                export_digest,
+                                graph_as_of.isoformat(),
+                            ]
+                        ).encode("utf-8")
+                    ).hexdigest()[:32]
+                )
+                start_activities = params.pop("start_activities", None)
+                end_activities = params.pop("end_activities", None)
+                run = ConformanceRun(
+                    run_id=run_id,
+                    perspective=perspective,
+                    graph_as_of=graph_as_of,
+                    mapping_version=mapping_version,
+                    model_ref=model_ref,
+                    export_digest=export_digest,
+                )
+                run, deviations = run_conformance_check(
+                    traces,
+                    object_ids,
+                    allowed_edges,
+                    run=run,
+                    start_activities=start_activities,
+                    end_activities=end_activities,
+                )
+                entities, links = conformance_run_graph_slice(
+                    run, deviations, source_ref=source_ref
+                )
+                for entity in entities:
+                    entity["tenant_id"] = tenant
+                for link in links:
+                    link["tenant_id"] = tenant
+                engine = kg_server._get_engine()
+                applied = ingest_graph_slice(
+                    engine,
+                    "conformance",
+                    entities,
+                    links,
+                    source_instance=run_id,
+                )
+                if applied.get("status") not in {"success", "skipped"}:
+                    raise RuntimeError(
+                        "ConformanceRun ChangeEnvelope commit failed: "
+                        f"{applied.get('error') or applied.get('status')}"
+                    )
+            except (PermissionError, TypeError, ValueError) as exc:
+                return _surface_error(
+                    exc,
+                    surface="mining",
+                    action=action,
+                    code="invalid_request",
+                )
+            except RuntimeError as exc:
+                return _surface_error(
+                    exc,
+                    surface="mining",
+                    action=action,
+                    code="commit_failed",
+                )
+            return json.dumps(
+                {
+                    "surface": "mining",
+                    "action": action,
+                    "conformance_run": {
+                        "run_id": run.run_id,
+                        "run_digest": run.run_digest(),
+                        "model_ref": run.model_ref,
+                    },
+                    "deviations": [
+                        deviation.model_dump(mode="json") for deviation in deviations
+                    ],
+                    "tekg": {
+                        "commit_status": applied.get("status"),
+                        "node_count": len(entities),
+                        "relationship_count": len(links),
+                    },
+                },
+                default=_json_default,
+            )
         if action == "process" and "events" in params:
             if "traces" in params:
                 return json.dumps(
@@ -1451,9 +2683,10 @@ def register_engine_surface_tools(mcp) -> None:
             )
 
             try:
+                perspective = _require_process_perspective(params)
                 projection = project_object_centric_events(
                     params.pop("events"),
-                    object_type=str(params.pop("object_type", "") or ""),
+                    perspective=perspective,
                 )
             except (TypeError, ValueError) as exc:
                 return _surface_error(

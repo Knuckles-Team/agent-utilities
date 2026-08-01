@@ -181,7 +181,7 @@ def _ensure_id_indexes(backend: GraphBackend, labels: set[str]) -> int:
             safe_label = validate_identifier(label, kind="label")
             backend.execute(f"CREATE INDEX FOR (n:`{safe_label}`) ON (n.id)")
             made += 1
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — the equivalent-index cases are already handled above (made += 1); this branch is the genuine-failure case, and `made` is correctly NOT incremented so the caller sees fewer indexes created than requested rather than a false success
             m = str(exc).lower()
             if ("already" in m or "equivalent" in m or "indexed" in m) and (
                 "syntax" not in m and "invalid" not in m
@@ -263,7 +263,7 @@ def copy_graph(
             writer._upsert_node(label, node_id, {"id": node_id, **props})
             summary["nodes"] += 1
             labels_seen[label] = labels_seen.get(label, 0) + 1
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — counted in summary["errors"] and surfaced in the function's final logger.info(...) + returned summary dict, not silently dropped; this is per-item best-effort so one bad node does not abort the whole migration
             summary["errors"] += 1
             logger.debug("copy_graph: node %s (%s) failed: %s", node_id, label, exc)
 
@@ -282,7 +282,7 @@ def copy_graph(
                 target_label=node_labels.get(dst),
             )
             summary["edges"] += 1
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — same per-item accounting as the node loop above: counted in summary["errors"], surfaced in the final report, migration continues
             summary["errors"] += 1
             logger.debug("copy_graph: edge %s->%s failed: %s", src, dst, exc)
 
@@ -293,7 +293,7 @@ def copy_graph(
             try:
                 target_backend.add_embedding(node_id, emb)
                 summary["embeddings"] += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — embeddings are a separate best-effort pass (summary["embeddings"] only increments on success); a failed one just means that node has no vector this run, node/edge copy above is unaffected
                 logger.debug("copy_graph: embedding %s failed: %s", node_id, exc)
 
     # --- exact post-condition drift: per-label node counts + edge count ---

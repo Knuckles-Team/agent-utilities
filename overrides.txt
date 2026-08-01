@@ -1,4 +1,32 @@
-# Optional dependency override file for published-package builds.
+# Dependency override file for image builds (uv `--override` / `UV_OVERRIDE`).
 #
-# Intentionally empty. The first-party pydantic-ai-harness ACP adapter follows
-# the current Pydantic AI line, so ACP no longer needs a resolver override.
+# THIS FILE IS THE IMAGE-BUILD MIRROR OF THE WORKSPACE ROOT'S `[tool.uv]
+# override-dependencies` (/home/apps/workspace/pyproject.toml). uv honours that table
+# ONLY from the workspace root manifest, and an image build resolves from THIS PACKAGE
+# alone (an isolated build context with no sibling checkouts), so the root override is
+# structurally invisible to it. Without this file the image silently resolves a
+# DIFFERENT dependency set than the workspace lock — which is exactly how the runtime
+# came to ship fastmcp 3.4.5 / mcp 1.29.0 against fastmcp-4-targeted source (D-OB-18).
+#
+# Keep every entry here in sync with the workspace root's `override-dependencies`
+# that is relevant to a serving-plane install.
+#
+# CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the ecosystem-wide default.
+# agent-utilities' `[mcp]` extra floors on `fastmcp>=4.0.0b1`, and `fastmcp==4.0.0b1`
+# pins an exact `fastmcp-slim[client,server]==4.0.0b1`, while `pydantic-ai-slim[mcp]`
+# (2.21.0, the latest published release) still declares `fastmcp-slim[client]<4,>=3.3.0`.
+# That cap is conservative, not a known incompatibility: 2.18.0 declared the same extra
+# with NO upper bound and the `<4` was added defensively in 2.19.0 while fastmcp 4 was
+# still pre-release. au bridges the two real runtime gaps at MCP-client construction time
+# in `agent_utilities/mcp/protocol_compat.py` (`install_mcp_v2_bridge` +
+# `force_legacy_protocol_mode`), verified end-to-end against a live fastmcp-4 server —
+# see docs/architecture/fastmcp4-default.md. Drop this line the moment pydantic-ai-slim
+# ships a release that admits fastmcp 4 natively.
+#
+# BOTH the `client` AND `server` extras MUST be listed, even though this override exists
+# to relax a CLIENT-side cap: a uv override replaces the ENTIRE requirement (extras
+# included) for every requester of `fastmcp-slim`, including `fastmcp`'s own
+# `fastmcp-slim[client,server]==4.0.0b1` metadata pin. A `[client]`-only override
+# silently strips the `server` extra's transitive deps (`uncalled-for`, `cyclopts`,
+# `griffelib`, …) and breaks every `from fastmcp import FastMCP/Context`.
+fastmcp-slim[client,server]>=4.0.0b1

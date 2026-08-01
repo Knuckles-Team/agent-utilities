@@ -1,6 +1,6 @@
 # AIF Argumentation (I-nodes/S-nodes → Dung acceptability)
 
-> CONCEPT:AU-KG.argumentation.aif. Layers the **Argument Interchange Format**
+> CONCEPT:AU-KG.epistemic.aif. Layers the **Argument Interchange Format**
 > (AIF — Rahwan & Reed, "The Argument Interchange Format"; AIFdb/arg-tech.org)
 > as a typed interchange vocabulary over the engine's EXISTING argumentation
 > machinery. It does not add a second argumentation engine.

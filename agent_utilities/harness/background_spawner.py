@@ -108,5 +108,5 @@ class BackgroundAgentSpawner:
                         "MATCH (e:Event {id: $eid}) SET e.resolved = true",
                         {"eid": event_id},
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one poll tick failing (including the `SET e.resolved = true` write above, if synthesize_team already succeeded) is retried next tick per _poll_loop's cadence, not lost; note this does mean a team-synthesis-succeeded-but-resolve-write-failed event can be re-picked-up and re-synthesized on the next poll (the inverse risk to write-then-mark-seen — possible duplicate team spawn, not lost signal), a known simplification per this method's own docstring ("in a real system, the spawned agents would mark it resolved when finished")
             logger.debug("Failed to poll context shifts: %s", e)

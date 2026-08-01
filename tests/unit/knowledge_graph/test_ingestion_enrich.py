@@ -144,6 +144,41 @@ async def test_enrich_text_persists_facts_as_edges(monkeypatch):
     eng, backend = _engine()
     _patch_topics_noop(monkeypatch)
 
+    # The module-level _native_enrichment_slice autouse fixture's mock
+    # signature expects ingest_graph_slice(..., backend=...) as a keyword —
+    # but the real ingest_graph_slice(engine, connector, entities,
+    # relationships=None, *, source_instance="", checkpoint=None,
+    # version_field="updatedAt") has no such parameter (its docstring: "the
+    # Epistemic Graph authority is resolved from `engine`"), and
+    # _enrich_text's real call site never passes one either. Under the
+    # generic mock this test's writes silently went to backend=None
+    # (AttributeError -> swallowed by _enrich_text's best-effort except ->
+    # facts reset to 0), not the _RecordingBackend this test asserts
+    # against. Override locally with a closure over `backend` that matches
+    # the real positional signature.
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    def _apply_to_backend(
+        _engine,
+        _connector,
+        entities,
+        relationships=None,
+        **_kwargs: Any,
+    ) -> dict[str, str]:
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            backend.add_node(node_id, **row)
+        for relationship in relationships or []:
+            row = dict(relationship)
+            source = row.pop("source")
+            target = row.pop("target")
+            rel_type = row.pop("relationship", row.pop("type", ""))
+            backend.add_edge(source, target, rel_type=rel_type, **row)
+        return {"status": "success"}
+
+    monkeypatch.setattr(envelope_ingest, "ingest_graph_slice", _apply_to_backend)
+
     async def _fake_extract(text: str, **_kw: Any):  # noqa: ANN401
         yield {"type": "round_start", "round": 1}
         yield _fact_event()
@@ -229,9 +264,19 @@ async def test_ingest_drains_enrichable_payloads_centrally(tmp_path, monkeypatch
 
     assert result.status == "success"
     assert calls and calls[0][1] == "prompt"  # the prompt payload was enriched
-    # The fake's return value doesn't include "topics" — _run_inline_enrich
-    # defaults it to 0 via counts.get("topics", 0) (CONCEPT:AU-KG.enrichment.topic-classification-topology).
-    assert result.details["enrichment"] == {"concepts": 2, "facts": 3, "topics": 0}
+    # The fake's return value doesn't include "topics"/"entities"/"claims"/
+    # "relationships"/"extraction_outcomes" — _run_inline_enrich defaults them
+    # via counts.get(..., 0/{}) (CONCEPT:AU-KG.enrichment.topic-classification-topology,
+    # CONCEPT:AU-KG.ingest.deterministic-extraction-default).
+    assert result.details["enrichment"] == {
+        "concepts": 2,
+        "facts": 3,
+        "topics": 0,
+        "entities": 0,
+        "claims": 0,
+        "relationships": 0,
+        "extraction_outcomes": {},
+    }
 
 
 @pytest.mark.asyncio

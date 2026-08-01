@@ -171,7 +171,7 @@ def _probe_store(facade: Any) -> Any:
             return None
     try:
         return facade.store
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — returns None (the documented 'no store' case), the same shape as the ImportError-guarded branch immediately above for facade construction
         logger.debug("EditLedger: store unavailable: %s", exc)
         return None
 

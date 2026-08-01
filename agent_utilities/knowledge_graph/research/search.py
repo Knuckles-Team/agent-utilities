@@ -48,7 +48,7 @@ def bounded_embed(embed_fn: Any, text: str, timeout: float) -> list[float] | Non
             timeout,
         )
         return None
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns None (the documented 'embedding unavailable' case), the same sentinel the TimeoutError branch immediately above already returns
         logger.debug("bounded_embed failed: %s", e)
         return None
     finally:
@@ -109,7 +109,7 @@ def acquire_for_topic(
                 if sid not in seen:
                     seen.add(sid)
                     ids.append(sid)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — `seen`/`ids` are purely local to this one call (no persisted dedup state); a mid-loop failure just returns whatever partial results were already collected, there is nothing to falsely mark done across calls
         logger.debug("acquire search failed for %s: %s", name, e)
 
     if setting("KG_RESEARCH_EXTERNAL", "0") == "1":

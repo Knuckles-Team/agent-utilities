@@ -1602,7 +1602,26 @@ def create_mcp_server(
         auth=auth,
         instructions=instructions,
         lifespan=_fleet_registration_lifespan_factory(args, name),
+        # `tasks=` only sets the DEFAULT task-mode for individual `@mcp.tool()`
+        # registrations (fastmcp.utilities.tasks.TaskConfig) -- it does not by
+        # itself mount the `io.modelcontextprotocol/tasks` extension's
+        # `tasks/get`/`tasks/update`/`tasks/cancel` methods (that requires a
+        # `ServerExtension`, added below). Kept False: no tool here is
+        # registered with `task=True`, so there is nothing for a per-tool
+        # default to apply to yet.
+        tasks=False,
     )
+    # CONCEPT:AU-ECO.mcp.tasks-workitem-bridge -- mount the native WorkItem-backed
+    # Tasks extension (agent_utilities/mcp/tasks_extension.py), NOT
+    # fastmcp_tasks.extension.TasksExtension: that package's engine is
+    # hard-wired to Docket/Redis, a second job system this codebase's one
+    # WorkItem state machine (AU-P1-1) forbids duplicating. This makes the
+    # exact same WorkItem-backed contract the isolated mcp_v2_gateway sidecar
+    # already exposes for 2026-07-28 stateless clients reachable to a client
+    # connected directly to this server too.
+    from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
+
+    mcp.add_extension(WorkItemTasksExtension())
 
     # Operational routes live outside the tool authorization path. Health is a
     # generic readiness result. Metrics are local-only unless a remote listener
@@ -2064,4 +2083,58 @@ def create_mcp_server(
             type(exc).__name__,
         )
 
+    _register_skill_providers(mcp)
+
     return args, mcp, middlewares
+
+
+def _register_skill_providers(mcp: Any) -> None:
+    """Expose this server's skills as ``skill://`` MCP resources (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
+
+    Wires FastMCP-4's Skills-over-MCP ``SkillProvider`` onto the just-built
+    server for every directory :func:`resolve_skill_provider_dirs` already
+    resolves (fleet-contributed + this package's own skills) — the SAME
+    discovery the in-loop ``SkillsToolset``/``agent-utilities install`` use, so
+    a skill has one discovery path with two projections (in-loop execution vs
+    wire distribution), not a second registry to keep in sync.
+
+    Every server built here gains ``skill://{name}/SKILL.md``,
+    ``skill://{name}/_manifest``, and ``skill://{name}/{path*}`` resources that
+    an mcp/fastmcp-3 client can already read.
+
+    LIVE ON THE DEFAULT INSTALL. The ``[mcp]`` extra floors on
+    ``fastmcp>=4.0.0b1``, so ``SkillProvider``/``add_provider`` are always
+    present and this registration always runs — the earlier
+    ``hasattr(mcp, "add_provider")`` gate that made the whole server-side half
+    inert (D-W15-7/D-W15-8 in ``reports/deferred/waves1-5-gate.md``) is gone
+    with the fastmcp-3 default it guarded. Exercised end to end by
+    ``tests/integration/mcp/test_skill_provider_live_path.py``.
+
+    Never raises: a single unreadable provider directory logs a ``WARNING`` and
+    is skipped, and any other failure degrades to one ``WARNING`` — serving
+    skills over the wire must never stop a server being built.
+    """
+    try:
+        from fastmcp.server.providers.skills import SkillProvider
+
+        from agent_utilities.core.providers import resolve_skill_provider_dirs
+
+        registered = 0
+        for provider_name, root_dir in resolve_skill_provider_dirs():
+            try:
+                mcp.add_provider(SkillProvider(root_dir))
+                registered += 1
+            except Exception as exc:  # noqa: BLE001 - one unreadable provider
+                # directory must not sink the whole sweep. The cause IS logged
+                # so a systematically broken provider is diagnosable.
+                logger.warning(
+                    "Could not register skill provider %s: %s", provider_name, exc
+                )
+        logger.info(
+            "Registered %d skill-over-MCP provider(s) as skill:// resources",
+            registered,
+        )
+    except Exception as exc:  # noqa: BLE001 - server-side skill:// support is
+        # optional (see the INERT note above); its absence must never stop a
+        # server being built. The cause IS logged.
+        logger.warning("Could not register skill-over-MCP providers: %s", exc)

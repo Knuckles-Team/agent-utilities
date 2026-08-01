@@ -29,6 +29,26 @@ from agent_utilities.orchestration.agent_runner import _record_execution_trace
 pytestmark = pytest.mark.concept("AU-OS.observability.telemetry-observability")
 
 _DEAD_COLLECTOR = "http://127.0.0.1:1"
+_GRAPH_EVIDENCE = {
+    "schema_version": "graph-execution-evidence-v1",
+    "topology": "fixture",
+    "topology_digest": "sha256:topology",
+    "version_digest": "sha256:version",
+    "runtime_version": "2.21.0",
+    "node_sequence": ["route", "execute", "__end__"],
+    "transitions": [
+        {
+            "sequence": 1,
+            "scheduled_tasks": [{"node_id": "route", "task_id": "task:1"}],
+        },
+        {
+            "sequence": 2,
+            "scheduled_tasks": [{"node_id": "execute", "task_id": "task:2"}],
+        },
+    ],
+    "checkpoint_ids": ["ckpt:run-record-1:123"],
+    "resume_supported": False,
+}
 
 
 def _telemetry_with_in_memory_exporter(monkeypatch: pytest.MonkeyPatch):
@@ -77,6 +97,7 @@ def test_record_execution_trace_closes_the_run_span_with_gen_ai_attrs(
         model_name="qwen2.5-72b-instruct",
         tool_call_count=3,
         execution_mode="single_server_agent",
+        graph_execution_evidence=_GRAPH_EVIDENCE,
     )
 
     assert "run-record-1" not in telemetry._active_spans
@@ -90,6 +111,20 @@ def test_record_execution_trace_closes_the_run_span_with_gen_ai_attrs(
     assert span.attributes["gen_ai.response.tool_call_count"] == 3
     assert span.attributes["status"] == "completed"
     assert span.attributes["duration_ms"] == 42.0
+    assert span.attributes["agent_utilities.graph.topology_digest"] == (
+        "sha256:topology"
+    )
+    assert span.attributes["agent_utilities.graph.node_sequence"] == (
+        "route",
+        "execute",
+        "__end__",
+    )
+    assert span.attributes["agent_utilities.graph.resume_supported"] is False
+    assert [event.name for event in span.events] == [
+        "pydantic_graph.transition",
+        "pydantic_graph.transition",
+        "pydantic_graph.checkpoint",
+    ]
 
 
 def test_record_execution_trace_closes_the_span_even_on_the_failed_exit(
@@ -144,12 +179,18 @@ def test_record_execution_trace_persists_the_actual_execution_mode(
         "fixture task",
         status="completed",
         execution_mode="single_server_agent",
+        graph_execution_evidence=_GRAPH_EVIDENCE,
     )
 
     run_trace = next(
         properties for _, kind, properties in engine.nodes if kind == "RunTrace"
     )
     assert run_trace["execution_mode"] == "single_server_agent"
+    assert run_trace["graph_topology_digest"] == "sha256:topology"
+    assert run_trace["graph_version_digest"] == "sha256:version"
+    assert run_trace["graph_node_sequence"] == ["route", "execute", "__end__"]
+    assert run_trace["graph_checkpoint_ids"] == ["ckpt:run-record-1:123"]
+    assert run_trace["graph_resume_supported"] is False
 
 
 def test_record_execution_trace_is_a_noop_when_otel_is_unconfigured(

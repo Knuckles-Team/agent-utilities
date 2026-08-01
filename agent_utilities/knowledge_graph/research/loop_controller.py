@@ -117,6 +117,11 @@ class LoopController:
         # Live-beacon + cycle id (CONCEPT:AU-KG.research.evolutionstate-live-surface-per) — set per run_one_cycle.
         self._beacon: Any = None
         self._cycle_id: str = ""
+        # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource, lane 7.1) —
+        # set by ``_run_evidence_intake`` each cycle; consumed by
+        # ``_run_insight_validation`` in the SAME cycle. Empty when the stage
+        # hasn't run yet (e.g. a direct unit-test call to ``_run_insight_validation``).
+        self._gathered_evidence: list[Any] = []
         # propose_only is always True in v1 — kept explicit so a future
         # human-approved apply path is a deliberate flip, never accidental.
         self.propose_only = propose_only
@@ -237,6 +242,7 @@ class LoopController:
             "assimilate": None,
             "reason": None,
             "mine_discovery": None,
+            "evidence_intake": None,
             "insight_validation": None,
             "trace_mining": None,
             "skill_evolution": None,
@@ -330,6 +336,14 @@ class LoopController:
         if (setting("FRESHRSS_URL", default="") or "").strip():
             report["freshrss"] = _stage("freshrss", self._run_freshrss_intake)
 
+        # -0.3 ARXIV — pull native arXiv category listings through the SAME
+        # world-model research gate (delta), when categories are configured. Default
+        # ON when configured; the category list's presence is the on-signal, the
+        # watermark keeps it idempotent, and the SAME budget gate as FreshRSS/
+        # ScholarX keeps it selective. (CONCEPT:AU-KG.ingest.arxiv-feed-connector, KG-7.3)
+        if (setting("KG_ARXIV_CATEGORIES", default="") or "").strip():
+            report["arxiv"] = _stage("arxiv", self._run_arxiv_intake)
+
         # 0. ASSIMILATE — graph-compute middle (dedup/gap/synergy/rank), idempotent.
         if assimilate:
             report["assimilate"] = _stage(
@@ -357,6 +371,17 @@ class LoopController:
                 "mine_discovery", self._run_mine_discovery
             )
 
+        # 0a1.02 EVIDENCE INTAKE — the unified Evidence resource (lane 7.1,
+        # CONCEPT:AU-KG.evolution.unified-evidence-resource): normalizes the
+        # execution-trace and graph-health channels onto ONE contract and stages
+        # them for ``insight_validation`` below (see ``_run_evidence_intake``'s
+        # docstring). Gated on the SAME flag as its one consumer — this stage
+        # exists only to feed it.
+        if insight_validation:
+            report["evidence_intake"] = _stage(
+                "evidence_intake", self._run_evidence_intake
+            )
+
         # 0a1.5 AUDIT GAPS — the code-correctness/security-audit discovery track
         # (CONCEPT:AU-AHE.harness.audit-gap-detector, Wave-6 D1-ext). An AI review over
         # the ALREADY-INGESTED code KG files a canonical :Gap per Macroscope-class finding
@@ -374,16 +399,20 @@ class LoopController:
         # EvidenceBundle → Claim → Validation (REUSES promotion_governance +
         # capability_ratchet as-is) → Action gate (REUSES action_policy.decide(),
         # kind="promote_mined_claim", shipped default approval_required —
-        # SAFETY-CRITICAL, see ``_run_insight_validation``'s docstring). Only runs
-        # when mine_discovery actually produced a report this cycle (it consumes
-        # that report's mined findings — there's nothing to validate otherwise).
-        # Best-effort + gated (KG_LOOP_INSIGHT_VALIDATION, default ON — the stage
-        # is itself propose-only regardless of the flag; see the config field's
-        # docstring in ``core/config.py``).
-        if insight_validation and report.get("mine_discovery"):
+        # SAFETY-CRITICAL, see ``_run_insight_validation``'s docstring). Runs when
+        # mine_discovery OR evidence_intake produced something this cycle (either
+        # feeds this SAME stage — see ``_run_insight_validation``'s ``evidence``
+        # param, lane 7.1). Best-effort + gated (KG_LOOP_INSIGHT_VALIDATION,
+        # default ON — the stage is itself propose-only regardless of the flag;
+        # see the config field's docstring in ``core/config.py``).
+        if insight_validation and (
+            report.get("mine_discovery") or report.get("evidence_intake")
+        ):
             report["insight_validation"] = _stage(
                 "insight_validation",
-                lambda: self._run_insight_validation(report["mine_discovery"]),
+                lambda: self._run_insight_validation(
+                    report["mine_discovery"], evidence=self._gathered_evidence
+                ),
             )
 
         # 0a1.45 TRACE MINING — closed-loop agent mining (workstream C6,
@@ -724,6 +753,11 @@ class LoopController:
             synergy_bundles,
         )
         from ..assimilation.gap_analysis import _CONCEPT_TYPES, _FEATURE_TYPES
+        from agent_utilities.core.resource_priority import (
+            PriorityClass,
+            priority_scope,
+        )
+
         from ..core.ingest_profile import stage as _pstage  # OS-5.70 per-stage timing
 
         # Feature dedup is a WHOLE-GRAPH ecosystem op (SUPERSEDES clustering); skip it
@@ -740,16 +774,23 @@ class LoopController:
         # for a SCOPED (cohort) pass (CONCEPT:AU-KG.ingest.fetch-only-requested-ids) — the registry is embedded
         # ecosystem-wide once, and the matcher recalls from the engine HNSW; a cohort
         # finalize must not re-scan the whole graph (which resets the socket at scale).
-        if restrict_to is None:
-            with _pstage("enrich_concepts"):
-                enrich_concepts(self.engine)
-        with _pstage("satisfy"):
-            gap = ConceptMatcher().satisfy(
-                self.engine,
-                feature_types=_FEATURE_TYPES,
-                concept_types=_CONCEPT_TYPES,
-                restrict_to=restrict_to,
-            )
+        #
+        # Downcycle scheduling (7.4/D-71-7, CONCEPT:AU-ORCH.scheduling.resource-priority-edict) —
+        # `enrich_concepts` (embedding) and `ConceptMatcher.satisfy` (embedding-recall +
+        # LLM-judge) are this stage's own comparative-analysis LLM-capacity calls, wrapped
+        # in the SAME `PriorityClass.BACKGROUND_INGESTION` currency `_run_breadth`/
+        # `_run_intake_papers` already use — no second scheduler.
+        with priority_scope(PriorityClass.BACKGROUND_INGESTION):
+            if restrict_to is None:
+                with _pstage("enrich_concepts"):
+                    enrich_concepts(self.engine)
+            with _pstage("satisfy"):
+                gap = ConceptMatcher().satisfy(
+                    self.engine,
+                    feature_types=_FEATURE_TYPES,
+                    concept_types=_CONCEPT_TYPES,
+                    restrict_to=restrict_to,
+                )
         with _pstage("synergy_rank"):
             syn = synergy_bundles(self.engine, restrict_to=restrict_to)
             ranked = rank_features(
@@ -818,11 +859,24 @@ class LoopController:
         so the unified cycle is a research-pipeline runner: the ``assimilate`` stage
         then matches the freshly-ingested papers against the ecosystem Concept
         registry via the ConceptMatcher. (CONCEPT:AU-KG.research.research-intelligence-loop)
+
+        Downcycle scheduling (7.4, CONCEPT:AU-ORCH.scheduling.resource-priority-edict) — deep
+        research is exactly the "documents / research-paper ingest" case
+        ``PriorityClass.BACKGROUND_INGESTION`` exists for: the discovery/LLM-
+        extraction calls this stage makes self-throttle behind any concurrently
+        contending interactive/orchestration call on the shared LLM gate
+        (``core.resource_priority.PriorityModelGate``), and use spare capacity
+        otherwise. Reuses the ONE existing priority currency; no second scheduler.
         """
         from agent_utilities.automation.research_pipeline import ResearchPipelineRunner
+        from agent_utilities.core.resource_priority import (
+            PriorityClass,
+            priority_scope,
+        )
 
         runner = ResearchPipelineRunner(engine=self.engine)
-        rep = _run_coro(runner.run_daily_pipeline(papers=papers))
+        with priority_scope(PriorityClass.BACKGROUND_INGESTION):
+            rep = _run_coro(runner.run_daily_pipeline(papers=papers))
         return {
             "papers_discovered": rep.papers_discovered,
             "papers_relevant": rep.papers_relevant,
@@ -848,6 +902,42 @@ class LoopController:
             "new_topics": len(harvest.new_topics),
             "stats": harvest.stats,
             "error": harvest.error,
+        }
+
+    # -- unified Evidence resource intake (CONCEPT:AU-KG.evolution.unified-evidence-resource, lane 7.1) -- #
+    def _run_evidence_intake(self) -> dict[str, Any]:
+        """Gather + normalize fresh evidence across the channels this cycle has
+        not already touched, feeding the SAME insight-validation governance
+        pipeline every other mined finding uses (see :mod:`.evidence`'s module
+        docstring for why this is five sources, not five systems).
+
+        Queries the two channels with a standing "list recent X" KG source not
+        already read elsewhere this cycle — execution-trace outcomes
+        (``:OutcomeEvaluation``) and graph-health anomalies (``:HealthAnomaly``).
+        The other three channels (optimisation-signal, research-finding,
+        process-signal) are recorded AT their own call site
+        (``harness.program_optimization.run_optimization_sweep``, this same
+        stage's own ``insight_validation`` claim persistence below, and the OCEL
+        import action respectively) — gathering them here too would be a
+        redundant second read of a fact already written once.
+
+        Best-effort + gated on the SAME ``KG_LOOP_INSIGHT_VALIDATION`` flag as
+        the stage that consumes its output (this stage exists only to feed
+        that one) — never a new env flag (Configuration discipline).
+        """
+        from .evidence import gather_evidence
+
+        gathered = gather_evidence(self.engine)
+        self._gathered_evidence = gathered
+        by_channel: dict[str, int] = {}
+        by_outcome: dict[str, int] = {}
+        for ev in gathered:
+            by_channel[ev.channel.value] = by_channel.get(ev.channel.value, 0) + 1
+            by_outcome[ev.outcome.value] = by_outcome.get(ev.outcome.value, 0) + 1
+        return {
+            "gathered": len(gathered),
+            "by_channel": by_channel,
+            "by_outcome": by_outcome,
         }
 
     # -- discovery-flywheel mining (CONCEPT:AU-KG.evolution.mining-flywheel) ---------------- #
@@ -1082,7 +1172,132 @@ class LoopController:
             return {"count": 0, "examples": []}
         result = predict_payload.get("result") or {}
         predicted = result.get("predicted") or []
-        return {"count": len(predicted), "examples": predicted[:5]}
+        semantic_events = self._emit_predicted_edges_as_semantic_events(
+            predicted, node_label="Concept", errors=errors
+        )
+        return {
+            "count": len(predicted),
+            "examples": predicted[:5],
+            "semantic_events": semantic_events,
+        }
+
+    def _emit_predicted_edges_as_semantic_events(
+        self, predicted: list[dict[str, Any]], *, node_label: str, errors: list[str]
+    ) -> dict[str, Any]:
+        """Turn each ``graph_learn`` prediction into a real, typed
+        :class:`~agent_utilities.knowledge_graph.ingestion.semantic_event_model.
+        NeuralRelationPrediction` semantic event and commit it through the SAME
+        governed ``ChangeEnvelope`` ingestion path every OCEL/tEKG producer uses
+        (CONCEPT:AU-KG.ingest.semantic-event-contract) — closing the gap where
+        that model class shipped with an ontology concept and a SHACL shape but
+        ZERO producers: nothing constructed one and fed it into the ingestion
+        pipeline.
+
+        Distinct from (and additional to) the two OTHER things this same
+        prediction pass already does: the raw ``:PredictedEdge`` node
+        ``graph_learn action="predict"`` writes back itself, and the
+        CandidateInsight → Claim mining-flywheel path
+        :meth:`_run_insight_validation` runs over that finding. This is the
+        semantic-event-typed path the model class was actually built for: both
+        endpoints modeled as ``object``-kind
+        :class:`~..ingestion.semantic_event_model.BusinessObject` entries in one
+        validated :class:`~..ingestion.semantic_event_model.
+        ObjectCentricGraphSlice`, committed via
+        :func:`~..ingestion.envelope_ingest.ingest_graph_slice` — the exact
+        construct → validate → ``to_change_envelope`` → ``ingest_graph_slice``
+        sequence every OCEL producer (:mod:`~..ingestion.ocel_adapter`) already
+        uses, reused rather than reimplemented.
+
+        Best-effort, mirroring every other sub-step in this mining pass: never
+        raises, and emits nothing (``{"emitted": 0}``) when there are no
+        above-floor predictions or no reachable engine.
+        """
+        above_floor = [
+            row
+            for row in predicted
+            if isinstance(row, dict) and row.get("src") and row.get("dst")
+        ]
+        if not above_floor or self.engine is None:
+            return {"emitted": 0}
+
+        from ..ingestion.envelope_ingest import ingest_graph_slice
+        from ..ingestion.semantic_event_model import (
+            BusinessObject,
+            NeuralRelationPrediction,
+            ObjectCentricGraphSlice,
+            OcelObjectType,
+            SemanticEntityRef,
+        )
+
+        try:
+            from agent_utilities.security.brain_context import current_actor
+
+            tenant = current_actor().tenant_id or "kg-mining"
+        except Exception:  # noqa: BLE001 — no ambient actor outside a request context
+            tenant = "kg-mining"
+
+        object_ids = sorted(
+            {str(row["src"]) for row in above_floor}
+            | {str(row["dst"]) for row in above_floor}
+        )
+        predictions = [
+            NeuralRelationPrediction(
+                prediction_id=f"{row['src']}->{row['dst']}",
+                subject=SemanticEntityRef(kind="object", source_id=str(row["src"])),
+                predicate="predicted_related_to",
+                object=SemanticEntityRef(kind="object", source_id=str(row["dst"])),
+                score=(score := max(0.0, min(1.0, float(row.get("score") or 0.0)))),
+                uncertainty=round(1.0 - score, 6),
+                model_ref="graphlearn:kan-link-predictor",
+                candidate_set_ref=f"graphlearn:{node_label}",
+                evidence_refs=(str(row["src"]), str(row["dst"])),
+            )
+            for row in above_floor
+        ]
+
+        try:
+            slice_ = ObjectCentricGraphSlice(
+                log_id=f"neural-relation-predictions:{node_label}",
+                source_ref="loop_controller:mine_predicted_edges",
+                mapping_version="neural-relation-prediction-1.0",
+                object_types=(OcelObjectType(name=node_label),),
+                objects=tuple(
+                    BusinessObject(object_id=object_id, object_type=node_label)
+                    for object_id in object_ids
+                ),
+                neural_predictions=tuple(predictions),
+            )
+            envelope = slice_.to_change_envelope(
+                tenant=tenant,
+                provenance={
+                    "source": "loop_controller._mine_predicted_edges",
+                    "predictor": "graphlearn:kan-link-predictor",
+                },
+            )
+            # An ObjectCentricGraphSlice envelope carries a
+            # ``{entities, relationships}`` typed_payload, NOT a connector
+            # record. Handing that to ``ingest_envelope`` silently collapses
+            # every entity onto ONE untyped node while still reporting
+            # ``status="success"`` — the same defect D-61-4 fixed in
+            # ``graph_mine``'s OCEL commit. ``ingest_graph_slice`` is the
+            # correct writer for this payload shape.
+            applied = ingest_graph_slice(
+                self.engine,
+                envelope.connector,
+                envelope.typed_payload["entities"],
+                envelope.typed_payload["relationships"],
+                source_instance=envelope.source_instance,
+                checkpoint=envelope.checkpoint,
+            )
+        except Exception as e:  # noqa: BLE001 — semantic-event emission is best-effort
+            errors.append(f"mine_predict:semantic_event: {e}")
+            return {"emitted": 0}
+
+        return {
+            "emitted": len(predictions),
+            "status": applied.get("status"),
+            "envelope_id": applied.get("envelope_id"),
+        }
 
     # -- X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance) -- #
     def _register_derived_claim(
@@ -1102,7 +1317,9 @@ class LoopController:
         register_claim_materialization(self.engine, claim, errors, context=context)
 
     # -- Insight Engine closed loop (CONCEPT:AU-KG.evolution.insight-engine-closed-loop, workstream C4) -- #
-    def _run_insight_validation(self, mine_result: dict[str, Any]) -> dict[str, Any]:
+    def _run_insight_validation(
+        self, mine_result: dict[str, Any], *, evidence: list[Any] | None = None
+    ) -> dict[str, Any]:
         """Mine → CandidateInsight → EvidenceBundle → Claim → Validation → Action gate.
 
         Workstream C4 — the Insight Engine closed loop. ``mine_discovery`` already
@@ -1153,6 +1370,13 @@ class LoopController:
         belief-revision sub-step tolerance) so one bad candidate never blocks the
         rest. Best-effort + gated (``KG_LOOP_INSIGHT_VALIDATION``, default ON —
         this stage is itself propose-only regardless of the flag).
+
+        ``evidence`` (lane 7.1, CONCEPT:AU-KG.evolution.unified-evidence-resource) —
+        the cycle's ``_run_evidence_intake``-gathered :class:`~.evidence.Evidence`
+        list, if any. Each claim-worthy (failure/degraded/anomalous) item is
+        converted the SAME way as a mined finding (:func:`~.evidence.
+        candidates_from_evidence`) and processed through this IDENTICAL
+        candidate loop below — five evidence channels, one governance pipeline.
         """
         from agent_utilities.core.config import config as _cfg
         from agent_utilities.orchestration.action_policy import (
@@ -1163,10 +1387,16 @@ class LoopController:
         from .auto_merge import GovernedAutoMerger, MergePolicy
         from .candidate_insight import candidates_from_mine_discovery
         from .claim_flywheel import ClaimFlywheel
+        from .evidence import (
+            candidates_from_evidence,
+            from_candidate_insight,
+            record_evidence,
+        )
         from .promotion_governance import PromotionGovernanceValidator
 
         errors: list[str] = []
         candidates = candidates_from_mine_discovery(mine_result)
+        candidates.extend(candidates_from_evidence(evidence))
         below_floor = [c for c in candidates if not c.clears_floor]
         eligible = [c for c in candidates if c.clears_floor]
 
@@ -1329,6 +1559,26 @@ class LoopController:
                         )
                 except Exception as e:  # noqa: BLE001 — never crash the cycle
                     errors.append(f"insight_validation:merge {claim.id}: {e}")
+
+            # -- lane 7.1 lineage companion: every claim (mined finding OR
+            # evidence-derived) gets a matching :EvolutionEvidence node under the
+            # research_finding channel, so ``evidence.evidence_lineage`` can walk
+            # trace -> evidence -> claim -> proposal end to end regardless of
+            # which mining pass produced the claim, WITH the final governance/
+            # promotion outcome (never the pre-decision guess). Best-effort audit
+            # overlay — never gates the pipeline above. --
+            try:
+                record_evidence(
+                    self.engine,
+                    from_candidate_insight(
+                        cand,
+                        governance_valid=verdict.valid,
+                        action_decision=decision.decision,
+                        promoted=record["promoted"],
+                    ),
+                )
+            except Exception as e:  # noqa: BLE001 — the lineage overlay is best-effort
+                errors.append(f"insight_validation:evidence_lineage {claim.id}: {e}")
 
             if len(examples) < 5:
                 examples.append(record)
@@ -1987,7 +2237,7 @@ class LoopController:
                 content = (SKILLS_ROOT / skill_id / "SKILL.md").read_text(
                     encoding="utf-8"
                 )
-            except OSError as e:
+            except OSError as e:  # noqa: BLE001 — one bundled skill's SKILL.md is unreadable; `continue`s to the next skill_id so the discovery loop still returns targets for every other skill that read cleanly
                 logger.debug(
                     "[Wave6-signal] skill %s SKILL.md unreadable: %s", skill_id, e
                 )
@@ -2145,11 +2395,23 @@ class LoopController:
         except Exception as e:  # noqa: BLE001 — best-effort
             return {"status": "pending", "output": f"acquire failed: {e}"}
         if srcs:
-            mark_addressed(self.engine, loop["id"], srcs, source="loop_engine")
+            # D-DST-2 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): mark_addressed
+            # swallows its own per-edge write failures at DEBUG and returns the count that
+            # actually landed — a write-then-mark-seen bug if ignored here, since this status
+            # feeds straight into mark_loop_status() and "completed" converges the Loop
+            # (never resurfaced again). Only declare the topic addressed when at least one
+            # ADDRESSES/ADDRESSED_BY edge was actually written; otherwise stay "pending" so
+            # the next cycle retries the link instead of silently losing it.
+            written = mark_addressed(self.engine, loop["id"], srcs, source="loop_engine")
+            if written:
+                return {
+                    "status": "completed",
+                    "output": f"addressed by {written} sources",
+                    "done": True,
+                }
             return {
-                "status": "completed",
-                "output": f"addressed by {len(srcs)} sources",
-                "done": True,
+                "status": "pending",
+                "output": f"found {len(srcs)} sources but failed to link any",
             }
         return {"status": "pending", "output": "no sources found"}
 
@@ -2293,8 +2555,13 @@ class LoopController:
             return False
         try:
             return bool(checker())
-        except Exception as e:  # noqa: BLE001
-            logger.debug("run_loop budget check failed: %s", e)
+        except Exception as e:
+            # D-DSTK: same shape as D-DST-4 (DoomLoopDetector) — a runtime failure of
+            # this resource-safety check was silently treated as "not exceeded" (i.e.
+            # keep spending budget) with no operator-visible signal that budget
+            # enforcement was down. Raised to warning so it is loud, matching the
+            # D-DST-4/5 precedent; behavior (fail open, "not exceeded") is unchanged.
+            logger.warning("run_loop budget check failed: %s", e)
             return False
 
     @staticmethod
@@ -2872,6 +3139,19 @@ class LoopController:
 
         return sync_source(self.engine, "freshrss", mode="delta")
 
+    def _run_arxiv_intake(self) -> dict[str, Any]:
+        """Pull native arXiv category listings through the world-model gate (delta).
+
+        Delegates to the unified ``sync_source`` entrypoint (``_sync_arxiv``):
+        enumerate entries past the submitted-date watermark per configured category
+        and route each through :class:`WorldModelPipelineRunner`, which recognizes
+        every item as research and defers to the SAME ``grade_and_enqueue_paper``
+        budget gate as FreshRSS-arXiv and ScholarX. (CONCEPT:AU-KG.ingest.arxiv-feed-connector, KG-7.3)
+        """
+        from ..core.source_sync import sync_source
+
+        return sync_source(self.engine, "arxiv", mode="delta")
+
     def _run_breadth(self) -> dict[str, Any]:
         """Ingest the OSS/repos/docs corpus (idempotent).
 
@@ -2882,10 +3162,19 @@ class LoopController:
         loop self-configures: ``assimilate`` always has the codebase capability
         map to compare research against, with no env config required. Content-
         addressed ingest makes re-runs cheap. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
+
+        Downcycle scheduling (7.4, CONCEPT:AU-ORCH.scheduling.resource-priority-edict) —
+        corpus breadth ingest is background document ingestion by definition;
+        wrapped in ``PriorityClass.BACKGROUND_INGESTION`` so it yields shared LLM
+        capacity to any concurrently contending interactive/orchestration call.
         """
         from dataclasses import asdict
 
         from agent_utilities.core.config import AgentConfig
+        from agent_utilities.core.resource_priority import (
+            PriorityClass,
+            priority_scope,
+        )
         from agent_utilities.core.workspace_config import workspace_project_roots
 
         from ..assimilation import run_breadth_ingest
@@ -2902,9 +3191,10 @@ class LoopController:
             repos = workspace_project_roots()
         if not libs and not repos:
             return {"skipped": True, "reason": "no roots configured or discoverable"}
-        return asdict(
-            run_breadth_ingest(self.engine, library_roots=libs, repo_roots=repos)
-        )
+        with priority_scope(PriorityClass.BACKGROUND_INGESTION):
+            return asdict(
+                run_breadth_ingest(self.engine, library_roots=libs, repo_roots=repos)
+            )
 
     def _finalize_metrics(self, report: dict[str, Any], start: float) -> None:
         """Attach cycle metrics, log a health summary, persist an EvolutionCycle node."""
@@ -3031,7 +3321,7 @@ class LoopController:
                     errors=m.get("error_count", 0),
                     saturation=(gauge or {}).get("gauge") if gauge else None,
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — beacon telemetry write AFTER the metrics dict `m` it reports has already been fully computed above; a failed beacon write loses one telemetry data point, not the loop's actual metrics
                 logger.debug("beacon.finish failed: %s", e)
 
     def _run_audit_gaps(self) -> dict[str, Any]:
@@ -3140,7 +3430,7 @@ class LoopController:
             # Persist the PROPOSAL (TeamSpec/AgentSpec nodes) — not executed.
             try:
                 nodes, edges = persist_synthesis(self.engine.backend, team, *members)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — nodes/edges stay at their initialized 0,0 on failure (matching what's actually true — nothing persisted) and are returned as-is in persisted_nodes/persisted_edges below, so the caller sees the correct count either way
                 logger.debug("persist_synthesis failed: %s", e)
 
         # GOVERNED auto-merge (CONCEPT:AU-AHE.assimilation.research-auto-merge): consider promoting the team
@@ -3156,7 +3446,7 @@ class LoopController:
                 "reason": ev.reason,
                 "audit_ref": ev.audit_ref,
             }
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — merge stays None (its initialized default) on failure — the returned dict already treats merge=None as 'not considered/merged', the same shape as when propose_only is False and this whole block doesn't run
             logger.debug("auto-merge consideration failed: %s", e)
 
         return {
@@ -3195,7 +3485,7 @@ class LoopController:
                 continue
             try:
                 task = synthesize(reader, str(answer_id), hops=2)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — one candidate's search-task synthesis inside the per-candidate loop; `continue`s to the next candidate, and only successfully-synthesized tasks are appended to `tasks` above
                 logger.debug("search-task synthesis failed for %s: %s", answer_id, e)
                 continue
             if task.risk_report.clear and task.difficulty >= 1:
@@ -3226,7 +3516,7 @@ class LoopController:
                         },
                     )
                     persisted += 1
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001 — one task's persist inside the per-task loop; `persisted` is only incremented on the success path above, so the returned persisted_nodes count already reflects exactly what landed
                     logger.debug("SearchTask persist failed: %s", e)
 
         return {

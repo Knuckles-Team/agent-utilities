@@ -33,6 +33,7 @@ import asyncio
 import logging
 import os
 import re
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -878,8 +879,13 @@ class KGTraceBackend(TraceBackend):
     Opik's ClickHouse cannot express. Per-generation cost is resolved from the engine's
     own pricing catalog (ECO-4.40), not a vendored price table.
 
-    ``backend`` is the KG facade (duck-typed: ``add_node(id, **props)`` +
-    ``link_nodes(src, dst, rel)``). An in-memory index mirrors what was emitted so the
+    ``backend`` is the KG facade, duck-typed to match the REAL production caller
+    (``gateway/daemon.py`` injects the live ``IntelligenceGraphEngine``, not a
+    ``**kwargs``-shaped stub): ``add_node(node_id, node_type, properties)`` +
+    ``link_nodes(src, dst, rel)`` — ``node_type`` positional/keyword, ``properties``
+    a single dict (the engine rejects a ``"type"`` property key outright and has no
+    ``**kwargs`` catch-all, so the two must be passed exactly this way; see
+    :meth:`_write_node`). An in-memory index mirrors what was emitted so the
     ``TraceDistiller`` read surface (``get_traces``/``get_trace_summary``/
     ``get_trace_scores``) works even before a graph round-trip — exactly the
     best-effort-persist + in-memory pattern :class:`EvalCorpus` uses.
@@ -951,6 +957,8 @@ class KGTraceBackend(TraceBackend):
         provider: str | None = None,
         input_tokens: int = 0,
         output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
         tags: list[str] | None = None,
         input_text: str = "",
         output_text: str = "",
@@ -1020,7 +1028,7 @@ class KGTraceBackend(TraceBackend):
             and hasattr(self.backend, "add_node")
         ):
             try:
-                self.backend.add_node(trace_id, **self._node_props(trace))
+                self._write_node(trace_id, self._node_props(trace))
             except Exception as exc:  # pragma: no cover - best-effort
                 logger.debug(
                     "KGTraceBackend trace persist failed (%s)", type(exc).__name__
@@ -1050,6 +1058,8 @@ class KGTraceBackend(TraceBackend):
                 provider=provider,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
                 latency_ms=latency_ms,
                 error=error,
             )
@@ -1058,6 +1068,10 @@ class KGTraceBackend(TraceBackend):
             trace.total_cost_usd += node.total_cost_usd
             trace.input_tokens += input_tokens
             trace.output_tokens += output_tokens
+            # CONCEPT:AU-ORCH.optimization.provider-prompt-cache — rollup mirrors
+            # total_cost_usd/input_tokens/output_tokens above.
+            trace.cache_read_tokens += cache_read_tokens
+            trace.cache_write_tokens += cache_write_tokens
             edge = RegistryEdgeType.HAS_GENERATION
         else:
             node = SpanNode(
@@ -1078,7 +1092,7 @@ class KGTraceBackend(TraceBackend):
 
         if self.backend is not None and hasattr(self.backend, "add_node"):
             try:
-                self.backend.add_node(span_id, **self._node_props(node))
+                self._write_node(span_id, self._node_props(node))
                 link = getattr(self.backend, "link_nodes", None)
                 if callable(link):
                     link(parent_span_id or trace_id, span_id, edge)
@@ -1086,6 +1100,142 @@ class KGTraceBackend(TraceBackend):
                 logger.debug(
                     "KGTraceBackend event persist failed (%s)", type(exc).__name__
                 )
+
+    def record_routing_decision(
+        self,
+        *,
+        trace_id: str,
+        decision: Any,
+    ) -> None:
+        """Persist one bounded ``RoutingDecisionNode`` and attach it to ``trace_id``
+        (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance) — the model-routing counterfactual (chosen +
+        rejected candidates + why) that model selection previously discarded. ``decision``
+        is a :class:`~agent_utilities.models.model_registry.RoutingDecision`. Best-effort
+        and privacy-sanitized exactly like ``record_event``; never raises.
+        """
+        _, identifier_report = self._privacy.sanitize_text(trace_id)
+        if identifier_report.changed:
+            logger.debug("KGTraceBackend routing decision skipped: unsafe trace id")
+            return
+        try:
+            from agent_utilities.models.knowledge_graph import (
+                RegistryEdgeType,
+                RoutingDecisionNode,
+            )
+
+            candidates = [c.model_dump() for c in decision.candidates]
+            node = RoutingDecisionNode(
+                id=f"routing_decision:{trace_id}:{uuid.uuid4()}",
+                name=f"route:{decision.route_key}",
+                trace_id=trace_id,
+                route_key=decision.route_key,
+                complexity=str(decision.complexity),
+                required_tags=list(decision.required_tags),
+                confidence_signal=decision.confidence_signal,
+                routing_percentile=decision.routing_percentile,
+                chosen_model_id=decision.chosen_model_id,
+                candidates=candidates,
+            )
+        except Exception as exc:  # noqa: BLE001 - routing provenance is
+            # observability, never load-bearing: a malformed decision must not
+            # break the routing call it describes. The cause IS logged.
+            logger.debug("KGTraceBackend routing decision build failed: %s", exc)
+            return
+        clean = self._sanitize_node(node)
+        if clean is None:
+            logger.debug("KGTraceBackend routing decision skipped: unsafe content")
+            return
+        if self.backend is not None and hasattr(self.backend, "add_node"):
+            try:
+                self._write_node(clean.id, self._node_props(clean))
+                link = getattr(self.backend, "link_nodes", None)
+                if callable(link):
+                    link(trace_id, clean.id, RegistryEdgeType.HAS_ROUTING_DECISION)
+            except Exception as exc:  # noqa: BLE001 - an unreachable graph
+                # backend must not break the routing call this describes. The
+                # cause IS logged so a persistent failure is diagnosable.
+                logger.debug("KGTraceBackend routing decision persist failed: %s", exc)
+
+    def record_cache_decision(
+        self,
+        *,
+        trace_id: str,
+        decision: Any,
+    ) -> None:
+        """Persist one bounded ``CacheDecisionNode`` and attach it to ``trace_id``
+        (CONCEPT:AU-KG.memory.semantic-response-cache) — makes a semantic-cache hit/miss decision
+        graph-queryable provenance instead of a discarded return value. ``decision`` is a
+        :class:`~agent_utilities.caching.semantic_cache.SemanticCacheLookup`. Best-effort and
+        privacy-sanitized exactly like :meth:`record_routing_decision`; never raises.
+        """
+        _, identifier_report = self._privacy.sanitize_text(trace_id)
+        if identifier_report.changed:
+            logger.debug("KGTraceBackend cache decision skipped: unsafe trace id")
+            return
+        try:
+            from agent_utilities.models.knowledge_graph import (
+                CacheDecisionNode,
+                RegistryEdgeType,
+            )
+
+            key = decision.key
+            node = CacheDecisionNode(
+                id=f"cache_decision:{trace_id}:{uuid.uuid4()}",
+                name=f"cache:{decision.outcome}",
+                trace_id=trace_id,
+                outcome=decision.outcome,
+                fingerprint=key.fingerprint,
+                tenant=key.tenant,
+                principal=key.principal,
+                policy_version=key.policy_version,
+                model_identity=key.model_identity,
+                prompt_version=key.prompt_version,
+                tool_schema_version=key.tool_schema_version,
+                retrieval_snapshot=key.retrieval_snapshot,
+                ontology_version=key.ontology_version,
+                safety_posture=key.safety_posture,
+                similarity=decision.similarity,
+                age_seconds=decision.age_seconds,
+            )
+        except Exception as exc:  # noqa: BLE001 - cache provenance is
+            # observability, never load-bearing: a malformed decision must not
+            # break the lookup/store call it describes. The cause IS logged.
+            logger.debug("KGTraceBackend cache decision build failed: %s", exc)
+            return
+        clean = self._sanitize_node(node)
+        if clean is None:
+            logger.debug("KGTraceBackend cache decision skipped: unsafe content")
+            return
+        if self.backend is not None and hasattr(self.backend, "add_node"):
+            try:
+                # Routed through _write_node (D-5.1-5): add_node(id, **props)
+                # is NOT the engine contract and silently raised into the
+                # except below, so this node never actually persisted.
+                self._write_node(clean.id, self._node_props(clean))
+                link = getattr(self.backend, "link_nodes", None)
+                if callable(link):
+                    link(trace_id, clean.id, RegistryEdgeType.HAS_CACHE_DECISION)
+            except Exception as exc:  # noqa: BLE001 - an unreachable graph
+                # backend must not break the lookup/store call this describes.
+                # The cause IS logged so a persistent failure is diagnosable.
+                logger.debug("KGTraceBackend cache decision persist failed: %s", exc)
+    def _write_node(self, node_id: str, props: dict[str, Any]) -> None:
+        """Call ``self.backend.add_node`` with the REAL engine contract.
+
+        ``IntelligenceGraphEngine.add_node`` (``knowledge_graph/core/engine.py``) is
+        ``add_node(node_id, node_type, properties=None, ephemeral=False, *,
+        session=None)`` — it takes NO ``**kwargs`` and raises if a ``"type"`` key
+        is present in ``properties``. The class docstring previously claimed a
+        ``add_node(id, **props)`` duck contract; every call built on that claim
+        raised inside the surrounding ``try/except`` and was silently swallowed,
+        so no ``KGTraceBackend``-persisted node ever reached a real engine
+        (D-5.1-5). ``props`` (from :meth:`_node_props`) already carries
+        ``node_type`` — split it out and pass it positionally instead of via
+        ``**props``.
+        """
+        properties = dict(props)
+        node_type = str(properties.pop("node_type", ""))
+        self.backend.add_node(node_id, node_type, properties)
 
     @staticmethod
     def _node_props(node: Any) -> dict[str, Any]:
@@ -1166,20 +1316,14 @@ class KGTraceBackend(TraceBackend):
     def _persist(self, trace: Any, spans: list[Any], generations: list[Any]) -> None:
         from agent_utilities.models.knowledge_graph import RegistryEdgeType
 
-        def _props(node: Any) -> dict[str, Any]:
-            d = node.model_dump() if hasattr(node, "model_dump") else dict(node)
-            d.pop("id", None)
-            d["node_type"] = str(d.pop("type", ""))
-            return d
-
-        self.backend.add_node(trace.id, **_props(trace))
+        self._write_node(trace.id, self._node_props(trace))
         link = getattr(self.backend, "link_nodes", None)
         for s in spans:
-            self.backend.add_node(s.id, **_props(s))
+            self._write_node(s.id, self._node_props(s))
             if callable(link):
                 link(trace.id, s.id, RegistryEdgeType.HAS_SPAN)
         for g in generations:
-            self.backend.add_node(g.id, **_props(g))
+            self._write_node(g.id, self._node_props(g))
             if callable(link):
                 parent = getattr(g, "parent_span_id", None) or trace.id
                 link(parent, g.id, RegistryEdgeType.HAS_GENERATION)

@@ -21,7 +21,9 @@ def register_evolution_tools(mcp: Any) -> None:
             "'audit_scan' (Macroscope-class code-correctness/security findings over the "
             "ingested code KG, each filed as a canonical :Gap via "
             "harness.audit_gap_detector), 'distill_skills', 'standardize', "
-            "'failure_ingest', 'optimize_component', and 'publish_proposal'. All "
+            "'failure_ingest', 'optimize_component', 'publish_proposal', and "
+            "'evidence_lineage' (walk one :EvolutionEvidence node forward through "
+            "claim -> proposal -> capability-ratchet verdict, read-only). All "
             "proposal-producing actions remain review-gated."
         ),
         tags=["graph-os", "evolution", "optimization", "skills"],
@@ -31,13 +33,15 @@ def register_evolution_tools(mcp: Any) -> None:
             default="assimilate",
             description=(
                 "assimilate | audit_scan | distill_skills | standardize | "
-                "failure_ingest | optimize_component | publish_proposal"
+                "failure_ingest | optimize_component | publish_proposal | "
+                "evidence_lineage"
             ),
         ),
         target: str = Field(
             default="",
             description=(
-                "Proposal id, optimization component, or distillation proposal id. "
+                "Proposal id, optimization component, distillation proposal id, or "
+                "(for evidence_lineage) the :EvolutionEvidence node id. "
                 "Use all/sweep for a full optimization sweep."
             ),
         ),
@@ -137,6 +141,20 @@ def register_evolution_tools(mcp: Any) -> None:
                         raise ValueError("data_json must decode to an object")
                     report = run_component_optimization(component, data, engine=engine)
                 return json.dumps(report, indent=2, default=str)
+
+            if action == "evidence_lineage":
+                # (7.6, D-71-4) expose evidence.evidence_lineage() — previously
+                # import-only — on the MCP/REST two-surface contract, dispatching
+                # into the SAME core the direct-import callers already use.
+                if not target:
+                    raise ValueError("target evidence id is required")
+                from agent_utilities.knowledge_graph.research.evidence import (
+                    evidence_lineage,
+                )
+
+                return json.dumps(
+                    evidence_lineage(engine, target), indent=2, default=str
+                )
 
             if action == "publish_proposal":
                 if not target:

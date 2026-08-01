@@ -1208,7 +1208,7 @@ def _heartbeat(queue: Any, worker_id: str, active_sessions: list[str]) -> None:
             active_sessions=active_sessions,
             queue_backend=backend,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — docstring: "(never load-bearing)"; run_dispatch_consumer_loop's claim->execute->ack cycle never reads this heartbeat, it only affects fleet-registry liveness visibility
         logger.debug("dispatch worker heartbeat failed: %s", e)
         return
     try:
@@ -1221,7 +1221,7 @@ def _heartbeat(queue: Any, worker_id: str, active_sessions: list[str]) -> None:
             float(dispatch_queue_depth(queue))
         )
         DISPATCH_WORKERS.set(float(len(list_dispatch_workers())))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — same heartbeat contract as above; only refreshes DISPATCH_QUEUE_DEPTH/DISPATCH_WORKERS Prometheus gauges, no dispatch-correctness dependency
         logger.debug("dispatch metrics refresh failed: %s", e)
 
 

@@ -18,6 +18,11 @@ from agent_utilities.core.transport_security import (
 )
 
 from ..base import GraphBackend, coerce_cypher_property
+from ..mirror_target import (
+    MirrorTarget,
+    cypher_target_has_data,
+    resolve_mirror_target,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +64,7 @@ class Neo4jBackend(GraphBackend):
         password: str,
         *,
         database: str | None = None,
+        mirror_target: MirrorTarget | None = None,
         tls_profile: str | None = None,
         tls_profile_ref: str | None = None,
         tls_profile_config: Mapping[str, Any] | None = None,
@@ -93,7 +99,13 @@ class Neo4jBackend(GraphBackend):
         except TransportSecurityError:
             raise ValueError("Neo4j transport security profile is invalid") from None
         self._tls_profile: ResolvedTLSProfile = trust
-        self.database = str(database or "").strip() or None
+        # CONCEPT:AU-KG.backend.mirror-target-graph — Neo4j's isolation unit is a
+        # DATABASE, so the resolved target simply selects the session database.
+        # ``None`` is the driver's home database, i.e. the instance default.
+        self.mirror_target = mirror_target or resolve_mirror_target(
+            None, backend_type="neo4j", named_selector=database
+        )
+        self.database = self.mirror_target.name or None
 
         if trust.proxy_url and trust.configured:
             trust.cleanup()
@@ -149,6 +161,45 @@ class Neo4jBackend(GraphBackend):
             trust.cleanup()
             raise
         logger.info("Initialized Neo4j backend with runtime connection profile")
+
+    # ------------------------------------------------------------------
+    # Mirror target (CONCEPT:AU-KG.backend.mirror-target-graph)
+    # ------------------------------------------------------------------
+    def mirror_target_locator(self) -> str:
+        """Name the resolved target the way a Neo4j operator would."""
+        db = self.database or "(the driver's home database)"
+        return f"{self.mirror_target.describe()} — Neo4j database {db}"
+
+    def mirror_target_has_data(self) -> bool:
+        """Whether the selected Neo4j database already holds nodes."""
+        return cypher_target_has_data(self)
+
+    def ensure_mirror_target(self) -> None:
+        """Create the dedicated database if absent (idempotent).
+
+        ``CREATE DATABASE ... IF NOT EXISTS`` is a ``system`` database command
+        and is Enterprise-only — Community Edition serves exactly one database.
+        A failure is re-raised with that named explicitly, cause preserved, so
+        the operator is not left guessing at a bare driver error.
+        """
+        name = self.mirror_target.name
+        if not name:
+            return
+        try:
+            with self.driver.session(database="system") as session:
+                # Neo4j accepts a parameter for an administration-command
+                # identifier, so the name is never interpolated into Cypher.
+                session.run(
+                    "CREATE DATABASE $name IF NOT EXISTS", {"name": name}
+                ).consume()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Neo4j could not create the dedicated mirror database {name!r}. "
+                "CREATE DATABASE is an Enterprise Edition feature — Community "
+                "Edition serves a single database, so either point this mirror "
+                "at its own Neo4j instance or declare "
+                'mirror_target="default-overwrite" to accept the home database.'
+            ) from exc
 
     @staticmethod
     def _neo4j_ca_files(trust: ResolvedTLSProfile) -> tuple[Any, ...]:

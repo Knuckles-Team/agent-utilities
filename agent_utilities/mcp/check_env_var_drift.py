@@ -411,7 +411,7 @@ def _derive_toggle_vars(root: Path) -> set[str]:
 
     Scans only production code, not ``tests/`` — unit tests routinely define a throwaway
     ``def register_<fake_tag>_tools(mcp): pass`` test double to exercise the tool-surface
-    dispatch mechanism generically (e.g. ``tests/test_verbose_tools.py``,
+    dispatch mechanism generically (e.g. ``tests/unit/mcp/test_verbose_tools.py``,
     ``tests/mcp/test_check_env_var_drift.py``), which is not a real registrar and would
     otherwise mint a phantom ``<FAKE_TAG>TOOL`` var with no real toggle behind it.
     """

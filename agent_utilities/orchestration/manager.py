@@ -2,8 +2,13 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, TypedDict, cast
 
+# Aliased below so the delegate a resolved Tool binds through cannot drift
+# between this module and the capability contract that defines the binding.
+from agent_utilities.core.capability_contract import (
+    DEFAULT_TOOL_DELEGATE as _DEFAULT_DELEGATE,
+)
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
 from agent_utilities.observability.trace_ontology import (
@@ -27,10 +32,32 @@ from agent_utilities.security.threat_defense_engine import PromptInjectionScanne
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DELEGATE = "agent-utilities-expert"
 _GATEWAY_OUTPUT_LIMIT = 12_000
 _GATEWAY_MERMAID_LIMIT = 8_000
 _GATEWAY_TRACE_TOOL_LIMIT = 32
+
+
+class DynamicWorkflowExecutionPayload(TypedDict, total=False):
+    """Serialized result contract for the GraphOS dynamic-workflow surface."""
+
+    status: str
+    output: Any
+    workflow_run_id: str
+    run_id: str
+    session_id: str
+    trace_ref: str
+    backend: str
+    upstream_version: str
+    script_evidence: list[dict[str, Any]]
+    child_runs: list[dict[str, Any]]
+    usage: dict[str, int]
+    fallback_used: bool
+    fallback_reason: str
+    # CONCEPT:AU-ORCH.execution.dynamic-workflow-resume — the truthfulness contract for
+    # a resumed run (see governed_dynamic_workflow.GovernedDynamicWorkflowResult).
+    resumed: bool
+    replayed_step_ids: list[str]
+    checkpoint_ids: list[str]
 
 
 def _bounded_text(value: Any, limit: int) -> str:
@@ -48,6 +75,16 @@ def _search_hit_properties(hit: dict[str, Any]) -> dict[str, Any]:
 
 
 def _search_hit_kind(hit: dict[str, Any]) -> str:
+    """Classify one ``search_hybrid`` hit's capability kind.
+
+    Delegates to the shared, table-driven
+    :func:`~agent_utilities.core.capability_contract.capability_kind_from_node`
+    (CONCEPT:AU-KG.retrieval.unified-capability-contract) — the same
+    classifier ``find``/``find_tools`` use — so a ``Tool`` node resolves to
+    ``"tool"`` here too instead of being silently dropped as unclassified.
+    """
+    from agent_utilities.core.capability_contract import capability_kind_from_node
+
     props = _search_hit_properties(hit)
     node_type = str(
         props.get("node_type")
@@ -55,16 +92,12 @@ def _search_hit_kind(hit: dict[str, Any]) -> str:
         or props.get("label")
         or props.get("kind")
         or ""
-    ).casefold()
-    resource_type = str(props.get("resource_type") or "").casefold()
-    node_id = str(props.get("id") or "").casefold()
-    if node_type == "workflowdefinition" or node_id.startswith(
-        ("workflow:", "skill_workflow:")
-    ):
-        return "workflow"
-    if resource_type == "agent_skill" or node_type in {"skill", "agentskill"}:
-        return "skill"
-    return ""
+    )
+    resource_type = str(props.get("resource_type") or "")
+    node_id = str(props.get("id") or "")
+    return capability_kind_from_node(
+        node_type=node_type, resource_type=resource_type, node_id=node_id
+    )
 
 
 def _search_hit_score(hit: dict[str, Any], rank: int) -> float:
@@ -151,11 +184,39 @@ class Orchestrator:
                 f"injection/threat. Details: {result.explanation}"
             )
 
+    @staticmethod
+    def _redact_task(task: str) -> str:
+        """Redact PII from task text before it is PERSISTED (D-OB-17 residual).
+
+        The harness content guardrails are attached at the AGENT seam
+        (``create_agent``/``create_context_agent``), which is downstream of this
+        method: :meth:`dispatch_task` writes the raw text into a durable
+        ``WorkItem.description`` in the graph BEFORE any agent — and therefore any
+        guardrail — sees it. Under the deleted ``ContentFilterPolicy`` that text was
+        gated at dispatch; without a filter here, a PII-bearing dispatch persists
+        unredacted PII into the KG and the later agent-seam redaction is too late.
+
+        Reuses the SAME ``_pii_guard`` the guardrail seam uses — one detector, one
+        verdict — rather than resurrecting ``PolicyEngine``. It REDACTS rather than
+        blocks, deliberately: the agent-path ``InputGuardrail`` already rewrites the
+        prompt exactly this way, so doing it earlier is behaviour-preserving for the
+        worker while keeping the unredacted value out of durable storage. Blocking
+        instead would newly reject any dispatch merely mentioning an email address.
+        """
+        from agent_utilities.capabilities.content_guardrails import _pii_guard
+
+        verdict = _pii_guard(task)
+        replacement = getattr(verdict, "replacement", None)
+        return replacement if isinstance(replacement, str) else task
+
     async def dispatch_task(
         self, task: str, dependencies: list[str] | None = None
     ) -> str:
         """Submit an orchestrator assignment to the sole WorkItem authority."""
+        # Scan the ORIGINAL text (redaction must not mask an injection payload),
+        # then persist only the redacted form.
         self._scan_task(task)
+        task = self._redact_task(task)
         job_id = f"orch-{uuid.uuid4().hex}"
         from agent_utilities.knowledge_graph.core.session import resolve_session
         from agent_utilities.orchestration.work_item import (
@@ -200,7 +261,9 @@ class Orchestrator:
         RunTrace node directly (by ``run_id`` or its opaque canonical trace id) and
         every ``ToolCall`` it made, in call order, so the caller sees the run's true
         status/output/duration AND each tool call's name/args/result/status — not an
-        empty shell.
+        empty shell. Native Pydantic Graph runs also return their complete persisted
+        topology/version/runtime/transition/checkpoint evidence; the stored transition
+        JSON is decoded to the public structured-list form.
         """
         trace_id = canonical_trace_id(run_id)
         backend = getattr(self.engine, "backend", None)
@@ -216,6 +279,16 @@ class Orchestrator:
                 "t.attribution_ref AS attribution_ref, t.task AS task, t.timestamp AS timestamp, "
                 "t.duration_ms AS duration_ms, t.result_preview AS result_preview, "
                 "t.error AS error, t.execution_mode AS execution_mode, "
+                "t.graph_evidence_schema_version AS graph_evidence_schema_version, "
+                "t.graph_topology AS graph_topology, "
+                "t.graph_topology_digest AS graph_topology_digest, "
+                "t.graph_version_digest AS graph_version_digest, "
+                "t.graph_runtime_version AS graph_runtime_version, "
+                "t.graph_node_sequence AS graph_node_sequence, "
+                "t.graph_transition_sequence AS graph_transition_sequence, "
+                "t.graph_transition_count AS graph_transition_count, "
+                "t.graph_checkpoint_ids AS graph_checkpoint_ids, "
+                "t.graph_resume_supported AS graph_resume_supported, "
                 "t.skill_ref AS skill_ref, "
                 "t.server_ref AS server_ref, t.model_ref AS model_ref, "
                 "t.model_class AS model_class, "
@@ -232,6 +305,15 @@ class Orchestrator:
         if not rows:
             return {"status": "not_found", "run_id": run_id}
         trace: dict[str, Any] = dict(rows[0])
+        transition_sequence = trace.get("graph_transition_sequence")
+        if isinstance(transition_sequence, str):
+            decoded_transitions: Any = None
+            try:
+                decoded_transitions = json.loads(transition_sequence)
+            except (TypeError, ValueError):
+                decoded_transitions = None
+            if isinstance(decoded_transitions, list):
+                trace["graph_transition_sequence"] = decoded_transitions
         try:
             tc_rows = backend.execute(
                 # NOTE: the node carrying the ``{id: $tid}`` property-map filter MUST be
@@ -397,6 +479,7 @@ class Orchestrator:
         skill_name: str | None = None,
         tool_server: str | None = None,
         execution_mode: ExecutionMode = "auto",
+        grounding: str = "required",
     ) -> str:
         """Execute a single agent against a task.
 
@@ -420,6 +503,28 @@ class Orchestrator:
         stream so a long delegation is transparent step-by-step. Default ``None`` is a strict
         no-op (the run is byte-for-byte unchanged); every emission is fire-and-forget and
         exception-isolated, so a slow/failing sink can never stall or fail the run.
+        CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — ``grounding`` scopes the
+        mandatory evidence-compilation policy for every model call this run makes
+        (``"required"`` — the default — fails the run closed on a compile timeout/error
+        or a retrieval-quality-gate failure rather than silently answering ungrounded;
+        ``"best_effort"``/``"none"`` opt into degraded operation, marked explicitly in
+        the model messages, the RunTrace, and the OTel span).
+        CONCEPT:AU-ORCH.execution.delegation-hot-path-authority — keep a long delegation authorized for its whole run, on every entrypoint, not just MCP dispatch.
+
+        Every delegation entrypoint (MCP ``graph_orchestrate``, the agent-webui/REST
+        gateway, the messaging router, the autonomous ``agent_dispatch_worker``,
+        ``org_runtime``, a governed dynamic workflow, and the parallel engine)
+        converges on this ONE method, so it opens
+        :func:`~agent_utilities.mcp.kg_server.authority_keepalive_scope` itself rather
+        than relying on the MCP tool-dispatch path having already opened one (D-SNV-5
+        follow-up). A delegation that runs longer than the process's renewable session
+        TTL renews its own authority instead of failing closed mid-flight with
+        ``SessionExpiredError``, on every surface, not just MCP-dispatched calls. The
+        scope is idempotent/reentrant: a call that already arrived through the MCP
+        dispatch guard (which opens the same scope) does not start a second renewal
+        loop, and a caller-presented bearer JWT (no server-held ``credential_lease``)
+        is never proactively renewed here — see the scope's own docstring for the full
+        security contract.
         """
         response_format = validate_response_format(response_format)
         execution_mode = validate_execution_mode(execution_mode)
@@ -447,33 +552,51 @@ class Orchestrator:
             if current_priority() is PriorityClass.BACKGROUND_INGESTION
             else PriorityClass.ORCHESTRATION
         )
-        with priority_scope(_delegation_prio):
-            result = await run_agent(
-                agent_name=agent_name,
-                task=task,
-                engine=self.engine,
-                max_steps=max_steps,
-                return_mermaid=return_mermaid,
-                context=context,
-                budget_tokens=budget_tokens,
-                context_ref=context_ref,
-                allowed_tools=allowed_tools,
-                required_tools=required_tools,
-                skill_name=skill_name,
-                tool_server=tool_server,
-                execution_mode=execution_mode,
-                cred_ref=cred_ref,
-                session_id=session_id,
-                open_channel=open_channel,
-                memento_source=memento_source,
-                execution_profile=execution_profile,
-                reasoning_effort=reasoning_effort,
-                model_class=model_class,
-                response_format=response_format,
-                run_id=run_id,
-                include_run_summary=include_run_summary,
-                progress_sink=progress_sink,
-            )
+        from agent_utilities.core.contextual_model import use_grounding_policy
+
+        # D-SNV-5 follow-up: renew a renewable session's authority for the whole
+        # delegation, not just while an MCP tool dispatch is on the stack — see the
+        # CONCEPT note above and authority_keepalive_scope's own docstring.
+        from agent_utilities.mcp.kg_server import authority_keepalive_scope
+
+        # CONCEPT:AU-OS.observability.delegation-run-metrics — the in-process
+        # delegation path had no telemetry; this is the one seam every
+        # execute_agent call passes through, so count/duration/outcome land here
+        # rather than in each of the many callers.
+        from agent_utilities.observability.gateway_metrics import delegation_span
+
+        with (
+            priority_scope(_delegation_prio),
+            use_grounding_policy(grounding),
+            delegation_span("agent", agent_name),
+        ):
+            async with authority_keepalive_scope():
+                result = await run_agent(
+                    agent_name=agent_name,
+                    task=task,
+                    engine=self.engine,
+                    max_steps=max_steps,
+                    return_mermaid=return_mermaid,
+                    context=context,
+                    budget_tokens=budget_tokens,
+                    context_ref=context_ref,
+                    allowed_tools=allowed_tools,
+                    required_tools=required_tools,
+                    skill_name=skill_name,
+                    tool_server=tool_server,
+                    execution_mode=execution_mode,
+                    cred_ref=cred_ref,
+                    session_id=session_id,
+                    open_channel=open_channel,
+                    memento_source=memento_source,
+                    execution_profile=execution_profile,
+                    reasoning_effort=reasoning_effort,
+                    model_class=model_class,
+                    response_format=response_format,
+                    run_id=run_id,
+                    include_run_summary=include_run_summary,
+                    progress_sink=progress_sink,
+                )
         return result
 
     def resolve_capability(self, task: str, agent_name: str = "") -> dict[str, Any]:
@@ -521,6 +644,11 @@ class Orchestrator:
                     "id": str(props.get("id") or ""),
                     "score": _search_hit_score(hit, rank),
                     "source": "kg_hybrid",
+                    # Owning MCP server for a "tool" (or a fleet-served
+                    # "skill") kind — "" for a purely local skill/agent.
+                    # Carried so a resolved capability can be bound without
+                    # the caller re-deriving it (CONCEPT:AU-KG.retrieval.unified-capability-contract).
+                    "server": str(props.get("mcp_server") or ""),
                 }
             )
 
@@ -649,8 +777,14 @@ class Orchestrator:
         reasoning_effort: str | None = None,
         model_class: str = "standard",
         response_format: ResponseFormat = "text",
+        grounding: str = "required",
     ) -> dict[str, Any]:
-        """Resolve and execute one task through the bounded GraphOS skill gateway."""
+        """Resolve and execute one task through the bounded GraphOS skill gateway.
+
+        ``grounding`` forwards to :meth:`execute_agent` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract)
+        for the ``agent``/``skill`` resolution path, and to :meth:`execute_workflow` for
+        a resolved ``workflow`` — every step in the run opens the same scope.
+        """
         execution_mode = validate_execution_mode(execution_mode)
         allowed_tools, required_tools = validate_tool_contract(
             allowed_tools, required_tools
@@ -701,6 +835,7 @@ class Orchestrator:
                 workflow_id=target["name"],
                 task=task,
                 max_steps=max_steps,
+                grounding=grounding,
             )
             run_id = str(result.get("run_id") or result.get("session_id") or "")
             provenance = await asyncio.to_thread(self._workflow_provenance, run_id)
@@ -718,10 +853,40 @@ class Orchestrator:
                 "approval_request": _approval_request(result),
             }
 
+        # A ``target`` resolved (not caller-supplied — an explicit skill_name
+        # was already folded into ``target["kind"] == "skill"`` above) to a
+        # bare ``Tool`` node binds through the SAME Capability contract a
+        # ranked ``find``/``find_tools`` result would (CONCEPT:AU-KG.retrieval.unified-capability-contract):
+        # run the default expert scoped to just that one fleet tool, rather
+        # than the wrong-shaped ``agent_name=<tool name>``.
+        call_agent_name = target["name"]
+        call_tool_server = tool_server or None
+        call_allowed_tools = allowed_tools
+        call_skill_name = skill_name or None
+        if target["kind"] == "tool":
+            from agent_utilities.core.capability_contract import Capability
+
+            binding = Capability(
+                kind="tool",
+                id=str(target.get("id") or ""),
+                name=target["name"],
+                server=str(target.get("server") or "") or None,
+            ).to_binding()
+            call_agent_name = _DEFAULT_DELEGATE
+            call_tool_server = binding.get("tool_server") or call_tool_server
+            call_allowed_tools = binding.get("allowed_tools") or call_allowed_tools
+            # ``run_agent`` enforces both "tool_server requires skill_name" AND
+            # "skill_name must match the dispatched agent_name", so the delegate
+            # has to be named on BOTH keywords. Leaving skill_name empty here
+            # made every auto-resolved Tool raise ValueError inside run_agent --
+            # and every fleet Tool node carries a non-empty mcp_server, so this
+            # was every real resolution of this kind, not an edge case.
+            call_skill_name = _DEFAULT_DELEGATE
+
         raw = await self.execute_agent(
-            agent_name=target["name"],
-            skill_name=skill_name or None,
-            tool_server=tool_server or None,
+            agent_name=call_agent_name,
+            skill_name=call_skill_name,
+            tool_server=call_tool_server,
             execution_mode=execution_mode,
             task=task,
             max_steps=max_steps,
@@ -729,7 +894,7 @@ class Orchestrator:
             context=context,
             budget_tokens=budget_tokens,
             context_ref=context_ref,
-            allowed_tools=allowed_tools,
+            allowed_tools=call_allowed_tools,
             required_tools=required_tools,
             cred_ref=cred_ref,
             open_channel=open_channel,
@@ -737,6 +902,7 @@ class Orchestrator:
             model_class=model_class,
             response_format=response_format,
             include_run_summary=True,
+            grounding=grounding,
         )
         try:
             payload = json.loads(raw)
@@ -775,6 +941,7 @@ class Orchestrator:
             or None,
             "channel_id": payload.get("channel_id"),
             "run_summary": payload.get("run_summary"),
+            "execution_evidence": payload.get("execution_evidence"),
             "resolution": target,
             "provenance": provenance,
             "approval_request": _approval_request(payload),
@@ -795,7 +962,11 @@ class Orchestrator:
             raise
 
     async def execute_workflow(
-        self, workflow_id: str, task: str = "", max_steps: int = 30
+        self,
+        workflow_id: str,
+        task: str = "",
+        max_steps: int = 30,
+        grounding: str = "required",
     ) -> dict[str, Any]:
         """Execute a compiled workflow by running its STORED step-DAG.
 
@@ -811,20 +982,134 @@ class Orchestrator:
         the ``graph_workflows`` handler before this is called, so governance stays
         in the path. Returns the ``WorkflowResult`` as a dict carrying the ``run_id``
         handle (the session id) so a delegated workflow run is trackable (ORCH-1.97).
+
+        ``grounding`` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract) gives
+        every step in the run the same opt-in ``execute_agent``/``execute_capability``
+        already has — each step still defaults to the process-wide fail-closed
+        ``"required"`` policy when unset.
         """
         if task:
             self._scan_task(task)
 
         logger.info(f"Executing workflow {workflow_id} via WorkflowRunner...")
+        from agent_utilities.observability.gateway_metrics import delegation_span
         from agent_utilities.workflows.runner import WorkflowRunner
 
         runner = WorkflowRunner(max_steps_per_agent=max_steps)
-        result = await runner.execute_by_name(
-            workflow_name=workflow_id,
-            engine=self.engine,
-            task=task or None,
-        )
+        # CONCEPT:AU-OS.observability.delegation-run-metrics — the workflow twin
+        # of the execute_agent recording above; ``kind`` keeps the two
+        # populations from merging when a workflow shares an agent's name.
+        with delegation_span("workflow", workflow_id):
+            result = await runner.execute_by_name(
+                workflow_name=workflow_id,
+                engine=self.engine,
+                task=task or None,
+                grounding=grounding,
+            )
         payload = result.to_dict()
         # ORCH-1.97 — surface a stable run handle for the delegated workflow run.
         payload["run_id"] = result.session_id
         return payload
+
+    async def execute_dynamic_workflow(
+        self,
+        workflow_id: str,
+        task: str = "",
+        max_steps: int = 30,
+        *,
+        max_agent_calls: int = 50,
+        max_concurrency: int = 8,
+        budget_tokens: int | None = None,
+        model_class: str = "standard",
+        unavailable_fallback: str = "error",
+        orchestrator_model: Any | None = None,
+        workflow_run_id: str | None = None,
+    ) -> DynamicWorkflowExecutionPayload:
+        """Execute a stored catalog with upstream Harness DynamicWorkflow.
+
+        The Harness parent owns only its sandboxed ``run_workflow`` tool. Every
+        catalog call re-enters :meth:`execute_agent`, so the same KG resolution,
+        tenant policy, skill/tool contract, model-class router, budgets, and
+        RunTrace/ToolCall persistence used by ``graph_orchestrate`` remain
+        authoritative.
+
+        ``unavailable_fallback`` is explicit: ``"error"`` fails when the optional
+        Harness extra or a required upstream seam is unavailable;
+        ``"stored_dag"`` runs the ordinary :class:`WorkflowRunner` instead. A
+        runtime/model/tool failure never silently changes engines.
+
+        ``workflow_run_id`` is what makes the governed RESUME path reachable at
+        all: :class:`GovernedDynamicWorkflow`'s resume cache is keyed strictly on
+        it, so a caller that re-invokes a halted run (budget exhaustion, timeout,
+        cancellation, process restart) under the SAME id replays the already
+        completed ``(step, task)`` outputs instead of re-dispatching them. Omit
+        it and every invocation mints a fresh id and therefore always restarts
+        from scratch — the resume machinery would be present but unreachable.
+        """
+
+        if task:
+            self._scan_task(task)
+        if unavailable_fallback not in {"error", "stored_dag"}:
+            raise ValueError("unavailable_fallback must be 'error' or 'stored_dag'")
+        if model_class not in {"economy", "standard"}:
+            raise ValueError("model_class must be economy or standard")
+
+        from agent_utilities.capabilities.governed_dynamic_workflow import (
+            DynamicWorkflowUnavailableError,
+            GovernedDynamicWorkflow,
+        )
+        from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
+
+        try:
+            plan = await asyncio.to_thread(
+                WorkflowStore(self.engine).load_workflow, workflow_id
+            )
+            if plan is None:
+                raise ValueError(f"Workflow '{workflow_id}' not found in KG or catalog")
+            workflow = GovernedDynamicWorkflow.from_graph_plan(
+                plan,
+                name=workflow_id,
+                query=task or f"Execute the governed workflow {workflow_id}",
+                max_agent_calls=max_agent_calls,
+                max_concurrency=max_concurrency,
+                budget_tokens=budget_tokens,
+                max_steps=max_steps,
+            )
+            # Fail before constructing a provider model when the optional
+            # Harness runtime is absent. This also validates the pinned API.
+            workflow.build_upstream_capability(self)
+
+            if orchestrator_model is None:
+                from agent_utilities.core.model_factory import create_model
+                from agent_utilities.orchestration.agent_runner import (
+                    _configured_model_for_class,
+                )
+
+                selected = _configured_model_for_class(model_class)
+                orchestrator_model = create_model(model_id=selected.id)
+            result = await workflow.execute(
+                self,
+                orchestrator_model=orchestrator_model,
+                workflow_run_id=workflow_run_id,
+            )
+        except DynamicWorkflowUnavailableError as exc:
+            if unavailable_fallback != "stored_dag":
+                raise
+            fallback = await self.execute_workflow(
+                workflow_id=workflow_id,
+                task=task,
+                max_steps=max_steps,
+            )
+            return cast(
+                DynamicWorkflowExecutionPayload,
+                {
+                    **fallback,
+                    "backend": "stored_dag",
+                    "fallback_used": True,
+                    "fallback_reason": type(exc).__name__,
+                },
+            )
+        return cast(
+            DynamicWorkflowExecutionPayload,
+            result.model_dump(mode="json"),
+        )

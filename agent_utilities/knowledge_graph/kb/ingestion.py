@@ -757,7 +757,7 @@ class KBIngestionEngine:
             set_clause = ", ".join(f"n.{k} = ${k}" for k in fields)
             query = f"MERGE (n:{table} {{{merge_key}}}) SET {set_clause}"
             self.backend.execute(query, {"id": node_id, **fields})
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — comment above already states the rationale: this is a best-effort mirror write, the graph-compute node is the source of truth and was already persisted before this method runs
             # Best-effort mirror write (the graph-compute node above is already
             # the source of truth) — log the real cause, not just the class
             # name, so a persistently-failing backend is diagnosable.

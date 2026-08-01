@@ -19,6 +19,7 @@ from typing import Any
 
 from agent_utilities.core.config import setting
 from agent_utilities.core.task_cancellation import raise_if_task_cancelled
+from agent_utilities.security.log_redaction import redact_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def _get_latest_version_from_history(
                 try:
                     content = f.read_text(encoding="utf-8", errors="ignore")
                     seen_hashes.add(_get_md5(content))
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — one unreadable history file just contributes no hash to the dedup set, version scan continues
                     logger.debug("Failed to read historical file: %s", e)
 
     return version, seen_hashes
@@ -140,62 +141,44 @@ def ingest_plan_version(
         },
     )
 
-    # 2. Supersedes relationship
+    # 2. Supersedes relationship — dispatched through the typed engine API
+    # (IntelligenceGraphEngine.link_nodes) rather than raw two-MATCH Cypher:
+    # the native engine's write parser supports at most one leading MATCH
+    # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
     if prev_plan_id:
-        query_supersedes = (
-            "MATCH (old:ImplementationPlan {id: $prev_plan_id}) "
-            "MATCH (new:ImplementationPlan {id: $plan_id}) "
-            "MERGE (new)-[:SUPERSEDES]->(old)"
-        )
         try:
-            engine.backend.execute(
-                query_supersedes,
-                {"prev_plan_id": prev_plan_id, "plan_id": plan_id},
-            )
+            engine.link_nodes(plan_id, prev_plan_id, "SUPERSEDES")
         except Exception as e:
             logger.warning(f"Could not link superseded plan: {e}")
 
-    # 3. Link to SoftwareFeature (creating feature if missing)
-    query_feature = (
-        "MERGE (f:SoftwareFeature {id: $feature_id}) "
-        "ON CREATE SET f.title = $feature_title "
-        "WITH f "
-        "MATCH (p:ImplementationPlan {id: $plan_id}) "
-        "MERGE (p)-[:PLAN_FOR_FEATURE]->(f)"
+    # 3. Link to SoftwareFeature (creating feature if missing) — typed
+    # add_node + link_nodes instead of a MERGE-on-edge-pattern WITH query.
+    engine.add_node(
+        feature_id,
+        node_type="SoftwareFeature",
+        properties={"title": f"Feature {feature_id}"},
     )
-    engine.backend.execute(
-        query_feature,
-        {
-            "feature_id": feature_id,
-            "feature_title": f"Feature {feature_id}",
-            "plan_id": plan_id,
-        },
-    )
+    engine.link_nodes(plan_id, feature_id, "PLAN_FOR_FEATURE")
 
-    # 4. Link to active Project node
-    query_project = (
-        "MATCH (proj:Project) WHERE proj.name = 'current' "
-        "MATCH (p:ImplementationPlan {id: $plan_id}) "
-        "MERGE (proj)-[:HAS_ARTIFACT]->(p)"
-    )
+    # 4. Link to active Project node. Project is looked up by `name`, not
+    # `id`, so this is a single-MATCH read (unrestricted MATCH count) to
+    # resolve the id, then a typed link_nodes call.
     try:
-        engine.backend.execute(query_project, {"plan_id": plan_id})
-    except Exception as e:
+        proj_rows = engine.backend.execute(
+            "MATCH (proj:Project) WHERE proj.name = 'current' RETURN proj.id AS id"
+        )
+        project_id = proj_rows[0].get("id") if proj_rows else None
+        if project_id:
+            engine.link_nodes(project_id, plan_id, "HAS_ARTIFACT")
+    except Exception as e:  # noqa: BLE001 — Project linkage is a discoverability edge; the ImplementationPlan node itself is already MERGEd above unconditionally
         logger.debug(f"Could not link plan to project: {e}")
 
     # 5. Link to Session node
     if session_id:
-        query_session = (
-            "MERGE (sess:Session {id: $session_id}) "
-            "WITH sess "
-            "MATCH (p:ImplementationPlan {id: $plan_id}) "
-            "MERGE (sess)-[:HAS_ARTIFACT]->(p)"
-        )
         try:
-            engine.backend.execute(
-                query_session, {"session_id": session_id, "plan_id": plan_id}
-            )
-        except Exception as e:
+            engine.add_node(session_id, node_type="Session")
+            engine.link_nodes(session_id, plan_id, "HAS_ARTIFACT")
+        except Exception as e:  # noqa: BLE001 — Session linkage is a discoverability edge; the ImplementationPlan node itself is already MERGEd above unconditionally
             logger.debug(f"Could not link plan to session: {e}")
 
     return plan_id
@@ -243,32 +226,16 @@ def ingest_tasks_version(
         },
     )
 
-    # 2. Supersedes relationship
+    # 2. Supersedes relationship — typed dispatch, see ingest_plan_version above.
     if prev_tasks_id:
-        query_supersedes = (
-            "MATCH (old:Tasks {id: $prev_tasks_id}) "
-            "MATCH (new:Tasks {id: $tasks_id}) "
-            "MERGE (new)-[:SUPERSEDES]->(old)"
-        )
         try:
-            engine.backend.execute(
-                query_supersedes,
-                {"prev_tasks_id": prev_tasks_id, "tasks_id": tasks_id},
-            )
+            engine.link_nodes(tasks_id, prev_tasks_id, "SUPERSEDES")
         except Exception as e:
             logger.warning(f"Could not link superseded tasks: {e}")
 
     # 3. Link to SoftwareFeature
-    query_feature = (
-        "MERGE (f:SoftwareFeature {id: $feature_id}) "
-        "WITH f "
-        "MATCH (t:Tasks {id: $tasks_id}) "
-        "MERGE (t)-[:TASKS_FOR_FEATURE]->(f)"
-    )
-    engine.backend.execute(
-        query_feature,
-        {"feature_id": feature_id, "tasks_id": tasks_id},
-    )
+    engine.add_node(feature_id, node_type="SoftwareFeature")
+    engine.link_nodes(tasks_id, feature_id, "TASKS_FOR_FEATURE")
 
     return tasks_id
 
@@ -281,7 +248,7 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
     file_key = str(file_path.resolve())
     try:
         mtime = file_path.stat().st_mtime
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
         logger.debug("Failed to stat watched file: %s", e)
         mtime = 0.0
 
@@ -383,7 +350,7 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
     file_key = str(file_path.resolve())
     try:
         mtime = file_path.stat().st_mtime
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
         logger.debug("Failed to stat watched file: %s", e)
         mtime = 0.0
 
@@ -641,7 +608,7 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
     file_key = str(file_path.resolve())
     try:
         mtime = file_path.stat().st_mtime
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
         logger.debug(
             "Failed to stat %s: %s",
             skill_reference(file_path.parent.name),
@@ -681,7 +648,7 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
                 frontmatter = yaml.safe_load(frontmatter_str) or {}
                 skill_name = str(frontmatter.get("name", skill_name))
                 skill_desc = frontmatter.get("description", "")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — malformed frontmatter falls back to the directory-name default already assigned above
                 logger.debug(
                     "Failed to parse frontmatter for %s: %s",
                     skill_reference(file_path.parent.name),
@@ -736,14 +703,14 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
 
         engine.add_node(node_id, node_type="Skill", properties=props)
 
-        query_project = (
-            "MATCH (proj:Project) WHERE proj.name = 'current' "
-            "MATCH (s:Skill {id: $node_id}) "
-            "MERGE (proj)-[:HAS_ARTIFACT]->(s)"
-        )
         try:
-            engine.backend.execute(query_project, {"node_id": node_id})
-        except Exception as e:
+            proj_rows = engine.backend.execute(
+                "MATCH (proj:Project) WHERE proj.name = 'current' RETURN proj.id AS id"
+            )
+            project_id = proj_rows[0].get("id") if proj_rows else None
+            if project_id:
+                engine.link_nodes(project_id, node_id, "HAS_ARTIFACT")
+        except Exception as e:  # noqa: BLE001 — Project linkage is a discoverability edge; the Skill node itself is already added above unconditionally
             logger.debug(
                 "Could not link %s to project: %s",
                 skill_reference(skill_name),
@@ -779,7 +746,9 @@ def process_watched_file(
     try:
         mtime = file_path.stat().st_mtime
     except Exception as exc:  # noqa: BLE001 — mtime is an optional delta optimization
-        logger.debug("Could not stat watched document %s: %s", file_path, exc)
+        logger.debug(
+            "Could not stat watched document %s: %s", redact_for_log(file_path), exc
+        )
         mtime = 0.0
     if _SEEN_MTIMES.get(file_key) == mtime:
         return
@@ -822,12 +791,16 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as exc:  # noqa: BLE001 — binary files fall back to mtime
-        logger.debug("Could not read KG ingest location %s: %s", file_path, exc)
+        logger.debug(
+            "Could not read KG ingest location %s: %s", redact_for_log(file_path), exc
+        )
         try:
             content = str(file_path.stat().st_mtime)
         except Exception as stat_exc:  # noqa: BLE001 — vanished files are skipped
             logger.debug(
-                "Could not stat KG ingest location %s: %s", file_path, stat_exc
+                "Could not stat KG ingest location %s: %s",
+                redact_for_log(file_path),
+                stat_exc,
             )
             return
 
@@ -843,7 +816,11 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
 
             _ingest_capabilities(engine)
         except Exception as e:
-            logger.debug(f"Failed to re-ingest capabilities: {e}")
+            # D-SWG-2: loud, not debug — the content hash below is recorded
+            # unconditionally regardless of this try's outcome, so a failed
+            # re-ingest is never retried on a later scan; a buried DEBUG line
+            # would make a stale capability inventory permanently invisible.
+            logger.error(f"Failed to re-ingest capabilities: {e}")
     else:
         try:
             if hasattr(engine, "submit_task"):
@@ -903,7 +880,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                 process_plan_file(engine, f, workspace_path)
             elif f.name.lower() in {"tasks.md", "task.md"}:
                 process_tasks_file(engine, f, workspace_path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — this phase is one of 6 independent scan phases in run_watcher_scan; one phase's failure must not block the others, and the outer run_plan_watcher_loop already logs any escaping exception at ERROR
         logger.debug("Nested specification scan failed: %s", e)
 
     # 4. Multi-IDE / Platform Skills Scan
@@ -924,7 +901,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                     process_plan_file(engine, f, workspace_path)
                 elif f.name.lower() in {"tasks.md", "task.md"}:
                     process_tasks_file(engine, f, workspace_path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Skills scan failed: %s", e)
 
     # 5. Watched directories scan — ScholarX/research downloads (top-level) +
@@ -948,7 +925,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                     process_watched_file(engine, item, source=source)
             except Exception as exc:  # noqa: BLE001 — one watch root is non-fatal
                 logger.debug("Watched-directory scan failed for %s: %s", w_dir, exc)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Watched-directory scan failed: %s", e)
 
     # 6. Core Knowledge Graph Ingest Locations Scan
@@ -966,7 +943,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                             process_kg_ingest_location(engine, child)
                 except Exception as exc:  # noqa: BLE001 — one KG root is non-fatal
                     logger.debug("Could not enumerate KG ingest path %s: %s", p, exc)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Core KG ingestion-location scan failed: %s", e)
 
 

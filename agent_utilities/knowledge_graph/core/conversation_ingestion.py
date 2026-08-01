@@ -225,7 +225,7 @@ def parse_windsurf_logs(memories_dir: Path) -> list[dict[str, Any]]:
                             "path": str(f),
                         }
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unparseable Windsurf log file is skipped; the function returns whatever conversations were successfully parsed from the rest of the directory, nothing downstream is stamped 'ingested' for the skipped file
             logger.debug(f"Failed to parse Windsurf log {f}: {e}")
 
     return conversations
@@ -275,7 +275,7 @@ def parse_claude_logs(projects_dir: Path) -> list[dict[str, Any]]:
                         "path": str(f),
                     }
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unparseable Claude Code log file is skipped, same as the Windsurf parser above — the function returns whatever conversations parsed cleanly from the rest
             logger.debug(f"Failed to parse Claude log {f}: {e}")
 
     return conversations
@@ -317,7 +317,7 @@ def parse_codex_logs(sessions_dir: Path) -> list[dict[str, Any]]:
                             "path": str(f),
                         }
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unparseable Codex session file is skipped, same pattern as the Windsurf/Claude parsers above
             logger.debug(f"Failed to parse Codex log {f}: {e}")
 
     return conversations
@@ -512,7 +512,7 @@ def ingest_conversations_to_kg(
                     text, cid, _llm, source_type="chat", title=title
                 )
                 return cid, src, concepts
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — per-conversation concept extraction inside a ThreadPoolExecutor.map; returns an empty concepts list for this one conversation so the batch loop below simply has nothing to add for it, rather than losing the whole ingest run
                 logger.debug("chat concept extraction failed for %s: %s", cid, e)
                 return cid, src, []
 
@@ -564,7 +564,7 @@ def ingest_conversations_to_kg(
                             rel_type=edge.rel_type,
                             properties={"source": "concept_link"},
                         )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — concept-to-code linking is enrichment over conversations already ingested above (ingested/concepts_total are already final by this point); a linking failure only means fewer cross-links, not a lost conversation
                 logger.debug("chat concept→code linking failed: %s", exc)
 
     return {

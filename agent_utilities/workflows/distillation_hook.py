@@ -5,18 +5,15 @@ CONCEPT:AU-ORCH.execution.parallel-engine-visualizer × CONCEPT:AU-AHE.optimizat
 Closes the evolution feedback loop by automatically distilling successful
 workflow executions into reusable Workflow+TeamConfig pairs in the KG.
 
-Configuration (from ``config.json``)::
-
-    {
-      "distillation": {
-        "promotion_threshold": 3,
-        "quality_score_minimum": 0.6
-      }
-    }
+Configuration — via :class:`agent_utilities.core.config.AgentConfig`
+(``DISTILLATION_PROMOTION_THRESHOLD`` / ``DISTILLATION_QUALITY_SCORE_MINIMUM``),
+same env-var-driven config surface as the rest of the process, not a standalone
+``config.json`` blob.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -91,7 +88,7 @@ class WorkflowDistillationHook:
             return outcome
 
         pattern_key = _compute_pattern_key(plan)
-        success_count = self._record_success(pattern_key)
+        success_count = await asyncio.to_thread(self._record_success, pattern_key)
 
         if success_count < self.promotion_threshold:
             outcome["reason"] = (
@@ -136,7 +133,7 @@ class WorkflowDistillationHook:
             )
             if rows:
                 return int(rows[0].get("count", 1))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — worst case the promotion-threshold counter lags by one increment; the function's `return 1` default keeps callers correct either way
             logger.debug("[ORCH-1.8] DistillationTracker update failed: %s", e)
         return 1
 
@@ -176,10 +173,12 @@ class WorkflowDistillationHook:
                 from ..core.registry.kg_adapter import RegistryMixin
 
                 if isinstance(self.engine, RegistryMixin):
-                    self.engine.record_team_outcome(
-                        team_config_id, reward=quality_score
+                    await asyncio.to_thread(
+                        self.engine.record_team_outcome,
+                        team_config_id,
+                        reward=quality_score,
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — reward-signal telemetry only; outcome["promoted"] is set unconditionally below regardless of this call's success
                 logger.debug("[ORCH-1.8] TeamConfig reward update failed: %s", e)
 
         outcome["promoted"] = True
@@ -193,6 +192,13 @@ class WorkflowDistillationHook:
         self, pattern_key: str, plan: GraphPlan, team_config_id: str | None
     ) -> Path:
         """Scaffold a new skill directory from a proven execution pattern."""
+        return await asyncio.to_thread(
+            self._scaffold_skill_sync, pattern_key, plan, team_config_id
+        )
+
+    def _scaffold_skill_sync(
+        self, pattern_key: str, plan: GraphPlan, team_config_id: str | None
+    ) -> Path:
         import hashlib
         import time
         from pathlib import Path
@@ -288,7 +294,7 @@ metadata:
 
                     with open(refs_dir / "team.yaml", "w", encoding="utf-8") as f:
                         yaml.dump(team_data, f, sort_keys=False)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — team.yaml is a supplementary reference file inside the skill dir; SKILL.md itself is already written above and skill_dir is returned unconditionally
                 logger.debug("Failed to extract TeamConfig for scaffolded skill: %s", e)
 
         return skill_dir
@@ -304,15 +310,30 @@ def _compute_pattern_key(plan: GraphPlan) -> str:
 
 
 def _load_distillation_config() -> tuple[int, float]:
-    """Load distillation thresholds from config.json."""
-    try:
-        from agent_utilities.config import AgentConfig
+    """Load distillation thresholds from :class:`AgentConfig`.
 
-        config = AgentConfig.load()
-        distillation = config.raw.get("distillation", {})
+    D-32(b): this previously imported a nonexistent ``agent_utilities.config``
+    module and read a ``.raw`` dict shape neither of which exist on the real
+    settings class (``agent_utilities.core.config.AgentConfig``, an env-var-driven
+    ``BaseSettings``) — every call silently fell through the bare ``except`` to the
+    hardcoded defaults, so the documented ``config.json``/env override never took
+    effect. Fixed to read the real typed fields.
+    """
+    try:
+        from agent_utilities.core.config import AgentConfig
+
+        config = AgentConfig()
         return (
-            int(distillation.get("promotion_threshold", DEFAULT_PROMOTION_THRESHOLD)),
-            float(distillation.get("quality_score_minimum", DEFAULT_QUALITY_MINIMUM)),
+            int(config.distillation_promotion_threshold),
+            float(config.distillation_quality_score_minimum),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — must stay best-effort: AgentConfig() is genuinely unbuildable in some deployments (e.g. a k8s service-link env var shadowing a typed field), and distillation must not hard-fail on that. But this is logged at WARNING, not DEBUG, deliberately: a bare swallow here is exactly what hid D-32(b) — a nonexistent import made EVERY call fall through to the hardcoded defaults, so the documented config.json/env override silently never took effect. Falling back to defaults is a real behaviour change and must be visible.
+        logger.warning(
+            "distillation config load failed — falling back to the hardcoded "
+            "defaults (promotion_threshold=%s, quality_minimum=%s); the "
+            "configured values are NOT in effect: %s",
+            DEFAULT_PROMOTION_THRESHOLD,
+            DEFAULT_QUALITY_MINIMUM,
+            exc,
+        )
         return DEFAULT_PROMOTION_THRESHOLD, DEFAULT_QUALITY_MINIMUM

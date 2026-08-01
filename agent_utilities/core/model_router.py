@@ -85,6 +85,46 @@ def pick_adaptive(
             routing_percentile=routing_percentile,
             required_tags=spec.tags,
         )
-    except Exception as e:  # pragma: no cover - defensive
+    except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — documented never-raise contract: callers rely on None meaning "fall back to the factory default model" (see docstring); swallowing here IS the interface
         logger.debug("adaptive pick failed for role %r: %s", role, e)
         return None
+
+
+def pick_adaptive_with_decision(
+    registry: Any,
+    role: str,
+    *,
+    routing_percentile: float = 50.0,
+) -> tuple[Any | None, Any | None]:
+    """Like :func:`pick_adaptive`, but also returns the bounded ``RoutingDecision``
+    that explains the pick (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance) — the chosen model AND
+    every rejected candidate's score/reason, using the SAME confidence signal that
+    drove the adaptive pick (not a re-derived one).
+
+    Returns ``(model, decision)``; either or both are ``None`` when adaptive
+    routing has nothing to say (empty/absent registry, unknown role), mirroring
+    :func:`pick_adaptive`'s never-raise contract.
+    """
+    try:
+        if registry is None or not getattr(registry, "models", None):
+            return None, None
+        spec = registry.resolve_role(role)
+        key = route_key(role)
+        confidence = route_confidence(key)
+        model = registry.pick_for_task_adaptive(
+            complexity=spec.tier,
+            confidence_signal=confidence,
+            routing_percentile=routing_percentile,
+            required_tags=spec.tags,
+        )
+        decision = registry.explain_pick_for_task(
+            complexity=spec.tier,
+            required_tags=spec.tags,
+            confidence_signal=confidence,
+            routing_percentile=routing_percentile,
+            route_key=key,
+        )
+        return model, decision
+    except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — same never-raise contract as pick_adaptive; callers treat (None, None) as "adaptive routing has nothing to say"
+        logger.debug("adaptive pick+decision failed for role %r: %s", role, e)
+        return None, None

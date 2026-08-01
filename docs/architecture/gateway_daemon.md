@@ -6,6 +6,13 @@ Every other entry point — the MCP server, CLI, scripts — runs as a `client` 
 work to the durable queue this daemon drains. This page is the **complete map of what runs
 inside it** (kept in sync with `daemon_status()`).
 
+`client` is a hard process-role boundary. A served GraphOS process never
+self-promotes when the host lock is empty, and `KG_LOOP=1` in stale shared
+configuration cannot start its maintenance scheduler, workers, or autonomous
+loop. Deployments that use `KG_DAEMON_ROLE=client` must therefore run one
+explicit gateway or `graph-os-daemon` host; the host alone carries the loop and
+maintenance settings.
+
 ```mermaid
 flowchart TB
     subgraph GW["API Gateway Daemon (single host process — KG_DAEMON_ROLE=host)"]
@@ -51,7 +58,7 @@ flowchart TB
     end
 
     subgraph SVC["Separate served processes"]
-        MCPOS[graph-os MCP server\nstreamable-http 127.0.0.1:8100\ngraph_orchestrate / graph_search / graph_reach]
+        MCPOS[graph-os MCP server\nKG_DAEMON_ROLE=client\nno scheduler / workers / autonomous loop]
         FLEET[GraphOS embedded fleet gateway\ndynamic find_tools/load_tools]
         ENG[(epistemic-graph engine\nUDS /tmp/epistemic-graph.sock)]
     end

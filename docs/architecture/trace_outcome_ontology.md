@@ -12,6 +12,35 @@ execution, workspace provenance, evaluation, failure mining, placement mining, c
 variant fitness, and skill synthesis consume this same shape. `Episode` remains a domain-memory type;
 it is not an alternate execution-trace schema.
 
+## Pydantic Graph execution evidence
+
+Runs through the native Pydantic Graph execution paths attach a versioned
+`GraphExecutionEvidence` record to the `GraphResponse` and persist the same
+record on `RunTrace`. It includes the deterministic topology and
+topology/version digests, installed `pydantic-graph` version, every ordered
+scheduler task batch, the flattened node sequence, and checkpoint identifiers
+actually returned by the configured checkpoint backend. Parallel task IDs stay
+grouped in the transition that scheduled them instead of being flattened into
+a fictional serial path.
+
+The transition sequence is scheduler evidence: it proves which tasks were
+scheduled and in what batches, but does not by itself claim every task
+completed. `graph_resume_supported` is currently always `false`. The recorded
+Pydantic Graph v2 snapshots are observational mementos and are not accepted as
+executable resume tokens. Consumers must not infer resumability from the
+presence of `graph_checkpoint_ids`.
+
+The graph execution span and root `agent.run` span carry the same identity
+digests and node sequence. They also emit one `pydantic_graph.transition` event
+per scheduler batch and one `pydantic_graph.checkpoint` event per confirmed
+checkpoint, so a durable trace and its live OpenTelemetry trace can be
+correlated without synthesizing events. Public GraphOS delegation retains the
+typed record through the rich `run_agent`/`execute_capability` envelope and the
+`graph_orchestrate` MCP response; callers using the default bare-string
+contract are unchanged. `graph_jobs action=status` reads the same durable
+fields back from `RunTrace` and returns `graph_transition_sequence` as a
+structured list.
+
 ## Identity and privacy
 
 Run identifiers are converted to stable opaque references before persistence. Durable traces store

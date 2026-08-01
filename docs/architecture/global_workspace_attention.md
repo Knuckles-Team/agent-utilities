@@ -19,7 +19,8 @@ that later runs read back as each specialist's **runtime standing**.
 ```mermaid
 flowchart LR
     subgraph Wave["ParallelEngine.execute() — after a multi-agent wave"]
-        O["specialist outputs<br/>{agent_id: text}"] --> CP["collect_proposals<br/>(relevance·track-record·confidence)"]
+        O["specialist outputs<br/>{agent_id: text}"] --> W["context-preserving worker phase"]
+        W --> CP["collect_proposals<br/>(relevance·track-record·confidence)"]
         CP --> SW["select_winners<br/>(top-K)"]
         SW --> BC["broadcast_to_kg<br/>(ProposalNode + PROPOSED_FOR)"]
         SW --> RM["_record_winners_to_memory<br/>(EvolvingMemoryStore INSIGHT)"]
@@ -33,7 +34,10 @@ flowchart LR
   `{agent_id: output}`, calls `WorkspaceAttention.select_and_broadcast`
   (collect → score → top‑K → broadcast), and routes the winners into the
   `EvolvingMemoryStore` INSIGHT bank (deduped per specialist so repeat wins
-  reinforce — CONCEPT:AU-KG.memory.tiered-memory-caching).
+  reinforce — CONCEPT:AU-KG.memory.tiered-memory-caching). The complete broadcast
+  and memory-reinforcement sequence runs as one ordered worker phase. It inherits
+  the request's `GraphSession` and `ActorContext`, never blocks GraphOS liveness,
+  and cannot leave a write running after cancellation has been reported.
 * **Read side** — `WorkspaceAttention.get_attention_score(specialist_id)` scans the
   broadcast `ProposalNode`s and returns the most-recent *selected* proposal's
   composite score (∈ [0,1]). The executor consults it for runtime confidence

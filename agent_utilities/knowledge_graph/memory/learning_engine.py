@@ -305,7 +305,7 @@ def extract_edits(
         agent = create_context_agent(model=model, system_prompt=system_prompt)
         result: Any = agent.run_sync(resolved)
         raw = str(getattr(result, "output", None) or getattr(result, "data", ""))
-    except Exception as e:  # pragma: no cover - learner is best-effort
+    except Exception as e:  # pragma: no cover - learner is best-effort  # noqa: BLE001 — returns [] (the documented 'no edits' case) — learner extraction is explicitly best-effort per this function's own docstring, and an empty edit list is handled identically to 'the model proposed nothing'
         logger.debug("[KG-2.13] learner extraction failed: %s", e)
         return []
     return parse_memory_edits(raw)

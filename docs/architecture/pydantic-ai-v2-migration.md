@@ -59,8 +59,16 @@ flowchart LR
 - `agent-webui` narrowed from the full `pydantic-ai` meta to `pydantic-ai-slim[ui]` (it uses the v2
   `Agent.to_web()`).
 - `[dynamic-workflow]` is an opt-in `pydantic-ai-harness[dynamic-workflow]>=0.14.0,<0.15.0`
-  integration. Its GraphOS adapter compiles reviewed declarations into `GraphPlan` and then
-  `ExecutionManifest`; it does not expose the upstream sandbox as a second execution plane.
+  integration. `graph_workflows action=execute_dynamic` invokes the real upstream
+  `DynamicWorkflow`: the parent receives only Harness's sandboxed `run_workflow`
+  tool, and each reviewed catalog function re-enters
+  `Orchestrator.execute_agent`. Connector tools, tenant policy, skill binding,
+  model-class routing, budgets, cancellation, and RunTrace/ToolCall persistence
+  stay on GraphOS; the Monty script is orchestration only. The old
+  declaration-to-`ExecutionManifest` path remains only as the explicit static
+  fallback contract. Stored `Task` assignment/metadata selects the governed
+  agent or skill target and its allowed/required tools without changing the
+  sandbox-visible catalog function name.
 
 ## 2.20 reconciliation
 
@@ -119,3 +127,40 @@ The graph adapter consumes the governed MCP fleet already attached to Graph-OS.
 Client-offered MCP process definitions are rejected instead of silently trusted;
 they must first pass the normal Graph-OS connector configuration, permission, and
 tool-contract path.
+
+## Pydantic Graph execution evidence
+
+Every real blocking `Graph.run()` and explicit `Graph.iter()` execution now
+produces the same `graph-execution-evidence-v1` contract:
+
+- a deterministic digest of the rendered static topology;
+- a version digest binding that topology to the evidence schema and installed
+  `pydantic-graph` version;
+- every ordered scheduler task batch, including parallel task IDs, plus a
+  flattened node sequence; and
+- only checkpoint identifiers actually returned by the configured checkpoint
+  backend.
+
+The blocking path attaches the typed evidence to `GraphResponse`. `run_agent`
+projects that same object into the canonical `RunTrace` and its root
+`agent.run` OpenTelemetry span. The inner `pydantic_graph.run` or
+`pydantic_graph.iter` span records each scheduler transition as an event. The
+explicit iterator also includes the accumulated evidence on its terminal or
+error event, so protocol adapters do not need a second evidence implementation.
+
+```mermaid
+flowchart LR
+    G["Pydantic Graph<br/>run() or iter()"] --> C["Execution evidence collector"]
+    C -->|"typed result"| R[GraphResponse]
+    R --> A[run_agent]
+    A --> K[RunTrace]
+    C --> I["pydantic_graph.* span<br/>transition/checkpoint events"]
+    A --> O["agent.run span<br/>same evidence projection"]
+    C --> E["iter graph_complete/error event"]
+```
+
+The task IDs are scheduler identifiers, not checkpoint IDs. Checkpoint IDs are
+observational state-snapshot references returned by `CheckpointManager`; the
+contract fixes `resume_supported=false`. Pydantic Graph v2 does not consume
+these snapshots as resume tokens, so durable restore/replay remains a separate
+implementation and release gate.

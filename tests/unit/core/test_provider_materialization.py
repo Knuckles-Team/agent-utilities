@@ -641,6 +641,18 @@ def test_every_ontology_runtime_consumer_uses_the_validated_resolver(
         "resolve_provider_ontologies",
         lambda: [("provider-a", ttl)],
     )
+    # ``_sync_package_ontologies`` now unions TWO discovery sources —
+    # ``resolve_provider_ontologies()`` (installed distributions) and
+    # ``resolve_workspace_provider_ontologies()`` (source-mounted sibling repos).
+    # Stubbing only the first let the real workspace contribute 87 more artifacts
+    # and made ``artifacts_loaded == 1`` unassertable. This test is about the
+    # resolver being the validated one, not about how many repos happen to be
+    # checked out, so pin the second source to empty.
+    monkeypatch.setattr(
+        ontology_federation,
+        "resolve_workspace_provider_ontologies",
+        list,
+    )
 
     assert (
         OntologyLoader._federated_path_for("http://knuckles.team/kg/demo", "demo")

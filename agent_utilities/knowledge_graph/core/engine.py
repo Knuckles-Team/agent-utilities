@@ -258,7 +258,7 @@ class IntelligenceGraphEngine(
                 count,
             )
             return count
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — count is returned and used only by the log lines around it; a registration failure here correctly yields 0 services registered, exactly the information the return value already conveys to callers
             logger.debug("Service registration failed: %s", e)
             return 0
 
@@ -582,6 +582,37 @@ class IntelligenceGraphEngine(
 
         label = self._normalize_label(label)
         prepared = self._prepare_node_props(label, data)
+        # The MERGE pattern below always binds `$id` (and the typed native
+        # path always passes `"id": node_id` explicitly) — but `data` isn't
+        # guaranteed to carry an "id" key itself; some callers build props
+        # from scratch and pass the node id ONLY as this method's own
+        # `node_id` argument. Without this, the raw-Cypher/MERGE branch below
+        # sent `$id` in the query text with no matching key in the params
+        # dict, and the native parser rejected it outright ("Parameter id not
+        # found") rather than silently mismatching.
+        prepared.setdefault("id", node_id)
+
+        # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard):
+        # stamp tenant/owner governance AND a durable ACL classification on
+        # EVERY node write through this one generic upsert seam — the single
+        # chokepoint ~50+ ingestion/write call sites across the codebase all
+        # funnel through (directly, or via IntelligenceGraphEngine.add_node).
+        # secured_reads.permit() is default-deny for any node with no
+        # registered ACL; before this, nothing on the write path ever
+        # registered one, so data was writable but permanently unreadable —
+        # even by its own creator. secured_reads._hydrate_missing_acls reads
+        # these exact durable properties back at query time to reconstruct
+        # the ACL lazily (the read-time fallback layer of this same defence).
+        # Best-effort: writes with no bound actor (system/background/
+        # control-plane paths) proceed unstamped exactly as before this seam
+        # existed, not a hidden failure.
+        try:
+            from .tenant_sharing import stamp_classification, stamp_ownership
+
+            stamp_ownership(prepared)
+            stamp_classification(prepared, label)
+        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
+            pass
 
         typed_support = getattr(self.backend, "typed_mutation_support", "")
         if typed_support == "native":
@@ -1195,7 +1226,7 @@ class IntelligenceGraphEngine(
                 category="deep_analysis",
                 tags=["synthesis", query],
             )
-        except Exception as mem_e:
+        except Exception as mem_e:  # noqa: BLE001 — add_memory is a secondary recall aid over a synthesis (llm_summary) that's already fully computed and returned in the payload below regardless of whether this memory-store call succeeds
             logger.debug(f"Memory store skipped: {mem_e}")
 
         return {
@@ -1257,7 +1288,7 @@ class IntelligenceGraphEngine(
             if ephemeral or not self._compute_is_authority:
                 try:
                     self.graph_compute.remove_node(node_id)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — graph_compute is the ephemeral/secondary mirror here (the durable backend.delete_node above already logs its own failure at warning); 'not found' and a real failure read the same from this call so debug is the right level for the common case
                     logger.debug(
                         f"graph_compute remove_node failed or node not found: {e}"
                     )
@@ -1307,7 +1338,7 @@ class IntelligenceGraphEngine(
             if ephemeral or not self._compute_is_authority:
                 try:
                     self.graph_compute.remove_edge(source_id, target_id)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — graph_compute mirror delete for delete_edge — same reasoning as delete_node above: the durable backend.delete_edge already logs its failure at warning
                     logger.debug(
                         f"graph_compute remove_edge failed or edge not found: {e}"
                     )

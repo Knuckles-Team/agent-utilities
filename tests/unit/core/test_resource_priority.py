@@ -24,6 +24,7 @@ from agent_utilities.core.resource_priority import (
     PriorityClass,
     PriorityModelGate,
     current_priority,
+    host_load_is_quiet,
     priority_for_lane,
     priority_for_task_type,
     priority_scope,
@@ -232,6 +233,69 @@ async def test_hydration_not_deprioritised_under_saturation():
     release.set()
     await asyncio.gather(htask, *bg_tasks)
     rp.reset_priority_gates()
+
+
+# --- (D-OB-10) quiet-period preference: a real low-load/quiet-hours predicate,
+# composed onto the SAME gate rather than a second scheduler -----------------
+def test_fresh_gate_is_quiet_and_uses_full_spare_headroom():
+    # No high-priority call has ever landed on this gate: treated as quiet, so
+    # background gets the SAME full reserved-minus headroom as before this
+    # feature existed (byte-for-byte the pre-existing behaviour).
+    gate = PriorityModelGate(capacity=4, reserve=1)
+    assert gate._quiet_period() is True  # noqa: SLF001
+    gate._active = 2  # noqa: SLF001 — capacity - reserve == 3
+    assert gate._can_admit(is_high=False) is True  # noqa: SLF001
+
+
+def test_recent_high_priority_admission_halves_the_background_ceiling():
+    gate = PriorityModelGate(capacity=8, reserve=1)  # quiet ceiling = 7
+    gate._last_high_priority_admission = time.monotonic()  # noqa: SLF001
+    assert gate._quiet_period() is False  # noqa: SLF001
+    # Squeezed ceiling = max(1, 7 // 2) = 3: admitted below it, refused at it.
+    gate._active = 2  # noqa: SLF001
+    assert gate._can_admit(is_high=False) is True  # noqa: SLF001
+    gate._active = 3  # noqa: SLF001
+    assert gate._can_admit(is_high=False) is False  # noqa: SLF001
+    # A high-priority call is never subject to the squeeze.
+    assert gate._can_admit(is_high=True) is True  # noqa: SLF001
+
+
+def test_quiet_period_preference_is_a_preference_never_starves_to_zero():
+    # Even a tiny gate whose halved ceiling would floor to 0 still admits 1.
+    gate = PriorityModelGate(capacity=2, reserve=0)  # quiet ceiling = 2
+    gate._last_high_priority_admission = time.monotonic()  # noqa: SLF001
+    gate._active = 0  # noqa: SLF001
+    assert gate._can_admit(is_high=False) is True  # noqa: SLF001
+
+
+def test_quiet_period_expires_after_the_idle_window():
+    gate = PriorityModelGate(capacity=4, reserve=1)
+    gate._last_high_priority_admission = (  # noqa: SLF001
+        time.monotonic() - rp._QUIET_IDLE_SECONDS - 1  # noqa: SLF001
+    )
+    assert gate._quiet_period() is True  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_acquire_marks_high_priority_admission_live_path():
+    """Live-path proof: a real ``acquire()`` (not direct state poking) is what
+    the gate's own admission history reacts to."""
+    rp.reset_priority_gates()
+    gate = rp.get_priority_gate("qwen-test-quiet", capacity=4)
+    assert gate._quiet_period() is True  # noqa: SLF001
+    await gate.acquire(PriorityClass.INTERACTIVE)
+    try:
+        assert gate._quiet_period() is False  # noqa: SLF001
+    finally:
+        await gate.release()
+    rp.reset_priority_gates()
+
+
+def test_host_load_is_quiet_never_raises_and_returns_bool_or_none():
+    # Best-effort auxiliary signal: must never raise, and a real bool means it
+    # resolved a genuine reading; None means "no opinion" (unsupported platform).
+    result = host_load_is_quiet()
+    assert result is None or isinstance(result, bool)
 
 
 # --- the sync face contends on the SAME gate (enrichment is often sync) -------

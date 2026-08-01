@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import config
 from agent_utilities.core.contextual_model import create_context_agent
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
 from agent_utilities.orchestration.resilience import (
@@ -278,20 +279,11 @@ class ParallelEngine:
             logger.warning("Failed to generate workflow Mermaid diagram: %s", vis_err)
 
         # 3. Select and apply coordination protocol
-        protocol = self.coordination.select_protocol(
-            agent_count=resolved.agent_count,
-            execution_mode=resolved.execution_mode,
-        )
-
-        # Apply protocol to establish consensus/voting mechanics
-        agent_ids = [a.agent_id for a in resolved.agents]
-        coordination_result = self.coordination.apply_protocol(
-            protocol=protocol,
-            agent_ids=agent_ids,
-            task=resolved.query,
-            task_type=resolved.metadata.get("task_type", "general"),
-        )
-        self.coordination.log_coordination_trace(coordination_result)
+        # Historical protocol selection and trace persistence both perform
+        # synchronous graph I/O. Keep the whole ordered coordination phase on
+        # one worker so GraphOS's shared event loop remains available and the
+        # trace cannot race ahead of protocol application.
+        protocol = await run_blocking_ordered(self._prepare_coordination, resolved)
 
         # 4. Execute waves with backpressure
         concurrency = resolved.max_concurrency
@@ -349,7 +341,12 @@ class ParallelEngine:
         # training signal `executor.get_attention_score` reads back as each
         # specialist's runtime standing. Runs only with a shared engine and ≥2
         # successful outputs (consensus is meaningless for one); non-fatal.
-        self._broadcast_workspace_attention(all_results, resolved)
+        # Workspace broadcast includes native graph writes and winner-memory
+        # reinforcement. Treat it as one ordered worker phase so the memory
+        # record cannot precede its broadcast and neither blocks liveness.
+        await run_blocking_ordered(
+            self._broadcast_workspace_attention, all_results, resolved
+        )
 
         # 5b. CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — model the wave as a Multi-Agent Social System and
         # snapshot swarm health (archetype heterogeneity, topology variance,
@@ -412,7 +409,9 @@ class ParallelEngine:
         total_duration = (time.monotonic() - start_time) * 1000
 
         # 6. Persist to KG
-        execution_id = self._persist_execution(resolved, wave_results, synthesis_output)
+        execution_id = await run_blocking_ordered(
+            self._persist_execution, resolved, wave_results, synthesis_output
+        )
 
         # SWARM-3 + SWARM-7: critical-path + per-wave telemetry
         critical_path = int(
@@ -474,6 +473,21 @@ class ParallelEngine:
         )
 
         return result
+
+    def _prepare_coordination(self, manifest: ExecutionManifest) -> Any:
+        """Select, apply, then persist one coordination protocol in order."""
+        protocol = self.coordination.select_protocol(
+            agent_count=manifest.agent_count,
+            execution_mode=manifest.execution_mode,
+        )
+        coordination_result = self.coordination.apply_protocol(
+            protocol=protocol,
+            agent_ids=[a.agent_id for a in manifest.agents],
+            task=manifest.query,
+            task_type=manifest.metadata.get("task_type", "general"),
+        )
+        self.coordination.log_coordination_trace(coordination_result)
+        return protocol
 
     # ── Manifest Resolution ─────────────────────────────────────────
 
@@ -1051,7 +1065,7 @@ class ParallelEngine:
                 timeout=60.0,
             )
             text = str(res.output)
-        except Exception as e:  # pragma: no cover - exercised via monkeypatch
+        except Exception as e:  # pragma: no cover - exercised via monkeypatch  # noqa: BLE001 — docstring documents this exact contract ("degrades to pass so verification never blocks execution"); SWARM-2 verification is advisory, not a release gate
             logger.debug("verify judge unavailable, passing: %s", e)
             return True, ""
         passed = "FAIL" not in text.upper().split("FEEDBACK")[0]
@@ -1441,7 +1455,7 @@ class ParallelEngine:
                 )
                 self._record_winners_to_memory(winners)
             return [w.specialist_id for w in winners]
-        except Exception as e:  # pragma: no cover - non-fatal telemetry path
+        except Exception as e:  # pragma: no cover - non-fatal telemetry path  # noqa: BLE001 — explicit empty-list fallback returned right below; callers treat an empty winners list as "no GWT broadcast this round", the underlying `outputs` results are computed and available elsewhere regardless
             logger.debug("WorkspaceAttention broadcast skipped: %s", e)
             return []
 
@@ -1470,7 +1484,7 @@ class ParallelEngine:
                         "source": "workspace_attention",
                     },
                 )
-        except Exception as e:  # pragma: no cover - non-fatal
+        except Exception as e:  # pragma: no cover - non-fatal  # noqa: BLE001 — docstring: "Best-effort"; winners were already selected and returned to the caller before this call, so a memory-store failure only loses INSIGHT-bank reinforcement, not the round's winner list
             logger.debug("EvolvingMemoryStore winner recording skipped: %s", e)
 
     def _social_swarm_health(
@@ -1509,7 +1523,7 @@ class ParallelEngine:
                 float(len(r.output)) if r.success else 0.0 for r in all_results
             ]
             return health
-        except Exception as e:  # pragma: no cover - non-fatal telemetry
+        except Exception as e:  # pragma: no cover - non-fatal telemetry  # noqa: BLE001 — returns {} on failure, and the caller only merges it when truthy; a snapshot failure just omits the P1-P4 block from that wave's telemetry
             logger.debug("Social-system health snapshot skipped: %s", e)
             return {}
 
@@ -1607,7 +1621,7 @@ class ParallelEngine:
                 sum(len(a.depends_on) for a in manifest.agents),
             )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — execution_id is generated up front and already returned unpersisted when self.engine is None, an existing supported no-engine contract; a persistence exception hits that same already-covered return path
             logger.debug("ParallelEngine: KG persistence failed: %s", e)
 
         return execution_id

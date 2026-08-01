@@ -200,31 +200,6 @@ class TestFromConfig:
 
 
 # ---------------------------------------------------------------------------
-# PolicyEngine adapter
-# ---------------------------------------------------------------------------
-
-
-class TestPolicyAdapter:
-    def test_adapter_creates_policy_result(self, engine):
-        adapter = engine.to_policy_adapter()
-        assert adapter.name == "threat_defense_engine"
-        result = adapter.evaluate("clean input", "clean output")
-        assert result.allowed is True
-
-    def test_adapter_blocks_on_input(self, engine):
-        adapter = engine.to_policy_adapter()
-        result = adapter.evaluate("sk-secretkey123", "clean output")
-        assert result.allowed is False
-        assert result.severity == "block"
-
-    def test_adapter_detects_output_trigger(self, engine):
-        adapter = engine.to_policy_adapter()
-        result = adapter.evaluate("clean input", "SSN: 123-45-6789")
-        # Redact is not a block, so should still be allowed
-        assert result.metadata["output_triggered"] >= 1
-
-
-# ---------------------------------------------------------------------------
 # Static redaction utility
 # ---------------------------------------------------------------------------
 
@@ -272,11 +247,7 @@ class TestTriggerLog:
 # PII Sanitizer & Ephemeral Context Tests
 # ---------------------------------------------------------------------------
 
-from agent_utilities.security.guardrails import (
-    EphemeralContext,
-    PiiSanitizer,
-    PIISanitizerPolicy,
-)
+from agent_utilities.security.guardrails import EphemeralContext, PiiSanitizer
 
 
 class TestPiiSanitizer:
@@ -319,17 +290,3 @@ class TestEphemeralContext:
         assert all(b == 0 for b in buf)
         assert len(data_list) == 0
         assert len(data_dict) == 0
-
-
-class TestPIISanitizerPolicy:
-    def test_policy_blocks_pii(self):
-        policy = PIISanitizerPolicy()
-        result = policy.evaluate("clean input", "My SSN is 123-45-6789")
-        assert result.allowed is False
-        assert "PII detected" in result.reason
-        assert "ssn" in result.metadata["detected_types"]
-
-    def test_policy_allows_clean(self):
-        policy = PIISanitizerPolicy()
-        result = policy.evaluate("clean input", "clean output")
-        assert result.allowed is True

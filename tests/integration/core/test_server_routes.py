@@ -22,7 +22,7 @@ graph database.
 import os
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -73,6 +73,29 @@ def _build_app(workspace: Path, db_path: Path, *, enable_web_ui: bool) -> FastAP
         )
 
 
+def _registered_route_paths(app: FastAPI) -> set[str]:
+    """Collect concrete paths recursively without crossing the auth boundary."""
+
+    paths: set[str] = set()
+
+    def visit(routes: list[object], prefix: str = "") -> None:
+        for route in routes:
+            effective_contexts = getattr(route, "effective_route_contexts", None)
+            if callable(effective_contexts):
+                paths.update(str(context.path) for context in effective_contexts())
+                continue
+            route_path = str(getattr(route, "path", "") or "")
+            full_path = f"{prefix.rstrip('/')}/{route_path.lstrip('/')}" or "/"
+            if isinstance(route, Mount):
+                nested = getattr(route.app, "routes", ())
+                visit(list(nested), full_path)
+            else:
+                paths.add(full_path)
+
+    visit(list(app.routes))
+    return paths
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -114,49 +137,98 @@ def client_no_web_ui(app_no_web_ui: FastAPI) -> Iterator[TestClient]:
 
 
 def test_health(client_with_web_ui: TestClient) -> None:
-    """``/health`` is LIVENESS: always 200, with the real shared health report
-    as body (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split) — never the
-    old unconditional ``{"status": "ok"}`` stub.
-    """
+    """``/health`` is dependency-free and non-fingerprinting."""
     resp = client_with_web_ui.get("/health")
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] in ("healthy", "unhealthy")
-    assert isinstance(body["checks"], list)
-    assert any(c["name"] == "engine" for c in body["checks"])
+    assert resp.json() == {"status": "ok"}
     assert resp.headers["cache-control"] == "no-store"
 
 
 def test_health_ready_reflects_the_same_report_in_its_status_code(
     client_with_web_ui: TestClient,
 ) -> None:
-    """``/health/ready`` is READINESS: the SAME report, but 200/503 mirrors it."""
+    """``/health/ready`` exposes only the readiness decision."""
     resp = client_with_web_ui.get("/health/ready")
     body = resp.json()
-    assert resp.status_code == (200 if body["status"] == "healthy" else 503)
+    assert body["status"] in {"ready", "not_ready"}
+    assert set(body) == {"status"}
+    assert resp.status_code == (200 if body["status"] == "ready" else 503)
 
 
-def test_mcp_config(client_with_web_ui: TestClient) -> None:
-    """``/mcp/config`` returns 200 with a JSON object containing ``mcpServers``."""
-    resp = client_with_web_ui.get("/mcp/config")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert isinstance(data, dict)
-    assert "mcpServers" in data
+def test_rest_health_routes_share_the_reserved_async_collector() -> None:
+    """Top-level liveness/readiness and the dashboard route all invoke the
+    owning async health seam, so no REST consumer can drift back to the shared
+    default executor.
+    """
+    report = {
+        "status": "healthy",
+        "checks": [{"name": "engine", "status": "ok", "latency_ms": 0.0}],
+        "generated_at": "synthetic",
+    }
+    from agent_utilities.gateway.api import dashboard_router
+    from agent_utilities.server.routers.core import router as core_router
+
+    app = FastAPI()
+    app.include_router(core_router)
+    app.include_router(dashboard_router, prefix="/api/dashboard")
+
+    with patch(
+        "agent_utilities.observability.runtime_health.collect_health_async",
+        new_callable=AsyncMock,
+        return_value=report,
+    ) as collector:
+        with TestClient(app) as client:
+            liveness = client.get("/health")
+            readiness = client.get("/health/ready")
+            dashboard = client.get("/api/dashboard/health")
+
+    assert liveness.json() == {"status": "ok"}
+    assert readiness.json() == {"status": "ready"}
+    assert dashboard.json() == report
+    assert collector.await_count == 2
 
 
-def test_mcp_tools(client_with_web_ui: TestClient) -> None:
-    """``/mcp/tools`` returns 200 with a list body."""
-    resp = client_with_web_ui.get("/mcp/tools")
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+@pytest.mark.parametrize(
+    "path",
+    ["/api/chat", "/api/configure"],
+)
+def test_current_pydantic_web_routes_are_registered_but_not_anonymous(
+    app_with_web_ui: FastAPI,
+    client_with_web_ui: TestClient,
+    path: str,
+) -> None:
+    """Current Pydantic AI web routes exist behind verified identity."""
+
+    assert path in _registered_route_paths(app_with_web_ui)
+    resp = client_with_web_ui.get(path)
+    assert resp.status_code == 401
+    assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
-def test_chats(client_with_web_ui: TestClient) -> None:
-    """``/chats`` returns 200 with a list body."""
-    resp = client_with_web_ui.get("/chats")
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+def test_webui_tool_catalog_is_registered_but_not_anonymous(
+    app_with_web_ui: FastAPI,
+    client_with_web_ui: TestClient,
+) -> None:
+    """The WebUI tool catalog exists behind the verified-identity boundary."""
+
+    path = "/api/enhanced/tools"
+    assert path in _registered_route_paths(app_with_web_ui)
+    resp = client_with_web_ui.get(path)
+    assert resp.status_code == 401
+    assert resp.json() == {"error": "Verified Bearer identity required"}
+
+
+def test_webui_chats_are_registered_but_not_anonymous(
+    app_with_web_ui: FastAPI,
+    client_with_web_ui: TestClient,
+) -> None:
+    """The chat-history route exists behind the verified-identity boundary."""
+
+    path = "/api/enhanced/chats"
+    assert path in _registered_route_paths(app_with_web_ui)
+    resp = client_with_web_ui.get(path)
+    assert resp.status_code == 401
+    assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
 def test_a2a_mount_present(app_with_web_ui: FastAPI) -> None:
@@ -209,26 +281,36 @@ ENHANCED_ROUTES: list[str] = [
 
 @pytest.mark.parametrize("path", ENHANCED_ROUTES)
 def test_enhanced_routes_available_with_web_ui(
-    client_with_web_ui: TestClient, path: str
+    app_with_web_ui: FastAPI,
+    client_with_web_ui: TestClient,
+    path: str,
 ) -> None:
-    """Enhanced routes are mounted (200 OK) when ``enable_web_ui=True``."""
+    """Enhanced routes are mounted and anonymous callers cannot inspect them."""
+
+    assert path in _registered_route_paths(app_with_web_ui)
     resp = client_with_web_ui.get(path)
-    assert resp.status_code == 200, (
-        f"Expected 200 at {path} with web UI enabled, got {resp.status_code}: "
+    assert resp.status_code == 401, (
+        f"Expected 401 at {path} with web UI enabled, got {resp.status_code}: "
         f"{resp.text[:200]}"
     )
+    assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
 @pytest.mark.parametrize("path", ENHANCED_ROUTES)
 def test_enhanced_routes_absent_without_web_ui(
-    client_no_web_ui: TestClient, path: str
+    app_no_web_ui: FastAPI,
+    client_no_web_ui: TestClient,
+    path: str,
 ) -> None:
-    """Enhanced routes 404 when ``enable_web_ui=False`` (Phase 1 finding)."""
+    """Absent routes remain non-fingerprinting behind the same auth boundary."""
+
+    assert path not in _registered_route_paths(app_no_web_ui)
     resp = client_no_web_ui.get(path)
-    assert resp.status_code == 404, (
-        f"Expected 404 at {path} without web UI, got {resp.status_code}: "
+    assert resp.status_code == 401, (
+        f"Expected 401 at {path} without web UI, got {resp.status_code}: "
         f"{resp.text[:200]}"
     )
+    assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
 # ---------------------------------------------------------------------------

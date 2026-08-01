@@ -55,11 +55,19 @@ from .change_envelope import ChangeEnvelope
 
 logger = logging.getLogger(__name__)
 
-_OPAQUE_INTERNAL_ID_RE = re.compile(r"^[0-9a-f]{32}(?:[0-9a-f]{32})?$")
+#: Opaque digest lengths this gate exempts from the full privacy-pattern scan
+#: (D-GM-3): 24-hex/96-bit (``engine.py``'s ``_ingest_connector`` object_key —
+#: ``sha256(portable_uri).hexdigest()[:24]`` — and the matching
+#: ``GitMarkdownConnector._document_node_id``/``_object_key`` truncation),
+#: 32-hex/128-bit, and 64-hex/256-bit full digests. A truncated 24-hex digest
+#: previously fell through to the full scan and could trip the case-insensitive
+#: IBAN pattern by chance (~1 in 20 sha256 digests), rejecting a genuine
+#: connector-owned document/record id with no PII involved.
+_OPAQUE_INTERNAL_ID_RE = re.compile(r"^(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$")
 _OPAQUE_NAMESPACED_ID_RE = re.compile(
     r"^(?P<namespace>[a-z][a-z0-9._-]{0,63}"
     r"(?::[a-z][a-z0-9._-]{0,63}){0,7}):"
-    r"[0-9a-f]{32}(?:[0-9a-f]{32})?$"
+    r"(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$"
 )
 
 __all__ = [
@@ -249,7 +257,35 @@ def _shacl_validate_rows(
             "connector SHACL validator returned an invalid report"
         )
     if not report["conforms"]:
-        raise ValueError("connector material violates the governed ontology")
+        # Name the failing shapes. "violates the governed ontology" without the
+        # violations is unactionable: it cannot distinguish a missing required
+        # property from a bad datatype on a single row out of hundreds.
+        raise ValueError(
+            "connector material violates the governed ontology: "
+            f"{_shacl_violation_summary(report)}"
+        )
+
+
+def _shacl_violation_summary(report: dict[str, Any], *, limit: int = 5) -> str:
+    """Summarize a non-conforming SHACL report as a short, bounded string."""
+    results = report.get("results")
+    if not isinstance(results, list) or not results:
+        return str(report.get("message") or "no violation detail reported")
+    seen: list[str] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        detail = " ".join(
+            str(item[key])
+            for key in ("focusNode", "resultPath", "sourceShape", "resultMessage")
+            if item.get(key)
+        )
+        if detail and detail not in seen:
+            seen.append(detail)
+        if len(seen) >= limit:
+            break
+    extra = len(results) - len(seen)
+    return "; ".join(seen) + (f" (+{extra} more)" if extra > 0 else "")
 
 
 # ── validate ─────────────────────────────────────────────────────────────
@@ -1811,6 +1847,8 @@ def ingest_graph_slice(
     source_instance: str = "",
     checkpoint: str | None = None,
     version_field: str = "updatedAt",
+    ontology_mapping_version: str = "",
+    classification: str = "",
 ) -> dict[str, Any]:
     """Commit a connector-produced multi-node graph slice atomically.
 
@@ -1819,6 +1857,21 @@ def ingest_graph_slice(
     source has no explicit version, a deterministic content digest supplies the
     idempotent version without advancing a source cursor. The Epistemic Graph
     authority is resolved from ``engine`` and missing native support fails closed.
+
+    ``ontology_mapping_version`` (CONCEPT:AU-KG.ingest.domain-pack-framework)
+    stamps the resulting envelope's ``ChangeEnvelope.ontology_mapping_version``
+    — the domain-pack framework's caller (``domain_packs.envelope_bridge``)
+    passes its pack's ``"<pack>@<version>"`` so every fact this slice produces
+    traces back to the exact mapping revision that produced it. Defaults to
+    ``""`` (unchanged behavior for every existing caller).
+
+    ``classification`` (CONCEPT:AU-KG.ingest.domain-pack-framework), one of
+    ``DataClassification``'s lowercase values (``"public"``/``"internal"``/
+    ``"confidential"``/``"restricted"``), overrides the envelope's
+    ``ChangeEnvelope.classification``. Defaults to ``""``, which leaves
+    ``from_connector_record``'s own fail-closed default (``PUBLIC`` only when
+    the record's ``external_access`` says so, else ``INTERNAL``) unchanged for
+    every existing caller.
     """
     relationships = relationships or []
     if not entities and not relationships:
@@ -1880,6 +1933,11 @@ def ingest_graph_slice(
             default=str,
         ).encode("utf-8")
     ).hexdigest()
+    overrides: dict[str, Any] = {}
+    if classification:
+        from ...models.company_brain import DataClassification
+
+        overrides["classification"] = DataClassification(classification)
     envelope = ChangeEnvelope.from_connector_record(
         primary,
         connector=connector,
@@ -1887,6 +1945,8 @@ def ingest_graph_slice(
         id_field="id",
         version_field=version_field,
         checkpoint=checkpoint,
+        ontology_mapping_version=ontology_mapping_version,
+        **overrides,
     )
     # Batch identity must cover every auxiliary node and relationship. Keeping
     # only the primary row's upstream timestamp would replay-skip a changed
@@ -1907,6 +1967,9 @@ def ingest_graph_slice(
         raise RuntimeError(
             "native ChangeEnvelope graph slice failed: "
             f"{result.get('error') or result.get('status')}"
+            # The rejection reason is the only actionable part of this failure;
+            # dropping it forces every caller to re-derive it from logs.
+            + (f" ({result['reason']})" if result.get("reason") else "")
         )
     return result
 
@@ -1953,8 +2016,28 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
             "reason": "authoritative native ChangeEnvelope commit is unavailable",
         }
     except (PermissionError, ValueError) as exc:
-        logger.warning("native ChangeEnvelope rejected (%s)", type(exc).__name__)
-        return {**base, "status": "rejected", "error": type(exc).__name__}
+        # D-DSTK + D-DG (reconciliation-gate-2: two lanes fixed this same
+        # defect independently). Collapsing to type(exc).__name__ alone dropped
+        # the actual rejection reason (which field/tenant/identity was invalid)
+        # — "rejected (ValueError)" is equally true of a bad property type, an
+        # over-long id and a policy denial, so every caller across the fleet
+        # (source_sync, external_graph, document_processing, ...) reported an
+        # unactionable failure. `error` stays the class name (some callers match
+        # on it); the message now travels too, under the `reason` key this
+        # function already uses everywhere else (including the sibling
+        # "unavailable" return in this very except-chain).
+        # NB: no exc_info — core/log_privacy.py nulls it on every
+        # agent_utilities.* record, so the interpolated message is the only
+        # channel that actually carries the cause.
+        logger.warning(
+            "native ChangeEnvelope rejected (%s): %s", type(exc).__name__, exc
+        )
+        return {
+            **base,
+            "status": "rejected",
+            "error": type(exc).__name__,
+            "reason": str(exc),
+        }
     except _NativeOccRetryBudgetExhausted as exc:
         logger.warning(
             "native ChangeEnvelope OCC retry budget exhausted (conflict_sequence=%s)",
@@ -1965,6 +2048,15 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
             "status": "failed",
             "error": "NativeChangeEnvelopeConflictExhausted",
         }
-    except Exception as exc:  # noqa: BLE001 - never fall back after native failure
-        logger.warning("native ChangeEnvelope commit failed (%s)", type(exc).__name__)
-        return {**base, "status": "failed", "error": type(exc).__name__}
+    except Exception as exc:  # noqa: BLE001 — never fall back after native failure (this is the authoritative commit path, so a genuine failure must surface as failed status, not be retried on a different path); `error`/`reason` below now carry the real cause instead of only the exception class name
+        # Same reasoning as the rejection path above: the class name alone
+        # cannot tell an operator WHICH commit failed or why.
+        logger.warning(
+            "native ChangeEnvelope commit failed (%s): %s", type(exc).__name__, exc
+        )
+        return {
+            **base,
+            "status": "failed",
+            "error": type(exc).__name__,
+            "reason": str(exc),
+        }

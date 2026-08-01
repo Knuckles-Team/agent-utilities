@@ -68,14 +68,14 @@ class ResearchIntelligenceEngine:
             self._pipeline = ResearchPipelineRunner(
                 engine=self._engine, config=PipelineConfig()
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — self._pipeline stays None (its default) when the optional ResearchPipelineRunner can't construct; every method that uses self._pipeline already null-checks it — a lazy_init, degrade-gracefully-by-design pattern
             logger.debug("ResearchPipelineRunner not available: %s", e)
 
         try:
             from ..orchestration.research_orchestrator import ResearchOrchestrator
 
             self._orchestrator = ResearchOrchestrator(engine=self._engine)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — self._orchestrator stays None on the same lazy-init degrade-gracefully pattern as self._pipeline just above
             logger.debug("ResearchOrchestrator not available: %s", e)
 
     # --- Pipeline API (KG-2.7) ---

@@ -175,6 +175,16 @@ class EvidenceBundle(BaseModel):
         description="Concrete, grounded follow-ups (e.g. re-ingest, retry with a "
         "different mode) — only populated when the source signal actually implies one.",
     )
+    error: dict[str, Any] | None = Field(
+        default=None,
+        description="The structured operation error the source payload carried, when "
+        "the underlying operation genuinely FAILED (as distinct from a healthy query "
+        "that simply found no/low-confidence evidence). This is the single dedicated "
+        "success/failure signal for this bundle — dispatch-level callers (e.g. the "
+        "intent surface's ``_execution_succeeded``) must treat it as authoritative "
+        "rather than re-deriving status from `claims`/`reasoning_trace` shape. "
+        "None means no operation-level failure was observed — never fabricated.",
+    )
 
     @classmethod
     def from_payload(
@@ -225,12 +235,24 @@ class EvidenceBundle(BaseModel):
             )
             error = payload.get("error")
             answer = str(payload.get("answer") or payload.get("output") or "")
+            if isinstance(error, dict):
+                bundle_error: dict[str, Any] | None = error
+            elif error and payload.get("status") == "failed":
+                # A truthy non-dict ``error`` alongside an explicit ``status:
+                # "failed"`` still names a real failure — echo the status the
+                # payload already carries rather than dropping the signal.
+                bundle_error = {"code": "operation_failed", "message": str(error)}
+            elif payload.get("status") == "failed":
+                bundle_error = {"code": "operation_failed"}
+            else:
+                bundle_error = None
             return cls(
                 answer_candidate="" if error else answer,
                 claims=claims,
                 contradictions=_scan_contradictions(claims),
                 reasoning_trace=[{"step": operation, "payload": payload}],
                 next_actions=["review the structured error and retry"] if error else [],
+                error=bundle_error,
             )
 
         if isinstance(payload, list):
@@ -438,6 +460,15 @@ class EvidenceBundle(BaseModel):
             "policy_exclusions": [],
             "reasoning_trace": reasoning_trace,
             "next_actions": next_actions,
+            "error": (
+                error
+                if isinstance(error, dict)
+                else (
+                    {"code": "operation_failed", "message": str(error)}
+                    if error
+                    else None
+                )
+            ),
         }
         fields.update(overrides)
         return cls(**fields)
@@ -503,6 +534,7 @@ class EvidenceBundle(BaseModel):
             policy_exclusions=list(ws.get("policy_exclusions") or []),
             reasoning_trace=list(ws.get("reasoning_trace") or []),
             next_actions=list(ws.get("next_actions") or []),
+            error=ws.get("error") if isinstance(ws.get("error"), dict) else None,
         )
 
     @classmethod

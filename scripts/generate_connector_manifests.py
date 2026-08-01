@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from datetime import UTC, datetime
@@ -66,6 +67,9 @@ from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa
     compile_manifest,
     export_manifest_ttl,
 )
+from agent_utilities.orchestration.fleet_reconciler import (  # noqa: E402
+    registry_server_alias,
+)
 
 _XSD_NS = "http://www.w3.org/2001/XMLSchema#"
 _OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"
@@ -75,6 +79,7 @@ _RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 _RDFS_DOMAIN = "http://www.w3.org/2000/01/rdf-schema#domain"
 _RDFS_RANGE = "http://www.w3.org/2000/01/rdf-schema#range"
 _RDFS_SUBCLASSOF = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
+ONTOLOGY_LOCK = ROOT / "agent_utilities" / "knowledge_graph" / "ontology.lock"
 _CONNECTOR_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -92,6 +97,289 @@ def connector_project_name(connector_root: Path) -> str:
     if not isinstance(name, str) or not _CONNECTOR_NAME.fullmatch(name):
         raise RuntimeError("connector project name is invalid")
     return name
+
+
+#: Fleet-wide default org for connectors whose repository URL cannot be derived
+#: from a git remote or ``[project.urls]`` — every currently-resolvable connector
+#: in the fleet belongs to this org, so it is a documented heuristic default
+#: (flagged via ``review_todos``), never a per-connector guess.
+_DEFAULT_A2A_ORG = "Knuckles-Team"
+
+#: The SAME capability content as the ``Skill(id="epistemic-answer", ...)``
+#: appended to every live AgentCard in ``agent_utilities/server/app.py``
+#: (CONCEPT:AU-KB-CURRENCY) — kept in lockstep by hand (both are short and
+#: reviewed together on change) rather than sharing a runtime import, so
+#: generation stays a pure, dependency-free projection.
+#:
+#: This used to live in the now-deleted ``scripts/enrich_fleet_a2a_epistemic.py``
+#: (a one-off backfill for providers whose ``a2a.json`` predated fleet-wide
+#: generation, D-A2A-3): once every provider's ``a2a.json`` is generator-owned
+#: (68/68, 2026-07-31 fleet re-certification), that standalone enrichment path
+#: was a strict subset of what full regeneration already does, so it was
+#: deleted rather than kept as a redundant parallel path (No-Legacy).
+EPISTEMIC_CAPABILITY: dict[str, Any] = {
+    "id": "epistemic-answer",
+    "name": "Epistemic Answer",
+    "description": (
+        "Answers epistemic_status/why/what_changed queries over the shared "
+        "knowledge graph: calibrated confidence, evidence/source citations, "
+        "belief justification trees, bitemporal valid/tx history, and "
+        "policy-redaction-aware provenance."
+    ),
+    "tags": ["epistemic", "provenance", "confidence", "kg"],
+}
+
+#: The ``a2a.json`` capability every agent-utilities-built connector ships
+#: (CONCEPT:AU-KG.ontology.a2a-card-generation): graph-flow execution, universal
+#: to the framework, plus the epistemic-answer capability every live AgentCard
+#: already advertises.
+DEFAULT_A2A_CAPABILITIES: tuple[dict[str, Any], ...] = (
+    {
+        "id": "run_graph_flow",
+        "name": "Graph Flow Execution",
+        "description": (
+            "Execute a workflow through the agent's graph orchestration engine"
+        ),
+    },
+    dict(EPISTEMIC_CAPABILITY),
+)
+
+#: The ``a2a.json`` tool every agent-utilities-built connector ships.
+DEFAULT_A2A_TOOLS: tuple[dict[str, Any], ...] = (
+    {
+        "id": "graph-flow",
+        "type": "flow",
+        "description": "Run complex multi-step workflows via Pydantic-Graph",
+    },
+)
+
+
+def _a2a_pyproject_document(connector_root: Path) -> dict[str, Any]:
+    """Load the full ``pyproject.toml`` document (not just ``[project]``)."""
+
+    pyproject = connector_root / "pyproject.toml"
+    try:
+        return tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise RuntimeError("connector project metadata is invalid") from exc
+
+
+def _resolve_a2a_version(connector_root: Path, document: dict[str, Any]) -> str:
+    """Resolve the connector version: static ``[project.version]`` first, else
+    the ``[tool.setuptools.dynamic] version.attr`` module attribute — never a
+    hand-typed a2a.json value, which is exactly what drifts (CONCEPT:AU-KG.ontology.a2a-card-generation).
+    """
+
+    project = document.get("project", {})
+    version = project.get("version")
+    if isinstance(version, str) and version:
+        return version
+    dynamic_attr = (
+        document.get("tool", {})
+        .get("setuptools", {})
+        .get("dynamic", {})
+        .get("version", {})
+        .get("attr")
+    )
+    if isinstance(dynamic_attr, str) and dynamic_attr:
+        module_path, _, attr_name = dynamic_attr.rpartition(".")
+        module_file = connector_root.joinpath(*module_path.split(".")).with_suffix(
+            ".py"
+        )
+        if module_file.is_file():
+            match = re.search(
+                rf'{re.escape(attr_name)}\s*=\s*["\']([^"\']+)["\']',
+                module_file.read_text(encoding="utf-8"),
+            )
+            if match:
+                return match.group(1)
+    raise RuntimeError("connector project version could not be resolved")
+
+
+def _resolve_a2a_license(document: dict[str, Any]) -> str:
+    """Resolve the SPDX-ish license label from ``[project.license]`` or a
+    ``License :: OSI Approved :: ...`` classifier; ``MIT`` is the documented
+    fleet-wide fallback (every connector observed to date uses it)."""
+
+    project = document.get("project", {})
+    license_field = project.get("license")
+    if isinstance(license_field, dict):
+        text = license_field.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+    elif isinstance(license_field, str) and license_field.strip():
+        return license_field.strip()
+    for classifier in project.get("classifiers", []) or []:
+        match = re.match(r"^License :: OSI Approved :: (.+) License$", str(classifier))
+        if match:
+            words = match.group(1).split()
+            if words:
+                return words[0]
+    return "MIT"
+
+
+def _git_remote_origin(connector_root: Path) -> str | None:
+    """Best-effort, bounded ``git remote get-url origin`` — the connector repo's
+    own checkout state, not the CWD, so output is stable across working
+    directories."""
+
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["git", "-C", str(connector_root), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    remote = result.stdout.strip()
+    return remote or None
+
+
+def _normalize_repo_url(url: str) -> str:
+    trimmed = url.strip()
+    if trimmed.endswith(".git"):
+        trimmed = trimmed[: -len(".git")]
+    if "/tree/" in trimmed or "/blob/" in trimmed:
+        return trimmed
+    return trimmed.rstrip("/") + "/tree/main"
+
+
+def _resolve_a2a_url(
+    connector_root: Path,
+    name: str,
+    document: dict[str, Any],
+    todos: list[str],
+) -> str:
+    """Resolve the connector's canonical repository URL: ``[project.urls]``
+    first (repo-internal, works without a live git checkout), then the git
+    ``origin`` remote of the connector's own repo, then a documented
+    heuristic default (see ``_DEFAULT_A2A_ORG``)."""
+
+    urls = document.get("project", {}).get("urls")
+    if isinstance(urls, dict):
+        for key in ("Homepage", "Repository", "Source", "homepage", "repository"):
+            candidate = urls.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return _normalize_repo_url(candidate.strip())
+    remote = _git_remote_origin(connector_root)
+    if remote:
+        return _normalize_repo_url(remote)
+    todos.append(
+        "a2a.json url could not be derived from [project.urls] or a git remote; "
+        f"defaulting to https://github.com/{_DEFAULT_A2A_ORG}/{name}/tree/main — "
+        "add a git remote or a [project.urls] Homepage to remove this heuristic."
+    )
+    return f"https://github.com/{_DEFAULT_A2A_ORG}/{name}/tree/main"
+
+
+def _a2a_extra_entries(document: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """Read the small, optional, per-connector ``[tool.a2a]`` residue table —
+    the ONLY hand-maintained a2a.json content left after generation, reserved
+    for capabilities/tools/description that are genuinely per-connector and not
+    derivable from any other artifact (CONCEPT:AU-KG.ontology.a2a-card-generation)."""
+
+    entries = document.get("tool", {}).get("a2a", {}).get(key, [])
+    if not isinstance(entries, list):
+        return []
+    return [dict(entry) for entry in entries if isinstance(entry, dict)]
+
+
+def build_a2a_card(
+    connector_root: Path, *, todos: list[str] | None = None
+) -> dict[str, Any]:
+    """Build the ``a2a.json`` agent card for one connector — pure, deterministic,
+    offline, no LLM (CONCEPT:AU-KG.ontology.a2a-card-generation). Every field is
+    either read verbatim from ``pyproject.toml`` (the connector's own package
+    metadata) or a documented heuristic default flagged in ``todos``; the only
+    hand-maintained input is the small optional ``[tool.a2a]`` residue table for
+    content that genuinely cannot be derived elsewhere (e.g. a bespoke
+    capability description).
+    """
+
+    todos = todos if todos is not None else []
+    document = _a2a_pyproject_document(connector_root)
+    project = document.get("project", {})
+    name = connector_project_name(connector_root)
+
+    description_override = document.get("tool", {}).get("a2a", {}).get("description")
+    if isinstance(description_override, str) and description_override.strip():
+        description = description_override.strip()
+    else:
+        project_description = project.get("description")
+        if isinstance(project_description, str) and project_description.strip():
+            description = project_description.strip()
+        else:
+            description = f"Agent package for {name}"
+            todos.append(
+                "a2a.json description fell back to a generic placeholder — add "
+                "[project] description (or a [tool.a2a] description override) "
+                "to pyproject.toml."
+            )
+
+    capabilities = [dict(c) for c in DEFAULT_A2A_CAPABILITIES]
+    capabilities.extend(_a2a_extra_entries(document, "capabilities"))
+    tools = [dict(t) for t in DEFAULT_A2A_TOOLS]
+    tools.extend(_a2a_extra_entries(document, "tools"))
+
+    return {
+        "name": f"{name}-agent",
+        "type": "agent",
+        "version": _resolve_a2a_version(connector_root, document),
+        "description": description,
+        "url": _resolve_a2a_url(connector_root, name, document, todos),
+        "license": _resolve_a2a_license(document),
+        "capabilities": capabilities,
+        "tools": tools,
+    }
+
+
+def _canonical_a2a_bytes(card: dict[str, Any]) -> bytes:
+    """Canonical, deterministic serialization: fixed field order (as constructed
+    by :func:`build_a2a_card` — no dict-hash-randomization dependency, stable
+    across processes/interpreters), 2-space indent, no trailing whitespace
+    ambiguity, ASCII-safe, trailing newline, no timestamps, no absolute paths."""
+
+    return (
+        json.dumps(card, indent=2, sort_keys=False, ensure_ascii=True) + "\n"
+    ).encode("utf-8")
+
+
+def write_a2a_card(
+    connector_root: Path,
+    *,
+    dry_run: bool = False,
+    check: bool = False,
+) -> tuple[dict[str, Any], bool]:
+    """Regenerate ``a2a.json`` in place from the connector's own package
+    metadata. Returns ``(card, changed)``.
+
+    ``check=True`` is the fail-closed drift gate: it never writes, and raises
+    if the on-disk file would change — the same mechanism
+    ``scripts/check_connector_manifests.py`` uses for ``connector_manifest.yml``.
+    """
+
+    card = build_a2a_card(connector_root)
+    payload = _canonical_a2a_bytes(card)
+    target = connector_root / "a2a.json"
+    existing = target.read_bytes() if target.is_file() else None
+    changed = existing != payload
+    if check:
+        if changed:
+            raise RuntimeError(
+                f"a2a.json drift detected for connector {connector_root.name!r}: "
+                "regenerate with generate_connector_manifests.py (no hand edits)."
+            )
+        return card, False
+    if dry_run:
+        print(f"# --- {connector_root.name}/a2a.json ---")
+        print(payload.decode("utf-8"), end="")
+    else:
+        target.write_bytes(payload)
+    return card, changed
 
 
 def _local(uri: str) -> str:
@@ -307,7 +595,20 @@ def _read_ontology(
 
 def _read_sync(
     module_dir: Path,
+    *,
+    server_alias: str,
 ) -> tuple[list[SyncSpec], IdentitySpec, list[EventSpec], PermissionsSpec]:
+    """Project ``mcp_source_presets.json`` onto ``sync``, with a DERIVED server.
+
+    CONCEPT:AU-KG.ontology.registry-derived-server-alias — the MCP server a preset
+    routes to is taken from ``deploy/mcp-fleet.registry.yml``, never from the
+    preset's own ``server`` string. A preset that restates a *different* alias is a
+    hard failure, not a warning: on 2026-07-28 that restatement put a server name
+    the fleet does not run into 27 signed manifests. Deriving the value means a
+    wrong alias cannot be signed; failing closed on disagreement means a wrong
+    alias cannot even sit in the source tree unnoticed.
+    """
+
     presets_path = module_dir / "connectors" / "mcp_source_presets.json"
     sync: list[SyncSpec] = []
     identity = IdentitySpec()
@@ -336,10 +637,17 @@ def _read_sync(
         preset = data[key]
         if not isinstance(preset, dict):
             continue
+        declared_server = str(preset.get("server") or "")
+        if declared_server and declared_server != server_alias:
+            raise RuntimeError(
+                "connector source preset declares an MCP server alias that the "
+                "fleet registry does not register for this provider"
+            )
+        preset = {**preset, "server": server_alias}
         sync.append(
             SyncSpec(
                 preset=key,
-                server=str(preset.get("server", "")),
+                server=server_alias,
                 tool=str(preset.get("tool", "")),
                 action=preset.get("action"),
                 records_path=preset.get("records_path"),
@@ -414,9 +722,13 @@ def build_manifest(
     *,
     now: datetime | None = None,
     release_signer: ontology_integrity.ReleaseSigner | None = None,
+    registry_path: Path | None = None,
 ) -> ConnectorManifest:
     """Build a :class:`ConnectorManifest` for one connector — pure, deterministic, offline."""
     connector = connector_project_name(connector_root)
+    # Fail closed BEFORE any artifact is projected: an unregistered provider has no
+    # derivable server alias, so nothing about its sync contract can be signed.
+    server_alias = registry_server_alias(connector, registry_path)
     module_dir = _find_module_dir(connector_root)
     resources: list[ResourceSpec] = []
     schema_mappings: dict[str, SchemaMapping] = {}
@@ -434,7 +746,9 @@ def build_manifest(
             str(p.relative_to(connector_root))
             for p in sorted((module_dir / "ontology").glob("*.ttl"))
         )
-        sync, identity, events, permissions = _read_sync(module_dir)
+        sync, identity, events, permissions = _read_sync(
+            module_dir, server_alias=server_alias
+        )
         if (module_dir / "connectors" / "mcp_source_presets.json").exists():
             source_artifacts.append(
                 str(
@@ -498,7 +812,9 @@ def build_manifest(
     digest, triple_count = ontology_integrity.canonical_hash(g)
     stamp = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    signer = release_signer or ontology_integrity.ReleaseSigner.from_runtime()
+    signer = release_signer or ontology_integrity.release_signer_for_publication(
+        lock_path=ONTOLOGY_LOCK
+    )
     unsigned_provenance = ProvenanceSpec(
         generated_at=stamp,
         source_artifacts=sorted(source_artifacts),
@@ -529,8 +845,17 @@ def write_manifest(
     *,
     now: datetime | None = None,
     dry_run: bool = False,
+    generate_a2a: bool = True,
+    registry_path: Path | None = None,
 ) -> ConnectorManifest:
-    manifest = build_manifest(connector_root, now=now)
+    # a2a.json is generated FIRST (CONCEPT:AU-KG.ontology.a2a-card-generation): the
+    # manifest's ``actions`` are read back from a2a.json's ``capabilities``
+    # (``_read_actions``), so the connector-owned card must already be fresh,
+    # deterministic, generated content before the manifest is built from it —
+    # never a parallel/manual step.
+    if generate_a2a and (connector_root / "pyproject.toml").is_file():
+        write_a2a_card(connector_root, dry_run=dry_run)
+    manifest = build_manifest(connector_root, now=now, registry_path=registry_path)
     text = _to_yaml(manifest)
     output_label = f"{output.parent.name}/{output.name}"
     if dry_run:
@@ -567,6 +892,26 @@ def main() -> int:
         "--now", help="ISO-8601 UTC timestamp override, for reproducible runs"
     )
     ap.add_argument("--dry-run", action="store_true", help="print instead of write")
+    ap.add_argument(
+        "--skip-a2a",
+        action="store_true",
+        help="do not (re)generate a2a.json — connector_manifest.yml only",
+    )
+    ap.add_argument(
+        "--a2a-check",
+        action="store_true",
+        help=(
+            "fail-closed drift gate: regenerate a2a.json in memory and error if it "
+            "would differ from the committed file, without writing anything "
+            "(connector_manifest.yml is not touched in this mode)"
+        ),
+    )
+    ap.add_argument(
+        "--registry",
+        type=Path,
+        default=None,
+        help="MCP fleet registry that owns the server aliases (default: the shipped one)",
+    )
     args = ap.parse_args()
 
     now = (
@@ -594,6 +939,19 @@ def main() -> int:
         ap.error("one of --connector-root, --connector, or --all is required")
         return 2
 
+    if args.a2a_check:
+        failures = 0
+        for root in roots:
+            if not root.is_dir() or not (root / "pyproject.toml").is_file():
+                continue
+            try:
+                write_a2a_card(root, check=True)
+                print(f"OK    {root.name}/a2a.json")
+            except RuntimeError as exc:
+                failures += 1
+                print(f"DRIFT {root.name}/a2a.json: {exc}", file=sys.stderr)
+        return 1 if failures else 0
+
     for root in roots:
         if not root.is_dir():
             print(f"skip: connector {root.name!r} is not a directory", file=sys.stderr)
@@ -607,7 +965,14 @@ def main() -> int:
                 else (root / "connector_manifest.yml")
             )
         )
-        manifest = write_manifest(root, out, now=now, dry_run=args.dry_run)
+        manifest = write_manifest(
+            root,
+            out,
+            now=now,
+            dry_run=args.dry_run,
+            generate_a2a=not args.skip_a2a,
+            registry_path=args.registry,
+        )
         print(
             f"generated {out.parent.name}/{out.name}: {len(manifest.resources)} "
             f"resources, {len(manifest.sync)} sync presets"

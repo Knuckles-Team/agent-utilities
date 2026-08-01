@@ -627,7 +627,7 @@ class FeedbackService:
         if target_id and hasattr(self.backend, "add_edge"):
             try:
                 self.backend.add_edge(corr_id, target_id, rel_type="corrects")
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:  # pragma: no cover  # noqa: BLE001 — provenance-only 'corrects' edge; the correction assertion (corr_id) is already recorded above and the governance rule this feeds is created unconditionally below regardless of whether this edge lands
                 logger.debug("corrects edge failed: %s", exc)
         rule_id = f"rule:{uuid.uuid4().hex}"
         rule_type = _RULE_TYPE.get(rule_scope, "governance_rule")

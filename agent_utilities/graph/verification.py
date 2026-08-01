@@ -11,6 +11,7 @@ Extracted from the monolithic steps.py for maintainability.
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 from pydantic_ai import ModelSettings
@@ -306,12 +307,19 @@ async def verifier_step(
             from pydantic_ai.usage import UsageLimits
 
             from agent_utilities.core.config import setting
+            from agent_utilities.orchestration.loop_guards import (
+                DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+            )
 
             async with validation_agent.run_stream(
                 "Evaluate the results",
                 deps=_agent_deps,
                 usage_limits=UsageLimits(
-                    request_limit=setting("VERIFIER_REQUEST_LIMIT", 4)
+                    request_limit=setting("VERIFIER_REQUEST_LIMIT", 4),
+                    # CONCEPT:AU-ORCH.execution.execution-budget-caps — a single
+                    # oversized results payload must not blow the verifier's budget
+                    # in one request.
+                    per_request_input_tokens_limit=DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
                 ),
             ) as stream:
                 validation = await asyncio.wait_for(
@@ -407,7 +415,14 @@ async def verifier_step(
                             adversarial_result.severity,
                         )
             except Exception as e:
-                logger.debug(f"Adversarial verification skipped: {e}")
+                # D-DST-5 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): adversarial
+                # verification is a security-adjacent "hacker agent" stress-test (AU-AHE.evaluation.
+                # adversarial-verification), not best-effort telemetry — a runtime failure here
+                # silently lets the step proceed to synthesis WITHOUT the adversarial pass ever
+                # having actually run, indistinguishable in the logs from "ran clean". Raised to
+                # warning so a persistently-erroring adversarial check is diagnosable rather than
+                # silently degrading to "quality gate only" coverage.
+                logger.warning(f"Adversarial verification failed to run (step NOT adversarially checked): {e}")
 
         except Exception as e:
             logger.warning(
@@ -550,7 +565,9 @@ async def synthesizer_step(
     logger.info("[LAYER:GRAPH:SYNTHESIZER] Composing final response...")
     _emit_node_lifecycle(ctx.deps.event_queue, "synthesizer", "node_start")
 
-    validator_prompt = load_specialized_prompts("verifier")
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — prompt load is file I/O + registry
+    # lookup; keep it off the event loop.
+    validator_prompt = await asyncio.to_thread(load_specialized_prompts, "verifier")
 
     results_summary = "\n".join(
         [f"### {node}: {val}" for node, val in ctx.state.results_registry.items()]
@@ -580,14 +597,34 @@ async def synthesizer_step(
             "\nThe response contract requires exactly one JSON object. Use the "
             "structured output schema; never emit markdown fences or surrounding prose."
         )
+        _synth_model_settings: Any = ModelSettings(
+            max_tokens=_STRUCTURED_RESPONSE_MAX_TOKENS,
+            temperature=0.0,
+        )
+        try:
+            # D-54c-4 — the verifier's structured-synthesis agent is built with an
+            # explicit model_settings and never runs through attach_profile_resolver,
+            # so fold the provider-native prompt-cache directive here too
+            # (CONCEPT:AU-ORCH.optimization.provider-prompt-cache).
+            from agent_utilities.caching.prompt_cache import fold_prompt_cache_hint
+
+            _agent_model_identity = getattr(
+                ctx.deps.agent_model, "model_name", None
+            ) or (
+                ctx.deps.agent_model if isinstance(ctx.deps.agent_model, str) else None
+            )
+            _synth_model_settings = fold_prompt_cache_hint(
+                _synth_model_settings,
+                system_prompt=final_system_prompt,
+                model_identity=_agent_model_identity,
+            )
+        except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
+            pass
         synthesizer = create_context_agent(
             model=ctx.deps.agent_model,
             system_prompt=final_system_prompt,
             output_type=dict[str, Any],
-            model_settings=ModelSettings(
-                max_tokens=_STRUCTURED_RESPONSE_MAX_TOKENS,
-                temperature=0.0,
-            ),
+            model_settings=_synth_model_settings,
             retries=2,
         )
     else:
@@ -690,12 +727,13 @@ async def synthesizer_step(
             f"- Verification attempts: {ctx.state.verification_attempts}"
         )
         if ctx.deps.knowledge_engine:
-            ctx.deps.knowledge_engine.add_memory(
+            await asyncio.to_thread(
+                ctx.deps.knowledge_engine.add_memory,
                 memory_entry,
                 name=f"Execution {ctx.state.session_id or 'unknown'}",
                 category="historical_execution",
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — fire-and-forget historical context for future runs; doesn't affect the current GraphResponse already returned by this step
         logger.debug(f"Failed to write execution memory: {e}")
 
     # CONCEPT:AU-KG.maintenance.post-execution-feedback — Post-execution feedback loop
@@ -715,13 +753,13 @@ async def synthesizer_step(
             from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
             memory_retriever = MemoryRetriever(ctx.deps.knowledge_engine)
-            memory_retriever.update_after_session(ctx.state)
+            await asyncio.to_thread(memory_retriever.update_after_session, ctx.state)
             logger.info(
                 "[CONCEPT:AU-KG.maintenance.post-execution-feedback] Self-Model updated: domain=%s, success=%s",
                 ctx.state.routed_domain,
                 execution_success,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — learning-signal update only; execution_success was already correctly computed above before this block
             logger.debug(f"Self-Model feedback failed: {e}")
 
         # TeamConfig outcome recording
@@ -733,15 +771,17 @@ async def synthesizer_step(
 
                 if isinstance(ctx.deps.knowledge_engine, RegistryMixin):
                     reward = 1.0 if execution_success else 0.0
-                    ctx.deps.knowledge_engine.record_team_outcome(
-                        team_config_id, reward=reward
+                    await asyncio.to_thread(
+                        ctx.deps.knowledge_engine.record_team_outcome,
+                        team_config_id,
+                        reward=reward,
                     )
                     logger.info(
                         "[CONCEPT:AU-AHE.evaluation.interpretability-tests] TeamConfig '%s' outcome recorded: reward=%.1f",
                         team_config_id,
                         reward,
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — lost reward data point for future team-reuse scoring, not a false-success mark; the reward value itself was already computed correctly
             logger.debug(f"TeamConfig feedback failed: {e}")
 
         # CONCEPT:AU-ORCH.optimization.workflow-distillation — Workflow Distillation Hook (async background)
@@ -752,10 +792,16 @@ async def synthesizer_step(
                 from ..workflows.distillation_hook import WorkflowDistillationHook
 
                 plan_meta = ctx.state.plan.metadata if ctx.state.plan else {}
-                hook = WorkflowDistillationHook(engine=ctx.deps.knowledge_engine)
+                _engine = ctx.deps.knowledge_engine
 
                 async def _fire_distillation() -> None:
                     try:
+                        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — construction reads
+                        # distillation config off disk; keep it off the event loop even
+                        # though this already runs in a background task.
+                        hook = await asyncio.to_thread(
+                            WorkflowDistillationHook, engine=_engine
+                        )
                         await hook.on_execution_complete(
                             run_id=ctx.state.session_id or "unknown",
                             plan=ctx.state.plan,
@@ -763,13 +809,13 @@ async def synthesizer_step(
                             team_config_id=plan_meta.get("team_config_id"),
                             quality_score=1.0,
                         )
-                    except Exception as ex:
+                    except Exception as ex:  # noqa: BLE001 — explicitly "fire and forget" background task; nothing awaits it or checks its outcome
                         logger.debug(f"Distillation hook async task failed: {ex}")
 
                 # Fire and forget — do not block the response
                 asyncio.ensure_future(_fire_distillation())
                 logger.debug("[ORCH-1.8] Distillation hook dispatched (background)")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — outer dispatch-failure wrapper for the same fire-and-forget hook above; nothing depends on the dispatch itself succeeding
                 logger.debug(f"Distillation hook dispatch failed: {e}")
 
     return End(
@@ -792,6 +838,15 @@ async def synthesizer_step(
             },
         )
     )
+
+
+#: Every ``pydantic_ai.exceptions.UsageLimitExceeded`` message names the limit it
+#: tripped as ``<something>_limit of <n>``, in one of two voices: "Exceeded the
+#: total_tokens_limit of 500000 (...)" (already spent) or "The next request would
+#: exceed the request_limit of 50" / "The next tool call(s) would exceed the
+#: tool_calls_limit of 50 (...)" (projected). Matching the shape rather than an
+#: enumerated list keeps this correct when upstream adds another limit axis.
+_USAGE_LIMIT_MESSAGE = re.compile(r"exceed(?:ed|s)?\s+the\s+\w*_limit\s+of\b", re.I)
 
 
 async def error_recovery_step(
@@ -825,7 +880,40 @@ async def error_recovery_step(
         "max node transitions",
         "max planning loops",
     )
-    is_terminal = any(kw in error_str.lower() for kw in terminal_keywords)
+    # CONCEPT:AU-ORCH.execution.execution-budget-caps — ANY execution-budget exhaustion
+    # (tool calls, tokens, cost, duration — not just the node-transition cap already
+    # covered above) is ALWAYS terminal. Retrying through the planner here would
+    # spend more of the very budget that already tripped: the dispatcher's node,
+    # token, cost, and duration checks (``_router_impl.py::dispatcher_step``) all
+    # stamp the SAME "Execution budget exceeded: ..." prefix, but only the
+    # node-transition variant matched the keyword list above, so a token/cost/
+    # duration cap was silently retried for up to 2 more planner rounds — each one
+    # burning more of the resource that was already exhausted — before finally
+    # terminating.
+    #
+    # Two corrections found by the waves 1-5 merge gate:
+    #
+    # (a) ``startswith`` was the wrong test. A budget tripped INSIDE a
+    #     specialist node is re-raised by ``_router_impl.expert_executor_step``
+    #     as ``"Node {id} failed: {detail}"``, so the very prefix this check
+    #     keyed on is no longer at position 0 and the classification silently
+    #     inverted for every in-node trip. Substring match.
+    #
+    # (b) The pydantic-ai-native ``UsageLimits`` caps this change ALSO
+    #     introduced (``per_request_input_tokens_limit`` &c., set in
+    #     ``graph/executor.py::spawn_usage_limits`` and friends) raise
+    #     ``UsageLimitExceeded`` with an entirely different message shape
+    #     ("Exceeded the per_request_input_tokens_limit of 50000 (...)"), which
+    #     matched neither the prefix nor ``terminal_keywords`` — so a hard,
+    #     provider-enforced token cap was routed straight back to the planner
+    #     for up to 2 more rounds, stacking with ``expert_executor_step``'s own
+    #     ``max_retries=2``. That is the exact anti-pattern this change claims
+    #     to have fixed, reintroduced through the new code path.
+    lowered = error_str.lower()
+    is_budget_exceeded = "execution budget exceeded" in lowered or bool(
+        _USAGE_LIMIT_MESSAGE.search(error_str)
+    )
+    is_terminal = is_budget_exceeded or any(kw in lowered for kw in terminal_keywords)
 
     if not is_terminal and ctx.state.retry_count < 2:
         ctx.state.retry_count += 1
@@ -867,7 +955,13 @@ async def error_recovery_step(
         "node_complete",
         next_node="end",
     )
-    return End({"error": error_str, "results": dict(ctx.state.results_registry)})
+    return End(
+        {
+            "error": error_str,
+            "results": dict(ctx.state.results_registry),
+            "budget_exceeded": is_budget_exceeded,
+        }
+    )
 
 
 async def _distill_experience_from_retry(
@@ -926,8 +1020,10 @@ async def _distill_experience_from_retry(
             )
             from ..knowledge_graph.core.ogm import KGMapper
 
+            # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — OGM upsert is a synchronous
+            # engine write; keep it off the event loop.
             ogm = KGMapper(ctx.deps.knowledge_engine)
-            ogm.upsert(node)
+            await asyncio.to_thread(ogm.upsert, node)
             logger.info(f"Distilled Experience Node: {exp_id}")
     except Exception as e:
         logger.warning(f"Experience distillation failed: {e}")
@@ -1017,8 +1113,10 @@ async def parallel_trajectory_distiller(
 
             from ..knowledge_graph.core.ogm import KGMapper
 
+            # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — OGM upsert is a synchronous
+            # engine write; keep it off the event loop.
             ogm = KGMapper(deps.knowledge_engine)
-            ogm.upsert(node)
+            await asyncio.to_thread(ogm.upsert, node)
             logger.info(
                 f"Distilled Parallel Experience Node (CONCEPT:AU-AHE.evaluation.backtest-harness): {exp_id} with EncPI mapping."
             )

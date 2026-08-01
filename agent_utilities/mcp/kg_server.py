@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import hashlib
 import json
 import logging
@@ -51,6 +52,7 @@ import re
 import threading
 import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -95,6 +97,18 @@ _PROCESS_SESSION: Any = None
 _PROCESS_SESSION_REFRESH_LOCK = threading.Lock()
 _PROCESS_AUTHORITY_STOP = threading.Event()
 _PROCESS_AUTHORITY_THREAD: threading.Thread | None = None
+
+# D-SNV-5 follow-up: guards :func:`authority_keepalive_scope` against starting a
+# second renewal loop for the same lease when one guarded scope nests inside
+# another on the same task tree (for example an MCP tool dispatch whose tool body
+# itself calls ``Orchestrator.execute_agent`` for a sub-delegation). contextvars
+# propagate across ``await``, ``asyncio.ensure_future``/``create_task``, and
+# ``asyncio.to_thread`` (which copies the current context into the worker thread),
+# so the guard is visible to a nested scope even when the nesting crosses a
+# to_thread boundary.
+_AUTHORITY_KEEPALIVE_ACTIVE: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_authority_keepalive_active", default=False
+)
 
 _CALLER_AUTHORITY_FIELDS = frozenset({"_actor", "_roles", "_tenant"})
 
@@ -221,9 +235,22 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
 
     async def _guarded() -> Any:
         try:
-            await _ensure_process_authority_current()
+            active_session = await _ensure_process_authority_current()
             with verified_tool_session_scope():
-                return await _run()
+                # D-SNV-5: a dispatch may run for the whole _TOOL_CALL_TIMEOUT_S
+                # window, but authority is otherwise checked only once, at entry.
+                # authority_keepalive_scope gives a renewable (server-minted
+                # process/client-credentials) session a background keepalive for
+                # the dispatch's duration so a long delegation renews its own
+                # authority instead of failing closed mid-flight — the SAME
+                # primitive Orchestrator.execute_agent opens directly, so a
+                # nested execute_agent call here (a tool that itself delegates)
+                # does not start a second renewal loop. A caller-presented
+                # bearer JWT has no credential_lease and is never proactively
+                # renewed here — that would be forging authority the server
+                # does not hold.
+                async with authority_keepalive_scope(active_session):
+                    return await _run()
         except TimeoutError:
             return {
                 "error": (
@@ -687,6 +714,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "ontology_value_types": "/ontology/value-types",
     "ontology_interface": "/ontology/interface",
     "ontology_sampling_profile": "/ontology/sampling-profiles",
+    "ontology_model_profile": "/ontology/model-profiles",
     "ontology_function": "/ontology/function",
     "ontology_derive": "/ontology/derive",
     "ontology_link_materialize": "/ontology/link-materialize",
@@ -2122,7 +2150,10 @@ def _get_engine():
 
         def _factory():
             backend = create_backend()
-            return IntelligenceGraphEngine(backend=backend)
+            return IntelligenceGraphEngine(
+                backend=backend,
+                defer_background_start=True,
+            )
 
         return IntelligenceGraphEngine.get_or_create(factory=_factory)
 
@@ -2886,6 +2917,16 @@ def _enqueue_fleet_tool_schema_hydration(engine: Any) -> None:
     work and belong on the durable connector lane.  A stable target lets the
     WorkItem queue deduplicate restarts in the same hour without its O(N)
     target scan. A later hour gets a fresh delta probe.
+
+    ``task_type="capability_hydration"`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness), NOT the
+    generic ``connector_sync`` the */20m fleet sweep uses for every OTHER connector.
+    Both ride the same ``connectors`` lane (same soft-timeout envelope), but a
+    distinct type lets the worker pool reserve this job a claim floor
+    (:func:`agent_utilities.knowledge_graph.core.engine_tasks.start_task_workers`)
+    instead of it only ever landing on a worker the moment one of potentially
+    dozens of concurrently-running legacy connector syncs happens to free up —
+    the proven starvation mode where priority alone could not preempt
+    already-running work.
     """
     submit = getattr(engine, "submit_task", None)
     if not callable(submit):
@@ -2894,7 +2935,7 @@ def _enqueue_fleet_tool_schema_hydration(engine: Any) -> None:
         target_path="fleet",
         is_codebase=False,
         provenance={"sync_mode": "delta", "boot_hydration": True},
-        task_type="connector_sync",
+        task_type="capability_hydration",
         priority=1,
         skip_dedupe=True,
         job_id=f"boot:fleet-tool-schemas:{datetime.now(UTC):%Y%m%d%H}",
@@ -2940,6 +2981,49 @@ def _run_boot_hydration_plan(
             logger.error("Boot hydration step %s failed", name, exc_info=True)
         else:
             _record_boot_hydration_step(engine, name, priority, "completed")
+    _record_hydration_manifest(engine)
+
+
+def _record_hydration_manifest(engine: Any) -> None:
+    """Build, sign and persist the boot hydration manifest.
+
+    CONCEPT:AU-KG.audit.hydration-manifest-signed / CONCEPT:AU-KG.audit.hydration-absent-vs-hidden
+
+    This is the one production call site of
+    :mod:`agent_utilities.knowledge_graph.ingestion.hydration_manifest`. Without
+    it the module was a 912-line orphan: its signing and its serving-vs-service
+    two-authority cross-check were correct but ran on no live path, so the
+    absent-vs-hidden ambiguity it exists to resolve stayed unresolved for every
+    real deployment (and ``scripts/check_surface_parity.py`` flagged it as an
+    unexposed capability). Running it HERE — immediately after every plan leg has
+    reported completed/failed — is what makes the manifest a truthful record of
+    what that boot actually hydrated, rather than a snapshot of an arbitrary
+    later moment.
+
+    Best-effort by design, exactly like :func:`_record_boot_hydration_step`:
+    boot hydration must never be blocked by its own audit record. A missing
+    release-signing key is the normal case for a dev checkout and degrades to a
+    debug line rather than a failed boot.
+    """
+    from agent_utilities.knowledge_graph.ingestion.hydration_manifest import (
+        build_hydration_manifest,
+        persist_hydration_manifest,
+        sign_hydration_manifest,
+    )
+
+    try:
+        manifest = build_hydration_manifest()
+        signed = sign_hydration_manifest(manifest)
+        persist_hydration_manifest(engine, signed)
+    except Exception as exc:  # noqa: BLE001 - the audit record must never block
+        # boot hydration itself. The cause IS logged so a persistently
+        # unsignable/unbuildable manifest is diagnosable rather than silent.
+        logger.debug("boot hydration manifest not recorded: %s", exc)
+    else:
+        logger.info(
+            "Recorded signed hydration manifest (generated_at=%s)",
+            manifest.generated_at,
+        )
 
 
 def _ingest_prompts_at_boot() -> None:
@@ -3130,7 +3214,16 @@ def _refresh_process_authority(session: Any) -> Any:
 
 
 async def _ensure_process_authority_current() -> Any:
-    """Ensure request/process authority without blocking the MCP event loop."""
+    """Ensure request/process authority without blocking the MCP event loop.
+
+    D-SNV-5: an ambient session whose actor carries a renewable
+    ``credential_lease`` (a server-minted process/client-credentials identity
+    — never a caller-presented bearer JWT, which has no ``credential_lease``
+    and stays exactly as fail-closed as before) is proactively renewed here
+    the same way the stdio ``_PROCESS_SESSION`` fallback already was. This is
+    the dispatch-entry check only; :func:`_keep_process_authority_current`
+    covers the rest of a long-running dispatch.
+    """
     from agent_utilities.knowledge_graph.core.session import (
         SessionExpiredError,
         current_session,
@@ -3138,7 +3231,17 @@ async def _ensure_process_authority_current() -> Any:
 
     ambient = current_session()
     if ambient is not None:
-        ambient.ensure_authority_current()
+        if getattr(getattr(ambient, "actor", None), "credential_lease", None) is None:
+            # Not server-renewable: unchanged fail-closed behavior, no
+            # minimum-TTL headroom requirement — this must never mask a
+            # caller's real credential expiry.
+            ambient.ensure_authority_current()
+            return ambient
+        try:
+            ambient.ensure_authority_current(minimum_ttl_seconds=30)
+        except SessionExpiredError:
+            ambient = await asyncio.to_thread(_refresh_process_authority, ambient)
+        ambient.ensure_authority_current(minimum_ttl_seconds=30)
         return ambient
     session = _PROCESS_SESSION
     if session is None:
@@ -3149,6 +3252,118 @@ async def _ensure_process_authority_current() -> Any:
         session = await asyncio.to_thread(_refresh_process_authority, session)
     session.ensure_authority_current(minimum_ttl_seconds=30)
     return session
+
+
+async def _keep_process_authority_current(session: Any) -> None:
+    """Background keepalive for one in-flight dispatch under a renewable session.
+
+    A tool dispatch may run for the whole ``_TOOL_CALL_TIMEOUT_S`` window
+    (``_execute_tool``), but authority was previously checked only once, at
+    entry (D-SNV-5: a real 192s ServiceNow delegation died mid-flight with
+    ``SessionExpiredError`` because nothing renewed it after that). This loop
+    renews the SAME mutable ``CredentialLease`` the dispatch's ambient
+    ``GraphSession.actor`` already holds, so every downstream authority check
+    (``GraphSession.ensure_authority_current`` at every engine boundary, e.g.
+    ``graph_compute.py``'s ``_invoke_at``) sees it transparently — no session
+    object is replaced and no verification is weakened; a caller-presented
+    bearer JWT (no lease) never reaches this function at all.
+
+    Runs only for the lifetime the caller's :func:`authority_keepalive_scope`
+    is open (started and cancelled there) — never a free-running background
+    task.
+    """
+    from agent_utilities.knowledge_graph.core.session import SessionExpiredError
+
+    lease = session.actor.credential_lease
+    try:
+        while True:
+            seconds_left = lease.expires_at - int(time.time())
+            await asyncio.sleep(max(1.0, min(30.0, seconds_left - 30.0)))
+            try:
+                await asyncio.to_thread(_refresh_process_authority, session)
+            except SessionExpiredError:
+                # Fail-closed: the next real authority check (the deep engine
+                # call already in flight, or the next one) raises for real.
+                return
+            except Exception as exc:  # noqa: BLE001 — keepalive is best-effort renewal; a hard failure surfaces at the next real authority check either way
+                logger.error(
+                    "Delegation authority keepalive renewal failed (exception_type=%s)",
+                    type(exc).__name__,
+                )
+    except asyncio.CancelledError:
+        pass
+
+
+@contextlib.asynccontextmanager
+async def authority_keepalive_scope(session: Any | None = None) -> AsyncIterator[None]:
+    """Renew a renewable session's authority for the duration of the wrapped call.
+
+    CONCEPT:AU-ORCH.execution.delegation-hot-path-authority — keep a long delegation authorized for its whole run, on every entrypoint, not just MCP dispatch.
+
+    Every delegation entrypoint — the MCP ``_execute_tool`` dispatch, the
+    ``agent-webui``/REST gateway, the messaging router (Telegram/Mattermost), the
+    autonomous ``agent_dispatch_worker``, ``org_runtime``, a governed dynamic
+    workflow, and the parallel engine — converges on the single function
+    :meth:`agent_utilities.orchestration.manager.Orchestrator.execute_agent`.
+    A background keepalive wired ONLY into ``_execute_tool`` (the original
+    D-SNV-5 fix) therefore covered MCP-dispatched delegations only; anything that
+    reached ``execute_agent`` some other way still expired mid-flight with
+    ``SessionExpiredError``. This context manager is the one reusable primitive
+    both ``_execute_tool`` and ``Orchestrator.execute_agent`` open, so every
+    surface inherits the renewal by construction instead of each caller
+    reimplementing it.
+
+    Security posture is unchanged from the original ``_execute_tool``-only fix:
+
+    * Only a server-minted, renewable ``credential_lease`` is ever proactively
+      renewed. A caller-presented bearer JWT carries no ``credential_lease`` and
+      is never touched here — it stays exactly as fail-closed as before.
+    * The SAME mutable :class:`~agent_utilities.security.brain_context.CredentialLease`
+      object the session already holds is renewed in place, so every downstream
+      authority check (``GraphSession.ensure_authority_current``, e.g.
+      ``graph_compute.py``'s ``_invoke_at``) sees it transparently — no session
+      object is replaced and the expiry check itself is never weakened or
+      lengthened.
+    * ``session`` defaults to the ambient :func:`GraphSession
+      <agent_utilities.knowledge_graph.core.session.current_session>` (falling
+      back to the stdio ``_PROCESS_SESSION``, same as ``verified_tool_session_scope``)
+      resolved WITHOUT raising when neither is set — this helper only ever adds
+      renewal; it must never introduce a new precondition. A caller with no
+      ambient/process session at all fails exactly as it already would, at the
+      first real engine boundary (``SessionRequiredError``), not here.
+
+    Idempotent/reentrant via :data:`_AUTHORITY_KEEPALIVE_ACTIVE`: a scope nested
+    inside another already-open scope on the same task tree (a nested MCP
+    dispatch that itself calls ``execute_agent``, or vice versa) is a no-op —
+    the outer scope already renews the same lease, and the extra loop would only
+    add redundant token round-trips, not extra safety.
+    """
+    if _AUTHORITY_KEEPALIVE_ACTIVE.get():
+        yield
+        return
+
+    if session is None:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        session = current_session() or _PROCESS_SESSION
+    if session is None:
+        yield
+        return
+
+    lease = getattr(getattr(session, "actor", None), "credential_lease", None)
+    if lease is None:
+        yield
+        return
+
+    guard_token = _AUTHORITY_KEEPALIVE_ACTIVE.set(True)
+    keepalive = asyncio.ensure_future(_keep_process_authority_current(session))
+    try:
+        yield
+    finally:
+        keepalive.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await keepalive
+        _AUTHORITY_KEEPALIVE_ACTIVE.reset(guard_token)
 
 
 def _process_authority_refresh_loop(session: Any) -> None:
@@ -3174,10 +3389,10 @@ def _process_authority_refresh_loop(session: Any) -> None:
 def _start_process_authority_supervisor(session: Any) -> None:
     """Start the sole external-authority renewal supervisor when required."""
     global _PROCESS_AUTHORITY_THREAD
-    if getattr(getattr(session, "actor", None), "credential_lease", None) is None:
-        return
     _stop_process_authority_supervisor()
     _PROCESS_AUTHORITY_STOP.clear()
+    if getattr(getattr(session, "actor", None), "credential_lease", None) is None:
+        return
     thread = threading.Thread(
         target=_process_authority_refresh_loop,
         args=(session,),
@@ -3234,6 +3449,7 @@ def _wait_for_engine_materialization(
     *,
     timeout_seconds: float = _ENGINE_MATERIALIZATION_TIMEOUT_SECONDS,
     poll_seconds: float = _ENGINE_MATERIALIZATION_POLL_SECONDS,
+    stop_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Wait for a lazy-open graph to become complete before boot writes begin.
 
@@ -3283,6 +3499,7 @@ def _wait_for_engine_materialization(
         graph_name,
         timeout_seconds,
     )
+    shutdown = stop_event or _PROCESS_AUTHORITY_STOP
     deadline = time.monotonic() + max(0.0, timeout_seconds)
     last_progress: tuple[str, int | None, int | None] | None = None
     manifest_visible: bool | None = None
@@ -3370,7 +3587,10 @@ def _wait_for_engine_materialization(
                 f"GraphOS boot hydration (graph={graph_name!r}, "
                 f"timeout_seconds={timeout_seconds:g}, last={last_progress!r})"
             )
-        time.sleep(max(0.0, poll_seconds))
+        if shutdown.wait(max(0.0, poll_seconds)):
+            raise InterruptedError(
+                "GraphOS shutdown cancelled the graph materialization barrier"
+            )
 
 
 def _start_engine_bootstrap(session: Any) -> None:
@@ -3378,6 +3598,7 @@ def _start_engine_bootstrap(session: Any) -> None:
     from agent_utilities.knowledge_graph.core.engine_tasks import (
         _authorized_background_thread,
         _require_verified_background_session,
+        daemon_role,
     )
     from agent_utilities.knowledge_graph.core.session import use_session
     from agent_utilities.security.brain_context import use_actor
@@ -3441,14 +3662,23 @@ def _start_engine_bootstrap(session: Any) -> None:
         readiness["ready"],
         readiness["required"],
     )
+    # An explicit client role is a hard serving-plane boundary. In particular,
+    # stale KG_LOOP/maintenance settings must not turn a network-facing GraphOS
+    # process into an autonomous scheduler or queue worker. The requested role
+    # captured on the engine wins over any later process-environment mutation.
+    requested_role = (
+        (getattr(engine, "_daemon_role", None) or daemon_role()).strip().lower()
+    )
+    client_role = requested_role == "client"
     start_daemons = getattr(engine, "start_background_daemons", None)
-    if callable(start_daemons):
+    if not client_role and callable(start_daemons):
         start_daemons()
 
     def _bootstrap_engine() -> None:
         try:
             if (
-                engine
+                not client_role
+                and engine
                 and engine.backend
                 and not getattr(engine.backend, "read_only", False)
             ):
@@ -3547,38 +3777,28 @@ def _build_server(
     #
     # ``/health`` is LIVENESS: it always answers 200 (this process itself is up
     # and answering requests) even when the body reports "unhealthy" — a
-    # downstream dependency being down must NOT make kubelet kill/restart an
-    # otherwise-fine process (that would crash-loop the pod for something a
-    # restart cannot fix). The body is the truthful, loud signal: real engine
-    # reachability + circuit-breaker state, plus every configured co-service/
-    # dependency — never a placeholder that reports "ok" regardless of reality.
-    #
-    # ``/health/ready`` is READINESS: the SAME report, but its overall status
-    # maps onto the HTTP status code (200 healthy / 503 unhealthy) so kubelet
-    # pulls this pod out of Service routing while it's genuinely broken,
-    # without touching the process.
-    #
-    # Both stay status-only-by-default in the sense that only non-secret detail
-    # (counts, booleans, resolved modes, platform ids) is ever included — no
-    # endpoint DSNs, tokens, or credentials.
+    # /health is a dependency-free, status-only liveness signal. The readiness
+    # twin executes the truthful bounded collector on its reserved control lane,
+    # but returns only ready/not_ready because both routes are intentionally
+    # unauthenticated for kubelet. Detailed component data stays behind
+    # graph_configure(action="health") and authenticated dashboard surfaces.
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
-        from agent_utilities.observability.runtime_health import collect_health
-
-        report = await asyncio.to_thread(collect_health)
-        return JSONResponse(report, headers={"Cache-Control": "no-store"})
+        return JSONResponse({"status": "ok"}, headers={"Cache-Control": "no-store"})
 
     @mcp.custom_route("/health/ready", methods=["GET"])
     async def readiness_check(request: Request) -> JSONResponse:  # noqa: ARG001
         from agent_utilities.observability.runtime_health import (
-            collect_health,
+            collect_health_async,
             is_overall_healthy,
         )
 
-        report = await asyncio.to_thread(collect_health)
-        status_code = 200 if is_overall_healthy(report) else 503
+        report = await collect_health_async()
+        ready = is_overall_healthy(report)
         return JSONResponse(
-            report, status_code=status_code, headers={"Cache-Control": "no-store"}
+            {"status": "ready" if ready else "not_ready"},
+            status_code=200 if ready else 503,
+            headers={"Cache-Control": "no-store"},
         )
 
     # ARD registry surface (CONCEPT:AU-ECO.mcp.eco-serves-two-ard/ECO-4.97) — the graph-os twin of the
@@ -3632,6 +3852,7 @@ def _build_server(
         register_graph_engineering_tools,
         register_incident_tools,
         register_job_tools,
+        register_mcp_apps_tools,
         register_media_sidecar_tools,
         register_ontology_tools,
         register_ops_causal_tools,
@@ -3687,6 +3908,13 @@ def _build_server(
         force_condensed_registration=canonical_surface,
     )
 
+    # CONCEPT:AU-ECO.ui.mcp-apps-host — the MCP Apps entry-point tool + its
+    # ui:// resource (agent_utilities/mcp/tools/mcp_apps.py). Registered
+    # directly, not through register_tool_surface: it has no `action` param
+    # to condense/verbose-split (a single-purpose tool + a resource, not an
+    # action-routed dispatcher), so it doesn't fit that harness's contract.
+    register_mcp_apps_tools(mcp)
+
     # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8, Phases 2-3) — the ADDITIONAL, small
     # "ask/find/write/act/manage/why" intent surface, selected by the default
     # MCP_TOOL_MODE=intent. Every granular tool the
@@ -3717,11 +3945,15 @@ def register_graphos_verbose_tools(mcp) -> None:
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
     from agent_utilities.mcp.verbose_tools import tool_mode
 
-    # In ``both`` mode the condensed action tools are also registered; a single-op
-    # (action=None) verbose tool shares the condensed tool's NAME, so skip it to
-    # avoid overwriting the (untagged) condensed tool with a verbose-tagged
-    # duplicate. In verbose-only mode there is no condensed tool — keep them.
-    skip_single_op = tool_mode() == "both"
+    # In ``both`` mode — and, since D-WS-1, in ``verbose`` mode too — the condensed
+    # action tools are also registered (register_tool_surface now always registers
+    # the condensed registrars so the dispatch core / REGISTERED_TOOLS is never left
+    # empty; see verbose_tools.register_tool_surface). A single-op (action=None)
+    # verbose tool shares the condensed tool's NAME, so skip it to avoid overwriting
+    # the condensed tool's FastMCP component with a verbose-tagged duplicate whose
+    # schema (bare ``params_json``) doesn't match what REGISTERED_TOOLS actually
+    # dispatches for that name.
+    skip_single_op = tool_mode() in ("both", "verbose")
 
     def _make(tool_name: str, action: str | None):
         # The low-level engine_<domain> tools (CONCEPT:AU-ECO.mcp.full-api-mcp-surface) are generic
@@ -4105,6 +4337,48 @@ def _configure_telemetry_engine_otel() -> None:
         )
 
 
+def _preflight_mcp_sdk_floor() -> None:
+    """Fail startup loudly when the installed MCP SDK is below the declared floor.
+
+    CONCEPT:AU-ECO.mcp.protocol-compat-bridge — closes D-OB-18.
+
+    The category defect this exists for is that source-vs-installed divergence was
+    INVISIBLE: graph-os source targeting fastmcp 4 / mcp 2 ran for weeks on an image
+    that shipped fastmcp 3.4.5 / mcp 1.29.0, and the only symptom was a single ERROR
+    log line as `attach_fleet_loader` lost every fleet meta-tool to
+    ``ImportError: cannot import name 'MCPError'``. A rebuilt image with no assertion
+    just resets that clock, so the assertion runs here, at startup, as well as at
+    image-build time.
+
+    Enforcement is a hook, not a hardcoded policy: ``MCP_SDK_FLOOR_ENFORCE`` selects
+    ``error`` (default — refuse to start, because a graph-os that silently loses its
+    fleet surface is worse than one that will not come up) or ``warn`` (log and
+    continue, for an operator who is knowingly running a mismatched pair during a
+    migration).
+    """
+    from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor
+
+    result = check_mcp_sdk_floor()
+    if result["ok"] is True:
+        logger.info("MCP SDK floor OK: %s", result["detail"])
+        return
+    if result["ok"] is None:
+        logger.warning("MCP SDK floor check skipped: %s", result["detail"])
+        return
+
+    mode = os.environ.get("MCP_SDK_FLOOR_ENFORCE", "error").strip().lower()
+    message = (
+        f"installed MCP SDK does not satisfy the declared [mcp] floor: {result['detail']}. "
+        "The runtime image and this source tree have diverged — rebuild the image "
+        "(docker/graphos-unified.Dockerfile) so its dependency closure matches the "
+        "source it serves. Set MCP_SDK_FLOOR_ENFORCE=warn to start anyway."
+    )
+    if mode == "warn":
+        logger.error("graph-os starting with a mismatched MCP SDK: %s", message)
+        return
+    raise RuntimeError(message)
+
+
 def mcp_server() -> None:
     """``graph-os`` MCP server entry point (registered as console_scripts).
 
@@ -4119,6 +4393,7 @@ def mcp_server() -> None:
     from agent_utilities.core.config import load_config
 
     load_config()  # resolve settings through the one shared XDG config.json
+    _preflight_mcp_sdk_floor()
     _configure_graphos_otel()
     _configure_telemetry_engine_otel()
     os.environ["IS_KG_SERVER"] = "true"
@@ -4133,7 +4408,16 @@ def mcp_server() -> None:
     # reaches the rest of the MCP fleet on demand. Attached AFTER the factory middlewares
     # so per-session tool visibility runs with identity/auth already applied. Only for a
     # directly-served process — the embedded API-gateway build owns no serving loop.
-    fleet_mux = None
+    # The five meta-tools this attaches (find_tools/list_catalog/load_tools/
+    # unload_tools/multiplexer_status) plus the session-visibility middleware are
+    # MODE-INDEPENDENT infrastructure — they are the only way to reach anything
+    # the active MCP_TOOL_MODE holds back, so they must be present under intent,
+    # condensed, verbose AND both. A failure here is therefore NOT survivable:
+    # the previous `except Exception: logger.error(...)` downgraded it to a log
+    # line and served a silently wrong surface (an SDK-rename ImportError in
+    # child_resilience left graph-os exposing 118 ungated tools with no
+    # load_tools at all). Fail loud, preserving __cause__.
+    # CONCEPT:AU-ECO.mcp.fleet-meta-tools-always-on
     try:
         from agent_utilities.mcp.multiplexer import attach_fleet_loader
 
@@ -4145,9 +4429,12 @@ def mcp_server() -> None:
             authority_scope=verified_tool_session_scope,
         )
     except Exception as exc:
-        logger.error(
-            "graph-os fleet loader attach failed; fleet tools disabled: %s", exc
-        )
+        raise RuntimeError(
+            "graph-os fleet loader attach failed: the fleet meta-tools "
+            "(find_tools/list_catalog/load_tools/unload_tools/multiplexer_status) "
+            "and the session-visibility middleware could not be registered, so the "
+            "served tool surface would be wrong under every MCP_TOOL_MODE."
+        ) from exc
 
     transport = getattr(args, "transport", "stdio")
     host = getattr(args, "host", "127.0.0.1")
@@ -4186,26 +4473,15 @@ def mcp_server() -> None:
         if transport == "stdio":
             protect_stdio_jsonrpc()
 
-        # Self-composing co-services, phase 1: the KG host daemon must be decided
-        # BEFORE the engine is constructed below so it can win (or lose) the
-        # host-lock race as the first constructor (see co_service_supervisor's
-        # module docstring for the exact "client role + no live host" detection).
-        # The startup composition below performs graph work under the process's
-        # verified authority: the host-daemon election (bring_up_host_daemon_if_needed)
-        # constructs the engine as the FIRST constructor, and the engine's background
-        # workers capture their session via GraphSession.from_ambient(). Bind the
-        # minted process session (+ its verified actor) as the ambient authority
-        # BEFORE the host daemon constructs the engine — otherwise from_ambient()
-        # fails closed on a served, non-tiny process (CONCEPT:AU-P0-1 session currency).
+        # Bind the minted process session (+ its verified actor) as ambient
+        # authority before engine bootstrap. An explicit client role remains a
+        # hard serving-plane boundary; this entrypoint never promotes itself to
+        # the host that owns maintenance, workers, or autonomous loops.
         from agent_utilities.knowledge_graph.core.session import use_session
-        from agent_utilities.mcp.co_service_supervisor import (
-            bring_up_host_daemon_if_needed,
-            start_co_services,
-        )
+        from agent_utilities.mcp.co_service_supervisor import start_co_services
         from agent_utilities.security.brain_context import use_actor
 
         with use_actor(bootstrap_session.actor), use_session(bootstrap_session):
-            bring_up_host_daemon_if_needed(defer_background_start=True)
             _start_engine_bootstrap(bootstrap_session)
 
             # Self-composing co-services, phase 2: messaging (config-detected — real

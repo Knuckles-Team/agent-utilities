@@ -78,6 +78,58 @@
     workflows resolves to its leaf atomic skills under reasoning.""" ;
     rdfs:range :Skill .
 
+:consentBasis a owl:DatatypeProperty ;
+    rdfs:label "consent basis" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — the legal/policy
+    basis under which a WorkItem's gated consent was granted, e.g. 'explicit' |
+    'contract' | 'legitimate_interest'. Empty when consentRequired is false.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:consentExpiresAt a owl:DatatypeProperty ;
+    rdfs:label "consent expires at" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — Unix timestamp
+    after which a granted consent LAPSES (the consent's explicit lifetime). Absent with
+    consentGrantedAt present = a perpetual grant, a deliberate choice by the granter.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:double .
+
+:consentGrantedAt a owl:DatatypeProperty ;
+    rdfs:label "consent granted at" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — Unix timestamp a
+    WorkItem's gated consent was granted. Absent (no triple) is the ABSENT consent
+    state, DISTINCT from a granted consent past consentExpiresAt (LAPSED) — the
+    claim/renewal gate (orchestration.work_item) denies both but reports them as
+    different states.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:double .
+
+:consentPurpose a owl:DatatypeProperty ;
+    rdfs:label "consent purpose" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — what the subject
+    consented to (purpose/scope), e.g. 'data_processing:analytics'. A distinct property
+    from :consentScope (domain :ConsentRecord, the medical-consent module) — the two are
+    unrelated domains and must not share one property IRI under RDFS domain semantics.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:consentRequired a owl:DatatypeProperty ;
+    rdfs:label "consent required" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — opt-in per
+    WorkItem: true when claim/renewal is gated on a recorded, unlapsed consent. False
+    (the default, and the state of every pre-existing WorkItem predating this field) for
+    ordinary operational/infra work — the D-25-3 migration decision.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:boolean .
+
+:consentSubject a owl:DatatypeProperty ;
+    rdfs:label "consent subject" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — opaque reference
+    to WHOM a WorkItem's gated consent pertains (the data subject) — distinct from
+    :tenant (the owning org) and the WorkItem's worker assignment.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
 :contextWindow a owl:DatatypeProperty ;
     rdfs:domain :Model ;
     rdfs:range xsd:integer .
@@ -130,6 +182,16 @@
     workflow completes). Closes the provenance loop opened by
     :realizesProcess.""" ;
     rdfs:range :BusinessProcess .
+
+:diagnoses a owl:ObjectProperty ;
+    rdfs:label "diagnoses" ;
+    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — ErrorDetail -[:DIAGNOSES]-> RunTrace:
+    a durable, sanitized failure record links to the RunTrace of the operation that raised it, when
+    the failure occurred inside a correlated run (the ambient run-wide correlation id was active).
+    Best-effort: most failures occur outside an orchestrated run, so an ErrorDetail node with no
+    outgoing :DIAGNOSES edge is normal, not an error.""" ;
+    rdfs:domain :ErrorDetail ;
+    rdfs:range :RunTrace .
 
 :forkedFrom a owl:ObjectProperty ;
     rdfs:label "forked from" ;
@@ -402,6 +464,18 @@
     content-addressed, typed run-event log (not just an observe-only action chain). Owns an
     ordered :RunEvent path plus the :RunCommit history a fork/revert branches from.""" ;
     rdfs:seeAlso prov:Activity .
+
+:ErrorDetail a owl:Class ;
+    rdfs:label "ErrorDetail" ;
+    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — the durable backend behind
+    a public failure envelope's opaque `error.detail_ref` (D-24): a sanitized, tenant-scoped
+    error_class/failing_layer/traceback bundle, keyed by the same correlation id already
+    logged and returned to the caller, so the ref stays resolvable past this process's
+    lifetime and across replicas (`GraphErrorDetailSink`,
+    `agent_utilities.observability.error_detail_sink`). Never carries the raw exception
+    message — only what `agent_utilities.security.error_surface._record_error_detail`
+    already sanitized through the persistence-privacy gate before handing it to the sink.""" ;
+    rdfs:seeAlso prov:Entity .
 
 :Session a owl:Class ;
     rdfs:label "Session" ;

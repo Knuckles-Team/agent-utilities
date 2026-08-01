@@ -16,9 +16,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent_utilities.kvcache import KVCheckpointStore
 from agent_utilities.kvcache.remote_backend import KvCacheStats
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import engine_surface_tools
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
 class _CollectingMCP:
@@ -63,6 +66,7 @@ def _recording_method(recorder: list, name: str):
 _EXPECTED_ROUTES = {
     "graph_broker": "/graph/broker",
     "graph_kvcache": "/graph/kvcache",
+    "graph_kv_checkpoint": "/graph/kv_checkpoint",
     "graph_federated_search": "/graph/federated-search",
     "graph_promql": "/graph/promql",
     "graph_traces": "/graph/traces",
@@ -249,6 +253,203 @@ def test_kg_2_310_kvcache_contains(monkeypatch, tools):
     assert out["present"] is True
 
 
+# ── graph_kv_checkpoint (CONCEPT:AU-KG.memory.kv-checkpoint-resource) ───────
+class _FakeCheckpointBlob:
+    def __init__(self) -> None:
+        self.data: dict[str, bytes] = {}
+
+    def store(self, data: bytes) -> str:
+        import hashlib
+
+        digest = hashlib.sha256(data).hexdigest()
+        self.data[digest] = data
+        return digest
+
+    def incref(self, digest: str) -> int:
+        return 1
+
+    def unref(self, digest: str) -> int:
+        return 0
+
+    def fetch(self, digest: str) -> bytes:
+        return self.data[digest]
+
+
+class _FakeCheckpointTxn:
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+        self._n = 0
+
+    def begin(self, graph=None):
+        self._n += 1
+        return f"txn{self._n}"
+
+    def add_node(self, txn, node_id, props):
+        self.nodes[node_id] = dict(props)
+
+    def blob_ref(self, txn, node_id, digest):
+        return True
+
+    def commit(self, txn) -> bool:
+        return True
+
+
+class _FakeCheckpointNodes:
+    def __init__(self, backing: dict[str, dict]) -> None:
+        self._backing = backing
+
+    def has(self, node_id: str) -> bool:
+        return node_id in self._backing
+
+    def properties(self, node_id: str):
+        return self._backing.get(node_id)
+
+
+class _FakeCheckpointEdges:
+    def __init__(self) -> None:
+        self.edges: list[tuple] = []
+
+    def add(self, source, dest, props):
+        self.edges.append((source, dest, props))
+
+
+def _fake_checkpoint_store():
+    """A real :class:`KVCheckpointStore` bound to a fake engine client, matching
+    ``tests/unit/kvcache/test_checkpoint.py``'s pattern — proves the MCP tool wires
+    through to the real store logic, not a hand-rolled tool-level stand-in."""
+    client = SimpleNamespace(
+        blob=_FakeCheckpointBlob(),
+        txn=_FakeCheckpointTxn(),
+        nodes=None,
+        edges=_FakeCheckpointEdges(),
+    )
+    client.nodes = _FakeCheckpointNodes(client.txn.nodes)
+    return KVCheckpointStore(SimpleNamespace(_client=client, graph_name="__commons__"))
+
+
+def _kv_checkpoint_call(tools, **overrides):
+    """Call ``graph_kv_checkpoint`` with every parameter explicitly supplied.
+
+    The ``_CollectingMCP`` fixture captures the RAW undecorated tool function, so a
+    parameter left unspecified keeps its literal ``pydantic.Field(...)`` default
+    object (a ``FieldInfo``, not the resolved default value) — the real
+    ``mcp.tool()`` decorator resolves that, this fake doesn't. Every call site must
+    therefore pass the full parameter set, like every other tool test in this file.
+    """
+    defaults = dict(
+        action="",
+        data_b64="",
+        model_identity="",
+        quantization="",
+        serving_engine="",
+        engine_version="",
+        prefix_digest="",
+        tenant="",
+        policy_version="",
+        run_id="",
+        point="",
+        provenance_json="{}",
+        checkpoint_id="",
+        requesting_tenant="",
+        current_policy_version="",
+        new_run_id="",
+        conversation_id="",
+        allow_cold_start=False,
+        graph="",
+    )
+    defaults.update(overrides)
+    return json.loads(tools["graph_kv_checkpoint"](**defaults))
+
+
+def test_kg_2_310_kv_checkpoint_create_then_instantiate_and_restore(monkeypatch, tools):
+    """CONCEPT:AU-KG.memory.kv-checkpoint-resource — end-to-end through the MCP tool:
+    create → instantiate_agent (lineage edge) → restore_conversation (bytes back)."""
+    store = _fake_checkpoint_store()
+    monkeypatch.setattr(engine_surface_tools, "_checkpoint_store", lambda graph: store)
+
+    created = _kv_checkpoint_call(
+        tools,
+        action="create",
+        data_b64=base64.b64encode(b"kv-bytes").decode(),
+        model_identity="m",
+        quantization="q",
+        serving_engine="vllm",
+        engine_version="1",
+        prefix_digest="d",
+        tenant="tenant-a",
+        policy_version="p1",
+        run_id="run-1",
+        point="checkpoint-a",
+    )
+    checkpoint_id = created["result"]["checkpoint_id"]
+    assert checkpoint_id
+
+    instantiated = _kv_checkpoint_call(
+        tools,
+        action="instantiate_agent",
+        checkpoint_id=checkpoint_id,
+        requesting_tenant="tenant-a",
+        new_run_id="run-2",
+    )
+    assert instantiated["result"]["checkpoint_id"] == checkpoint_id
+
+    restored = _kv_checkpoint_call(
+        tools,
+        action="restore_conversation",
+        checkpoint_id=checkpoint_id,
+        conversation_id="conv-1",
+        requesting_tenant="tenant-a",
+    )
+    assert restored["result"]["restored"] is True
+    assert restored["result"]["cold_start"] is False
+    # The heavy blob bytes are NEVER inlined over the MCP JSON surface.
+    assert "data" not in restored["result"]
+    assert restored["result"]["size_bytes"] == len(b"kv-bytes")
+
+
+def test_kg_2_310_kv_checkpoint_cross_tenant_refused(monkeypatch, tools):
+    """CONCEPT:AU-KG.memory.kv-checkpoint-resource — a cross-tenant load through the
+    MCP tool surfaces a typed error, never a silent degrade."""
+    store = _fake_checkpoint_store()
+    monkeypatch.setattr(engine_surface_tools, "_checkpoint_store", lambda graph: store)
+
+    created = _kv_checkpoint_call(
+        tools,
+        action="create",
+        data_b64=base64.b64encode(b"kv-bytes").decode(),
+        model_identity="m",
+        quantization="q",
+        serving_engine="vllm",
+        engine_version="1",
+        prefix_digest="d",
+        tenant="tenant-a",
+        run_id="run-1",
+        point="checkpoint-a",
+    )
+    checkpoint_id = created["result"]["checkpoint_id"]
+
+    denied = _kv_checkpoint_call(
+        tools,
+        action="restore_conversation",
+        checkpoint_id=checkpoint_id,
+        conversation_id="conv-1",
+        requesting_tenant="tenant-b",
+    )
+    assert denied["error"]["code"] == "permission_denied"
+
+    # allow_cold_start makes the fallback explicit instead of an error payload.
+    cold = _kv_checkpoint_call(
+        tools,
+        action="restore_conversation",
+        checkpoint_id=checkpoint_id,
+        conversation_id="conv-1",
+        requesting_tenant="tenant-b",
+        allow_cold_start=True,
+    )
+    assert cold["result"]["cold_start"] is True
+    assert cold["result"]["fallback_reason"] == "CrossTenantCheckpointError"
+
+
 # ── graph_federated_search ───────────────────────────────────────────────────
 def test_kg_2_310_federated_search_dispatches(monkeypatch, tools):
     """CONCEPT:AU-KG.coordination.engine-message-broker — graph_federated_search routes into a search sub-client."""
@@ -385,6 +586,132 @@ def test_kg_2_310_traces_search_and_get(monkeypatch, tools):
     )
     assert g["action"] == "get"
     assert calls[1] == ("get_trace", {"trace_id": "t123"})
+
+
+def test_traces_waterfall_flattens_kg_native_subgraph(monkeypatch, tools):
+    """D-25-1 — action='waterfall' reads the KG-native KGTraceBackend sink
+    (harness.tracing.get_kg_trace_sink()), never the raw engine trace surface, and
+    flattens the trace + its spans/generations into the shape the trace-waterfall
+    MCP App renders."""
+    from types import SimpleNamespace as NS
+
+    trace = NS(
+        id="trace:1",
+        name="agent.run",
+        status="ok",
+        latency_ms=100.0,
+        total_cost_usd=0.05,
+        input_tokens=10,
+        output_tokens=5,
+        tool_calls=1,
+    )
+    span = NS(
+        id="span:1",
+        parent_span_id=None,
+        span_kind="tool",
+        name="search",
+        latency_ms=20.0,
+        error=None,
+    )
+    gen = NS(
+        id="gen:1",
+        parent_span_id="span:1",
+        name="llm",
+        latency_ms=60.0,
+        model="gpt-4o",
+        total_cost_usd=0.05,
+        input_tokens=10,
+        output_tokens=5,
+        error=None,
+    )
+    fake_sink = SimpleNamespace(
+        get_trace=lambda tid: (
+            {"trace": trace, "spans": [span], "generations": [gen]}
+            if tid == "trace:1"
+            else None
+        )
+    )
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink", lambda: fake_sink
+    )
+
+    out = json.loads(
+        tools["graph_traces"](
+            action="waterfall",
+            trace_id="trace:1",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["action"] == "waterfall"
+    result = out["result"]
+    assert result["trace"]["id"] == "trace:1"
+    assert result["trace"]["latencyMs"] == 100.0
+    node_ids = {n["id"] for n in result["nodes"]}
+    assert node_ids == {"span:1", "gen:1"}
+    gen_node = next(n for n in result["nodes"] if n["id"] == "gen:1")
+    assert gen_node["parentId"] == "span:1"
+    assert gen_node["kind"] == "generation"
+    assert gen_node["model"] == "gpt-4o"
+
+
+def test_traces_waterfall_requires_trace_id(tools):
+    out = json.loads(
+        tools["graph_traces"](
+            action="waterfall",
+            trace_id="",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["error"] == "trace_id required"
+
+
+def test_traces_waterfall_unknown_trace_is_clean_error(monkeypatch, tools):
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink",
+        lambda: SimpleNamespace(get_trace=lambda tid: None),
+    )
+    out = json.loads(
+        tools["graph_traces"](
+            action="waterfall",
+            trace_id="nope",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["error"] == "trace not found"
+
+
+def test_traces_waterfall_degrades_without_a_sink(monkeypatch, tools):
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink", lambda: None
+    )
+    out = json.loads(
+        tools["graph_traces"](
+            action="waterfall",
+            trace_id="trace:1",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["degraded"] is True
 
 
 def test_kg_2_310_traces_degrades(monkeypatch, tools):
@@ -636,7 +963,14 @@ def test_graph_mine_projects_object_events_in_one_native_call(monkeypatch, tools
     out = json.loads(
         tools["graph_mine"](
             action="process",
-            params_json=json.dumps({"events": events, "object_type": "Order"}),
+            params_json=json.dumps(
+                {
+                    "events": events,
+                    "object_type": "Order",
+                    "perspective_id": "case:order-view",
+                    "derivation_version": "v1",
+                }
+            ),
             graph="",
         )
     )
@@ -645,12 +979,30 @@ def test_graph_mine_projects_object_events_in_one_native_call(monkeypatch, tools
     assert out["projection"] == {
         "mode": "object_type_projection",
         "object_type": "Order",
+        "perspective_id": "case:order-view",
+        "derivation_version": "v1",
         "trace_count": 1,
         "event_count": 2,
         "source_count": 2,
         "lineage_digest": out["projection"]["lineage_digest"],
     }
     assert len(out["projection"]["lineage_digest"]) == 64
+
+
+def test_graph_mine_event_projection_without_a_declared_perspective_is_refused(
+    tools,
+) -> None:
+    """CONCEPT:AU-KG.mining.governed-perspective-flattening — a bare 'object_type'
+    with no 'perspective_id'/'derivation_version' is an undisclosed flattening
+    attempt and is refused, not silently defaulted."""
+    out = json.loads(
+        tools["graph_mine"](
+            action="process",
+            params_json=json.dumps({"events": [], "object_type": "Order"}),
+            graph="",
+        )
+    )
+    assert out["error"]["code"] == "invalid_request"
 
 
 def test_graph_mine_event_projection_writeback_fails_closed(tools):
@@ -665,6 +1017,243 @@ def test_graph_mine_event_projection_writeback_fails_closed(tools):
     )
     assert out["code"] == "lineage_required"
     assert "writeback is disabled" in out["error"]
+
+
+def test_graph_mine_ocel_validate_live_path_uses_the_registered_process_tool(tools):
+    """The existing MCP/REST process surface reaches the governed OCEL seam."""
+    ocel = {
+        "eventTypes": [{"name": "create", "attributes": []}],
+        "objectTypes": [{"name": "Order", "attributes": []}],
+        "events": [
+            {
+                "id": "e1",
+                "type": "create",
+                "time": "2026-01-01T00:00:00Z",
+                "attributes": [],
+                "relationships": [{"objectId": "order-1", "qualifier": "order"}],
+            }
+        ],
+        "objects": [
+            {
+                "id": "order-1",
+                "type": "Order",
+                "attributes": [],
+                "relationships": [],
+            }
+        ],
+    }
+
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "ocel_json": ocel,
+                        "tenant": "tenant-a",
+                        "ocel_mode": "validate",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    assert set(out["ocel"]) == {"eventTypes", "objectTypes", "events", "objects"}
+    assert out["tekg"]["tenant"] == "tenant-a"
+    assert len(out["tekg"]["idempotency_key"]) == 64
+    assert kg_server.ACTION_TOOL_ROUTES.get("graph_mine") == "/mining/associate"
+
+
+_OCEL_MINE_FIXTURE = {
+    "eventTypes": [{"name": "create", "attributes": []}],
+    "objectTypes": [{"name": "Order", "attributes": []}],
+    "events": [
+        {
+            "id": "e1",
+            "type": "create",
+            "time": "2026-01-01T00:00:00Z",
+            "attributes": [],
+            "relationships": [{"objectId": "order-1", "qualifier": "order"}],
+        }
+    ],
+    "objects": [
+        {
+            "id": "order-1",
+            "type": "Order",
+            "attributes": [],
+            "relationships": [],
+        }
+    ],
+}
+
+
+def test_graph_mine_ocel_mine_mode_requires_a_declared_perspective(tools) -> None:
+    """CONCEPT:AU-KG.mining.governed-perspective-flattening — 'mine' mode
+    always derives traces, so it always requires the same disclosed
+    perspective triple 'events' mode does; there is no separate silent path."""
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {"ocel_json": _OCEL_MINE_FIXTURE, "tenant": "tenant-a"}
+                ),
+                graph="",
+            )
+        )
+    assert out["error"]["code"] == "invalid_request"
+
+
+def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
+    monkeypatch, tools
+) -> None:
+    """CONCEPT:AU-KG.mining.ocel-lossless-roundtrip — 'mine' mode (the
+    default) does not just plan a ChangeEnvelope, it COMMITS it via
+    ``ingest_graph_slice`` — the SAME multi-node writer every other connector
+    with more than one entity per delivery uses (``IngestionEngine``'s
+    concepts/facts passes) — folding the disclosed ProcessPerspective into the
+    same committed slice. (D-61-4: NOT ``ingest_envelope`` directly — a
+    live-engine test proved that primitive silently collapses a multi-entity
+    ``{"entities": [...], "relationships": [...]}`` typed_payload onto one
+    untyped node; see ``tests/integration/knowledge_graph/test_ocel_live_commit.py``.)
+    """
+    calls: list = []
+    mining = SimpleNamespace(process=_recording_method(calls, "process"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
+
+    committed: list = []
+
+    def _fake_ingest_graph_slice(engine, connector, entities, relationships, **kwargs):
+        assert engine == "fake-engine"
+        committed.append(
+            {
+                "connector": connector,
+                "entities": entities,
+                "relationships": relationships,
+                **kwargs,
+            }
+        )
+        return {"status": "success", "idempotency_key": "fake-idempotency-key"}
+
+    import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest_module
+
+    monkeypatch.setattr(
+        envelope_ingest_module, "ingest_graph_slice", _fake_ingest_graph_slice
+    )
+
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "ocel_json": _OCEL_MINE_FIXTURE,
+                        "tenant": "tenant-a",
+                        "object_type": "Order",
+                        "perspective_id": "case:order-view",
+                        "derivation_version": "v1",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    assert len(committed) == 1
+    commit = committed[0]
+    assert commit["connector"] == "ocel"
+    node_types = {node["node_type"] for node in commit["entities"]}
+    assert "ProcessPerspective" in node_types
+    assert "ProcessEvent" in node_types
+    assert "BusinessObject" in node_types
+    assert out["tekg"]["commit_status"] == "success"
+    assert out["tekg"]["idempotency_key"] == "fake-idempotency-key"
+    assert out["projection"]["perspective_id"] == "case:order-view"
+    assert calls == [("process", {"traces": [["create"]]})]
+    assert out["tekg"]["write_status"] == "success"
+
+
+def test_graph_mine_ocel_mine_mode_surfaces_a_failed_commit(monkeypatch, tools) -> None:
+    """A failed graph-slice commit is reported, and mining does NOT proceed.
+
+    Three lanes converged on this one spot. feat/ocel-roundtrip-and-derivation and
+    feat/wire-first-reachability-gate each fixed the discarded ChangeEnvelope;
+    feat/wave6-followups-ocel then fixed the commit itself (D-61-4: routing an
+    {entities, relationships} payload through ``ingest_envelope`` collapsed every
+    entity onto ONE untyped node while still returning ``status="success"``).
+
+    This asserts the INVARIANT all three care about -- a failed write surfaces as a
+    structured error and the mining dispatch is short-circuited -- rather than
+    pinning one error code, which is exactly what let the writer change out from
+    under the previous assertion.
+    """
+    calls: list = []
+    mining = SimpleNamespace(process=_recording_method(calls, "process"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("synthetic rejection")
+
+    import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest_module
+
+    monkeypatch.setattr(envelope_ingest_module, "ingest_graph_slice", _boom)
+
+    with use_actor(
+        ActorContext(
+            actor_id="ocel-reject-test",
+            actor_type=ActorType.SYSTEM,
+            tenant_id="tenant-a",
+            authenticated=True,
+        )
+    ):
+        out = json.loads(
+            tools["graph_mine"](
+                action="process",
+                params_json=json.dumps(
+                    {
+                        "ocel_json": _OCEL_MINE_FIXTURE,
+                        "tenant": "tenant-a",
+                        "object_type": "Order",
+                        "perspective_id": "case:order-view",
+                        "derivation_version": "v1",
+                    }
+                ),
+                graph="",
+            )
+        )
+
+    # Reported, never silently discarded.
+    error = out.get("error", out)
+    assert out.get("code") or (isinstance(error, dict) and error.get("code")), out
+    # ...and mining did NOT run past the failed write.
+    assert calls == []
+    assert "projection" not in out
 
 
 def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):

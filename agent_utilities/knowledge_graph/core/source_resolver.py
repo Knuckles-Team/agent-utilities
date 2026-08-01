@@ -207,7 +207,7 @@ class KGSourceResolver:
         results: list[dict[str, Any]] = []
 
         for node_id, data in self.engine.graph.nodes(data=True):
-            if data.get("type") != node_type:
+            if data.get("node_type") != node_type:
                 continue
 
             if extra_filter and not extra_filter(data):
@@ -249,7 +249,7 @@ class KGSourceResolver:
                     )
                     if hr_id and hr_id not in {r["id"] for r in results}:
                         hr_data = self.engine.graph.nodes.get(hr_id, {})
-                        if hr_data.get("type") == node_type:
+                        if hr_data.get("node_type") == node_type:
                             hr_score = (
                                 hr.get("score", 0.5) if isinstance(hr, dict) else 0.5
                             )
@@ -260,7 +260,7 @@ class KGSourceResolver:
                                     "score": hr_score * 10,  # Normalize
                                 }
                             )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — hybrid search is one candidate source among several feeding `results`; a failure here just means this source contributes nothing to the results list that's sorted and returned below
                 logger.debug(f"Hybrid search unavailable: {e}")
 
         results.sort(key=lambda x: x["score"], reverse=True)

@@ -752,13 +752,16 @@ def _dispatch_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, A
         return {"status": "ok"}
     if kind in ("research_feed", "feed_sweep"):
         # Unified feed sweep (CONCEPT:AU-KG.ingest.rss-feed-connector): native RSS + ScholarX arXiv through
-        # the one world-model gate, plus the FreshRSS delta — all converge on the same
-        # research/news routing. (Supersedes the scholarx-only run_rss_feed_screen.)
+        # the one world-model gate, plus the FreshRSS delta and the native arXiv
+        # connector (CONCEPT:AU-KG.ingest.arxiv-feed-connector) — all converge on the same research/news
+        # routing. (Supersedes the scholarx-only run_rss_feed_screen.) ``arxiv``
+        # itself no-ops cleanly when ``KG_ARXIV_CATEGORIES`` is unset.
         from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
         results = {
             "rss": sync_source(engine, "rss", mode="delta"),
             "freshrss": sync_source(engine, "freshrss", mode="delta"),
+            "arxiv": sync_source(engine, "arxiv", mode="delta"),
         }
         return {"status": "ok", "feeds": results}
     if kind == "skill":

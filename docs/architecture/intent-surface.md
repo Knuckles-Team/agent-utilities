@@ -287,7 +287,7 @@ specific tool-visibility default, so no edit was needed to keep them accurate.
   is then actually callable), `unload_tools` retracts it by exact name / whole server / toolset
   tag, `auto_unload` retracts it automatically right after its next call (and `load_tools` brings
   it straight back), and the `manage` verb's lifecycle shortcut reaches the same core.
-- `tests/test_verbose_tools.py::test_surface_intent_mode_gates_condensed_tools` — `intent` mode
+- `tests/unit/mcp/test_verbose_tools.py::test_surface_intent_mode_gates_condensed_tools` — `intent` mode
   in `register_tool_surface` tags condensed tools `GATED_TAG`/`GRANULAR_TAG` and
   `gated_tool_names()` surfaces them, without registering a verbose 1:1 surface.
 - `tests/unit/test_gateway_mcp_parity.py` (existing, unmodified contract) stays green: every

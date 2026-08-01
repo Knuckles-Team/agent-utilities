@@ -103,8 +103,20 @@ def _load_spec(engine: Any, job_id: str, service: str) -> dict[str, Any]:
         spec = props.get(WATCH_PROP) if isinstance(props, dict) else None
         if isinstance(spec, dict):
             return spec
-    except Exception as e:  # noqa: BLE001
-        logger.debug("deploy_watch: spec load failed for %s: %s", job_id, e)
+    except Exception as e:
+        # D-DST-6: on failure this fabricates a FRESH deadline_unix = now + window,
+        # silently violating this module's own documented guarantee that "a watch
+        # resumed after a host crash doesn't restart its window" (the spec is
+        # supposed to be read back from the durable WorkItem, not re-derived).
+        # Not dangerous in the direction it fails (extends monitoring rather than
+        # shortening it, so it can't cause a premature rollback), but was
+        # invisible at DEBUG -- raised to warning so a persistently-failing spec
+        # read (and the window-restart it causes) is diagnosable.
+        logger.warning(
+            "deploy_watch: spec load failed for %s, restarting the watch window: %s",
+            job_id,
+            e,
+        )
     window = _config_float("deploy_watch_window", 300.0)
     return {
         "service": service,
@@ -179,7 +191,7 @@ def _record(engine: Any, spec: dict[str, Any], outcome: str, detail: str) -> str
             },
         )
         return watch_id
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — watch_id only threads into the response/audit link; run_deploy_watch's on_fail (the actual rollback) fires unconditionally in the outcome==OUTCOME_FAILED block regardless of whether this node persisted
         logger.debug("deploy_watch: record write failed: %s", e)
         return None
 

@@ -53,14 +53,14 @@ class _Session:
                 SimpleNamespace(
                     name="read_inventory",
                     description="read",
-                    inputSchema={"type": "object"},
+                    input_schema={"type": "object"},
                     annotations={"readOnlyHint": True},
                     meta=None,
                 ),
                 SimpleNamespace(
                     name="write_inventory",
                     description="write",
-                    inputSchema={"type": "object"},
+                    input_schema={"type": "object"},
                     annotations={"readOnlyHint": False},
                     meta=None,
                 ),

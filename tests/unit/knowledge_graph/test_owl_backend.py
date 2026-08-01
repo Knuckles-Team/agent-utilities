@@ -44,8 +44,8 @@ def test_owlready2_promote(ontology_path):
     backend = Owlready2Backend(ontology_path=ontology_path)
 
     nodes = [
-        {"id": "agent:test-agent", "type": "agent", "importance_score": 0.9},
-        {"id": "tool:test-tool", "type": "tool"},
+        {"id": "agent:test-agent", "node_type": "agent", "importance_score": 0.9},
+        {"id": "tool:test-tool", "node_type": "tool"},
     ]
 
     count = backend.promote(nodes)  # type: ignore[arg-type]
@@ -67,13 +67,13 @@ def test_owlready2_promote_edges(ontology_path):
     backend = Owlready2Backend(ontology_path=ontology_path)
 
     nodes = [
-        {"id": "agent:test-agent", "type": "agent"},
-        {"id": "tool:test-tool", "type": "tool"},
+        {"id": "agent:test-agent", "node_type": "agent"},
+        {"id": "tool:test-tool", "node_type": "tool"},
     ]
     backend.promote(nodes)
 
     edges = [
-        {"source": "agent:test-agent", "target": "tool:test-tool", "type": "provides"}
+        {"source": "agent:test-agent", "target": "tool:test-tool", "relationship": "provides"}
     ]
 
     count = backend.promote_edges(edges)
@@ -99,15 +99,15 @@ def test_owlready2_reasoning(ontology_path, monkeypatch):
 
     # A depends on B, B depends on C -> A depends on C (Transitive)
     nodes = [
-        {"id": "symbol:A", "type": "symbol"},
-        {"id": "symbol:B", "type": "symbol"},
-        {"id": "symbol:C", "type": "symbol"},
+        {"id": "symbol:A", "node_type": "symbol"},
+        {"id": "symbol:B", "node_type": "symbol"},
+        {"id": "symbol:C", "node_type": "symbol"},
     ]
     backend.promote(nodes)
 
     edges = [
-        {"source": "symbol:A", "target": "symbol:B", "type": "depends_on"},
-        {"source": "symbol:B", "target": "symbol:C", "type": "depends_on"},
+        {"source": "symbol:A", "target": "symbol:B", "relationship": "depends_on"},
+        {"source": "symbol:B", "target": "symbol:C", "relationship": "depends_on"},
     ]
     backend.promote_edges(edges)
 
@@ -148,7 +148,7 @@ def test_owlready2_reasoning(ontology_path, monkeypatch):
 def test_owlready2_clear(ontology_path):
     """Test clearing ABox individuals."""
     backend = Owlready2Backend(ontology_path=ontology_path)
-    backend.promote([{"id": "agent:1", "type": "agent"}])
+    backend.promote([{"id": "agent:1", "node_type": "agent"}])
     assert backend.get_stats()["individuals"] == 1
 
     backend.clear()

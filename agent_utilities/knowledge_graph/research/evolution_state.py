@@ -140,7 +140,7 @@ def read_beacon(engine: Any) -> dict[str, Any]:
             "MATCH (n:EvolutionBeacon) RETURN n.id AS id, n.status AS status, "
             "n.stage AS stage, n.timestamp AS timestamp, n.metadata AS metadata LIMIT 1"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — read-only status query; a failed read just returns an empty beacon dict for this one poll, the underlying EvolutionBeacon node is untouched
         logger.debug("read_beacon query failed: %s", e)
         return {}
     for r in rows or []:
@@ -172,7 +172,7 @@ def _open_gaps_trend(engine: Any, *, window: int = 8) -> dict[str, Any]:
         rows = engine.query_cypher(
             "MATCH (n:EvolutionCycle) RETURN n.id AS id, n.created_at AS ts, n.metadata AS metadata"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns the documented empty-series default ({'series': [],...}) — the same shape returned when engine is None just above
         logger.debug("_open_gaps_trend query failed: %s", e)
         return {"series": [], "recent": 0, "prior": 0}
     series: list[int] = []
@@ -436,7 +436,7 @@ def read_evolution_state(
     beacon = read_beacon(engine)
     try:
         velocity = improvement_velocity(engine)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — velocity falls back to the documented {'verdict': 'idle'} default; the comment two lines below notes the sibling gaps/specs reads are themselves already best-effort/never-raise, so this mirrors that same degrade-to-idle contract
         logger.debug("velocity read failed: %s", e)
         velocity = {"verdict": "idle"}
     gaps = _open_gaps_trend(engine)

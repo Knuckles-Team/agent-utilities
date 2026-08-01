@@ -101,7 +101,9 @@ class FakeStatechartClient:
         for t in definition["transitions"]:
             if t["from"] != inst["active"] or t["event"] != event:
                 continue
-            if self._guard_holds(t.get("guard") or {"op": "always"}, payload, inst["context"]):
+            if self._guard_holds(
+                t.get("guard") or {"op": "always"}, payload, inst["context"]
+            ):
                 inst["active"] = t["to"]
                 inst["version"] += 1
                 fired = True
@@ -330,7 +332,9 @@ class NativeEngine:
     def renew_work_item_lease(self, request: dict[str, Any]) -> dict[str, Any]:
         self.native_calls.append("renew")
         node = self.nodes.get(request["work_item_id"])
-        if not self._owns(node, request):
+        if not self._owns(node, request) or float(
+            (node or {}).get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
             return {"renewed": False}
         node["lease_expires_at"] = float(request["now_unix"]) + float(
             request["lease_ttl"]
@@ -353,7 +357,9 @@ class NativeEngine:
             return {"status": "missing"}
         if node.get("status") in wi.TERMINAL_WORK_ITEM_STATUSES:
             return {"status": "noop"}
-        if not self._owns(node, request):
+        if not self._owns(node, request) or float(
+            (node or {}).get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
             return {"status": "fenced"}
         outcome = request["outcome"]
         if outcome == "failed" and request["retryable"]:
@@ -400,13 +406,20 @@ class NativeEngine:
     def defer_work_item(self, request: dict[str, Any]) -> dict[str, Any]:
         self.native_calls.append("defer")
         node = self.nodes.get(request["work_item_id"])
-        if not self._owns(node, request):
+        if not self._owns(node, request) or float(
+            (node or {}).get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
             return {"status": "fenced"}
+        next_epoch = int(node.get("lease_epoch") or 0) + 1
         node.update(
             status="ready",
             next_retry_at=request["next_retry_at"],
+            attempt=max(0, int(node.get("attempt") or 0) - 1),
+            defer_count=int(node.get("defer_count") or 0) + 1,
             lease_owner=None,
             lease_expires_at=None,
+            lease_epoch=next_epoch,
+            fencing_token=next_epoch,
         )
         return {"status": "deferred"}
 
@@ -578,6 +591,109 @@ def test_checkpoint_rejects_nonopaque_content(engine: NativeEngine) -> None:
         )
 
 
+def test_request_and_submit_work_item_input_round_trip(engine: NativeEngine) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+
+    assert wi.request_work_item_input(
+        engine,
+        item_id,
+        claim,
+        request={"prompt": "confirm deletion?"},
+        now=11.0,
+    )
+    item = wi.get_work_item(engine, item_id)
+    # Unchanged: input_required is projected from metadata, not a new status.
+    assert item["status"] in {"leased", "running"}
+    assert item["metadata"]["pending_input_request"] == {"prompt": "confirm deletion?"}
+    assert "pending_input_response" not in item["metadata"]
+
+    assert wi.submit_work_item_input(
+        engine,
+        item_id,
+        tenant="tenant-a",
+        response={"confirmed": True},
+        now=12.0,
+    )
+    item = wi.get_work_item(engine, item_id)
+    assert item["metadata"]["pending_input_response"] == {"confirmed": True}
+    assert "pending_input_request" not in item["metadata"]
+
+    # Worker can keep checkpointing/heartbeating normally afterward -- the
+    # lease was never touched by either call.
+    assert wi.heartbeat(engine, item_id, claim, now=13.0)
+
+
+def test_request_work_item_input_is_fenced_on_the_native_lease(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    stale = {**claim, "fencing_token": int(claim["fencing_token"]) + 1}
+    assert not wi.request_work_item_input(
+        engine, item_id, stale, request={"prompt": "x"}, now=11.0
+    )
+    assert wi.get_work_item(engine, item_id)["metadata"] == {}
+
+
+def test_submit_work_item_input_requires_a_live_pending_request(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert not wi.submit_work_item_input(
+        engine, item_id, tenant="tenant-a", response={"confirmed": True}, now=11.0
+    )
+
+
+def test_submit_work_item_input_rejects_wrong_tenant(engine: NativeEngine) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    assert wi.request_work_item_input(
+        engine, item_id, claim, request={"prompt": "x"}, now=11.0
+    )
+    assert not wi.submit_work_item_input(
+        engine, item_id, tenant="tenant-b", response={"confirmed": True}, now=12.0
+    )
+    assert wi.get_work_item(engine, item_id)["metadata"]["pending_input_request"] == {
+        "prompt": "x"
+    }
+
+
+def test_submit_work_item_input_double_submit_only_wins_once(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    assert wi.request_work_item_input(
+        engine, item_id, claim, request={"prompt": "x"}, now=11.0
+    )
+    assert wi.submit_work_item_input(
+        engine, item_id, tenant="tenant-a", response={"confirmed": True}, now=12.0
+    )
+    # A second submission finds no live pending request anymore.
+    assert not wi.submit_work_item_input(
+        engine, item_id, tenant="tenant-a", response={"confirmed": False}, now=13.0
+    )
+    assert wi.get_work_item(engine, item_id)["metadata"]["pending_input_response"] == {
+        "confirmed": True
+    }
+
+
 def test_native_retry_then_dead_letter(engine: NativeEngine) -> None:
     item_id = wi.submit_work_item(
         engine,
@@ -630,13 +746,42 @@ def test_native_cancel_and_defer(engine: NativeEngine) -> None:
         engine, kind="generic", payload_ref="d", tenant="tenant-a"
     )
     claim = wi.claim_and_start(engine, deferred, token="worker", now=10.0)
+    assert wi.get_work_item(engine, deferred)["attempt"] == 1
     assert wi.defer_work_item(engine, deferred, claim, next_retry_at=70.0, now=11.0)
-    assert wi.get_work_item(engine, deferred)["next_retry_at"] == 70.0
+    deferred_item = wi.get_work_item(engine, deferred)
+    assert deferred_item["next_retry_at"] == 70.0
+    assert deferred_item["attempt"] == 0
     cancelled = wi.submit_work_item(
         engine, kind="generic", payload_ref="c", tenant="tenant-a"
     )
     assert wi.cancel_work_item(engine, cancelled, reason="operator")
     assert wi.get_work_item(engine, cancelled)["status"] == "cancelled"
+
+
+def test_native_defer_rejects_expired_lease_without_changing_attempt(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="d", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(
+        engine,
+        item_id,
+        token="worker",
+        now=10.0,
+        lease_ttl_s=1.0,
+    )
+
+    assert not wi.defer_work_item(
+        engine,
+        item_id,
+        claim,
+        next_retry_at=80.0,
+        now=12.0,
+    )
+    item = wi.get_work_item(engine, item_id)
+    assert item["status"] == "leased"
+    assert item["attempt"] == 1
 
 
 def test_ingest_claim_never_creates_a_missing_work_item(engine: NativeEngine) -> None:
@@ -870,13 +1015,20 @@ class CasEngine:
 
     def defer_work_item(self, request: dict[str, Any]) -> dict[str, Any]:
         node = self.nodes.get(request["work_item_id"])
-        if not self._owns(node, request):
+        if not self._owns(node, request) or float(
+            (node or {}).get("lease_expires_at") or 0
+        ) < float(request["now_unix"]):
             return {"status": "fenced"}
+        next_epoch = int(node.get("lease_epoch") or 0) + 1
         node.update(
             status="ready",
             next_retry_at=request["next_retry_at"],
+            attempt=max(0, int(node.get("attempt") or 0) - 1),
+            defer_count=int(node.get("defer_count") or 0) + 1,
             lease_owner=None,
             lease_expires_at=None,
+            lease_epoch=next_epoch,
+            fencing_token=next_epoch,
         )
         return {"status": "deferred"}
 
@@ -1180,11 +1332,189 @@ def test_claim_next_without_resource_class_searches_all_lanes(
     assert claim["work_item_id"] == maintenance_id
 
 
+# ---------------------------------------------------------------------------
+# consent + expiry gate (D-25-3, CONCEPT:AU-ORCH.dispatch.workitem-consent-gate)
+# ---------------------------------------------------------------------------
+
+
+def test_ordinary_work_item_is_unaffected_by_the_consent_gate(
+    cas_engine: CasEngine,
+) -> None:
+    """The D-25-3 migration decision: consent_required defaults False, so an
+    ordinary/legacy WorkItem (no consent fields at all) claims exactly as before."""
+    item_id = wi.submit_work_item(cas_engine, kind="generic", payload_ref="p")
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+    assert claim is not None
+
+
+def test_claim_specific_denies_when_consent_is_absent(cas_engine: CasEngine) -> None:
+    """consent_required=True with no consent_granted_at is the ABSENT state —
+    denied, and (unlike a lapsed grant) never had a lease to release."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+    )
+    item = wi.get_work_item(cas_engine, item_id)
+    assert item["status"] == "ready"  # not yet claimed
+
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+
+    assert claim is None
+    item = wi.get_work_item(cas_engine, item_id)
+    assert item["status"] == "ready"  # denied before the engine was ever touched
+    assert item["lease_owner"] is None
+
+
+def test_claim_specific_denies_when_consent_has_lapsed(cas_engine: CasEngine) -> None:
+    """A consent that WAS granted and has since expired is LAPSED — a state
+    distinct from absent, but the claim path denies both."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_scope="data_processing:analytics",
+        consent_subject="subject:opaque-1",
+        consent_basis="explicit",
+        consent_granted_at=100.0,
+        consent_expires_at=500.0,
+    )
+
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+
+    assert claim is None
+
+
+def test_claim_specific_allows_active_consent(cas_engine: CasEngine) -> None:
+    """A live, unexpired grant claims normally — the gate isn't overzealous."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=5000.0,
+    )
+
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+
+    assert claim is not None
+    item = wi.get_work_item(cas_engine, item_id)
+    assert item["status"] == "leased"
+
+
+def test_claim_specific_denies_on_malformed_consent_record(
+    cas_engine: CasEngine,
+) -> None:
+    """Fail CLOSED: an unreadable consent_granted_at must deny, never default
+    to allow (constraint 4)."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_granted_at=100.0,
+    )
+    # Corrupt the persisted grant timestamp directly on the fake node store —
+    # simulating a malformed/unreadable record already in the graph.
+    cas_engine.nodes[item_id]["consent_granted_at"] = "not-a-timestamp"
+
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+
+    assert claim is None
+
+
+def test_claim_next_releases_a_consent_denied_item_instead_of_returning_it(
+    cas_engine: CasEngine,
+) -> None:
+    """claim_next selects blind; a consent-denied item it picks up must be
+    released (deferred, not handed to the caller) and the caller sees None."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=500.0,  # already lapsed by now=1000.0
+    )
+
+    claim = wi.claim_next(cas_engine, now=1000.0)
+
+    assert claim is None
+    item = wi.get_work_item(cas_engine, item_id)
+    # Deferred back to "ready" (a bounded cooldown, not a terminal tombstone —
+    # consent could still be restored by an operator) rather than left
+    # dangling under a lease the caller never received.
+    assert item["status"] == "ready"
+    assert item["next_retry_at"] == 1000.0 + wi.CONSENT_RECHECK_BACKOFF_S
+    assert item["lease_owner"] is None
+
+
+def test_heartbeat_denies_once_a_running_item_s_consent_lapses(
+    cas_engine: CasEngine,
+) -> None:
+    """Consent lapsing mid-flight must stop renewal at the next heartbeat
+    (bounded-time enforcement), not just block new claims."""
+    item_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        payload_ref="p",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=1500.0,
+    )
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+    assert claim is not None
+
+    # Still within the grant's window: renewal succeeds normally.
+    assert wi.heartbeat(cas_engine, item_id, claim, now=1010.0, lease_ttl_s=60.0)
+
+    # Past consent_expires_at: renewal is now denied even though the lease
+    # itself is still fresh.
+    assert wi.heartbeat(cas_engine, item_id, claim, now=1600.0, lease_ttl_s=60.0) is False
+
+
+def test_consent_absent_and_lapsed_are_distinct_states() -> None:
+    """The model must not collapse 'never consented' into 'consent expired' —
+    they are different facts for an auditor and are reported differently."""
+    from agent_utilities.models.knowledge_graph import WorkItemNode
+
+    now = 1000.0
+    never_consented = WorkItemNode(
+        id="w1", name="n", tenant="t", kind="generic", consent_required=True
+    )
+    lapsed = WorkItemNode(
+        id="w2",
+        name="n",
+        tenant="t",
+        kind="generic",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=500.0,
+    )
+    not_required = WorkItemNode(id="w3", name="n", tenant="t", kind="generic")
+    active = WorkItemNode(
+        id="w4",
+        name="n",
+        tenant="t",
+        kind="generic",
+        consent_required=True,
+        consent_granted_at=100.0,
+        consent_expires_at=5000.0,
+    )
+
+    assert never_consented.consent_state(now=now) == "absent"
+    assert lapsed.consent_state(now=now) == "lapsed"
+    assert not_required.consent_state(now=now) == "not_required"
+    assert active.consent_state(now=now) == "active"
+    assert len({"absent", "lapsed", "not_required", "active"}) == 4
+
+
 def test_cas_backend_unavailable_fails_loud_not_silent() -> None:
     no_cas = NoCasEngine()
-    no_cas.add_node(
-        "workitem:x", "WorkItem", properties={"status": "ready"}
-    )
+    no_cas.add_node("workitem:x", "WorkItem", properties={"status": "ready"})
     with pytest.raises(wi.WorkItemBackendUnavailable):
         wi.claim_specific(no_cas, "workitem:x", now=1.0)
 
@@ -1228,9 +1558,7 @@ def test_reap_expired_lease_requeues_to_ready_and_stale_commit_is_fenced(
         cas_engine, item_id, claim, outcome="succeeded", result_ref="ref:1"
     )
     assert outcome == "fenced"
-    assert (
-        wi.get_work_item(cas_engine, item_id)["status"] == "leased"
-    )
+    assert wi.get_work_item(cas_engine, item_id)["status"] == "leased"
 
 
 def test_reap_expired_lease_exhausted_retries_goes_to_dead_letter(
@@ -1370,10 +1698,7 @@ def test_cancel_work_item_cannot_override_a_real_terminal_outcome(
     )
 
     assert wi.cancel_work_item(cas_engine, item_id) is False
-    assert (
-        wi.get_work_item(cas_engine, item_id)["status"]
-        == "succeeded"
-    )
+    assert wi.get_work_item(cas_engine, item_id)["status"] == "succeeded"
 
 
 # ---------------------------------------------------------------------------
@@ -1390,10 +1715,7 @@ def test_child_becomes_ready_exactly_when_all_parents_succeed(
         cas_engine, kind="generic", payload_ref="child", depends_on=[parent1, parent2]
     )
 
-    assert (
-        wi.get_work_item(cas_engine, child)["status"]
-        == "submitted"
-    )
+    assert wi.get_work_item(cas_engine, child)["status"] == "submitted"
     assert wi.get_work_item(cas_engine, child)["dep_count"] == 2
 
     claim1 = wi.claim_and_start(cas_engine, parent1, token="host:1", now=1000.0)
@@ -1430,19 +1752,20 @@ def test_downstream_release_is_idempotent_no_double_release(
     wi.commit_result(
         cas_engine, parent, claim, outcome="succeeded", result_ref="r1", now=1001.0
     )
-    assert (
-        wi.get_work_item(cas_engine, child)["status"] == "ready"
-    )
+    assert wi.get_work_item(cas_engine, child)["status"] == "ready"
 
     # Redelivered commit of the same parent (idempotent no-op) must not
     # touch the child a second time.
     wi.commit_result(
-        cas_engine, parent, claim, outcome="succeeded", result_ref="r1-again", now=1002.0
+        cas_engine,
+        parent,
+        claim,
+        outcome="succeeded",
+        result_ref="r1-again",
+        now=1002.0,
     )
     assert wi.get_work_item(cas_engine, child)["dep_count"] == 0
-    assert (
-        wi.get_work_item(cas_engine, child)["status"] == "ready"
-    )
+    assert wi.get_work_item(cas_engine, child)["status"] == "ready"
 
 
 # ---------------------------------------------------------------------------

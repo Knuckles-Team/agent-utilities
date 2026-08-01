@@ -246,7 +246,7 @@ def _resolve_prompt_from_kg(
                 prompt_text = row.get("prompt", "")
                 if prompt_text:
                     return prompt_text, row.get("id", prompt_id_or_role)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 1st of 3 documented fallback tiers; the docstring contracts ("", "") as the legitimate all-failed return
             logger.debug(
                 "Direct Prompt lookup failed for '%s': %s", prompt_id_or_role, e
             )
@@ -264,7 +264,7 @@ def _resolve_prompt_from_kg(
                 prompt_text = row.get("prompt", "")
                 if prompt_text:
                     return prompt_text, row.get("id", prompt_id_or_role)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — 2nd of 3 fallback tiers; falls through to the file-based load_specialized_prompts fallback
             logger.debug(
                 "SystemPrompt lookup failed for '%s': %s", prompt_id_or_role, e
             )
@@ -309,7 +309,7 @@ def _resolve_tools_from_kg(
                 name = row.get("name", "")
                 if name:
                     tool_names.append(name)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — docstring-contracted to return whatever it could resolve; caller just gets fewer bound tools, not a false "fully configured" step
             logger.debug("Tool resolution failed: %s", e)
 
     # If some IDs weren't found as Tool nodes, try CallableResource
@@ -371,7 +371,7 @@ def _resolve_templates_from_kg(
                         templates.append(r.model_dump())
                 if templates:
                     return templates
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — falls through to label-scan fallback; if both fail, the caller (build_pydantic_graph_from_kg) explicitly checks the empty list and routes to KGTeamComposer
         logger.debug("Hybrid search for AgentTemplate failed: %s", e)
 
     # ── Fallback: scan all AgentTemplate nodes ──
@@ -394,7 +394,7 @@ def _resolve_templates_from_kg(
             )
             for row in results:
                 templates.append(dict(row))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — same handled-empty-list contract as the hybrid-search fallback above
             logger.debug("AgentTemplate scan failed: %s", e)
 
     return templates
@@ -505,26 +505,55 @@ def build_pydantic_graph_from_kg(
                 "Falling back to KGTeamComposer."
             )
             composer = KGTeamComposer(engine=engine)
-            team_composition = composer.compose_team(query=query)
+            try:
+                team_composition = composer.compose_team(query=query)
+            except LookupError:
+                # No proven team AND no domain-authorized agents in the KG (an
+                # empty/minimal engine, e.g. in tests, or a genuinely
+                # under-populated graph). This factory's contract is to
+                # always materialize A graph — degrade the same way the
+                # engine-is-None branch above does rather than let team
+                # composition's hard failure propagate out of a "best
+                # effort" fallback path.
+                logger.info(
+                    "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KGTeamComposer found no "
+                    "authorized agents; falling back to a generic executor."
+                )
+                team_composition = None
 
-            # Convert TeamComposition specialists to pseudo-templates
-            for spec in team_composition.adaptive_agent_router:
+            if team_composition is None:
                 templates.append(
                     {
-                        "id": spec.get(
-                            "agent_id",
-                            spec.get("role", f"agent:{uuid.uuid4().hex}"),
-                        ),
-                        "role": spec.get("role", "executor"),
+                        "id": f"agent:{uuid.uuid4().hex}",
+                        "role": "executor",
                         "system_prompt_id": "",
-                        "toolset_ids": spec.get("tools", []),
-                        "model_preference": spec.get("model_id", ""),
+                        "toolset_ids": [],
+                        "model_preference": "",
                         "step_order": 0,
                         "is_parallel": False,
-                        "system_prompt": spec.get("system_prompt", ""),
-                        "description": f"Fallback specialist: {spec.get('role', 'executor')}",
+                        "system_prompt": "Fallback generic executor",
+                        "description": "Fallback generic executor",
                     }
                 )
+            else:
+                # Convert TeamComposition specialists to pseudo-templates
+                for spec in team_composition.adaptive_agent_router:
+                    templates.append(
+                        {
+                            "id": spec.get(
+                                "agent_id",
+                                spec.get("role", f"agent:{uuid.uuid4().hex}"),
+                            ),
+                            "role": spec.get("role", "executor"),
+                            "system_prompt_id": "",
+                            "toolset_ids": spec.get("tools", []),
+                            "model_preference": spec.get("model_id", ""),
+                            "step_order": 0,
+                            "is_parallel": False,
+                            "system_prompt": spec.get("system_prompt", ""),
+                            "description": f"Fallback specialist: {spec.get('role', 'executor')}",
+                        }
+                    )
 
     _emit(
         "kg_query_complete",

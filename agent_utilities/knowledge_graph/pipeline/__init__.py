@@ -60,7 +60,7 @@ class IntelligencePipeline:
 
             sdd_watcher._WATCHER_PAUSED = True  # type: ignore
             logger.info("Paused background plan watcher during active ingestion.")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the pause is a lock-contention mitigation, not correctness-critical; a failed pause means the watcher keeps running unpaused during this ingestion (a potential perf/lock hit), it does not corrupt or skip any ingestion work
             logger.debug(f"Could not pause watcher: {e}")
 
         try:
@@ -92,7 +92,7 @@ class IntelligencePipeline:
 
                 sdd_watcher._WATCHER_PAUSED = False  # type: ignore
                 logger.info("Resumed background plan watcher after ingestion.")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — this is a plain module-attribute assignment guarded only because the import above it could fail; the import already succeeded once in the pause block earlier in this same run, so this branch is effectively unreachable in practice, and any failure here would be a genuinely exceptional environment issue, not a normal best-effort miss
                 logger.debug(f"Could not resume watcher: {e}")
 
 

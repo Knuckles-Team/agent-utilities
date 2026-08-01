@@ -1,6 +1,7 @@
 # agent_utilities/graph/nodes.py
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import cast
 
@@ -41,7 +42,7 @@ async def load_and_execute_process_flow(ctx: StepContext) -> str | End:
     MATCH path = (f)-[*]->(step:ProcessStep)
     RETURN f, start, collect(DISTINCT step) as steps
     """
-    results = client.execute(query, {"flow_id": flow_id})
+    results = await asyncio.to_thread(client.execute, query, {"flow_id": flow_id})
 
     if not results:
         logger.error(f"ProcessFlow {flow_id} not found in Knowledge Graph")
@@ -58,7 +59,9 @@ async def load_and_execute_process_flow(ctx: StepContext) -> str | End:
     MATCH (p:Policy)-[:APPLIES_TO]->(f:ProcessFlow {flow_id: $flow_id})
     RETURN p
     """
-    policies = client.execute(policy_query, {"flow_id": flow_id})
+    policies = await asyncio.to_thread(
+        client.execute, policy_query, {"flow_id": flow_id}
+    )
     state.active_policies = [Policy.model_validate(p["p"]) for p in policies]
 
     logger.info(
@@ -78,7 +81,7 @@ async def find_best_matching_process_flow_via_kg(goal: str) -> ProcessFlow | Non
     WHERE f.goal CONTAINS $goal OR f.name CONTAINS $goal
     RETURN f LIMIT 1
     """
-    results = client.execute(query, {"goal": goal})
+    results = await asyncio.to_thread(client.execute, query, {"goal": goal})
     if results:
         return ProcessFlow.model_validate(results[0]["f"])
     return None

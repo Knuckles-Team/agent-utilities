@@ -1,17 +1,12 @@
 """Self-composing co-service supervisor for the ``graph-os`` entrypoint.
 
 ``uvx agent-utilities graph-os`` (equally the plain ``graph-os`` console script)
-brings up graph-os PLUS whatever co-services the already-loaded ``AgentConfig``
-says are configured — today that is the messaging inbound router
-(:mod:`agent_utilities.messaging.daemon`) and, only when this process would
-otherwise leave the KG without ANY host, the consolidated KG host daemon
-(:mod:`agent_utilities.gateway.daemon`). No separate deployment, no manual second
-command, and — critically — **no new environment variable**: every decision below
-reads a setting that already exists for another reason (``TELEGRAM_BOT_TOKEN`` et
-al. via :func:`agent_utilities.messaging.daemon.configured_platforms`,
-``KG_DAEMON_ROLE`` via :func:`agent_utilities.knowledge_graph.core.engine_tasks.daemon_role`,
-and the live host-lock file via
-:func:`agent_utilities.knowledge_graph.core.host_lock.host_daemon_running`).
+brings up graph-os PLUS the messaging inbound router when the already-loaded
+``AgentConfig`` contains a configured messaging platform
+(:mod:`agent_utilities.messaging.daemon`). The explicit ``KG_DAEMON_ROLE``
+boundary is never changed here: a ``client`` serves requests and submits durable
+work, while the gateway or standalone ``graph-os-daemon`` process owns background
+workers, maintenance schedules, and autonomous loops.
 
 Detection signals
 -----------------
@@ -19,18 +14,6 @@ Detection signals
   returns at least one platform (a real token/app id is present). This is the
   exact same check the standalone ``agent-utilities-messaging`` process already
   uses to decide whether to serve or exit immediately.
-* **host daemon** — needed iff this process's *configured* ``KG_DAEMON_ROLE`` is
-  explicitly ``client`` (the production/deployed convention — see
-  ``deploy/swarm/graphos.stack.yml``, which pairs a client-role ``graph-os`` with a
-  dedicated ``graph-os-daemon`` host) **and** no host is currently holding the
-  singleton lock (:func:`host_daemon_running`). An ad hoc local/``uvx`` run shares
-  that same client-role config (inherited from the user's XDG ``config.json``) but
-  has no separately-running ``graph-os-daemon`` process — without this, the graph
-  would silently receive no queue drain / maintenance sweeps / KG_LOOP evolution
-  cycle for the entire session. When the role is left at its default (``auto``) or
-  explicitly ``host``, nothing is needed here: the engine's own construction
-  already self-elects host via the same lock (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9)
-  the moment ``graph-os`` builds it.
 * **agent-webui** — configured iff ``config.enable_web_ui`` (the existing
   ``ENABLE_WEB_UI`` field). It is a separate Node/Vite frontend, not a Python
   asyncio task, so it can never be started IN-PROCESS here; it is still reported
@@ -86,12 +69,11 @@ class CompositionPlan:
     """What THIS composition run detected as configured, independent of backend.
 
     Reused by both the in-process supervisor below and the multi-backend
-    deployment planners (:mod:`agent_utilities.deployment.backends`) so "is
-    messaging/host-daemon/webui configured" is decided in exactly one place.
+    deployment planners (:mod:`agent_utilities.deployment.backends`) so
+    messaging/web-UI composition is decided in exactly one place.
     """
 
     messaging_platforms: tuple[str, ...] = ()
-    host_daemon_needed: bool = False
     web_ui_enabled: bool = False
 
     @property
@@ -103,24 +85,9 @@ class CompositionPlan:
         names: list[str] = []
         if self.messaging_configured:
             names.append("messaging")
-        if self.host_daemon_needed:
-            names.append("graph-os-daemon")
         if self.web_ui_enabled:
             names.append("agent-webui")
         return tuple(names)
-
-
-def host_daemon_needed() -> bool:
-    """True iff this deployment is configured ``client`` and nobody is hosting.
-
-    Never true for the default ``auto`` (the engine self-elects host on its own
-    construction) or an explicit ``host`` (same reason). See the module docstring
-    for the full reasoning.
-    """
-    from agent_utilities.knowledge_graph.core.engine_tasks import daemon_role
-    from agent_utilities.knowledge_graph.core.host_lock import host_daemon_running
-
-    return daemon_role() == "client" and not host_daemon_running()
 
 
 def detect_composition(engine: Any = None) -> CompositionPlan:
@@ -134,45 +101,8 @@ def detect_composition(engine: Any = None) -> CompositionPlan:
 
     return CompositionPlan(
         messaging_platforms=tuple(configured_platforms(engine)),
-        host_daemon_needed=host_daemon_needed(),
         web_ui_enabled=bool(getattr(config, "enable_web_ui", False)),
     )
-
-
-def bring_up_host_daemon_if_needed(
-    *, defer_background_start: bool = False
-) -> dict[str, Any]:
-    """Start the consolidated KG host daemon in-process, only if genuinely needed.
-
-    A one-shot, synchronous, best-effort call — the daemon's own background
-    threads (graph writer / maintenance scheduler / embedding backfill / KG_LOOP)
-    already carry their own internal resilience once started
-    (:mod:`agent_utilities.knowledge_graph.core.engine_tasks`); this function's
-    only job is to win (or lose) the singleton host-lock race exactly once at
-    startup. Losing the race (another host won it between our liveness check and
-    the actual attempt) is NOT an error — the self-healing lock already handles
-    it; we log and continue as a client.
-    """
-    if not host_daemon_needed():
-        return {"started": False, "reason": "not_needed"}
-    from agent_utilities.gateway.daemon import start_host_daemon
-    from agent_utilities.knowledge_graph.core.host_lock import KGHostAlreadyRunning
-
-    try:
-        start_host_daemon(defer_background_start=defer_background_start)
-    except KGHostAlreadyRunning as exc:
-        logger.info(
-            "graph-os-daemon co-service: a host appeared during startup "
-            "(exception_type=%s) — continuing as a client.",
-            type(exc).__name__,
-        )
-        return {"started": False, "reason": "lost_race"}
-    logger.info(
-        "graph-os-daemon co-service started in-process (KG_DAEMON_ROLE was "
-        "configured client with no live host — bringing up the consolidated "
-        "daemon here so this run is never silently unhosted)."
-    )
-    return {"started": True}
 
 
 class CoServiceSupervisor:
@@ -285,13 +215,9 @@ class CoServiceSupervisor:
 def start_co_services(session: Any, engine: Any) -> CoServiceSupervisor:
     """Bring up every remaining configured co-service for THIS ``graph-os`` process.
 
-    Called once from ``kg_server.mcp_server()`` — AFTER
-    :func:`bring_up_host_daemon_if_needed` (which must run BEFORE the process's
-    own engine bootstrap so it can win, or lose, the host-lock race as the first
-    constructor; it is a one-shot call, not a supervised thread, so it is invoked
-    separately and earlier) and after ``_start_engine_bootstrap`` so a real
-    ``engine`` is available. Messaging is started here as a supervised co-service
-    thread using that engine + the process's verified session.
+    Called once from ``kg_server.mcp_server()`` after ``_start_engine_bootstrap``
+    so a real ``engine`` is available. Messaging is started here as a supervised
+    co-service thread using that engine + the process's verified session.
     """
     plan = detect_composition(engine)
     supervisor = CoServiceSupervisor()

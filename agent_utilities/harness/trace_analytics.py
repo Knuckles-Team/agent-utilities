@@ -31,7 +31,7 @@ def _rows(backend: Any, cypher: str) -> list[dict[str, Any]]:
         return []
     try:
         return backend.execute(cypher) or []
-    except Exception as exc:  # pragma: no cover - dialect tolerant
+    except Exception as exc:  # pragma: no cover - dialect tolerant  # noqa: BLE001 — module docstring: "Degrade to empty results when no backend/query is available" — this is that documented degrade path, read-only
         logger.debug("trace-analytics query failed: %s", exc)
         return []
 

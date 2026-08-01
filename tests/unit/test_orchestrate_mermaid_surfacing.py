@@ -25,6 +25,17 @@ def _patched_run_agent(monkeypatch):
     fake_response = {
         "results": {"output": "the answer"},
         "mermaid": "```mermaid\ngraph TD\n  A-->B\n```",
+        "execution_evidence": {
+            "schema_version": "graph-execution-evidence-v1",
+            "topology": "basic",
+            "topology_digest": "sha256:topology",
+            "version_digest": "sha256:version",
+            "runtime_version": "2.21.0",
+            "node_sequence": ["router", "__end__"],
+            "transitions": [],
+            "checkpoint_ids": [],
+            "resume_supported": False,
+        },
     }
 
     monkeypatch.setattr(
@@ -76,6 +87,9 @@ async def test_run_agent_return_mermaid_wraps_when_present(_patched_run_agent):
     assert payload["output"] == "the answer"
     assert "mermaid" in payload["mermaid"]
     assert payload["mermaid"].startswith("```mermaid")
+    assert (
+        payload["execution_evidence"]["schema_version"] == "graph-execution-evidence-v1"
+    )
 
 
 @pytest.mark.asyncio
@@ -161,6 +175,17 @@ async def test_forced_pydantic_graph_routes_named_skill_and_required_tools(
     graph_run = AsyncMock(
         return_value={
             "results": {"output": "validated change"},
+            "execution_evidence": {
+                "schema_version": "graph-execution-evidence-v1",
+                "topology": "basic",
+                "topology_digest": "sha256:topology",
+                "version_digest": "sha256:version",
+                "runtime_version": "2.21.0",
+                "node_sequence": ["router", "dispatcher", "__end__"],
+                "transitions": [],
+                "checkpoint_ids": [],
+                "resume_supported": False,
+            },
             "tool_calls": [
                 {
                     "tool_name": "get_change",
@@ -189,6 +214,11 @@ async def test_forced_pydantic_graph_routes_named_skill_and_required_tools(
     payload = json.loads(raw)
     assert payload["output"] == "validated change"
     assert payload["run_summary"]["stage_reached"] == "pydantic-graph"
+    assert payload["execution_evidence"]["node_sequence"] == [
+        "router",
+        "dispatcher",
+        "__end__",
+    ]
     direct_loop.assert_not_awaited()
     graph_run.assert_awaited_once()
     config = graph_run.await_args.kwargs["config"]

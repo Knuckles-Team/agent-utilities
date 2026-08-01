@@ -28,6 +28,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+#: Bump when the SCORING LOGIC/prompt shape changes (scale, instructions) — a
+#: rubric-text-only change is caught automatically by the per-instance content
+#: fingerprint (CONCEPT:AU-AHE.evaluation.judge-calibration); this constant covers drift
+#: in the surrounding mechanism a text hash can't see.
+RUBRIC_SCHEMA_VERSION = "1.0.0"
+
 _SCALE = 5  # single-digit 1..5 rubric (one token → clean top-logprob weighting)
 # Reasoning models (e.g. Qwen) emit a thinking block first, which buries the score token
 # and nulls `content`. Disable thinking so the digit is the emitted token with clean
@@ -71,8 +77,14 @@ def _live_endpoint() -> tuple[Any, str] | None:
 
 
 @lru_cache(maxsize=256)
-def _rubric(task: str, criteria: str, model: str) -> str:
-    """Generate (once, cached) the chain-of-thought evaluation steps for a task/criteria."""
+def _rubric(task: str, criteria: str, model: str, version: str) -> str:
+    """Generate (once, cached) the chain-of-thought evaluation steps for a task/criteria.
+
+    ``version`` is part of the cache key (CONCEPT:AU-AHE.evaluation.judge-calibration) purely so an
+    explicit rubric-version bump — even one that leaves ``task``/``criteria`` text
+    unchanged (e.g. the grading intent shifted without a wording change) —
+    invalidates the cached CoT steps rather than silently reusing a stale rubric.
+    """
     ep = _live_endpoint()
     if ep is None:
         return ""
@@ -91,17 +103,35 @@ def _rubric(task: str, criteria: str, model: str) -> str:
             temperature=0,
         )
         return r.choices[0].message.content or ""
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:  # pragma: no cover  # noqa: BLE001 — returns "" on failure, which GEval's caller treats as "no rubric" and falls back to criteria-only scoring rather than crashing or silently using a stale rubric
         logger.debug("g-eval rubric generation failed: %s", exc)
         return ""
 
 
 class GEval:
-    """A reusable G-Eval scorer for one ``(task, criteria)`` (CONCEPT:AU-AHE.harness.ahe-2)."""
+    """A reusable G-Eval scorer for one ``(task, criteria)`` (CONCEPT:AU-AHE.harness.ahe-2).
 
-    def __init__(self, task_introduction: str, evaluation_criteria: str) -> None:
+    ``rubric_version`` (CONCEPT:AU-AHE.evaluation.judge-calibration) is a traceable identifier for this
+    exact criteria: an explicit value wins (bump it deliberately when you change
+    grading intent), otherwise it auto-derives from a content hash of
+    ``(task_introduction, evaluation_criteria)`` — so an unversioned rubric edit
+    still surfaces as a *different* fingerprint instead of drifting silently
+    under the same identity. Every score's reasoning carries it.
+    """
+
+    def __init__(
+        self,
+        task_introduction: str,
+        evaluation_criteria: str,
+        rubric_version: str = "",
+    ) -> None:
         self.task = task_introduction
         self.criteria = evaluation_criteria
+        from .judge_calibration import rubric_fingerprint
+
+        self.rubric_version = rubric_fingerprint(
+            f"{task_introduction}\n{evaluation_criteria}", rubric_version
+        )
 
     def score(self, query: str, actual: str) -> tuple[float, str]:
         """Return ``(score 0..1, reasoning)``. Logprob-weighted when available."""
@@ -109,7 +139,7 @@ class GEval:
         if ep is None:
             return 0.0, "g-eval unavailable (no model)"
         client, model_name = ep
-        rubric = _rubric(self.task, self.criteria, model_name)
+        rubric = _rubric(self.task, self.criteria, model_name, self.rubric_version)
         prompt = (
             f"Task: {self.task}\nCriteria: {self.criteria}\n"
             f"Evaluation steps:\n{rubric}\n\n"
@@ -137,7 +167,10 @@ class GEval:
         value = weighted if weighted is not None else (point or 0)
         score01 = max(0.0, min(1.0, value / _SCALE))
         how = "logprob-weighted" if weighted is not None else "point"
-        return score01, f"g-eval {how} score={value:.2f}/{_SCALE} (rubric-guided)"
+        return score01, (
+            f"g-eval {how} score={value:.2f}/{_SCALE} (rubric-guided, "
+            f"rubric_version={self.rubric_version})"
+        )
 
 
 def _first_digit(text: str) -> int | None:
@@ -170,4 +203,4 @@ def _logprob_weighted_score(choice: Any) -> float | None:
         return None
 
 
-__all__ = ["GEval", "_SCALE"]
+__all__ = ["GEval", "RUBRIC_SCHEMA_VERSION", "_SCALE"]

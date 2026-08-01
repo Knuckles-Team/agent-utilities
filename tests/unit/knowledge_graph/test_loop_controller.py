@@ -226,6 +226,20 @@ def test_mine_discovery_association_rule_and_link_prediction(monkeypatch):
 
     monkeypatch.setattr(engine_surface_tools, "_invoke", fake_invoke)
 
+    # The predicted-edge pass now commits its ObjectCentricGraphSlice through
+    # ingest_graph_slice (D-61-4), which correctly refuses a bare stub engine.
+    # This test is about the mining SUMMARY, not the writeback, so stub the
+    # writer rather than let an unrelated EngineUnavailable land in errors --
+    # it previously only "passed" because ingest_envelope silently accepted the
+    # wrong payload shape, which is the defect itself.
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    monkeypatch.setattr(
+        envelope_ingest,
+        "ingest_graph_slice",
+        lambda *a, **k: {"status": "success", "envelope_id": "env:test"},
+    )
+
     eng = _StubEngine([], [])  # query_cypher falls through to [] → anomaly skipped
     rep = LoopController(eng)._run_mine_discovery()
 
@@ -240,6 +254,98 @@ def test_mine_discovery_association_rule_and_link_prediction(monkeypatch):
 
     assert rep["anomalies"] == {"count": 0, "examples": []}
     assert rep["errors"] == []
+
+
+def test_mine_predicted_edges_emits_real_neural_relation_prediction_live_path(
+    monkeypatch,
+):
+    """CONCEPT:AU-KG.ingest.semantic-event-contract — before this wiring,
+    ``NeuralRelationPrediction`` had a model class, an ontology concept, and a
+    SHACL shape but ZERO producers: nothing outside ``tests/`` constructed one
+    and fed it into the ingestion pipeline. This drives the REAL
+    ``_mine_predicted_edges`` link-prediction pass end to end (mocking only the
+    ``_invoke``/``ingest_envelope`` boundaries, same as the sibling test above)
+    and asserts a real ``NeuralRelationPrediction`` was constructed, wrapped in
+    a real ``ObjectCentricGraphSlice``, and committed as a real
+    ``ChangeEnvelope`` — not a standalone unit test of the semantic-event
+    model."""
+    import json as _json
+
+    import agent_utilities.mcp.tools.engine_surface_tools as engine_surface_tools
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    def fake_invoke(*, surface, action, graph, candidates, params):
+        if surface == "mining" and action == "associate":
+            return _json.dumps(
+                {"surface": "mining", "action": "associate", "result": {"rules": []}}
+            )
+        if surface == "mining" and action == "anomaly":
+            return _json.dumps(
+                {"surface": "mining", "action": "anomaly", "result": {"rows": []}}
+            )
+        if surface == "graphlearn" and action == "fit":
+            return _json.dumps(
+                {
+                    "surface": "graphlearn",
+                    "action": "fit",
+                    "result": {"model": {"basis": "chebyshev"}, "n_nodes": 3},
+                }
+            )
+        if surface == "graphlearn" and action == "predict":
+            return _json.dumps(
+                {
+                    "surface": "graphlearn",
+                    "action": "predict",
+                    "result": {
+                        "predicted": [
+                            {"src": "concept:cA", "dst": "concept:cC", "score": 0.9}
+                        ]
+                    },
+                }
+            )
+        raise AssertionError(f"unexpected invoke {surface}/{action}")
+
+    monkeypatch.setattr(engine_surface_tools, "_invoke", fake_invoke)
+
+    captured_slices = []
+
+    # Patch the writer this path ACTUALLY uses. An ObjectCentricGraphSlice
+    # envelope carries a {entities, relationships} typed_payload, so it must be
+    # committed with ingest_graph_slice: handing it to ingest_envelope collapses
+    # every entity onto ONE untyped node while still reporting success (the same
+    # defect D-61-4 fixed in graph_mine's OCEL commit). Patching the writer the
+    # code no longer calls would silently stop covering this path.
+    def fake_ingest_graph_slice(
+        engine, connector, entities, relationships, **kwargs
+    ):
+        captured_slices.append((connector, entities, relationships))
+        return {"status": "success", "envelope_id": "env:test"}
+
+    monkeypatch.setattr(
+        envelope_ingest, "ingest_graph_slice", fake_ingest_graph_slice
+    )
+
+    eng = _StubEngine([], [])
+    rep = LoopController(eng)._run_mine_discovery()
+
+    events = rep["predicted_edges"]["semantic_events"]
+    assert events["emitted"] == 1
+    assert events["status"] == "success"
+    assert rep["errors"] == []
+
+    assert len(captured_slices) == 1
+    connector, entities, _relationships = captured_slices[0]
+    assert connector == "ocel"
+    neural_entities = [e for e in entities if e["node_type"] == "NeuralRelationPrediction"]
+    assert len(neural_entities) == 1
+    neural_entity = neural_entities[0]
+    assert neural_entity["prediction_score"] == 0.9
+    assert neural_entity["decision_status"] == "proposed"
+    assert neural_entity["evidence_refs"] == ["concept:cA", "concept:cC"]
+    business_objects = {
+        e["source_record_id"] for e in entities if e["node_type"] == "BusinessObject"
+    }
+    assert business_objects == {"concept:cA", "concept:cC"}
 
 
 def test_mine_discovery_degrades_cleanly_on_mining_error(monkeypatch):
@@ -373,10 +479,30 @@ class _BeliefStubEngine:
             return list(self._belief_rows)
         return []
 
-    def add_node(self, node_id: str, properties: dict[str, Any]) -> None:
+    def add_node(
+        self,
+        node_id: str,
+        node_type: str,
+        properties: dict[str, Any] | None = None,
+        ephemeral: bool = False,
+        *,
+        session: Any = None,
+    ) -> None:
+        # Matches IntelligenceGraphEngine.add_node's real signature
+        # (core/engine.py): node_type is a required positional arg between
+        # node_id and properties, not a 2-arg (node_id, properties) call —
+        # _run_belief_revision calls add_node(node_id, "BeliefRevisionProposal",
+        # properties=...), which this stub's previous 2-arg signature couldn't
+        # accept (TypeError, silently swallowed by the caller's best-effort
+        # per-item persistence try/except, so persisted_nodes stayed 0).
         if any(node_id.startswith(f) for f in self._fail_add_node_ids):
             raise RuntimeError(f"persist failed for {node_id}")
-        self.added_nodes.append((node_id, properties))
+        # Mirrors IntelligenceGraphEngine.add_node's own real behavior: it
+        # folds node_type into the persisted properties under the canonical
+        # 'node_type' key (the retired 'type' key raises ValueError there).
+        stored = dict(properties or {})
+        stored["node_type"] = node_type
+        self.added_nodes.append((node_id, stored))
 
 
 def _belief_row(
@@ -424,7 +550,7 @@ def test_run_belief_revision_recomputes_and_persists_proposals():
 
     node_id, props = eng.added_nodes[0]
     assert node_id.startswith("BeliefRevisionProposal:")
-    assert props["type"] == "BeliefRevisionProposal"
+    assert props["node_type"] == "BeliefRevisionProposal"
     assert props["status"] == "proposal"
     assert props["belief_id"] in {"belief:a", "belief:b"}
     assert "reasoning_trace" in props

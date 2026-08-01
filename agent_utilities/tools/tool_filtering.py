@@ -250,7 +250,7 @@ def skill_matches_tags(skill_dir: str, tags: list[str]) -> bool:
         all_skill_metadata.add(os.path.basename(skill_dir).lower())
 
         return any(tag.lower() in all_skill_metadata for tag in tags)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — fails closed (excludes the skill from this tag-filtered subset rather than including it), the safe direction for a filter; the skill itself is untouched, only its visibility under this particular tag query is affected
         logger.debug(f"Error checking tags for skill {skill_dir}: {e}")
         return False
 

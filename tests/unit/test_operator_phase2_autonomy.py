@@ -87,6 +87,55 @@ def test_pick_adaptive_none_without_registry():
     assert model_router.pick_adaptive(_Empty(), "planner") is None
 
 
+# ── CONCEPT:AU-ORCH.routing.rejected-candidate-provenance rejected-alternative provenance ────────
+
+
+class _FakeRegistryWithDecision(_FakeRegistry):
+    def explain_pick_for_task(
+        self,
+        *,
+        complexity,
+        required_tags=None,
+        confidence_signal=None,
+        routing_percentile=None,
+        route_key="",
+    ):
+        return {
+            "route_key": route_key,
+            "complexity": complexity,
+            "confidence_signal": confidence_signal,
+            "chosen_model_id": f"model@{complexity}:{confidence_signal:.2f}",
+        }
+
+
+@pytest.mark.concept("AU-ORCH.routing.rejected-candidate-provenance")
+def test_pick_adaptive_with_decision_uses_the_same_confidence_as_the_pick():
+    model_router.reset_routes()
+    reg = _FakeRegistryWithDecision()
+    for _ in range(8):
+        model_router.record_model_outcome(
+            model_router.route_key(role="planner"), success=True
+        )
+    model, decision = model_router.pick_adaptive_with_decision(reg, "planner")
+    assert model is not None
+    assert decision is not None
+    assert decision["confidence_signal"] == reg.seen_confidence
+    model_router.reset_routes()
+
+
+@pytest.mark.concept("AU-ORCH.routing.rejected-candidate-provenance")
+def test_pick_adaptive_with_decision_none_without_registry():
+    assert model_router.pick_adaptive_with_decision(None, "planner") == (None, None)
+
+    class _Empty:
+        models = []
+
+    assert model_router.pick_adaptive_with_decision(_Empty(), "planner") == (
+        None,
+        None,
+    )
+
+
 # ── OS-5.49 autonomy ramp ─────────────────────────────────────────────────────
 @pytest.mark.concept("AU-OS.governance.autonomy-change-proposer")
 def test_assess_trust_predicate():
@@ -175,7 +224,6 @@ def test_evaluate_goal_slas_collects_breaches():
                     {
                         "id": "goal:a",
                         "objective": "triage P1s",
-                        "status": "running",
                         "created_at": base - 5000,
                         "sla_seconds": 3600,
                         "escalate_to": "",
@@ -183,12 +231,20 @@ def test_evaluate_goal_slas_collects_breaches():
                     {
                         "id": "goal:b",
                         "objective": "slow",
-                        "status": "running",
                         "created_at": base - 10,
                         "sla_seconds": 3600,
                         "escalate_to": "",
                     },
                 ]
+            # _open_goals no longer trusts a 'status' field off the :Concept
+            # query above -- it derives open/running status from the sole
+            # native WorkItem authority instead (work_item.get_work_item,
+            # via work_item.loop_work_item_id(goal_id)). Both goals here are
+            # meant to be "running" (an in-flight develop loop).
+            if "w:WorkItem" in cypher and str(params.get("id", "")).startswith(
+                "workitem:loop:goal:"
+            ):
+                return [{"status": "running"}]
             return []
 
     rep = evaluate_goal_slas(_GoalEngine(), now=_NOW)

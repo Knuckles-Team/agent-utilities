@@ -21,7 +21,13 @@ from pydantic_ai.mcp import MCPToolset
 
 from agent_utilities.core.config import setting
 from agent_utilities.core.contextual_model import create_context_agent
+from agent_utilities.mcp.protocol_compat import (
+    force_legacy_protocol_mode,
+    install_mcp_v2_bridge,
+)
 from agent_utilities.mcp.toolset_factory import build_http_toolset
+
+install_mcp_v2_bridge()
 
 
 def load_mcp_servers(config_path: str) -> Any:
@@ -282,6 +288,10 @@ def create_agent(
     stuck_loop_detection: bool = True,
     stuck_loop_max_repeated: int = 3,
     stuck_loop_action: Literal["warn", "error"] = "warn",
+    structured_output_repair: bool = True,
+    max_output_repairs: int | None = None,
+    content_guardrails: bool = True,
+    output_schema_required_keys: list[str] | None = None,
     hooks: list[Any] | None = None,
     context_warnings: bool = True,
     max_context_tokens: int | None = None,
@@ -339,6 +349,14 @@ def create_agent(
         permissions_kernel: Optional explicitly injected permissions kernel.
         agent_identity: Optional signed identity paired with the injected kernel.
         isolate_mcp: Whether to isolate MCP tools from the main agent.
+        content_guardrails: Whether to attach the default-ON PII-redaction,
+            secret-leak-blocking, and output-schema content guardrails
+            (CONCEPT:AU-OS.safety.harness-guardrails-adoption). Each guard only
+            acts on its own trigger, so leaving this on costs nothing on a
+            normal run; see ``capabilities/content_guardrails.py``.
+        output_schema_required_keys: Optional required-key list enforced by the
+            output-schema guardrail against dict/BaseModel structured output.
+            A no-op when omitted.
 
     Returns:
         A tuple containing the initialized Agent and a list of all initialized toolsets.
@@ -432,7 +450,7 @@ def create_agent(
                 ts = None
                 if type(server).__name__ == "FastMCP":
                     # v2: a FastMCP server instance is wrapped directly by MCPToolset
-                    ts = MCPToolset(server)
+                    ts = force_legacy_protocol_mode(MCPToolset(server))
                 else:
                     ts = server
 
@@ -633,6 +651,10 @@ def create_agent(
         checkpoint_store=checkpoint_store,
         checkpoint_frequency=checkpoint_frequency,
         include_teams=include_teams,
+        structured_output_repair=structured_output_repair,
+        max_output_repairs=max_output_repairs,
+        content_guardrails=content_guardrails,
+        output_schema_required_keys=output_schema_required_keys or (),
     )
 
     # CONCEPT:AU-ORCH.routing.sampling-profile-selection (v2 synergy) — native provider-side extended thinking. Opt-in
@@ -676,6 +698,11 @@ def create_agent(
             for ts in agent_toolsets
         ]
 
+    from agent_utilities.capabilities.output_repair import (
+        DEFAULT_MAX_OUTPUT_REPAIRS,
+        output_repair_retries,
+    )
+
     agent = create_context_agent(
         model=model,
         permissions_kernel=(
@@ -695,8 +722,16 @@ def create_agent(
         capabilities=agent_capabilities,
         # create_agent has already assembled the complete, flag-respecting capability
         # set (via the shared default_runtime_capabilities factory), so the single
-        # composition seam must not re-add defaults on top of an explicit opt-out.
+        # composition seam must not re-add defaults on top of an explicit opt-out —
+        # including the retries= bump StructuredOutputRepair needs, computed here
+        # from the SAME structured_output_repair/max_output_repairs flags.
         default_capabilities=False,
+        retries=output_repair_retries(
+            structured_output_repair=structured_output_repair,
+            max_output_repairs=max_output_repairs
+            if max_output_repairs is not None
+            else DEFAULT_MAX_OUTPUT_REPAIRS,
+        ),
         # pydantic-ai v2 default; set explicitly. Function tools requested
         # alongside an output/deferred tool now run — side-effecting tools are
         # kept safe by the tool_guard ApprovalRequiredToolset (they become
@@ -733,6 +768,37 @@ def create_agent(
     def inject_system_prompt() -> str:
         """Instruction handler to inject the dynamically built system prompt."""
         return system_prompt_str
+
+    @agent.instructions
+    def inject_checkpoint_advisory() -> str:
+        """Surface the KV-checkpoint-worthiness advisory to the model.
+
+        CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface — the system
+        *recommends*, the model decides. Whenever anything scored the current moment
+        (``TieredCheckpointManager.recommend``/``observe``), the verdict is published
+        into a context-local slot and rendered here on the next call, so the model sees
+        "checkpoint-worthy: score 0.82, drivers: …" as part of its instructions and can
+        act on it via ``graph_kv_checkpoint``.
+
+        Returns ``""`` — a byte-identical prompt to before — when nothing was scored or
+        the verdict was "not worth it", so this is free for every run that never
+        engages the checkpoint layer.
+        """
+        try:
+            from agent_utilities.kvcache.worthiness import (
+                render_checkpoint_advisory_instructions,
+            )
+
+            return render_checkpoint_advisory_instructions()
+        except Exception as exc:  # noqa: BLE001 — an advisory must never break a run
+            logger.warning(
+                "[CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface] "
+                "checkpoint advisory injection skipped: %s: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=exc,
+            )
+            return ""
 
     if enable_universal_tools:
         from agent_utilities.tools.tool_registry import register_agent_tools

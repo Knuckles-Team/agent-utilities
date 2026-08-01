@@ -178,11 +178,13 @@ class GraphMaintainer:
                 params: dict[str, Any] = {"id": sum_id, **props}
                 self.engine.backend.execute(query, params)
 
-                # Link summary to thread
-                self.engine.backend.execute(
-                    "MATCH (s:ChatSummary {id: $s_id}), (t:Thread {id: $t_id}) MERGE (s)-[:PART_OF]->(t)",
-                    {"s_id": sum_id, "t_id": t_id},
-                )
+                # Link summary to thread. A comma-pattern MATCH plus an edge
+                # MERGE both exceed the engine's native Cypher write subset
+                # (one leading MATCH, MERGE on a single bare node only;
+                # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+                # both endpoints already exist (the summary was just created;
+                # ``t_id`` came from a MATCH read above).
+                self.engine.link_nodes(sum_id, t_id, "PART_OF")
 
                 # Delete old messages
                 self.engine.backend.execute(
@@ -244,7 +246,7 @@ class GraphMaintainer:
                         {"id": row["id"], "score": new_score},
                     )
                     updated += 1
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — one node's decay-score write inside the per-row loop; `continue`s to the next row so a single bad write doesn't stop decay from applying to the rest, and `updated` is only incremented on the success path above
                 logger.debug(f"Skipping decay for {row.get('id')}: {e}")
                 continue
         logger.info(f"Applied temporal decay to {updated} nodes.")
@@ -297,11 +299,14 @@ class GraphMaintainer:
             {"id": sum_id, "text": summary_text, "ts": ts},
         )
 
+        # A comma-pattern MATCH plus an edge MERGE both exceed the engine's
+        # native Cypher write subset (one leading MATCH, MERGE on a single
+        # bare node only; epistemic-graph/crates/eg-query/src/cypher/
+        # parser.rs:1184); ``link_nodes`` dispatches through the typed
+        # engine API. Both endpoints exist: the summary was just CREATEd
+        # above, ``ep["id"]`` came from the MATCH read that built ``episodes``.
         for ep in episodes:
-            self.engine.backend.execute(
-                "MATCH (e:Episode {id: $eid}), (s:ChatSummary {id: $sid}) MERGE (e)-[:CONSOLIDATES_INTO]->(s)",
-                {"eid": ep["id"], "sid": sum_id},
-            )
+            self.engine.link_nodes(ep["id"], sum_id, "CONSOLIDATES_INTO")
 
         logger.info(f"Synthesized {len(episodes)} episodes into summary {sum_id}.")
         return len(episodes)
@@ -431,11 +436,12 @@ class GraphMaintainer:
                     f"MERGE (n:Goal {{id: $id}}){goal_set}", goal_props
                 )
 
-                # Link Goal to the Reflection
-                self.engine.backend.execute(
-                    "MATCH (g:Goal {id: $goal_id}), (r:Reflection {id: $ref_id}) MERGE (g)-[:SUPPORTED_BY]->(r)",
-                    {"goal_id": goal_id, "ref_id": ref_id},
-                )
+                # Link Goal to the Reflection. A comma-pattern MATCH plus an
+                # edge MERGE both exceed the engine's native Cypher write
+                # subset (one leading MATCH, MERGE on a single bare node
+                # only; epistemic-graph/crates/eg-query/src/cypher/
+                # parser.rs:1184); both endpoints were just MERGEd above.
+                self.engine.link_nodes(goal_id, ref_id, "SUPPORTED_BY")
                 goals_count += 1
 
             return goals_count
@@ -629,20 +635,17 @@ class GraphMaintainer:
             )
             or []
         )
+        # Two MATCH clauses plus an edge MERGE with a dynamic-map ``SET nr +=``
+        # all exceed the engine's native Cypher write subset (one leading
+        # MATCH, MERGE on a single bare node only, SET values must be
+        # literals; epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184)
+        # -- ``link_nodes`` dispatches through the typed engine API instead.
+        # Both endpoints are guaranteed to exist: ``new`` is the survivor,
+        # ``target`` was just read off a live edge from ``old``.
         for edge in outgoing:
             rtype = self._safe_rel_type(edge["rtype"])
-            backend.execute(
-                f"""
-                MATCH (new:Concept {{id: $new_id}})
-                MATCH (target {{id: $tid}})
-                MERGE (new)-[nr:{rtype}]->(target)
-                SET nr += $props
-                """,
-                {
-                    "new_id": new_id,
-                    "tid": edge["tid"],
-                    "props": edge.get("props") or {},
-                },
+            self.engine.link_nodes(
+                new_id, edge["tid"], rtype, dict(edge.get("props") or {})
             )
 
         # 2. Re-point INCOMING edges, preserving type + properties.
@@ -658,37 +661,28 @@ class GraphMaintainer:
         )
         for edge in incoming:
             rtype = self._safe_rel_type(edge["rtype"])
-            backend.execute(
-                f"""
-                MATCH (new:Concept {{id: $new_id}})
-                MATCH (source {{id: $sid}})
-                MERGE (source)-[nr:{rtype}]->(new)
-                SET nr += $props
-                """,
-                {
-                    "new_id": new_id,
-                    "sid": edge["sid"],
-                    "props": edge.get("props") or {},
-                },
+            self.engine.link_nodes(
+                edge["sid"], new_id, rtype, dict(edge.get("props") or {})
             )
 
         # 3. Merge NODE properties non-destructively (survivor keeps its id/name;
         #    union aliases, take max importance/confidence, concat provenance).
+        # ``SET new += $props`` is a dynamic map-merge assignment; the engine's
+        # native Cypher write subset only accepts literal SET values
+        # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184). The
+        # typed node upsert is already field-merge (an existing node keeps any
+        # field omitted from the call), giving the same non-destructive
+        # semantics natively.
         merged_props = self._merge_node_properties(old_id=old_id, new_id=new_id)
         if merged_props:
-            backend.execute(
-                "MATCH (new:Concept {id: $new_id}) SET new += $props",
-                {"new_id": new_id, "props": merged_props},
-            )
+            self.engine.add_node(new_id, "Concept", merged_props)
 
-        # 4. Record MergedFrom provenance for auditability.
-        backend.execute(
-            """
-            MATCH (new:Concept {id: $new_id})
-            MERGE (prov:MergedConcept {id: $old_id})
-            MERGE (new)-[:MERGED_FROM {similarity: $sim}]->(prov)
-            """,
-            {"new_id": new_id, "old_id": old_id, "sim": similarity},
+        # 4. Record MergedFrom provenance for auditability. A bare-node MERGE
+        # is within the supported subset; the edge MERGE is not, so it goes
+        # through the typed engine API. Both endpoints exist by this point.
+        self.engine.add_node(old_id, "MergedConcept", {})
+        self.engine.link_nodes(
+            new_id, old_id, "MERGED_FROM", {"similarity": similarity}
         )
 
         # 5. Delete the duplicate now that everything is migrated.
@@ -779,35 +773,97 @@ class GraphMaintainer:
         return validated
 
     def link_topics_to_policies_and_processes(self) -> int:
-        """Auto-link new KnowledgeBaseTopic nodes to Policies/Processes via semantic similarity."""
+        """Auto-link new KnowledgeBaseTopic nodes to Policies/Processes via semantic similarity.
+
+        ``WHERE NOT EXISTS { ... }`` (a subquery predicate), two sequential
+        MATCH clauses, an inline ``vector.similarity(...)`` WHERE function, and
+        an edge MERGE all exceed the engine's native Cypher write subset (one
+        leading MATCH, MERGE on a single bare node only;
+        epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184) -- this never
+        executed successfully against the native engine. Rewritten as reads
+        (each a single supported MATCH) plus an in-process cosine-similarity
+        pass (mirroring ``_similar_concept_pairs``' numpy fallback) and typed
+        edge writes.
+        """
         if not self.engine.backend:
             return 0
 
-        # Use simple semantic linking based on embeddings if available
-        # Note: Vector search in Ladybug is usually done via dedicated tool or specialized query
-        query = """
-        MATCH (t:KnowledgeBaseTopic)
-        WHERE NOT EXISTS { (t)-[:GROUNDED_IN|REFERENCES]->() }
-        MATCH (p:Policy)
-        WHERE vector.similarity(t.embedding, p.embedding) > 0.75
-        MERGE (t)-[:GROUNDED_IN]->(p)
-        """
-        try:
-            self.engine.backend.execute(query)
+        from .engine import cosine_similarity
 
-            # Link to ProcessFlows
-            query_flow = """
-            MATCH (t:KnowledgeBaseTopic)
-            MATCH (f:ProcessFlow)
-            WHERE vector.similarity(t.embedding, f.embedding) > 0.75
-            MERGE (t)-[:REFERENCES]->(f)
-            """
-            self.engine.backend.execute(query_flow)
-            logger.info(
-                "✅ Topic linking complete (Policies & ProcessFlows now grounded in KBs)"
+        try:
+            topics = (
+                self.engine.backend.execute(
+                    "MATCH (t:KnowledgeBaseTopic) WHERE t.embedding IS NOT NULL "
+                    "RETURN t.id AS id, t.embedding AS embedding"
+                )
+                or []
             )
-            return 1
-        except Exception as e:
+            if not topics:
+                return 0
+
+            grounded_ids = {
+                row["tid"]
+                for row in (
+                    self.engine.backend.execute(
+                        "MATCH (t:KnowledgeBaseTopic)-[:GROUNDED_IN]->(p:Policy) "
+                        "RETURN t.id AS tid"
+                    )
+                    or []
+                )
+            }
+            referenced_ids = {
+                row["tid"]
+                for row in (
+                    self.engine.backend.execute(
+                        "MATCH (t:KnowledgeBaseTopic)-[:REFERENCES]->(f:ProcessFlow) "
+                        "RETURN t.id AS tid"
+                    )
+                    or []
+                )
+            }
+            policies = (
+                self.engine.backend.execute(
+                    "MATCH (p:Policy) WHERE p.embedding IS NOT NULL "
+                    "RETURN p.id AS id, p.embedding AS embedding"
+                )
+                or []
+            )
+            flows = (
+                self.engine.backend.execute(
+                    "MATCH (f:ProcessFlow) WHERE f.embedding IS NOT NULL "
+                    "RETURN f.id AS id, f.embedding AS embedding"
+                )
+                or []
+            )
+
+            linked = 0
+            for topic in topics:
+                t_emb = topic.get("embedding")
+                if not t_emb:
+                    continue
+                if topic["id"] not in grounded_ids:
+                    for policy in policies:
+                        p_emb = policy.get("embedding")
+                        if p_emb and cosine_similarity(t_emb, p_emb) > 0.75:
+                            self.engine.link_nodes(
+                                topic["id"], policy["id"], "GROUNDED_IN"
+                            )
+                            linked += 1
+                if topic["id"] not in referenced_ids:
+                    for flow in flows:
+                        f_emb = flow.get("embedding")
+                        if f_emb and cosine_similarity(t_emb, f_emb) > 0.75:
+                            self.engine.link_nodes(
+                                topic["id"], flow["id"], "REFERENCES"
+                            )
+                            linked += 1
+
+            logger.info(
+                "✅ Topic linking complete (%d Policy/ProcessFlow links created)",
+                linked,
+            )
+            return linked
+        except Exception as e:  # noqa: BLE001 — returns 0 (the documented 'nothing linked' case) on failure, exactly like when the query legitimately links nothing; callers already treat 0 as a no-op this run
             logger.debug(f"Topic linking skipped or failed: {e}")
             return 0
 

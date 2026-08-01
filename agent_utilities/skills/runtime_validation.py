@@ -1432,20 +1432,37 @@ async def _run_direct_case(
                     "skill_ref": result.skill_ref,
                     "skill_body_ref": result.skill_body_ref,
                 }
+                direct_system_prompt = (
+                    f"{_skill_runtime_body(case.skill)}\n\n"
+                    f"{_contract_instruction(case)}"
+                )
+                direct_model_settings: Any = ModelSettings(
+                    # The closed JSON contract is intentionally small. A bounded
+                    # generation keeps CPU-only local-model validation practical.
+                    max_tokens=_DIRECT_MAX_OUTPUT_TOKENS,
+                    temperature=0.0,
+                    timeout=case_timeout,
+                )
+                try:
+                    # D-54c-4 — this call bypasses attach_profile_resolver (it invokes
+                    # agent.run() directly with an explicit model_settings), so fold the
+                    # provider-native prompt-cache directive here too (CONCEPT:AU-ORCH.optimization.provider-prompt-cache).
+                    from agent_utilities.caching.prompt_cache import (
+                        fold_prompt_cache_hint,
+                    )
+
+                    direct_model_settings = fold_prompt_cache_hint(
+                        direct_model_settings,
+                        system_prompt=direct_system_prompt,
+                        model_identity=model_name,
+                    )
+                except Exception:  # noqa: BLE001 - prompt-cache hint is best-effort
+                    pass
                 agent = create_context_agent(
                     model=model,
                     output_type=_direct_semantic_output_type(case),
-                    system_prompt=(
-                        f"{_skill_runtime_body(case.skill)}\n\n"
-                        f"{_contract_instruction(case)}"
-                    ),
-                    model_settings=ModelSettings(
-                        # The closed JSON contract is intentionally small. A bounded
-                        # generation keeps CPU-only local-model validation practical.
-                        max_tokens=_DIRECT_MAX_OUTPUT_TOKENS,
-                        temperature=0.0,
-                        timeout=case_timeout,
-                    ),
+                    system_prompt=direct_system_prompt,
+                    model_settings=direct_model_settings,
                     retries=2,
                 )
                 run = await asyncio.wait_for(

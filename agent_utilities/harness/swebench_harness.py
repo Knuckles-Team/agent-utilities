@@ -171,7 +171,7 @@ def _ingest_repo(kg: Any, workspace: Any) -> None:
         )
         if callable(ingest):
             ingest(root)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — explicitly "Best-effort" per this function's own docstring; the benchmark instance run itself does not depend on the repo being KG-ingested
         logger.debug("repo ingest skipped: %s", exc)
 
 

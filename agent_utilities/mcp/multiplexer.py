@@ -34,6 +34,7 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 import weakref
 from collections.abc import Mapping
 from pathlib import Path
@@ -48,25 +49,27 @@ from mcp import StdioServerParameters, stdio_client
 from mcp import types as mcp_types  # stable alias: the ``mcp`` param shadows the pkg
 from mcp.client.session import ClientSession
 
+# Remote transports. The MCP SDK v2 line (>=2.0.0, pulled in by the
+# `fastmcp>=4.0.0b1` floor of the `[mcp]` extra) renamed
+# `streamablehttp_client` -> `streamable_http_client` and replaced its
+# headers/auth/httpx_client_factory keywords with a single pre-configured
+# `http_client=` — see the call site below. Both names are hard imports: the
+# `[mcp]` extra can no longer resolve an SDK that lacks them, so the old
+# defensive `try/except ImportError` guards only hid a real breakage (they
+# turned the rename into a silent `RuntimeError: mcp SDK has no
+# streamablehttp_client` on EVERY remote child, which is the whole deployed
+# fleet — `deploy/mcp-fleet.registry.yml` defaults to `streamable-http`).
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamable_http_client
+
+from agent_utilities.core.capability_contract import Capability
 from agent_utilities.core.config import setting
+from agent_utilities.core.resource_priority import PriorityClass, priority_scope
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
     MCPChildError,
 )
 from agent_utilities.security.error_surface import public_error_text
-
-streamablehttp_client: Any = None
-try:  # remote transports — present on modern mcp SDKs
-    from mcp.client.streamable_http import (  # type: ignore[no-redef]
-        streamablehttp_client,
-    )
-except ImportError:  # pragma: no cover - older mcp SDK without streamable-http
-    pass
-sse_client: Any = None
-try:
-    from mcp.client.sse import sse_client  # type: ignore[no-redef]
-except ImportError:  # pragma: no cover - older mcp SDK without sse
-    pass
 
 # Direct all logs to stderr so stdout remains perfectly clean for stdio JSON-RPC
 logging.basicConfig(
@@ -85,7 +88,41 @@ _MAX_DISCOVERED_TOOLS = 2_048
 # contains hundreds of independently bounded JSON Schemas, so it gets its own
 # aggregate structural allowance while retaining the same byte/depth limits.
 _MAX_CATALOG_NODES = 131_072
+# Skills-over-MCP (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider): a probed
+# server's Resources may include ``skill://{name}/SKILL.md`` entries. Bounded
+# the same way as the tool catalog so a hostile/misbehaving child cannot force
+# an unbounded resource listing into the KG.
+_MAX_DISCOVERED_SKILLS = 2_048
+_SKILL_RESOURCE_RE = re.compile(r"^skill://(?P<name>[^/]+)/SKILL\.md$")
+# CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a probed child's skill
+# *bodies* are read back over the SAME already-open probe session, so a fleet
+# skill becomes runnable in graph-os without co-installing the child's package
+# (AGENTS.md "Dependency discipline"). Bounded per body and in aggregate: the
+# harvest reads attacker-influenced content, so it can never be allowed to
+# dominate the probe's latency or memory budget.
+_MAX_SKILL_BODY_BYTES = 512 * 1024
+_MAX_HARVEST_TOTAL_BYTES = 8 * 1024 * 1024
+_SKILL_HARVEST_BUDGET_SEC = 120.0
+# A child enforces its OWN request rate limit, and a body harvest is the most
+# request-dense thing we ever do to one: probing a fleet child that serves the
+# whole shared skill corpus tripped "Rate limit exceeded for client: global"
+# after ~50 reads. That is the child correctly defending itself, so the harvest
+# BACKS OFF and retries rather than treating a rate-limited read as a permanent
+# failure (which would silently strand most of the corpus as un-runnable).
+_SKILL_HARVEST_MAX_ATTEMPTS = 5
+_SKILL_HARVEST_BACKOFF_SEC = 0.5
 _SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "service"})
+# Fleet-wide concurrent-probe ceiling (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog), shared
+# across overlapping ``probe_catalog`` calls via ``MCPMultiplexer._probe_semaphore``
+# (one instance per multiplexer, NOT re-created per call — a per-call semaphore
+# would give every new call its own fresh 16 slots regardless of how many probes
+# an EARLIER call already left running, defeating the point of a shared cap).
+# Measured (see docs/architecture/fleet-catalog-discovery-budget.md): a cold
+# stdio child's own connect+handshake already costs ~2.7-2.9s on this hardware
+# before any real work, so a 61-server fleet queued 16-wide needed 4 full waves
+# to even ATTEMPT every server once — comfortably exceeding any interactive
+# budget on its own, before counting genuinely slow/unreachable servers.
+_PROBE_CONCURRENCY = 32
 _RUNTIME_CHILD_POLICY_GROUP = "agent_utilities.mcp_child_policies"
 _RUNTIME_CHILD_POLICY_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS = frozenset(
@@ -103,6 +140,39 @@ _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS = frozenset(
 )
 _RUNTIME_CHILD_POLICY_INTERNAL_KEY = "_runtime_child_policy"
 _LIVE_MULTIPLEXERS: weakref.WeakSet[Any] = weakref.WeakSet()
+
+
+def _sample_child_health_gauges() -> None:
+    """Refresh every live multiplexer's child gauges for a ``/metrics`` scrape.
+
+    CONCEPT:AU-ECO.multiplexer.running-vs-dispatchable-metrics — child health is
+    live-object state, not an event stream, so it must be sampled at scrape time
+    or the gauges only ever move when somebody happens to call
+    ``multiplexer_status``. ``status_snapshot()`` publishes the gauges itself,
+    so calling it IS the sample.
+    """
+    for multiplexer in tuple(_LIVE_MULTIPLEXERS):
+        multiplexer.status_snapshot()
+
+
+def _register_child_health_sampler() -> None:
+    """Hook :func:`_sample_child_health_gauges` into the metrics scrape path."""
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            register_scrape_sampler,
+        )
+
+        register_scrape_sampler(_sample_child_health_gauges)
+    except Exception as exc:
+        logger.warning(
+            "Could not register the multiplexer child-health metrics sampler "
+            "(exception_type=%s): %s — mounted/dispatchable gauges will only "
+            "refresh when multiplexer_status is called.",
+            type(exc).__name__,
+            exc,
+        )
+
+
 _ENV_RUNTIME_REF_RE = re.compile(r"^env://([A-Z][A-Z0-9_]{0,127})$")
 _STORE_RUNTIME_REF_RE = re.compile(
     r"^(?:vault|secret)://[A-Za-z0-9][A-Za-z0-9_./#-]{0,511}$"
@@ -377,7 +447,7 @@ def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
     for tool in raw_tools:
         name = getattr(tool, "name", None)
         description = getattr(tool, "description", "") or ""
-        input_schema = getattr(tool, "inputSchema", None) or {}
+        input_schema = getattr(tool, "input_schema", None) or {}
         annotations = getattr(tool, "annotations", None)
         if annotations is not None and not isinstance(annotations, dict):
             model_dump = getattr(annotations, "model_dump", None)
@@ -406,6 +476,71 @@ def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
     except ToolError:
         raise RuntimeError("MCP child tool catalog exceeded its boundary") from None
     return tools
+
+
+def _bounded_skill_catalog(raw_resources: Any) -> list[dict[str, Any]]:
+    """Project a probed child's Resources into its Skills-over-MCP subset.
+
+    A fastmcp-4 ``SkillProvider``/``ClaudeSkillsProvider`` exposes each skill
+    as ``skill://{name}/SKILL.md`` (+ a sibling ``_manifest`` resource this
+    projection ignores — the manifest is fetched on demand, not during probe).
+    Non-skill resources are silently dropped: this function answers "which
+    skills does this server serve", not "list every resource". Bounded and
+    validated exactly like :func:`_bounded_tool_catalog` so a hostile/
+    misbehaving child cannot force an unbounded catalog into the KG.
+    """
+    if not isinstance(raw_resources, list | tuple):
+        raise RuntimeError("MCP child resource catalog is invalid")
+    if len(raw_resources) > _MAX_DISCOVERED_TOOLS:
+        raise RuntimeError("MCP child resource catalog exceeded its boundary")
+
+    skills: list[dict[str, Any]] = []
+    for resource in raw_resources:
+        uri = getattr(resource, "uri", None)
+        uri_text = str(uri) if uri is not None else ""
+        match = _SKILL_RESOURCE_RE.match(uri_text)
+        if not match:
+            continue
+        name = match.group("name")
+        description = getattr(resource, "description", "") or ""
+        if (
+            not isinstance(name, str)
+            or not 1 <= len(name.encode("utf-8")) <= 256
+            or any(ord(character) < 32 for character in name)
+            or not isinstance(description, str)
+        ):
+            raise RuntimeError("MCP child resource catalog is invalid")
+        skills.append({"name": name, "uri": uri_text, "description": description})
+        if len(skills) > _MAX_DISCOVERED_SKILLS:
+            raise RuntimeError("MCP child skill catalog exceeded its boundary")
+    try:
+        _assert_bounded_json_value(skills, max_nodes=_MAX_CATALOG_NODES)
+    except ToolError:
+        raise RuntimeError("MCP child skill catalog exceeded its boundary") from None
+    return skills
+
+
+def _resource_body_text(result: Any) -> str:
+    """Extract the text payload of one ``resources/read`` result.
+
+    CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a fastmcp-4
+    ``SkillProvider`` serves ``skill://{name}/SKILL.md`` as ``text/markdown``,
+    so the body arrives as a ``TextResourceContents``. A binary/blob payload is
+    NOT a skill instruction body and is rejected rather than coerced, so a
+    child cannot smuggle an unusable resource into the runnable set.
+    """
+    contents = getattr(result, "contents", None)
+    if not isinstance(contents, list | tuple) or not contents:
+        raise RuntimeError("skill resource returned no contents")
+    parts: list[str] = []
+    for item in contents:
+        text = getattr(item, "text", None)
+        if text is None:
+            raise RuntimeError("skill resource body is not text")
+        if not isinstance(text, str):
+            raise RuntimeError("skill resource body is not text")
+        parts.append(text)
+    return "\n".join(parts)
 
 
 def _read_catalog_text(path: Path) -> str:
@@ -930,8 +1065,34 @@ class MCPMultiplexer:
         # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — self-catalog: per-server {"tools": [...], "error": str|None}
         # learned by probing each child (connect → list_tools → release), cached so
         # find_tools ranks real fleet-wide tools without holding connections and
-        # without depending on the (separately-flaky) KG live discovery.
+        # without depending on the (separately-flaky) KG live discovery. Every
+        # entry carries ``probed_at`` (epoch seconds of the probe that produced
+        # it) so a caller can compute truthful staleness instead of a fleet-wide
+        # figure silently being served as if it were live (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
         self._probe_cache: dict[str, dict] = {}
+        # A server probe that hasn't finished when an interactive caller's
+        # budget expires is NEVER cancelled — cancelling it would also cancel
+        # the ``self._probe_cache`` write at the end of :meth:`probe_server`,
+        # which is exactly why an unreachable/slow server used to be re-probed
+        # from scratch on EVERY subsequent call (the timed-out result was
+        # discarded, not cached). Instead the task keeps running in the
+        # background at its own per-server deadline; this map lets a LATER
+        # call join the SAME in-flight probe instead of starting a duplicate,
+        # and lets :meth:`aclose` await outstanding probes on shutdown.
+        self._probe_inflight: dict[str, asyncio.Task] = {}
+        # EVERY live probe task, joinable or not. ``_probe_inflight`` answers
+        # "can a later call join this?" and therefore holds at most one task per
+        # server; a forced re-probe deliberately is not joinable and so never
+        # appears there. :meth:`aclose` needs the other question — "what is
+        # still running?" — and must see forced probes too, or one can outlive
+        # the multiplexer that spawned it.
+        self._probe_tasks: set[asyncio.Task] = set()
+        # ONE semaphore for the whole instance's lifetime (not re-created per
+        # ``probe_catalog`` call) so a probe still running from an earlier
+        # (possibly already-returned) call continues to count against the same
+        # concurrency cap as a newer call's probes, instead of every call
+        # getting its own fresh set of slots.
+        self._probe_semaphore = asyncio.Semaphore(_PROBE_CONCURRENCY)
         # Optional in-process embedder for SEMANTIC find_tools ranking (injected by
         # graph-os via attach_fleet_loader). ``_embed_fn(texts)->list[vector]`` (sync,
         # called off-thread); per-tool embeddings are cached by ``server::tool`` so only
@@ -965,6 +1126,7 @@ class MCPMultiplexer:
         self._catalog_reload_tasks: set[asyncio.Task[Any]] = set()
         self._authority_scope: Any = None
         _LIVE_MULTIPLEXERS.add(self)
+        _register_child_health_sampler()
 
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
@@ -1044,7 +1206,7 @@ class MCPMultiplexer:
         catalog = [
             {
                 "annotations": getattr(tool, "annotations", None),
-                "inputSchema": tool.inputSchema,
+                "inputSchema": tool.input_schema,
                 "name": tool.name,
             }
             for tool in tools
@@ -1307,8 +1469,6 @@ class MCPMultiplexer:
             _svc_auth = child_auth(headers)
             use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
             if use_sse:
-                if sse_client is None:
-                    raise RuntimeError("mcp SDK has no sse_client for SSE transport")
                 transport = sse_client(
                     url,
                     headers=headers,
@@ -1316,19 +1476,19 @@ class MCPMultiplexer:
                     httpx_client_factory=_secure_httpx_factory,
                 )
             else:
-                if streamablehttp_client is None:
-                    raise RuntimeError(
-                        "mcp SDK has no streamablehttp_client for "
-                        "streamable-http transport"
-                    )
-                transport = streamablehttp_client(
-                    url,
-                    headers=headers,
-                    auth=_svc_auth,
-                    httpx_client_factory=_secure_httpx_factory,
-                )
-            # streamable-http yields (read, write, get_session_id); sse yields
-            # (read, write). Take the first two streams either way.
+                # MCP SDK v2 takes the already-built client instead of
+                # headers/auth/httpx_client_factory, so the security-hardened
+                # client (pinned TLS trust, DNS-pinned egress, no ambient
+                # proxy, no redirects) is constructed here and handed over.
+                # It is entered on the stack BEFORE the transport so teardown
+                # closes the transport first and the client second; the SDK
+                # deliberately does not close a caller-provided client.
+                http_client = _secure_httpx_factory(headers=headers, auth=_svc_auth)
+                await stack.enter_async_context(http_client)
+                transport = streamable_http_client(url, http_client=http_client)
+            # streamable-http and sse both yield (read, write); SDK v2 dropped
+            # streamable-http's third `get_session_id` element. Take the first
+            # two streams either way.
             streams = await stack.enter_async_context(transport)
             read_stream, write_stream = streams[0], streams[1]
         else:
@@ -1675,6 +1835,11 @@ class MCPMultiplexer:
         self.tool_to_server.clear()
         self.aggregated_tools.clear()
         self._probe_cache.clear()
+        # Not cancelled (a hot-reload should not visibly break an in-flight
+        # discovery call) — just untracked, so a NEW probe_catalog call for
+        # the same server starts fresh against the reloaded config rather
+        # than joining a probe that may be running against stale credentials.
+        self._probe_inflight.clear()
         self._tool_embeddings.clear()
         self._prefix_map = None
         self._prefix_reverse.clear()
@@ -1846,12 +2011,30 @@ class MCPMultiplexer:
             prefixed_tool = mcp.types.Tool(
                 name=prefixed_name,
                 description=tool.description or "",
-                inputSchema=tool.inputSchema,
+                input_schema=tool.input_schema,
                 _meta=getattr(tool, "meta", None),
             )
             self.aggregated_tools.append(prefixed_tool)
             registered.append(prefixed_tool)
         return registered
+
+    async def _live_skills_for_server(self, server_name: str) -> list[dict]:
+        """Live ``skill://`` resource listing for an already-mounted child
+        (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
+
+        Unlike tools, a mounted child's Skills-over-MCP resources are never
+        cached into an aggregation map at mount time (:meth:`_register_child_result`
+        only indexes ``tools``) — so the cold-probe path's ``_probe_skills`` call
+        was the ONLY place a server's skills were ever discovered, leaving an
+        already-mounted server's skills invisible to ``find``/``find_tools``
+        until it happened to be probed cold at least once (D-2.2-2.3-1). Reuses
+        the mounted child's live primary session (no reconnect) and the same
+        best-effort degrade-to-``[]`` semantics as the cold-probe path.
+        """
+        session = self.sessions.get(server_name)
+        if session is None:
+            return []
+        return await self._probe_skills(server_name, session)
 
     async def mount_child(self, server_name: str) -> list[mcp.types.Tool]:
         """Start ONE configured child on demand and register its tools
@@ -1931,36 +2114,46 @@ class MCPMultiplexer:
                 {
                     "name": original,
                     "description": (tobj.description if tobj else "") or "",
-                    "inputSchema": (tobj.inputSchema if tobj else {}) or {},
+                    "inputSchema": (tobj.input_schema if tobj else {}) or {},
                 }
             )
         return out
+
+    def _cache_probe(self, server_name: str, info: dict) -> dict:
+        """Stamp ``probed_at`` (epoch seconds) and store ONE probe result.
+
+        Every write to ``self._probe_cache`` goes through here so age/staleness
+        can always be computed truthfully later — ``time.time() - probed_at`` —
+        instead of a caller having to guess whether a served result is fresh
+        (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+        info["probed_at"] = time.time()
+        self._probe_cache[server_name] = info
+        return info
 
     async def probe_server(
         self, server_name: str, force: bool = False, timeout: float | None = None
     ) -> dict:
         """Probe ONE catalog server for its tool list: connect → list_tools →
         release (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Returns (and caches) ``{"tools": [...],
-        "error": str|None}``. An already-mounted child reuses its live tools
-        instead of reconnecting; an unreachable server records its error string
-        (so find_tools/load_tools can report *why* it is unavailable) rather
-        than raising."""
+        "error": str|None, "probed_at": float}``. An already-mounted child reuses
+        its live tools instead of reconnecting; an unreachable server records its
+        error string (so find_tools/load_tools can report *why* it is
+        unavailable) rather than raising."""
         if not force and server_name in self._probe_cache:
             return self._probe_cache[server_name]
 
         if server_name in self.children:
             info: dict[str, Any] = {
                 "tools": self._live_tools_for_server(server_name),
+                "skills": await self._live_skills_for_server(server_name),
                 "error": None,
             }
-            self._probe_cache[server_name] = info
-            return info
+            return self._cache_probe(server_name, info)
 
         cfg = self.load_catalog().get(server_name)
         if cfg is None:
             info = {"tools": [], "error": "not in catalog"}
-            self._probe_cache[server_name] = info
-            return info
+            return self._cache_probe(server_name, info)
 
         try:
             probe_to = float(
@@ -1972,10 +2165,9 @@ class MCPMultiplexer:
             probe_to = 0.0
         if not 0.001 <= probe_to <= 300.0:
             info = {"tools": [], "error": "invalid probe timeout"}
-            self._probe_cache[server_name] = info
-            return info
+            return self._cache_probe(server_name, info)
 
-        async def _probe() -> list[dict]:
+        async def _probe() -> tuple[list[dict], list[dict]]:
             # Enter AND exit the transports within this single coroutine so the
             # anyio cancel scopes are not crossed between tasks. ``wait_for``
             # runs this whole coroutine as one task, so the stack is opened and
@@ -1997,21 +2189,144 @@ class MCPMultiplexer:
                             runtime_policy,
                             tools,
                         )
-                    return _bounded_tool_catalog(tools)
+                    skills = await self._probe_skills(server_name, session)
+                    return _bounded_tool_catalog(tools), skills
             finally:
                 if runtime_policy is not None:
                     _close_runtime_child_policy(runtime_policy)
                     self._child_policy_admitted_tools.pop(server_name, None)
 
         try:
-            tools = await asyncio.wait_for(_probe(), timeout=probe_to)
-            info = {"tools": tools, "error": None}
+            tools, skills = await asyncio.wait_for(_probe(), timeout=probe_to)
+            info = {"tools": tools, "skills": skills, "error": None}
         except TimeoutError:
-            info = {"tools": [], "error": f"timeout after {probe_to:g}s"}
+            info = {"tools": [], "skills": [], "error": f"timeout after {probe_to:g}s"}
         except Exception as e:
-            info = {"tools": [], "error": _format_probe_error(e)}
-        self._probe_cache[server_name] = info
-        return info
+            info = {"tools": [], "skills": [], "error": _format_probe_error(e)}
+        return self._cache_probe(server_name, info)
+
+    async def _probe_skills(self, server_name: str, session: Any) -> list[dict]:
+        """Best-effort ``skill://`` resource enumeration for one probed session
+        (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
+
+        Skills-over-MCP is only a fastmcp-4 server capability (draft MCP
+        SEP-2640) — a fastmcp-3 or pre-skills server has no ``skill://``
+        resources, and some MCP servers do not implement ``resources/list`` at
+        all. Either case degrades to an empty list rather than failing the
+        tool probe that already succeeded above.
+        """
+        try:
+            result = await session.list_resources()
+        except Exception as exc:  # noqa: BLE001 - resources/list is an OPTIONAL
+            # MCP method; a server that doesn't implement it must still
+            # contribute the tools its probe already returned. The cause IS
+            # logged so a real transport failure stays diagnosable.
+            logger.debug(
+                "Server %s does not support skill resource discovery: %s",
+                server_name,
+                exc,
+            )
+            return []
+        try:
+            skills = _bounded_skill_catalog(result.resources)
+        except Exception as exc:  # noqa: BLE001 - a malformed skill catalog from
+            # one server must not fail the tool probe that already succeeded.
+            # The cause IS logged.
+            logger.warning(
+                "Server %s returned an invalid skill resource catalog: %s",
+                server_name,
+                exc,
+            )
+            return []
+        await self._harvest_skill_bodies(server_name, session, skills)
+        return skills
+
+    async def _harvest_skill_bodies(
+        self, server_name: str, session: Any, skills: list[dict]
+    ) -> None:
+        """Read each catalogued ``skill://`` body over the OPEN probe session.
+
+        CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — the fleet's ~62
+        ``agents/*`` packages are deliberately NOT co-installed into graph-os's
+        serving venv (AGENTS.md "Dependency discipline"), so
+        ``resolve_skill_provider_dirs()`` — an in-process
+        ``importlib.metadata`` walk — structurally cannot see their skills. But
+        each child ALREADY serves them as fastmcp-4 ``skill://{name}/SKILL.md``
+        resources, and we ALREADY hold a live session to it. Reading the body
+        here is what turns a name-only fleet ``Skill`` node into something
+        :func:`~..knowledge_graph.ingestion.skill_workflow_ingest.ingest_runnable_skill`
+        can promote to a runnable ``CallableResource``.
+
+        Mutates each entry in place, adding EITHER ``instructions`` (the body)
+        OR ``harvest_error`` (a named reason). Never both, and never silently
+        neither: an entry without ``instructions`` carries the reason it has
+        none, so the downstream promotion fails CLOSED against a named
+        precondition instead of quietly skipping the skill.
+        """
+        harvested_bytes = 0
+        deadline = time.monotonic() + _SKILL_HARVEST_BUDGET_SEC
+        for entry in skills:
+            uri = entry.get("uri") or ""
+            if time.monotonic() >= deadline:
+                entry["harvest_error"] = (
+                    f"skill body harvest budget exceeded after "
+                    f"{_SKILL_HARVEST_BUDGET_SEC:g}s"
+                )
+                continue
+            if harvested_bytes >= _MAX_HARVEST_TOTAL_BYTES:
+                entry["harvest_error"] = "skill body harvest exceeded its total budget"
+                continue
+            try:
+                body = await self._read_skill_body(session, uri, deadline)
+            except Exception as exc:  # noqa: BLE001 - one unreadable skill body
+                # must not fail the tool probe that already succeeded. The cause
+                # is recorded ON THE ENTRY (so the promotion can name it) AND
+                # logged with its traceback — never discarded.
+                entry["harvest_error"] = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "Server %s could not serve skill body %s (%s)",
+                    server_name,
+                    entry.get("name", "?"),
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                continue
+            encoded = len(body.encode("utf-8"))
+            if not body.strip():
+                entry["harvest_error"] = "server served an empty skill body"
+                continue
+            if encoded > _MAX_SKILL_BODY_BYTES:
+                entry["harvest_error"] = "skill body exceeded its size boundary"
+                continue
+            harvested_bytes += encoded
+            entry["instructions"] = body
+
+    @staticmethod
+    async def _read_skill_body(session: Any, uri: str, deadline: float) -> str:
+        """Read one skill body, backing off while the child rate-limits us.
+
+        Retries are bounded by BOTH an attempt count and the caller's harvest
+        deadline, so a permanently-failing child costs a fixed amount of time.
+        The FINAL failure is re-raised with its original cause intact — the
+        caller records and logs it; nothing is swallowed.
+        """
+        delay = _SKILL_HARVEST_BACKOFF_SEC
+        last: Exception | None = None
+        for attempt in range(_SKILL_HARVEST_MAX_ATTEMPTS):
+            try:
+                return _resource_body_text(await session.read_resource(uri))
+            except Exception as exc:  # noqa: BLE001 — retried below, then re-raised
+                last = exc
+                if attempt == _SKILL_HARVEST_MAX_ATTEMPTS - 1:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(delay, remaining))
+                delay *= 2
+        if last is None:  # pragma: no cover — the loop only exits via a failure
+            raise RuntimeError("skill body read failed without a recorded cause")
+        raise last
 
     @classmethod
     async def probe_declaration(
@@ -2051,18 +2366,106 @@ class MCPMultiplexer:
         finally:
             await multiplexer.aclose()
 
+    def _settle_probe_task(self, server: str, task: asyncio.Task) -> None:
+        """``add_done_callback`` for a background probe: release its in-flight
+        slot. ``probe_server`` itself catches every failure mode it knows about
+        and always caches a result, so an exception surfacing here is a
+        genuinely unexpected bug, not a child's fault — it is logged with its
+        cause, never swallowed, rather than left to asyncio's "exception was
+        never retrieved" warning."""
+        # Only retract the join slot if it is still OURS. A forced probe for the
+        # same server runs as its OWN untracked task; popping unconditionally
+        # would evict a DIFFERENT, still-running non-forced probe from the join
+        # map, so a later call would spawn a duplicate of a probe already in
+        # flight and ``aclose`` would no longer know to cancel it.
+        if self._probe_inflight.get(server) is task:
+            self._probe_inflight.pop(server, None)
+        self._probe_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "Unexpected exception from background probe of %s: %s",
+                server,
+                exc,
+                exc_info=exc,
+            )
+
+    def _ensure_probing(
+        self, server: str, *, force: bool, timeout: float | None
+    ) -> asyncio.Task:
+        """Return the in-flight probe task for ``server``, joining one an
+        overlapping call already started instead of spawning a duplicate.
+
+        A forced probe (explicit re-probe, e.g. boot ingestion) always starts
+        fresh and is never JOINED by a later caller — ``force`` means "I
+        specifically want a new answer now," which a stale in-flight task
+        cannot give. It is still registered in ``_probe_tasks`` so
+        :meth:`aclose` can cancel it: "not shareable" must not mean "able to
+        outlive the multiplexer"."""
+        if not force:
+            existing = self._probe_inflight.get(server)
+            if existing is not None and not existing.done():
+                return existing
+
+        async def _run() -> None:
+            async with self._probe_semaphore:
+                await self.probe_server(server, force=force, timeout=timeout)
+
+        task = asyncio.create_task(_run())
+        self._probe_tasks.add(task)
+        if not force:
+            self._probe_inflight[server] = task
+        task.add_done_callback(lambda t, _s=server: self._settle_probe_task(_s, t))
+        return task
+
     async def probe_catalog(
         self,
         force: bool = False,
         timeout: float | None = None,
         budget: float | None = None,
         servers: list[str] | tuple[str, ...] | None = None,
+        priority: PriorityClass | None = None,
     ) -> dict[str, dict]:
         """Probe every catalog server concurrently (bounded) and cache the
-        result, so find_tools can rank the whole fleet's real tools. Cached, so
-        only the first call pays the cost; unreachable servers fail fast and are
-        recorded, never blocking the reachable ones. ``servers`` narrows a
-        latency-sensitive first stage without creating a second probe path."""
+        result, so find_tools can rank the whole fleet's real tools.
+
+        ``budget`` bounds how long THIS CALL waits for an answer. It does
+        **not** bound how long an individual probe is allowed to run — that
+        is each server's own ``probe_timeout``/``timeout``, honored
+        independently by :meth:`probe_server`. A server still probing when
+        the budget expires is NEVER cancelled: cancelling it would also
+        cancel its own ``self._probe_cache`` write, which is exactly what
+        used to make an unreachable server pay its full connect cost again
+        on every subsequent call, forever, instead of the cache the tool's
+        own contract promises ("the first call probes the fleet; later
+        calls are cached"). It keeps running toward its own deadline in the
+        background — ``_probe_inflight`` lets a later call join that SAME
+        probe instead of duplicating it — and each pending server gets an
+        honest, individual answer here: a prior (possibly ``stale``,
+        age-labelled) result if one exists, or an explicit ``pending``
+        marker on its first-ever attempt. Reachable servers are never
+        blocked by an unreachable one (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+        A long-lived multiplexer (graph-os's fleet loader) relies on
+        :meth:`aclose` to cancel whatever is still in-flight at real
+        shutdown. A short-lived caller wrapped in ``asyncio.run(...)``
+        (e.g. ``source_sync._sync_fleet`` via ``_run_async``) gets the same
+        guarantee for free — ``asyncio.run`` cancels every task still on its
+        loop when the coroutine it ran returns, this multiplexer's included
+        — so no caller needs to await these background probes itself.
+
+        ``priority`` tags this call's probe tasks with a
+        :class:`PriorityClass` (ORCH-1.98) for their whole background
+        lifetime — pass ``PriorityClass.BACKGROUND_INGESTION`` for a broad
+        catalog sweep so it yields shared-resource contention to
+        interactive/orchestration work; leave unset to inherit the
+        caller's ambient priority (the default — appropriate for a small,
+        caller-named set of servers on the interactive path).
+
+        ``servers`` narrows a latency-sensitive first stage without
+        creating a second probe path."""
         catalog = self.load_catalog()
         candidates = (
             catalog if servers is None else (s for s in servers if s in catalog)
@@ -2076,13 +2479,17 @@ class MCPMultiplexer:
         if budget is not None and not 0.001 <= budget <= 300.0:
             raise ValueError("catalog probe budget is outside the safety boundary")
 
-        sem = asyncio.Semaphore(16)
+        scope = (
+            priority_scope(priority)
+            if priority is not None
+            else contextlib.nullcontext()
+        )
+        with scope:
+            tasks = {
+                self._ensure_probing(server, force=force, timeout=timeout): server
+                for server in targets
+            }
 
-        async def _guarded(s: str) -> None:
-            async with sem:
-                await self.probe_server(s, force=force, timeout=timeout)
-
-        tasks = {asyncio.create_task(_guarded(server)): server for server in targets}
         if budget is None:
             await asyncio.gather(*tasks, return_exceptions=True)
             return self._probe_cache
@@ -2091,19 +2498,29 @@ class MCPMultiplexer:
         if not pending:
             return self._probe_cache
 
-        # Interactive capability discovery is latency-sensitive.  Do not make a
-        # caller wait for the slowest of a large fleet: cancel outstanding probes
-        # and return a truthful per-server availability result.  The next explicit
-        # force probe (for example boot ingestion) is allowed to retry them.
+        now = time.time()
         result = dict(self._probe_cache)
         for task in pending:
             server = tasks[task]
-            task.cancel()
-            result[server] = {
-                "tools": [],
-                "error": f"catalog discovery budget exceeded after {budget:g}s",
-            }
-        await asyncio.gather(*pending, return_exceptions=True)
+            prior = self._probe_cache.get(server)
+            if prior is not None:
+                # Only reachable via an explicit force re-probe (a non-forced
+                # target is by definition not yet cached) — serve the last
+                # known answer rather than a bare "unavailable", labelled so
+                # the caller knows it is not this round's live result.
+                stale = dict(prior)
+                stale["stale"] = True
+                stale["age_s"] = round(now - prior.get("probed_at", now), 3)
+                result[server] = stale
+            else:
+                result[server] = {
+                    "tools": [],
+                    "error": (
+                        f"still probing after {budget:g}s (no result yet) — "
+                        "the probe continues in the background; call again shortly"
+                    ),
+                    "pending": True,
+                }
         return result
 
     @staticmethod
@@ -2169,19 +2586,34 @@ class MCPMultiplexer:
         embed = self._embed_fn
         if embed is None:
             return
-        tools: list[tuple[str, str]] = []  # (bare_tool, cache_key)
+        # Tools AND skills, in ONE pass. Skills were previously skipped entirely,
+        # so `semantic.get(skill, ...)` in discover_tools always returned 0.0 and
+        # skills were ranked on token overlap alone while tools additionally got a
+        # cosine term. That is not one capability space: whenever the embedder is
+        # warm — the production condition this whole feature exists for — skills
+        # were structurally under-ranked against tools for any query where intent
+        # similarity matters more than literal token overlap.
+        names: list[tuple[str, str]] = []  # (bare_name, cache_key)
         pending_text: list[str] = []
         pending_key: list[str] = []
         for server, info in probe.items():
             if info.get("error"):
                 continue
-            for entry in info.get("tools", []):
-                tool = entry["name"]
-                key = f"{server}::{tool}"
-                tools.append((tool, key))
-                if key not in self._tool_embeddings:
-                    pending_text.append(f"{tool}. {entry.get('description', '')}"[:512])
-                    pending_key.append(key)
+            for kind in ("tools", "skills"):
+                for entry in info.get(kind, []) or []:
+                    name = entry.get("name")
+                    if not name:
+                        continue
+                    # Namespaced by kind as well as server: a skill and a tool may
+                    # legitimately share a name on the same server, and they must
+                    # not share one cached embedding.
+                    key = f"{server}::{kind}::{name}"
+                    names.append((name, key))
+                    if key not in self._tool_embeddings:
+                        pending_text.append(
+                            f"{name}. {entry.get('description', '')}"[:512]
+                        )
+                        pending_key.append(key)
         try:
             if pending_text:
                 vecs = await asyncio.to_thread(embed, pending_text)
@@ -2197,12 +2629,12 @@ class MCPMultiplexer:
             return
         if not qv:
             return
-        for tool, key in tools:
+        for name, key in names:
             vec = self._tool_embeddings.get(key)
             if vec:
                 c = _cosine(qv, vec)
                 if c > 0:
-                    semantic[tool] = max(semantic.get(tool, 0.0), c)
+                    semantic[name] = max(semantic.get(name, 0.0), c)
 
     async def discover_tools(
         self, query: str, top_k: int | None = None, loaded: set[str] | None = None
@@ -2234,7 +2666,16 @@ class MCPMultiplexer:
             probe = {}
         remaining = deadline - loop.time()
         if remaining >= 0.001:
-            probe = await self.probe_catalog(budget=remaining)
+            # The broad fleet-wide sweep (every server, not just the
+            # query-relevant ones already probed above) is a background
+            # warm-up, not itself the interactive answer — tag it
+            # BACKGROUND_INGESTION (ORCH-1.98) so it yields shared-resource
+            # contention to interactive/orchestration work instead of
+            # competing with it, reusing the ONE existing priority gate
+            # rather than inventing a second (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+            probe = await self.probe_catalog(
+                budget=remaining, priority=PriorityClass.BACKGROUND_INGESTION
+            )
 
         # Semantic scores keyed by bare tool name. When graph-os injects an in-process
         # embedder (attach_fleet_loader), rank every probed tool by query↔description
@@ -2253,12 +2694,25 @@ class MCPMultiplexer:
             except TimeoutError:
                 logger.warning("find_tools semantic rerank exceeded its latency budget")
 
+        # One ranked capability space (CONCEPT:AU-KG.retrieval.unified-capability-contract):
+        # fleet tools AND fleet-served skill:// resources are scored with the
+        # SAME token-overlap+semantic backbone and merged into one ``ranked``
+        # list, each item carrying a ``bind`` dict — the exact kwargs
+        # `graph_orchestrate` needs to run it — so a caller never has to know
+        # in advance whether the winning candidate is a tool or a skill.
         ranked: list[dict] = []
         unavailable: dict[str, str] = {}
+        now = time.time()
         for server, info in probe.items():
             if info.get("error"):
                 unavailable[server] = info["error"]
                 continue
+            # Truthful freshness for every surfaced tool/skill (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+            # a result served from a probe that ran seconds/minutes ago is
+            # still labelled with its real age, not presented as if it were
+            # just measured live.
+            probe_age = round(now - info.get("probed_at", now), 3)
+            is_stale = bool(info.get("stale"))
             for entry in info.get("tools", []):
                 tool = entry["name"]
                 # find_tools surfaces only loadable (enabled) tools, so the
@@ -2273,8 +2727,18 @@ class MCPMultiplexer:
                 if score <= 0:
                     continue
                 prefixed = clean_tool_name(self.server_prefix(server), server, tool)
+                capability = Capability(
+                    kind="tool",
+                    id=f"tool_{server}_{tool}",
+                    name=tool,
+                    description=desc,
+                    score=score,
+                    server=server,
+                    source="fleet_probe",
+                )
                 ranked.append(
                     {
+                        "kind": "tool",
                         "server": server,
                         "tool": tool,
                         "prefixed_name": prefixed,
@@ -2283,6 +2747,43 @@ class MCPMultiplexer:
                         "mountable": server in catalog,
                         "mounted": prefixed
                         in (loaded if loaded is not None else self._exposed),
+                        "bind": capability.to_binding(),
+                        "age_s": probe_age,
+                        "stale": is_stale,
+                    }
+                )
+            for entry in info.get("skills", []) or []:
+                skill = entry.get("name")
+                if not skill:
+                    continue
+                desc = entry.get("description", "")
+                score = semantic.get(skill, 0.0) + self._relevance(
+                    query, f"{skill} {desc}"
+                )
+                if score <= 0:
+                    continue
+                capability = Capability(
+                    kind="skill",
+                    id=f"skill_{server}_{skill}",
+                    name=skill,
+                    description=desc,
+                    score=score,
+                    server=server,
+                    source="fleet_probe",
+                )
+                ranked.append(
+                    {
+                        "kind": "skill",
+                        "server": server,
+                        "skill": skill,
+                        "uri": entry.get("uri", ""),
+                        "description": desc,
+                        "score": round(score, 4),
+                        "mountable": server in catalog,
+                        "mounted": False,
+                        "bind": capability.to_binding(),
+                        "age_s": probe_age,
+                        "stale": is_stale,
                     }
                 )
 
@@ -2316,25 +2817,52 @@ class MCPMultiplexer:
             result = {
                 "server": server,
                 "prefix": prefix,
-                "mounted": server in self.children,
+                # Process-level fact only: the child is spawned. It does NOT
+                # mean any of its tools are callable by the CALLING session —
+                # that per-tool truth is the "mounted" field inside "tools"
+                # below, and it is the ONLY field a caller should read to
+                # decide whether it can dispatch a specific tool right now.
+                "process_running": server in self.children,
                 "probed": True,
                 "available": info.get("error") is None,
                 "error": info.get("error"),
+                "age_s": round(time.time() - info.get("probed_at", time.time()), 3),
             }
             if include_tools:
                 result["tools"] = [
                     {
-                        "prefixed_name": clean_tool_name(prefix, server, t["name"]),
+                        "prefixed_name": prefixed_name,
                         "tool": t["name"],
                         "description": t.get("description", ""),
                         "enabled": self._tool_enabled(server, t["name"]),
+                        # Session-scoped dispatch truth (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+                        # derived from the SAME predicate the dispatch gate
+                        # (SessionVisibilityMiddleware) enforces, so this can
+                        # never claim a tool is usable when a call would
+                        # actually be rejected.
+                        "mounted": self.tool_dispatchable(prefixed_name),
                     }
                     for t in info.get("tools", [])
+                    for prefixed_name in (clean_tool_name(prefix, server, t["name"]),)
                 ]
             return result
 
-        probe = await self.probe_catalog() if include_tools else dict(self._probe_cache)
+        if include_tools:
+            from agent_utilities.core.config import config as agent_config
 
+            # A whole-fleet browse is a background sweep, not a targeted
+            # interactive lookup: bound it by the same interactive discovery
+            # budget as find_tools (a server that never answers must not hang
+            # this call indefinitely) and tag it BACKGROUND_INGESTION so it
+            # yields to interactive/orchestration work (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+            probe = await self.probe_catalog(
+                budget=agent_config.mcp_dynamic_discovery_timeout,
+                priority=PriorityClass.BACKGROUND_INGESTION,
+            )
+        else:
+            probe = dict(self._probe_cache)
+
+        now = time.time()
         servers: list[dict] = []
         for name in catalog:
             probed = name in probe
@@ -2356,21 +2884,36 @@ class MCPMultiplexer:
                 "prefix": prefix,
                 "tool_count": len(tool_entries),
                 "enabled_count": len(enabled_names),
-                "mounted": name in self.children,
+                # Process-level fact only (the child is spawned) — NOT a claim
+                # that any tool is callable by the caller's own session. See
+                # "dispatchable_tools" for the truthful, session-scoped answer.
+                "process_running": name in self.children,
                 "probed": probed,
                 "available": info.get("error") is None if probed else None,
             }
+            if probed:
+                entry["pending"] = bool(info.get("pending"))
+                entry["stale"] = bool(info.get("stale"))
+                if "probed_at" in info:
+                    entry["age_s"] = round(now - info["probed_at"], 3)
             if info.get("error"):
                 entry["error"] = info["error"]
             if include_tools:
                 entry["tools"] = enabled_names
                 if disabled_names:
                     entry["disabled_tools"] = disabled_names
+                # Session-scoped dispatch truth (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+                # the subset of `tools` the CALLING session could actually
+                # invoke right now, derived from the same predicate the
+                # dispatch gate enforces (MCPMultiplexer.tool_dispatchable).
+                entry["dispatchable_tools"] = [
+                    pn for pn in enabled_names if self.tool_dispatchable(pn)
+                ]
             servers.append(entry)
         return {
             "total_servers": len(servers),
             "total_tools": sum(s["tool_count"] for s in servers),
-            "mounted": sorted(self.children.keys()),
+            "servers_running": sorted(self.children.keys()),
             "unavailable": [s["server"] for s in servers if s["available"] is False],
             "servers": servers,
         }
@@ -2384,20 +2927,33 @@ class MCPMultiplexer:
         request and compute the set of prefixed names to expose.
 
         Returns ``(mounted_servers, prefixed_names_to_expose, failed)`` where
-        ``failed`` maps each server that could not be mounted to a human-readable
-        reason (e.g. an unreachable remote server). Does NOT touch FastMCP —
-        registration of the live tools (and the list_changed notification) is the
-        caller's job so this stays unit-testable.
+        ``failed`` maps each server OR each explicitly requested tool name that
+        could not be resolved to a human-readable reason (e.g. an unreachable
+        remote server, or a tool the owning server never actually registered —
+        disabled by config, renamed, or dropped by its own admission policy).
+        A requested tool that does not end up resolvable is NEVER silently
+        left out of both ``to_expose`` and ``failed`` — the caller must be
+        told exactly which of its requested names didn't make it, so the
+        reported state can never claim a tool is loadable when the dispatcher
+        cannot actually reach it. Does NOT touch FastMCP — registration of
+        the live tools (and the list_changed notification) is the caller's
+        job so this stays unit-testable.
         """
         requested_tools = list(tools or [])
         target_servers: set[str] = set(servers or [])
+        unresolved_tools: list[str] = []
         for prefixed in requested_tools:
             owner = self._server_for_prefixed(prefixed)
             if owner:
                 target_servers.add(owner)
+            else:
+                unresolved_tools.append(prefixed)
 
         mounted: list[str] = []
-        failed: dict[str, str] = {}
+        failed: dict[str, str] = {
+            name: "tool is not present in the fleet catalog"
+            for name in unresolved_tools
+        }
         for server in sorted(target_servers):
             await self.mount_child(server)
             if server in self.children:
@@ -2426,6 +2982,20 @@ class MCPMultiplexer:
             for name in sorted(wanted)
             if name in self.tool_to_server and name not in self._exposed
         ]
+        # A requested tool whose owning server mounted but that never actually
+        # registered (disabled by config, or dropped by the child's runtime
+        # admission policy) must not vanish silently — it belongs in `failed`,
+        # not in a phantom `newly_exposed`/`mounted` claim.
+        for prefixed in requested_tools:
+            if prefixed in self.tool_to_server or prefixed in failed:
+                continue
+            owner = self._server_for_prefixed(prefixed)
+            if owner is not None and owner in failed:
+                continue  # already explained by the server-level failure
+            failed[prefixed] = (
+                "tool is not registered by its owning server "
+                "(disabled by config or rejected by its runtime policy)"
+            )
         return mounted, to_expose, failed
 
     def tool_object(self, prefixed_name: str) -> mcp.types.Tool | None:
@@ -2452,6 +3022,59 @@ class MCPMultiplexer:
         """The set of prefixed tools loaded (visible) for one session."""
         return self._session_loaded.setdefault(session_key, set())
 
+    def tool_dispatchable(
+        self, prefixed_name: str, *, session_key: str | None = None
+    ) -> bool:
+        """Whether ``prefixed_name`` is ACTUALLY callable right now for a session.
+
+        Single source of truth for "can this session dispatch this tool" —
+        the exact predicate :class:`SessionVisibilityMiddleware` enforces at
+        the ``tools/call`` gate. Every status-reporting surface (``list_catalog``,
+        ``find_tools``, ``load_tools``) MUST derive its "mounted"/"loaded" claims
+        from this one function instead of re-deriving the same logic against a
+        parallel bookkeeping structure (e.g. ``server in self.children``, which
+        only reflects the CHILD PROCESS being up, not whether THIS session may
+        call one of its tools) — that divergence is exactly the control-plane
+        truthfulness bug this exists to close: a caller must never be told a
+        tool is usable when the dispatch gate would reject it.
+        """
+        if prefixed_name in self._global_visible:
+            return True
+        if prefixed_name in self._local_gated:
+            key = session_key if session_key is not None else _session_key()
+            return prefixed_name in self._session_loaded.get(key, set())
+        # ``_server_for_prefixed`` resolves ownership from the catalog's
+        # collision-free prefix map, which works even BEFORE the owning child
+        # is mounted — so this branch also catches a probed-but-never-mounted
+        # fleet tool, not just an already-mounted one.
+        if self._server_for_prefixed(prefixed_name) is not None:
+            # A KNOWN fleet tool (its owning server is at least catalogued,
+            # whether or not it has been mounted yet) is only dispatchable
+            # once ``load_tools`` actually registered a live forwarder for it
+            # (``_exposed``) AND this session has it loaded. Being merely
+            # catalogued/mountable is not enough — that gap (catalog says it
+            # exists vs. a forwarder was ever built) is exactly what let
+            # ``list_catalog``/``find_tools`` claim a tool was usable before
+            # any session had loaded it.
+            if prefixed_name not in self._exposed:
+                return False
+            key = session_key if session_key is not None else _session_key()
+            return prefixed_name in self._session_loaded.get(key, set())
+        # Unknown to the multiplexer's own bookkeeping entirely — e.g. a
+        # native host tool registered directly on the FastMCP server outside
+        # the progressive-disclosure surface. Nothing here can gate it, so it
+        # is unconditionally callable, matching how the dispatch middleware
+        # (which only ever sees already-registered tool names) treats it.
+        return True
+
+    def prune_session_visibility(self, session_key: str) -> None:
+        """Drop empty per-session visibility state after explicit retraction."""
+        if not self._auto_unload.get(session_key):
+            self._auto_unload.pop(session_key, None)
+        if not self._session_loaded.get(session_key):
+            self._session_loaded.pop(session_key, None)
+            self._auto_unload.pop(session_key, None)
+
     def requested_prefixed(
         self, tools: list[str] | None, servers: list[str] | None
     ) -> list[str]:
@@ -2467,12 +3090,37 @@ class MCPMultiplexer:
             wanted.update(t.name for t in self.prefixed_tools_for_server(server))
         return sorted(n for n in wanted if n in self.tool_to_server)
 
+    def _mounted_tool_counts(self) -> dict[str, int]:
+        """Live forwarding tools currently registered, per child server.
+
+        ``_exposed`` holds the prefixed names registered as real FastMCP tools;
+        ``tool_to_server`` resolves each back to its child. In dynamic mode a
+        catalogued-but-unmounted child legitimately counts zero.
+        """
+        counts: dict[str, int] = {name: 0 for name in self.children}
+        for prefixed in self._exposed:
+            entry = self.tool_to_server.get(prefixed)
+            if entry is not None:
+                counts[entry[0]] = counts.get(entry[0], 0) + 1
+        return counts
+
     def status_snapshot(self) -> dict[str, Any]:
-        """Fleet health surface: per-child state, limits, load, restarts."""
-        return {
+        """Fleet health surface: per-child state, limits, load, restarts.
+
+        CONCEPT:AU-ECO.multiplexer.running-vs-dispatchable-metrics — this is the
+        ONE producer of child health, rendered two ways: the
+        ``multiplexer_status`` tool returns the dict, and the Prometheus child
+        gauges are published from the very same dict on the way out, so the
+        scrape and the tool can never disagree. ``mounted_tools`` makes the
+        process-up / tools-callable distinction explicit in the payload instead
+        of leaving it implied by a child's absence from ``children``.
+        """
+        mounted = self._mounted_tool_counts()
+        snapshot = {
             "children": {
                 name: {
                     **runtime.status(),
+                    "mounted_tools": mounted.get(name, 0),
                     **(
                         {"catalog_fingerprint": self._child_catalog_fingerprints[name]}
                         if name in self._child_catalog_fingerprints
@@ -2484,9 +3132,41 @@ class MCPMultiplexer:
             "total_children": len(self.children),
             "total_tools": len(self.aggregated_tools),
         }
+        try:
+            from agent_utilities.observability.gateway_metrics import (
+                publish_multiplexer_child_gauges,
+            )
+
+            publish_multiplexer_child_gauges(snapshot)
+        except Exception as exc:
+            # Metrics must never break the health surface — but never silently:
+            # a health snapshot that stopped feeding the scrape is exactly the
+            # kind of blind spot these gauges exist to remove.
+            logger.warning(
+                "Could not publish multiplexer child gauges (exception_type=%s): %s",
+                type(exc).__name__,
+                exc,
+            )
+        return snapshot
 
     async def aclose(self) -> None:
         """Shut down every child runtime and direct stack registration."""
+        # Background catalog probes (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) are
+        # deliberately left running past an interactive call's own budget so a
+        # later call can benefit from their result — but they must not outlive
+        # the multiplexer itself. Cancel them here; each already carries its
+        # own try/except around the connect, so cancellation is a clean abort,
+        # not a leaked subprocess/session.
+        # ``_probe_tasks``, not ``_probe_inflight`` — the latter only holds the
+        # JOINABLE probe per server, so cancelling from it would leave a forced
+        # re-probe running after the multiplexer it belongs to is gone.
+        inflight = tuple(self._probe_tasks)
+        for task in inflight:
+            task.cancel()
+        if inflight:
+            await asyncio.gather(*inflight, return_exceptions=True)
+        self._probe_inflight.clear()
+        self._probe_tasks.clear()
         policies = tuple(self._child_runtime_policies.values())
         try:
             for runtime in self.children.values():
@@ -2533,7 +3213,7 @@ def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
         else:
             with mux._authority_scope():
                 result = await mux.call_proxied_tool(prefixed_name, kwargs)
-        if bool(getattr(result, "isError", False)):
+        if bool(getattr(result, "is_error", False)):
             # ``ToolResult`` has no error bit. Returning one here silently
             # converts a child MCP failure into an outer success, so raise the
             # framework's typed error exactly as FastMCP's native proxy does.
@@ -2541,7 +3221,7 @@ def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
             raise ToolError("delegated_child_tool_failed")
         return ToolResult(
             content=list(getattr(result, "content", []) or []),
-            structured_content=getattr(result, "structuredContent", None),
+            structured_content=getattr(result, "structured_content", None),
         )
 
     return _forward
@@ -2569,7 +3249,7 @@ def _register_forwarder(mcp, mux: MCPMultiplexer, tool: mcp.types.Tool) -> bool:
     """
     if tool.name in mux._exposed:
         return False
-    schema = tool.inputSchema or {"type": "object", "properties": {}}
+    schema = tool.input_schema or {"type": "object", "properties": {}}
     mcp.add_tool(
         FunctionTool(
             name=tool.name,
@@ -2610,16 +3290,38 @@ def _register_status_tool(mcp, mux: MCPMultiplexer) -> None:
     )
 
 
-async def _notify_tools_changed(mcp) -> None:
+async def _notify_tools_changed(mcp) -> bool:
     """Emit ``notifications/tools/list_changed`` so the client re-fetches the
-    tool list after a dynamic mount/unmount. Best-effort: a missing request
-    context (e.g. no client attached) must not fail the meta-tool."""
-    try:
-        from fastmcp.server.dependencies import get_context
+    tool list after a dynamic mount/unmount.
 
-        await get_context().send_notification(mcp_types.ToolListChangedNotification())
-    except Exception as e:  # pragma: no cover - context not always present
-        logger.warning("Could not send tools/list_changed notification: %s", e)
+    Returns whether the push actually reached the client. A missing request
+    context (e.g. eager startup with no client attached yet) is an expected,
+    silent no-op — but a LIVE client that rejected or dropped the notification
+    is a real failure and must not be swallowed into a log line only the
+    server operator sees: a caller (``load_tools``/``unload_tools``) that
+    reported success while the client's tool list silently went stale is
+    exactly the control-plane-truthfulness gap this exists to prevent
+    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Callers surface the
+    returned flag to the agent so it can tell its own tool list may be stale
+    instead of discovering it only via a later "no such tool" failure.
+    """
+    from fastmcp.server.dependencies import get_context
+
+    try:
+        context = get_context()
+    except RuntimeError:
+        # No active request context at all — not a client-facing failure.
+        return False
+    try:
+        await context.send_notification(mcp_types.ToolListChangedNotification())
+    except Exception as exc:
+        logger.warning(
+            "tools/list_changed notification failed to reach the client: %s",
+            exc,
+            exc_info=True,
+        )
+        return False
+    return True
 
 
 def _session_key() -> str:
@@ -2628,6 +3330,12 @@ def _session_key() -> str:
     On a shared streamable-http server every client gets its own
     ``Context.session_id``; with no session context (stdio / single-client) all
     requests fall back to one key so behaviour matches the pre-Phase-5 server.
+
+    The HTTP-context check MUST run before consulting ``Context.session_id``:
+    fastmcp 4's ``Context.session_id`` no longer raises when there is no real
+    (HTTP) session — for stdio/in-memory transports it silently mints a fresh
+    UUID on every single call (no stable ``connection`` to cache it on), which
+    would otherwise give every call in the same local session a different key.
     """
     try:
         from fastmcp.server.dependencies import (
@@ -2636,20 +3344,24 @@ def _session_key() -> str:
             get_http_request,
         )
 
-        sid = get_context().session_id
-        if sid:
-            return str(sid)
-    except Exception as exc:
-        logger.debug(
-            "No session context (stdio/single-client); trying next key source: %s",
-            exc,
-        )
-    try:
         get_http_request()
     except RuntimeError:
         return "__local_stdio__"
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: this is a per-request CONTROL-FLOW probe ("is there an HTTP request context?"), not an error path. Every stdio/local call takes it, so WARNING here would emit one line per request. The cause is preserved (interpolated) and the outcome is encoded in the returned key.
+        logger.debug(
+            "No HTTP request context; trying next key source: %s",
+            exc,
+        )
         return "__invalid_http_context__"
+    try:
+        sid = get_context().session_id
+        if sid:
+            return str(sid)
+    except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: same per-request probe as above, one rung down the key-source cascade (session_id -> token -> unauthenticated). Absence is the NORMAL case for an unauthenticated caller, not a failure; the cause is preserved and the cascade continues below.
+        logger.debug(
+            "HTTP context present but no session_id; falling back to token key: %s",
+            exc,
+        )
     try:
         token = get_access_token()
     except Exception:
@@ -2685,24 +3397,12 @@ class SessionVisibilityMiddleware(Middleware):
         self.mux = mux
         self._mcp = mcp
 
-    def _gated(self, name: str) -> bool:
-        """Whether ``name`` is subject to session-scoped visibility at all.
-
-        Two independent populations are gated the same way: fleet forwarders
-        (``_exposed`` — must be mounted via ``load_tools``) and the host
-        server's OWN granular tools held back under ``MCP_TOOL_MODE=intent``
-        (``_local_gated`` — already registered locally, just hidden by
-        default; CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse). Everything else (native
-        tools in neither set, meta-tools) is ungated — always visible.
-        """
-        return name in self.mux._exposed or name in self.mux._local_gated
-
     def _visible(self, name: str) -> bool:
-        if name in self.mux._global_visible:
-            return True
-        if not self._gated(name):
-            return True
-        return name in self.mux._session_loaded.get(_session_key(), set())
+        # Delegates to the SAME single-source-of-truth predicate every
+        # status-reporting tool now uses (:meth:`MCPMultiplexer.tool_dispatchable`)
+        # so what a session is TOLD it can call and what it can ACTUALLY call
+        # are structurally the same computation, never two that can drift.
+        return self.mux.tool_dispatchable(name)
 
     async def on_list_tools(self, context, call_next):
         tools = await call_next(context)
@@ -2710,15 +3410,8 @@ class SessionVisibilityMiddleware(Middleware):
 
     async def on_call_tool(self, context, call_next):
         name = getattr(context.message, "name", None)
-        # Only gate tools that are actually gated (registered but not globally
-        # visible); a tool this session hasn't loaded behaves as "unknown" until
-        # load_tools.
-        if (
-            name
-            and self._gated(name)
-            and name not in self.mux._global_visible
-            and name not in self.mux._session_loaded.get(_session_key(), set())
-        ):
+        # A tool this session hasn't loaded behaves as "unknown" until load_tools.
+        if name and not self.mux.tool_dispatchable(name):
             raise ToolError(
                 f"Tool '{name}' is not loaded in this session. "
                 f"Call load_tools(tools=['{name}']) first."
@@ -2732,6 +3425,7 @@ class SessionVisibilityMiddleware(Middleware):
         if name and auto and name in auto:
             auto.discard(name)
             self.mux._session_loaded.get(session_key, set()).discard(name)
+            self.mux.prune_session_visibility(session_key)
             if self._mcp is not None:
                 await _notify_tools_changed(self._mcp)
         return result
@@ -2793,13 +3487,18 @@ async def load_session_tools(
     # Make the full resolved set visible to THIS session (incl. tools another
     # session already registered).
     session_names = mux.requested_prefixed(fleet_tools, servers) + local_names
-    loaded = mux.session_loaded(_session_key())
+    session_key = _session_key()
+    loaded = mux.session_loaded(session_key)
     newly = [n for n in session_names if n not in loaded]
     loaded.update(session_names)
     if auto_unload and newly:
-        mux._auto_unload.setdefault(_session_key(), set()).update(newly)
-    if newly:
-        await _notify_tools_changed(mcp)
+        mux._auto_unload.setdefault(session_key, set()).update(newly)
+    # Truthfully report whether the client was actually told its tool list
+    # changed. A caller whose client doesn't (yet) know a newly_exposed name
+    # will see calls to it fail client-side ("no such tool") even though the
+    # server-side registration succeeded — ``notified: False`` here is the
+    # signal that distinguishes that from a genuine dispatch failure.
+    notified = await _notify_tools_changed(mcp) if newly else True
     return {
         "mounted_servers": mounted_servers,
         "newly_exposed": newly,
@@ -2807,6 +3506,7 @@ async def load_session_tools(
         "session_total": len(loaded),
         "total_registered": len(mux._exposed) + len(mux._local_gated),
         "auto_unload": bool(auto_unload) and newly,
+        "notified": notified,
     }
 
 
@@ -2829,7 +3529,8 @@ async def unload_session_tools(
     stays process-global so another session (or a future ``load_tools`` call
     in this one) is unaffected/instant.
     """
-    loaded = mux.session_loaded(_session_key())
+    session_key = _session_key()
+    loaded = mux.session_loaded(session_key)
     names: set[str] = set(tools or [])
     for server in servers or []:
         if server in (mux._skip_servers or ()):
@@ -2839,14 +3540,14 @@ async def unload_session_tools(
     names.update(_tools_with_tag(mcp, toolsets))
 
     removed = [n for n in sorted(names) if n in loaded]
-    auto = mux._auto_unload.get(_session_key())
+    auto = mux._auto_unload.get(session_key)
     for name in removed:
         loaded.discard(name)
         if auto:
             auto.discard(name)
-    if removed:
-        await _notify_tools_changed(mcp)
-    return {"unloaded": removed, "session_total": len(loaded)}
+    mux.prune_session_visibility(session_key)
+    notified = await _notify_tools_changed(mcp) if removed else True
+    return {"unloaded": removed, "session_total": len(loaded), "notified": notified}
 
 
 def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
@@ -2969,12 +3670,17 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
             name="list_catalog",
             description=(
                 "Browse the ENTIRE MCP fleet: every configured server with its "
-                "tool count, tool names, reachability, and whether it's mounted. "
-                "This is the flat 'show me everything available' view (find_tools "
+                "tool count, tool names, and reachability. 'process_running' "
+                "means the server's child process is up — it does NOT mean a "
+                "tool is callable by YOU yet. Per-tool 'mounted' (drill-down) "
+                "and 'dispatchable_tools' (all-servers view) are the truthful, "
+                "session-scoped answer to 'can I call this right now' — call "
+                "load_tools first if a tool you want isn't in either. This is "
+                "the flat 'show me everything available' view (find_tools "
                 "is the semantic 'find the right tool for X' search). Pass a "
                 "'server' name to drill into just that one and get its full tool "
-                "list with descriptions. Then use load_tools to make tools "
-                "callable. First call probes the fleet (a few seconds); cached after."
+                "list with descriptions. First call probes the fleet (a few "
+                "seconds); cached after."
             ),
             parameters={
                 "type": "object",
@@ -3005,8 +3711,12 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
                 "tools held back under the condensed intent-surface profile — "
                 "pass their bare name, e.g. 'graph_query'). Spawns the owning "
                 "child servers on first use and notifies the client that the "
-                "tool list changed. Any server that can't be reached is "
-                "reported in the 'failed' map instead of erroring the whole "
+                "tool list changed — check the response's 'notified' field: "
+                "if false, your OWN client may not have refreshed its tool "
+                "list yet, so a newly_exposed name can still fail with "
+                "'no such tool' until you retry. Any server or specific tool "
+                "that can't be reached/registered is reported in the 'failed' "
+                "map (never silently dropped) instead of erroring the whole "
                 "call. Set auto_unload=true for a ONE-SHOT tool: it is "
                 "automatically retracted the next time it's called, so a task "
                 "you only need once doesn't linger in your tool list — call "

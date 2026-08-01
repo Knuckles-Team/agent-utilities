@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import mcp.types
@@ -64,7 +65,7 @@ def _fake_tool(
     tool = MagicMock()
     tool.name = name
     tool.description = description
-    tool.inputSchema = schema if schema is not None else {}
+    tool.input_schema = schema if schema is not None else {}
     tool.annotations = None
     # FastMCP propagates tags via _meta; the multiplexer reads tool.meta.
     tool.meta = {"fastmcp": {"tags": list(tags)}} if tags is not None else None
@@ -381,9 +382,145 @@ async def test_probe_catalog_returns_partial_results_within_budget(tmp_path):
     mux.probe_server = AsyncMock(side_effect=slow_probe)  # type: ignore[method-assign]
     result = await mux.probe_catalog(budget=0.01)
 
-    assert (
-        result["slow-mcp"]["error"] == "catalog discovery budget exceeded after 0.01s"
-    )
+    # Honest, per-server "still working" -- NOT the old fixed "budget
+    # exceeded" claim stamped identically on every straggler regardless of
+    # its real state (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+    assert result["slow-mcp"]["pending"] is True
+    assert "still probing" in result["slow-mcp"]["error"]
+    await mux.aclose()  # let the still-running background probe be cancelled cleanly
+
+
+async def test_slow_server_degrades_alone_fast_servers_unaffected(tmp_path):
+    """Requirement: one slow server must not blank the other 60 -- each
+    reports its own state with its own reason (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "c")], "slow-mcp": []})
+
+    async def mixed_probe(server, **_kwargs):
+        if server == CNT:
+            info = {
+                "tools": [{"name": CNT_TOOL, "description": "containers"}],
+                "error": None,
+            }
+            mux._probe_cache[server] = info
+            return info
+        await asyncio.sleep(1)
+        info = {"tools": [], "error": None}
+        mux._probe_cache[server] = info
+        return info
+
+    mux.probe_server = AsyncMock(side_effect=mixed_probe)  # type: ignore[method-assign]
+    result = await mux.probe_catalog(budget=0.05)
+
+    assert result[CNT]["error"] is None
+    assert result[CNT]["tools"][0]["name"] == CNT_TOOL
+    assert result["slow-mcp"]["pending"] is True
+    await mux.aclose()
+
+
+async def test_discovery_succeeds_for_a_previously_timed_out_server(tmp_path):
+    """The core regression this lane fixes: a server that misses the
+    interactive budget must become available on a LATER call once its
+    background probe finishes, via cache -- not be re-probed (and time out
+    again) from scratch on every subsequent call forever
+    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+    mux = _mux_with_children(tmp_path, {"slow-mcp": []})
+    release = asyncio.Event()
+    calls = 0
+
+    async def eventually_probe(server, **_kwargs):
+        nonlocal calls
+        calls += 1
+        await release.wait()
+        info = {
+            "tools": [{"name": "slow_op", "description": "eventually works"}],
+            "error": None,
+        }
+        mux._probe_cache[server] = info
+        return info
+
+    mux.probe_server = AsyncMock(side_effect=eventually_probe)  # type: ignore[method-assign]
+
+    first = await mux.probe_catalog(budget=0.01)
+    assert first["slow-mcp"]["pending"] is True
+    assert "slow-mcp" not in mux._probe_cache
+
+    # The background probe from the FIRST call is still running (it was
+    # never cancelled) -- let it finish now.
+    release.set()
+    await asyncio.sleep(0.05)
+
+    second = await mux.probe_catalog(budget=0.01)
+    assert second["slow-mcp"]["error"] is None
+    assert second["slow-mcp"]["tools"][0]["name"] == "slow_op"
+    # Probed exactly once: the second call joined the SAME in-flight probe
+    # rather than starting a duplicate.
+    assert calls == 1
+
+
+async def test_cached_results_are_labelled_with_age(tmp_path, monkeypatch):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage docker containers")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    fixed_now = 1_000_000.0
+    mux._probe_cache[CNT] = {
+        "tools": [
+            {
+                "name": CNT_TOOL,
+                "description": "manage docker containers",
+                "inputSchema": {},
+            }
+        ],
+        "error": None,
+        "probed_at": fixed_now,
+    }
+
+    monkeypatch.setattr(time, "time", lambda: fixed_now + 42.0)
+    discovery = await mux.discover_tools("manage docker containers", top_k=5)
+    top = discovery["results"][0]
+    assert top["tool"] == CNT_TOOL
+    assert top["age_s"] == 42.0
+    assert top["stale"] is False
+
+    cat = await mux.list_catalog(server=CNT)
+    assert cat["age_s"] == 42.0
+
+
+async def test_concurrent_probes_honor_their_own_per_server_deadline(tmp_path):
+    """Two servers probed concurrently must each fail/succeed on THEIR OWN
+    configured timeout, not a shared ceiling -- and truly concurrently, not
+    serialized (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+    servers = {
+        "quick-timeout-mcp": {
+            "command": "python",
+            "args": ["-m", "x"],
+            "probe_timeout": 0.05,
+        },
+        "slow-answer-mcp": {
+            "command": "python",
+            "args": ["-m", "y"],
+            "probe_timeout": 5.0,
+        },
+    }
+    mux = MCPMultiplexer(_write_config(tmp_path, servers))
+
+    async def _open(server, cfg, stack):
+        if server == "quick-timeout-mcp":
+            await asyncio.sleep(10)  # always exceeds its OWN 0.05s deadline
+        else:
+            await asyncio.sleep(0.1)  # comfortably inside its OWN 5s deadline
+        return _fake_session([("op", "does a thing")])
+
+    mux._open_one_session = AsyncMock(side_effect=_open)  # type: ignore[method-assign]
+
+    t0 = asyncio.get_running_loop().time()
+    result = await mux.probe_catalog()  # no shared budget: purely per-server
+    elapsed = asyncio.get_running_loop().time() - t0
+
+    assert result["quick-timeout-mcp"]["error"] == "timeout after 0.05s"
+    assert result["slow-answer-mcp"]["error"] is None
+    # Ran concurrently: total elapsed tracks the SLOWER server (~0.1s), not
+    # the sum of both (which would be > 10s if serialized).
+    assert elapsed < 2.0
+    await mux.aclose()
 
 
 @pytest.mark.parametrize(
@@ -835,6 +972,61 @@ async def test_per_session_disclosure_isolation(tmp_path):
     assert {"find_tools", "load_tools"} <= b_tools
 
 
+async def test_one_shot_tool_call_prunes_session_visibility_state(tmp_path):
+    """Auto-unload must leave no process-global key after the one-shot call."""
+    from fastmcp import Client, FastMCP
+
+    mux = MCPMultiplexer(tmp_path / "mcp_config.json")
+    mcp = FastMCP("test-mux")
+
+    @mcp.tool()
+    async def graph_jobs() -> str:
+        return "ok"
+
+    mux._local_gated = {"graph_jobs"}
+    _register_meta_tools(mcp, mux)
+    mux._global_visible = {
+        "find_tools",
+        "list_catalog",
+        "load_tools",
+        "unload_tools",
+        "multiplexer_status",
+    }
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "load_tools",
+            {"tools": ["graph_jobs"], "auto_unload": True},
+        )
+        assert len(mux._session_loaded) == 1
+        assert len(mux._auto_unload) == 1
+        await client.call_tool("graph_jobs", {})
+
+    assert mux._session_loaded == {}
+    assert mux._auto_unload == {}
+
+
+async def test_explicit_unload_prunes_session_visibility_state(tmp_path):
+    """List-only one-shot sessions retract visibility before termination."""
+    from fastmcp import Client, FastMCP
+
+    mux = MCPMultiplexer(tmp_path / "mcp_config.json")
+    mcp = FastMCP("test-mux")
+    mux._local_gated = {"graph_jobs"}
+    _register_meta_tools(mcp, mux)
+
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "load_tools",
+            {"tools": ["graph_jobs"], "auto_unload": True},
+        )
+        await client.call_tool("unload_tools", {"tools": ["graph_jobs"]})
+
+    assert mux._session_loaded == {}
+    assert mux._auto_unload == {}
+
+
 async def test_find_tools_meta_returns_structured(tmp_path):
     from fastmcp import FastMCP
 
@@ -927,3 +1119,289 @@ async def test_server_load_holds_verbose(tmp_path):
     verbose_name = next(n for n in mux.tool_to_server if n.endswith("get_thing"))
     _s2, to_expose2, _f2 = await mux.resolve_and_mount(tools=[verbose_name])
     assert verbose_name in to_expose2
+
+
+# --------------------------------------------------------------------------- #
+# Control-plane truthfulness (lane-mcp-desync): reported "mounted"/"loaded"
+# state must derive from the SAME predicate the dispatch gate enforces, never
+# from a parallel bookkeeping structure that can drift from it.
+# --------------------------------------------------------------------------- #
+
+
+async def test_resolve_and_mount_reports_unknown_tool_name_as_failed(tmp_path):
+    """A prefixed name that resolves to no configured server must never be
+    silently dropped from both ``to_expose`` and ``failed`` — the caller needs
+    to know exactly which of its requested names didn't make it."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "a")]})
+    mounted, to_expose, failed = await mux.resolve_and_mount(
+        tools=["zz__totally_bogus"]
+    )
+    assert mounted == []
+    assert to_expose == []
+    assert "zz__totally_bogus" in failed
+
+
+async def test_resolve_and_mount_reports_disabled_requested_tool_as_failed(tmp_path):
+    """A tool explicitly requested by name, whose owning server mounts fine
+    but that config disables, must show up in ``failed`` — not vanish while
+    ``mounted_servers`` still claims success."""
+    mux = _mux_with_children(
+        tmp_path, {CNT: [(CNT_TOOL, "a"), ("cm_info_operations", "b")]}
+    )
+    _seed_disabled(mux, CNT, ["cm_info_operations"])
+
+    mounted, to_expose, failed = await mux.resolve_and_mount(tools=[CNT_INFO_PREFIXED])
+
+    assert mounted == [CNT]
+    assert CNT_INFO_PREFIXED not in to_expose
+    assert CNT_INFO_PREFIXED in failed
+
+
+async def test_tool_dispatchable_false_for_catalogued_but_unmounted_tool(tmp_path):
+    """A tool the catalog KNOWS about (via the prefix map) but that has never
+    been mounted/exposed must report as NOT dispatchable — the optimistic
+    'not gated -> visible' fallback is only valid for tools the multiplexer's
+    own bookkeeping has no opinion on at all (e.g. native host tools)."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "a")]})
+    assert mux.tool_dispatchable(CNT_PREFIXED, session_key="any-session") is False
+
+
+async def test_tool_dispatchable_is_session_scoped_after_expose(tmp_path):
+    """Reproduces the reported parent-vs-subagent asymmetry at the state layer:
+    once a tool is globally exposed (registered as a live forwarder), it is
+    dispatchable ONLY for the session(s) that actually loaded it — a second,
+    brand-new session must see it as not-yet-dispatchable even though the
+    forwarder already exists process-globally."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "a")]})
+    _mounted, to_expose, failed = await mux.resolve_and_mount(servers=[CNT])
+    assert failed == {}
+    for name in to_expose:
+        mux._exposed.add(name)  # simulates _register_forwarder's bookkeeping
+
+    mux.session_loaded("session-A").add(CNT_PREFIXED)
+
+    assert mux.tool_dispatchable(CNT_PREFIXED, session_key="session-A") is True
+    assert mux.tool_dispatchable(CNT_PREFIXED, session_key="session-B") is False
+
+
+async def test_list_catalog_mounted_matches_dispatch_reality_across_sessions(
+    tmp_path,
+):
+    """End-to-end reproduction of the control-plane desync report: session A's
+    load_tools call makes a tool globally registered, but list_catalog must
+    tell a DIFFERENT session B the truth about what B can dispatch — not what
+    the child process happens to be doing."""
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mux._global_visible = {
+        "find_tools",
+        "list_catalog",
+        "load_tools",
+        "unload_tools",
+        "multiplexer_status",
+    }
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    async with Client(mcp) as a:
+        await a.call_tool("load_tools", {"servers": [CNT]})
+
+        async with Client(mcp) as b:
+            cat_b = await b.call_tool("list_catalog", {"server": CNT})
+            payload_b = cat_b.structured_content
+            entry_b = next(
+                t for t in payload_b["tools"] if t["prefixed_name"] == CNT_PREFIXED
+            )
+            # The child process IS running (session A mounted it)...
+            assert payload_b["process_running"] is True
+            # ...but session B never loaded it, so list_catalog must NOT claim
+            # it's dispatchable — and an actual call must agree with that claim.
+            assert entry_b["mounted"] is False
+            with pytest.raises(ToolError):
+                await b.call_tool(CNT_PREFIXED, {})
+
+        # Session A, which DID load it, is told the truth the other way.
+        cat_a = await a.call_tool("list_catalog", {"server": CNT})
+        entry_a = next(
+            t
+            for t in cat_a.structured_content["tools"]
+            if t["prefixed_name"] == CNT_PREFIXED
+        )
+        assert entry_a["mounted"] is True
+
+
+async def test_notify_tools_changed_returns_false_without_request_context():
+    from agent_utilities.mcp.multiplexer import _notify_tools_changed
+
+    sent = await _notify_tools_changed(None)
+    assert sent is False
+
+
+async def test_notify_tools_changed_surfaces_send_failure(monkeypatch, caplog):
+    """A LIVE client that rejects/drops the push must be visible via the
+    return value (and logged with its real cause) — never swallowed into
+    silence the caller can't observe (CLAUDE.md: never swallow an exception)."""
+    import logging
+
+    from agent_utilities.mcp.multiplexer import _notify_tools_changed
+
+    class _FailingContext:
+        async def send_notification(self, _note):
+            raise RuntimeError("client transport gone")
+
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_context", lambda: _FailingContext()
+    )
+
+    with caplog.at_level(logging.WARNING, logger="mcp_multiplexer"):
+        sent = await _notify_tools_changed(None)
+
+    assert sent is False
+    assert any("list_changed" in r.message for r in caplog.records)
+
+
+async def test_load_tools_reports_notified_true_inside_a_live_session(tmp_path):
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("load_tools", {"servers": [CNT]})
+
+    assert result.structured_content["newly_exposed"]
+    assert result.structured_content["notified"] is True
+
+
+async def test_load_tools_reports_not_notified_outside_a_request_context(tmp_path):
+    """Calling the core helper with no live client context (e.g. the tool's
+    own ``.fn()`` invoked directly, as in ``test_meta_tools_registered_and_load_exposes``)
+    must be truthful that the client was never actually told — a caller that
+    only checked ``newly_exposed`` would otherwise wrongly assume its own
+    client's tool list is already fresh."""
+    from agent_utilities.mcp.multiplexer import load_session_tools
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    from fastmcp import FastMCP
+
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+
+    payload = await load_session_tools(mcp, mux, servers=[CNT])
+
+    assert payload["newly_exposed"]
+    assert payload["notified"] is False
+
+
+async def test_forced_reprobe_does_not_evict_a_live_joinable_probe(tmp_path):
+    """A forced re-probe runs as its OWN task; when it settles it must not
+    retract a DIFFERENT, still-running non-forced probe from the join map.
+
+    Regression: ``_settle_probe_task`` popped ``_probe_inflight[server]``
+    unconditionally, so a fast forced probe finishing while a slow shared probe
+    was still running left that shared probe untracked -- a later call spawned a
+    duplicate of an already-in-flight probe, and ``aclose`` no longer knew to
+    cancel it.
+    """
+    mux = _mux_with_children(tmp_path, {"slow-mcp": []})
+    release = asyncio.Event()
+
+    async def probe(server, force=False, timeout=None):
+        if not force:
+            await release.wait()
+        return {"tools": [], "error": None}
+
+    mux.probe_server = AsyncMock(side_effect=probe)  # type: ignore[method-assign]
+
+    shared = mux._ensure_probing("slow-mcp", force=False, timeout=None)
+    forced = mux._ensure_probing("slow-mcp", force=True, timeout=None)
+    assert forced is not shared
+    await forced
+
+    # The slow shared probe is still running and still joinable.
+    assert mux._probe_inflight.get("slow-mcp") is shared
+    assert mux._ensure_probing("slow-mcp", force=False, timeout=None) is shared
+
+    release.set()
+    await shared
+    assert "slow-mcp" not in mux._probe_inflight
+    await mux.aclose()
+
+
+async def test_aclose_cancels_a_forced_probe_too(tmp_path):
+    """``aclose`` must cancel EVERY live probe, not just the joinable ones --
+    a forced re-probe is never in ``_probe_inflight`` and used to outlive the
+    multiplexer that spawned it."""
+    mux = _mux_with_children(tmp_path, {"slow-mcp": []})
+
+    async def never_finishes(server, force=False, timeout=None):
+        await asyncio.Event().wait()
+        return {"tools": [], "error": None}
+
+    mux.probe_server = AsyncMock(side_effect=never_finishes)  # type: ignore[method-assign]
+
+    forced = mux._ensure_probing("slow-mcp", force=True, timeout=None)
+    await asyncio.sleep(0)
+    assert "slow-mcp" not in mux._probe_inflight  # forced probes are not joinable
+    assert forced in mux._probe_tasks
+
+    await mux.aclose()
+    assert forced.cancelled()
+    assert not mux._probe_tasks
+
+
+async def test_load_tools_changes_the_wire_tool_list_a_live_client_observes(tmp_path):
+    """Track 9 of the pydantic-ai native-adoption program (provider prompt-cache
+    discipline, CONCEPT:AU-ORCH.optimization.provider-prompt-cache — see
+    ``reports/program/pydantic-ai-native-adoption.md``): proves that ``load_tools``
+    changes the ACTUAL tool list an already-connected MCP client's ``list_tools()``
+    returns, not just an internal bookkeeping flag.
+
+    Why this matters for prompt-cache discipline: ``agent_utilities.caching.
+    prompt_cache.fold_prompt_cache_hint`` sets Anthropic's
+    ``anthropic_cache_tool_definitions=True`` by DEFAULT on every agent call —
+    a cache breakpoint at the end of the tools block, banking on that block
+    staying byte-identical across a run. A downstream client's toolset
+    (e.g. ``pydantic_ai.mcp.MCPToolset``, whose own docs state its cached tool
+    list "is cached and invalidated by `notifications/tools/list_changed`")
+    rebuilds ``ModelRequestParameters.function_tools`` from a FRESH
+    ``list_tools()`` the moment it is notified — and ``_notify_tools_changed``
+    (proven elsewhere in this file to fire on every ``load_tools``/``unload_tools``)
+    is exactly that notification. This test proves the tool list the notification
+    refers to is genuinely different, not merely re-sent unchanged: the cache
+    breakpoint at the tools block is invalidated on every dynamic load/unload
+    mid-run, for any client honoring the notification as designed. Pydantic-ai's
+    native `Capability`/`ToolSearch` deferred-disclosure model (Track 1/2 of the
+    same program) does NOT have this cost — the full tool set is registered from
+    turn one and only a message-history-appended exchange changes, which is
+    prompt-cache-safe by the framework's own design (see
+    ``pydantic_ai.capabilities.ToolSearch``'s docstring).
+    """
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    async with Client(mcp) as client:
+        before = {t.name for t in await client.list_tools()}
+        assert CNT_PREFIXED not in before
+
+        result = await client.call_tool("load_tools", {"servers": [CNT]})
+        assert result.structured_content["notified"] is True
+
+        after = {t.name for t in await client.list_tools()}
+
+    # The exact wire-visible tool set changed mid-session — a client's next
+    # model request carries a DIFFERENT tools array than its first, which is
+    # precisely what invalidates a provider's cache breakpoint set at the end
+    # of that array.
+    assert after != before
+    assert CNT_PREFIXED in after

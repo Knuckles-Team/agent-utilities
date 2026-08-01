@@ -89,6 +89,9 @@ nav:
       - Deploying agent-utilities: guides/deployment.md
       - Configuration: guides/configuration.md
       - Configuration Reference & Flag Audit: architecture/configuration.md
+      - Drift-Proof Release & Versioning: architecture/drift_proof_release.md
+      - Lane Concurrency (four arbitration classes): architecture/lane-concurrency.md
+      - Merge Queue (continuous merge, tiered gate): architecture/merge-queue.md
       - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
       - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
       - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md
@@ -154,11 +157,15 @@ nav:
       - Delegation-First Operating Model (orchestrate + resolve): architecture/delegation-first-operating-model.md
       - agent-utilities-expert (KG-bound delegate): architecture/agent-utilities-expert.md
       - Troubleshooting (cross-layer diagnose): architecture/troubleshooting.md
+      - "RCA: graph-os fleet-mount state desync (D-OB-3)": architecture/rca-mcp-tool-state-desync.md
       - Self-Evolution Flywheel (transparent + steerable): architecture/self-evolution-flywheel.md
+      - Reasoning Algorithms as Versioned Graph Topologies (CoT/ToT/GoT/ReAct/RAP): architecture/reasoning-graph-topologies.md
       - Runtime-Reliability Loop (detect→signal→gap→heal): architecture/runtime-reliability-loop.md
       - Chunked Async Drain (full re-ingest, non-blocking): architecture/chunked-async-drain.md
       - KV-Cache-Layering Policy (per-execution cache-worthiness): architecture/kv-cache-layering-policy.md
+      - KV-Checkpoint Intelligence (when to freeze a context, RAM vs disk): architecture/kv-checkpoint-intelligence.md
       - Intelligent Ingestion (classify/commit-history/tail): architecture/intelligent-ingestion.md
+      - Evidence Spine (Artifact → addressable Fragment): architecture/evidence-spine.md
       - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
       - Orchestrator Migration & Cutover (Swarm→k8s hardening): architecture/orchestrator-migration-cutover.md
@@ -185,9 +192,12 @@ nav:
       - Perspectival Inquiry (STORM, native): architecture/perspectival_inquiry.md
       - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
       - Ontology Library (catalog + anti-drift): architecture/ontology_library.md
+      - Governed JSON-OCEL exchange: architecture/governed_ocel.md
+      - Incremental Object-Centric Derivation + Conformance: architecture/object_centric_derivation_and_conformance.md
       - Camunda + ARIS ↔ Knowledge Graph: architecture/camunda_aris_kg_integration.md
       - CISO Assistant ↔ Knowledge Graph: architecture/ciso_assistant_kg_integration.md
       - Company Brain Runtime: architecture/company_brain_runtime.md
+      - ACL Registration Convergence (write-time + read-time defence in depth): architecture/acl_registration_convergence.md
       - Global Workspace Attention: architecture/global_workspace_attention.md
       - Multi-Agent Social System: architecture/multi_agent_social_system.md
       - In-House Training Substrate: architecture/in_house_training_substrate.md
@@ -202,6 +212,7 @@ nav:
       - Failure-Driven Evolution: architecture/failure_driven_evolution.md
       - The Evolvable Surface (native programs): architecture/evolvable_surface.md
       - Task-Aware Sampling Profiles: architecture/sampling_profiles.md
+      - Model Registry as Graph Resources + Routing Provenance: architecture/model_registry_graph_resources.md
       - Edit-Application Engine: architecture/edit_application_engine.md
       - Durable-State Externalization: architecture/state_externalization.md
       - Adaptive Model Concurrency (vLLM auto-scale): architecture/adaptive_model_concurrency.md
@@ -225,6 +236,9 @@ nav:
       - KG as Bidirectional ETL Hub: architecture/kg_etl_hub.md
       - OWL/RDF Layer (local, always-on): architecture/owl_rdf_layer.md
       - MCP Fleet Authentication (JWT + Eunomia): architecture/mcp_auth.md
+      - MCP v2 Stateless Gateway: architecture/mcp_v2_gateway.md
+      - Skills-over-MCP (unified capability space): architecture/skills_over_mcp.md
+      - fastmcp 4 as the Default (MCP SDK v2 protocol bridge): architecture/fastmcp4-default.md
       - IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load: architecture/identity-inheritance.md
       - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
       - Capacity Model: scaling/capacity_model.md

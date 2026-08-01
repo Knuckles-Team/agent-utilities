@@ -148,9 +148,22 @@ class _GraphReader:
             return []
         try:
             return self.engine.get_nodes_by_label(label, 0) or []
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — best-effort; used only by find_reusable's diagnosis-reuse lookup (paper idea #2), never the retry-cap attempt count (see nodes_by_label_strict)
             logger.debug("ci_recycle: get_nodes_by_label(%s) failed: %s", label, e)
             return []
+
+    def nodes_by_label_strict(self, label: str) -> list[tuple[str, dict[str, Any]]]:
+        """Like :meth:`nodes_by_label` but does not swallow engine errors.
+
+        D-DST-6: for callers that gate a safety check (the retry-cap attempt
+        count in :func:`propose_ci_repair`) on this read and must not silently
+        under-count on a transient failure — an empty ``[]`` here is
+        indistinguishable from "genuinely zero prior attempts" and would
+        defeat the "escalate instead of looping forever" guardrail.
+        """
+        if self.engine is None:
+            return []
+        return self.engine.get_nodes_by_label(label, 0) or []
 
 
 def _signature(pipeline_id: str, failure_class: str, attempt: int) -> str:
@@ -209,9 +222,25 @@ def propose_ci_repair(
     failed_step = str(ctx.get("failed_step") or pid)
 
     reader = _GraphReader(engine=eng)
+    try:
+        prior_rows = reader.nodes_by_label_strict("CIRepairProposal")
+    except Exception as e:  # noqa: BLE001 — the retry-cap attempt count must fail loud, not silently under-count and bypass the safety net
+        logger.warning(
+            "[ORCH.ci_recycle] attempt-count read failed for %s, refusing to "
+            "under-count and bypass the retry cap: %s",
+            pid,
+            e,
+        )
+        return {
+            "pipeline_run": pid,
+            "attempt": None,
+            "capped": None,
+            "error": "attempt_count_unavailable",
+            "proposal": None,
+        }
     prior_attempts = [
         p
-        for _id, p in reader.nodes_by_label("CIRepairProposal")
+        for _id, p in prior_rows
         if isinstance(p, dict) and p.get("pipelineRun") == pid
     ]
     attempt = len(prior_attempts) + 1

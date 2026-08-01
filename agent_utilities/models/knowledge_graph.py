@@ -72,6 +72,15 @@ class RegistryNodeType(StrEnum):
     # (CONCEPT:AU-AHE.harness.unified-promotion-gate, Wave-6 D4) — so the evolution
     # matrix finally sees the spec/develop vector, not just skill/prompt.
     SPEC_VERSION = "spec_version"
+    # A versioned, content-addressed reasoning-graph topology resource (CoT/ToT/GoT/
+    # ReAct/RAP; CONCEPT:AU-ORCH.planning.reasoning-graph-topologies) — same
+    # content-addressed-artifact contract as SKILL_VERSION/SPEC_VERSION, applied to a
+    # reasoning topology instead of a skill/spec.
+    REASONING_TOPOLOGY_VERSION = "reasoning_topology_version"
+    # Model profiles as first-class graph resources (CONCEPT:AU-KG.ontology.model-profile-graph-resource) — a
+    # provider+model's capability/cost/observability contract, content-addressed like every
+    # other ArtifactVersionNode.
+    MODEL_PROFILE = "model_profile"
     ENTITY = "entity"
     EVENT = "event"
     REFLECTION = "reflection"
@@ -180,12 +189,21 @@ class RegistryNodeType(StrEnum):
     PLATFORM_SERVICE = "platform_service"
     GPU_ACCELERATOR = "gpu_accelerator"
     STORAGE_ARRAY = "storage_array"
-    # Squeeze Evolve Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
+    # Squeeze Evolve Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation) — the chosen model +
+    # its rejected alternatives for one routing decision (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance),
+    # see RoutingDecisionNode.
     ROUTING_DECISION = "routing_decision"
+    # A semantic-cache hit/miss decision (CONCEPT:AU-KG.memory.semantic-response-cache) — the key components
+    # (tenant/principal/policy/model/prompt/tool-schema/retrieval-snapshot/ontology/safety-posture) + age a
+    # cache-served answer was decided on, see CacheDecisionNode.
+    CACHE_DECISION = "cache_decision"
     # Schema Packs (CONCEPT:AU-KG.ingest.engineering-rules)
     SCHEMA_PACK = "schema_pack"
     # Entity-Claim Extraction / MAGMA Epistemic (CONCEPT:AU-KG.ingest.engineering-rules)
     CLAIM = "claim"
+    # Extraction-run provenance (CONCEPT:AU-KG.enrichment.extraction-run-provenance) — the
+    # PROV-O Activity every entity/claim `EntityClaimExtractor` persists is bound to.
+    EXTRACTION_RUN = "extraction_run"
     # Tiered Virtual Context/Memory blocks (CONCEPT:AU-KG.memory.tiered-memory-caching)
     VIRTUAL_CONTEXT_BLOCK = "virtual_context_block"
     # Quiet-STaR rationale persistence (CONCEPT:AU-KG.memory.tiered-memory-caching)
@@ -495,6 +513,16 @@ class RegistryNodeType(StrEnum):
     # kind. See agent_utilities.knowledge_graph.ontology.ops_causal_crosswalk.
     CHANGE_REQUEST = "change_request"
 
+    # Unified Evidence resource (CONCEPT:AU-KG.evolution.unified-evidence-resource,
+    # lane 7.1) — the ONE graph-addressable normalization of the five signal
+    # channels that feed the evolution/optimisation loop (execution traces,
+    # eg-native optimisation outcomes, graph-health heuristics, research/
+    # comparative-analysis findings, OCPM/EKG/neural process signals). Distinct
+    # from the pre-existing narrower ``EVIDENCE``/``EvidenceNode`` (a claim's
+    # source-document extraction, CONCEPT:AU-KG.ingest.engineering-rules) — that
+    # type is a different, already-wired concept and is not repurposed here.
+    EVOLUTION_EVIDENCE = "evolution_evidence"
+
 
 class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
@@ -521,6 +549,12 @@ class RegistryEdgeType(StrEnum):
     # KG-native observability (CONCEPT:AU-OS.config.model-factory-passthrough): trace → span → generation subgraph.
     HAS_SPAN = "has_span"
     HAS_GENERATION = "has_generation"
+    # CONCEPT:AU-ORCH.routing.rejected-candidate-provenance — a trace's model-routing decision (chosen + rejected
+    # candidates), so "why was model X picked over Y" is a graph query, not a discarded log line.
+    HAS_ROUTING_DECISION = "has_routing_decision"
+    # CONCEPT:AU-KG.memory.semantic-response-cache — a trace's semantic-cache decision (hit/miss + the full key
+    # discipline + age), so a cache-served answer is graph-queryable provenance, never a silent substitution.
+    HAS_CACHE_DECISION = "has_cache_decision"
     AFFECTS = "affects"
     CAUSED_BY = "caused_by"
     INFLUENCED = "influenced"
@@ -1467,6 +1501,11 @@ class TraceNode(RegistryNode):
     # Root input/output text (truncated) — what online-scoring/regression judges against.
     input: str = ""
     output: str = ""
+    # Provider prompt-cache rollup (CONCEPT:AU-ORCH.optimization.provider-prompt-cache) — sums each child
+    # GenerationNode's cache_read_tokens/cache_write_tokens exactly like total_cost_usd/input_tokens/
+    # output_tokens above, so a trace's aggregate cache savings is one field read, not a child-node scan.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     # Gap-6 — an "AgentTrace" (agent run trace: task_id/spans/tool_calls/
     # outcome) IS this TraceNode; these three fields are the extension that
     # closes the reuse-audit gap rather than introducing a second node type.
@@ -1512,6 +1551,71 @@ class GenerationNode(RegistryNode):
     error: str | None = None
     prompt_version_id: str | None = None
     tool_calls: int = 0
+    # Provider prompt-cache usage (CONCEPT:AU-ORCH.optimization.provider-prompt-cache) — sourced from
+    # pydantic_ai.usage.RequestUsage.cache_read_tokens/cache_write_tokens (already included in
+    # input_tokens per pydantic-ai's convention; carried separately here so a cache hit is never
+    # indistinguishable from a fresh call on this trace node). Zero on every provider/path that doesn't
+    # report cache usage — additive, no behavior change for the common case.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+
+class RoutingDecisionNode(RegistryNode):
+    """One model-routing decision's chosen model + its rejected alternatives (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance).
+
+    The router (:meth:`~agent_utilities.models.model_registry.ModelRegistry.explain_pick_for_task`)
+    already picks a model but historically discarded everything it considered — no
+    counterfactual, so model choice could never become an evolution target. This node
+    is the persisted record: the candidate set, each candidate's score/features, and
+    WHY it was (or was not) chosen, bounded to
+    :data:`agent_utilities.models.model_registry.MAX_ROUTING_CANDIDATES` entries per
+    decision so a request never writes an unbounded dump. Attached to the owning
+    trace via ``RegistryEdgeType.HAS_ROUTING_DECISION`` (mirrors ``GenerationNode``'s
+    trace attachment).
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ROUTING_DECISION
+    trace_id: str | None = None
+    route_key: str = ""
+    complexity: str = "medium"
+    required_tags: list[str] = Field(default_factory=list)
+    confidence_signal: float | None = None
+    routing_percentile: float | None = None
+    chosen_model_id: str = ""
+    # Bounded list of {"model_id", "tier", "tag_match", "tier_rank", "score",
+    # "rejected", "rejection_reason"} dicts — see ``CandidateScore``.
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class CacheDecisionNode(RegistryNode):
+    """One semantic-cache lookup decision (CONCEPT:AU-KG.memory.semantic-response-cache) — hit or miss, the
+    FULL key discipline it was scoped by, and (on a hit) the served entry's age.
+
+    The requirement this closes: "a cached response must never be indistinguishable from a fresh
+    one." A semantic-cache hit skips the model call entirely, so there is no ``GenerationNode`` to
+    read cache usage off (unlike :class:`GenerationNode`'s ``cache_read_tokens``/``cache_write_tokens``,
+    which cover PROVIDER prompt-cache hits on an actual call). This node is the explicit substitute:
+    every lookup (hit or miss) records the key components it was scoped by, so cross-tenant/
+    cross-policy/cross-model reuse is independently auditable from the trace, not just prevented in
+    code. Attached to the owning trace via ``RegistryEdgeType.HAS_CACHE_DECISION`` (mirrors
+    ``RoutingDecisionNode``'s trace attachment).
+    """
+
+    type: RegistryNodeType = RegistryNodeType.CACHE_DECISION
+    trace_id: str | None = None
+    outcome: str = "miss"  # hit | miss | disabled | refused_side_effect | refused_freshness | stale
+    fingerprint: str = ""
+    tenant: str = ""
+    principal: str = ""
+    policy_version: str = ""
+    model_identity: str = ""
+    prompt_version: str = ""
+    tool_schema_version: str = ""
+    retrieval_snapshot: str = ""
+    ontology_version: str = ""
+    safety_posture: str = ""
+    similarity: float | None = None
+    age_seconds: float | None = None
 
 
 class OnlineScoreNode(RegistryNode):
@@ -1575,6 +1679,92 @@ class ArtifactVersionNode(RegistryNode):
     task_count: int = 0  # generalizes SkillVersionNode.benchmark_task_count
     notes: list[str] = Field(default_factory=list)  # generalizes reflect_notes
     transfer_scores: dict[str, float] = Field(default_factory=dict)
+
+
+class ModelProfileVersionNode(ArtifactVersionNode):
+    """A provider+model's capability/cost/observability contract as a graph resource
+    (CONCEPT:AU-KG.ontology.model-profile-graph-resource).
+
+    Generalizes :class:`ArtifactVersionNode`'s content-addressed lifecycle (same
+    pattern :class:`SpecVersionNode` used to add the spec/develop vector) to the
+    model-routing vector: model definitions currently live only in code/config, so
+    "which model was configured for role X on date Y" or "which quality/latency
+    history informed a routing change" had nowhere to be queried. A profile is
+    content-addressed on ``(provider, model_id, tier, cost, context_window,
+    max_output_tokens)`` — see :func:`agent_utilities.models.model_profile.profile_version_hash`.
+
+    **Honesty contract**: every field below is nullable/absent by default. A field
+    is populated ONLY when a real value was sourced (from the ``ModelDefinition``
+    config, an observed trace/eval statistic, or a live provider catalogue check);
+    a field with no source stays ``None``/empty and its key + reason is recorded in
+    ``unsourced_fields`` — never a fabricated or defaulted-looking number. See
+    ``agent_utilities/models/model_profile.py`` for the builder that enforces this.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.MODEL_PROFILE
+
+    # Identity (sourced from ModelDefinition; provider + model_id are the durable,
+    # immutable identity — never rewritten across versions of the same model).
+    provider: str = ""
+    model_id: str = ""
+    tier: str = "medium"
+
+    # Modalities / limits (sourced from ModelDefinition config where set).
+    modalities: list[str] = Field(
+        default_factory=list, description="e.g. 'text', 'vision', 'audio'."
+    )
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+
+    # Capability (sourced from ModelDefinition.tags / provider catalogue check).
+    supports_structured_output: bool | None = None
+    supports_tool_calls: bool | None = None
+    reasoning_modes: list[str] = Field(default_factory=list)
+    supported_effort_levels: list[str] = Field(default_factory=list)
+
+    # Prompt/KV cache behaviour — no source today in this repo (no cache-hit
+    # telemetry pipeline); stays null, recorded in unsourced_fields.
+    prompt_cache_supported: bool | None = None
+    cache_hit_rate: float | None = None
+
+    # Observed quality by skill/domain/topology — populated only from real eval/
+    # outcome records (e.g. OutcomeEvaluationNode aggregates); empty until wired to
+    # one.
+    quality_by_domain: dict[str, float] = Field(default_factory=dict)
+
+    # Latency distributions (ms) — populated only from real GenerationNode
+    # aggregates (``prefill_ms_p50``/``p95``/... keys); absent otherwise.
+    prefill_latency_ms: dict[str, float] = Field(default_factory=dict)
+    decode_latency_ms: dict[str, float] = Field(default_factory=dict)
+
+    # Availability / error / throttle history — populated only from real trace
+    # aggregates; absent otherwise.
+    availability_ratio: float | None = None
+    error_rate: float | None = None
+    throttle_rate: float | None = None
+
+    # Privacy / residency eligibility — deployment-declared, not inferred.
+    privacy_eligible: bool | None = None
+    data_residency: str | None = None
+
+    # Cost per 1M tokens (USD). ``ModelCostRate`` only carries input/output; this
+    # resource ALSO models cached-input/tool/infra cost, each null unless sourced.
+    input_cost_per_million: float | None = None
+    cached_input_cost_per_million: float | None = None
+    output_cost_per_million: float | None = None
+    tool_cost_per_million: float | None = None
+    infra_cost_per_hour: float | None = None
+
+    # Local-serving characteristics — only meaningful for locally-hosted models;
+    # null for a cloud API model.
+    quantization: str | None = None
+    serving_engine: str | None = None
+    accelerator: str | None = None
+    memory_gb: float | None = None
+
+    # field_name -> human-readable reason it has no source today (CONCEPT:AU-KG.ontology.model-profile-graph-resource
+    # honesty contract). Never includes a field that IS populated.
+    unsourced_fields: dict[str, str] = Field(default_factory=dict)
 
 
 class PromptVersionNode(ArtifactVersionNode):
@@ -1652,6 +1842,33 @@ class SpecVersionNode(ArtifactVersionNode):
     spec_id: str = ""  # the originating :SpecProposal id
     branch_ref: str = ""  # opaque, redacted reference to the published branch
     commit_ref: str = ""  # opaque, redacted reference to the published commit
+
+
+class ReasoningTopologyVersionNode(ArtifactVersionNode):
+    """A versioned, content-addressed reasoning-graph topology resource.
+
+    CONCEPT:AU-ORCH.planning.reasoning-graph-topologies — ports "Graph Engineering:
+    A Unified Framework for Language Agent System Design" (arXiv:2505.24354): CoT /
+    self-consistent CoT / ToT / GoT / ReAct / RAP are graph topologies (node
+    contracts + edge/routing functions) over one shared state, not separate
+    frameworks. Mirrors :class:`SkillVersionNode`/:class:`SpecVersionNode`'s exact
+    content-addressed-lineage contract (``version_hash`` = the topology digest,
+    inherited ``status``/``origin``/``reward``/``task_count``/``notes``) so a
+    topology is graph-addressable and versioned exactly like a skill or a spec —
+    the reward is a held-out :mod:`agent_utilities.graph.reasoning.benchmark` score,
+    not a hand-picked constant.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.REASONING_TOPOLOGY_VERSION
+    version_hash: str = ""  # the TopologySpec.digest
+    node_contracts: list[str] = Field(default_factory=list)  # NodeKind names emitted
+    loop_budget: int = 0
+    tool_budget: int = 0
+    token_budget: int | None = None
+    cost_budget_usd: float | None = None
+    time_budget_s: float | None = None
+    termination_conditions: list[str] = Field(default_factory=list)
+    checkpoint_semantics: str = ""
 
 
 class EntityNode(RegistryNode):
@@ -1766,6 +1983,71 @@ class ClaimNode(RegistryNode):
     extracted_from: str | None = None  # source document/article ID
     domain: str | None = None  # business or knowledge domain
     is_verified: bool = False
+
+
+class ExtractionRunNode(RegistryNode):
+    """One deterministic (or learned) extraction execution — a PROV-O ``Activity``.
+
+    CONCEPT:AU-KG.enrichment.extraction-run-provenance — Extraction Run Provenance
+
+    Mirrors ``ontology_process_intelligence.ttl``'s ``:ExtractionRun`` (``rdfs:subClassOf
+    prov:Activity``: "a deterministic or learned extraction execution bound to input
+    hash, schema version, thresholds, and metrics"). Every entity/claim
+    :class:`~agent_utilities.knowledge_graph.kb.entity_claim_extractor.EntityClaimExtractor`
+    persists is linked back to the run that produced it via ``WAS_GENERATED_BY`` (PROV-O
+    ``wasGeneratedBy``), so no extracted fact exists without a resolvable run: its
+    parser/extractor version, the schema pack in force, the calibration policy, the
+    graph epoch it was written against, and the exact outcome bucket
+    (CONCEPT:AU-KG.enrichment.extraction-outcome-taxonomy) it landed in.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.EXTRACTION_RUN
+    source_id: str
+    input_hash: str = ""
+    parser_version: str = ""
+    extractor_version: str = ""
+    schema_pack_ref: str = ""
+    #: ``None`` when the run was purely deterministic (no generative call) — the
+    #: cascade default for entity/claim extraction (CONCEPT:AU-KG.ingest.deterministic-extraction-default).
+    model_ref: str | None = None
+    graph_epoch: int = 0
+    calibration_policy: str = "none"
+    thresholds: dict[str, float] = Field(default_factory=dict)
+    outcome: str = "no_facts_found"
+    outcome_counts: dict[str, int] = Field(default_factory=dict)
+    entities_count: int = 0
+    claims_count: int = 0
+    relationships_count: int = 0
+    evidence_refs: list[str] = Field(default_factory=list)
+    started_at: str = ""
+    completed_at: str = ""
+    duration_ms: float = 0.0
+    error: str | None = None
+
+
+class EvolutionEvidenceNode(RegistryNode):
+    """One normalized unit of evidence feeding the evolution/optimisation loop.
+
+    CONCEPT:AU-KG.evolution.unified-evidence-resource (lane 7.1) — the graph-
+    addressable contract every signal channel (execution traces, eg-native
+    optimisation outcomes, graph-health heuristics, research/comparative-
+    analysis findings, OCPM/EKG/neural process signals) is normalised onto.
+    See :mod:`agent_utilities.knowledge_graph.research.evidence` for the
+    channel enum, adapters, and reader/writer functions — this class is
+    ONLY the persisted shape.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.EVOLUTION_EVIDENCE
+    channel: str = ""
+    outcome: str = ""
+    subject_id: str = ""
+    signal: float = 0.0
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    occurred_at: str = ""
+    source_node_id: str | None = None
+    source_node_type: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    lineage: dict[str, Any] = Field(default_factory=dict)
 
 
 class VirtualContextBlockNode(RegistryNode):
@@ -3096,6 +3378,10 @@ class EvaluationRecordNode(RegistryNode):
     composite_score: float = Field(default=0.0, ge=0.0, le=1.0)
     evaluator: str = "llm-judge"  # llm-judge, human, automated
     rubric_id: str | None = None
+    #: CONCEPT:AU-AHE.evaluation.judge-calibration — the rubric's version at evaluation time, so a later
+    #: rubric edit is diagnosable against historical records sharing the same
+    #: ``rubric_id`` instead of drifting under one unversioned identity.
+    rubric_version: str | None = None
     evidence: str = ""
     session_id: str = ""
 
@@ -3800,6 +4086,62 @@ class SpecialistPackageNode(RegistryNode):
     )
 
 
+def classify_work_item_consent(
+    consent_required: bool,
+    consent_granted_at: float | None,
+    consent_expires_at: float | None,
+    *,
+    now: float | None = None,
+) -> str:
+    """Classify a WorkItem's consent posture into one of four states.
+
+    CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3). The single source of
+    truth for the consent state machine, shared by :meth:`WorkItemNode.consent_state`
+    (typed model callers) and ``orchestration.work_item``'s claim/renew gate (raw KG
+    row callers) so the classification is never duplicated or allowed to drift.
+
+    Returns one of:
+
+    * ``"not_required"`` — ``consent_required`` is falsy. The default for every
+      pre-existing and ordinary operational/infra WorkItem (goal loops, agent
+      dispatch, ingest jobs, ...): consent tracking was never opted into, so
+      this item is not gated at all (D-25-3 migration decision — see
+      :class:`WorkItemNode`'s docstring for the full trade-off).
+    * ``"absent"`` — consent IS required but was never recorded
+      (``consent_granted_at is None``), or the recorded grant timestamp is
+      unreadable/malformed. Fails CLOSED: a malformed record is never treated
+      as a live grant.
+    * ``"active"`` — a grant is recorded and either has no expiry or has not
+      yet lapsed.
+    * ``"lapsed"`` — a grant was recorded but its ``consent_expires_at`` has
+      passed, OR the expiry value itself is malformed/unreadable (fails
+      CLOSED as already-lapsed rather than silently treating it as active).
+
+    ``"absent"`` and ``"lapsed"`` are deliberately DISTINCT states — a work
+    item with no consent history at all must never collapse into (or be
+    reported as) one that had consent and lost it; they mean different things
+    to an auditor and must be told apart.
+    """
+    if not consent_required:
+        return "not_required"
+    if consent_granted_at is None:
+        return "absent"
+    try:
+        float(consent_granted_at)
+    except (TypeError, ValueError):
+        return "absent"  # malformed grant timestamp -> fail closed as never-granted
+    if consent_expires_at is None:
+        return "active"
+    try:
+        expires_at = float(consent_expires_at)
+    except (TypeError, ValueError):
+        return "lapsed"  # malformed expiry -> fail closed as already-lapsed
+    import time as _time
+
+    resolved_now = now if now is not None else _time.time()
+    return "active" if expires_at > resolved_now else "lapsed"
+
+
 class WorkItemNode(RegistryNode):
     """The ONE engine-native work-item state machine (AU-P1-1).
 
@@ -3930,6 +4272,94 @@ class WorkItemNode(RegistryNode):
     updated_at: float = Field(default=0.0)
     submitted_at: float = Field(default=0.0)
     completed_at: float | None = Field(default=None)
+
+    # ── consent + expiry (D-25-3) ───────────────────────────────────────
+    #
+    # CONCEPT:AU-ORCH.dispatch.workitem-consent-gate — a WorkItem is bound only to
+    # a tenant by default; these fields let a producer additionally represent WHAT
+    # a subject consented to, BY WHOM, WHEN, and under WHICH basis, plus an explicit
+    # lifetime on that grant. Opt-in (``consent_required`` defaults False) rather
+    # than retrofit onto every WorkItem: the vast majority of WorkItems are internal
+    # operational plumbing (goal loops, agent dispatch, ingest jobs) with no data
+    # subject to consent from at all, and requiring these fields unconditionally
+    # would either (a) silently fabricate consent for legacy/infra items that never
+    # had any, or (b) halt the entire live queue on deploy. A producer that DOES
+    # bind a WorkItem to subject-consented work sets ``consent_required=True`` at
+    # submission; see :func:`classify_work_item_consent` for the resulting state
+    # machine and ``orchestration.work_item``'s claim/renew gate for enforcement.
+    #
+    # MIGRATION for pre-existing WorkItems (neither field previously existed):
+    # they deserialize with ``consent_required=False`` (the Pydantic default),
+    # i.e. "not applicable" / unaffected by the gate — NOT "treat as consented
+    # forever" and NOT "treat as unconsented". Both of those blanket defaults were
+    # considered and rejected: always-consented would be a SILENT privacy
+    # regression for the unknown subset of legacy items that do carry subject data
+    # (we cannot tell which, post hoc, from the field alone); always-unconsented
+    # would instantly deny every claim across the fleet's entire non-empty backlog
+    # (goal loops, dispatch, ingest, teams) — an availability outage disguised as
+    # a privacy fix. "Not applicable" changes nothing for existing traffic and
+    # only engages the gate for new producers that explicitly opt in. Retroactively
+    # auditing which LEGACY items are actually subject-bound (and should be
+    # migrated to ``consent_required=True`` with a real grant or an explicit
+    # withdrawal) is a data-classification judgment this code cannot make and is
+    # therefore an OPERATOR decision, not a default this migration guesses at.
+    consent_required: bool = Field(
+        default=False,
+        description=(
+            "Opt-in per item: True when this WorkItem's claim/renewal is gated on "
+            "a recorded, unlapsed consent. False (default) for every pre-existing "
+            "and ordinary operational/infra WorkItem — unaffected by the gate."
+        ),
+    )
+    consent_scope: str = Field(
+        default="",
+        description=(
+            "WHAT was consented to: purpose/scope, e.g. "
+            "'data_processing:analytics'. Empty when consent_required is False. "
+            "Mirrored in the ontology as :consentPurpose (NOT :consentScope, which "
+            "is the unrelated medical :ConsentRecord's property)."
+        ),
+    )
+    consent_subject: str = Field(
+        default="",
+        description=(
+            "BY WHOM: opaque reference to the data subject the consent pertains "
+            "to — distinct from `tenant` (owning org) and `assigned_to` (worker)."
+        ),
+    )
+    consent_basis: str = Field(
+        default="",
+        description=(
+            "UNDER WHICH basis the consent was granted, e.g. 'explicit' | "
+            "'contract' | 'legitimate_interest'."
+        ),
+    )
+    consent_granted_at: float | None = Field(
+        default=None,
+        description=(
+            "WHEN: Unix timestamp consent was granted. None = ABSENT (never "
+            "recorded) — a state distinct from a granted consent that has since "
+            "LAPSED (see consent_expires_at / consent_state())."
+        ),
+    )
+    consent_expires_at: float | None = Field(
+        default=None,
+        description=(
+            "The consent's explicit lifetime: Unix timestamp after which a "
+            "granted consent LAPSES. None with consent_granted_at set = a "
+            "perpetual grant (no expiry) — a deliberate, explicit choice by the "
+            "granter, not a default absence of information."
+        ),
+    )
+
+    def consent_state(self, now: float | None = None) -> str:
+        """Classify this item's consent posture; see :func:`classify_work_item_consent`."""
+        return classify_work_item_consent(
+            self.consent_required,
+            self.consent_granted_at,
+            self.consent_expires_at,
+            now=now,
+        )
 
 
 class AgentMailboxNode(RegistryNode):

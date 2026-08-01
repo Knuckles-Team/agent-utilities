@@ -195,7 +195,7 @@ def _persist_slide_page_evidence(
         from ..memory.native_ingest import media_store
 
         store = media_store()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — media_store is an optional evidence-provenance sink; the function returns (skips the additive evidence write) rather than failing the slide-text extraction that already ran and is returned by the caller independently
         logger.debug("document page evidence store unavailable: %s", e)
         return
     data = body.encode("utf-8")
@@ -218,7 +218,7 @@ def _persist_slide_page_evidence(
             ),
             source="pptx",
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — the evidence write itself is additive provenance over slide text that's already been extracted and returned by the caller independently, same as the store-unavailable guard above
         logger.debug("document page evidence write failed: %s", e)
 
 
@@ -329,7 +329,7 @@ def _persist_table_cell_evidence(path: str, sheet_title: str, rows: list[list]) 
         from ..memory.native_ingest import media_store
 
         store = media_store()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — media_store is an optional evidence-provenance sink for table-cell evidence, same guard pattern as the slide-page evidence store above
         logger.debug("table cell evidence store unavailable: %s", e)
         return
     data = _format_rows(rows).encode("utf-8")
@@ -346,7 +346,7 @@ def _persist_table_cell_evidence(path: str, sheet_title: str, rows: list[list]) 
             mime_type="text/tab-separated-values",
             source="xlsx",
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — table-cell evidence write is additive provenance over table text that's already been extracted and returned independently, same pattern as the slide-page evidence write above
         logger.debug("table cell evidence write failed: %s", e)
 
 

@@ -33,6 +33,7 @@ work in `agent-utilities-deployment`.
 | `usage_query` | `summary`, `by_model`/`by_project`/`by_agent`, `tools`, `activity`, `sessions`/`session_detail`/`top_sessions`, `search`, `traces`, `series` (filter by date/project/agent/model) | usage/cost observability |
 | `ingest_sessions` | `collect` (auto-detect local agents), `upload` (pre-parsed `bundles_json` to a remote engine), `paths` (explicit files) | agent chat/session-log ingestion |
 | `graph_kvcache` | `get` (base64 block bytes or miss), `put`, `contains`/`exists`, `stats` (occupancy + dedup counters) | content-addressed shared KV-cache; every transport error degrades to a cache miss, never raises |
+| `graph_kv_checkpoint` | `create` (checkpoint a KV-cache at an explicit run/point, keyed by model identity/quantization/serving-engine/version/prefix-digest/tenant/policy-version), `instantiate_agent` (fail-closed load + `initializedFrom` lineage edge from a new agent run), `restore_conversation` (fail-closed load + `restoredFrom` lineage edge; `allow_cold_start` for an explicit, traced cold-start fallback) | heavy KV blob stays behind the engine's content-addressed blob store, never inlined into the response; a tenant mismatch or stale policy version is ALWAYS refused |
 | `graph_traces` | `search` (filter by `service`/`operation`/free-form `query`, capped by `limit`), `get` (single `trace_id`) | degrades cleanly with no trace surface |
 
 ### Argument evaluation (AIF)

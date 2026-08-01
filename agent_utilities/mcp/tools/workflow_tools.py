@@ -52,15 +52,21 @@ def register_workflow_tools(mcp: Any) -> None:
         name="graph_workflows",
         description=(
             "Manage governed WorkflowDefinitions. Actions: 'compile', 'compile_process', "
-            "'list', 'execute', 'dispatch', 'status', and 'export'. Execute and dispatch "
-            "apply the same ontology/ACL gate; dispatch returns the exact runner session id."
+            "'list', 'execute', 'execute_dynamic', 'dispatch', 'status', and 'export'. "
+            "execute_dynamic uses upstream Pydantic AI Harness DynamicWorkflow while every "
+            "catalog call re-enters GraphOS governance. Execute, execute_dynamic, and "
+            "dispatch apply the same ontology/ACL gate; dispatch returns the exact runner "
+            "session id."
         ),
         tags=["graph-os", "workflow", "orchestration"],
     )
     async def graph_workflows(
         action: str = Field(
             default="list",
-            description="compile | compile_process | list | execute | dispatch | status | export",
+            description=(
+                "compile | compile_process | list | execute | execute_dynamic | "
+                "dispatch | status | export"
+            ),
         ),
         workflow: str = Field(
             default="", description="Workflow name, process id, or run/session id."
@@ -74,6 +80,27 @@ def register_workflow_tools(mcp: Any) -> None:
         ),
         max_steps: int = Field(default=30, ge=1),
         limit: int = Field(default=50, ge=1),
+        max_agent_calls: int = Field(default=50, ge=1, le=300),
+        max_concurrency: int = Field(default=8, ge=1, le=64),
+        budget_tokens: int | None = Field(default=None, ge=1),
+        model_class: str = Field(default="standard", description="economy | standard"),
+        dynamic_fallback: str = Field(
+            default="error",
+            description=(
+                "execute_dynamic only: error | stored_dag. Fallback applies only "
+                "when the optional upstream runtime is unavailable."
+            ),
+        ),
+        workflow_run_id: str = Field(
+            default="",
+            description=(
+                "execute_dynamic only: RESUME a halted run. Pass the "
+                "workflow_run_id a previous execute_dynamic reported to replay "
+                "its already-completed steps instead of re-dispatching them "
+                "(the response reports 'resumed' and 'replayed_step_ids'). "
+                "Leave empty to start a brand-new run."
+            ),
+        ),
     ) -> str:
         engine = kg_server._get_engine()
         if engine is None:
@@ -92,7 +119,9 @@ def register_workflow_tools(mcp: Any) -> None:
                         "status": "compiled",
                         "workflow_id": workflow_id,
                         "name": compiled_name,
-                        "mermaid": _workflow_mermaid(engine, compiled_name),
+                        "mermaid": await asyncio.to_thread(
+                            _workflow_mermaid, engine, compiled_name
+                        ),
                     },
                     default=str,
                 )
@@ -108,24 +137,29 @@ def register_workflow_tools(mcp: Any) -> None:
                     workflow, name=name or None
                 )
                 report["status"] = "compiled"
-                report["mermaid"] = _workflow_mermaid(engine, report["name"])
+                report["mermaid"] = await asyncio.to_thread(
+                    _workflow_mermaid, engine, report["name"]
+                )
                 return json.dumps(report, default=str)
 
             if action == "list":
                 from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
+                workflows = await asyncio.to_thread(
+                    WorkflowStore(engine).list_workflows, limit
+                )
                 return json.dumps(
                     {
                         "source": "kg",
-                        "workflows": WorkflowStore(engine).list_workflows(limit=limit),
+                        "workflows": workflows,
                     },
                     default=str,
                 )
 
-            if action in {"execute", "dispatch"}:
+            if action in {"execute", "execute_dynamic", "dispatch"}:
                 if not workflow:
                     raise ValueError("workflow is required")
-                gate = _workflow_gate(engine, workflow)
+                gate = await asyncio.to_thread(_workflow_gate, engine, workflow)
                 if gate.get("allowed") is not True:
                     return _gate_denial(workflow, gate)
 
@@ -138,7 +172,31 @@ def register_workflow_tools(mcp: Any) -> None:
                     return json.dumps(
                         {
                             "result": result,
-                            "mermaid": _workflow_mermaid(engine, workflow),
+                            "mermaid": await asyncio.to_thread(
+                                _workflow_mermaid, engine, workflow
+                            ),
+                        },
+                        default=str,
+                    )
+
+                if action == "execute_dynamic":
+                    dynamic_result = await orchestrator.execute_dynamic_workflow(
+                        workflow_id=workflow,
+                        task=task,
+                        max_steps=max_steps,
+                        max_agent_calls=max_agent_calls,
+                        max_concurrency=max_concurrency,
+                        budget_tokens=budget_tokens,
+                        model_class=model_class,
+                        unavailable_fallback=dynamic_fallback,
+                        workflow_run_id=workflow_run_id or None,
+                    )
+                    return json.dumps(
+                        {
+                            "result": dynamic_result,
+                            "mermaid": await asyncio.to_thread(
+                                _workflow_mermaid, engine, workflow
+                            ),
                         },
                         default=str,
                     )
@@ -198,8 +256,11 @@ def register_workflow_tools(mcp: Any) -> None:
                     export_workflow,
                 )
 
+                exported = await asyncio.to_thread(
+                    export_workflow, engine, workflow, fmt=export_format
+                )
                 return json.dumps(
-                    export_workflow(engine, workflow, fmt=export_format),
+                    exported,
                     indent=2,
                     default=str,
                 )

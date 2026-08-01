@@ -304,7 +304,11 @@ class GraphState:
     """Error message if something went wrong."""
 
     session_id: str = ""
-    """Unique session identifier for checkpoint resumption."""
+    """Unique session identifier for checkpoint correlation.
+
+    The current graph-state snapshots are observational; this identifier does
+    not by itself make a Pydantic Graph v2 run resumable.
+    """
 
     parent_session_id: str | None = None
     """CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Session ID of the parent graph if this state was forked."""
@@ -316,6 +320,28 @@ class GraphState:
 
     checkpoint_ts: float = 0.0
     """Timestamp of the last checkpoint."""
+
+    checkpoint_ids: list[str] = field(default_factory=list)
+    """Identifiers returned by successful checkpoint-backend writes.
+
+    These are observational state-snapshot references.  They are not runnable
+    Pydantic Graph v2 resume tokens.
+    """
+
+    graph_topology_digest: str = ""
+    """Digest of the static Pydantic Graph topology used for this run."""
+
+    graph_version_digest: str = ""
+    """Digest binding the topology, evidence schema, and graph runtime version."""
+
+    graph_runtime_version: str = ""
+    """Installed ``pydantic-graph`` package version for this execution."""
+
+    graph_node_sequence: list[str] = field(default_factory=list)
+    """Ordered node tasks scheduled by Pydantic Graph."""
+
+    graph_transition_sequence: list[dict[str, Any]] = field(default_factory=list)
+    """Ordered task batches emitted by the Pydantic Graph scheduler."""
 
     node_history: list[str] = field(default_factory=list)
     """History of executed nodes."""
@@ -513,9 +539,38 @@ class GraphState:
         )
         tot_tokens = _to_int(getattr(result_usage, "total_tokens", 0))
 
+        # Provider prompt-cache tokens (D-54c-1). pydantic-ai's ``RunUsage``/``Usage``
+        # name these ``cache_write_tokens``/``cache_read_tokens``; fall back to the
+        # Anthropic-native ``cache_creation_input_tokens``/``cache_read_input_tokens``
+        # names for a raw provider usage object that isn't wrapped in pydantic-ai's type.
+        cache_write_tokens = _to_int(
+            getattr(
+                result_usage,
+                "cache_write_tokens",
+                getattr(result_usage, "cache_creation_input_tokens", 0),
+            )
+        )
+        cache_read_tokens = _to_int(
+            getattr(
+                result_usage,
+                "cache_read_tokens",
+                getattr(result_usage, "cache_read_input_tokens", 0),
+            )
+        )
+        # Reasoning tokens live in pydantic-ai's ``details`` dict (no dedicated
+        # attribute), keyed ``reasoning_tokens`` (OpenAI-style) or ``thoughts_tokens``
+        # (Gemini-style).
+        details = getattr(result_usage, "details", None) or {}
+        reasoning_tokens = _to_int(
+            details.get("reasoning_tokens") or details.get("thoughts_tokens") or 0
+        )
+
         self.session_usage.input_tokens += req_tokens
         self.session_usage.output_tokens += res_tokens
         self.session_usage.total_tokens += tot_tokens
+        self.session_usage.cache_creation_input_tokens += cache_write_tokens
+        self.session_usage.cache_read_input_tokens += cache_read_tokens
+        self.session_usage.reasoning_tokens += reasoning_tokens
 
         # Simple cost estimation based on Sonnet 3.5 defaults
         self.session_usage.estimated_cost_usd = (
@@ -543,7 +598,8 @@ class GraphState:
         if not os.path.exists(root):
             try:
                 os.makedirs(root, exist_ok=True)
-            except Exception:
+            except Exception as exc:
+                logger.warning("Failed to create graph artifact directory: %s", exc)
                 return
 
         mappings = {
@@ -557,8 +613,8 @@ class GraphState:
             try:
                 with open(path, "w") as f:
                     f.write(model.model_dump_json(indent=2))
-            except Exception as e:
-                logger.warning("Failed to sync graph artifact (%s)", type(e).__name__)
+            except Exception as exc:
+                logger.warning("Failed to sync graph artifact: %s", exc)
 
     def load_from_disk(self):
         """Recover project state from existing JSON artifacts in the workspace.
@@ -589,10 +645,8 @@ class GraphState:
                             setattr(self, attr, model_cls.model_validate_json(data))
                             loaded = True
                     logger.info("Loaded project-state artifact")
-                except Exception as e:
-                    logger.warning(
-                        "Could not load project-state artifact (%s)", type(e).__name__
-                    )
+                except Exception as exc:
+                    logger.warning("Could not load project-state artifact: %s", exc)
         return loaded
 
     def fork_state(self, new_session_id: str | None = None) -> GraphState:

@@ -79,6 +79,7 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `KG_ENGINE_INSECURE` | `false` | Dev opt-out of engine HMAC auth; sets `EPISTEMIC_GRAPH_ALLOW_INSECURE=1` on spawned engines (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
 | `KG_AUTH_REQUIRED` | `false` | Require server-validated JWT identity for KG access — 401 without it; caller `_actor`/`_roles`/`_tenant` kwargs ignored (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
 | `KG_AUTH_TOKEN` | — | JWT minting the stdio MCP process identity (validated against `AUTH_JWT_JWKS_URI`) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
+| `DATA_RESIDENCY_REGION` | `""` (unknown) | The region this deployment's durable store physically writes into — a fact about topology, **not** a policy judgement. Consulted ONLY when a contributing source actually restricts residency; unknown then DENIES the durable KV write rather than defaulting open (CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility). A deployment whose sources are all residency-unrestricted never needs to set it. Read via `setting()` in `mcp/tools/engine_surface_tools._checkpoint_manager` |
 | `KG_ACL_DEFAULT_ALLOW` | `false` | With `KG_BRAIN_ENFORCE` on: allow nodes WITHOUT an ACL (escape hatch from the fail-closed default-deny) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
 | `KG_SERVED_PROFILE` | `true` | Fail-closed served-security profile for network MCP transports: refuse to start without `AUTH_JWT_JWKS_URI`, auto-enable auth + enforcement. `0` = serve open (local dev only) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
 | `CONNECTOR_DEFAULT_PUBLIC`\* | `false` | Fail-closed connector ACL default (AU-P0-4): an unknown/unconfigured connector document (`mcp_package`/`mcp_tool` with no `acl_*` fields) defaults to `ExternalAccess.quarantined()` (deny-by-default). `true` is the explicit dev/local opt-in back to the legacy `ExternalAccess.public()` default. Read via `default_external_access()`, `protocols/source_connectors/base.py` |
@@ -522,6 +523,19 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `LANGFUSE_LATENCY_BASELINE_SECONDS` | `60` | Latency baseline for anomaly scoring |
 | `LANGFUSE_TOKEN_BASELINE` | `20000` | Token-usage baseline for anomaly scoring |
 | `LANGFUSE_VERIFIER_FALLBACK_LIMIT` | `1` | Verifier fallback attempts |
+
+**Content boundary (CONCEPT:AU-OS.observability.literal-service-topology-labels).**
+`custom_observability._MetadataOnlySpanExporter` strips every exported span down to
+metadata before it leaves the process, but it draws an explicit line between two kinds
+of value: *service topology* (`service.name`, the span/operation name — always built
+from fixed strings and enum-like identifiers such as `graph-os` or
+`engine.GetNodeProperties`, never from a request body/tool argument/model output) is
+sanitized (control characters stripped, length capped) but exported **literal**, so an
+operator can pick a service in Grafana/Tempo and the service graph renders correctly.
+Anything that could carry user content — span *attributes*, resource detector fields —
+still goes through `_opaque_label`/`_metadata_only_attributes` and is exported as an
+opaque, namespaced `pref_*` reference. See `_service_topology_label` vs `_opaque_label`
+in `agent_utilities/observability/custom_observability.py`.
 
 ### G.8 A2A (agent-to-agent)
 

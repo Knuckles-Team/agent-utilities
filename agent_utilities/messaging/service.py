@@ -83,7 +83,7 @@ class MessagingService:
             )
 
             self._engine = IntelligenceGraphEngine.get_active()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — returns None on failure; all callers already null-check the engine before use
             logger.debug("[ECO-4.48] no active engine: %s", exc)
         return self._engine
 
@@ -214,7 +214,7 @@ class MessagingService:
                 Message(content=text, channel_id=channel_id, platform=platform),
                 knowledge_engine=engine,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — best-effort KG mirror of an already-sent message (called only after result.success is True in send()); does not affect the SendResult returned to the caller
             logger.debug("[ECO-4.48] outbound ingest failed: %s", exc)
 
     # ── Reach the user (last-active routing) ─────────────────────────
@@ -287,7 +287,7 @@ class MessagingService:
                     "updated_at": time.time(),
                 },
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — best-effort last-active-channel-pref write; no caller checks a return value, resolve_channel() falls back to the configured default on a subsequent read-miss
             logger.debug("[ECO-4.49] channel pref write failed: %s", exc)
 
     def _last_channel(self, user_id: str) -> tuple[str, str] | None:
@@ -301,7 +301,7 @@ class MessagingService:
                 "MATCH (p {id: $id}) RETURN p",
                 {"id": node_id},
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — read failure returns None; resolve_channel() already falls back to the configured default on None
             logger.debug("[ECO-4.49] channel pref read failed: %s", exc)
             return None
         for row in rows or []:
@@ -407,7 +407,7 @@ class MessagingService:
             return True
         except NotImplementedError:
             return False
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — exception path correctly returns False per this method's documented contract ("Returns True if sent")
             logger.debug("[ECO-4.81] reaction failed on %s: %s", platform, exc)
             return False
 

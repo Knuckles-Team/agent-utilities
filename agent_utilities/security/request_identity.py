@@ -22,6 +22,44 @@ existing JWKS machinery in
 External authority configuration (typed, on ``AgentConfig``):
 ``KG_AUTH_TOKEN_REF`` or ``KG_IDENTITY_OAUTH2``, ``AUTH_JWT_JWKS_URI``,
 ``AUTH_JWT_ISSUER``, ``AUTH_JWT_AUDIENCE``, and ``KG_POLICY_VERSION``.
+
+Identity, not topology (D-SP-1)
+-------------------------------
+Minting a session establishes **who the caller is**; it never resolves **where
+the data lives**. :func:`_mint_graph_session` used to end with a live
+``placement_catalog.resolve_placement`` round-trip to the engine, which made
+*engine cluster-admin authority a precondition for authenticating any request
+on every agent-utilities served surface*: the engine's capability ledger
+declares ``PlacementRoute`` with ``authz_action = "admin:cluster-read"``
+(``epistemic-graph/crates/eg-capabilities/src/lib.rs:2274``) and
+``src/server/dispatch.rs`` enforces it twice — once against the caller's token
+scopes (``dispatch.rs:2185``) and again against the engine's own
+``IsolationLayer`` via ``require_admin_capability`` (``dispatch.rs:2199`` →
+``src/server/access.rs:858``), which **no JWT claim can satisfy**. graph-os only
+looked healthy because every credential in use held cluster admin; the first
+genuinely non-admin principal got a 500 out of the identity middleware
+(``PlacementAuthorityError`` is a ``RuntimeError``, so it fell through the
+middleware's 401/403 arms).
+
+Dropping the mint-time route is not a workaround, it is the correct placement of
+the responsibility, and the route it produced was already dead data:
+
+* ``knowledge_graph/core/graph_compute.py`` re-resolves placement **per call**
+  at the real data-plane call site and binds it to the outgoing session, and
+  skips placement entirely when no route config/endpoints exist;
+* for the one payload where the epoch is load-bearing — the fencing token and
+  ``placement_epoch`` on ``ApplyChangeEnvelope`` — ``_route_bound_params``
+  **overwrites** whatever the session carried with the live per-call route, so a
+  mint-time epoch could only ever be stale, never authoritative;
+* every other reader of ``GraphSession.catalog_epoch`` already treats ``None``
+  as "not tracked" and falls back to the data-plane epoch.
+
+So ``endpoint`` / ``placement_group`` / ``catalog_epoch`` are left unbound
+here. Everything that constitutes *authority* — the verified actor, the tenant
+claim, the graph name, the scope set and its hierarchy expansion, the policy
+revision, the audience, the trace correlation, and every ``PermissionError``
+this function raises — is unchanged, so the served 401/403 boundary is
+byte-for-byte the same.
 """
 
 import json
@@ -43,12 +81,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Paths that must stay reachable without credentials (container/LB liveness).
+# Paths that must stay reachable without credentials (container/LB probes).
 HEALTH_PATHS: frozenset[str] = frozenset(
-    {"/health", "/healthz", "/api/health", "/api/healthz"}
+    {"/health", "/health/ready", "/healthz", "/api/health", "/api/healthz"}
 )
 
-# Only non-fingerprinting liveness routes bypass the identity boundary.
+# Only non-fingerprinting liveness/readiness routes bypass the identity boundary.
 # Remote metrics must authenticate just like any other operational endpoint.
 UNAUTHENTICATED_PATHS: frozenset[str] = HEALTH_PATHS
 
@@ -119,7 +157,14 @@ def _mint_graph_session(
     audience: str,
     policy_version: str,
 ) -> GraphSession:
-    """Project one already-verified actor into the authoritative graph route."""
+    """Project one already-verified actor into its verified graph authority.
+
+    Authentication establishes **identity**, never **topology**. This function
+    therefore binds actor, tenant, graph, scopes, policy revision, audience and
+    trace context — and deliberately leaves ``endpoint`` / ``placement_group`` /
+    ``catalog_epoch`` unbound. See the module docstring's *"Identity, not
+    topology"* note for why binding a route here was a security defect.
+    """
     if not actor.authenticated:
         raise PermissionError(
             "A GraphSession can only be minted from authenticated identity"
@@ -127,13 +172,9 @@ def _mint_graph_session(
     if not str(actor.actor_id or "").strip():
         raise PermissionError("Verified identity is missing its subject")
 
-    from agent_utilities.knowledge_graph.core.placement_catalog import (
-        resolve_placement,
-    )
-    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+    from agent_utilities.knowledge_graph.core.session import GraphSession
     from agent_utilities.knowledge_graph.core.shard_topology import (
         default_graph_name,
-        resolve_endpoints,
         tenant_graph_name,
     )
     from agent_utilities.observability import correlation
@@ -153,7 +194,6 @@ def _mint_graph_session(
             "Authenticated graph requests require a verified tenant claim"
         )
     graph = tenant_graph_name(tenant, base=default_graph_name())
-    from agent_utilities.core.config import config
 
     audience = str(audience or "").strip()
     policy_version = str(policy_version or "").strip()
@@ -161,11 +201,13 @@ def _mint_graph_session(
         raise PermissionError(
             "Verified graph authority is missing audience or policy revision"
         )
-    # Placement is itself an authenticated engine read.  Mint the verified but
-    # unrouted session first, bind it only for that catalog lookup, and then
-    # narrow it to the authoritative route.  This removes the bootstrap cycle
-    # without inventing a system actor or weakening the placement boundary.
-    unrouted = GraphSession(
+    # No route, no engine contact, no transport provisioning: the data plane
+    # (``knowledge_graph/core/graph_compute.py``) binds the authoritative route
+    # per call with the calling session already bound, and overwrites the
+    # envelope's placement epoch/fencing token from it. ``endpoint=None`` is the
+    # documented "resolve normally" value on GraphSession. See the module
+    # docstring's "Identity, not topology" note (D-SP-1).
+    return GraphSession(
         actor=actor,
         tenant=tenant,
         scopes=scopes,
@@ -173,24 +215,6 @@ def _mint_graph_session(
         policy_version=policy_version,
         trace_context=correlation.ensure_correlation_id(),
         audience=audience,
-    )
-    endpoints = resolve_endpoints(config)
-    with use_session(unrouted):
-        if not config.graph_service_endpoints:
-            # The packaged-local topology has no external coordinator to answer
-            # the first placement read.  Provision the one process transport
-            # through the canonical resolver while the verified bootstrap
-            # session is bound; explicit topologies remain connect-only.
-            from agent_utilities.knowledge_graph.core.graph_compute import (
-                GraphComputeEngine,
-            )
-
-            GraphComputeEngine.get_or_create(graph_name=graph)
-        placement = resolve_placement(graph, endpoints, config)
-    return unrouted.with_route(
-        endpoint=placement.endpoint,
-        placement_group=(int(placement.group) if placement.group is not None else None),
-        catalog_epoch=int(placement.epoch),
     )
 
 
@@ -444,8 +468,12 @@ def mint_actor_from_token_sync(token: str) -> ActorContext:
 
     try:
         return asyncio.run(actor_from_bearer_token(token))
-    except Exception:
-        raise RuntimeError("Graph process identity token validation failed") from None
+    except Exception as exc:
+        # Preserve the cause: this is the same JWT verification path as the
+        # per-request boundary, and discarding it here would hide the exact
+        # class of fault this change targets (a dependency/config fault in
+        # `_decode_jwt` reported as an opaque failure with no signal of why).
+        raise RuntimeError("Graph process identity token validation failed") from exc
 
 
 async def _send_json(send: Any, status: int, payload: dict[str, Any]) -> None:
@@ -520,9 +548,28 @@ class ActorIdentityMiddleware:
             return
 
         if token and actor is None:
+            from fastapi import HTTPException
+            from fastapi import status as http_status
+
             try:
                 actor = await actor_from_bearer_token(token)
-            except Exception:  # noqa: BLE001 — any failure = invalid credential
+            except HTTPException as exc:
+                if exc.status_code == http_status.HTTP_401_UNAUTHORIZED:
+                    await _send_json(send, 401, {"error": "Token validation failed"})
+                    return
+                # A verification-path fault that is NOT a credential rejection
+                # (currently only `_decode_jwt`'s 500 when its JWT dependency is
+                # missing) must surface loudly and distinctly, never collapse
+                # to a 401 — that collapse is exactly how a missing dependency
+                # was misreported as a rejected credential.
+                logger.error(
+                    "JWT verification path failed (status=%s): %s",
+                    exc.status_code,
+                    exc.detail,
+                )
+                await _send_json(send, exc.status_code, {"error": exc.detail})
+                return
+            except Exception:  # noqa: BLE001 — any other failure = invalid credential
                 await _send_json(send, 401, {"error": "Token validation failed"})
                 return
 

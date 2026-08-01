@@ -2356,6 +2356,11 @@ class AgentConfig(BaseSettings):
 
     # --- Provider API Keys (global fallbacks for ad-hoc model creation) ---
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_api_key_ref: str | None = Field(default=None, alias="OPENAI_API_KEY_REF")
+    """Runtime secret reference (``env://``, ``vault://``, ``secret://``) for the OpenAI API key
+    (CONCEPT:AU-ORCH.adapter.openai-catalog-verification) — the OpenBao-backed alternative to the literal
+    ``OPENAI_API_KEY``. Resolved by ``core.credentials.CredentialResolver``, which checks this
+    reference BEFORE the literal env var/config-file tiers."""
     openai_base_url: str | None = Field(default=None, alias="OPENAI_BASE_URL")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
@@ -3523,6 +3528,14 @@ class AgentConfig(BaseSettings):
     # feeds added at runtime via graph_feeds live as :FeedSource nodes in the KG and
     # are swept too. Empty by default (a deployment opts in its feeds).
     kg_rss_feeds: str = Field(default="", alias="KG_RSS_FEEDS")
+    # CONCEPT:AU-KG.ingest.arxiv-feed-connector — native arXiv category codes (comma-separated, e.g.
+    # "cs.AI,cs.LG") the zero-infra `arxiv` connector polls through the SAME unified
+    # world-model gate as `rss`/`freshrss` (research items route to the budget-bounded
+    # ``grade_and_enqueue_paper`` path, never a firehose). Empty by default — an
+    # unscoped arXiv query is not supported (see ``ArxivConnector.configure``), so a
+    # deployment must opt in its categories.
+    kg_arxiv_categories: str = Field(default="", alias="KG_ARXIV_CATEGORIES")
+    kg_arxiv_max_results: int = Field(default=50, alias="KG_ARXIV_MAX_RESULTS")
     # SAI factory self-specialization (CONCEPT:AU-AHE.harness.sai-controller). LLM-free, bounded, and
     # propose-only (it only persists a SaiFactoryCycle metrics node — nothing is
     # merged or deployed), and a *no-op when there is too little transition history*,
@@ -3851,7 +3864,16 @@ class AgentConfig(BaseSettings):
     any one (``target=<name>``) or fan out to all (``target="all"``). The
     zero-infra default is fully preserved: unset → only the ambient ``default``
     connection exists. For Postgres, use ``"backend": "age"`` for native
-    openCypher portability."""
+    openCypher portability.
+
+    A ``role="mirror"`` entry may also declare ``mirror_target``
+    (CONCEPT:AU-KG.backend.mirror-target-graph) to say WHERE in that store
+    mirroring writes: ``"dedicated"`` (a graph reserved for mirroring, created if
+    absent — ``{"mode": "dedicated", "name": "<graph>"}`` to name it, plus
+    ``"level": "database"`` on Stardog), ``"default"`` (the instance default,
+    refused if it already holds data), or ``"default-overwrite"`` (the instance
+    default with that guard waived). Omitted, a connection that names its own
+    ``database``/``db_name``/``graph_name`` keeps writing exactly there."""
 
     gitlab_instances: list[dict[str, Any]] | None = Field(
         default=None, alias="GITLAB_INSTANCES"
@@ -5277,6 +5299,18 @@ class AgentConfig(BaseSettings):
     )
     """Enable streaming synthesis as agents complete (CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling)."""
 
+    distillation_promotion_threshold: int = Field(
+        default=3, alias="DISTILLATION_PROMOTION_THRESHOLD"
+    )
+    """Repeat-execution count before a workflow pattern is promoted to a reusable
+    Workflow+TeamConfig pair (CONCEPT:AU-AHE.optimization.workflow-distillation)."""
+
+    distillation_quality_score_minimum: float = Field(
+        default=0.6, alias="DISTILLATION_QUALITY_SCORE_MINIMUM"
+    )
+    """Minimum execution quality score required before a repeated pattern is eligible
+    for distillation (CONCEPT:AU-AHE.optimization.workflow-distillation)."""
+
     # --- Innovation Framework (CONCEPT:AU-OS.state.cognitive-scheduler-preemption through CONCEPT:AU-OS.state.cognitive-scheduler-preemption) ---
 
     homeostatic_downgrade_enabled: bool = Field(
@@ -6061,7 +6095,12 @@ def _fetch_prompt_agents(engine: Any) -> list[MCPAgent]:
                 )
             )
     except Exception as e:
-        logger.debug(f"Failed to fetch Prompt nodes: {e}")
+        # D-DST-6: _RegistryCache.get_registry() (this function's caller, one frame up)
+        # has no TTL and caches whatever _fetch_registry_from_kg() returns for the life
+        # of the process — a transient failure here silently produces a partial/empty
+        # agent registry that then never self-heals. Raised to warning for visibility;
+        # the cache-poisoning fix itself belongs to _RegistryCache (see D-DSTO follow-up).
+        logger.warning(f"Failed to fetch Prompt nodes (registry cache may go stale): {e}")
     return agents
 
 
@@ -6088,7 +6127,9 @@ def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
                 )
             )
     except Exception as e:
-        logger.debug(f"Failed to fetch specialist agents from KG: {e}")
+        # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
+        # raised to warning so a persistently-failing fetch is diagnosable.
+        logger.warning(f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}")
     return agents
 
 
@@ -6111,7 +6152,10 @@ def _fetch_tools(engine: Any) -> list[MCPToolInfo]:
                 )
             )
     except Exception as e:
-        logger.debug(f"Failed to fetch Tool nodes: {e}")
+        # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
+        # a failure here additionally drops all dynamically-synthesized partition agents
+        # (they're derived from `tools`). Raised to warning for visibility.
+        logger.warning(f"Failed to fetch Tool nodes (registry cache may go stale): {e}")
     return tools
 
 
@@ -6241,7 +6285,7 @@ def get_relevant_specialists(
 
         if relevant:
             return relevant[:top_n]
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — explicit fallback returned right below (all_agents[:top_n]); a search failure degrades relevance ranking, it does not lose any agent from consideration
         logger.debug(f"Hybrid search for adaptive_agent_router failed: {e}")
 
     # Fallback: return all agents (capped)
@@ -6499,6 +6543,12 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
     from pydantic_ai.mcp import load_mcp_toolsets
 
     from agent_utilities.base_utilities import expand_env_vars
+    from agent_utilities.mcp.protocol_compat import (
+        force_legacy_protocol_mode,
+        install_mcp_v2_bridge,
+    )
+
+    install_mcp_v2_bridge()
 
     try:
         path = Path(config_path)
@@ -6595,7 +6645,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                                 _sc = create_secrets_client()
                                 _user_token = _sc.get("session_token")
-                            except Exception as exc:
+                            except Exception as exc:  # noqa: BLE001 — best-effort: on failure AGENT_USER_TOKEN is simply omitted from the subprocess env; any MCP subprocess call that actually needs delegated auth fails its own auth check visibly downstream rather than silently using a stale/wrong token
                                 logger.debug(
                                     "Optional session-token enrichment unavailable: %s",
                                     exc,
@@ -6615,7 +6665,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
             tmp_path = tmp.name
 
         try:
-            servers = load_mcp_toolsets(tmp_path)
+            servers = force_legacy_protocol_mode(load_mcp_toolsets(tmp_path))
             # Re-attach IDs from config
             config_data = json.loads(expanded_content)
             mcp_servers_cfg = config_data.get("mcpServers", {})

@@ -41,6 +41,28 @@ Contention map
 * **bge-m3 embeddings** — a SEPARATE endpoint, so it gets a SEPARATE gate key and
   never contends with the generator. (Embedding fan-out is gated only against
   other embedding fan-out; see ``model="embedding"`` in the enrichment path.)
+
+Quiet-period preference (CONCEPT:AU-ORCH.scheduling.quiet-period-preference, D-OB-10)
+--------------------------------------------------------------------------------------
+The edict above yields background admission only while a higher-priority call is
+*actively* waiting (``_high_waiters > 0`` — an instantaneous fact). D-OB-10 found
+the program had repeatedly described background evolution work running "during
+downcycles" when no clock- or load-based downcycle predicate existed anywhere
+(``grep -rn downcycle`` was 0 hits) — only this LLM-capacity admission gate. This
+section composes a genuine **quiet-period preference** onto the SAME gate rather
+than inventing a second scheduler: a background call additionally prefers to wait
+for a stretch with no *recent* high-priority admission (not just no *currently
+waiting* one), squeezing its spare-capacity ceiling while the gate has been busy
+serving interactive/orchestration/hydration work in the last
+:data:`_QUIET_IDLE_SECONDS`. It is a **preference**, never a hard stop — the
+active-contention branch above remains the safety net, and the squeezed ceiling
+never drops below 1. :func:`host_load_is_quiet` is a separate, best-effort host
+CPU-load signal offered for callers that want to gate an optional heavy stage
+outright (e.g. "should I even start this cycle's breadth ingest"); it is
+deliberately NOT folded into the gate's own admission arithmetic, since raw host
+load conflates unrelated processes with this gate's own LLM contention and would
+make the core admission decision non-deterministic under concurrent test/sandbox
+load.
 """
 
 from __future__ import annotations
@@ -48,7 +70,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import os
 import threading
+import time
 from collections.abc import AsyncIterator, Iterator
 from enum import Enum
 
@@ -70,6 +94,7 @@ __all__ = [
     "reset_priority_gates",
     "priority_slot",
     "priority_slot_sync",
+    "host_load_is_quiet",
 ]
 
 
@@ -118,7 +143,19 @@ class PriorityClass(Enum):
 # toolset must load before anything can orchestrate — so these task types are HIGH
 # (HYDRATION), NOT the BACKGROUND_INGESTION their ingestion lane would otherwise
 # imply. The lane still governs worker-slot fairness; only the LLM priority differs.
-HYDRATION_TASK_TYPES: frozenset[str] = frozenset({"skill_workflows"})
+#
+# ``capability_hydration`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) is the
+# priority-1 boot/scheduled probe that elevates the live fleet's MCP tool schemas to
+# ``:Tool``/``:MCPServer`` KG nodes (``_enqueue_fleet_tool_schema_hydration`` /
+# ``deploy/schedules.yml``'s ``fleet-tool-schema-sync``). It rides the SAME
+# ``connectors`` lane as ordinary per-connector ``connector_sync`` sweep work (so it
+# shares that lane's soft-timeout envelope), but a distinct task type so it can be
+# claimed with its own reserved-worker floor (:func:`.engine_tasks.start_task_workers`)
+# instead of only ever landing on a worker the moment one of potentially dozens of
+# concurrent legacy connector syncs happens to free up.
+HYDRATION_TASK_TYPES: frozenset[str] = frozenset(
+    {"skill_workflows", "capability_hydration"}
+)
 
 # Hydration shares orchestration's rank: high, never below background — the edict's
 # "NOT deprioritised" exception expressed as a rank, not a special case.
@@ -242,7 +279,44 @@ def vllm_priority_extra_body(
     return {"priority": vllm_priority(priority)}
 
 
-# --- the priority-aware shared-LLM admission gate (ORCH-1.99) -----------------
+# --- quiet-period preference (CONCEPT:AU-ORCH.scheduling.quiet-period-preference, D-OB-10) ---
+#: How long a gate must go without admitting a high-priority (interactive /
+#: orchestration / hydration) call before background stops preferring to wait —
+#: i.e. how "recent" counts as "still busy". A named constant, not a flag
+#: (Configuration discipline: one correct auto-sized value, no deployment-varying
+#: input).
+_QUIET_IDLE_SECONDS = 30.0
+
+#: Best-effort host 1-minute load average, per core, below which
+#: :func:`host_load_is_quiet` reports the host itself as quiet.
+_QUIET_LOAD_PER_CPU = 0.5
+
+
+def host_load_is_quiet() -> bool | None:
+    """Best-effort, auto-detected "is the host currently quiet" signal.
+
+    Uses :func:`os.getloadavg` (1-minute average) normalized by CPU count —
+    zero configuration, no new dependency. Returns ``None`` when the platform
+    doesn't expose a load average (e.g. Windows) or the read fails: callers
+    MUST treat ``None`` as "no opinion", never as "busy", so an unsupported
+    platform never falsely throttles background work.
+
+    This is a STANDALONE signal for a caller deciding whether to start an
+    optional heavy background stage at all (e.g. a golden-loop tick choosing
+    to skip breadth ingest this cycle). It is deliberately NOT consulted by
+    :meth:`PriorityModelGate._can_admit` — see the module docstring's
+    "Quiet-period preference" section for why the gate's own admission
+    arithmetic instead uses its own recent-admission history, which is
+    deterministic under concurrent test/sandbox load where raw host load is not.
+    """
+    try:
+        load1, _, _ = os.getloadavg()
+    except (AttributeError, OSError):
+        return None
+    cores = os.cpu_count() or 1
+    return (load1 / cores) <= _QUIET_LOAD_PER_CPU
+
+
 def _auto_reserve(capacity: int) -> int:
     """Reserved high-priority headroom for a gate of ``capacity`` permits.
 
@@ -285,6 +359,13 @@ class PriorityModelGate:
        the high-priority backlog drains first. Background is only ever throttled
        *while interactive is actively contending*; otherwise it scales up into the
        reserved-minus headroom (dynamic scaling, never starved to zero).
+    4. **Quiet-period preference** (D-OB-10) — a softer, ALWAYS-ON extension of
+       (3): even with no high-priority call *currently waiting*, background's
+       spare-capacity ceiling is halved (floor 1, never to zero) while a
+       high-priority call landed on this SAME gate within the last
+       :data:`_QUIET_IDLE_SECONDS`. Background genuinely prefers an idle
+       stretch — not just a non-contending instant — while (3) remains the hard
+       safety net for actual contention.
 
     Symmetric async (:meth:`acquire`/:meth:`release`) and sync
     (:meth:`acquire_sync`/:meth:`release_sync`) faces share one logic core and one
@@ -301,11 +382,28 @@ class PriorityModelGate:
         )
         self._active = 0
         self._high_waiters = 0
+        # Quiet-period preference (D-OB-10): ``None`` until this gate admits its
+        # first high-priority call, which :meth:`_quiet_period` treats as "no
+        # recent activity observed" i.e. quiet — so a brand-new gate (and every
+        # gate before its first interactive/orchestration/hydration call) behaves
+        # exactly as before this feature existed.
+        self._last_high_priority_admission: float | None = None
         self._mutex = threading.Lock()
         self._sync_cond = threading.Condition(self._mutex)
         self._async_cond = asyncio.Condition()
 
     # -- the testable decision core (caller holds nothing; pure arithmetic) ---
+    def _quiet_period(self) -> bool:
+        """True when this gate has admitted no high-priority call recently.
+
+        Deliberately gate-local, not host-load-based (see the module docstring):
+        this is the exact resource the gate arbitrates, so its own recent
+        contention history is a more relevant — and deterministic — quiet
+        signal than raw host CPU load.
+        """
+        last = self._last_high_priority_admission
+        return last is None or (time.monotonic() - last) >= _QUIET_IDLE_SECONDS
+
     def _can_admit(self, is_high: bool) -> bool:
         if self._active >= self.capacity:
             return False
@@ -314,8 +412,15 @@ class PriorityModelGate:
         # Background: yield entirely while a higher-priority call is contending …
         if self._high_waiters > 0:
             return False
-        # … else use spare capacity up to the reserved-minus headroom.
-        return self._active < (self.capacity - self.reserve)
+        # … else use spare capacity up to the reserved-minus headroom — but only
+        # the FULL headroom during a quiet period; outside one (recent, even if
+        # not currently active, high-priority traffic) background prefers to
+        # wait for a genuinely idle stretch, so its ceiling is halved (never
+        # below 1 — a preference, not a starve-to-zero).
+        ceiling = self.capacity - self.reserve
+        if not self._quiet_period():
+            ceiling = max(1, ceiling // 2)
+        return self._active < ceiling
 
     # -- async face ----------------------------------------------------------
     async def acquire(self, priority: PriorityClass) -> None:
@@ -328,6 +433,8 @@ class PriorityModelGate:
                     with self._mutex:
                         if self._can_admit(is_high):
                             self._active += 1
+                            if is_high:
+                                self._last_high_priority_admission = time.monotonic()
                             break
                     await self._async_cond.wait()
             finally:
@@ -352,6 +459,8 @@ class PriorityModelGate:
                 while not self._can_admit(is_high):
                     self._sync_cond.wait()
                 self._active += 1
+                if is_high:
+                    self._last_high_priority_admission = time.monotonic()
             finally:
                 if is_high:
                     self._high_waiters -= 1

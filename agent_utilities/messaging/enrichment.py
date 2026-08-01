@@ -55,7 +55,7 @@ def enrich_conversation(
         )
 
         llm_fn = make_lite_llm_fn()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — best-effort background enrichment; import failure short-circuits to 0 concepts, caller discards the return value anyway
         logger.debug("[ECO-4.65] enrichment unavailable: %s", exc)
         return 0
     if llm_fn is None:
@@ -75,14 +75,14 @@ def enrich_conversation(
                 "created_at": datetime.now(UTC).isoformat(),
             },
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — best-effort chat-turn node write; extraction proceeds regardless, no downstream code checks this write succeeded
         logger.debug("[ECO-4.65] chat-turn node write failed: %s", exc)
 
     try:
         concepts, _edges = extract_text_concepts(
             text, source_id, llm_fn, source_type="chat", title=title or "chat"
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — best-effort concept extraction; failure returns 0, caller discards the count
         logger.debug("[ECO-4.65] concept extraction failed: %s", exc)
         return 0
 
@@ -106,7 +106,7 @@ def enrich_conversation(
                 properties={"source": "chat"},
             )
             written += 1
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — best-effort per-concept KG write; skips this concept only, written count is informational-only
             logger.debug("[ECO-4.65] concept write failed: %s", exc)
     if written:
         logger.info(
@@ -143,7 +143,7 @@ def _surface_intents(engine: Any, text: str, source_id: str, llm_fn: Any) -> Non
     try:
         raw = llm_fn(prompt)
         data = json.loads(raw) if isinstance(raw, str) else (raw or {})
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — best-effort goal/spec detection; failure aborts surfacing for this turn, no state was written yet
         logger.debug("[ECO-4.70] intent detection failed: %s", exc)
         return
     for label, key in (("Goal", "goal"), ("Spec", "spec")):
@@ -176,5 +176,5 @@ def _surface_intents(engine: Any, text: str, source_id: str, llm_fn: Any) -> Non
                 label,
                 desc[:60],
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — best-effort Goal/Spec surfacing; node ids are content-hashed so a later turn safely retries
             logger.debug("[ECO-4.70] %s surfacing failed: %s", label, exc)

@@ -491,29 +491,66 @@ work (`.specify/specs/reasoning-rl-2026/`):
 ## Wire-First — reachable ≠ invoked (READ BEFORE shipping a complex feature)
 
 A feature is **not done when its code exists and unit-tests pass** — it is done when a **live call
-path actually invokes it**. We have repeatedly shipped code that was importable and unit-tested but
-*never called on any real path* (e.g. `mount_skill_unit` stored a skill's SOP but the prompt builder
-never read it; `UsageTelemetry` existed but `plan_and_retrieve` never recorded recall; a GEPA
-held-out split existed but the entry point passed `dev_fraction=0`). These pass every unit test and
-are still **dead code**.
+path invokes it and a test proves that edge**. We have shipped, repeatedly, importable, fully
+unit-tested, never-called code: `PolicyEngine` (zero live callers, in the *safety* layer); KV forking
+(plumbed end-to-end, no caller passed `kv_page_keys`); `AdmissionPolicy.decide`. All green. All dead.
+**Unit coverage is not evidence of reachability** — the most expensive confusion in this repo.
 
-When implementing any non-trivial feature you MUST verify and test the *invocation*, not just the API:
+### Test taxonomy — say what each level can honestly claim
 
-1. **Trace the live path end-to-end.** From an entry point (MCP tool, API route, CLI, hook, daemon
-   tick, or a registry/discovery mechanism) to your new code. If you added a method/field/flag, grep
-   that the existing hot path **actually calls/reads it** — don't assume `__init__` storing it is enough.
-2. **Default the integration ON.** If a new behavior needs a flag/param to activate, the live entry
-   point must pass a sensible default that turns it on (or it's off in production).
-3. **Write a LIVE-PATH test, not just an API test.** Exercise the *existing* class/entry point and
-   assert the new behavior happens as a side effect (e.g. "call `plan_and_retrieve`, assert recall was
-   recorded"), in addition to unit-testing the helper in isolation. Name it `*_live_path` / `*_integration`.
-4. **Run `check_wiring.py`** (import-graph, ≤3 hops) — but know its **blind spot**: it cannot see
-   **plugin/decorator dynamic registration** (`register_source` + `pkgutil` discovery, entry-points,
-   `@adaptor`). For those, also grep that a discovery/registration call runs on a live path. A
-   "0 hops / unreachable" result for a self-registering module is a false negative — verify the
-   discovery, don't delete the module.
-5. **No silent storage.** A value set in `__init__`/a setter but read nowhere is a bug. Either wire it
-   into the behavior or don't add it.
+| Level | Proves | Does NOT prove |
+|---|---|---|
+| **Unit** | the component behaves in isolation | **nothing about reachability** — a fully-tested class can have zero callers |
+| **Wiring** | it is **reached from a real entrypoint**, real construction, no mock standing in for the seam | that it is correct, complete, or works against real infra |
+| **Contract** | a public surface (MCP tool list, dispatch registry, REST routes, capability catalogue) is **exactly** as intended over **every** mode/profile | that anything behind the surface works |
+| **Live-path** | it works against **real** dependencies and transport, no fakes at the validated boundary | — the only level proving deployability |
+
+All four are required; none substitutes for another. Name them `*_wiring`/`*_contract`.
+
+### The rules
+
+1. **A capability is not "done" until a wiring test proves it is reached from a live entrypoint.**
+   Trace the path first (MCP tool, REST route, CLI, daemon tick, registry discovery), then drive
+   *that entrypoint* in the test — not the component.
+2. **Never mock the seam you are validating.** `tests.wiring.observe(...)` wraps the real attribute
+   **pass-through** — production code still runs and you assert it *ran*; `patch()` on the seam
+   proves only that your own mock was called. (`observe` refuses an already-mocked target.)
+3. **Observe the deepest seam carrying the behaviour, not the wrapper that delegates.**
+   `Orchestrator._scan_task` once guarded on a method the scanner never had, so the gate ran and
+   never fired — observing the wrapper would have passed throughout.
+4. **Default the integration ON, and assert the argument** (`call.arg("<param>")`) — the KV-fork
+   failure was complete plumbing plus a caller that never passed the parameter switching it on.
+5. **Pin every public surface with an exact-set contract test, parameterised over every
+   mode/profile** — `tests.wiring.assert_surface(...)`. A superset check is not a contract: the
+   regression exposing 118 MCP tools instead of ~11 would have passed one. Members surviving every
+   parameterisation (the five fleet meta-tools) go in `invariant=`.
+6. **A test that cannot run in CI is worse than no test — it manufactures false confidence.** Four
+   ways we have done it: **outside `pytest.ini` `testpaths`** (hid the fleet's default transport
+   being broken) → `assert_collected_by_pytest`; **`MagicMock(spec=[])` for a maybe-missing module**
+   → `assert_not_faked`; **skipped behind an extra CI never installs** → `require_module` *fails*
+   (declare a truly-unrunnable test with a marker, so `pytest.ini` shows the exclusion); **a global
+   test flag deleting the production branch** — `AGENT_UTILITIES_TESTING=true` makes `create_agent`
+   skip its MCP-toolset governance block entirely, so restore production conditions first.
+7. **No silent storage.** A value set in `__init__`/a setter and read nowhere is a bug.
+
+### Writing one costs four lines
+```python
+with observe(PromptInjectionScanner, "scan_text") as scanned:  # real impl still runs
+    with past_the_seam(must_not_raise="Security Alert"):       # downstream needs no engine
+        await Orchestrator(engine=object()).dispatch_task("git status")
+scanned.assert_called(why="every delegation entrypoint scans untrusted task text")
+```
+
+Kit + rationale: **[`tests/wiring.py`](tests/wiring.py)**. Copy the exemplar nearest your seam —
+`tests/unit/**/test_*_wiring.py` and `test_*_contract.py`; start with
+`tests/unit/mcp/test_served_tool_surface.py` (contract over all four `MCP_TOOL_MODE`s + the
+meta-tool invariant) and `.../security/test_agent_permission_context_wiring.py` (un-mocking a seam
+the existing suite mocks).
+
+**The ceiling:** a wiring test proves an *edge*, not deployability — real transports, auth, engines
+and serialisation are only proven by running the thing. `scripts/check_wiring.py
+--wire-first-report` answers "does anything import or call this?" statically: a *finder of
+suspects*, not a gate (blind to decorator/entry-point registration and out-of-repo callers).
 
 ## Native by default — every enhancement is always-on and woven into the flow (READ BEFORE gating a feature)
 
@@ -737,14 +774,13 @@ So the default for any non-trivial change is:
    `python3 scripts/uv_workspace.py doctor` to verify the source and lock provenance.
 2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
    is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
-3. **Before merging back, sync `main` INTO your branch and resolve conflicts THERE, then
-   merge to `main` locally** (now a clean fast-forward). `main` drifts while you're checked
-   out, so always `git merge origin/main` *down into* the feature branch first and fix every
-   conflict on the branch — never resolve conflicts against the shared `main` tree. Then
-   **clean up**: remove the worktree and delete the now-merged branch
-   (`git worktree remove <path> && git branch -d <topic>`, or `rm_worktree remove <repo>
-   <branch> --delete-branch`; `git worktree prune` clears stale entries). Push only when
-   the user asks. See *Finishing work in a worktree* below for the full sequence.
+3. **Land each chunk as it finishes, through the merge queue** —
+   `agent-utilities merge-queue enqueue`. Do not merge to `main` by hand and do not
+   save work up for a bulk merge at the end. The queue syncs, gates the candidate
+   **as merged**, fast-forwards `main`, and prunes your worktree and branch for you;
+   if it reports a conflict, resolve it **on your branch** (`git merge origin/main`
+   down into it) and re-enqueue — never against the shared `main` tree. Push only
+   when the user asks. Full sequence: *Concurrent development* below.
 4. A plain feature branch in the main checkout is **not** sufficient isolation — a sibling session's
    `git checkout` still mutates the shared tree. Use a worktree for real isolation.
 
@@ -805,8 +841,8 @@ sequenceDiagram
 # Installation
 pip install .[all]
 
-# Quality & Linting (run from project root)
-pre-commit run --all-files
+# Quality & Linting (run from project root) — safe wrapper, see D-OB-12 below
+python3 scripts/safe_precommit_all_files.py
 
 # Execution Commands
 # GraphOS
@@ -859,7 +895,7 @@ substrates** (the engine's own storage/queue backends).
 **Good example:**
 ```python
 from agent_utilities import create_mcp_server
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 mcp = create_mcp_server("my-agent")
 
@@ -933,14 +969,41 @@ After completing any code change, run the project's pre-commit suite and drive i
 pre-commit run --all-files
 ```
 
+> ⚠ **`--all-files` can DESTROY your own or another session's unstaged work
+> (D-OB-12) — read this before running it.** Under the hood, `--all-files`
+> `git stash`es every UNSTAGED change before running hooks and restores it
+> after. When a **file-rewriting hook** (`ruff-format`, `turtle-format`,
+> `guardrail-docs-contract --write`, …) touches a path that also had unstaged
+> edits, the restore can **silently drop those edits instead of merging
+> them** — this repo lost a full round of regenerated docs to exactly this
+> during the fastmcp-4 migration. It is acutely dangerous here because
+> **`docs/concept_reservations.yaml` is a shared, cross-session coordination
+> ledger deliberately left unstaged** (concurrent sessions append to it
+> without staging/committing) — one careless `--all-files` run can destroy
+> another session's in-flight concept reservations.
+>
+> **Always run it through the safe wrapper, never bare:**
+> ```bash
+> python3 scripts/safe_precommit_all_files.py
+> ```
+> It backs up your full unstaged diff before the run (so nothing is
+> unrecoverable), prints an explicit warning if `docs/concept_reservations.yaml`
+> (or another known shared-ledger file) is unstaged going in, and verifies
+> afterward that your unstaged changes still apply — pointing at the backup
+> and the exact `git apply --3way` recovery command if a hook silently
+> altered or dropped them. If you must invoke bare `pre-commit` directly
+> (e.g. a **targeted** run against specific files/hooks, which does not carry
+> this risk the same way), prefer that narrower form over `--all-files`
+> whenever you don't need every hook re-run.
+
 Resolve **every** issue it reports — failures, lint errors, type errors, and
 warnings — **including problems that pre-date your change and were not caused by
 your edits**. The standing goal is a clean, working codebase with **no errors and
 no warnings**. Do not silence checks (`# noqa`, `# type: ignore`, `SKIP=`,
 `--no-verify`) to force green unless the exception is already documented in this
 file as a known, unavoidable limitation. Only commit once `pre-commit run
---all-files` passes cleanly; if a check legitimately cannot pass, stop and explain
-why rather than bypassing it.
+--all-files` (via the safe wrapper above) passes cleanly; if a check legitimately
+cannot pass, stop and explain why rather than bypassing it.
 
 **ALL gates, always green — pre-commit AND CI.** "Green" means more than the
 pre-commit hooks: **every CI gate must pass and stay passing — never knowingly merge
@@ -963,346 +1026,146 @@ After pushing, **verify the workflows actually went green** (GitHub MCP `gith__a
 is confirmed green. If a gate cannot pass, stop and explain; never disable or
 `continue-on-error` a blocking gate to get a merge through.
 
-## Working with Git Worktrees (multi-session)
+## Concurrent development — lanes, arbitration classes, what refuses you (READ FIRST when many sessions share a repo)
 
-Multiple agents/sessions work the `agent-packages/*` repos concurrently. **Do not
-edit the canonical checkout** (`agent-packages/<repo>`) — a
-background `repository-manager` sync can reset its working tree and discard
-uncommitted edits. Take your own git worktree on your own branch instead:
+Many agent sessions and humans work `agent-packages/*` **at once**. Every collision we
+have suffered has one shape: **a background or global actor mutates state a lane
+assumed it owned.** A *lane* = one worker, one worktree, one branch. Writing these
+rules down did not work — **eleven were violated in one day**, by competent actors
+with the rule in front of them — so they are now **mechanical**. Full design +
+evidence: [`docs/architecture/lane-concurrency.md`](docs/architecture/lane-concurrency.md).
 
+Every shared resource is in exactly one class (`agent-utilities lane classify`;
+data lives in `agent_utilities/governance/lane_resources.yaml`, an unclassified
+resource is a hard error):
+
+- **PARTITION** — take your own: cargo target dir, pytest basetemp, scratch, stash ref.
+- **APPEND-ONLY** — append to *your* fragment; a reconciler folds one generated view.
+- **LEASE** — announce, and **defer** rather than proceed.
+- **READ-ONLY** — do not mutate at all.
+
+**Start every lane:**
 ```bash
-# preferred — repository-manager MCP:
-rm_worktree add <repo> <your-branch>      # -> ${XDG_STATE_HOME}/repository-worktrees/<repo>/<your-branch>
-
-# raw-git fallback:
-git -C agent-packages/<repo> checkout main
-git -C agent-packages/<repo> worktree add ${XDG_STATE_HOME}/repository-worktrees/<repo>/<branch> -b <branch>
+git -C agent-packages/<repo> worktree add ${XDG_STATE_HOME}/repository-worktrees/<repo>/<branch> -b <branch> main
+agent-utilities lane status   # confirm is_canonical == false
+agent-utilities lane env      # your private cargo target / pytest basetemp / scratch / stash ref
 ```
+In an agent-utilities worktree use `python3 scripts/uv_workspace.py run <cmd>` instead
+of bare `uv run`, and `... lock --locked` instead of bare `uv lock`.
 
-Work in the worktree and **commit often** (commits survive a working-tree reset).
-Each session must use a **distinct branch** — git allows a branch in only one
-worktree, which is what keeps concurrent sessions from colliding. Worktrees live
-under `${XDG_STATE_HOME}/repository-worktrees/` (outside the workspace scan, so the sync leaves them
-alone). In an agent-utilities worktree, use
-`python3 scripts/uv_workspace.py run <command>` instead of bare `uv run`, and
-`python3 scripts/uv_workspace.py lock --locked` instead of bare `uv lock`; the
-pre-commit hooks already use this launcher.
+**The rules, and what enforces them:**
+1. **Never edit the canonical checkout** (`agent-packages/<repo>`). The `lane-guard`
+   pre-commit hook **refuses** a non-merge commit authored there. Carve-outs are
+   structural, never flags: a merge in progress (git's `MERGE_HEAD`) and a pure
+   version bump (staged set ⊆ `.bumpversion.cfg`).
+2. **Never `git stash`** — `refs/stash` is ONE ref shared by every worktree (six
+   collisions, plus four reflexive violations today by actors with this rule in
+   front of them). A prohibition only works when it names its replacement, and
+   there are two different needs behind the reflex:
+   - **You want to see the pristine file while yours is dirty** (the common case) →
+     **`git show HEAD:<path>`** (or `git show <ref>:<path>`). Read-only, mutates
+     nothing, works while dirty. Reach for this first.
+   - **You genuinely want to park work** → a **scratch commit on your own branch**
+     (`git commit -m "wip: …"`, amend or squash later), or
+     `agent-utilities lane park` / `lane unpark`, which builds the same stash
+     commit via `git stash create` (writes no ref), points *your* ref at it, then
+     cleans the tree.
+   Commit often either way — commits are what a reset cannot take.
+3. **Never relock, swap the venv, run `pre-commit --all-files`, or merge into a
+   shared base bare.** Run it *through* the lease so a contender defers:
+   `agent-utilities lane lease --resource dependency-lock --operation relock -- uv lock`.
+   **Exit 75 = another lane holds it: defer, do not proceed.** ⚠ A lease binds only
+   actors that take it; an unwrapped process still races. Not solved — always wrap.
+4. **Never hand-edit a generated view** (`docs/concept_reservations.yaml`,
+   `reports/PROGRAM.md`). `lane-guard` refuses a ledger view that is not the fold of
+   its fragments. Write your fragment, regenerate.
+5. **Reserve a concept id before writing its `CONCEPT:` marker** —
+   `agent-utilities concept reserve --id <ID>` appends to *your* fragment, arbitrated
+   in the repo's shared git dir so siblings see the claim immediately.
+6. **If you are a global actor** (background sync, fleet cleanup, venv swapper) route
+   every tree-mutating verb — `checkout`, `restore`, `clean`, `reset`, branch switch —
+   through `lanes.guarded_tree_mutation(path, operation=…, owner=…)`, or
+   `agent-utilities lane guard --reset <path> --owner <you>`. It refuses any tree
+   holding uncommitted work you do not own. **Skip that tree. Never force.**
+7. **One document for readers, one fragment per writer.** Read `reports/PROGRAM.md`
+   (generated charter + register). Write only your own
+   `reports/deferred/<lane>.md` (`scripts/deferred_registry.py open`) or your own
+   charter fragment.
 
-**Finishing work in a worktree** — run this sequence before calling it done:
-1. **Pre-commit green** — `pre-commit run --all-files`; resolve every issue per the
-   *Quality Bar* above (including pre-existing), no `--no-verify`.
+**Finishing a lane / worktree** (see also *Quality Bar* above — resolve
+everything, including pre-existing, no `--no-verify`):
+1. **Pre-commit green, leased and safe.** These are two DIFFERENT guards and both
+   apply — the lease serializes lanes, the wrapper protects unstaged work:
+   ```
+   agent-utilities lane lease --resource precommit-all-files --operation gate -- \
+     python3 scripts/safe_precommit_all_files.py
+   ```
+   The **lease** stops two lanes running `--all-files` at once. The **wrapper**
+   (D-OB-12, CONCEPT:AU-OS.governance.precommit-all-files-safety) exists because
+   `pre-commit run --all-files` internally `git stash`es every UNSTAGED change and
+   can silently DROP it on restore when a file-rewriting hook touches the same
+   path — which is how a full round of regenerated docs was once eaten, and which
+   would destroy another session's in-flight `docs/concept_reservations.yaml`
+   entries (a shared cross-session ledger deliberately left unstaged). Never call
+   bare `pre-commit run --all-files` here.
+
 2. **Commit** in the worktree.
-3. **Sync `main` INTO your feature branch FIRST, and resolve every conflict there.**
-   `main` drifts a lot while a worktree is checked out, so merge `main` *down* into the
-   branch — `git -C <worktree> fetch origin && git -C <worktree> merge origin/main` (or
-   `rm_worktree sync <repo> <branch>` where available) — and resolve all conflicts **in the
-   feature branch**, re-running the gates after. This is the safety valve: conflict
-   resolution happens on your isolated branch, never on the shared `main` tree, so the
-   merge back is guaranteed clean.
-4. **Merge to main locally** — now a clean **fast-forward** (no conflicts, since the branch
-   already contains `main`): `rm_worktree merge <repo> <branch> --into main` (or
-   `git merge --ff-only`). Push only when the user asks.
-5. **Clean up** — remove the worktree and delete the merged branch:
-   `rm_worktree remove <repo> <branch> --delete-branch`; `rm_worktree prune` clears
-   stale entries. (Raw-git: `git worktree remove <path> && git branch -d <branch>`.)
+3. **Enqueue — do not merge by hand, and do not save work up for the end.**
+   ```
+   agent-utilities merge-queue enqueue        # returns immediately; verifies nothing yet
+   ```
+   Land each coherent chunk **as it finishes**. Bulk merges are gone: their only
+   value was the adversarial review, and the review is now automated
+   (CONCEPT:AU-OS.governance.serialized-merge-queue). Long-lived branches cost more
+   than they saved — they produced two `CandidateClaim` classes, two `Fragment`
+   shapes and two fixes for one bug, all because branches were invisible to each
+   other and each lane surveyed a `main` that had already moved.
+4. **The queue runs it** (`merge-queue run`, serialized on the *same*
+   `reconciliation-merge` lease — no second arbiter). Per batch, inside a published
+   **180-second** budget: merge-cleanliness (~25 ms), a **cross-branch
+   duplicate-symbol scan** across every candidate in flight, an import smoke and
+   **targeted tests over changed paths — run against the tree AS MERGED**, never as
+   it sat on your branch (`D-OB-17`: git merges two branches cleanly into a tree
+   that `ImportError`s), plus every `scripts/security/check_*.py` **discovered in
+   the merged tree**. ⚠ **Zero conflicts is not a safety property** — it is the
+   *expected* signal for a whole defect class. Git answers "did two people edit the
+   same lines", about text, on your branch; that is never an answer about whether
+   the merged tree still upholds an invariant. A lane that forks *after* a fix and
+   reverts it merges perfectly cleanly and lands the revert. So never reason
+   "it merged clean, therefore it's safe" — and when you add an invariant, add it as
+   a contract script, which the gate then enforces on the merged tree for free. The
+   **full suite stays outside** the queue, on `main`,
+   after landing: at 43 minutes it makes the queue diverge at any concurrency, and a
+   gate too costly to run gets bypassed (`D-OP-4`, `D-KCI-6`). Candidates are
+   **batched and bisected on failure**, so throughput scales and one bad candidate
+   never rejects seven innocent ones. `main` only ever **fast-forwards**; the merge
+   is built as git objects, so no conflict is ever resolved in the canonical tree.
+5. **Prune is automatic** — the queue removes the worktree and branch on landing via
+   repository-manager's guarded prune (anchor `refs/lane-backup/<branch>`, re-check
+   `--is-ancestor` at delete time, `git branch -d` **never** `-D`). That is why 79
+   worktrees cannot happen again.
+6. **Rejected?** The JSON names the failing checks and *both* sides of every
+   duplicate symbol — combine them and re-enqueue. **Exit 75** = another runner
+   holds the lease: defer.
+
+**Merging is not deploying** (CONCEPT:AU-OS.governance.merge-deploy-decoupling). The
+fleet NFS-mounts the canonical checkout at `/au` with `PYTHONPATH=/au`, so a merge
+**arms** a deploy that fires on the next unplanned restart. Merge freely to `main`;
+ship only by an explicit fast-forward of `refs/heads/deployed` to a SHA the full
+suite has since passed. Check with `merge-queue promotion`.
+
+**Worked example — deferring is the correct outcome.** A lane finished a fix for this
+exact hazard and then *declined to merge it*, because the canonical checkout held
+unrelated uncommitted changes and merging into a dirty canonical tree is the hazard it
+had just fixed. It recorded the deferral instead. The queue now does this for you —
+`guarded_tree_mutation` refuses, your candidate stays queued, nothing is lost.
+
+Budget derivation, measured costs, what is now *impossible* rather than discouraged,
+and the residual gaps: [`docs/architecture/merge-queue.md`](docs/architecture/merge-queue.md).
 
 ## Project Structure (generated)
 
-_Auto-generated by `scripts/gen_agents_md.py`. Only version-controlled paths are included; large directories are summarized._
-
-```text
-├── .github/
-│   └── workflows/
-│       ├── concept-governance.yml
-│       ├── guardrails.yml
-│       ├── pages.yml
-│       ├── pipeline.yml
-│       └── security.yml
-├── .security/
-│   ├── authenticated_negative.py
-│   ├── repository_fuzz.py
-│   └── security-contract.json
-├── .specify/
-│   ├── design/ (42 entries)
-│   ├── evidence/
-│   │   ├── r1.json
-│   │   ├── r1_overview.md
-│   │   ├── r2.json
-│   │   └── r2_overview.md
-│   ├── memory/
-│   │   ├── constitution.json
-│   │   └── constitution.md
-│   ├── reports/
-│   │   ├── agi-to-asi-gap-analysis.md
-│   │   ├── ca000_discovery.json
-│   │   ├── ca003_architecture_agent_utilities.json
-│   │   ├── ca003_architecture_hermes.json
-│   │   ├── ca003b_arch_diff.json
-│   │   ├── ca004b_relevance.json
-│   │   ├── ca010_innov_2604.20209.json
-│   │   ├── ca010_innov_2605.22721.json
-│   │   ├── ca010_innov_2606.06473.json
-│   │   ├── ca010_innov_2606.13814.json
-│   │   ├── ca010_innov_2606.13905.json
-│   │   ├── ca010_innov_2606.14142.json
-│   │   ├── ca010_innov_2606.14260.json
-│   │   ├── ca010_innov_2606.14269.json
-│   │   ├── ca010_innovations.json
-│   │   ├── ca010_innovations_article.json
-│   │   ├── ca010_innovations_pauserec.json
-│   │   ├── code-enhancer-optimization-analysis.md
-│   │   ├── comparative_analysis.md
-│   │   ├── comparative_analysis_open-design.md
-│   │   ├── concept_cross_reference.md
-│   │   ├── deferred-followups.md
-│   │   ├── innovation_ledger_open-design.json
-│   │   ├── innovation_ledger_openhands.json
-│   │   ├── kimi-swarm-comparative-analysis.md
-│   │   ├── memento-comparative-analysis.md
-│   │   ├── memory-2606.26294-comparative-analysis-2026-06-28.md
-│   │   ├── memory-os-comparative-analysis.md
-│   │   ├── mypy-remediation-plan.md
-│   │   ├── openhands-comparative-analysis-2026-06-13.md
-│   │   ├── orch-1.37-followups.md
-│   │   ├── rlm-comparative-analysis-2026-06-14.md
-│   │   └── rlm-gepa-comparative-analysis.md
-│   └── specs/ (46 entries)
-├── agent_utilities/ (62 entries)
-├── deploy/
-│   ├── k8s/
-│   │   ├── production-cell/
-│   │   ├── graphos-homelab-live-config-fix.yaml
-│   │   ├── graphos.yaml
-│   │   └── messaging-bundle-retirement.yaml
-│   ├── postgres/
-│   │   └── tenant_rls.sql
-│   ├── release/
-│   │   ├── __init__.py
-│   │   ├── certification-campaign.schema.json
-│   │   ├── certification-campaign.yml
-│   │   ├── compatibility-matrix.schema.json
-│   │   ├── compatibility-matrix.yml
-│   │   ├── component-provenance.schema.json
-│   │   ├── component-signature-bundle.schema.json
-│   │   ├── component-source-evidence.schema.json
-│   │   ├── connector-bundle-catalog.schema.json
-│   │   ├── connector-bundles.catalog.json
-│   │   ├── connector-live-certification-ledger.schema.json
-│   │   ├── exact-artifact-closure-evidence.schema.json
-│   │   ├── exact-local-gates-manifest.schema.json
-│   │   ├── exact-local-release-evidence.schema.json
-│   │   ├── exact-local-release-spec.schema.json
-│   │   ├── index-migration-catalog.schema.json
-│   │   ├── index-migrations.catalog.json
-│   │   ├── oci-scanner-attestation.schema.json
-│   │   ├── oci-vulnerability-database-attestation.schema.json
-│   │   ├── oci-vulnerability-scan-evidence.schema.json
-│   │   ├── operational-evidence.schema.json
-│   │   ├── prebundled-skill-catalog.schema.json
-│   │   ├── prebundled-skill-validation-evidence.schema.json
-│   │   ├── prebundled-skills.catalog.json
-│   │   ├── release-assembly.schema.json
-│   │   ├── release-configuration.schema.json
-│   │   ├── release-contract-resources.catalog.json
-│   │   ├── release-manifest.schema.json
-│   │   ├── release-migration-plan.schema.json
-│   │   ├── skill-validation-deployment-evidence.schema.json
-│   │   ├── skill-validation-deployment.schema.json
-│   │   ├── source-freeze-evidence.schema.json
-│   │   ├── source-freeze-gates.json
-│   │   └── source-freeze-gates.schema.json
-│   ├── swarm/
-│   │   └── graphos.stack.yml
-│   ├── __init__.py
-│   ├── action-policy.default.yml
-│   ├── mcp-fleet.registry.yml
-│   ├── README.md
-│   └── schedules.yml
-├── docker/
-│   ├── paradedb-init/
-│   │   └── 01-extensions.sql
-│   ├── pg-age/
-│   │   └── Dockerfile
-│   ├── pg-age-full/
-│   │   └── Dockerfile
-│   ├── pg-age-init/
-│   │   └── 01-extensions.sql
-│   ├── recipes/
-│   │   └── README.md
-│   ├── docker-compose.kafka.yml
-│   ├── Dockerfile
-│   ├── egeria.compose.yml
-│   ├── engine-shards.compose.yml
-│   ├── falkordb.compose.yml
-│   ├── graphos-unified-kaniko-job.yaml
-│   ├── graphos-unified-langfuse-kaniko-job.yaml
-│   ├── graphos-unified-skill-runtime-kaniko-job.yaml
-│   ├── graphos-unified.Dockerfile
-│   ├── jena_fuseki.compose.yml
-│   ├── kafka-kraft.compose.yml
-│   ├── mcp.compose.yml
-│   ├── neo4j.compose.yml
-│   ├── paradedb.compose.yml
-│   ├── pg-age-full.compose.yml
-│   ├── pg-age.compose.yml
-│   └── README.md
-├── docs/
-│   ├── architecture/ (104 entries)
-│   ├── examples/
-│   │   ├── workflows/
-│   │   ├── action-policy-postures.md
-│   │   ├── autoscaling-signals.md
-│   │   ├── config.json
-│   │   ├── evolution-publication.md
-│   │   ├── example_mcp_config.json
-│   │   ├── example_tunnel_inventory.yaml
-│   │   ├── fleet-events-wiring.md
-│   │   ├── graph-os-mcp-examples.md
-│   │   ├── identity-jwt.md
-│   │   ├── mcp-consumption.md
-│   │   ├── mcp-orchestration-examples.md
-│   │   ├── observability.md
-│   │   ├── ontology-to-workflow.md
-│   │   ├── queue-dispatch-walkthrough.md
-│   │   ├── sharding-walkthrough.md
-│   │   └── workspace.yml
-│   ├── guides/ (78 entries)
-│   ├── learn/
-│   │   ├── lessons/
-│   │   ├── index.md
-│   │   └── manifest.yaml
-│   ├── operations/
-│   │   ├── disaster-recovery.md
-│   │   ├── phase10-cutover-runbook.md
-│   │   └── production-cell-runbook.md
-│   ├── pillars/
-│   │   ├── 1_graph_orchestration/
-│   │   ├── 2_epistemic_knowledge_graph/
-│   │   ├── 3_agentic_harness_engineering/
-│   │   ├── 4_ecosystem_peripherals/
-│   │   ├── 5_agent_os_infrastructure/
-│   │   ├── 1_graph_orchestration.md
-│   │   ├── 2_epistemic_knowledge_graph.md
-│   │   ├── 3_agentic_harness_engineering.md
-│   │   ├── 4_ecosystem_peripherals.md
-│   │   ├── 5_agent_os_infrastructure.md
-│   │   ├── 6_geniusbot_cockpit.md
-│   │   ├── architecture_c4.md
-│   │   ├── master_integration.md
-│   │   └── memory_architecture.md
-│   ├── recipes/
-│   │   ├── databases.md
-│   │   ├── delta-ingestion.md
-│   │   ├── enterprise.md
-│   │   ├── kv-caching.md
-│   │   ├── single-node-prod.md
-│   │   ├── split-storage-engine.md
-│   │   ├── tiny.md
-│   │   ├── unified-feeds.md
-│   │   ├── unified-scheduling.md
-│   │   └── unified-self-contained.md
-│   ├── reference/
-│   │   ├── palantir-foundry/
-│   │   ├── documentation-catalog.md
-│   │   ├── metrics.md
-│   │   └── runtime-configuration.md
-│   ├── release/
-│   │   ├── compatibility-and-certification.md
-│   │   ├── connector-live-certification.md
-│   │   ├── exact-artifact-closure.md
-│   │   ├── exact-local-gates.md
-│   │   ├── exact-local-release.md
-│   │   ├── oci-layout-export.md
-│   │   ├── oci-vulnerability-scanning.md
-│   │   ├── skill-validation-certification.md
-│   │   ├── source-freeze-gates.md
-│   │   └── supply-chain-hardening.md
-│   ├── scaling/
-│   │   ├── capacity_model.md
-│   │   ├── capacity_model.py
-│   │   ├── workload_contract.py
-│   │   └── workload_contract.yml
-│   ├── _vendor_eg_capability_ledger.json
-│   ├── capabilities-power.json
-│   ├── capabilities-power.md
-│   ├── capabilities.md
-│   ├── centralized_kg_coordination.md
-│   ├── comparative_analysis_palantir_aip.md
-│   ├── comparative_analysis_quant_frameworks.md
-│   ├── concept_coordination.md
-│   ├── concept_map.md
-│   ├── concept_reservations.yaml
-│   ├── concepts.yaml
-│   ├── CONTEXT.md
-│   ├── deploy.md
-│   ├── ecosystem-capability-fleet.md
-│   ├── ecosystem.md
-│   ├── external_concepts.yaml
-│   ├── genesis.yaml
-│   ├── index.md
-│   ├── install.ps1
-│   ├── install.sh
-│   ├── journey.md
-│   ├── legal_automation_roadmap.md
-│   ├── NAMING.md
-│   ├── okf-cis.md
-│   ├── overview.md
-│   ├── owl_kg_synergies.md
-│   ├── README.md
-│   ├── reliability_matrix.md
-│   ├── start-here.md
-│   └── workflow-kg-synergy.md
-├── examples/
-│   ├── action-policies/
-│   │   ├── locked-down.yml
-│   │   ├── scoped-autonomous.yml
-│   │   └── supervised.yml
-│   ├── ontology_workflow/
-│   │   ├── compile_process_call.json
-│   │   ├── execute_workflow_call.json
-│   │   ├── lift_sample_process.py
-│   │   └── sample_process.bpmn
-│   └── reference_agent/
-│       ├── basic_agent.py
-│       ├── graph_agent.py
-│       ├── knowledge_graph_agent.py
-│       ├── mcp_agent.py
-│       ├── memory_agent.py
-│       ├── protocol_agent.py
-│       └── README.md
-├── scripts/ (143 entries)
-├── tests/ (246 entries)
-├── .bumpversion.cfg
-├── .codespellignore
-├── .dockerignore
-├── .env.example
-├── .gitattributes
-├── .gitignore
-├── .liveness_baseline.json
-├── .pre-commit-config.yaml
-├── .security-audit-allow.txt
-├── AGENTS.head.md
-├── AGENTS.md
-├── build_backend.py
-├── CHANGELOG.md
-├── CLAUDE.md
-├── CONTRIBUTING.md
-├── genesis.yaml
-├── LICENSE
-├── llms.txt
-├── MANIFEST.in
-├── mcp_config.bus.json
-├── mcp_config.example.json
-├── mkdocs.yml
-├── opencode.json
-├── overrides.txt
-├── pyproject.toml
-├── pytest.ini
-├── README.md
-├── requirements.txt
-├── uv.lock
-└── vulture_whitelist.py
-```
+_Auto-generated by `scripts/gen_agents_md.py`. Full tree moved out of AGENTS.md to keep its size cap governing hand-written guidance (D-WS-4) — see [`docs/project_structure.md`](docs/project_structure.md)._
 
 <!-- BEGIN concept-coordination (generated) -->
 ## Concept-ID Coordination (multi-session)
@@ -1318,17 +1181,17 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 1037 concepts across 9 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1136 concepts across 9 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
-| **AU-AHE** | 114 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
-| **AU-ECO** | 119 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
-| **AU-KG** | 443 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
-| **AU-ORCH** | 197 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
-| **AU-OS** | 133 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
+| **AU-AHE** | 118 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
+| **AU-ECO** | 127 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
+| **AU-KG** | 488 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, trace, txn |
+| **AU-ORCH** | 213 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
+| **AU-OS** | 158 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
-| **EG-KG** | 28 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
+| **EG-KG** | 29 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
 | **EG-ORCH** | 1 | routing |
 | **EG-OS** | 1 | deployment |
 

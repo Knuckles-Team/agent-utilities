@@ -373,15 +373,26 @@ class KGBackend:
         state: Any,
         session_id: str | None = None,
         status: str = "active",
-    ) -> str:
+    ) -> str | None:
+        """Persist a snapshot and return its identifier only after a confirmed write."""
+
+        if self.engine is None:
+            return None
+
         if session_id is None:
             session_id = f"sess:{uuid.uuid4().hex}"
 
-        checkpoint_id = f"ckpt:{session_id}:{int(time.time())}"
+        checkpoint_id = f"ckpt:{session_id}:{time.time_ns()}"
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         query = getattr(state, "query", "") or ""
-        plan = getattr(state, "plan", "") or ""
+        raw_plan = getattr(state, "plan", "") or ""
+        if hasattr(raw_plan, "model_dump_json"):
+            plan = raw_plan.model_dump_json()
+        elif isinstance(raw_plan, str):
+            plan = raw_plan
+        else:
+            plan = json.dumps(raw_plan, default=str)
         node_history = list(getattr(state, "node_history", []) or [])
         current_node = str(node_history[-1]) if node_history else ""
 
@@ -404,7 +415,7 @@ class KGBackend:
             if val is not None:
                 try:
                     state_data[attr] = str(val)
-                except Exception:
+                except Exception:  # noqa: BLE001 — opaque optional state is best-effort
                     pass
 
         topo_id = ""
@@ -428,32 +439,52 @@ class KGBackend:
             "state_data": json.dumps(state_data),
             "status": status,
             "topology_template_id": topo_id,
+            "graph_topology_digest": str(
+                getattr(state, "graph_topology_digest", "") or ""
+            ),
+            "graph_version_digest": str(
+                getattr(state, "graph_version_digest", "") or ""
+            ),
+            "graph_runtime_version": str(
+                getattr(state, "graph_runtime_version", "") or ""
+            ),
+            "graph_node_sequence": list(
+                getattr(state, "graph_node_sequence", []) or []
+            ),
+            "graph_transition_sequence": json.dumps(
+                list(getattr(state, "graph_transition_sequence", []) or []),
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
             "timestamp": timestamp,
         }
 
-        if self.engine:
-            if (
-                hasattr(self.engine, "backend_type")
-                and self.engine.backend_type == "rust"
-            ):
+        if hasattr(self.engine, "backend_type") and self.engine.backend_type == "rust":
+            try:
                 cast("GraphComputeEngine", self.engine).add_node(
                     checkpoint_id, properties=node_data
                 )
-            else:
-                if getattr(self.engine, "backend", None):
-                    try:
-                        self.engine._upsert_node(
-                            "SessionCheckpoint", checkpoint_id, node_data
-                        )
-                    except Exception as e:
-                        logger.warning("Failed to checkpoint to backend: %s", e)
+            except Exception as exc:
+                logger.warning("Failed to checkpoint to rust backend: %s", exc)
+                return None
+            return checkpoint_id
 
-                if hasattr(self.engine, "graph") and hasattr(
-                    self.engine.graph, "add_node"
-                ):
-                    self.engine.graph.add_node(checkpoint_id, **node_data)
+        if getattr(self.engine, "backend", None):
+            try:
+                self.engine._upsert_node("SessionCheckpoint", checkpoint_id, node_data)
+            except Exception as exc:
+                logger.warning("Failed to checkpoint to backend: %s", exc)
+                return None
+            return checkpoint_id
 
-        return checkpoint_id
+        if hasattr(self.engine, "graph") and hasattr(self.engine.graph, "add_node"):
+            try:
+                self.engine.graph.add_node(checkpoint_id, **node_data)
+            except Exception as exc:
+                logger.warning("Failed to checkpoint to graph mirror: %s", exc)
+                return None
+            return checkpoint_id
+        return None
 
     def restore(self, session_id: str) -> dict[str, Any] | None:
         if not self.engine:
@@ -474,7 +505,7 @@ class KGBackend:
 
                     if not isinstance(checkpoint, dict):
                         checkpoint = None
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — one candidate lookup path; the graph/rust-engine mirror lookup below is tried next before returning None
                 logger.debug("Backend checkpoint restore failed: %s", e)
 
         if checkpoint is None and self.engine:
@@ -533,10 +564,9 @@ class KGBackend:
                 state_dict["state_data"] = sd
 
             return state_dict
-        except Exception as exc:
-            # Best-effort: a malformed prior checkpoint must not crash
-            # resumption, but "no checkpoint" and "checkpoint unreadable" are
-            # different operator questions — log which one this is.
+        except Exception as exc:  # noqa: BLE001 — a malformed prior checkpoint degrades to "no checkpoint" (resume starts fresh) rather than crashing resumption
+            # "no checkpoint" and "checkpoint unreadable" are different
+            # operator questions — log which one this is.
             logger.debug("Checkpoint state could not be decoded: %s", exc)
             return None
 

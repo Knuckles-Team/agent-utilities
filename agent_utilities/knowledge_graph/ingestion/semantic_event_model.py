@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal, Self
 
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 ScalarValue = str | int | float | bool | None
 SemanticEntityKind = Literal["event", "object", "object_state"]
+OcelAttributeType = Literal["string", "time", "integer", "float", "boolean"]
 
 
 def _utc(value: datetime) -> datetime:
@@ -34,6 +36,26 @@ def _stable_id(kind: str, source_ref: str, *parts: str) -> str:
         ).encode("utf-8")
     ).hexdigest()[:32]
     return f"{kind}:{digest}"
+
+
+def _matches_ocel_type(value: ScalarValue, value_type: OcelAttributeType) -> bool:
+    """Return whether one JSON scalar satisfies its OCEL 2.0 declaration."""
+    if value_type == "string":
+        return isinstance(value, str)
+    if value_type == "time":
+        if not isinstance(value, str):
+            return False
+        try:
+            return (
+                datetime.fromisoformat(value.replace("Z", "+00:00")).tzinfo is not None
+            )
+        except ValueError:
+            return False
+    if value_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if value_type == "float":
+        return isinstance(value, int | float) and not isinstance(value, bool)
+    return isinstance(value, bool)
 
 
 class SemanticBoundaryModel(BaseModel):
@@ -59,6 +81,27 @@ class EventAttributeValue(SemanticBoundaryModel):
     value: ScalarValue
 
 
+class OcelAttributeDefinition(SemanticBoundaryModel):
+    """One declared OCEL 2.0 event/object attribute."""
+
+    name: str = Field(min_length=1)
+    value_type: OcelAttributeType
+
+
+class OcelEventType(SemanticBoundaryModel):
+    """An OCEL 2.0 event-type declaration retained for lossless exchange."""
+
+    name: str = Field(min_length=1)
+    attributes: tuple[OcelAttributeDefinition, ...] = ()
+
+
+class OcelObjectType(SemanticBoundaryModel):
+    """An OCEL 2.0 object-type declaration retained for lossless exchange."""
+
+    name: str = Field(min_length=1)
+    attributes: tuple[OcelAttributeDefinition, ...] = ()
+
+
 class BusinessObject(SemanticBoundaryModel):
     """A source-qualified object with time-varying attributes."""
 
@@ -81,7 +124,7 @@ class ProcessEvent(SemanticBoundaryModel):
     event_id: str = Field(min_length=1)
     activity: str = Field(min_length=1)
     occurred_at: datetime
-    objects: tuple[EventObjectParticipation, ...] = Field(min_length=1)
+    objects: tuple[EventObjectParticipation, ...] = ()
     attributes: tuple[EventAttributeValue, ...] = ()
     source_ref: str = Field(min_length=1)
     sequence_tiebreaker: str = ""
@@ -227,8 +270,10 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
     log_id: str = Field(min_length=1)
     source_ref: str = Field(min_length=1)
     mapping_version: str = Field(min_length=1)
-    events: tuple[ProcessEvent, ...] = Field(min_length=1)
-    objects: tuple[BusinessObject, ...] = Field(min_length=1)
+    event_types: tuple[OcelEventType, ...] = ()
+    object_types: tuple[OcelObjectType, ...] = ()
+    events: tuple[ProcessEvent, ...] = ()
+    objects: tuple[BusinessObject, ...] = ()
     object_states: tuple[ObjectState, ...] = ()
     object_relationships: tuple[QualifiedObjectRelationship, ...] = ()
     perspectives: tuple[ProcessPerspective, ...] = ()
@@ -245,6 +290,8 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
     def validate_references(self) -> Self:
         self._unique([item.event_id for item in self.events], "event")
         self._unique([item.object_id for item in self.objects], "object")
+        self._unique([item.name for item in self.event_types], "event-type")
+        self._unique([item.name for item in self.object_types], "object-type")
         self._unique([item.state_id for item in self.object_states], "object-state")
         self._unique(
             [item.relationship_id for item in self.object_relationships],
@@ -262,6 +309,65 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
             [item.prediction_id for item in self.neural_predictions],
             "neural-prediction",
         )
+
+        declared_event_types = {item.name: item for item in self.event_types}
+        declared_object_types = {item.name: item for item in self.object_types}
+        for declaration in self.event_types:
+            self._unique(
+                [attribute.name for attribute in declaration.attributes],
+                f"{declaration.name} attribute",
+            )
+        for object_declaration in self.object_types:
+            self._unique(
+                [attribute.name for attribute in object_declaration.attributes],
+                f"{object_declaration.name} attribute",
+            )
+        if any(event.activity not in declared_event_types for event in self.events):
+            raise ValueError("events must reference a declared event type")
+        if any(
+            business_object.object_type not in declared_object_types
+            for business_object in self.objects
+        ):
+            raise ValueError("objects must reference a declared object type")
+
+        for event in self.events:
+            declarations = {
+                item.name: item.value_type
+                for item in declared_event_types[event.activity].attributes
+            }
+            self._unique(
+                [attribute.name for attribute in event.attributes],
+                f"event {event.event_id} attribute",
+            )
+            if any(
+                attribute.name not in declarations
+                or not _matches_ocel_type(
+                    attribute.value,
+                    declarations[attribute.name],
+                )
+                for attribute in event.attributes
+            ):
+                raise ValueError(
+                    "event attributes must match their declared OCEL names and types"
+                )
+        for business_object in self.objects:
+            declarations = {
+                item.name: item.value_type
+                for item in declared_object_types[
+                    business_object.object_type
+                ].attributes
+            }
+            if any(
+                attribute.name not in declarations
+                or not _matches_ocel_type(
+                    attribute.value,
+                    declarations[attribute.name],
+                )
+                for attribute in business_object.attributes
+            ):
+                raise ValueError(
+                    "object attributes must match their declared OCEL names and types"
+                )
 
         object_types = {item.object_id: item.object_type for item in self.objects}
         for event in self.events:
@@ -312,6 +418,8 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
         """Content digest used for replay and mapping-version evidence."""
         payload_data = self.model_dump(mode="json", exclude_none=True)
         sort_keys = {
+            "event_types": "name",
+            "object_types": "name",
             "events": "event_id",
             "objects": "object_id",
             "object_states": "state_id",
@@ -341,6 +449,14 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     str(item["name"]),
                     json.dumps(item.get("value"), sort_keys=True, default=str),
                 ),
+            )
+        for declaration in (
+            *payload_data["event_types"],
+            *payload_data["object_types"],
+        ):
+            declaration["attributes"] = sorted(
+                declaration.get("attributes", []),
+                key=lambda item: (str(item["name"]), str(item["value_type"])),
             )
         for business_object in payload_data["objects"]:
             business_object["attributes"] = sorted(
@@ -389,6 +505,67 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
         links: list[dict[str, Any]] = []
         log_node_id = entities[0]["id"]
 
+        event_type_ids: dict[str, str] = {}
+        for declaration in sorted(self.event_types, key=lambda value: value.name):
+            node_id = _stable_id(
+                "process-event-type",
+                self.source_ref,
+                declaration.name,
+            )
+            event_type_ids[declaration.name] = node_id
+            entities.append(
+                {
+                    "id": node_id,
+                    "node_type": "ProcessEventType",
+                    "source_record_id": declaration.name,
+                    "attributes": [
+                        value.model_dump(mode="json")
+                        for value in declaration.attributes
+                    ],
+                    "source_ref": self.source_ref,
+                    "mapping_version": self.mapping_version,
+                }
+            )
+            links.append(
+                {
+                    "source": log_node_id,
+                    "target": node_id,
+                    "relationship": "HAS_EVENT_TYPE",
+                }
+            )
+
+        object_type_ids: dict[str, str] = {}
+        for object_declaration in sorted(
+            self.object_types,
+            key=lambda value: value.name,
+        ):
+            node_id = _stable_id(
+                "business-object-type",
+                self.source_ref,
+                object_declaration.name,
+            )
+            object_type_ids[object_declaration.name] = node_id
+            entities.append(
+                {
+                    "id": node_id,
+                    "node_type": "BusinessObjectType",
+                    "source_record_id": object_declaration.name,
+                    "attributes": [
+                        value.model_dump(mode="json")
+                        for value in object_declaration.attributes
+                    ],
+                    "source_ref": self.source_ref,
+                    "mapping_version": self.mapping_version,
+                }
+            )
+            links.append(
+                {
+                    "source": log_node_id,
+                    "target": node_id,
+                    "relationship": "HAS_OBJECT_TYPE",
+                }
+            )
+
         object_ids: dict[str, str] = {}
         for business_object in sorted(self.objects, key=lambda value: value.object_id):
             node_id = _stable_id(
@@ -419,6 +596,13 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     "relationship": "HAS_OBJECT",
                 }
             )
+            links.append(
+                {
+                    "source": node_id,
+                    "target": object_type_ids[business_object.object_type],
+                    "relationship": "INSTANCE_OF_OBJECT_TYPE",
+                }
+            )
 
         event_ids: dict[str, str] = {}
         for event in sorted(self.events, key=lambda value: value.event_id):
@@ -446,14 +630,22 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     "relationship": "HAS_EVENT",
                 }
             )
-            for participation in sorted(
+            links.append(
+                {
+                    "source": event_id,
+                    "target": event_type_ids[event.activity],
+                    "relationship": "INSTANCE_OF_EVENT_TYPE",
+                }
+            )
+            ordered_participations = sorted(
                 event.objects,
                 key=lambda value: (
                     value.object_type,
                     value.object_id,
                     value.qualifier,
                 ),
-            ):
+            )
+            for occurrence, participation in enumerate(ordered_participations):
                 participation_id = _stable_id(
                     "event-object-participation",
                     self.source_ref,
@@ -461,6 +653,7 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     participation.object_type,
                     participation.object_id,
                     participation.qualifier,
+                    str(occurrence),
                 )
                 entities.append(
                     {
@@ -699,3 +892,220 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
             )
 
         return entities, links
+
+    @classmethod
+    def from_graph_slice(
+        cls,
+        entities: Sequence[Mapping[str, Any]],
+        links: Sequence[Mapping[str, Any]],
+    ) -> Self:
+        """Reconstruct validated source truth from ITS OWN committed graph shape.
+
+        CONCEPT:AU-KG.mining.ocel-lossless-roundtrip — the inverse of
+        :meth:`to_graph_slice`. A ``ChangeEnvelope`` never commits the
+        ``ObjectCentricGraphSlice`` object itself; it commits exactly the
+        ``(entities, links)`` pair this method takes as input. Reconstructing
+        from that pair — the literal shape a reader queries out of the graph —
+        is what actually proves "OCEL → graph → OCEL" is lossless; reimporting
+        a re-exported document only proves the JSON<->Python boundary is
+        lossless, which never touches the graph representation at all.
+
+        Scope: reconstructs everything a governed OCEL round trip needs
+        (event/object type declarations, events with qualified E2O
+        participations, objects with qualified O2O relationships and temporal
+        attributes, derived ``ObjectState``s, and declared
+        ``ProcessPerspective``s). Neural representations/predictions/entity-
+        resolution proposals are a separate governed lane's boundary and are
+        deliberately NOT reconstructed here — a slice that carries them round
+        trips its symbolic fields correctly but drops those collections.
+        """
+        by_id: dict[str, dict[str, Any]] = {
+            str(entity["id"]): dict(entity) for entity in entities
+        }
+        by_type: dict[str, list[dict[str, Any]]] = {}
+        for entity in by_id.values():
+            by_type.setdefault(str(entity["node_type"]), []).append(entity)
+        targets_by_source_rel: dict[tuple[str, str], list[str]] = {}
+        for link in links:
+            key = (str(link["source"]), str(link["relationship"]))
+            targets_by_source_rel.setdefault(key, []).append(str(link["target"]))
+
+        def _one_target(node_id: str, relationship: str) -> str:
+            targets = targets_by_source_rel.get((node_id, relationship), ())
+            if len(targets) != 1:
+                raise ValueError(
+                    f"expected exactly one {relationship!r} edge from {node_id!r}, "
+                    f"found {len(targets)}"
+                )
+            return targets[0]
+
+        log_nodes = by_type.get("ObjectCentricEventLog", [])
+        if len(log_nodes) != 1:
+            raise ValueError(
+                "graph slice must carry exactly one ObjectCentricEventLog node"
+            )
+        log_node = log_nodes[0]
+
+        def _declarations(
+            node_type: str,
+            declaration_type: type[OcelEventType] | type[OcelObjectType],
+        ) -> tuple[Any, ...]:
+            return tuple(
+                declaration_type(
+                    name=node["source_record_id"],
+                    attributes=tuple(
+                        OcelAttributeDefinition(**attribute)
+                        for attribute in node.get("attributes", ())
+                    ),
+                )
+                for node in by_type.get(node_type, ())
+            )
+
+        event_types = _declarations("ProcessEventType", OcelEventType)
+        object_types = _declarations("BusinessObjectType", OcelObjectType)
+
+        object_id_by_node: dict[str, str] = {}
+        objects: list[BusinessObject] = []
+        for node in by_type.get("BusinessObject", ()):
+            object_id_by_node[node["id"]] = node["source_record_id"]
+            objects.append(
+                BusinessObject(
+                    object_id=node["source_record_id"],
+                    object_type=node["object_type"],
+                    attributes=tuple(
+                        TemporalAttributeValue(**attribute)
+                        for attribute in node.get("attributes", ())
+                    ),
+                )
+            )
+
+        events: list[ProcessEvent] = []
+        for node in by_type.get("ProcessEvent", ()):
+            participations: list[EventObjectParticipation] = []
+            for participation_id in targets_by_source_rel.get(
+                (node["id"], "HAS_PARTICIPATION"), ()
+            ):
+                participation_node = by_id[participation_id]
+                object_node_id = _one_target(participation_id, "PARTICIPATES_AS")
+                object_node = by_id[object_node_id]
+                participations.append(
+                    EventObjectParticipation(
+                        object_id=object_node["source_record_id"],
+                        object_type=object_node["object_type"],
+                        qualifier=participation_node.get("qualifier", ""),
+                    )
+                )
+            events.append(
+                ProcessEvent(
+                    event_id=node["source_record_id"],
+                    activity=node["activity"],
+                    occurred_at=node["occurred_at"],
+                    objects=tuple(participations),
+                    attributes=tuple(
+                        EventAttributeValue(**attribute)
+                        for attribute in node.get("attributes", ())
+                    ),
+                    source_ref=node["source_ref"],
+                    sequence_tiebreaker=node.get("sequence_tiebreaker", ""),
+                )
+            )
+
+        object_states: list[ObjectState] = []
+        for node in by_type.get("ObjectState", ()):
+            object_node_id = _one_target(node["id"], "STATE_OF")
+            object_states.append(
+                ObjectState(
+                    state_id=node["source_record_id"],
+                    object_id=object_id_by_node[object_node_id],
+                    object_type=node["object_type"],
+                    valid_from=node["valid_from"],
+                    valid_to=node.get("valid_to"),
+                    observed_at=node["observed_at"],
+                    attributes=tuple(
+                        EventAttributeValue(**attribute)
+                        for attribute in node.get("attributes", ())
+                    ),
+                )
+            )
+
+        object_relationships: list[QualifiedObjectRelationship] = []
+        for node in by_type.get("ObjectRelationship", ()):
+            source_node_id = _one_target(node["id"], "RELATION_SOURCE")
+            target_node_id = _one_target(node["id"], "RELATION_TARGET")
+            object_relationships.append(
+                QualifiedObjectRelationship(
+                    relationship_id=node["source_record_id"],
+                    source_object_id=object_id_by_node[source_node_id],
+                    target_object_id=object_id_by_node[target_node_id],
+                    qualifier=node["qualifier"],
+                    valid_from=node.get("valid_from"),
+                    valid_to=node.get("valid_to"),
+                )
+            )
+
+        _perspective_fields = {
+            "perspective_id",
+            "object_types",
+            "qualifiers",
+            "effective_from",
+            "effective_to",
+            "derivation_version",
+        }
+        perspectives = tuple(
+            ProcessPerspective(
+                **{
+                    key: value
+                    for key, value in node.items()
+                    if key in _perspective_fields
+                }
+            )
+            for node in by_type.get("ProcessPerspective", ())
+        )
+
+        return cls(
+            log_id=log_node["source_record_id"],
+            source_ref=log_node["source_ref"],
+            mapping_version=log_node["mapping_version"],
+            event_types=event_types,
+            object_types=object_types,
+            events=tuple(events),
+            objects=tuple(objects),
+            object_states=tuple(object_states),
+            object_relationships=tuple(object_relationships),
+            perspectives=perspectives,
+        )
+
+    def to_change_envelope(
+        self,
+        *,
+        tenant: str,
+        provenance: dict[str, Any],
+    ) -> Any:
+        """Build the tenant-scoped, idempotent governed tEKG materialization.
+
+        The mapper does not persist on its own.  Returning the existing
+        ``ChangeEnvelope`` keeps OCEL delivery subject to the same atomic
+        validation, provenance, and replay semantics as every connector.
+        """
+        from .change_envelope import ChangeEnvelope
+
+        scoped_tenant = tenant.strip()
+        if not scoped_tenant:
+            raise ValueError("tenant is required for OCEL materialization")
+        entities, links = self.to_graph_slice()
+        for entity in entities:
+            entity["tenant_id"] = scoped_tenant
+            entity["ocel_provenance"] = provenance
+        for link in links:
+            link["tenant_id"] = scoped_tenant
+        return ChangeEnvelope(
+            connector="ocel",
+            tenant=scoped_tenant,
+            source_instance=self.log_id,
+            source_object_id=self.log_id,
+            source_version=self.canonical_digest(),
+            schema_version="2.0",
+            ontology_mapping_version=self.mapping_version,
+            typed_payload={"entities": entities, "relationships": links},
+            provenance={"format": "OCEL 2.0", **provenance},
+        )

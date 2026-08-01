@@ -1,106 +1,82 @@
-#!/usr/bin/python
-"""Auto-reserve CONCEPT: markers on write — invisible coordination (CONCEPT:AU-OS.governance.reserve-concepts-hook).
+#!/usr/bin/env python3
+r"""Auto-reserve CONCEPT: markers on write (CONCEPT:AU-OS.governance.reserve-concepts-hook).
 
-Removes the reserve-via-CLI papercut: the act of *writing* a ``CONCEPT:<ID>`` marker
-reserves it. Run as a pre-commit hook (or manually with file args), it scans the
-given/staged files for concept markers, and for any id not already in the ledger it
-appends a ``landed`` reservation under a file lock (the ledger is append-only,
-merge=union, so concurrent sessions never collide). The author never has to remember
-to reserve.
+Removes the reserve-via-CLI papercut: the act of *writing* a ``CONCEPT:<ID>``
+marker reserves it. It scans the given (or staged) files for concept markers and,
+for any id not already claimed, appends a ``landed`` reservation to **this lane's
+own fragment** through the allocator — which serializes on the repository's shared
+git directory, publishes the claim where sibling worktrees see it immediately, and
+regenerates the single view readers consult.
+
+It previously appended hand-rolled lines with a retired schema (``namespace`` /
+``session``) straight into the shared ledger file. Those records are rejected by
+``read_ledger``, so every run of this hook corrupted the ledger it was meant to
+maintain — the exact "many sessions write one mutable shared file" failure the
+append-only design removes.
 
 Pre-commit wiring (optional):
     - id: reserve-concepts
       name: auto-reserve CONCEPT markers
-      entry: python scripts/reserve_concepts_hook.py
+      entry: python3 scripts/reserve_concepts_hook.py
       language: system
-      files: \\.(py|md)$
+      files: \.(py|md|rs)$
 """
 
 from __future__ import annotations
 
-import re
+import subprocess
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-LEDGER = REPO / "docs" / "concept_reservations.yaml"
-# OKF-CIS cutover (CONCEPT:AU-OS.governance.concept-2): SLUG-PILLAR.domain.concept grammar.
-_MARKER = re.compile(
-    r"CONCEPT:([A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+)"
-)
+sys.path.insert(0, str(REPO))
+
+from agent_utilities.governance import concept_allocator as ca  # noqa: E402
+from agent_utilities.governance import lanes  # noqa: E402
 
 
-def _staged_files() -> list[str]:
-    import subprocess
-
-    try:
-        res = subprocess.run(
-            ["git", "diff", "--cached", "--name-only"],
-            cwd=REPO,
-            capture_output=True,
-            text=True,
-        )
-        return [ln for ln in res.stdout.splitlines() if ln.endswith((".py", ".md"))]
-    except Exception:
-        return []
-
-
-def _markers_in(files: list[str]) -> set[str]:
-    ids: set[str] = set()
-    for f in files:
-        p = (REPO / f) if not Path(f).is_absolute() else Path(f)
-        if not p.is_file():
-            continue
-        try:
-            ids.update(_MARKER.findall(p.read_text(encoding="utf-8", errors="ignore")))
-        except Exception:
-            continue
-    return ids
-
-
-def _existing_ids() -> set[str]:
-    if not LEDGER.is_file():
-        return set()
-    return set(
-        _MARKER.findall(
-            "CONCEPT:" + LEDGER.read_text(encoding="utf-8").replace("id: ", "CONCEPT:")
-        )
+def _staged_files(tree: Path) -> list[str]:
+    proc = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=str(tree),
+        capture_output=True,
+        text=True,
+        check=True,
     )
+    return [f for f in proc.stdout.splitlines() if f.endswith((".py", ".md", ".rs"))]
+
+
+def _markers_in(tree: Path, files: list[str]) -> set[str]:
+    found: set[str] = set()
+    for name in files:
+        path = Path(name) if Path(name).is_absolute() else tree / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        found.update(m.group("id") for m in ca.MARKER_RE.finditer(text))
+    return found
 
 
 def main() -> int:
-    files = [a for a in sys.argv[1:]] or _staged_files()
+    tree = lanes.current_tree(REPO) or REPO
+    files = sys.argv[1:] or _staged_files(tree)
     if not files:
         return 0
-    found = _markers_in(files)
+    found = _markers_in(tree, files)
     if not found:
         return 0
-    existing = _existing_ids()
-    new = sorted(found - existing)
-    if not new:
-        return 0
-
-    # Append under a lock (union-safe). Each new marker lands as "landed" (it's in code).
-    import fcntl
-
-    now = datetime.now(UTC).isoformat()
-    lines = []
-    for cid in new:
-        ns = cid.rsplit("-", 1)[0] if "-" in cid else cid
-        lines.append(
-            f"- {{id: {cid}, namespace: {ns}, session: 'reserve-hook', "
-            f"reserved_at: '{now}', expires_at: '{now}', status: landed, "
-            f"landed_at: '{now}'}}\n"
+    claimed = {str(r["id"]) for r in ca.read_ledger(tree)}
+    reserved: list[str] = []
+    for concept_id in sorted(found - claimed):
+        # A marker in code is already landed by definition; a zero TTL records
+        # that without ever holding an open claim.
+        ca.reserve_concept_id(
+            concept_id, session_id="reserve-hook", ttl_seconds=0, repo_root=tree
         )
-    LEDGER.parent.mkdir(parents=True, exist_ok=True)
-    with open(LEDGER, "a", encoding="utf-8") as fh:
-        try:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-            fh.writelines(lines)
-        finally:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-    print(f"auto-reserved {len(new)} concept marker(s): {', '.join(new)}")
+        reserved.append(concept_id)
+    if reserved:
+        ca.reconcile(repo_root=tree)
+        print(f"auto-reserved {len(reserved)} concept marker(s): {', '.join(reserved)}")
     return 0
 
 

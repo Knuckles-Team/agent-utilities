@@ -43,6 +43,11 @@ resources:
   id_prefix: watermark
   relations: []
 actions:
+- id: epistemic-answer
+  name: Epistemic Answer
+  description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
+    confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
+    policy-redaction-aware provenance.'
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
@@ -114,7 +119,7 @@ schema_mappings:
       watermarkType: xsd:string
 sync:
 - preset: stirlingpdf-tools
-  server: stirlingpdf-agent
+  server: stirlingpdf-mcp
   tool: stirlingpdf_ingest_tools
   action: get
   records_path: actions
@@ -126,7 +131,7 @@ sync:
   doc_type: pdf_tool
   tool_schema_sha256: 4ac4f5eebe5fa6a2b385dccda4fd2adfe46b52b50586df9f24b2669d6ab9c7d4
   raw:
-    server: stirlingpdf-agent
+    server: stirlingpdf-mcp
     tool: stirlingpdf_ingest_tools
     action: get
     records_path: actions
@@ -136,7 +141,7 @@ sync:
     doc_type: pdf_tool
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-28T10:14:00Z'
+  generated_at: '2026-07-31T04:00:00Z'
   source_artifacts:
   - a2a.json
   - stirlingpdf_agent/connectors/mcp_source_presets.json
@@ -149,7 +154,7 @@ provenance:
   signer: ontology-manifest-generator
   signature_algorithm: ed25519
   signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: SHo4OXabyDKyIL513mYABsmpgVnoGTRjruT_BYkA6-8k_GK0qdRXhbXVDSkeORSIMheQGzouK_dFiokz5Jn2Cw
+  signature: hWzLXE68mqoVpMIP_Up4_Y3ZyhKKaft-tS37gT3M4oL72Ae55hXMr9EehgzmnCeOWdpCpuNEc3511xgEZzE3Ag
 policy:
   pii_fields: {}
   tenant_boundary: null

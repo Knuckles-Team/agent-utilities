@@ -1130,6 +1130,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "computer_use",
         "name": "graph_agents_computer_use",
     },
+    {"tool": "graph_agents", "action": "reason", "name": "graph_agents_reason"},
     {"tool": "graph_agents", "action": "run_org", "name": "graph_agents_run_org"},
     {"tool": "graph_agents", "action": "swarm", "name": "graph_agents_swarm"},
     {
@@ -1404,8 +1405,18 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_document_tree",
+        "action": "cite",
+        "name": "graph_document_tree_cite",
+    },
+    {
+        "tool": "graph_document_tree",
         "action": "content",
         "name": "graph_document_tree_content",
+    },
+    {
+        "tool": "graph_document_tree",
+        "action": "fragments",
+        "name": "graph_document_tree_fragments",
     },
     {
         "tool": "graph_document_tree",
@@ -1567,6 +1578,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_evolution",
         "action": "distill_skills",
         "name": "graph_evolution_distill_skills",
+    },
+    {
+        "tool": "graph_evolution",
+        "action": "evidence_lineage",
+        "name": "graph_evolution_evidence_lineage",
     },
     {
         "tool": "graph_evolution",
@@ -1805,8 +1821,50 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "sync_second_brain",
         "name": "graph_ingest_sync_second_brain",
     },
+    {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {"tool": "graph_jobs", "action": "dispatch", "name": "graph_jobs_dispatch"},
+    {"tool": "graph_jobs", "action": "input", "name": "graph_jobs_input"},
     {"tool": "graph_jobs", "action": "status", "name": "graph_jobs_status"},
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "checkpoint_now",
+        "name": "graph_kv_checkpoint_checkpoint_now",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "create",
+        "name": "graph_kv_checkpoint_create",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "explain",
+        "name": "graph_kv_checkpoint_explain",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "instantiate_agent",
+        "name": "graph_kv_checkpoint_instantiate_agent",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "promote",
+        "name": "graph_kv_checkpoint_promote",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "ram_stats",
+        "name": "graph_kv_checkpoint_ram_stats",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "recommend",
+        "name": "graph_kv_checkpoint_recommend",
+    },
+    {
+        "tool": "graph_kv_checkpoint",
+        "action": "restore_conversation",
+        "name": "graph_kv_checkpoint_restore_conversation",
+    },
     {"tool": "graph_kvcache", "action": "contains", "name": "graph_kvcache_contains"},
     {"tool": "graph_kvcache", "action": "exists", "name": "graph_kvcache_exists"},
     {"tool": "graph_kvcache", "action": "get", "name": "graph_kvcache_get"},
@@ -1858,11 +1916,16 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_message", "action": "open", "name": "graph_message_open"},
     {"tool": "graph_message", "action": "receive", "name": "graph_message_receive"},
     {"tool": "graph_message", "action": "send", "name": "graph_message_send"},
-    {"tool": "graph_mine", "action": None, "name": "graph_mine"},
     {
         "tool": "graph_mine_deep",
         "action": "deep_forecast",
         "name": "graph_mine_deep_deep_forecast",
+    },
+    {"tool": "graph_mine", "action": "process", "name": "graph_mine_process"},
+    {
+        "tool": "graph_observe",
+        "action": "error_detail",
+        "name": "graph_observe_error_detail",
     },
     {
         "tool": "graph_observe",
@@ -1886,14 +1949,35 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_ontology_deactivate",
     },
     {"tool": "graph_ontology", "action": "delete", "name": "graph_ontology_delete"},
+    {
+        "tool": "graph_ontology",
+        "action": "deprecate",
+        "name": "graph_ontology_deprecate",
+    },
     {"tool": "graph_ontology", "action": "get", "name": "graph_ontology_get"},
+    {
+        "tool": "graph_ontology",
+        "action": "get_proposal",
+        "name": "graph_ontology_get_proposal",
+    },
     {
         "tool": "graph_ontology",
         "action": "import_stardog",
         "name": "graph_ontology_import_stardog",
     },
     {"tool": "graph_ontology", "action": "list", "name": "graph_ontology_list"},
+    {
+        "tool": "graph_ontology",
+        "action": "list_proposals",
+        "name": "graph_ontology_list_proposals",
+    },
     {"tool": "graph_ontology", "action": "load", "name": "graph_ontology_load"},
+    {
+        "tool": "graph_ontology",
+        "action": "promote_proposal",
+        "name": "graph_ontology_promote_proposal",
+    },
+    {"tool": "graph_ontology", "action": "propose", "name": "graph_ontology_propose"},
     {
         "tool": "graph_ontology",
         "action": "publish_stardog",
@@ -1901,8 +1985,23 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_ontology",
+        "action": "review_proposal",
+        "name": "graph_ontology_review_proposal",
+    },
+    {
+        "tool": "graph_ontology",
+        "action": "rollback_proposal",
+        "name": "graph_ontology_rollback_proposal",
+    },
+    {
+        "tool": "graph_ontology",
         "action": "sync_packages",
         "name": "graph_ontology_sync_packages",
+    },
+    {
+        "tool": "graph_ontology",
+        "action": "undeprecate",
+        "name": "graph_ontology_undeprecate",
     },
     {"tool": "graph_ontology", "action": "update", "name": "graph_ontology_update"},
     {"tool": "graph_ontology", "action": "validate", "name": "graph_ontology_validate"},
@@ -2069,6 +2168,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_table", "action": "rows", "name": "graph_table_rows"},
     {"tool": "graph_traces", "action": "get", "name": "graph_traces_get"},
     {"tool": "graph_traces", "action": "search", "name": "graph_traces_search"},
+    {"tool": "graph_traces", "action": "waterfall", "name": "graph_traces_waterfall"},
     {"tool": "graph_workflows", "action": "compile", "name": "graph_workflows_compile"},
     {
         "tool": "graph_workflows",
@@ -2081,6 +2181,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_workflows_dispatch",
     },
     {"tool": "graph_workflows", "action": "execute", "name": "graph_workflows_execute"},
+    {
+        "tool": "graph_workflows",
+        "action": "execute_dynamic",
+        "name": "graph_workflows_execute_dynamic",
+    },
     {"tool": "graph_workflows", "action": "export", "name": "graph_workflows_export"},
     {"tool": "graph_workflows", "action": "list", "name": "graph_workflows_list"},
     {"tool": "graph_workflows", "action": "status", "name": "graph_workflows_status"},
@@ -2220,6 +2325,26 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "ontology_link_materialize",
         "action": "types",
         "name": "ontology_link_materialize_types",
+    },
+    {
+        "tool": "ontology_model_profile",
+        "action": "get",
+        "name": "ontology_model_profile_get",
+    },
+    {
+        "tool": "ontology_model_profile",
+        "action": "list",
+        "name": "ontology_model_profile_list",
+    },
+    {
+        "tool": "ontology_model_profile",
+        "action": "owl",
+        "name": "ontology_model_profile_owl",
+    },
+    {
+        "tool": "ontology_model_profile",
+        "action": "sync",
+        "name": "ontology_model_profile_sync",
     },
     {
         "tool": "ontology_property_types",

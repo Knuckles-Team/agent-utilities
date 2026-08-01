@@ -742,7 +742,7 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
         addressed = {
             r["id"] for r in (rows or []) if isinstance(r, dict) and r.get("id")
         }
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — addressed stays at its initialized empty set on failure; every concept is then simply treated as 'not yet addressed' below, the safe direction for a loop-completion signal (never wrongly hides an active loop)
         logger.debug("active_loops: addressed query failed: %s", e)
 
     try:
@@ -754,7 +754,7 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
             "c.spec_id AS spec_id, c.prio_bucket AS prio_bucket LIMIT $limit",
             {"limit": int(limit) * 20},
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — returns [] (the documented no-loops-found case) on the primary concept query failing; there's nothing to iterate without it, unlike the addressed-set query above which is genuinely optional context
         logger.debug("active_loops: concept query failed: %s", e)
         return []
 

@@ -76,7 +76,7 @@ def _set(engine: Any, inbox_id: str, props: dict[str, Any]) -> None:
             node_type="InboundMessage",
             properties={"id": inbox_id, **props},
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — callers only invoke _set to record status AFTER the guarded action already succeeded/failed (mark_answered is called only when the reply actually sent, attempts/dead_letter only after a real retry outcome); a failed persist here just leaves the prior "pending" row in place, so the reaper retries — worst case a harmless duplicate resend, never a silently lost message
         logger.debug("[ECO-4.83] inbox update failed: %s", e)
 
 
@@ -108,7 +108,7 @@ def pending_unanswered(
             )
             or []
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — a failed scan just returns no candidates for this reaper pass; the underlying `pending` rows are untouched, so the next scheduled pass picks them back up
         logger.debug("[ECO-4.83] inbox query failed: %s", e)
         return []
     cutoff = datetime.now(UTC).timestamp() - older_than_s
@@ -140,7 +140,7 @@ async def retry_unanswered(
             continue
         try:
             ok = bool(await reply_send(m))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — a raised send is treated the same as a returned-False send: ok stays False, so the block below correctly bumps attempts/dead_letter instead of mark_answered — the failure is recorded as a failed attempt, never silently treated as delivered
             logger.debug("[ECO-4.83] inbox retry send failed: %s", e)
             ok = False
         if ok:

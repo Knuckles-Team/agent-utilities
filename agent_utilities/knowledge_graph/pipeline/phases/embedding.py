@@ -164,7 +164,7 @@ async def execute_embedding(
                     ):
                         data["embedding"] = existing_node["embedding"]
                         continue
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — this is a cache-HIT check only (the `continue` on a hit is above, inside the try); falling through on a failed check just means node_id goes into nodes_to_embed below and gets embedded again — the safe direction (re-embed) rather than wrongly skipping an embed that never ran
                 logger.debug(f"Failed to check backend cache for {node_id}: {e}")
 
         nodes_to_embed.append((node_id, text))

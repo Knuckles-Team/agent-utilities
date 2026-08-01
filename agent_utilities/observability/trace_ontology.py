@@ -14,6 +14,7 @@ timestamps and opaque strings are never used as ordering cursors.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Mapping
@@ -203,8 +204,21 @@ def trace_properties(
     skill_used: str = "",
     bound_server: str = "",
     execution_mode: str = "",
+    graph_execution_evidence: Mapping[str, Any] | None = None,
+    grounding_status: str = "",
+    grounding_reason: str = "",
 ) -> dict[str, Any]:
-    """Build the canonical, persistence-sanitized ``RunTrace`` properties."""
+    """Build the canonical, persistence-sanitized ``RunTrace`` properties.
+
+    ``grounding_status``/``grounding_reason`` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract)
+    are the run-level outcome of the mandatory evidence-compilation contract
+    (``core.contextual_model.grounding_snapshot``) — ``"grounded"`` when every model
+    call in the run genuinely compiled evidence, ``"degraded"`` when at least one
+    call proceeded without it under an explicit ``best_effort``/``none`` opt-in (the
+    default ``"required"`` policy never reaches this trace with a degraded status —
+    it raises and the run is recorded as ``status="failed"`` instead). Queryable
+    after the fact so a degraded run is never indistinguishable from a normal one.
+    """
 
     seq = int(event_sequence or next_event_sequence())
     _clean, privacy = _privacy_safe(
@@ -249,6 +263,32 @@ def trace_properties(
         )
     if execution_mode:
         props["execution_mode"] = str(execution_mode)
+    if grounding_status:
+        props["grounding_status"] = str(grounding_status)
+    if grounding_reason:
+        props["grounding_reason"] = str(grounding_reason)[:500]
+    if graph_execution_evidence:
+        from agent_utilities.models.graph import GraphExecutionEvidence
+
+        evidence = GraphExecutionEvidence.model_validate(graph_execution_evidence)
+        props.update(
+            {
+                "graph_evidence_schema_version": evidence.schema_version,
+                "graph_topology": evidence.topology,
+                "graph_topology_digest": evidence.topology_digest,
+                "graph_version_digest": evidence.version_digest,
+                "graph_runtime_version": evidence.runtime_version,
+                "graph_node_sequence": list(evidence.node_sequence),
+                "graph_transition_sequence": json.dumps(
+                    [transition.model_dump() for transition in evidence.transitions],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                "graph_transition_count": len(evidence.transitions),
+                "graph_checkpoint_ids": list(evidence.checkpoint_ids),
+                "graph_resume_supported": evidence.resume_supported,
+            }
+        )
     return props
 
 

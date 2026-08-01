@@ -12,15 +12,27 @@ dispatch into.
 Design:
 
 * Parsing / validation / counting is pure ``rdflib`` (+ optional ``pyshacl`` /
-  ``owlrl``) so the whole surface works with **no engine** (unit-testable).
+  ``owlrl`` — shipped in the ``ontology-guardrails`` serving extra, CONCEPT:AU-KG.ontology.activation-icv-fallback)
+  so the whole surface works with **no engine** (unit-testable).
 * When a live engine is present, ``load``/``update`` push the ontology's axioms
-  into the engine's native RDF dataset via ``GraphComputeEngine.add_triples`` so
-  the native OWL reasoner (``owl_reason``) and SPARQL surface immediately operate
-  over them — that is what "active for reasoning" means here.
-* The registry of hosted ontologies is a process-wide singleton keyed by
-  ``(iri, version)``; ``load`` is idempotent on that key. Records carry the
-  metadata (#classes/#properties/#axioms, source, loaded_at, active) the ``list``
-  surface reports.
+  into a **dedicated, durable, per-tenant ontology graph** — never the mixed
+  property graph an agent's ABox instances live in (CONCEPT:AU-KG.ontology.dedicated-tbox-graph) — via
+  ``GraphComputeEngine.add_triples``, so the native OWL reasoner (``owl_reason``)
+  and SPARQL surface immediately operate over them — that is what "active for
+  reasoning" means here. Physically separating TBox axioms from ABox property-graph
+  instances (whose node identifiers are arbitrary opaque strings, not IRIs) is what
+  keeps the engine's SHACL/ICV write guard (``EPISTEMIC_GRAPH_ICV_NATIVE_WRITES``)
+  from tripping on non-RDF property-graph identifiers when it evaluates the
+  ontology graph's RDF projection.
+* The registry of hosted ontologies is keyed by ``(tenant, graph, iri, version)``.
+  When a live engine is attached, records are durable, engine-native
+  ``:HostedOntology`` nodes in that SAME dedicated per-tenant ontology graph (see
+  :class:`_EngineRegistryStore`) — not a process-local structure, so every
+  ``graph-os`` process/replica for a tenant sees the same hosted set and it
+  survives a process restart. With no engine attached (offline/dev/tests), the
+  registry degrades honestly to an in-process, non-durable store
+  (:class:`_InMemoryRegistryStore`) — the same behavior this module has always
+  had for the engine-free path.
 
 Engine gap (documented, not worked around — eg-rdf is owned by another agent):
 the engine RDF surface exposes ``add_triples`` (load) and ``get_rdf`` /
@@ -32,6 +44,7 @@ reloads. See :meth:`OntologyLifecycle.delete`.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -53,12 +66,25 @@ _PROPERTY_TYPES = (
 )
 _ONTOLOGY_TYPE = f"{_OWL}Ontology"
 
+#: Node type/label for durable hosted-ontology registry records
+#: (CONCEPT:AU-KG.ontology.dedicated-tbox-graph) — one per ``(iri, version)`` in the
+#: tenant's dedicated ontology graph, mirroring the ``:Server`` registry pattern
+#: (``knowledge_graph/core/engine_ingestion.py``) rather than a Cypher-string MERGE.
+_ONTOLOGY_NODE_TYPE = "HostedOntology"
 
-# Process-wide hosted-ontology registry (authoritative for the live process).
-# key = f"{iri}@@{version}" → record dict. A module singleton so a sequence of
-# graph_ontology calls (load → list → get → delete) is consistent within one
-# graph-os process without a round-trip per call.
-_REGISTRY: dict[str, dict[str, Any]] = {}
+#: Base name for the dedicated per-tenant ontology graph — resolved through
+#: :func:`shard_topology.tenant_graph_name` so it lands on the SAME tenant
+#: namespace as everything else, just under its own base rather than the
+#: mixed ABox default graph.
+_ONTOLOGY_GRAPH_BASE = "ontology"
+
+#: Process-wide memo of ontology graphs already confirmed to exist on the
+#: live engine, so repeated ``OntologyLifecycle()`` construction (one per MCP
+#: call — see ``mcp/tools/ontology_tools.py``) doesn't round-trip
+#: ``tenants.list()``/``tenants.create()`` on every call. Losing this cache
+#: (process restart) only costs one extra round-trip on next use, never
+#: correctness — the engine itself is the durability boundary.
+_KNOWN_ONTOLOGY_GRAPHS: set[str] = set()
 
 
 def _now() -> str:
@@ -228,6 +254,179 @@ def validate_graph(graph: Any, *, run_shacl: bool = True) -> dict[str, Any]:
     }
 
 
+# ── Registry stores ──────────────────────────────────────────────────────────
+#
+# Two implementations behind the same tiny dict-like interface
+# (get/set/delete/values), selected per :class:`OntologyLifecycle` instance by
+# whether a live, node-write-capable engine is attached:
+#
+# * :class:`_EngineRegistryStore` — durable, per-tenant, engine-native. Used
+#   whenever a real ``GraphComputeEngine`` is attached.
+# * :class:`_InMemoryRegistryStore` — the pre-existing behavior, unchanged, for
+#   the engine-free offline/dev/test path. A single process-wide instance
+#   (``_MEMORY_STORE``) so state still survives across the repeated
+#   ``OntologyLifecycle()`` construction every MCP tool call does (this is NOT
+#   a regression: it was already a process-global dict before this change —
+#   the fix is that a REAL engine no longer falls back to it).
+
+
+class _InMemoryRegistryStore:
+    """Non-durable, process-local registry (offline/no-engine fallback)."""
+
+    def __init__(self) -> None:
+        self._records: dict[str, dict[str, Any]] = {}
+
+    def get(self, key: str) -> dict[str, Any] | None:
+        return self._records.get(key)
+
+    def set(self, key: str, record: dict[str, Any]) -> None:
+        self._records[key] = record
+
+    def delete(self, key: str) -> dict[str, Any] | None:
+        return self._records.pop(key, None)
+
+    def values(self) -> list[dict[str, Any]]:
+        return list(self._records.values())
+
+    def clear(self) -> None:
+        self._records.clear()
+
+
+#: The one process-wide in-memory fallback (mirrors the previous module-level
+#: ``_REGISTRY`` dict exactly — see class docstring above).
+_MEMORY_STORE = _InMemoryRegistryStore()
+
+
+class _EngineRegistryStore:
+    """Durable, per-tenant, engine-native hosted-ontology registry.
+
+    Each record is a typed ``:HostedOntology`` node in the tenant's dedicated
+    ontology graph (CONCEPT:AU-KG.ontology.dedicated-tbox-graph), addressed by the SAME
+    ``iri@@version`` key :func:`_key` already uses — tenant and graph isolation
+    come from WHICH graph this store's ``gc`` view is bound to (see
+    :func:`_ontology_graph_name`/``tenant_graph_name``), so the key itself
+    doesn't need to repeat the tenant. Uses the engine's native typed node
+    surface (``add_node``/``get_nodes_by_label``/``remove_node``) rather than
+    compiled Cypher — the record's full JSON is a ``data`` property so no
+    schema migration is needed as fields evolve.
+    """
+
+    def __init__(
+        self, gc: Any, node_type: str = _ONTOLOGY_NODE_TYPE, prefix: str = "ont"
+    ) -> None:
+        self._gc = gc
+        self._node_type = node_type
+        self._prefix = prefix
+
+    def _node_id(self, key: str) -> str:
+        return f"{self._prefix}:{key}"
+
+    def get(self, key: str) -> dict[str, Any] | None:
+        node_id = self._node_id(key)
+        if not self._gc.has_node(node_id):
+            return None
+        props = self._gc.client.nodes.properties(node_id) or {}
+        data = props.get("data") if isinstance(props, dict) else None
+        if not data:
+            return None
+        try:
+            return json.loads(data)
+        except Exception as exc:  # noqa: BLE001 — a corrupt record reads as absent
+            logger.warning("Corrupt %s record at %s: %s", self._node_type, node_id, exc)
+            return None
+
+    def set(self, key: str, record: dict[str, Any]) -> None:
+        self._gc.add_node(
+            self._node_id(key),
+            node_type=self._node_type,
+            iri=record.get("iri", ""),
+            version=record.get("version", ""),
+            active=bool(record.get("active", False)),
+            loaded_at=record.get("loaded_at", ""),
+            data=json.dumps(record, default=str),
+        )
+
+    def delete(self, key: str) -> dict[str, Any] | None:
+        record = self.get(key)
+        if record is not None:
+            self._gc.remove_node(self._node_id(key))
+        return record
+
+    def values(self) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for _node_id, props in self._gc.get_nodes_by_label(self._node_type):
+            if not isinstance(props, dict):
+                continue
+            data = props.get("data")
+            if not data:
+                continue
+            try:
+                out.append(json.loads(data))
+            except Exception as exc:  # noqa: BLE001 — skip one corrupt record
+                logger.warning("Skipping corrupt %s record: %s", self._node_type, exc)
+        return out
+
+
+def _ontology_graph_name(tenant: str | None) -> str:
+    """The dedicated per-tenant graph TBox axioms + the registry live in.
+
+    Deliberately a DIFFERENT named graph from the tenant's default/ABox graph
+    (CONCEPT:AU-KG.ontology.dedicated-tbox-graph) — see the module docstring for why mixing TBox
+    axioms into the property graph trips the engine's SHACL/ICV write guard on
+    opaque, non-IRI-safe property-graph node identifiers.
+    """
+    from ..core.shard_topology import tenant_graph_name
+
+    return tenant_graph_name(tenant, base=_ONTOLOGY_GRAPH_BASE)
+
+
+def _ensure_ontology_graph(gc: Any, graph_name: str) -> None:
+    """Best-effort create-if-absent for the dedicated ontology graph.
+
+    Mirrors ``GraphComputeEngine._ensure_local_session_graph``'s create-then-
+    reverify-on-race pattern, without that method's local-session-only ``kg:admin``
+    scope gate (this runs for any tenant's ontology graph, not just the one
+    packaged local session graph). Raises :class:`OntologyError` on a genuine,
+    non-race failure so the caller can fail closed rather than silently writing
+    into a graph that was never actually provisioned.
+    """
+    if graph_name in _KNOWN_ONTOLOGY_GRAPHS:
+        return
+    client = getattr(gc, "client", None)
+    tenants = getattr(client, "tenants", None)
+    if (
+        tenants is None
+        or not hasattr(tenants, "create")
+        or not hasattr(tenants, "list")
+    ):
+        # Not a real engine client (e.g. a unit-test fake) — nothing to provision.
+        return
+
+    def _listed() -> set[str]:
+        try:
+            entries = tenants.list() or []
+        except Exception as exc:  # noqa: BLE001 — surfaced to the caller below
+            raise OntologyError(
+                f"could not list engine graphs while provisioning {graph_name!r}: {exc}"
+            ) from exc
+        return {str(e.get("name") if isinstance(e, dict) else e) for e in entries}
+
+    if graph_name in _listed():
+        _KNOWN_ONTOLOGY_GRAPHS.add(graph_name)
+        return
+    try:
+        tenants.create(graph_name, "Ontology")
+    except Exception as exc:
+        # Another process/writer may have won a create race — reverify before
+        # treating this as fatal; otherwise fail closed (do not silently
+        # proceed to write axioms into a graph that was never provisioned).
+        if graph_name not in _listed():
+            raise OntologyError(
+                f"could not provision dedicated ontology graph {graph_name!r}: {exc}"
+            ) from exc
+    _KNOWN_ONTOLOGY_GRAPHS.add(graph_name)
+
+
 class OntologyLifecycle:
     """CRUD lifecycle for ontologies hosted in the running KG (CONCEPT:AU-KG.ontology.manage-arbitrary).
 
@@ -236,27 +435,115 @@ class OntologyLifecycle:
             RDF surface (``add_triples`` / ``owl_reason`` / ``sparql``). When
             ``None`` the lifecycle still parses/validates/inspects/registers
             ontologies (offline), it just cannot push axioms into a reasoner.
+        tenant: Optional tenant id. Resolves the dedicated ontology graph via
+            the SAME :func:`shard_topology.tenant_graph_name` convention every
+            other tenant-scoped engine access uses. ``None`` resolves the
+            ambient :func:`current_actor` tenant (mirrors
+            ``TenantEnginePool._graph_for``); pass ``""`` explicitly for the
+            single-tenant default graph regardless of the ambient actor.
+        graph_name: Escape hatch overriding the resolved graph name outright
+            (tests / callers that already know the exact graph).
     """
 
-    def __init__(self, engine: Any = None) -> None:
+    def __init__(
+        self,
+        engine: Any = None,
+        *,
+        tenant: str | None = None,
+        graph_name: str | None = None,
+    ) -> None:
         self._engine = engine
+        self._tenant = tenant if tenant is not None else self._ambient_tenant()
+        self._ontology_graph = graph_name or _ontology_graph_name(self._tenant)
+        self._gc = self._resolve_graph_compute()
+        self._store = self._make_store()
+
+    @staticmethod
+    def _ambient_tenant() -> str | None:
+        try:
+            from ...security.brain_context import current_actor
+
+            return current_actor().tenant_id
+        except Exception as exc:  # noqa: BLE001 — no session context (e.g. offline/tests)
+            logger.debug("No ambient tenant context: %s", exc)
+            return None
+
+    def _resolve_graph_compute(self) -> Any:
+        """A view of the attached engine scoped to the dedicated ontology graph.
+
+        Falls back to the engine's default view (today's behavior) when it
+        exposes no ``for_graph`` (e.g. a unit-test fake), so existing
+        engine-free/fake-engine tests are unaffected.
+        """
+        gc0 = getattr(self._engine, "graph_compute", None) if self._engine else None
+        if gc0 is None:
+            return None
+        for_graph = getattr(gc0, "for_graph", None)
+        if callable(for_graph):
+            try:
+                return for_graph(self._ontology_graph)
+            except Exception as exc:  # noqa: BLE001 — degrade to the unscoped view
+                logger.debug(
+                    "for_graph(%s) unavailable, using the engine's default graph "
+                    "view: %s",
+                    self._ontology_graph,
+                    exc,
+                )
+        return gc0
+
+    def _make_store(self) -> Any:
+        """Durable per-tenant store when a real engine is attached, else the
+        process-local in-memory fallback (see the module docstring)."""
+        gc = self._gc
+        is_real_engine = (
+            gc is not None
+            and hasattr(gc, "add_node")
+            and hasattr(gc, "get_nodes_by_label")
+            and hasattr(gc, "has_node")
+            and hasattr(gc, "remove_node")
+            and hasattr(gc, "client")
+        )
+        if is_real_engine:
+            try:
+                _ensure_ontology_graph(gc, self._ontology_graph)
+                return _EngineRegistryStore(gc)
+            except OntologyError as exc:
+                logger.warning(
+                    "Durable per-tenant ontology registry unavailable for graph "
+                    "%s (falling back to the process-local, non-durable "
+                    "registry): %s",
+                    self._ontology_graph,
+                    exc,
+                )
+        return _MEMORY_STORE
 
     # ── internals ────────────────────────────────────────────────────────────
-    @property
-    def _graph_compute(self) -> Any:
-        return getattr(self._engine, "graph_compute", None) if self._engine else None
-
     def _load_axioms(self, turtle: str) -> dict[str, Any]:
         """Push an ontology's axioms into the engine's native RDF dataset."""
-        gc = self._graph_compute
+        gc = self._gc
         if gc is None or not hasattr(gc, "add_triples"):
-            return {"loaded_to_engine": False, "reason": "no engine RDF surface"}
+            return {
+                "loaded_to_engine": False,
+                "reason": "no engine RDF surface",
+                "engine_attached": False,
+            }
         try:
             report = gc.add_triples(turtle=turtle)
-            return {"loaded_to_engine": True, **(report or {})}
-        except Exception as exc:  # noqa: BLE001 — engine optional / feature-gated
-            logger.debug("add_triples failed: %s", exc)
-            return {"loaded_to_engine": False, "reason": str(exc)}
+            return {
+                "loaded_to_engine": True,
+                "engine_attached": True,
+                "graph": self._ontology_graph,
+                **(report or {}),
+            }
+        except Exception as exc:  # noqa: BLE001 — reported, not swallowed
+            logger.warning(
+                "Ontology activation failed on graph %s: %s", self._ontology_graph, exc
+            )
+            return {
+                "loaded_to_engine": False,
+                "reason": str(exc),
+                "engine_attached": True,
+            }
 
     @staticmethod
     def _public(record: dict[str, Any]) -> dict[str, Any]:
@@ -300,7 +587,7 @@ class OntologyLifecycle:
         resolved_version = version or "1.0.0"
         key = _key(resolved_iri, resolved_version)
 
-        existing = _REGISTRY.get(key)
+        existing = self._store.get(key)
         if existing and not force:
             return {
                 "status": "ok",
@@ -315,6 +602,18 @@ class OntologyLifecycle:
         engine_report = (
             self._load_axioms(turtle) if activate else {"loaded_to_engine": False}
         )
+        # Fail closed: with a live engine attached, "active" means the engine
+        # actually absorbed the axioms, not merely that activation was
+        # requested (CONCEPT:AU-KG.ontology.activation-fails-closed) — an
+        # add_triples error (e.g. the engine's SHACL/ICV write guard rejecting
+        # the candidate) must not be reported as a successful activation. With
+        # NO engine attached (offline/dev), "active" stays the requested
+        # intent flag — there is nothing to fail.
+        activated = (
+            bool(activate)
+            if self._gc is None
+            else bool(activate) and bool(engine_report.get("loaded_to_engine"))
+        )
 
         record: dict[str, Any] = {
             "iri": resolved_iri,
@@ -325,20 +624,24 @@ class OntologyLifecycle:
             "n_classes": summary["n_classes"],
             "n_properties": summary["n_properties"],
             "loaded_at": _now(),
-            "active": bool(activate),
+            "active": activated,
+            "tenant": self._tenant or "",
+            "graph": self._ontology_graph,
             "warnings": report["warnings"],
             "engine": engine_report,
             "category": category,
             "tags": list(tags) if tags else [],
+            "deprecated": False,
             "turtle": turtle,
         }
-        _REGISTRY[key] = record
+        self._store.set(key, record)
         logger.info(
-            "Hosted ontology loaded: %s v%s (%d axioms, active=%s)",
+            "Hosted ontology loaded: %s v%s (%d axioms, active=%s, graph=%s)",
             resolved_iri,
             resolved_version,
             summary["n_axioms"],
-            activate,
+            activated,
+            self._ontology_graph,
         )
         return {"status": "ok", "idempotent": False, "ontology": self._public(record)}
 
@@ -347,6 +650,7 @@ class OntologyLifecycle:
         self,
         *,
         active_only: bool = False,
+        deprecated_only: bool = False,
         search: str = "",
         category: str = "",
         source_type: str = "",
@@ -362,11 +666,16 @@ class OntologyLifecycle:
         ``iri``/``version``/``source``; ``category``/``source_type``/``tag`` are
         case-insensitive exact matches against those stored record fields (a
         record matches ``tag`` if it appears anywhere in its ``tags`` list).
+        ``deprecated_only`` mirrors ``active_only`` for the ``deprecated`` flag
+        (CONCEPT:AU-KG.ontology.deprecation-workflow, D-75-5) — the two are
+        independent axes (a version can be deprecated and still active, e.g.
+        during a migration window), so neither implies the other.
         """
         records = [
             self._public(r)
-            for r in _REGISTRY.values()
-            if not active_only or r.get("active")
+            for r in self._store.values()
+            if (not active_only or r.get("active"))
+            and (not deprecated_only or r.get("deprecated"))
         ]
         if search:
             needle = search.lower()
@@ -402,10 +711,14 @@ class OntologyLifecycle:
     ) -> tuple[str, dict[str, Any]] | None:
         if version is not None:
             key = _key(iri, version)
-            rec = _REGISTRY.get(key)
+            rec = self._store.get(key)
             return (key, rec) if rec else None
         # No version → newest loaded version of this IRI.
-        candidates = [(k, r) for k, r in _REGISTRY.items() if r.get("iri") == iri]
+        candidates = [
+            (_key(r["iri"], r["version"]), r)
+            for r in self._store.values()
+            if r.get("iri") == iri
+        ]
         if not candidates:
             return None
         candidates.sort(key=lambda kr: kr[1].get("loaded_at", ""), reverse=True)
@@ -458,9 +771,10 @@ class OntologyLifecycle:
         overwritten.
         """
         if supersede:
-            for r in _REGISTRY.values():
+            for r in self._store.values():
                 if r.get("iri") == iri and r.get("version") != version:
                     r["active"] = False
+                    self._store.set(_key(r["iri"], r["version"]), r)
         result = self.load(
             source,
             source_type=source_type,
@@ -483,7 +797,7 @@ class OntologyLifecycle:
         over / queried), not just the registry record. Degrades honestly when the
         engine / op is unavailable.
         """
-        gc = self._graph_compute
+        gc = self._gc
         if gc is None or not hasattr(gc, "remove_triples"):
             return {
                 "retracted_from_engine": False,
@@ -512,24 +826,30 @@ class OntologyLifecycle:
         and reports the gap honestly.
         """
         if version is not None:
-            keys = [_key(iri, version)] if _key(iri, version) in _REGISTRY else []
+            keys = [_key(iri, version)] if self._store.get(_key(iri, version)) else []
         else:
-            keys = [k for k, r in _REGISTRY.items() if r.get("iri") == iri]
+            keys = [
+                _key(r["iri"], r["version"])
+                for r in self._store.values()
+                if r.get("iri") == iri
+            ]
         if not keys:
             return {"error": f"ontology not hosted: {iri} (version={version})"}
 
         removed = []
         retractions: list[dict[str, Any]] = []
         for k in keys:
-            rec = _REGISTRY.pop(k)
+            rec = self._store.delete(k)
+            if rec is None:
+                continue
             removed.append({"iri": rec["iri"], "version": rec["version"]})
-            if self._graph_compute is not None:
+            if self._gc is not None:
                 retractions.append(self._retract_axioms(rec.get("turtle", "")))
 
         retracted = bool(retractions) and all(
             r.get("retracted_from_engine") for r in retractions
         )
-        if self._graph_compute is None:
+        if self._gc is None:
             engine_note = "no engine attached"
         elif retracted:
             engine_note = (
@@ -552,7 +872,7 @@ class OntologyLifecycle:
         }
         if retractions:
             result["retractions"] = retractions
-        if drop_inferences and self._graph_compute is not None:
+        if drop_inferences and self._gc is not None:
             # Materialized entailments are derived facts in the live graph, not RDF
             # axioms; retracting the source axioms removes the basis but does not
             # re-run the reasoner. A full inference sweep needs a re-classify pass.
@@ -576,10 +896,41 @@ class OntologyLifecycle:
         resolved = self._resolve(iri, version)
         if resolved is None:
             return {"error": f"ontology not hosted: {iri} (version={version})"}
-        _key_, record = resolved
-        record["active"] = bool(active)
+        key, record = resolved
         if active:
-            record["engine"] = self._load_axioms(record.get("turtle", ""))
+            engine_report = self._load_axioms(record.get("turtle", ""))
+            record["engine"] = engine_report
+            # Same fail-closed rule as `load()`: only claim "active" when a
+            # live engine confirms it, else keep the offline intent semantics.
+            record["active"] = (
+                True
+                if self._gc is None
+                else bool(engine_report.get("loaded_to_engine"))
+            )
+        else:
+            record["active"] = False
+        self._store.set(key, record)
+        return {"status": "ok", "ontology": self._public(record)}
+
+    # ── deprecate (advisory) ─────────────────────────────────────────────────
+    def set_deprecated(
+        self, iri: str, *, version: str | None = None, deprecated: bool = True
+    ) -> dict[str, Any]:
+        """Mark/unmark a hosted version as deprecated (CONCEPT:AU-KG.ontology.deprecation-workflow, D-75-5).
+
+        Purely advisory: unlike :meth:`set_active`, this never touches the
+        engine or reasoning participation — a superseded-and-inactive version
+        was already indistinguishable from a deliberately-sunset one before
+        this flag existed; this makes that distinction explicit and queryable
+        (:meth:`list_ontologies`'s ``deprecated_only``) without changing what
+        "active" means.
+        """
+        resolved = self._resolve(iri, version)
+        if resolved is None:
+            return {"error": f"ontology not hosted: {iri} (version={version})"}
+        key, record = resolved
+        record["deprecated"] = bool(deprecated)
+        self._store.set(key, record)
         return {"status": "ok", "ontology": self._public(record)}
 
     # ── validate (no commit) ─────────────────────────────────────────────────
@@ -593,5 +944,13 @@ class OntologyLifecycle:
 
 
 def reset_registry() -> None:
-    """Clear the in-process hosted-ontology registry (tests / clean-slate)."""
-    _REGISTRY.clear()
+    """Clear the in-process hosted-ontology registry (tests / clean-slate).
+
+    Only the non-durable, in-memory fallback (:data:`_MEMORY_STORE`) is
+    process-local and needs clearing between tests — a durable
+    :class:`_EngineRegistryStore` is backed by the live engine and cleaning it
+    is the caller's/fixture's responsibility (e.g. dropping the test graph),
+    exactly like every other engine-backed KG fixture in this test suite.
+    """
+    _MEMORY_STORE.clear()
+    _KNOWN_ONTOLOGY_GRAPHS.clear()

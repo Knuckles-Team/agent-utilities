@@ -47,20 +47,114 @@ def _run(coro: Any) -> Any:
 
 
 # ── ScholarX arXiv → unified SourceDocument ──────────────────────────────────
+def _scholarx_mcp_configured() -> bool:
+    """Whether a ``scholarx-mcp``/``scholarx`` server is reachable in ``mcp_config``."""
+    try:
+        from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
+            _load_mcp_config,
+        )
+
+        servers = _load_mcp_config() or {}
+        return "scholarx-mcp" in servers or "scholarx" in servers
+    except Exception:  # noqa: BLE001 — best-effort discovery
+        return False
+
+
+def _scholarx_mcp_documents(
+    categories: list[str] | None, days: int
+) -> list[SourceDocument]:
+    """Drive the ``scholarx-mcp`` fleet server via the ``scholarx-papers`` preset.
+
+    The fallback path when the ``scholarx`` python package is not installed but the
+    fleet's scholarx MCP server is reachable (CONCEPT:AU-KG.ingest.research-connector-presets/7.3) —
+    "prefer driving the fleet server over a new HTTP client". The generic
+    ``mcp_tool`` connector returns the tool's raw record shape (no ``origin``/
+    ``canonical`` envelope), so each drained document is re-shaped here into the
+    EXACT SAME record envelope the direct-import branch below produces, so
+    ``WorldModelPipelineRunner._is_research``/``_arxiv_id`` route and dedup it
+    identically regardless of which path fetched it.
+    """
+    from agent_utilities.protocols.source_connectors.registry import build_connector
+
+    params: dict[str, Any] = {}
+    if categories:
+        params["query"] = " OR ".join(f"cat:{c}" for c in categories)
+    try:
+        conn = build_connector(
+            "mcp_tool", {"preset": "scholarx-papers", "params": params}
+        )
+        raw_docs = (
+            list(conn.poll_all())  # type: ignore[attr-defined]
+            if hasattr(conn, "poll_all")
+            else list(conn.load())  # type: ignore[attr-defined]
+        )
+    except Exception:  # noqa: BLE001 — an unreachable fleet server is a no-op, not a crash
+        logger.info(
+            "scholarx-mcp not reachable — scholarx MCP feed source is a no-op",
+            exc_info=True,
+        )
+        return []
+
+    out: list[SourceDocument] = []
+    for raw in raw_docs:
+        rec = dict(raw.metadata.get("record") or {})
+        aid = str(rec.get("id") or raw.id or "")
+        if not aid:
+            continue
+        url = str(rec.get("url") or raw.source_uri or "")
+        published = raw.updated_at or str(rec.get("published_date") or "")
+        record = {
+            "id": aid,
+            "title": raw.title,
+            "published": published,
+            "categories": list(rec.get("categories") or categories or []),
+            "authors": list(rec.get("authors") or []),
+            "pdf_url": str(rec.get("pdf_url") or ""),
+            "url": url,
+            "canonical": [{"href": url}] if url else [],
+            "origin": {
+                "htmlUrl": url,
+                "streamId": "scholarx:arxiv",
+                "title": "ScholarX arXiv",
+            },
+        }
+        out.append(
+            SourceDocument(
+                id=aid,
+                source_uri=url,
+                title=(raw.title or "")[:300],
+                text=raw.text,
+                doc_type="paper",
+                updated_at=published,
+                metadata={"record": record, "source_system": "scholarx"},
+                external_access=ExternalAccess.public(),
+            )
+        )
+    return out
+
+
 def scholarx_feed_documents(
     categories: list[str] | None = None, days: int = 1
 ) -> list[SourceDocument]:
     """ScholarX arXiv RSS items as unified ``SourceDocument``s (CONCEPT:AU-KG.ingest.rss-feed-connector).
 
-    No-op (``[]``) when ScholarX is not installed. The ``origin.streamId`` is set to
-    ``scholarx:arxiv`` so ``WorldModelPipelineRunner._is_research`` routes each item
-    to the research path; ``id`` is the canonical ``arxiv:<id>`` so it converges with
-    the same paper arriving via FreshRSS.
+    Prefers the local ``scholarx`` python package (its specialized arXiv parser);
+    when that is not installed, falls back to driving the fleet's ``scholarx-mcp``
+    server (CONCEPT:AU-KG.ingest.research-connector-presets); no-op (``[]``) only when NEITHER is
+    available. The ``origin.streamId`` is set to ``scholarx:arxiv`` so
+    ``WorldModelPipelineRunner._is_research`` routes each item to the research path;
+    ``id`` is the canonical ``arxiv:<id>`` so it converges with the same paper
+    arriving via FreshRSS.
     """
     try:
         from scholarx.api_client import ScholarXClient
     except ImportError:
-        logger.info("ScholarX not installed — scholarx feed source is a no-op")
+        if _scholarx_mcp_configured():
+            return _scholarx_mcp_documents(categories, days)
+        logger.info(
+            "ScholarX not installed and scholarx-mcp not configured — "
+            "scholarx feed source is a no-op"
+        )
         return []
 
     def _attr(obj: Any, name: str, default: Any) -> Any:

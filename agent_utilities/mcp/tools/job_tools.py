@@ -19,12 +19,17 @@ def register_job_tools(mcp: Any) -> None:
         description=(
             "Submit and inspect durable orchestration WorkItems. Actions: 'dispatch' "
             "(enqueue a task and return its job handle), 'status' (read a WorkItem, "
-            "RunTrace, or workflow-session trace by id)."
+            "RunTrace, or workflow-session trace by id), 'cancel' (request "
+            "cooperative cancellation through the same WorkItem authority), or "
+            "'input' (submit a client response to a WorkItem awaiting input -- the "
+            "MCP Tasks extension's 'tasks/update' backed by the same WorkItem)."
         ),
         tags=["graph-os", "jobs", "orchestration"],
     )
     async def graph_jobs(
-        action: str = Field(default="status", description="dispatch | status"),
+        action: str = Field(
+            default="status", description="dispatch | status | cancel | input"
+        ),
         task: str = Field(default="", description="Task to dispatch."),
         job_id: str = Field(default="", description="Job/run/session id for status."),
         agent_name: str = Field(
@@ -32,6 +37,13 @@ def register_job_tools(mcp: Any) -> None:
         ),
         dependencies: str = Field(
             default="[]", description="JSON list of prerequisite WorkItem ids."
+        ),
+        input_responses: str = Field(
+            default="{}",
+            description=(
+                "JSON object of client input responses for action='input' "
+                "(the MCP Tasks extension's tasks/update inputResponses)."
+            ),
         ),
     ) -> str:
         engine = kg_server._get_engine()
@@ -79,6 +91,59 @@ def register_job_tools(mcp: Any) -> None:
                 else:
                     result = orchestrator.get_task_status(job_id)
                 return json.dumps(result, default=str)
+            if action == "cancel":
+                if not job_id:
+                    return "Error: job_id required"
+                from agent_utilities.orchestration import work_item as _wi
+
+                item_id = _wi.orchestrator_work_item_id(job_id)
+                view = getattr(engine, "_work_item_engine", engine)
+                if not _wi.cancel_work_item(view, item_id):
+                    return json.dumps(
+                        {
+                            "status": "not_cancelled",
+                            "job_id": job_id,
+                            "error": "Job is missing, terminal, or held by an active lease",
+                        }
+                    )
+                return json.dumps(
+                    {"status": "cancelled", "job_id": job_id}, default=str
+                )
+            if action == "input":
+                if not job_id:
+                    return "Error: job_id required"
+                parsed_responses = (
+                    json.loads(input_responses) if input_responses else {}
+                )
+                if not isinstance(parsed_responses, dict):
+                    raise ValueError("input_responses must decode to a JSON object")
+                from agent_utilities.knowledge_graph.core.session import (
+                    resolve_session,
+                )
+                from agent_utilities.orchestration import work_item as _wi
+
+                item_id = _wi.orchestrator_work_item_id(job_id)
+                view = getattr(engine, "_work_item_engine", engine)
+                session = resolve_session(required_scope="kg:write")
+                if not _wi.submit_work_item_input(
+                    view,
+                    item_id,
+                    tenant=session.tenant,
+                    response=parsed_responses,
+                ):
+                    return json.dumps(
+                        {
+                            "status": "not_submitted",
+                            "job_id": job_id,
+                            "error": (
+                                "Job is missing, not running, tenant-mismatched, "
+                                "or has no pending input request"
+                            ),
+                        }
+                    )
+                return json.dumps(
+                    {"status": "submitted", "job_id": job_id}, default=str
+                )
             return f"Error: Unknown graph_jobs action '{action}'"
         except PermissionError:
             raise

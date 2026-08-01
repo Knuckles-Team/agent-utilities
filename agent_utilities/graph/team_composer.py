@@ -218,7 +218,7 @@ class KGTeamComposer:
                             reasoning=f"Reused proven team '{best.get('name', '')}' "
                             f"(success_rate={best.get('success_rate', 0):.2f})",
                         )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — compose_team already treats None as "no proven team", falling through to dynamic synthesis via AgentOrchestrationEngine.synthesize_team — the documented two-step "reuse, else synthesize" architecture already covers this path
             logger.debug("Team config reuse lookup failed: %s", e)
 
         return None

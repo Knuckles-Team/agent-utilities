@@ -1090,7 +1090,7 @@ class EvaluationCapture:
                 evaluator="kg_capture",
             )
             self.ke.ogm.save(record)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — this persists an evaluation-capture record for offline analysis via replay(); a failed write means this one capture is absent from later replay results, it does not affect the evaluation that already ran
             logger.debug("Eval capture write failed: %s", e)
 
     def replay(
@@ -1332,7 +1332,7 @@ def run_reflector(
 
     try:
         materialize_memory(engine)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — materialize_memory is a Markdown rendering of memory state that's already been reflected/persisted above (_persist_reflections already ran); this only refreshes the on-disk materialized view
         logger.debug("Post-reflection materialization failed: %s", e)
 
     return result_text

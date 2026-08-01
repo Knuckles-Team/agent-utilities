@@ -198,7 +198,7 @@ class RecursiveDistiller:
                     "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 },
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — _add_node is a best-effort KG mirror for distillation observability; the caller's in-process distillation result is unaffected by a failed persist
             logger.debug("[AHE-3.31] could not persist %s: %s", label, exc)
 
 

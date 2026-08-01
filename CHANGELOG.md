@@ -7,6 +7,250 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **KV-cache checkpoint intelligence — checkpoint at *good moments*, chosen by the
+  agent, the user, or the system.** `agent_utilities/kvcache/checkpoint.py` already knew
+  *how* to store a KV checkpoint durably and safely
+  (`CONCEPT:AU-KG.memory.kv-checkpoint-resource`); nothing decided *when* one was worth
+  taking, and its only caller was the `graph_kv_checkpoint` MCP tool. Three new modules
+  close that:
+  - `kvcache/worthiness.py` (`CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring`) — the
+    **framework**, not a heuristic. A `CheckpointScorer` protocol + a thread-safe
+    `CheckpointScorerRegistry` an operator adds to / removes from / replaces without
+    touching the advisor, the tiering layer, or the MCP surface; a deployment-specific
+    scorer takes its input from `CheckpointObservation.extras`, so a new signal never
+    edits the core model. Abstention is first class — a scorer with no evidence
+    contributes **nothing** (it does not dilute the aggregate) and is named on the
+    verdict, and a scorer that *raises* becomes a loud abstention rather than a silent
+    zero. Default set: `rebuild_cost` · `predicted_reuse` · `retrieval_saturation` ·
+    `grounding_density` · `contradictions` (the one veto) · `context_stability` ·
+    `phase_boundary` · `model_self_report`. The model's self-report carries the smallest
+    weight **and** cannot carry a recommendation alone — a model claiming confidence is
+    evidence, not proof.
+  - `kvcache/rebuild_cost.py` — the **one** recomputation-cost estimator, factored out so
+    the engine-side pressure-aware eviction gap (`D-5.3-5.6-2`/`D-KVR-1`) consumes it
+    rather than deriving a second definition of "expensive". Distinguishes *not measured*
+    (`None` ⇒ the consumer abstains) from *measured zero*, and leaves `usd` `None` for an
+    unpriced model instead of fabricating `0.0`.
+  - `kvcache/tiering.py` — RAM is the default tier (bounded by entries **and** bytes, LRU,
+    with the same fail-closed tenant check as the durable store); disk requires a
+    materially higher bar (`DiskPromotionRule`: high rebuild cost **and** high predicted
+    reuse **and** stability, where an *abstention fails a requirement*) **and** an
+    eligibility grant. `TieredCheckpointManager` is the one entry point for all three
+    trigger paths — `checkpoint_now` (user/agent), `recommend` (agent), `observe`
+    (system-autonomous, taking the payload as a callable so a non-worthy moment never
+    pays to serialize KV state).
+- **A required persistence eligibility gate, derived from the caller's own authority.**
+  `kvcache/eligibility.py` (`CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility`
+  + `CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility`) — a KV cache is
+  derived from user content, so writing one to the blob store is data-at-rest and keeping
+  it past the session is a retention decision. Every durable write consults a pluggable
+  `PersistenceEligibilityGate`, and the default `AuthorityDerivedEligibility` decides it
+  **systematically and automatically**, with no operator table and no grant flag:
+
+  > persist iff the caller's *effective* authority — the verified `GraphSession`
+  > intersected with any active `SpawnDelegation.ceiling` — dominates the **most
+  > restrictive** composition of **every** contributing source's labels, within the
+  > session's own tenancy.
+
+  Labels inherit **restrictively** (classification = max, residency = set intersection,
+  retention = min, markings = union), so adding a source can only make a checkpoint less
+  persistable. Authority delegates **non-increasingly**, so a spawned agent can never
+  exceed its delegator — the ceiling intersection is applied *unconditionally*, not under
+  `ENABLE_DELEGATED_IDENTITY`'s permissive `warn` posture, because an observe-before-
+  enforce soak is a reasonable trade for tool scope and an unacceptable one for
+  data-at-rest. Which trigger fired is **provenance, not authority**: an agent that
+  decides a checkpoint is worth persisting persists it exactly when the authority it is
+  acting under already covers the material. Absence denies everywhere and names itself —
+  no session, no declared sources, a source missing any label, an empty residency
+  intersection, or an unresolvable ceiling. **RAM never implies disk consent:**
+  `promote()` re-runs the gate *and re-derives the authority* even for a checkpoint that
+  has been resident all session. `set_persistence_eligibility_gate()` /
+  `set_source_label_resolver()` are the extension points — code seams, not flags.
+
+  This closes `D-5.1-3` / `D-KCI-1`: residency, classification and retention are no longer
+  reported as permanently unresolved, they are answered from each source's own
+  `NodeACL` (`classification` / `data_residency_regions` / `retention_days`, both new
+  fields defaulting to *undeclared* so no existing ACL silently became permissive).
+
+### Removed
+- **`OperatorGrantEligibility` and the `operator_grant` argument.** Over the
+  `graph_kv_checkpoint` MCP surface, `initiator="user"` and `operator_grant=true` were
+  values any caller could simply assert, which made a deny-by-default gate defeatable by
+  a caller that chose to lie. Both are gone; `initiator` is renamed `trigger` and is
+  provenance only, and the tenant a durable write is authorized under is now read from
+  the verified session (a payload tenant that disagrees is refused rather than
+  preferred).
+- **The recommendation reaches the LLM.**
+  `CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface` — scoring a moment
+  publishes the verdict to a `ContextVar` (per-run, so interleaved agent runs never read
+  each other's), and `agent/factory.py` renders it through pydantic-ai's
+  `@agent.instructions`: *"checkpoint-worthy: score 0.82, drivers: …"* plus blockers plus
+  what had no evidence. Nothing published — or a "not worth it" verdict — renders the
+  empty string, so a run that never engages this layer sends a byte-identical prompt.
+- **Both surfaces.** `graph_kv_checkpoint` (and its auto-mounted REST twin
+  `POST /api/graph/kv_checkpoint`) gains `recommend` | `checkpoint_now` | `promote` |
+  `explain` | `ram_stats`. `explain` answers *"why does this checkpoint exist and why is it
+  where it is?"*, and the same material — score, drivers, blockers, deciding gate,
+  unresolved policy questions — is written into the durable `:KVCheckpoint` node's
+  `provenance`, so the question stays answerable from the graph after the session ends. A
+  **refused** promotion is recorded too. New metrics:
+  `agent_utilities_kvcache_checkpoint_recommendations_total{tier}` and
+  `agent_utilities_kvcache_checkpoint_tier_ops_total{trigger,tier,outcome}`. Docs:
+  `docs/architecture/kv-checkpoint-intelligence.md`.
+
+- **Live content guardrails, replacing the dead `PolicyEngine`.** D-48: grep
+  confirmed `security/guardrails.py`'s `PolicyEngine` (PII, forbidden-content,
+  cost-budget, output-schema rules) had zero live callers across the whole
+  `agent-packages` ecosystem — only test and docstring instantiations, a
+  sync fail-open engine that read as implemented safety but never ran.
+  Deleted per `AGENTS.md` "No Legacy" and replaced with `pydantic-ai-harness`'s
+  `InputGuardrail`/`OutputGuardrail` (already an installed dependency),
+  wired default-on through `capabilities/content_guardrails.py` +
+  `capabilities/composition.py::default_runtime_capabilities` into both
+  `create_agent` and `create_context_agent`: a PII guard that redacts
+  SSN/tax-id/credit-card/email via the retained `PiiSanitizer`, a
+  secret-leak guard that blocks output matching the fleet's canonical
+  credential-shape detectors (`http/redaction.py`), and an output-schema
+  guard that blocks structured output missing caller-declared required
+  keys. `CostBudgetPolicy` had no port — `ExecutionBudget`
+  (`models/usage.py`) already fully covers (and, unlike `PolicyEngine`,
+  actually enforces via `graph/_router_impl.py::dispatcher_step`) its
+  token/cost tracking, so it was deleted outright.
+
+- **Proven upstream `DynamicWorkflow` execution + a real governed resume path.**
+  `GovernedDynamicWorkflow.execute_upstream` now provably runs a model-authored
+  script through the real `pydantic-ai-harness`/Monty sandbox end-to-end (a
+  bounded catalog, real fan-out sub-agent calls re-entering GraphOS, real
+  output), with the generated script and normalised call graph persisted as
+  trace artifacts (`WorkflowScriptArtifact` nodes; `RunTrace.graph_*` evidence).
+  Every catalog dispatch inherits ambient trace/tenant/budget/cancellation
+  context across the sandbox boundary (verified end-to-end), and a nested
+  `DynamicWorkflow` attempt is refused. A new `WorkflowResumeState` cache
+  persists each completed `(step, task) -> output` immediately, so a halted
+  attempt (harness budget exhaustion, timeout, cancellation, or a process
+  restart) resumed under the SAME `workflow_run_id` never re-dispatches an
+  already-completed catalog call — proven to produce **zero duplicate
+  `:ToolCall`s** across a budget-halt-then-restart. A resumed run is always
+  reported truthfully (`resumed`/`replayed_step_ids`, `outcome="replayed"`),
+  never as an indistinguishable clean success. The conductor is also given a
+  real default-ON `CheckpointMiddleware` (genuine restore-and-continue via
+  `fork_from_checkpoint`). `GraphExecutionEvidence.resume_supported` is now a
+  per-producer `bool` (was hard-coded `Literal[False]`) — `true` only for this
+  genuinely-resumable path; the `pydantic_graph`/`ParallelEngine` plane is
+  unchanged and still reports `false`.
+
+### Removed
+- **`agent_utilities.security.guardrails.PolicyEngine` and its four rule
+  classes** (`PIISanitizerPolicy`, `MaxTokensPolicy`, `ContentFilterPolicy`,
+  `OutputSchemaPolicy`, `CostBudgetPolicy`), the `PolicyResult`/
+  `PolicyViolation`/`PolicyRule`/`guardrail()` decorator, and the two
+  PolicyEngine-only adapter classes (`threat_defense_engine.PromptInjectionPolicy`,
+  `execution_stability_engine.RepetitionPolicy`) — dead code with zero live
+  callers (D-48). See "Added" above for the replacement.
+
+- **Wire-First reachability gate (closes D-OB-9, D-OB-13, D-OB-16).**
+  `scripts/check_wiring.py` gains four new sweeps beyond its existing
+  module-import BFS: `--check-test-collection` (test files under `tests/`
+  that `testpaths`/pre-commit/CI never collect), `--check-mock-hygiene`
+  (`MagicMock(spec=[])`/`patch(create=True)` sites, AST-based), `--check-
+  extras-gating` (`except ImportError` handlers that silently no-op instead
+  of visibly skipping), and `--check-symbol-reachability` (the core new
+  AST/tokenize sweep: public `agent_utilities/` classes/functions/methods
+  referenced only from `tests/` — reachable by import, never invoked). All
+  four are combined by `--wire-first-report`, wired into pre-commit as
+  `check-wire-first` in **report-only ratchet** mode (mirrors
+  `check-swallowed-errors`): a frozen `scripts/wire_first_baseline.json`
+  backlog never fails the build, only a *new* orphaned test file or
+  test-only symbol does. `tests/gates/test_wire_first_gate.py` proves every
+  sweep can both trip and stay clean. The six confirmed dead-but-tested
+  instances that motivated this lane are now wired to live entry points with
+  a `*_live_path` reachability test each: `PolicyEngine` (now evaluated on
+  every `Orchestrator.dispatch_task`/`execute_agent` call),
+  `AdmissionPolicy.decide` (now gates real worker claims in
+  `_claim_next_task`), the KV-cache fork/branch backend (already wired via
+  `CrossModalForkFanout.fan_out`, verified), `graph_mine(action="process",
+  ocel_mode="mine")`'s `ChangeEnvelope` (now actually committed via
+  `ingest_envelope`), the reasoning-topology package (now reachable via a
+  new `graph_agents(action="reason")` MCP action), and `NeuralRelationPrediction`
+  (now emitted by `LoopController._mine_predicted_edges` from the real KAN
+  link-predictor). Also closes two concrete D-OB-13a instances:
+  `tests/test_multiplexer_transports.py` and
+  `tests/test_multiplexer_resilience.py` moved into `tests/unit/mcp/` where
+  `testpaths` actually collects them.
+- **Truthful Pydantic Graph execution evidence.** Real blocking and iterative
+  graph runs now carry deterministic topology/runtime digests, ordered scheduler
+  task batches, and only backend-confirmed checkpoint identifiers through
+  `GraphResponse`, `RunTrace`, and OpenTelemetry. The contract explicitly marks
+  the current state snapshots as non-resumable; `graph_jobs action=status`
+  returns the complete durable evidence record with structured transitions.
+- **Structured-output failure taxonomy + bounded repair.** A new default-ON
+  `StructuredOutputRepair` capability classifies every structured-output
+  failure (malformed JSON, schema-invalid, truncated, refused, empty,
+  wrong-type, budget-exceeded-mid-output), drives a bounded classify-then-
+  repair loop with a typed `StructuredOutputRepairExhausted` fail-closed
+  error, and stamps `output_repair_attempts` on a repaired run's result (or on
+  the propagated exception when the run fails) so a caller can never read it
+  back as a clean first-try success. The persisted RunTrace does not surface
+  the field yet (D-W15-13).
+- **Explicit, complete execution budgets.** `ExecutionBudget` now ships real
+  finite defaults for every dimension (node transitions, tool calls, tokens,
+  cost, wall-clock — never silently unbounded) with a new `max_tool_calls`
+  cap distinct from the node-transition cap, and every `UsageLimits`
+  construction site adopts `per_request_input_tokens_limit` (pydantic-ai-slim
+  2.21.0) so a single oversized tool result cannot blow a run in one request.
+
+### Fixed
+- **Authenticating a request no longer requires engine cluster-admin authority.**
+  `security/request_identity.py::_mint_graph_session` ended with a live
+  `placement_catalog.resolve_placement` round-trip. Because *every* authenticated
+  request on *every* served surface mints a `GraphSession`, that made engine
+  cluster-administrator authority a precondition for authenticating at all:
+  epistemic-graph declares `PlacementRoute` with
+  `authz_action = "admin:cluster-read"` (`crates/eg-capabilities/src/lib.rs:2274`)
+  and enforces it twice in `src/server/dispatch.rs` — against the caller's token
+  scopes (`:2185`) and again against the engine's own `IsolationLayer` via
+  `require_admin_capability` (`:2199` → `src/server/access.rs:858`), which no JWT
+  claim can satisfy. graph-os only looked healthy because every credential in use
+  belonged to a cluster admin; the first genuinely non-admin principal got a
+  blanket HTTP 500 (`PlacementAuthorityError` is a `RuntimeError`, so it matched
+  none of the middleware's 401/403 arms). Minting now establishes **identity, not
+  topology**: `endpoint`/`placement_group`/`catalog_epoch` are left unbound
+  (`endpoint=None` is `GraphSession`'s documented "resolve normally" value) and
+  the data plane binds the authoritative route per call in `graph_compute`, which
+  already overwrote the session's epoch and fencing token on every
+  `ApplyChangeEnvelope` — so the mint-time route was never authoritative. Every
+  authority field, every `PermissionError`, and `UNAUTHENTICATED_PATHS` are
+  unchanged; `scripts/security/check_tenant_identity_contract.py` now statically
+  forbids the minter from resolving topology at all. (D-WD-1 / D-SP-1)
+- **Budget exhaustion is always terminal.** `error_recovery_step` previously
+  only treated the node-transition budget as non-retryable; a token, cost, or
+  duration budget was silently retried through the planner for up to 2 more
+  rounds — each spending more of the very resource that already tripped.
+  Every budget dimension is now classified and terminated immediately, and
+  `run_graph` surfaces a truthful `outcome: "budget_exceeded"` +
+  `budget_dimension`, preserving partial specialist results alongside the
+  error instead of discarding them.
+- **JWT verification no longer depends on which extra was installed.**
+  `joserfc` (the JWT decoder `security/auth.py` `_decode_jwt` needs) lived
+  only in the optional `[auth]` extra, so a runtime image that installed
+  `agent-utilities` without it had no verifier — and `_decode_jwt`'s resulting
+  `ImportError`, turned into an `HTTPException(500)`, was blanket-caught by
+  `authenticate_header_values` and `ActorIdentityMiddleware` and reported as a
+  generic `401 "Token validation failed"`. No correctly issued token could
+  ever have been accepted, and the error blamed the credential instead of the
+  missing dependency. `joserfc` is now a **base** dependency (pure Python; its
+  only requirement, `cryptography`, was already mandatory, so this adds no
+  new transitive package and the import stays lazy — zero cost for a process
+  that never verifies a JWT). `[auth]` remains a no-op alias extra so the
+  ~69 external manifests pinning `agent-utilities[auth]` keep resolving.
+  Enforcement is now purely the existing `AUTH_JWT_JWKS_URI` runtime/config
+  toggle, never an accident of packaging. Independently, `authenticate_header_values`
+  and `ActorIdentityMiddleware` no longer collapse every verification-path
+  fault into that generic 401 — only a genuine 401 credential rejection from
+  `_decode_jwt` does; any other status (currently only the dependency-missing
+  500) now surfaces with its real status and detail.
+
 ## [2.1.1] - 2026-07-28 — Native-cache, connector, teardown, and intent hardening
 
 ### Added

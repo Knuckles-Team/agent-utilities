@@ -13,6 +13,7 @@ tool-surface tests (e.g. ``test_audit_tools.py``) — no live engine required.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from agent_utilities.knowledge_graph.maintenance import graph_ownership as go
@@ -40,7 +41,17 @@ def _register(monkeypatch, *, engine: object | None = _FakeEngine()) -> object:
     mcp = _CollectingMCP()
     register_governance_tools(mcp)
     monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
-    return mcp.tools["graph_governance"]
+    async_tool = mcp.tools["graph_governance"]
+
+    # graph_governance is `async def` (D-50 — event-loop isolation for sync
+    # MCP tool handlers with genuine blocking bodies). This suite predates
+    # that change and calls the registered tool directly (bypassing
+    # kg_server._execute_tool, which already awaits async tools) — wrap it so
+    # every existing synchronous `tool(...)` call site keeps working unchanged.
+    def _sync_tool(**kwargs):
+        return asyncio.run(async_tool(**kwargs))
+
+    return _sync_tool
 
 
 def _small_fixture_client() -> go.FixtureCatalogClient:

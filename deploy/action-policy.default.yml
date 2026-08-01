@@ -126,3 +126,13 @@ rules:
   # tests/unit/knowledge_graph/test_placement_mining.py::
   # test_apply_placement_change_default_never_auto).
   - {kind: apply_placement_change, target: "*", tier: approval_required}
+  # Ontology evolution as a governed proposal (CONCEPT:AU-KG.ontology.evolution-governed-loop,
+  # program item 7.5): an :OntologyProposal that parsed, passed OWL-RL/SHACL
+  # validation, and shadow-replayed its competency queries clean still requires a
+  # human/policy decision before ontology_evolution.promote_ontology_proposal flips
+  # it from a shadow-graph candidate to the tenant's ACTIVE ontology —
+  # SAFETY-CRITICAL, this tier must never silently become auto/auto_notify (see
+  # tests/unit/knowledge_graph/ontology/test_evolution.py::
+  # test_promote_ontology_proposal_default_never_auto). Preserves the pre-existing
+  # CONCEPT:AU-KG.ontology.do-not-auto-merge guarantee.
+  - {kind: ontology_proposal_promotion, target: "*", tier: approval_required}

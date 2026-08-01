@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -95,9 +96,16 @@ class TestLadybugBackend:
     def test_initialization(self, mock_conn, mock_db):
         backend = LadybugBackend("test.db")
         backend._ensure_connection()
-        # Check that it was called with the correct path as the first argument
+        # A relative db_path is deliberately resolved under the agent-utilities
+        # data dir rather than passed through verbatim (04d4f3dd, "resolve
+        # relative db_path under the data dir, never the cwd" — a relative
+        # default previously scattered DB/.lock/.wal/.corrupted files into
+        # whatever directory the process happened to start in). So the
+        # resolved path is expected to be absolute and end in "test.db", not
+        # equal to the literal relative string.
         args, kwargs = mock_db.call_args
-        assert args[0] == "test.db"
+        assert os.path.isabs(args[0])
+        assert args[0].endswith("test.db")
         mock_conn.assert_called_once()
 
     @patch(
@@ -130,18 +138,37 @@ class TestBackendFactory:
 
         Ladybug/FalkorDB/Neo4j were demoted to opt-in ``contrib`` backends;
         the primary/default graph authority is epistemic_graph (see AGENTS.md).
+
+        ``brain_enforcement_enabled()`` is now a hardcoded mandatory invariant
+        (always ``True``, no longer the opt-in ``KG_BRAIN_ENFORCE`` toggle this
+        test predates), so the operational-authority path is always wrapped in
+        ``BrainGuardedBackend`` — a transparent delegating proxy exposing the
+        real backend via ``.inner``. Unwrap it before asserting the concrete
+        backend type.
         """
         from agent_utilities.knowledge_graph.backends import EpistemicGraphBackend
+        from agent_utilities.knowledge_graph.backends.brain_guarded_backend import (
+            BrainGuardedBackend,
+        )
 
         db_file = tmp_path / "test_factory.db"
         backend = create_backend(db_path=str(db_file))
-        assert isinstance(backend, EpistemicGraphBackend)
+        assert isinstance(backend, BrainGuardedBackend)
+        assert isinstance(backend.inner, EpistemicGraphBackend)
 
     @pytest.mark.skipif(not FALKORDB_AVAILABLE, reason="FalkorDB driver not available")
     @patch("agent_utilities.knowledge_graph.backends.contrib.falkordb_backend.FalkorDB")
     def test_explicit_falkordb(self, mock_falkor):
-        """Explicitly requesting FalkorDB should return FalkorDBBackend."""
-        backend = create_backend(backend_type="falkordb")
+        """Explicitly requesting FalkorDB should return FalkorDBBackend.
+
+        The factory requires a complete connection profile for explicit
+        external backends (host/port/db_name here, uri/user/password for
+        neo4j below) — no silent default transport — so this must pass one,
+        mirroring test_explicit_neo4j.
+        """
+        backend = create_backend(
+            backend_type="falkordb", host="localhost", port=6379, db_name="test_graph"
+        )
         assert isinstance(backend, FalkorDBBackend)
 
     @pytest.mark.skipif(not NEO4J_AVAILABLE, reason="Neo4j driver not available")
@@ -218,7 +245,9 @@ class TestBackendFactory:
     @patch("agent_utilities.knowledge_graph.backends.contrib.falkordb_backend.FalkorDB")
     def test_case_insensitive(self, mock_falkor):
         """Backend type should be case-insensitive."""
-        backend = create_backend(backend_type="FalkorDB")
+        backend = create_backend(
+            backend_type="FalkorDB", host="localhost", port=6379, db_name="test_graph"
+        )
         assert isinstance(backend, FalkorDBBackend)
 
     def test_all_backends_implement_abc(self):

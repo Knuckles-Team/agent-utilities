@@ -9,9 +9,11 @@ verifying:
 5. Topological context propagation and synthesis.
 """
 
+import asyncio
 import os
 import shutil
 import tempfile
+import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -311,3 +313,162 @@ def test_broadcast_workspace_attention_noop_without_engine():
         results, SimpleNamespace(query="q", manifest_id="m")
     )
     assert out == []
+
+
+@pytest.mark.asyncio
+async def test_parallel_execute_keeps_graph_coordination_and_persistence_off_loop(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The public execution path isolates every synchronous graph phase."""
+
+    from agent_utilities.capabilities import adversarial_verifier
+    from agent_utilities.graph.coordination import BUILTIN_PROTOCOLS
+    from agent_utilities.knowledge_graph.core.session import (
+        GraphSession,
+        current_session,
+        use_session,
+    )
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.models.execution_manifest import (
+        AgentExecutionResult,
+        WaveResult,
+    )
+    from agent_utilities.security.brain_context import (
+        ActorContext,
+        current_actor,
+        use_actor,
+    )
+
+    parallel = ParallelEngine(engine=object())
+    main_thread = threading.current_thread()
+    phase_order: list[str] = []
+    phase_threads: list[threading.Thread] = []
+    authority: list[tuple[object, object]] = []
+    entered = [threading.Event() for _ in range(3)]
+    release = [threading.Event() for _ in range(3)]
+
+    def phase(index: int, name: str) -> None:
+        phase_order.append(name)
+        phase_threads.append(threading.current_thread())
+        authority.append((current_actor(), current_session()))
+        entered[index].set()
+        release[index].wait(0.5)
+
+    def select_protocol(**_kwargs):
+        phase(0, "coordination_select")
+        return BUILTIN_PROTOCOLS["pair_consensus"]
+
+    original_apply = parallel.coordination.apply_protocol
+
+    def log_coordination(_result):
+        phase_order.append("coordination_trace")
+        phase_threads.append(threading.current_thread())
+        authority.append((current_actor(), current_session()))
+        return "coordination:trace"
+
+    async def execute_wave(
+        wave_agents,
+        wave_idx,
+        _scheduler,
+        _manifest,
+        _graph_deps,
+        _prior_results,
+    ):
+        return WaveResult(
+            wave_index=wave_idx,
+            results=[
+                AgentExecutionResult(
+                    agent_id=agent.agent_id,
+                    output=f"output:{agent.agent_id}",
+                    success=True,
+                )
+                for agent in wave_agents
+            ],
+            duration_ms=1.0,
+        )
+
+    def workspace_attention(_results, _manifest):
+        phase(1, "workspace_memory")
+        return ["agent:a"]
+
+    async def synthesize(_results, _spec, _query, _graph_deps):
+        return "synthesized"
+
+    def persist_execution(_manifest, _waves, _output):
+        phase(2, "execution_hierarchy")
+        return "pe:stable"
+
+    monkeypatch.setattr(parallel.coordination, "select_protocol", select_protocol)
+    monkeypatch.setattr(parallel.coordination, "apply_protocol", original_apply)
+    monkeypatch.setattr(
+        parallel.coordination, "log_coordination_trace", log_coordination
+    )
+    monkeypatch.setattr(parallel, "_execute_wave", execute_wave)
+    monkeypatch.setattr(parallel, "_broadcast_workspace_attention", workspace_attention)
+    monkeypatch.setattr(parallel, "_synthesize", synthesize)
+    monkeypatch.setattr(parallel, "_persist_execution", persist_execution)
+    monkeypatch.setattr(adversarial_verifier, "ADVERSARIAL_ENABLED", False)
+
+    manifest = ExecutionManifest(
+        name="event-loop-isolation",
+        agents=[
+            AgentSpec(agent_id="agent:a", task_template="A"),
+            AgentSpec(agent_id="agent:b", task_template="B"),
+        ],
+        execution_mode="parallel",
+        query="combine A and B",
+        synthesis=SynthesisSpec(strategy="flat"),
+    )
+    actor = ActorContext(
+        actor_id="agent:parallel-test",
+        actor_type=ActorType.AI_AGENT,
+        roles=("kg:write",),
+        tenant_id="tenant:test",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant="tenant:test",
+        scopes=frozenset({"kg:read", "kg:write"}),
+        graph="tenant:test",
+        policy_version="test",
+        audience="graph-os",
+    )
+
+    heartbeats = 0
+    stop_heartbeat = False
+
+    async def heartbeat() -> None:
+        nonlocal heartbeats
+        while not stop_heartbeat:
+            heartbeats += 1
+            await asyncio.sleep(0.002)
+
+    with use_actor(actor), use_session(session):
+        request = asyncio.create_task(parallel.execute(manifest))
+    pulse = asyncio.create_task(heartbeat())
+    try:
+        for index in range(3):
+            assert await asyncio.to_thread(entered[index].wait, 0.2)
+            before = heartbeats
+            await asyncio.sleep(0.02)
+            assert heartbeats > before
+            assert not request.done()
+            release[index].set()
+        result = await asyncio.wait_for(request, timeout=1.0)
+    finally:
+        for event in release:
+            event.set()
+        stop_heartbeat = True
+        await pulse
+
+    assert result.execution_id == "pe:stable"
+    assert result.synthesis_output == "synthesized"
+    assert phase_order == [
+        "coordination_select",
+        "coordination_trace",
+        "workspace_memory",
+        "execution_hierarchy",
+    ]
+    assert all(thread is not main_thread for thread in phase_threads)
+    assert authority == [(actor, session)] * 4

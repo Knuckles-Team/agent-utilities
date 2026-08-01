@@ -58,28 +58,24 @@ def save_chat_to_disk(chat_id: str, messages: list[dict[str, Any]]):
         {"id": chat_id, "max_len": len(messages)},
     )
 
-    # Create MessageNodes and link to Thread
+    # Create MessageNodes and link to Thread. The engine's native Cypher
+    # write subset supports only one leading MATCH and no WITH between write
+    # clauses (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184), so
+    # this can't be one "MERGE ... WITH ... MATCH ... MERGE" statement; the
+    # typed engine API (CONCEPT:AU-KG.query.register-each-user-table) does the
+    # node upsert + edge merge as two dispatched, backend-appropriate writes.
     for i, msg in enumerate(messages):
         msg_id = f"msg:{chat_id}:{i}"
-        query_msg = """
-        MERGE (m:Message {id: $id})
-        SET m.role = $role,
-            m.content = $content,
-            m.timestamp = $ts
-        WITH m
-        MATCH (t:Thread {id: $chat_id})
-        MERGE (t)-[:CONTAINS]->(m)
-        """
-        engine.backend.execute(
-            query_msg,
+        engine.add_node(
+            msg_id,
+            "Message",
             {
-                "id": msg_id,
                 "role": msg.get("role", "user"),
                 "content": str(msg.get("content", "")),
-                "ts": ts,
-                "chat_id": chat_id,
+                "timestamp": ts,
             },
         )
+        engine.link_nodes(chat_id, msg_id, "CONTAINS")
 
     logger.debug(f"Saved chat {chat_id} to Knowledge Graph")
 
@@ -106,7 +102,7 @@ def list_chats_from_disk() -> list[dict[str, Any]]:
                 }
             )
         return chats
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort read: on KG failure the UI/API (server/routers/core.py) shows an empty chat list rather than a 500; no state is written here, and a transient failure self-heals on the next poll
         logger.debug(f"Failed to list chats from graph: {e}")
         return []
 
@@ -383,7 +379,7 @@ def search_chat_history(
             query=query,
         )
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — best-effort read: chat_search.py's convenience wrapper treats an empty ChatRecallResults as "no matches"; nothing is written on this path
         logger.debug("Chat history search failed: %s", exc)
         return ChatRecallResults(query=query)
 

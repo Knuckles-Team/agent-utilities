@@ -286,3 +286,168 @@ def test_pick_for_task_returns_default_when_all_filters_fail():
     )
     match = reg.pick_for_task(complexity="reasoning", required_tags=["nothing"])
     assert match.id == "only"
+
+
+# ── explain_pick_for_task / rejected-alternative provenance (CONCEPT:AU-ORCH.routing.rejected-candidate-provenance) ──
+
+
+def test_explain_pick_for_task_agrees_with_pick_for_task(sample_registry):
+    picked = sample_registry.pick_for_task(complexity="heavy")
+    decision = sample_registry.explain_pick_for_task(complexity="heavy")
+    assert decision.chosen_model_id == picked.id
+
+
+def test_explain_pick_for_task_records_rejected_candidates_with_reasons(
+    sample_registry,
+):
+    decision = sample_registry.explain_pick_for_task(
+        complexity="heavy", route_key="judge"
+    )
+    assert decision.route_key == "judge"
+    ids = {c.model_id for c in decision.candidates}
+    # Every model in the registry is a candidate (no required_tags filter).
+    assert ids == {"local-fast", "cloud-mini", "cloud-opus", "cloud-reasoning"}
+    chosen = next(
+        c for c in decision.candidates if c.model_id == decision.chosen_model_id
+    )
+    assert chosen.rejected is False
+    assert chosen.rejection_reason == ""
+    rejected = [c for c in decision.candidates if c.rejected]
+    assert rejected  # at least one alternative was considered and rejected
+    for c in rejected:
+        assert c.rejection_reason  # every rejection is explained, never silent
+
+
+def test_explain_pick_for_task_required_tag_rejection_reason(sample_registry):
+    decision = sample_registry.explain_pick_for_task(
+        complexity="reasoning", required_tags=["tools"]
+    )
+    # cloud-reasoning has no 'tools' tag -> excluded from the tagged pool entirely,
+    # so it is never even scored as a candidate here (tagged pool wins over the
+    # full pool per pick_for_task's algorithm).
+    ids = {c.model_id for c in decision.candidates}
+    assert "cloud-reasoning" not in ids
+    assert ids == {"cloud-mini", "cloud-opus"}
+
+
+def test_explain_pick_for_task_is_bounded(sample_registry):
+    from agent_utilities.models.model_registry import (
+        MAX_ROUTING_CANDIDATES,
+        ModelDefinition,
+        ModelRegistry,
+    )
+
+    many = ModelRegistry(
+        models=[
+            ModelDefinition(
+                id=f"m{i}",
+                name=f"m{i}",
+                provider="openai",
+                model_id=f"m{i}",
+                tier="medium",
+            )
+            for i in range(MAX_ROUTING_CANDIDATES + 10)
+        ]
+    )
+    decision = many.explain_pick_for_task(complexity="medium")
+    assert len(decision.candidates) <= MAX_ROUTING_CANDIDATES
+    assert decision.chosen_model_id in {c.model_id for c in decision.candidates}
+
+
+def test_explain_pick_for_task_adaptive_records_confidence(sample_registry):
+    decision = sample_registry.explain_pick_for_task(
+        complexity="heavy",
+        confidence_signal=0.9,
+        routing_percentile=50.0,
+        route_key="learner",
+    )
+    picked = sample_registry.pick_for_task_adaptive(
+        complexity="heavy", confidence_signal=0.9, routing_percentile=50.0
+    )
+    assert decision.chosen_model_id == picked.id
+    assert decision.confidence_signal == 0.9
+    assert decision.routing_percentile == 50.0
+
+
+def test_adaptive_provenance_ranks_against_the_effective_tier():
+    """A confidence-shifted pick must be the TOP-scored candidate in its own record.
+
+    Regression (waves 1-5 gate): ``explain_pick_for_task`` derived its candidate
+    ranking from the caller's nominal ``complexity`` while
+    ``pick_for_task_adaptive`` picked from a confidence-shifted tier. Every
+    candidate — including the chosen one — was therefore scored in the wrong
+    frame, so the persisted ``RoutingDecisionNode`` showed the router picking the
+    model it ranked WORST, with no stated reason (the real reason, a
+    confidence-gated tier downgrade, was never surfaced anywhere). Anything
+    reading that node back — an auditor, the evolution loop, a "why was model X
+    picked" query — would draw the opposite conclusion.
+    """
+    registry = ModelRegistry(
+        models=[
+            ModelDefinition(
+                id="m-light",
+                name="light",
+                provider="openai",
+                model_id="light-model",
+                tier="light",
+            ),
+            ModelDefinition(
+                id="m-medium",
+                name="medium",
+                provider="openai",
+                model_id="medium-model",
+                tier="medium",
+            ),
+            ModelDefinition(
+                id="m-heavy",
+                name="heavy",
+                provider="openai",
+                model_id="heavy-model",
+                tier="heavy",
+            ),
+        ]
+    )
+
+    decision = registry.explain_pick_for_task(
+        complexity="medium", confidence_signal=0.9, routing_percentile=50.0
+    )
+
+    # High confidence downgrades medium -> light; that pick must own the top score.
+    assert decision.chosen_model_id == "m-light"
+    top = max(decision.candidates, key=lambda c: c.score)
+    assert top.model_id == decision.chosen_model_id
+    chosen = next(c for c in decision.candidates if c.model_id == "m-light")
+    assert chosen.rejected is False
+    assert chosen.tier_rank == 0
+    # Every rejection reason names the frame actually used, and says it shifted.
+    for candidate in decision.candidates:
+        if candidate.rejected:
+            assert "'light'" in candidate.rejection_reason
+            assert "confidence-shifted from 'medium'" in candidate.rejection_reason
+
+
+def test_unshifted_provenance_reason_does_not_claim_a_shift():
+    registry = ModelRegistry(
+        models=[
+            ModelDefinition(
+                id="m-light",
+                name="light",
+                provider="openai",
+                model_id="light-model",
+                tier="light",
+            ),
+            ModelDefinition(
+                id="m-medium",
+                name="medium",
+                provider="openai",
+                model_id="medium-model",
+                tier="medium",
+            ),
+        ]
+    )
+
+    decision = registry.explain_pick_for_task(complexity="medium")
+
+    assert decision.chosen_model_id == "m-medium"
+    for candidate in decision.candidates:
+        assert "confidence-shifted" not in candidate.rejection_reason

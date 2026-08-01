@@ -89,7 +89,23 @@ def test_visibility_predicate_unsafe_id_fails_closed():
 def test_apply_visibility_injects_into_where():
     out = ts.apply_visibility("MATCH (n) WHERE n.x = 1 RETURN n", _user("alice"))
     assert "WHERE (n._owner_id = 'alice'" in out
-    assert "AND n.x = 1" in out
+    # The pre-existing WHERE body is parenthesized as its own unit before being
+    # ANDed with the visibility predicate: a bare `<visibility> AND n.x = 1`
+    # splice would silently mis-group against any top-level OR already in the
+    # caller's own predicate (AND binds tighter than OR), letting a disjunct
+    # bypass visibility scoping entirely. See cypher_scoping.inject_and_predicate.
+    assert "AND (n.x = 1)" in out
+
+
+def test_apply_visibility_parenthesizes_existing_or_predicate():
+    """A caller's own top-level OR must not let a disjunct bypass the injected
+    visibility predicate (the same class of hole this fix closes for the
+    tenant predicate in TenancyManager.scope_cypher_query)."""
+    out = ts.apply_visibility(
+        "MATCH (p:Policy) WHERE p.name CONTAINS 'x' OR p.description CONTAINS 'x' RETURN p",
+        _user("alice"),
+    )
+    assert "AND (p.name CONTAINS 'x' OR p.description CONTAINS 'x')" in out, out
 
 
 def test_apply_visibility_injects_before_return():
@@ -251,9 +267,15 @@ def test_promote_to_commons_copies_node():
         "n1", store=src, commons_store=dst, actor=_user("alice", "acme")
     )
     assert ok is True
-    # Wrote into commons with commons scope.
+    # Wrote into commons with commons scope. The write is per-property SET
+    # (not a ``SET n += $props`` map-merge assignment, which exceeds the
+    # engine's native Cypher write subset —
+    # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184), so params
+    # are flattened rather than nested under a single "props" key.
     dst_cypher, dst_params = dst.calls[0]
-    assert dst_params["props"][ts.SCOPE_KEY] == ts.SCOPE_COMMONS
+    assert "+=" not in dst_cypher
+    assert dst_params[ts.SCOPE_KEY] == ts.SCOPE_COMMONS
+    assert dst_params["id"] == "n1"
 
 
 def test_promote_to_commons_missing_node_returns_false():
@@ -322,3 +344,47 @@ def test_share_transition_rejects_cross_tenant_admin():
             store=store,
             actor=_user("root", "acme", roles=("kg:admin",)),
         )
+
+
+# --- ACL classification stamping (CONCEPT:AU-KG.backend.company-brain-write-guard) -----
+
+
+def test_stamp_classification_defaults_to_confidential():
+    props: dict = {}
+    ts.stamp_classification(props, "Memory")
+    assert props["classification"] == "confidential"
+
+
+def test_stamp_classification_public_catalog_labels():
+    for label in sorted(ts.PUBLIC_CATALOG_LABELS):
+        props: dict = {}
+        ts.stamp_classification(props, label)
+        assert props["classification"] == "public"
+
+
+def test_stamp_classification_unknown_label_is_conservative():
+    props: dict = {}
+    ts.stamp_classification(props, None)
+    assert props["classification"] == "confidential"
+    props2: dict = {}
+    ts.stamp_classification(props2, "SomeBrandNewNodeType")
+    assert props2["classification"] == "confidential"
+
+
+def test_stamp_classification_never_overwrites_existing():
+    props = {"classification": "restricted"}
+    ts.stamp_classification(props, "ToolMetadata")
+    assert props["classification"] == "restricted"
+
+
+def test_stamp_classification_does_not_require_an_actor():
+    # Unlike stamp_ownership, classification is label-driven, not
+    # actor-driven -- it must not raise even with zero ambient identity.
+    import contextvars
+
+    def isolated():
+        props: dict = {}
+        ts.stamp_classification(props, "Memory")
+        assert props["classification"] == "confidential"
+
+    contextvars.Context().run(isolated)

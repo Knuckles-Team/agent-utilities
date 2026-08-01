@@ -13,7 +13,7 @@ the old hardcoded "delegation produced no usable data" sentinel), with a resolva
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -95,17 +95,28 @@ def test_build_run_summary_degraded_outcome_carries_translated_failure() -> None
     assert summary["outcome"] == "degraded"
     assert summary["execution_mode"] == "other"
     assert summary["failure"]["category"] == "fleet_https_gate"
-    assert "HTTPS" in summary["failure"]["translated"] or "TLS" in summary["failure"]["translated"]
+    assert (
+        "HTTPS" in summary["failure"]["translated"]
+        or "TLS" in summary["failure"]["translated"]
+    )
     assert summary["failure"]["hint"]
     assert summary["failure"]["raw"]
 
 
 def test_build_run_summary_trace_ref_is_stable_for_the_same_run_id() -> None:
     a = _build_run_summary(
-        route={}, outcome="ok", stage_reached="x", run_id="run:" + "c" * 32, raw_failure=None
+        route={},
+        outcome="ok",
+        stage_reached="x",
+        run_id="run:" + "c" * 32,
+        raw_failure=None,
     )
     b = _build_run_summary(
-        route={}, outcome="ok", stage_reached="x", run_id="run:" + "c" * 32, raw_failure=None
+        route={},
+        outcome="ok",
+        stage_reached="x",
+        run_id="run:" + "c" * 32,
+        raw_failure=None,
     )
     assert a["trace_ref"] == b["trace_ref"]
 
@@ -120,7 +131,12 @@ def test_render_agent_result_bare_string_contract_unaffected_by_default() -> Non
 
 
 def test_render_agent_result_run_summary_forces_the_envelope() -> None:
-    summary = {"outcome": "degraded", "route": {}, "stage_reached": "x", "trace_ref": "trace:y"}
+    summary = {
+        "outcome": "degraded",
+        "route": {},
+        "stage_reached": "x",
+        "trace_ref": "trace:y",
+    }
     out = _render_agent_result(
         "hello",
         run_id="run:" + "e" * 32,
@@ -147,7 +163,9 @@ def test_render_agent_result_run_summary_none_keeps_bare_string_even_with_channe
 
 
 @pytest.mark.asyncio
-async def test_run_agent_fleet_gate_failure_produces_a_transparent_run_summary() -> None:
+async def test_run_agent_fleet_gate_failure_produces_a_transparent_run_summary() -> (
+    None
+):
     """Reproduces the reported bug's ORCH-1.74 branch: a focused-tools delegation to
     github-mcp fails the fleet HTTPS gate. run_agent must surface a `degraded` run_summary
     whose failure.raw/translated carry the REAL cause (not the old hardcoded generic
@@ -155,7 +173,13 @@ async def test_run_agent_fleet_gate_failure_produces_a_transparent_run_summary()
     code (only the KG-engine boundary and the network tool call are mocked)."""
     from types import SimpleNamespace
 
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     shape = SimpleNamespace(
@@ -201,7 +225,8 @@ async def test_run_agent_fleet_gate_failure_produces_a_transparent_run_summary()
     assert summary["stage_reached"] == "tool-call: github-mcp"
     assert summary["route"]["servers"] == ["github-mcp"]
     assert summary["trace_ref"] == "trace:" + __import__(
-        "agent_utilities.security.persistence_privacy", fromlist=["persistence_reference"]
+        "agent_utilities.security.persistence_privacy",
+        fromlist=["persistence_reference"],
     ).persistence_reference("run", "run:" + "1" * 32, namespace="trace")
 
     failure = summary["failure"]
@@ -219,7 +244,9 @@ async def test_run_agent_fleet_gate_failure_produces_a_transparent_run_summary()
 
 
 @pytest.mark.asyncio
-async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenance() -> None:
+async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenance() -> (
+    None
+):
     """A caller pin wins over a task lexical match for another fleet server.
 
     This is the live-shaped regression: a github-mcp request with a repository-manager
@@ -228,7 +255,13 @@ async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenanc
     """
     from types import SimpleNamespace
 
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
     shape = SimpleNamespace(
         tool_servers=("repository-manager-mcp",),
@@ -259,7 +292,7 @@ async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenanc
                 return_value={
                     "status": "completed",
                     "results": {
-                        "output": "```json\n{\"tool\": \"repository-manager\"}\n```"
+                        "output": '```json\n{"tool": "repository-manager"}\n```'
                     },
                     "tool_calls": [],
                 }
@@ -290,7 +323,13 @@ async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenanc
 
 @pytest.mark.asyncio
 async def test_run_agent_success_run_summary_has_ok_outcome_and_no_failure() -> None:
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     with (
@@ -309,10 +348,21 @@ async def test_run_agent_success_run_summary_has_ok_outcome_and_no_failure() -> 
                     "status": "completed",
                     "results": {"output": "Found 3 running containers."},
                     "metadata": {},
+                    "execution_evidence": {
+                        "schema_version": "graph-execution-evidence-v1",
+                        "topology": "basic",
+                        "topology_digest": "sha256:topology",
+                        "version_digest": "sha256:version",
+                        "runtime_version": "2.21.0",
+                        "node_sequence": ["route", "__end__"],
+                        "transitions": [],
+                        "checkpoint_ids": [],
+                        "resume_supported": False,
+                    },
                 }
             ),
         ),
-        patch.object(agent_runner, "_record_execution_trace"),
+        patch.object(agent_runner, "_record_execution_trace") as record_trace,
         patch.object(agent_runner, "_write_step_credit"),
     ):
         raw = await agent_runner.run_agent(
@@ -324,12 +374,24 @@ async def test_run_agent_success_run_summary_has_ok_outcome_and_no_failure() -> 
     assert payload["run_summary"]["outcome"] == "ok"
     assert payload["run_summary"]["execution_mode"] == "pydantic_graph"
     assert "failure" not in payload["run_summary"]
+    assert (
+        record_trace.call_args.kwargs["graph_execution_evidence"]["topology_digest"]
+        == "sha256:topology"
+    )
 
 
 @pytest.mark.asyncio
-async def test_run_agent_without_include_run_summary_keeps_bare_string_contract() -> None:
+async def test_run_agent_without_include_run_summary_keeps_bare_string_contract() -> (
+    None
+):
     """The default (existing) contract is untouched for a caller that never opts in."""
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     with (
@@ -344,7 +406,10 @@ async def test_run_agent_without_include_run_summary_keeps_bare_string_contract(
             agent_runner,
             "_execute_graph",
             new=AsyncMock(
-                return_value={"status": "completed", "results": {"output": "plain answer"}}
+                return_value={
+                    "status": "completed",
+                    "results": {"output": "plain answer"},
+                }
             ),
         ),
         patch.object(agent_runner, "_record_execution_trace"),
@@ -363,7 +428,13 @@ async def test_run_agent_cancellation_best_effort_records_a_timeout_trace() -> N
     REAL node."""
     import asyncio as _asyncio
 
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     with (
@@ -402,7 +473,13 @@ async def test_run_agent_cancellation_trace_write_never_blocks_the_reraise() -> 
     propagate cleanly (never swallowed/converted)."""
     import asyncio as _asyncio
 
-    fake_engine = AsyncMock()
+    # The KG engine boundary is entirely synchronous (every backend/registry call in
+    # this branch is offloaded via ``asyncio.to_thread`` / ``_call_without_blocking``,
+    # never awaited directly) — an AsyncMock here made every auto-vivified attribute
+    # (e.g. FeedbackService.from_engine's ``engine.store`` fallback) a coroutine whose
+    # synchronous call site never awaits it, leaking an "AsyncMock ... was never
+    # awaited" RuntimeWarning. MagicMock matches the real, synchronous contract.
+    fake_engine = MagicMock()
     fake_engine.backend = None
 
     with (

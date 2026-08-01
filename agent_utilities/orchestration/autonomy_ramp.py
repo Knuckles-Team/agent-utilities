@@ -48,6 +48,17 @@ _MEM: dict[str, tuple[int, int]] = {}  # key -> (total, successes)
 
 
 def _read(backend: Any, key: str) -> tuple[int, int]:
+    # D-DST-6: record_trust() updates _MEM unconditionally BEFORE its guarded
+    # KG persist attempt (below), but this read prefers the backend whenever
+    # it answers without raising. If a persist ever failed, the backend total
+    # is frozen at its old value -- and without this guard, every SUBSEQUENT
+    # record_trust() call would silently overwrite _MEM's fresher value with
+    # that stale backend row, making every outcome recorded during the outage
+    # (success or failure) invisible on every later read. `total` only ever
+    # grows (record_trust increments it by exactly 1 per call), so a backend
+    # total behind _MEM's means a prior persist failed -- never let that stale
+    # row silently swallow unpersisted outcomes.
+    mem_total, mem_successes = _MEM.get(key, (0, 0))
     if backend is not None and hasattr(backend, "execute"):
         try:
             rows = backend.execute(
@@ -56,10 +67,14 @@ def _read(backend: Any, key: str) -> tuple[int, int]:
                 {"id": key},
             )
             for r in rows or []:
-                return int(r.get("total") or 0), int(r.get("successes") or 0)
+                b_total = int(r.get("total") or 0)
+                b_successes = int(r.get("successes") or 0)
+                if b_total >= mem_total:
+                    return b_total, b_successes
+                return mem_total, mem_successes
         except Exception:  # pragma: no cover - read best-effort
             pass
-    return _MEM.get(key, (0, 0))
+    return mem_total, mem_successes
 
 
 def record_trust(
@@ -81,7 +96,7 @@ def record_trust(
                 total=total,
                 successes=successes,
             )
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc:  # pragma: no cover  # noqa: BLE001 — persist is best-effort; _read() now falls back to _MEM whenever the backend's total lags (monotonic-total guard above), so a failed persist here only delays cross-process durability, it can no longer make clears_ramp() silently miss unpersisted successes/failures
             logger.debug("trust persist failed: %s", exc)
     return total, successes
 

@@ -323,12 +323,94 @@ async def test_graph_checkpoint_store_get_with_backend() -> None:
 
 
 @pytest.mark.asyncio
-async def test_graph_checkpoint_store_list_returns_empty() -> None:
-    """list() returns empty list (stub impl)."""
+async def test_graph_checkpoint_store_list_returns_checkpoints_from_graph() -> None:
+    """list() reads :checkpoint nodes back from the graph via query_cypher,
+    newest first -- the live path a NEW process (no in-memory ledger) needs to
+    enumerate a workflow's prior checkpoints (D-41-1)."""
+    from agent_utilities.capabilities.checkpointing import (
+        Checkpoint,
+        GraphCheckpointStore,
+    )
+
+    newer = Checkpoint(id="cp2", label="l2", turn=2, messages=[], timestamp=200.0)
+    older = Checkpoint(id="cp1", label="l1", turn=1, messages=[], timestamp=100.0)
+
+    calls: list[str] = []
+
+    def query_cypher(cypher: str):
+        calls.append(cypher)
+        assert "checkpoint" in cypher
+        assert "ORDER BY c.timestamp DESC" in cypher
+        return [
+            {"message_data": newer.to_json()},
+            {"message_data": older.to_json()},
+        ]
+
+    engine = SimpleNamespace(query_cypher=query_cypher)
+    store = GraphCheckpointStore(engine)
+    result = await store.list(limit=5)
+
+    assert len(calls) == 1
+    assert "LIMIT 5" in calls[0]
+    assert [c.id for c in result] == ["cp2", "cp1"]
+
+
+@pytest.mark.asyncio
+async def test_graph_checkpoint_store_list_falls_back_to_graph_query_cypher() -> None:
+    """When the engine itself has no query_cypher, list() falls back to
+    engine.graph.query_cypher -- the same seam save()/get() fall back through."""
+    from agent_utilities.capabilities.checkpointing import (
+        Checkpoint,
+        GraphCheckpointStore,
+    )
+
+    cp = Checkpoint(id="cp1", label="l", turn=1, messages=[])
+    graph = SimpleNamespace(
+        query_cypher=lambda cypher: [{"message_data": cp.to_json()}]
+    )
+    engine = SimpleNamespace(graph=graph)
+    store = GraphCheckpointStore(engine)
+    result = await store.list()
+    assert [c.id for c in result] == ["cp1"]
+
+
+@pytest.mark.asyncio
+async def test_graph_checkpoint_store_list_no_query_cypher_returns_empty() -> None:
+    """An engine exposing neither query_cypher directly nor via .graph degrades
+    to an empty list rather than raising."""
     from agent_utilities.capabilities.checkpointing import GraphCheckpointStore
 
-    store = GraphCheckpointStore(MagicMock())
+    store = GraphCheckpointStore(SimpleNamespace())
     assert await store.list() == []
+
+
+@pytest.mark.asyncio
+async def test_graph_checkpoint_store_list_query_failure_returns_empty() -> None:
+    """A query_cypher failure is caught and logged, not raised (matches
+    save()/get()'s best-effort error handling on this store)."""
+    from agent_utilities.capabilities.checkpointing import GraphCheckpointStore
+
+    def query_cypher(_cypher: str):
+        raise RuntimeError("engine unavailable")
+
+    store = GraphCheckpointStore(SimpleNamespace(query_cypher=query_cypher))
+    assert await store.list() == []
+
+
+@pytest.mark.asyncio
+async def test_graph_checkpoint_store_list_skips_unparseable_rows() -> None:
+    """A single corrupt row is logged and skipped; the rest of the listing
+    still returns."""
+    from agent_utilities.capabilities.checkpointing import (
+        Checkpoint,
+        GraphCheckpointStore,
+    )
+
+    cp = Checkpoint(id="cp1", label="l", turn=1, messages=[])
+    rows = [{"message_data": "not valid json"}, {"message_data": cp.to_json()}]
+    store = GraphCheckpointStore(SimpleNamespace(query_cypher=lambda _c: rows))
+    result = await store.list()
+    assert [c.id for c in result] == ["cp1"]
 
 
 # ---------------------------------------------------------------------------

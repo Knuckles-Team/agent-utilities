@@ -34,6 +34,23 @@ from ...models.domains.finance import (
 
 logger = logging.getLogger(__name__)
 
+
+def _node_payload(node: Any) -> dict[str, Any]:
+    """Dump a typed ``RegistryNode`` for a raw ``client.nodes.add`` write.
+
+    Every node class here still carries a Pydantic ``type`` field (e.g.
+    :class:`MicrostructureSignalNode`), but the engine retired the bare
+    ``type`` node PROPERTY in favor of ``node_type`` — mirrors the same
+    rename ``core/engine.py``'s ``_serialize_node`` performs for the wrapped
+    ``add_node`` path, needed here too since this module writes through the
+    raw ``client.nodes.add`` RPC directly.
+    """
+    data = node.model_dump(mode="json")
+    if "type" in data:
+        data["node_type"] = data.pop("type")
+    return data
+
+
 # Category → weighted keyword cues. Deliberately interpretable: the agent (and a
 # human) can see *why* a concept was filed under a category.
 TRADING_CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -227,13 +244,13 @@ async def organize_trading_knowledge(
     if client is not None:
         for node in built["knowledge"]:
             try:
-                await client.nodes.add(node.id, node.model_dump(mode="json"))
+                await client.nodes.add(node.id, _node_payload(node))
                 written_nodes += 1
             except Exception as exc:  # noqa: BLE001 — best-effort, keep going
                 logger.debug("failed to write knowledge node %s: %s", node.id, exc)
         for sig in built["signals"]:
             try:
-                await client.nodes.add(sig.id, sig.model_dump(mode="json"))
+                await client.nodes.add(sig.id, _node_payload(sig))
                 written_nodes += 1
                 # sig:book:<cid> derives from tk:execution:<cid>
                 cid = sig.id.split(":", 2)[-1]
@@ -242,9 +259,9 @@ async def organize_trading_knowledge(
                         sig.id, f"tk:execution:{cid}", "DERIVED_FROM"
                     )
                     written_edges += 1
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001 — the signal node itself already landed (written_nodes was already incremented above); only the DERIVED_FROM provenance edge is missing, and written_edges correctly stays un-incremented so the report reflects it
                     logger.debug("failed DERIVED_FROM edge for %s: %s", sig.id, exc)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — written_nodes/written_edges only increment on the lines that actually succeeded above, so the returned counts accurately reflect what landed; the loop continues to the next signal rather than aborting the whole distillation
                 logger.debug("failed to write signal node %s: %s", sig.id, exc)
 
     return {

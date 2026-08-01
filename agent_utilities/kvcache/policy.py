@@ -51,6 +51,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.resource_priority import PriorityClass, current_priority
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pydantic_ai import ModelSettings
@@ -201,6 +202,7 @@ class KVCacheLayeringPolicy:
         message_history: Any = None,
         rag_context: str | None = None,
         role: str | None = None,
+        priority: PriorityClass | None = None,
     ) -> KVCacheDecision:
         """Compute the cache-worthiness verdict for one execution.
 
@@ -208,6 +210,23 @@ class KVCacheLayeringPolicy:
         prefix, a multi-turn history, or a large total context. Otherwise the
         execution is treated as a one-off and ``skip_save`` is set to spare the
         cache the store cost and pollution.
+
+        ``priority`` folds the ORCH-1.98 resource-priority edict into this
+        STORE-side decision (CONCEPT:AU-ORCH.scheduling.resource-priority-edict) — the
+        SAME :class:`~agent_utilities.core.resource_priority.PriorityClass` the LLM
+        admission gate and the host worker floor already key off, reused here rather
+        than a second priority notion. Defaults to the ambient
+        :func:`~agent_utilities.core.resource_priority.current_priority` (an untagged
+        context reads ``None`` and this method behaves exactly as before — additive,
+        never a behavior change for a caller that never tags priority):
+
+        * :attr:`PriorityClass.BACKGROUND_INGESTION` ALWAYS skips the store,
+          regardless of every other signal — background fan-out must never write
+          low-value pages that create eviction pressure on a foreground-cached
+          prefix (e.g. a live ToT/GoT fork's shared branch prefix).
+        * :attr:`PriorityClass.INTERACTIVE` halves every token threshold, biasing a
+          borderline live-user execution toward store so its shared prefix survives
+          under pressure ahead of any background work.
         """
         if not self.enabled:
             return KVCacheDecision(
@@ -217,6 +236,18 @@ class KVCacheLayeringPolicy:
                 reasons=["policy_disabled"],
             )
 
+        effective_priority = priority if priority is not None else current_priority()
+        if effective_priority is PriorityClass.BACKGROUND_INGESTION:
+            return KVCacheDecision(
+                cache_worthy=False,
+                skip_save=True,
+                reasons=["background_ingestion_never_pollutes_cache"],
+                signals={"priority": effective_priority.value},
+            )
+        threshold_scale = (
+            0.5 if effective_priority is PriorityClass.INTERACTIVE else 1.0
+        )
+
         prefix_tokens = _estimate_tokens(system_prompt, self.chars_per_token)
         rag_tokens = _estimate_tokens(rag_context, self.chars_per_token)
         user_tokens = _estimate_tokens(user_prompt, self.chars_per_token)
@@ -224,29 +255,30 @@ class KVCacheLayeringPolicy:
         history_tokens = _estimate_tokens(history_text, self.chars_per_token)
         total_tokens = prefix_tokens + rag_tokens + user_tokens + history_tokens
 
+        min_prefix_tokens = self.min_prefix_tokens * threshold_scale
+        min_context_tokens = self.min_context_tokens * threshold_scale
+
         reasons: list[str] = []
         worthy = False
 
-        long_prefix = prefix_tokens >= self.min_prefix_tokens
+        long_prefix = prefix_tokens >= min_prefix_tokens
         if long_prefix:
             worthy = True
-            reasons.append(
-                f"long_shared_prefix({prefix_tokens}>={self.min_prefix_tokens}t)"
-            )
+            reasons.append(f"long_shared_prefix({prefix_tokens}>={min_prefix_tokens}t)")
 
         multi_turn = turns >= self.min_history_turns and turns > 0
         if multi_turn:
             worthy = True
             reasons.append(f"multi_turn_conversation({turns}turns)")
 
-        large_context = total_tokens >= self.min_context_tokens
+        large_context = total_tokens >= min_context_tokens
         if large_context:
             worthy = True
             reasons.append(
-                f"large_fixed_context({total_tokens}>={self.min_context_tokens}t)"
+                f"large_fixed_context({total_tokens}>={min_context_tokens}t)"
             )
 
-        large_rag = rag_tokens >= self.min_prefix_tokens
+        large_rag = rag_tokens >= min_prefix_tokens
         if large_rag:
             worthy = True
             reasons.append(f"large_rag_context({rag_tokens}t)")
@@ -254,16 +286,18 @@ class KVCacheLayeringPolicy:
         # Weak role prior: only tips a borderline (no strong signal but non-trivial
         # context) execution toward store; never overrides a clear one-off.
         role_reuse = role is not None and role.lower() in _REUSE_HEAVY_ROLES
-        if not worthy and role_reuse and total_tokens >= self.min_context_tokens // 2:
+        if not worthy and role_reuse and total_tokens >= min_context_tokens // 2:
             worthy = True
             reasons.append(f"reuse_heavy_role({role})")
 
         if not worthy:
             reasons.append("one_off_short_prompt")
+        elif threshold_scale != 1.0:
+            reasons.append(f"foreground_priority_bias({effective_priority.value})")
 
         # Score: fraction of the total against the context threshold, capped, plus a
         # multi-turn bonus. Purely for telemetry/ranking; the verdict is boolean.
-        score = min(1.0, total_tokens / max(self.min_context_tokens, 1))
+        score = min(1.0, total_tokens / max(min_context_tokens, 1))
         if multi_turn:
             score = min(1.0, score + 0.25)
 
@@ -279,6 +313,9 @@ class KVCacheLayeringPolicy:
                 "history_tokens": history_tokens,
                 "history_turns": turns,
                 "total_tokens": total_tokens,
+                "priority": (
+                    effective_priority.value if effective_priority is not None else None
+                ),
             },
         )
 
@@ -294,6 +331,7 @@ def decide(
     message_history: Any = None,
     rag_context: str | None = None,
     role: str | None = None,
+    priority: PriorityClass | None = None,
 ) -> KVCacheDecision:
     """Convenience: score one execution with a fresh policy (live thresholds)."""
     return KVCacheLayeringPolicy().decide(
@@ -302,6 +340,7 @@ def decide(
         message_history=message_history,
         rag_context=rag_context,
         role=role,
+        priority=priority,
     )
 
 
@@ -313,6 +352,7 @@ def fold_kv_hint(
     message_history: Any = None,
     rag_context: str | None = None,
     role: str | None = None,
+    priority: PriorityClass | None = None,
 ) -> ModelSettings:
     """Return ``settings`` with this execution's KV-cache hint folded into extra_body.
 
@@ -329,6 +369,7 @@ def fold_kv_hint(
         message_history=message_history,
         rag_context=rag_context,
         role=role,
+        priority=priority,
     )
 
     from pydantic_ai import ModelSettings as _MS

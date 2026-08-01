@@ -622,7 +622,7 @@ class ObjectIndexFunnel:
             subscription = subscribe(
                 engine, label, self._on_change, catch_up_limit=catch_up_limit
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — subscribe() failing degrades to the reconcile-based sync path (this class's own comment a few lines up: 'reconcile stays the safety net'), matching the sibling excepts immediately above and below for the same reason
             logger.debug("ObjectIndexFunnel: subscribe failed: %s", e)
             return None
         if getattr(subscription, "available", False):

@@ -75,6 +75,8 @@ __all__ = [
     "commit_result",
     "cancel_work_item",
     "defer_work_item",
+    "request_work_item_input",
+    "submit_work_item_input",
     "reap_expired_leases",
     "tenant_in_flight_count",
     "machine_state_distribution",
@@ -147,6 +149,12 @@ _NODE_LABEL = "WorkItem"
 DEFAULT_LEASE_TTL_S = 3600.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_BASE_S = 30.0
+#: Cooldown before a consent-denied item selected by :func:`claim_next` becomes
+#: reselectable, so a fleet claiming blind doesn't hot-loop reclaiming/deferring
+#: the same lapsed/unconsented item (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate,
+#: D-25-3). Consent is not expected to self-heal within seconds, so this is a
+#: coarser cooldown than ``DEFAULT_BACKOFF_BASE_S``'s retry backoff.
+CONSENT_RECHECK_BACKOFF_S = 300.0
 #: Bounded retries for optimistic-concurrency CAS loops (dependency release,
 #: downstream indexing, cancel) — mirrors ``engine_tasks._CLAIM_MAX_RETRIES``.
 _CAS_LOOP_MAX_RETRIES = 8
@@ -195,6 +203,12 @@ _FIELDS: tuple[str, ...] = (
     "created_by",
     "metadata",
     "loop_statechart_instance_id",
+    "consent_required",
+    "consent_scope",
+    "consent_subject",
+    "consent_basis",
+    "consent_granted_at",
+    "consent_expires_at",
 )
 
 
@@ -400,6 +414,49 @@ def _delegation_still_live(*, now: float | None = None) -> bool:
     return True
 
 
+def _consent_still_live(
+    item: dict[str, Any] | None, *, now: float | None = None
+) -> bool:
+    """False when a WorkItem's consent gate denies a claim/lease-renewal.
+
+    CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — mirrors
+    :func:`_delegation_still_live`'s shape (a boolean pre-flight gate called by
+    every claim/renew entry point). Delegates the four-state classification to
+    :func:`agent_utilities.models.knowledge_graph.classify_work_item_consent`, the
+    single source of truth shared with :meth:`WorkItemNode.consent_state`, so this
+    module never re-derives the state machine.
+
+    An item that never opted into consent tracking (``consent_required`` False —
+    the default for every pre-existing and ordinary operational/infra WorkItem) is
+    always live: this gate ONLY engages for a producer that explicitly requires
+    consent. ``"absent"`` and ``"lapsed"`` are both denied — they are DIFFERENT
+    audit-visible reasons (see the logged ``state``), not different enforcement
+    actions; either fails the claim/renewal closed. A missing item (``None``) is
+    not this gate's concern (callers already short-circuit on a missing item).
+    """
+    if item is None:
+        return True
+    from agent_utilities.models.knowledge_graph import classify_work_item_consent
+
+    state = classify_work_item_consent(
+        bool(item.get("consent_required")),
+        item.get("consent_granted_at"),
+        item.get("consent_expires_at"),
+        now=now,
+    )
+    if state in ("not_required", "active"):
+        return True
+    logger.warning(
+        "[consent] work item %s claim/renewal DENIED: consent state=%s "
+        "(scope=%r, subject=%r)",
+        item.get("id") or "<unknown>",
+        state,
+        item.get("consent_scope"),
+        item.get("consent_subject"),
+    )
+    return False
+
+
 def new_work_item_id() -> str:
     """Full 128-bit id (AU-P0-3 discipline: no truncated/32-bit ids)."""
     return f"workitem:{uuid.uuid4().hex}"
@@ -444,7 +501,7 @@ def _link(engine: Any, source_id: str, target_id: str, rel_type: str) -> None:
         linker = getattr(_authority(engine), "link_nodes", None)
         if callable(linker):
             linker(source_id, target_id, rel_type)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — docstring: "never blocks a WorkItem transition on a graph-viz edge"; the real state transition goes through _cas/compare_and_set_node_fields, an unrelated, non-swallowed path
         logger.debug(
             "work_item: edge write %s -> %s (%s) failed: %s",
             source_id,
@@ -617,6 +674,12 @@ def submit_work_item(
     work_item_id: str | None = None,
     max_tenant_in_flight: int | None = None,
     now: float | None = None,
+    consent_required: bool = False,
+    consent_scope: str = "",
+    consent_subject: str = "",
+    consent_basis: str = "",
+    consent_granted_at: float | None = None,
+    consent_expires_at: float | None = None,
 ) -> str:
     """Submit one WorkItem; returns its id.
 
@@ -626,6 +689,15 @@ def submit_work_item(
     ids). No dependency ⇒ immediately ``ready``; any unresolved dependency ⇒
     ``submitted`` with ``dep_count`` set, released atomically as each parent
     succeeds in the engine-native commit transaction.
+
+    ``consent_*`` (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate, D-25-3):
+    default ``consent_required=False`` submits an ordinary, ungated item — the
+    overwhelming majority of WorkItems (goal loops, agent dispatch, ingest jobs).
+    A producer binding this item to subject-consented work passes
+    ``consent_required=True`` plus ``consent_scope``/``consent_subject``/
+    ``consent_basis``/``consent_granted_at`` (and, if the grant has an explicit
+    lifetime, ``consent_expires_at``); see :func:`claim_specific`/:func:`claim_next`
+    for the enforcement this then engages.
     """
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
     from agent_utilities.models.knowledge_graph import WorkItemNode
@@ -715,6 +787,12 @@ def submit_work_item(
         created_at=now,
         updated_at=now,
         submitted_at=now,
+        consent_required=consent_required,
+        consent_scope=consent_scope,
+        consent_subject=consent_subject,
+        consent_basis=consent_basis,
+        consent_granted_at=consent_granted_at,
+        consent_expires_at=consent_expires_at,
     )
     _authority(engine).add_node(
         item_id, _NODE_LABEL, properties=node.model_dump(exclude={"id", "type"})
@@ -773,15 +851,22 @@ def claim_specific(
     """Natively claim one known ``ready`` WorkItem.
 
     Returns ``None`` when the item doesn't exist, is terminal, is still
-    ``submitted`` (deps unresolved), or has a live lease held elsewhere. A
-    malformed or unauthorizable item fails closed. Expired-lease recovery is
-    part of the engine-native claim transaction.
+    ``submitted`` (deps unresolved), has a live lease held elsewhere, or fails
+    the consent gate (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate, D-25-3 —
+    ``consent_required`` and either absent or lapsed). A malformed or
+    unauthorizable item fails closed. Expired-lease recovery is part of the
+    engine-native claim transaction.
     """
     token = token or _default_token()
     now = now if now is not None else _now()
 
     item = get_work_item(engine, item_id)
     if item is None:
+        return None
+    if not _consent_still_live(item, now=now):
+        # Denied before the engine is ever touched: no lease is granted, so
+        # there is nothing to release (contrast claim_next, which must release
+        # a lease the engine already handed out blind).
         return None
     if not item.get("tenant"):
         raise WorkItemBackendUnavailable(
@@ -821,6 +906,16 @@ def claim_next(
 
     ``max_candidates`` remains an API-level bound for callers but native
     selection owns ordering, quota, dependency release, and lease recovery.
+
+    Consent gate (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate, D-25-3): unlike
+    :func:`claim_specific`, the engine selects blind here, so a consent-denied
+    item can only be checked AFTER the engine hands out a lease. When that
+    happens this releases the lease via :func:`defer_work_item` (a bounded
+    cooldown, not a terminal state — consent can be restored by an operator) and
+    returns ``None`` to the caller, exactly as if nothing were claimable. If the
+    release itself fails, the lease is simply left to expire naturally at
+    ``lease_ttl_s`` — either way the caller never receives a consent-denied
+    claim.
     """
     token = token or _default_token()
     now = now if now is not None else _now()
@@ -838,7 +933,31 @@ def claim_next(
             lease_ttl_s=lease_ttl_s,
         ),
     )
-    return _normalize_native_claim(native)
+    claimed = _normalize_native_claim(native)
+    if claimed is None:
+        return None
+    claimed_item_id = claimed["work_item_id"]
+    item = get_work_item(engine, claimed_item_id)
+    if _consent_still_live(item, now=now):
+        return claimed
+    try:
+        defer_work_item(
+            engine,
+            claimed_item_id,
+            claimed,
+            next_retry_at=now + CONSENT_RECHECK_BACKOFF_S,
+            reason_ref="consent_gate_denied",
+            now=now,
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort release; an unreleased
+        # lease simply expires naturally at lease_ttl_s, so a failed defer here
+        # cannot let a consent-denied item run — it can only delay the reclaim.
+        logger.warning(
+            "[consent] failed to defer consent-denied claim %s: %s",
+            claimed_item_id,
+            exc,
+        )
+    return None
 
 
 def mark_running(
@@ -902,6 +1021,13 @@ def heartbeat(
     renewal fail, so the lease lapses and the reaper terminates the spawn at its next renewal —
     bounded-time revocation without a separate kill channel. In ``warn`` mode the would-be
     failure is logged but the lease still renews (legacy behavior); ``off`` is a no-op.
+
+    CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — the same bounded-time
+    posture applies to consent: if this item's consent lapses (or was withdrawn)
+    WHILE it is already running, this renewal denies (returns ``False``) at the
+    next heartbeat instead of letting an in-flight claim run indefinitely under a
+    now-invalid consent. The lease then expires at ``lease_ttl_s`` and the item
+    becomes reclaimable, at which point the gate is re-evaluated from scratch.
     """
     now = now if now is not None else _now()
     if not _delegation_still_live(now=now):
@@ -909,6 +1035,8 @@ def heartbeat(
     epoch = claim.get("lease_epoch", claim.get("fence_token"))
     fencing_token = claim.get("fencing_token", claim.get("fence_token"))
     item = get_work_item(engine, item_id) or {}
+    if not _consent_still_live(item, now=now):
+        return False
     native = _native_call(
         engine,
         "renew_work_item_lease",
@@ -1204,13 +1332,126 @@ def defer_work_item(
     )
 
 
+# ── external input request/response (MCP Tasks `input_required`) ──────
+#
+# CONCEPT:AU-ECO.mcp.tasks-workitem-bridge — the WorkItem-side hook for the
+# ``io.modelcontextprotocol/tasks`` extension's ``working`` <-> ``input_required``
+# cycle. Deliberately NOT a new status in ``WORK_ITEM_STATES``/
+# ``TERMINAL_WORK_ITEM_STATUSES``: the WorkItem stays ``running`` the whole
+# time (a worker can still heartbeat/checkpoint it normally); only
+# ``metadata.pending_input_request``/``pending_input_response`` change. A
+# Tasks adapter (``mcp_v2_gateway.gateway``, or a native
+# ``fastmcp.server.extensions.ServerExtension``) projects the presence of a
+# live ``pending_input_request`` onto the extension's ``input_required``
+# wire status; everything else about submit/claim/commit is unchanged.
+
+
+def request_work_item_input(
+    engine: Any,
+    item_id: str,
+    claim: dict[str, Any],
+    *,
+    request: dict[str, Any],
+    now: float | None = None,
+    lease_ttl_s: float = DEFAULT_LEASE_TTL_S,
+) -> bool:
+    """Mark a claimed, running WorkItem as awaiting external client input.
+
+    A worker holding the live lease calls this instead of committing a
+    result when it needs a client round-trip before it can continue. Fenced
+    identically to :func:`checkpoint_work_item` (same status/tenant/lease
+    conditions, via the same ``heartbeat``-then-CAS shape); the only thing
+    that changes is ``metadata``, not ``status`` -- so the core state machine
+    is unmodified. ``request`` is sanitized through the same
+    :class:`~agent_utilities.security.persistence_privacy.PersistencePrivacyGuard`
+    :func:`submit_work_item` already uses for ``metadata`` -- never raw content
+    written to the graph unguarded.
+    """
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    now = now if now is not None else _now()
+    if not heartbeat(engine, item_id, claim, now=now, lease_ttl_s=lease_ttl_s):
+        return False
+    item = get_work_item(engine, item_id)
+    if item is None or item.get("status") not in {"leased", "running"}:
+        return False
+    epoch = claim.get("lease_epoch", claim.get("fence_token"))
+    fencing_token = claim.get("fencing_token", claim.get("fence_token"))
+    old_metadata = dict(item.get("metadata") or {})
+    clean_request, _report = PersistencePrivacyGuard().sanitize(dict(request))
+    new_metadata = dict(old_metadata)
+    new_metadata["pending_input_request"] = clean_request
+    new_metadata.pop("pending_input_response", None)
+    conditions = {
+        "status": item.get("status"),
+        "tenant": item.get("tenant"),
+        "lease_owner": claim.get("lease_owner") or _default_token(),
+        "lease_epoch": epoch,
+        "fencing_token": fencing_token,
+        "metadata": old_metadata,
+    }
+    return _cas(
+        engine, item_id, conditions, {"metadata": new_metadata, "updated_at": now}
+    )
+
+
+def submit_work_item_input(
+    engine: Any,
+    item_id: str,
+    *,
+    tenant: str,
+    response: dict[str, Any],
+    now: float | None = None,
+) -> bool:
+    """Attach an external client's response to a WorkItem awaiting input.
+
+    Unlike :func:`request_work_item_input`, this does NOT require the caller
+    to hold the active lease: the submitter is an external MCP client (the
+    Tasks extension's ``tasks/update``), never the worker -- the same
+    "no claim, tenant-scoped" shape as :func:`cancel_work_item`. Optimistically
+    fenced on the exact pending request still being live (via a whole-value
+    ``metadata`` CAS condition), so two concurrent submissions cannot both
+    "win" -- this is this module's established read-then-CAS idiom
+    (:func:`checkpoint_work_item`, :func:`heartbeat`), not a new concurrency
+    pattern. Returns ``False`` if the item is missing, not running,
+    tenant-mismatched, has no pending request outstanding, or lost the race.
+    """
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    now = now if now is not None else _now()
+    item = get_work_item(engine, item_id)
+    if item is None or item.get("status") not in {"leased", "running"}:
+        return False
+    if str(item.get("tenant") or "") != tenant:
+        return False
+    old_metadata = dict(item.get("metadata") or {})
+    if not old_metadata.get("pending_input_request"):
+        return False
+    clean_response, _report = PersistencePrivacyGuard().sanitize(dict(response))
+    new_metadata = dict(old_metadata)
+    new_metadata["pending_input_response"] = clean_response
+    new_metadata.pop("pending_input_request", None)
+    conditions = {"tenant": tenant, "metadata": old_metadata}
+    return _cas(
+        engine, item_id, conditions, {"metadata": new_metadata, "updated_at": now}
+    )
+
+
 # ── AgentTask bridge — the MIGRATED dispatch path (AU-P1-1) ────────────
 #
 # Makes WorkItem authoritative for `:AgentTask` claim/execute/writeback when
 # `AGENT_CLAIM_BACKEND=workitem` (engine_claim.py). Mirrors the legacy
-# `:AgentTask.status` and a companion `:AgentLease` node (never reads them)
-# so unmigrated consumers (`fleet_reconciler.fire_ready_agent_tasks`,
-# dashboards) keep working unchanged.
+# `:AgentTask.status` (never read back) so unmigrated consumers
+# (`fleet_reconciler.fire_ready_agent_tasks`, dashboards) keep working
+# unchanged. Does NOT mirror a companion `:AgentLease` node: per
+# `docs/architecture/graph-authority-convergence.md`, lease/fencing
+# capabilities are held only by the executing process and are never copied
+# into another graph node — `AgentLease` is not an operational work-state
+# model, and an architecture guard test
+# (`test_no_agentlease_writer_remains`) enforces the absence of any
+# `AgentLease` writer. `fire_ready_agent_tasks` never reads an `AgentLease`
+# node either (only the `AgentTask.status` mirror above), so there is no
+# live consumer to preserve.
 
 _AGENT_TASK_ALREADY_TERMINAL = "completed"
 
@@ -1286,16 +1527,23 @@ def claim_agent_task_via_work_item(
 ) -> dict[str, Any] | None:
     """Claim one ``:AgentTask`` through the WorkItem state machine (MIGRATED path).
 
-    Same return contract as
-    :func:`agent_utilities.orchestration.agent_dispatch_worker.claim_agent_task`
-    (``task_id``/``lease_id``/``dag_id``/``checkpoint_id``/
-    ``depends_on_task_ids``/``fence_token``), so every existing downstream
-    consumer (``execute_agent_task_turn``, ``_fence_still_valid``) is
-    unchanged — plus an internal ``_work_item_id`` key so
-    ``_finalize_agent_task`` can additionally commit through
+    Same return contract as :func:`agent_utilities.orchestration.engine_claim.
+    claim_agent_task` (``task_id``/``lease_id``/``dag_id``/``checkpoint_id``/
+    ``depends_on_task_ids``/``fence_token``) — plus an internal
+    ``_work_item_id`` key so a caller can additionally commit through
     :func:`commit_result` (dependency release, DLQ, idempotent commit all
-    apply). Selected via ``AGENT_CLAIM_BACKEND=workitem``
+    apply; see :func:`commit_agent_task_work_item`, this module's ready-made
+    wrapper for that). Selected via ``AGENT_CLAIM_BACKEND=workitem``
     (:mod:`~agent_utilities.orchestration.engine_claim`).
+
+    NOT YET WIRED (D-W2-12, verified 2026-07-31): the intended top-level
+    orchestrator, ``agent_utilities.orchestration.agent_dispatch_worker.
+    execute_agent_task_turn(engine, task_id, agent_id=..., executor=...)``,
+    does not exist in that module — only its test,
+    ``tests/unit/test_agent_dispatch_work_item_backend.py``, and this
+    docstring describe it. This function and :func:`commit_agent_task_work_item`
+    are the claim/commit halves it would call; nobody currently calls them
+    for the ``:AgentTask`` dispatch path.
     """
     token = token or _default_token()
     now = now if now is not None else _now()
@@ -1320,24 +1568,11 @@ def claim_agent_task_via_work_item(
             e,
         )
 
+    # Opaque lease identifier for the return contract below — NOT a graph
+    # node id. No `:AgentLease` node is written for it (see the module note
+    # above): lease/fencing state lives only in the WorkItem claim
+    # (`claim_specific`/`mark_running` above already committed it).
     lease_id = f"lease:{task_id}:{claim['fence_token']}"
-    try:
-        engine.add_node(
-            lease_id,
-            "AgentLease",
-            properties={
-                "name": f"Lease: {task_id}",
-                "owner_token": claim["lease_owner"],
-                "resource_id": task_id,
-                "acquired_at": now,
-                "lease_expires_at": now + claim_ttl_s,
-                "lease_epoch": claim["fence_token"],
-            },
-        )
-    except Exception as e:  # noqa: BLE001 — mirror is best-effort
-        logger.warning(
-            "work_item bridge: AgentLease mirror failed for %s: %s", task_id, e
-        )
 
     dag_id = ""
     checkpoint_id = None
@@ -1349,7 +1584,7 @@ def claim_agent_task_via_work_item(
         if legacy_rows:
             dag_id = legacy_rows[0].get("dag_id") or ""
             checkpoint_id = legacy_rows[0].get("checkpoint_id")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — the claim/lease above (claim_specific + mark_running) already committed before this read; a failed legacy dag_id/checkpoint_id lookup only leaves those two return fields blank, it does not affect whether the task was actually claimed
         logger.debug(
             "work_item bridge: legacy dag_id/checkpoint_id read failed for %s: %s",
             task_id,
@@ -1385,9 +1620,11 @@ def commit_agent_task_work_item(
 ) -> str | None:
     """Commit an executed ``:AgentTask`` turn's outcome through :func:`commit_result`.
 
-    ``status`` is one of ``execute_agent_task_turn``'s outcome strings
+    ``status`` is one of the outcome strings the not-yet-implemented
+    ``agent_dispatch_worker.execute_agent_task_turn`` is intended to produce
     (``completed``/``failed``/``unroutable``/``denied``/``cancelled``/
-    ``blocked``). Returns the :func:`commit_result` outcome, or ``None`` when
+    ``blocked`` — see :func:`claim_agent_task_via_work_item`'s docstring,
+    D-W2-12). Returns the :func:`commit_result` outcome, or ``None`` when
     ``status`` has no WorkItem mapping (``blocked`` — see above). Never
     raises (a commit-mirror failure is logged, not propagated — the legacy
     ``:AgentTask`` write already recorded the authoritative-enough outcome

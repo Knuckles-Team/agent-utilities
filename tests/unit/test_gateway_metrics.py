@@ -206,8 +206,12 @@ class TestMetricsMiddleware:
 @pytest.mark.integration
 class TestGatewayWiring:
     def test_register_graph_routes_mounts_metrics_and_limiter(self, monkeypatch):
+        import time
+
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
+        from joserfc import jwt as joserfc_jwt
+        from joserfc.jwk import RSAKey
 
         from agent_utilities.core.config import config
         from agent_utilities.gateway.graph_api import register_graph_routes
@@ -220,18 +224,77 @@ class TestGatewayWiring:
         register_graph_routes(app, prefix="/api")
         client = TestClient(app)
 
-        # /metrics is mounted, returns exposition (or the no-op placeholder)
-        # and is NEVER rate limited
+        # /metrics is mounted and is NEVER rate limited, but it DOES require a
+        # verified identity like any other operational endpoint (CONCEPT:
+        # AU-OS.identity.authenticated-identity-enforcement — "Remote metrics
+        # must authenticate just like any other operational endpoint",
+        # ``security/request_identity.py``'s ``UNAUTHENTICATED_PATHS`` excludes
+        # ``/metrics`` on purpose). An unauthenticated caller gets a stable 401,
+        # never a 429, no matter how many times it's called.
         for _ in range(5):
             response = client.get("/metrics")
-            assert response.status_code == 200
+            assert response.status_code == 401
+
+        # ``ActorIdentityMiddleware`` is mounted INSIDE (added-before, so it
+        # runs before) the rate limiter (CONCEPT:AU-OS.identity.authenticated-identity-enforcement,
+        # ``graph_api.py``: "Added BEFORE the identity middleware so it sits
+        # INSIDE it ... the server-minted ActorContext is already in scope
+        # when the bucket key is resolved"). So an unauthenticated call to a
+        # non-exempt path is rejected 401 by identity before the limiter is
+        # ever reached — the limiter buckets AUTHENTICATED traffic, not
+        # anonymous traffic. Mint a real Bearer token to exercise it.
+        monkeypatch.setattr(config, "auth_jwt_jwks_uri", "https://idp.invalid/jwks")
+        monkeypatch.setattr(config, "auth_jwt_audience", "agent-services")
+        monkeypatch.setattr(config, "auth_jwt_issuer", "https://idp.invalid")
+
+        key = RSAKey.generate_key(2048)
+        jwks = {"keys": [key.as_dict(is_private=False)]}
+        token = joserfc_jwt.encode(
+            {"alg": "RS256"},
+            {
+                "sub": "principal:test",
+                "aud": config.auth_jwt_audience,
+                "iss": config.auth_jwt_issuer,
+                "tenant_id": "tenant-test",
+                "exp": int(time.time()) + 3600,
+                "iat": int(time.time()),
+            },
+            key,
+        )
+
+        async def fake_jwks(_uri):
+            return jwks
+
+        monkeypatch.setattr(
+            "agent_utilities.security.auth._fetch_jwks", fake_jwks
+        )
+
+        # Real JWT verification runs (that's the point — a genuine Bearer
+        # credential). Session-minting itself (placement/engine-catalog
+        # resolution) is exhaustively covered by
+        # ``tests/unit/core/test_request_identity.py`` and is out of scope for
+        # this gateway-wiring test, so stub it to a trivial session tied to the
+        # verified actor's tenant.
+        from agent_utilities.knowledge_graph.core.session import GraphSession
+
+        def _fake_mint(actor):
+            return GraphSession(actor=actor, tenant=actor.tenant_id)
+
+        monkeypatch.setattr(
+            "agent_utilities.security.request_identity.mint_graph_session",
+            _fake_mint,
+        )
+        headers = {"Authorization": f"Bearer {token}"}
 
         # the limiter kicks in after the burst on normal routes (keyed by
-        # client IP for unauthenticated calls) with a Retry-After header
-        statuses = [client.get("/api/unknown-route-xyz").status_code for _ in range(4)]
+        # tenant → actor → client IP) with a Retry-After header
+        statuses = [
+            client.get("/api/unknown-route-xyz", headers=headers).status_code
+            for _ in range(4)
+        ]
         assert statuses[:2] == [404, 404]
         assert 429 in statuses[2:]
-        limited = client.get("/api/unknown-route-xyz")
+        limited = client.get("/api/unknown-route-xyz", headers=headers)
         assert limited.status_code == 429
         assert "retry-after" in limited.headers
         assert limited.json()["error"] == "rate limit exceeded"

@@ -46,6 +46,28 @@ from agent_utilities.models.schema_definition import SCHEMA
 
 logger = logging.getLogger(__name__)
 
+# Cross-cutting governance properties every write-path stamps onto node
+# properties unconditionally (tenant scoping: CONCEPT:AU-KG.backend.company-brain-write-guard
+# TenancyManager.scope_cypher_query / tenant_sharing.stamp_ownership; owner/scope
+# visibility: tenant_sharing.stamp_ownership / apply_visibility; write-time ACL
+# classification: tenant_sharing.stamp_classification) but that no individual
+# ``TableDefinition`` in schema_definition.py declares as a column. Kuzu/Ladybug
+# tables are strict-schema: a write/read referencing an undeclared property fails
+# with "Binder exception: Cannot find property ... for <var>" instead of simply
+# matching/storing nothing, so every governance-stamped write or tenant-scoped
+# read against this backend was broken for every node type. Declared generically
+# here (not duplicated across ~40 individual TableDefinitions) so any node table
+# gains these columns the same way the KG-2.9g code-symbol columns are migrated
+# onto pre-existing tables below. Kept in lockstep with
+# ``materialization._GOVERNANCE_COLUMNS`` (the SET-clause/valid-keys side of the
+# same contract).
+_GOVERNANCE_COLUMNS: dict[str, str] = {
+    "tenant_id": "STRING",
+    "_owner_id": "STRING",
+    "_shared_scope": "STRING",
+    "classification": "STRING",
+}
+
 import threading
 
 _ACTIVE_DATABASES: dict[str, Any] = {}
@@ -307,7 +329,7 @@ class LadybugBackend(GraphBackend):
                     self.conn.execute("PRAGMA journal_mode=WAL;")
                     self.conn.execute("PRAGMA synchronous=NORMAL;")
                     self.conn.execute("PRAGMA busy_timeout=10000;")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — PRAGMA support varies by LadybugDB build; the connection is already open (self.conn = ladybug.Connection(self.db) above) — WAL/synchronous/busy_timeout are durability tuning, not required for correctness
                     logger.debug(f"WAL pragma not supported or ignored: {e}")
 
                 # Load VECTOR extension
@@ -315,7 +337,7 @@ class LadybugBackend(GraphBackend):
                     self.conn.execute("INSTALL VECTOR;")
                     self.conn.execute("LOAD EXTENSION VECTOR;")
                     logger.debug("LadybugDB VECTOR extension loaded successfully")
-                except Exception as ve:
+                except Exception as ve:  # noqa: BLE001 — feature-detection: the VECTOR extension may not be present in this LadybugDB build; downstream vector-search paths already fall back when unavailable (not gated on any state advanced here)
                     logger.debug(f"Could not load VECTOR extension: {ve}")
 
                 # Auto-initialize schema if not read-only
@@ -671,35 +693,49 @@ class LadybugBackend(GraphBackend):
         *,
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Execute inside a Ladybug/Kuzu read-only transaction."""
+        """Execute inside a Ladybug/Kuzu read-only transaction.
+
+        The transient-connection close (test/ephemeral mode,
+        ``AGENT_UTILITIES_TESTING``) must happen AFTER row extraction, not in
+        the same ``finally`` as the transaction itself: ``result``/
+        ``result_set`` are lazy handles onto the live connection —
+        ``rows_as_dict()`` reads through them — so closing right after
+        ``COMMIT`` (before that read) made every read in transient mode raise
+        ``RuntimeError: Query result is closed`` instead of returning rows.
+        This is load-bearing for ``secured_reads._durable_access_rows``, whose
+        ACL-hydration read goes through this exact method — the ACL fallback
+        this convergence lane wires up would itself have raised in every
+        transient/test run without this fix.
+        """
         if include_epistemic:
             return []
-        with self._get_lock():
-            self._ensure_connection()
-            connection = self.conn
-            if connection is None:
-                raise RuntimeError("LadybugDB read connection is unavailable")
-            try:
-                connection.execute("BEGIN TRANSACTION READ ONLY")
-                result = connection.execute(query, params or {})
-                connection.execute("COMMIT")
-            except Exception:
+        try:
+            with self._get_lock():
+                self._ensure_connection()
+                connection = self.conn
+                if connection is None:
+                    raise RuntimeError("LadybugDB read connection is unavailable")
                 try:
-                    connection.execute("ROLLBACK")
+                    connection.execute("BEGIN TRANSACTION READ ONLY")
+                    result = connection.execute(query, params or {})
+                    connection.execute("COMMIT")
                 except Exception:
-                    pass
-                raise
-            finally:
-                if self.transient:
-                    self.close()
-        if isinstance(result, list):
-            result_sets = result
-        else:
-            result_sets = [result]
-        rows: list[dict[str, Any]] = []
-        for result_set in result_sets:
-            rows.extend(result_set.rows_as_dict().get_all())
-        return rows
+                    try:
+                        connection.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise
+            if isinstance(result, list):
+                result_sets = result
+            else:
+                result_sets = [result]
+            rows: list[dict[str, Any]] = []
+            for result_set in result_sets:
+                rows.extend(result_set.rows_as_dict().get_all())
+            return rows
+        finally:
+            if self.transient:
+                self.close()
 
     @staticmethod
     def _unwind_to_per_row(query: str) -> str:
@@ -815,14 +851,14 @@ class LadybugBackend(GraphBackend):
                 if self.transient:
                     self.close()
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — this except correctly returns False on failure (the `return True` above only executes on success), so callers cannot mistake a failed checkpoint for a completed one
             if self.transient:
                 try:
                     with self._get_lock():
                         self.close()
                 except Exception:
                     pass
-            logger.debug(f"WAL checkpoint not supported or failed: {e}")
+            logger.debug(f"WAL checkpoint not supported or failed: {e}")  # noqa: BLE001 — this except correctly returns False on failure (see the return above only executes on success), so callers cannot mistake a failed checkpoint for a completed one
             return False
 
     def _seed_schema_cache(self) -> None:
@@ -849,7 +885,10 @@ class LadybugBackend(GraphBackend):
         label = validate_identifier(label, kind="label")
         from agent_utilities.models.schema_definition import GENERIC_NODE_COLUMNS
 
-        cols = ", ".join(f"`{n}` {t}" for n, t in GENERIC_NODE_COLUMNS.items())
+        all_columns = dict(GENERIC_NODE_COLUMNS)
+        for gname, gtype in _GOVERNANCE_COLUMNS.items():
+            all_columns.setdefault(gname, gtype)
+        cols = ", ".join(f"`{n}` {t}" for n, t in all_columns.items())
         try:
             self.conn.execute(f"CREATE NODE TABLE IF NOT EXISTS {label} ({cols});")
         except Exception as e:  # noqa: BLE001
@@ -1014,6 +1053,10 @@ class LadybugBackend(GraphBackend):
                     validate_identifier(name, kind="column"): dtype
                     for name, dtype in node.columns.items()
                 }
+                for gname, gtype in _GOVERNANCE_COLUMNS.items():
+                    col_names.setdefault(
+                        validate_identifier(gname, kind="column"), gtype
+                    )
             except InvalidIdentifierError:
                 logger.warning("skipping node table with an invalid schema name")
                 continue
@@ -1180,6 +1223,15 @@ class LadybugBackend(GraphBackend):
         if tables:
             embedding_tables = [t for t in embedding_tables if t in tables]
         dropped = 0
+        # D-DSTK: tables whose DROP_VECTOR_INDEX call failed for a REAL reason (not the
+        # benign "not found"/"does not exist" — already gone). engine_tasks.py's
+        # submit_task (D-DST-3) only marks a table's index dropped AFTER this method
+        # returns without raising, specifically so a failed drop is retried next
+        # submission — but this method previously swallowed every per-table failure
+        # internally and never raised, so it always "succeeded" from the caller's view
+        # even when every single drop had genuinely failed. Raising here (after best-
+        # effort attempting every table) closes that gap.
+        failed_tables: list[str] = []
         with self._get_lock():
             self._ensure_connection()
             if self.conn is None:
@@ -1190,7 +1242,7 @@ class LadybugBackend(GraphBackend):
             for table in embedding_tables:
                 try:
                     table = validate_identifier(table, kind="table")
-                except InvalidIdentifierError as e:
+                except InvalidIdentifierError as e:  # noqa: BLE001 — narrow typed exception (InvalidIdentifierError, not a broad swallow): an unrecognized/invalid embedding table name is skipped via `continue` and excluded from the drop attempt entirely, rather than being silently treated as dropped — the D-DSTK fix below (raising when a real DROP_VECTOR_INDEX call fails) only covers tables that reach that call
                     logger.debug("skipping invalid embedding table: %s", e)
                     continue
                 idx_name = f"idx_{table.lower()}_embedding"
@@ -1199,16 +1251,22 @@ class LadybugBackend(GraphBackend):
                         f"CALL DROP_VECTOR_INDEX('{table}', '{idx_name}');"
                     )
                     dropped += 1
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — per-table detail stays at debug; genuine failures are now aggregated into `failed_tables` and raised below, so the caller no longer mistakes this for success
                     if (
                         "not found" not in str(e).lower()
                         and "does not exist" not in str(e).lower()
                     ):
                         logger.debug(f"Drop vector index issue ({idx_name}): {e}")
+                        failed_tables.append(table)
             if self.transient:
                 self.close()
         if dropped:
             logger.info("Dropped %d HNSW vector indexes for re-ingestion.", dropped)
+        if failed_tables:
+            raise RuntimeError(
+                f"drop_vector_indices: {len(failed_tables)} table(s) could not be "
+                f"confirmed dropped: {failed_tables}"
+            )
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Add embedding to an existing node."""

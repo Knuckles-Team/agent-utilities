@@ -11,12 +11,17 @@ call site poisoned 100+ unrelated async tests in a full-suite run.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import threading
 
 import nest_asyncio
 import pytest
 
-from agent_utilities.core.event_loop import allow_nested_run_sync, run_sync_isolated
+from agent_utilities.core.event_loop import (
+    allow_nested_run_sync,
+    run_blocking_ordered,
+    run_sync_isolated,
+)
 
 
 def test_no_running_loop_does_not_patch(monkeypatch):
@@ -133,6 +138,63 @@ async def test_run_sync_isolated_propagates_exceptions():
 
     with pytest.raises(ValueError, match="nope"):
         run_sync_isolated(boom)
+
+
+async def test_run_blocking_ordered_keeps_loop_live_and_propagates_context():
+    marker = contextvars.ContextVar("ordered_worker_marker", default="")
+    entered = threading.Event()
+    release = threading.Event()
+    loop_thread = threading.current_thread()
+    observed: dict[str, object] = {}
+
+    def blocking() -> str:
+        observed["thread"] = threading.current_thread()
+        observed["marker"] = marker.get()
+        entered.set()
+        release.wait(0.5)
+        return "done"
+
+    token = marker.set("request-context")
+    try:
+        task = asyncio.create_task(run_blocking_ordered(blocking))
+        assert await asyncio.to_thread(entered.wait, 0.2)
+
+        # The coroutine can still be scheduled while the worker is blocked.
+        await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        assert await asyncio.wait_for(task, timeout=1.0) == "done"
+    finally:
+        marker.reset(token)
+        release.set()
+
+    assert observed["marker"] == "request-context"
+    assert observed["thread"] is not loop_thread
+
+
+async def test_run_blocking_ordered_reports_cancellation_after_completion():
+    entered = threading.Event()
+    release = threading.Event()
+    completed = threading.Event()
+
+    def blocking_write() -> None:
+        entered.set()
+        release.wait(0.5)
+        completed.set()
+
+    task = asyncio.create_task(run_blocking_ordered(blocking_write))
+    assert await asyncio.to_thread(entered.wait, 0.2)
+    task.cancel()
+
+    # Cancellation must not orphan an already-started graph write.
+    await asyncio.sleep(0.02)
+    assert not task.done()
+    assert not completed.is_set()
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1.0)
+    assert completed.is_set()
 
 
 if __name__ == "__main__":

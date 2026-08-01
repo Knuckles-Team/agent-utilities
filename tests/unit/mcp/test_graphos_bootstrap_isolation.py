@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import threading
@@ -82,7 +83,9 @@ def test_background_task_worker_binds_captured_session_and_actor() -> None:
     engine._workers_running = False
     engine._task_queue_backend_name = "sqlite"
 
-    def one_shot_worker() -> None:
+    def one_shot_worker(
+        hydration_reserved: bool = False, hydration_alternate: bool = False
+    ) -> None:
         seen.append((current_session(), current_actor()))
         finished.set()
 
@@ -104,6 +107,155 @@ def test_background_task_worker_binds_captured_session_and_actor() -> None:
     assert finished.wait(2.0)
     assert seen == [(session, session.actor)]
     assert engine._background_worker_session is session
+
+
+def test_start_task_workers_reserves_a_hydration_floor_of_the_pool() -> None:
+    """CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness — a small floor of the
+    worker pool is always started with ``hydration_reserved=True`` so it
+    prioritizes claiming priority-1 capability/boot hydration work (see
+    ``_claim_next_task``) ahead of ordinary connector-sync work, no matter how
+    saturated the rest of the pool is. Sized via the SAME
+    ``SchedulerConfig.reserved`` / ``KG_SCHED_RESERVED`` knob the existing
+    interactive-lane worker floor already uses — reuse, not a new reservation
+    mechanism.
+    """
+    from agent_utilities.knowledge_graph.core.worker_scheduler import (
+        scheduler_config_from_env,
+    )
+
+    session = _verified_session()
+    seen: list[bool] = []
+    lock = threading.Lock()
+    worker_count = 4
+    all_started = threading.Event()
+
+    def worker(
+        hydration_reserved: bool = False, hydration_alternate: bool = False
+    ) -> None:
+        with lock:
+            seen.append(hydration_reserved)
+            if len(seen) == worker_count:
+                all_started.set()
+
+    engine = TaskManagerMixin.__new__(TaskManagerMixin)
+    engine.backend = object()
+    engine._worker_lock = threading.Lock()
+    engine._workers_running = False
+    engine._task_queue_backend_name = "sqlite"
+    engine._task_worker_loop = worker
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.host_lock.effective_daemon_role",
+            return_value="host",
+        ),
+        patch(
+            "agent_utilities.core.config.DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+            True,
+        ),
+        use_actor(session.actor),
+        use_session(session),
+    ):
+        engine.start_task_workers(worker_count=worker_count)
+
+    assert all_started.wait(2.0)
+    expected_reserved = min(
+        max(1, scheduler_config_from_env(worker_count).reserved), worker_count - 1
+    )
+    assert 1 <= expected_reserved < worker_count
+    assert sum(seen) == expected_reserved
+
+
+def test_start_task_workers_single_worker_pool_alternates_instead_of_reserving_nothing() -> (
+    None
+):
+    """D-43: a single-worker pool cannot dedicate a permanent hydration-first
+    floor without starving ordinary throughput entirely (mirrors the
+    interactive-lane floor's own degenerate case) — so the thread-level
+    ``hydration_reserved`` flag stays ``False``. But it now gets
+    ``hydration_alternate=True`` so ``_task_worker_loop`` checks the hydration
+    lane first on every OTHER poll instead of never, giving minimal/laptop
+    deployments a real (bounded) floor instead of the original starvation
+    exposure."""
+    session = _verified_session()
+    seen: list[tuple[bool, bool]] = []
+    finished = threading.Event()
+
+    def worker(
+        hydration_reserved: bool = False, hydration_alternate: bool = False
+    ) -> None:
+        seen.append((hydration_reserved, hydration_alternate))
+        finished.set()
+
+    engine = TaskManagerMixin.__new__(TaskManagerMixin)
+    engine.backend = object()
+    engine._worker_lock = threading.Lock()
+    engine._workers_running = False
+    engine._task_queue_backend_name = "sqlite"
+    engine._task_worker_loop = worker
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.host_lock.effective_daemon_role",
+            return_value="host",
+        ),
+        patch(
+            "agent_utilities.core.config.DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+            True,
+        ),
+        use_actor(session.actor),
+        use_session(session),
+    ):
+        engine.start_task_workers(worker_count=1)
+
+    assert finished.wait(2.0)
+    # Not thread-level-reserved (no second thread exists to keep pinned to
+    # general work) but alternation is enabled.
+    assert seen == [(False, True)]
+
+
+def test_start_task_workers_multi_worker_pool_does_not_alternate() -> None:
+    """D-43's alternation is scoped to the degenerate single-worker case only —
+    a pool with a real reserved floor (>=2 workers) must not also alternate,
+    or the reserved workers would double-count their hydration-first
+    priority."""
+    session = _verified_session()
+    seen: list[tuple[bool, bool]] = []
+    lock = threading.Lock()
+    worker_count = 3
+    all_started = threading.Event()
+
+    def worker(
+        hydration_reserved: bool = False, hydration_alternate: bool = False
+    ) -> None:
+        with lock:
+            seen.append((hydration_reserved, hydration_alternate))
+            if len(seen) == worker_count:
+                all_started.set()
+
+    engine = TaskManagerMixin.__new__(TaskManagerMixin)
+    engine.backend = object()
+    engine._worker_lock = threading.Lock()
+    engine._workers_running = False
+    engine._task_queue_backend_name = "sqlite"
+    engine._task_worker_loop = worker
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.host_lock.effective_daemon_role",
+            return_value="host",
+        ),
+        patch(
+            "agent_utilities.core.config.DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+            True,
+        ),
+        use_actor(session.actor),
+        use_session(session),
+    ):
+        engine.start_task_workers(worker_count=worker_count)
+
+    assert all_started.wait(2.0)
+    assert all(alternate is False for _reserved, alternate in seen)
 
 
 def test_background_authority_fails_closed_when_actor_and_session_differ() -> None:
@@ -380,7 +532,9 @@ def test_materialization_gate_probes_when_rls_hides_manifest() -> None:
 
     engine = SimpleNamespace(
         graph_name="__secrets__",
-        client=SimpleNamespace(tenants=SimpleNamespace(list=MagicMock(return_value=[]))),
+        client=SimpleNamespace(
+            tenants=SimpleNamespace(list=MagicMock(return_value=[]))
+        ),
         query_cypher=MagicMock(
             side_effect=[
                 RuntimeError('{"code":"PARTIAL_MATERIALIZATION"}'),
@@ -420,6 +574,117 @@ def test_materialization_gate_preserves_nonpartial_engine_error() -> None:
     engine.client.tenants.list.assert_not_called()
 
 
+def test_materialization_gate_timeout_is_bounded_by_monotonic_deadline() -> None:
+    from agent_utilities.mcp import kg_server
+
+    engine = SimpleNamespace(
+        graph_name="__commons__",
+        client=SimpleNamespace(
+            tenants=SimpleNamespace(
+                list=MagicMock(
+                    return_value=[
+                        {
+                            "name": "__commons__",
+                            "materialization": "partial",
+                            "valid": False,
+                        }
+                    ]
+                )
+            )
+        ),
+        query_cypher=MagicMock(
+            side_effect=RuntimeError(
+                '{"code":"PARTIAL_MATERIALIZATION","retryable":true}'
+            )
+        ),
+    )
+    clock = iter([100.0, 101.0])
+    with patch.object(kg_server.time, "monotonic", side_effect=lambda: next(clock)):
+        with pytest.raises(TimeoutError, match="timeout_seconds=1"):
+            kg_server._wait_for_engine_materialization(
+                engine,
+                timeout_seconds=1.0,
+                poll_seconds=0.0,
+                stop_event=threading.Event(),
+            )
+
+
+def test_materialization_gate_shutdown_cancels_wait_promptly() -> None:
+    from agent_utilities.mcp import kg_server
+
+    stop = threading.Event()
+    stop.set()
+    engine = SimpleNamespace(
+        graph_name="__commons__",
+        client=SimpleNamespace(
+            tenants=SimpleNamespace(
+                list=MagicMock(
+                    return_value=[
+                        {
+                            "name": "__commons__",
+                            "materialization": "partial",
+                            "valid": False,
+                        }
+                    ]
+                )
+            )
+        ),
+        query_cypher=MagicMock(
+            side_effect=RuntimeError(
+                '{"code":"PARTIAL_MATERIALIZATION","retryable":true}'
+            )
+        ),
+    )
+
+    with pytest.raises(InterruptedError, match="shutdown cancelled"):
+        kg_server._wait_for_engine_materialization(
+            engine,
+            timeout_seconds=540.0,
+            poll_seconds=60.0,
+            stop_event=stop,
+        )
+
+
+def test_get_engine_defers_background_work_until_materialization_barrier() -> None:
+    from agent_utilities.mcp import kg_server
+
+    constructed: dict[str, Any] = {}
+
+    class Engine:
+        @staticmethod
+        def get_active():
+            return None
+
+        @staticmethod
+        def get_or_create(*, factory):
+            return factory()
+
+        def __init__(self, *, backend, defer_background_start: bool) -> None:
+            constructed.update(
+                backend=backend,
+                defer_background_start=defer_background_start,
+            )
+
+    backend = object()
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.backends.create_backend",
+            return_value=backend,
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine",
+            Engine,
+        ),
+    ):
+        resolved = kg_server._get_engine()
+
+    assert isinstance(resolved, Engine)
+    assert constructed == {
+        "backend": backend,
+        "defer_background_start": True,
+    }
+
+
 def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
     from agent_utilities.mcp import kg_server
 
@@ -428,13 +693,21 @@ def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
 
     class Engine:
         backend = object()
+        _daemon_role = "host"
 
         def start_background_daemons(self) -> None:
             calls.append("daemons")
 
+        def start_task_workers(self) -> None:
+            calls.append("workers")
+
     class DeferredBackground:
+        def __init__(self, target) -> None:
+            self._target = target
+
         def start(self) -> None:
             calls.append("background")
+            self._target()
 
     with (
         patch.object(kg_server, "_get_engine", return_value=Engine()),
@@ -458,12 +731,84 @@ def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
         ),
         patch(
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
-            return_value=DeferredBackground(),
+            side_effect=lambda _session, target, **_kwargs: DeferredBackground(target),
+        ),
+        patch.object(
+            kg_server,
+            "_run_boot_hydration_plan",
+            side_effect=lambda *_args, **_kwargs: calls.append("hydration"),
         ),
     ):
         kg_server._start_engine_bootstrap(session)
 
-    assert calls == ["materialization", "skills", "daemons", "background"]
+    assert calls == [
+        "materialization",
+        "skills",
+        "daemons",
+        "background",
+        "workers",
+        "hydration",
+    ]
+
+
+def test_client_role_with_loop_enabled_never_starts_daemons_or_workers(
+    monkeypatch,
+) -> None:
+    """A served client remains a serving plane even with stale loop settings."""
+    from agent_utilities.mcp import kg_server
+
+    monkeypatch.setenv("KG_DAEMON_ROLE", "client")
+    monkeypatch.setenv("KG_LOOP", "1")
+    session = _verified_session()
+    calls: list[str] = []
+
+    class Engine:
+        backend = object()
+        _daemon_role = "client"
+
+        def start_background_daemons(self) -> None:
+            calls.append("daemons")
+
+        def start_task_workers(self) -> None:
+            calls.append("workers")
+
+    class ImmediateBackground:
+        def __init__(self, target) -> None:
+            self._target = target
+
+        def start(self) -> None:
+            calls.append("background")
+            self._target()
+
+    def _background_thread(_session, target, **_kwargs):
+        return ImmediateBackground(target)
+
+    with (
+        patch.object(kg_server, "_get_engine", return_value=Engine()),
+        patch.object(kg_server, "_wait_for_engine_materialization"),
+        patch.object(
+            kg_server,
+            "_ensure_bundled_skills_ready",
+            return_value={
+                "required": 10,
+                "already_ready": 10,
+                "ingested": 0,
+                "ready": 10,
+            },
+        ),
+        patch.object(
+            kg_server,
+            "_run_boot_hydration_plan",
+            side_effect=lambda *_args, **_kwargs: calls.append("hydration"),
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
+            side_effect=_background_thread,
+        ),
+    ):
+        kg_server._start_engine_bootstrap(session)
+
+    assert calls == ["background", "hydration"]
 
 
 def test_packaged_skill_readiness_failure_is_controlled_and_serves_degraded(
@@ -705,7 +1050,7 @@ def test_fleet_tool_schema_boot_hydration_is_durable_priority_one() -> None:
         target_path="fleet",
         is_codebase=False,
         provenance={"sync_mode": "delta", "boot_hydration": True},
-        task_type="connector_sync",
+        task_type="capability_hydration",
         priority=1,
         skip_dedupe=True,
         job_id=ANY,
@@ -1025,6 +1370,310 @@ async def test_stdio_expired_static_authority_fails_closed_when_renewal_fails() 
         pytest.raises(RuntimeError, match="renewal rejected"),
     ):
         await kg_server._ensure_process_authority_current()
+
+
+# --------------------------------------------------------------------------- #
+# D-SNV-5: a long delegation's AMBIENT (network-transport / process-identity)
+# session must renew too — not just the stdio ``_PROCESS_SESSION`` fallback.
+# A caller-presented bearer JWT (no ``credential_lease``) must stay exactly as
+# fail-closed as before: this must never widen authority the server does not
+# hold.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_ambient_renewable_session_is_renewed_like_process_session() -> None:
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) - 1)
+    expiring = _verified_session("network-delegation")
+    expiring = replace(
+        expiring,
+        actor=replace(
+            expiring.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+
+    def renew(session: GraphSession) -> GraphSession:
+        lease.renew(int(time.time()) + 300)
+        return session
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.session.current_session",
+            return_value=expiring,
+        ),
+        patch.object(
+            kg_server, "_refresh_process_authority", side_effect=renew
+        ) as mock_renew,
+    ):
+        selected = await kg_server._ensure_process_authority_current()
+
+    assert selected is expiring
+    mock_renew.assert_called_once_with(expiring)
+    assert lease.expires_at > int(time.time()) + 100
+
+
+@pytest.mark.asyncio
+async def test_ambient_session_without_a_lease_is_never_renewed() -> None:
+    """A caller-presented bearer JWT has no ``credential_lease`` — the server
+    has no authority to extend it, so it must never be renewed here."""
+    from agent_utilities.mcp import kg_server
+
+    valid = _verified_session("bearer-caller")
+    valid = replace(
+        valid, actor=replace(valid.actor, credential_expires_at=int(time.time()) + 300)
+    )
+    assert valid.actor.credential_lease is None
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.session.current_session",
+            return_value=valid,
+        ),
+        patch.object(kg_server, "_refresh_process_authority") as mock_renew,
+    ):
+        selected = await kg_server._ensure_process_authority_current()
+
+    assert selected is valid
+    mock_renew.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ambient_session_without_a_lease_still_fails_closed_on_real_expiry() -> (
+    None
+):
+    """Unchanged behavior: no lease means no proactive minimum-TTL headroom
+    requirement either — only real (already-past) expiry is rejected, exactly
+    as before this fix."""
+    from agent_utilities.mcp import kg_server
+
+    expired = _verified_session("bearer-caller-expired")
+    expired = replace(
+        expired,
+        actor=replace(expired.actor, credential_expires_at=int(time.time()) - 1),
+    )
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.core.session.current_session",
+            return_value=expired,
+        ),
+        patch.object(kg_server, "_refresh_process_authority") as mock_renew,
+        pytest.raises(SessionExpiredError),
+    ):
+        await kg_server._ensure_process_authority_current()
+
+    mock_renew.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+# D-SNV-5: ``_keep_process_authority_current`` — the mid-dispatch keepalive
+# that renews a renewable session's SHARED lease while a long tool call
+# (``_execute_tool._guarded``) is in flight, so a delegation exceeding the
+# entry-time TTL check no longer dies mid-flight (the real reproduction: a
+# 192s ServiceNow delegation hit ``SessionExpiredError`` with nothing ever
+# renewing it after dispatch entry).
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_keepalive_renews_the_shared_lease_before_it_expires() -> None:
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 2)
+    session = _verified_session("keepalive-runtime")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+    renewed = threading.Event()
+
+    def renew(_session: GraphSession) -> GraphSession:
+        lease.renew(int(time.time()) + 300)
+        renewed.set()
+        return _session
+
+    with patch.object(
+        kg_server, "_refresh_process_authority", side_effect=renew
+    ) as mock_renew:
+        task = asyncio.ensure_future(kg_server._keep_process_authority_current(session))
+        try:
+            # Poll asynchronously (never a blocking Event.wait) — this is a
+            # single-threaded event loop and the keepalive task is scheduled
+            # on it, so a real blocking wait here would starve it forever.
+            for _ in range(50):
+                if renewed.is_set():
+                    break
+                await asyncio.sleep(0.1)
+            assert renewed.is_set()
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    mock_renew.assert_called()
+    assert lease.expires_at > int(time.time()) + 100
+
+
+@pytest.mark.asyncio
+async def test_keepalive_stops_cleanly_when_renewal_is_rejected() -> None:
+    """A hard renewal rejection (identity drift, IdP says no) must not spin
+    the keepalive loop forever — it returns and lets the next real authority
+    check fail for real."""
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 2)
+    session = _verified_session("keepalive-give-up")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+
+    with patch.object(
+        kg_server,
+        "_refresh_process_authority",
+        side_effect=SessionExpiredError("gone"),
+    ):
+        await asyncio.wait_for(
+            kg_server._keep_process_authority_current(session), timeout=5.0
+        )
+
+
+@pytest.mark.asyncio
+async def test_keepalive_cancels_cleanly_when_dispatch_finishes_first() -> None:
+    """The common case: the tool call finishes before the lease is near
+    expiry, so ``_guarded`` cancels the keepalive — it must exit quietly."""
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 300)
+    session = _verified_session("keepalive-fast-dispatch")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+
+    with patch.object(kg_server, "_refresh_process_authority") as mock_renew:
+        task = asyncio.ensure_future(kg_server._keep_process_authority_current(session))
+        await asyncio.sleep(0)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    mock_renew.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+# D-SNV-5 follow-up: ``authority_keepalive_scope`` is the ONE reusable primitive
+# both ``_execute_tool`` (MCP dispatch) and ``Orchestrator.execute_agent`` open,
+# so every delegation entrypoint — not just MCP-dispatched ones — renews a
+# renewable session's authority for the duration of a long call. These tests
+# exercise the shared primitive directly; the non-MCP-entrypoint proof lives in
+# ``tests/unit/orchestration/test_execute_agent_authority_keepalive.py``.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_authority_keepalive_scope_renews_a_renewable_session() -> None:
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 2)
+    session = _verified_session("scope-runtime")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+    renewed = threading.Event()
+
+    def renew(_session: GraphSession) -> GraphSession:
+        lease.renew(int(time.time()) + 300)
+        renewed.set()
+        return _session
+
+    with patch.object(kg_server, "_refresh_process_authority", side_effect=renew):
+        async with kg_server.authority_keepalive_scope(session):
+            for _ in range(50):
+                if renewed.is_set():
+                    break
+                await asyncio.sleep(0.1)
+            assert renewed.is_set()
+
+    assert lease.expires_at > int(time.time()) + 100
+
+
+@pytest.mark.asyncio
+async def test_authority_keepalive_scope_is_a_noop_for_a_bearer_caller() -> None:
+    """A caller-presented bearer JWT has no ``credential_lease`` — the scope
+    must never spawn a renewal loop for it (would forge authority the server
+    does not hold)."""
+    from agent_utilities.mcp import kg_server
+
+    session = _verified_session("scope-bearer")
+    assert session.actor.credential_lease is None
+
+    with patch.object(kg_server, "_refresh_process_authority") as mock_renew:
+        async with kg_server.authority_keepalive_scope(session):
+            await asyncio.sleep(0)
+
+    mock_renew.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_authority_keepalive_scope_does_not_double_start_when_nested() -> None:
+    """A nested scope (an MCP-dispatched tool whose body itself calls
+    ``execute_agent`` for a sub-delegation, or vice versa) must not start a
+    second renewal loop for the same lease — the outer scope already covers
+    it."""
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 300)
+    session = _verified_session("scope-nested")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+    started: list[Any] = []
+    real_keepalive = kg_server._keep_process_authority_current
+
+    async def counting_keepalive(_session: Any) -> None:
+        started.append(_session)
+        await real_keepalive(_session)
+
+    with patch.object(
+        kg_server, "_keep_process_authority_current", side_effect=counting_keepalive
+    ):
+        async with kg_server.authority_keepalive_scope(session):
+            async with kg_server.authority_keepalive_scope(session):
+                await asyncio.sleep(0)
+            # The inner scope's exit must not have cancelled the outer loop.
+            await asyncio.sleep(0)
+
+    assert len(started) == 1, (
+        "authority_keepalive_scope started a second renewal loop for an "
+        "already-covered lease"
+    )
 
 
 def test_process_authority_refresh_updates_only_the_shared_expiry() -> None:

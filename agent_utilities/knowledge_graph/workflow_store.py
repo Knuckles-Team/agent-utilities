@@ -12,7 +12,7 @@ KG Schema::
     (:WorkflowDefinition {id, name, description, nl_spec, created_at,
                           last_used, use_count, avg_duration_ms, version})
       -[:HAS_STEP {order}]->
-    (:WorkflowStep {node_id, role, system_prompt, tools_json, timeout,
+    (:WorkflowStep {step_id, role, system_prompt, tools_json, timeout,
                     refined_subtask, is_parallel, depends_on_json})
       -[:TRANSITION_TO {condition, priority}]->
     (:WorkflowStep)
@@ -162,7 +162,11 @@ class WorkflowStore:
         for i, step in enumerate(plan.steps):
             step_id = f"{workflow_id}:step:{i}"
             step_props: dict[str, Any] = {
-                "node_id": step.id,
+                # ``node_id`` names the positional argument of the native typed
+                # mutation seam. Passing it inside **properties collides before
+                # the backend can execute. ``step_id`` is the canonical logical
+                # workflow-step identity; loaders retain a legacy fallback.
+                "step_id": step.id,
                 "step_order": i,
                 "is_parallel": step.parallel,
                 "timeout": step.timeout,
@@ -289,7 +293,7 @@ class WorkflowStore:
         step_nodes.sort(key=lambda x: x[0])
 
         steps = []
-        for _, _, data in step_nodes:
+        for _, storage_id, data in step_nodes:
             depends_on = []
             if data.get("depends_on_json"):
                 try:
@@ -312,7 +316,12 @@ class WorkflowStore:
                     input_data = data["input_data_json"]
 
             step = ExecutionStep(
-                id=data.get("node_id", "unknown"),
+                id=(
+                    data.get("step_id")
+                    or data.get("node_id")
+                    or storage_id
+                    or "unknown"
+                ),
                 refined_subtask=data.get("refined_subtask"),
                 description=input_data,
                 parallel=bool(data.get("is_parallel", False)),
@@ -362,7 +371,9 @@ class WorkflowStore:
         # Fetch steps ordered by position
         step_rows = self.engine.backend.execute(
             "MATCH (w:WorkflowDefinition {id: $wid})-[r:HAS_STEP]->(s:WorkflowStep) "
-            "RETURN s.node_id AS node_id, s.refined_subtask AS refined_subtask, "
+            "RETURN s.id AS storage_id, s.step_id AS step_id, "
+            "s.node_id AS legacy_node_id, "
+            "s.refined_subtask AS refined_subtask, "
             "s.input_data_json AS input_data, s.is_parallel AS is_parallel, "
             "s.timeout AS timeout, s.depends_on_json AS depends_on, "
             "s.access_list_json AS access_list, s.step_order AS step_order, "
@@ -395,7 +406,12 @@ class WorkflowStore:
                     pass
 
             step = ExecutionStep(
-                id=row.get("node_id", "unknown"),
+                id=(
+                    row.get("step_id")
+                    or row.get("legacy_node_id")
+                    or row.get("storage_id")
+                    or "unknown"
+                ),
                 refined_subtask=row.get("refined_subtask"),
                 description=input_data,
                 parallel=bool(row.get("is_parallel", False)),
@@ -540,7 +556,7 @@ class WorkflowStore:
                 ):
                     workflows.append(r)
             return workflows
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — returns [] (the documented empty-results case) on a semantic search failure; find_similar's own contract is 'zero or more similar workflows', so an empty list on failure is indistinguishable from a legitimate no-match
             logger.debug("[ORCH-1.22] Semantic workflow search failed: %s", e)
             return []
 

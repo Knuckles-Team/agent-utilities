@@ -54,6 +54,7 @@ __all__ = [
 # with a guess.
 SOURCE_TO_CONNECTOR_PACKAGE: dict[str, str] = {
     "ard": "native-source-connectors",
+    "arxiv": "native-source-connectors",
     "database": "native-source-connectors",
     "external_graph": "native-source-connectors",
     "filesystem": "native-source-connectors",

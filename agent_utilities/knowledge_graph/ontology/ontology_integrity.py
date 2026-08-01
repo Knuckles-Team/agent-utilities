@@ -25,14 +25,20 @@ import yaml
 __all__ = [
     "DEFAULT_SIGNER_ID",
     "DEFAULT_TRUSTED_SIGNERS",
+    "active_release_public_key",
+    "assert_signing_key_matches_locks",
     "canonical_hash",
     "canonical_manifest_hash",
     "canonical_signed_document_hash",
+    "DURABLE_SECRET_SCHEMES",
     "ReleaseSigner",
     "ReleaseSigningError",
+    "release_signer_for_publication",
     "release_trusted_public_keys",
     "verify_release_signature",
     "load_lock",
+    "lock_pinned_public_keys",
+    "rotation_record",
     "save_lock",
     "update_lock_entry",
 ]
@@ -157,8 +163,62 @@ def _valid_digest(value: str) -> bool:
     return len(str(value)) == 64 and all(ch in "0123456789abcdef" for ch in str(value))
 
 
+def _rotation_record_path() -> Path:
+    return (
+        Path(__file__).resolve().parents[3]
+        / "deploy"
+        / "release"
+        / "signing-key-rotation.yml"
+    )
+
+
+def rotation_record(path: str | Path | None = None) -> dict[str, Any]:
+    """The committed, auditable trust-anchor rotation ledger.
+
+    CONCEPT:AU-KG.ontology.release-key-rotation — the release trust anchor lives in
+    a reviewed repository artifact, not only in an operator environment variable.
+    On 2026-07-28 the ``Qkigd…`` seed was destroyed while every lock entry and all
+    68 provider attestations still pinned it, and nothing in the repository recorded
+    that this had happened. A rotation is a governed, ordered ledger entry naming
+    the key rotated FROM, the key rotated TO, the authorisation, and the exact
+    artifact set that moved — never a silent substitution.
+    """
+    resolved = Path(path) if path else _rotation_record_path()
+    if not resolved.is_file():
+        return {}
+    try:
+        document = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise ReleaseSigningError("release key rotation record is unreadable") from exc
+    if not isinstance(document, dict):
+        raise ReleaseSigningError("release key rotation record is malformed")
+    return document
+
+
+def active_release_public_key(path: str | Path | None = None) -> str | None:
+    """The key the newest recorded rotation moved the trust anchor TO."""
+
+    rotations = rotation_record(path).get("rotations") or []
+    if not isinstance(rotations, list) or not rotations:
+        return None
+    newest = rotations[-1]
+    if not isinstance(newest, dict):
+        raise ReleaseSigningError("release key rotation record is malformed")
+    key = str(newest.get("to_public_key") or "")
+    try:
+        _b64url_decode(key, expected_bytes=32)
+    except ValueError as exc:
+        raise ReleaseSigningError("rotated release public key is invalid") from exc
+    return key
+
+
 def release_trusted_public_keys() -> tuple[str, ...]:
-    """Operator-pinned Ed25519 keys accepted outside a signed release lock."""
+    """Ed25519 keys accepted outside a signed release lock.
+
+    The union of the operator-pinned setting and the key the committed rotation
+    ledger currently designates. The ledger participates so a governed rotation is
+    a reviewable repository change rather than an invisible environment edit.
+    """
     from agent_utilities.core.config import setting
 
     raw = str(setting("ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS", "") or "")
@@ -174,7 +234,90 @@ def release_trusted_public_keys() -> tuple[str, ...]:
                 "ontology trusted release public key is invalid"
             ) from exc
         keys.append(value)
+    active = active_release_public_key()
+    if active:
+        keys.append(active)
     return tuple(dict.fromkeys(keys))
+
+
+def lock_pinned_public_keys(path: str | Path) -> frozenset[str]:
+    """Every distinct release public key an ``ontology.lock`` currently pins."""
+
+    pinned: set[str] = set()
+    for entry in load_lock(path).values():
+        if not isinstance(entry, dict):
+            continue
+        for field_name in ("signing_public_key", "certification_signing_public_key"):
+            value = entry.get(field_name)
+            if isinstance(value, str) and value:
+                pinned.add(value)
+    return frozenset(pinned)
+
+
+def assert_signing_key_matches_locks(
+    signer: ReleaseSigner,
+    *,
+    lock_path: str | Path,
+    rotating: bool = False,
+) -> None:
+    """Refuse to sign with a key the locks do not already pin.
+
+    CONCEPT:AU-KG.ontology.release-key-rotation. D-OB-5 was only discovered at
+    *admission* time — long after artifacts had been produced with a seed nobody
+    had noticed was different from the one every lock entry pinned. Detecting the
+    same condition here, before a single byte is written, converts an unrecoverable
+    fleet-wide invalidation into a loud refusal at the one moment it is cheap to
+    fix. A genuine rotation passes ``rotating=True``, which is what the recorded
+    rotation tool does — and only after writing the ledger entry that explains it.
+    """
+    pinned = lock_pinned_public_keys(lock_path)
+    if not pinned or signer.public_key in pinned:
+        return
+    if rotating:
+        return
+    raise ReleaseSigningError(
+        "the release signing key does not match the key pinned by ontology.lock; "
+        "signing would invalidate every locked artifact — record a rotation instead"
+    )
+
+
+#: Reference schemes whose custody is *versioned*, so an overwrite is recoverable.
+DURABLE_SECRET_SCHEMES = ("vault://", "secret://")
+
+
+def release_signer_for_publication(
+    *, lock_path: str | Path, rotating: bool = False
+) -> ReleaseSigner:
+    """The ONLY signer a publication path may use.
+
+    CONCEPT:AU-KG.ontology.release-key-rotation. Two custody invariants, both of
+    which D-OB-5 violated:
+
+    * **Versioned custody.** The seed must resolve through a versioned secret store
+      (``vault://`` / ``secret://``), never an ``env://`` reference backed by a
+      local ``runtime-secrets.json``. That file was overwritten in place on
+      2026-07-28 with a different seed, with no history and no audit trail; the
+      same seed written to OpenBao KV v2 minutes earlier survived untouched,
+      because KV v2 keeps every version. A store that can be silently overwritten
+      beyond recovery is not custody.
+    * **Lock agreement.** The seed that would sign must be the seed the locks pin.
+      Checked here, before any artifact is produced, rather than at admission time
+      when the only remedy left is a fleet-wide rotation.
+    """
+    from agent_utilities.core.config import setting
+
+    reference = str(
+        setting("ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF", "") or ""
+    ).strip()
+    if not reference.startswith(DURABLE_SECRET_SCHEMES):
+        raise ReleaseSigningError(
+            "release signing requires versioned secret custody "
+            "(vault:// or secret://); an env:// reference has no version history "
+            "and an overwrite is unrecoverable"
+        )
+    signer = ReleaseSigner.from_runtime()
+    assert_signing_key_matches_locks(signer, lock_path=lock_path, rotating=rotating)
+    return signer
 
 
 def verify_release_signature(

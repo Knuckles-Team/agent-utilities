@@ -31,7 +31,7 @@ graph TB
         PRESET["KG Preset<br/>(SwarmTemplate)"]
         DEPT["Department<br/>(OWL-materialized)"]
         ENTERPRISE["Enterprise<br/>(All departments)"]
-        DYNAMIC["Governed Dynamic Workflow<br/>(reviewed declaration)"]
+        DYNAMIC["Governed Dynamic Workflow<br/>(reviewed agent catalog)"]
     end
 
     subgraph GENERATORS["🔧 Manifest Generators"]
@@ -57,6 +57,16 @@ graph TB
 
     RESULT["📊 ExecutionResult"]
 
+    subgraph HARNESS["🧭 Upstream DynamicWorkflow (optional)"]
+        CONDUCTOR["Context-governed<br/>Pydantic AI conductor"]
+        MONTY["Harness run_workflow<br/>Monty sandbox"]
+        CATALOG["GraphOS catalog facades<br/>(no connector tools)"]
+        DISPATCH["Orchestrator.execute_agent<br/>policy + skills + tools + model"]
+        AGENTGRAPH["GraphOS Pydantic Graph<br/>per catalog call"]
+        RUNTRACE["Shared session lineage<br/>RunTrace + ToolCall"]
+        RESUME["WorkflowResumeState<br/>(step,task)→output cache"]
+    end
+
     PLANNER --> G1
     TEAM --> G2
     WORKFLOW --> G3
@@ -64,7 +74,10 @@ graph TB
     PRESET --> G5
     DEPT --> G6
     ENTERPRISE --> G7
-    DYNAMIC --> G1
+    DYNAMIC --> CONDUCTOR --> MONTY --> CATALOG --> DISPATCH
+    DISPATCH --> AGENTGRAPH --> RUNTRACE
+    DISPATCH -. "on success, persist" .-> RESUME
+    RESUME -. "on the next attempt, seed cache" .-> CATALOG
 
     G1 & G2 & G3 & G4 & G5 & G6 & G7 --> MANIFEST
     MANIFEST --> ENGINE
@@ -102,11 +115,84 @@ Specification for a single agent invocation. Fan-out is expressed via `partition
 
 ### Governed Dynamic Workflow
 
-`GovernedDynamicWorkflow` (optional `[dynamic-workflow]` integration) accepts a reviewed list of
-delegation steps, a hard `max_agent_calls`, resource limits, trace context, and a per-step approved
-model menu. It compiles the declaration to `GraphPlan`, then to `ExecutionManifest`, and executes
-only through this engine. Cancellation cancels the in-flight engine coroutine. No model-authored
-Python script receives direct access to GraphOS execution, persistence, or policy bypasses.
+`GovernedDynamicWorkflow` is the live adapter for
+`pydantic_ai_harness.dynamic_workflow.DynamicWorkflow` from the optional
+`[dynamic-workflow]` extra. `graph_workflows action=execute_dynamic` loads a
+stored, ontology-gated workflow as a reviewed catalog and gives a
+context-governed Pydantic AI conductor one tool: Harness's sandboxed
+`run_workflow`.
+
+Each callable in that sandbox is a facade over
+`Orchestrator.execute_agent`; it is not a Pydantic AI sub-agent with a private
+tool plane. This keeps agent/skill resolution, tenant policy, allowed and
+required tool contracts, model-class routing, token budgets, cancellation,
+and RunTrace/ToolCall persistence on GraphOS. The Harness hard
+`max_agent_calls` counter and a GraphOS semaphore bound fan-out. Stored
+dependency edges are host-enforced before a catalog call can run. Each child
+also has a host timeout capped by the workflow deadline; timeout or
+cancellation cancels the in-flight GraphOS dispatch rather than leaving an
+orphan task.
+
+Stored `Task` records can keep a stable catalog function id while selecting a
+different governed target. `assigned_to` or `metadata.agent_name` selects an
+agent; `metadata.skill_name` selects a skill. Reviewed
+`metadata.allowed_tools`, `required_tools`, `tool_server`, and
+`reasoning_effort` are propagated to the same `execute_agent` contract. Invalid
+combinations fail catalog validation before the conductor model runs.
+
+The parent and every child share one workflow session/run lineage. The
+`governed_dynamic_workflow.upstream` trace contains Harness's `run_workflow`
+span; the returned evidence carries privacy-safe script digests plus each
+child `run_id`/`trace_ref`. The full generated script is ALSO persisted, as a
+dedicated non-redacted `WorkflowScriptArtifact` KG node linked to the parent
+`RunTrace` (`SCRIPT_OF`) — the same way `CheckpointNode` stores full replayable
+message content rather than a digest — so the actual model-authored
+orchestration code is auditable, not merely its sha256.
+
+Harness availability is fail-loud by default. Callers may explicitly request
+`dynamic_fallback=stored_dag`, which uses the ordinary stored-DAG runner only
+when the optional Harness API is unavailable. Runtime, model, or tool failures
+never silently switch orchestration engines.
+
+#### Resume (CONCEPT:AU-ORCH.execution.dynamic-workflow-resume)
+
+Upstream `pydantic_graph` v2 removed `pydantic_graph.persistence`, and a Monty
+`run_workflow` sandbox is stateless per attempt, so there is no runnable
+graph-resume token upstream can hand back. `GovernedDynamicWorkflow` instead
+persists its OWN completed-catalog-call ledger (a `WorkflowResumeState` KG
+node, keyed by `workflow_run_id`): every successful catalog dispatch writes its
+`(step_id, task) -> output` entry immediately. A halted attempt (harness's own
+`max_agent_calls` budget exhaustion, a timeout, cancellation, or a process
+restart) that is re-run with the SAME `workflow_run_id` seeds this cache back
+in, so a catalog call already completed short-circuits to its persisted output
+instead of re-entering GraphOS — the host choke point that holds regardless of
+what script the model happens to write on retry, guaranteeing NO duplicate
+`:ToolCall`s across a halt-then-restart. A replayed call is reported with the
+honest `outcome="replayed"` (never `"ok"`), and the overall result's
+`resumed`/`replayed_step_ids` fields are `true`/populated whenever any call was
+reused — a resumed run is never reported identical to a clean single-shot
+success. The parent `RunTrace` also carries the SAME `graph_topology_digest` /
+`graph_version_digest` / `graph_node_sequence` / `graph_transition_sequence` /
+`graph_checkpoint_ids` evidence shape the `pydantic_graph` execution plane
+writes, but with `graph_resume_supported=true` (that field stays `false` for
+the `pydantic_graph`/`ParallelEngine` plane, which has no equivalent mechanism).
+
+The conductor agent is additionally given a real `CheckpointMiddleware` +
+`GraphCheckpointStore` by default (one message-history snapshot per
+`run_workflow` tool call) — genuine "restore and continue" for the conductor's
+own conversation via `fork_from_checkpoint()`, independent of the catalog-call
+resume cache above. This is the one default-ON exception to the workspace-wide
+`default_runtime_capabilities(include_checkpoints=False)` default: safe here
+specifically because a DynamicWorkflow conductor makes exactly one bounded,
+low-frequency tool call per attempt.
+
+Current upstream limits are explicit: Harness 0.14 cannot suspend/resume
+GraphOS approval gates, and the facade cannot honor an exact per-step
+`model_id` without bypassing the canonical model-class router. Workflows using
+either feature must use the stored-DAG runner. Harness also cannot receive the
+parent Pydantic usage limit through `RunContext`; GraphOS therefore enforces
+the configured child token budget on every delegated call and reports parent
+model usage separately.
 
 ### SynthesisSpec (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)
 

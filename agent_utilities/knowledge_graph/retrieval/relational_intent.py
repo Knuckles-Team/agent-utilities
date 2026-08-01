@@ -134,7 +134,7 @@ def traverse(engine: Any, rq: RelationalQuery, top_k: int = 10) -> list[dict[str
         return []
     try:
         seeds = engine._search_keyword(rq.seed_text, top_k=3)
-    except Exception as e:  # pragma: no cover - defensive
+    except Exception as e:  # pragma: no cover - defensive  # noqa: BLE001 — returns [] (the documented degrade-to-empty case per the docstring: 'can never corrupt the main retrieval arm') on a seed-resolution failure
         logger.debug("relational seed resolution failed: %s", e)
         return []
     if not seeds:
@@ -154,7 +154,7 @@ def traverse(engine: Any, rq: RelationalQuery, top_k: int = 10) -> list[dict[str
 
     try:
         rows = engine.backend.execute(cypher, {"id": seed_id})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — returns [] on a traversal-query failure — same documented fail-to-empty contract as the seed-resolution failure above
         logger.debug("relational traversal failed (%s): %s", edge, e)
         return []
 

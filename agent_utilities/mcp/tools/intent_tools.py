@@ -33,7 +33,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from agent_utilities.knowledge_graph.retrieval.capability_context import load_cpds
 from agent_utilities.mcp import kg_server
@@ -1004,8 +1004,24 @@ def _intent_security_failure(
 
 
 def _execution_succeeded(result: Any) -> bool:
-    """Classify only the observed tool result; caller feedback is never read."""
+    """Classify only the observed tool result; caller feedback is never read.
 
+    Many graph-os tools (``graph_query``, ``graph_ask``, ``nl_query``, the
+    ``analyze``/``analysis`` surfaces, …) return a typed :class:`EvidenceBundle`
+    rather than a plain dict/str. Before the ``BaseModel`` branch below existed,
+    such a result matched none of the dict/str cases and fell through to
+    ``result is not None`` — which a real, non-empty ``EvidenceBundle`` always
+    satisfies, so a FAILED operation (an ``EvidenceBundle`` whose dedicated
+    ``error`` field is populated) was reported as succeeded. Dumping the model
+    first routes it through the same dict-shaped checks below, so
+    ``EvidenceBundle.error`` (truthy exactly when the source payload carried a
+    real operation failure — never fabricated, see
+    ``agent_utilities.models.evidence_bundle``) is honored as the single source
+    of truth instead of being invisible to this classifier.
+    """
+
+    if isinstance(result, BaseModel):
+        return _execution_succeeded(result.model_dump())
     if isinstance(result, dict):
         if result.get("error") or result.get("ok") is False:
             return False
@@ -1104,18 +1120,42 @@ async def dispatch_intent(
             }
         raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
 
-    explicit_tool = bool(raw_hints.get("tool") or raw_hints.get("_tool"))
+    pinned_name = str(raw_hints.get("tool") or raw_hints.get("_tool") or "")
+    explicit_tool = bool(pinned_name)
     explicit_action = raw_hints.get("action")
     call_kwargs = {k: v for k, v in raw_hints.items() if k not in _CONTROL_HINT_FIELDS}
 
     candidates = resolve_intent(verb, intent, hints=raw_hints, top_k=max(2, int(top_k)))
     if not candidates:
-        return {
-            "error": (
+        if explicit_tool:
+            # Two DIFFERENT failure reasons collapse to the same empty
+            # `candidates` from `resolve_intent` — distinguish them so the
+            # error is actionable instead of implying a verb-specific policy
+            # restriction that doesn't exist. A tool the intent surface has
+            # never heard of (most commonly a FLEET tool mounted dynamically
+            # via load_tools — it carries no Capability Power Descriptor and
+            # was never a candidate at all) is not "disallowed for this verb";
+            # it was never routable through the intent surface in the first
+            # place and must be called directly.
+            known_to_intent_surface = any(
+                candidate.tool == pinned_name for candidate in _build_candidates()
+            )
+            error = (
                 "Pinned capability is not allowed for this intent verb."
-                if explicit_tool
-                else "No GraphOS capability matched the requested intent verb."
-            ),
+                if known_to_intent_surface
+                else (
+                    f"'{pinned_name}' is not a GraphOS intent-routable capability "
+                    "(no Capability Power Descriptor is registered for it). "
+                    "Fleet tools mounted dynamically via load_tools() are not "
+                    "part of the intent-verb surface — call them directly by "
+                    f"name after loading (e.g. {pinned_name}(...)) instead of "
+                    "pinning them through ask/write/act/manage hints_json."
+                )
+            )
+        else:
+            error = "No GraphOS capability matched the requested intent verb."
+        return {
+            "error": error,
             "executed": False,
             "routing": {
                 "verb": verb,

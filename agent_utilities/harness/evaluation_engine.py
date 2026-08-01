@@ -83,7 +83,7 @@ class EvaluationEngine:
             from ..graph.reward_decomposition import RewardDecomposer
 
             self._reward_decomposer = RewardDecomposer(alpha=self._alpha)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — _lazy_init is single-shot by design (self._initialized set at the top); decompose_trajectory raises RuntimeError loudly if this stayed unset, so a construction failure is never silently mistaken for success downstream
             logger.debug("RewardDecomposer not available: %s", e)
 
         # Trace distiller (KG-2.4)
@@ -92,7 +92,7 @@ class EvaluationEngine:
                 from ..knowledge_graph.adaptation.trace_distiller import TraceDistiller
 
                 self._trace_distiller = TraceDistiller(self._engine)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — same lazy-init-once degradation as RewardDecomposer above; start/stop_trace_distiller both check `if self._trace_distiller` and no-op
                 logger.debug("TraceDistiller not available: %s", e)
 
         # Citation tracking (AHE-3.1 — BrowseComp-Plus)
@@ -100,7 +100,7 @@ class EvaluationEngine:
             from .citation_tracker import CitationTracker
 
             self._citation_tracker = CitationTracker()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — same lazy-init-once degradation as RewardDecomposer above; evaluate_disentangled's citation-metrics section already checks `if ... self._citation_tracker` before use
             logger.debug("CitationTracker not available: %s", e)
 
     # --- Reward Decomposition API (AHE-3.10) ---
@@ -193,7 +193,7 @@ class EvaluationEngine:
 
             budget = get_budget(reasoning_effort)
             budget_info = budget.model_dump()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — budget_info is a best-effort enrichment field that just stays {} in the returned dict; decompose_trajectory (the actual reward computation) below does not depend on it
             logger.debug("ReasoningBudget not available: %s", e)
 
         record = self.decompose_trajectory(
@@ -271,7 +271,7 @@ class EvaluationEngine:
                         retriever_metrics["ndcg"] = gate.compute_ndcg(
                             retrieval_results, gold_doc_ids
                         )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — one of three independent best-effort metrics sections in evaluate_disentangled; a failure here just leaves retriever_metrics at its prior (empty) value in the returned dict, reasoning/citation metrics below still compute
                 logger.debug("Retriever metrics failed: %s", e)
 
         # 2. Reasoning metrics
@@ -291,7 +291,7 @@ class EvaluationEngine:
                     "trajectory_outcome": record.trajectory_reward.outcome,
                 }
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — same best-effort shape as the retriever-metrics section above; a failure just leaves reasoning_metrics with only its "goal_achieved" seed value
             logger.debug("Reasoning metrics failed: %s", e)
 
         # 3. Citation metrics

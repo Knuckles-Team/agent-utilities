@@ -144,7 +144,9 @@ async def test_run_graph_iter_yields_node_transitions():
 
     events = []
     with (
-        patch("agent_utilities.orchestration.engine.get_discovery_registry") as mock_registry,
+        patch(
+            "agent_utilities.orchestration.engine.get_discovery_registry"
+        ) as mock_registry,
         _patch_end_marker(_FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
@@ -168,6 +170,14 @@ async def test_run_graph_iter_yields_node_transitions():
     assert transition_events[1]["active_nodes"][0]["node_id"] == "executor"
     assert len(complete_events) == 1
     assert complete_events[0]["output"] == "final result"
+    evidence = complete_events[0]["execution_evidence"]
+    assert evidence["node_sequence"] == ["router", "executor"]
+    assert [
+        transition["scheduled_tasks"][0]["task_id"]
+        for transition in evidence["transitions"]
+    ] == ["task:0", "task:1"]
+    assert evidence["checkpoint_ids"] == []
+    assert evidence["resume_supported"] is False
 
 
 @pytest.mark.asyncio
@@ -178,7 +188,9 @@ async def test_run_graph_iter_state_snapshots():
 
     events = []
     with (
-        patch("agent_utilities.orchestration.engine.get_discovery_registry") as mock_registry,
+        patch(
+            "agent_utilities.orchestration.engine.get_discovery_registry"
+        ) as mock_registry,
         _patch_end_marker(_FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
@@ -261,7 +273,9 @@ async def test_run_graph_iter_drains_sideband():
 
     events = []
     with (
-        patch("agent_utilities.orchestration.engine.get_discovery_registry") as mock_registry,
+        patch(
+            "agent_utilities.orchestration.engine.get_discovery_registry"
+        ) as mock_registry,
         _patch_end_marker(_FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])

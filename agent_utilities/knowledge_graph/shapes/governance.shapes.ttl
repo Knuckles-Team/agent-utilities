@@ -158,6 +158,52 @@
             sh:path :object_id ] ;
     sh:targetClass :ObjectEdit .
 
+:ArtifactShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-KG.ingest.evidence-spine-artifact — an Artifact is the root of the evidence spine, so it MUST carry the content hash a citation is verified against and the source identity it was retrieved under. An artifact without a hash cannot prove anything." ;
+    sh:name "Evidence Spine Artifact Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Artifact must carry a sha256:<hex> content_hash — evidence without a digest cannot be verified." ;
+            sh:minCount 1 ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ;
+            sh:path :content_hash ],
+        [ sh:datatype xsd:string ;
+            sh:message "Artifact must name the connector that retrieved it." ;
+            sh:minCount 1 ;
+            sh:path :connector ],
+        [ sh:datatype xsd:string ;
+            sh:message "Artifact must name the upstream object it is a retrieval of." ;
+            sh:minCount 1 ;
+            sh:path :source_object_id ] ;
+    sh:targetClass :Artifact .
+
+:FragmentShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-KG.ingest.stable-fragment-address — a Fragment is the citation unit, so it MUST link to its parent Artifact, carry the structural address its stable id was derived from, and carry the content hash that detects staleness. A fragment missing any of the three is uncitable." ;
+    sh:name "Evidence Spine Fragment Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Fragment must reference its parent artifact_id — an orphaned fragment has no provenance." ;
+            sh:minCount 1 ;
+            sh:path :artifact_id ],
+        [ sh:datatype xsd:string ;
+            sh:message "Fragment must carry a sha256:<hex> content_hash so a citation can detect that the text changed." ;
+            sh:minCount 1 ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ;
+            sh:path :content_hash ],
+        [ sh:datatype xsd:string ;
+            sh:message "Fragment must carry the structural address its stable id was derived from." ;
+            sh:minCount 1 ;
+            sh:path :address ],
+        [ sh:datatype xsd:string ;
+            sh:message "Fragment must declare its structural fragment_kind." ;
+            sh:minCount 1 ;
+            sh:path :fragment_kind ],
+        [ sh:datatype xsd:integer ;
+            sh:maxCount 1 ;
+            sh:message "Fragment must carry exactly one document-order sequence." ;
+            sh:minCount 1 ;
+            sh:minInclusive 0 ;
+            sh:path :sequence ] ;
+    sh:targetClass :Fragment .
+
 :ChunkShape a sh:NodeShape ;
     sh:description "A document Chunk must reference its parent document and carry an ordinal position (CONCEPT:KG-2.48)." ;
     sh:name "Document Chunk Shape" ;
@@ -205,3 +251,40 @@
             sh:maxCount 1 ;
             sh:path :trigger ] ;
     sh:targetClass :Schedule .
+
+# CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — a WorkItem's own
+# consent/expiry fields. Mirrors :ValidityIntervalShape's "end must not precede
+# start" invariant (temporal.shapes.ttl) for the same shape of bug: an expiry
+# recorded before its grant, or an expiry with no grant at all, is a malformed
+# consent window the enforcement gate (orchestration.work_item) already fails
+# CLOSED on (treats as lapsed) — this makes that malformation a DETECTABLE SHACL
+# violation rather than only a runtime deny. A self-contained prefix declaration
+# is used (not temporal.shapes.ttl's :temporalPrefixes) because the ontology gate
+# validates each shapes/*.ttl file in isolation.
+:consentPrefixes
+    sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] .
+
+:WorkItemConsentBooleanShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — when present, consent_required must be boolean." ;
+    sh:name "Work Item Consent Required Shape" ;
+    sh:property [ sh:datatype xsd:boolean ;
+            sh:maxCount 1 ;
+            sh:message "WorkItem.consent_required must be a single boolean." ;
+            sh:path :consent_required ] ;
+    sh:targetClass :WorkItem .
+
+:WorkItemConsentWindowShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — a WorkItem's consent_expires_at must not precede its consent_granted_at, and an expiry must never be recorded without a grant." ;
+    sh:name "Work Item Consent Window Shape" ;
+    sh:targetClass :WorkItem ;
+    sh:sparql [
+        sh:message "consent_expires_at precedes consent_granted_at, or an expiry is recorded with no grant — malformed consent window (the claim/renewal gate treats this as LAPSED, fail-closed)." ;
+        sh:prefixes :consentPrefixes ;
+        sh:select """
+            SELECT $this ?expiresAt
+            WHERE {
+                $this kg:consent_expires_at ?expiresAt .
+                OPTIONAL { $this kg:consent_granted_at ?grantedAt }
+                FILTER (!BOUND(?grantedAt) || ?expiresAt < ?grantedAt)
+            }
+        """ ] .

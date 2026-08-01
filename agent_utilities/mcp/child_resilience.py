@@ -65,19 +65,28 @@ from typing import Any
 
 import anyio
 
-McpError: Any = ()
-try:  # MCP protocol error (e.g. a terminated streamable-http session)
-    from mcp.shared.exceptions import McpError  # type: ignore[no-redef]
-except ImportError:  # pragma: no cover - mcp always present for the multiplexer
-    pass
-
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
+from agent_utilities.mcp.protocol_compat import mcp_protocol_error
 from agent_utilities.observability.gateway_metrics import (
     MCP_CHILD_BREAKER_STATE,
     MCP_CHILD_CALLS,
     MCP_CHILD_QUEUE_DEPTH,
     MCP_CHILD_RESTARTS,
 )
+
+# MCP protocol error (e.g. a terminated streamable-http session). SDK v2
+# (>=2.0.0, the floor `fastmcp>=4.0.0b1` pulls in) renamed `McpError` ->
+# `MCPError`, but SDK v1 installs (fastmcp 3.x — still what the baked runtime
+# images ship) only have the old spelling. A hard
+# `from mcp.shared.exceptions import MCPError` therefore raises ImportError at
+# MODULE scope on SDK v1, and because `multiplexer.py` imports this module at
+# module scope that took the entire graph-os fleet loader (meta-tools +
+# session-visibility middleware) down with it.
+# :func:`mcp_protocol_error` binds whichever spelling the installed SDK exposes
+# and raises loudly if neither does; it never falls back to a benign default
+# (the older `except ImportError: pass` left the name bound to `()`, which made
+# :func:`is_session_dead` return ``False`` for every exception).
+MCPError: type[BaseException] = mcp_protocol_error()
 
 logger = logging.getLogger("mcp_multiplexer.child")
 
@@ -96,11 +105,11 @@ def is_session_dead(exc: BaseException) -> bool:
     """Whether ``exc`` means the child's streamable-http session is gone — e.g.
     the backend redeployed and no longer recognizes the session id.
 
-    The MCP client raises ``McpError(code=32600, "Session terminated")`` for a
+    The MCP client raises ``MCPError(code=32600, "Session terminated")`` for a
     server-terminated session; we also match session-not-found wording. Such an
     error is a *transport* failure (the connection must be rebuilt), not an
     application error — unlike a tool that simply answered with an error."""
-    if not McpError or not isinstance(exc, McpError):
+    if not isinstance(exc, MCPError):
         return False
     err = getattr(exc, "error", None)
     code = getattr(err, "code", None)
@@ -506,10 +515,12 @@ class ChildRuntime:
                     self._set_state("failed")
                     first.set_exception(e)
                     return
-                logger.warning(
-                    "Reconnect to child server failed (exception_type=%s)",
-                    type(e).__name__,
-                )
+                # Log the real cause, not just its class. The line-keyed
+                # swallowed-error ratchet re-flagged this unchanged handler
+                # after the imports above shifted it, so it is closed on the
+                # merits rather than re-baselined: a reconnect that keeps
+                # failing is undiagnosable from `exception_type=OSError` alone.
+                logger.warning("Reconnect to child server failed: %r", e)
             finally:
                 self._ready.clear()
                 self._sessions = []

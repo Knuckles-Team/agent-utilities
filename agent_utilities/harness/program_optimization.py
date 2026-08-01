@@ -653,6 +653,21 @@ def run_optimization_sweep(
             optimized.append(name)
         elif result.get("status") == "error":
             failed.append(name)
+        # Unified Evidence resource (lane 7.1, CONCEPT:AU-KG.evolution.unified-evidence-resource) —
+        # the optimization_signal channel: recorded HERE, at the one place this
+        # target's real outcome is computed, never re-derived by a second query.
+        # Best-effort audit overlay; never gates the sweep.
+        try:
+            from agent_utilities.knowledge_graph.research.evidence import (
+                from_optimization_result,
+                record_evidence,
+            )
+
+            record_evidence(engine, from_optimization_result(name, result))
+        except Exception as e:  # noqa: BLE001 — the lineage overlay is best-effort
+            logger.debug(
+                "optimization sweep: evidence record failed for %s: %s", name, e
+            )
     duration = time.monotonic() - t0
 
     if failed:

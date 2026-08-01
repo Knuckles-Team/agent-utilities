@@ -17,15 +17,37 @@ the consolidation seam: a future unified scheduler enqueues through the same gat
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
+import math
+import os
+import stat
 import threading
 import time
+import uuid
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
+# A foreground run normally lasts far less than this lease.  The heartbeat keeps
+# longer streams alive and the short expiry makes an unclean client exit harmless.
+_FOREGROUND_LEASE_TTL = 3.0
+_FOREGROUND_LEASE_HEARTBEAT = 1.0
+_FOREGROUND_LEASE_SCAN_INTERVAL = 0.25
+_MAX_FOREGROUND_LEASES = 128
+_MAX_FOREGROUND_LEASE_BYTES = 256
+
+
 class BackgroundThrottle:
-    def __init__(self, max_concurrent: int = 2) -> None:
+    def __init__(
+        self,
+        max_concurrent: int = 2,
+        *,
+        lease_ttl: float = _FOREGROUND_LEASE_TTL,
+        lease_heartbeat: float = _FOREGROUND_LEASE_HEARTBEAT,
+        lease_scan_interval: float = _FOREGROUND_LEASE_SCAN_INTERVAL,
+    ) -> None:
         self._sem = threading.BoundedSemaphore(max(1, max_concurrent))
         self._foreground = threading.Event()  # set => pause background
         self._fg_depth = 0
@@ -33,6 +55,180 @@ class BackgroundThrottle:
         self._ingest_depth = 0
         self._lock = threading.Lock()
         self.max_concurrent = max(1, max_concurrent)
+        self._lease_ttl = max(0.05, lease_ttl)
+        self._lease_heartbeat = max(0.01, min(lease_heartbeat, self._lease_ttl / 2))
+        self._lease_scan_interval = max(0.0, lease_scan_interval)
+        self._lease_id = uuid.uuid4().hex
+        self._lease_stop: threading.Event | None = None
+        self._lease_thread: threading.Thread | None = None
+        self._lease_cache_active = False
+        self._lease_cache_at = 0.0
+
+    def _lease_dir(self) -> Path | None:
+        """Return the private shared lease directory, or disable sharing safely.
+
+        ``runtime_dir()`` is already the cross-container root used by the host
+        lock.  A separate 0700 child avoids exposing request, host, or identity
+        data on the shared volume.  Refusing a symlink/non-directory is safer
+        than following an operator- or attacker-controlled redirection.
+        """
+        from agent_utilities.core.paths import runtime_dir
+
+        directory = runtime_dir() / "foreground-leases"
+        try:
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            info = directory.lstat()
+            if (
+                directory.is_symlink()
+                or not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.getuid()
+            ):
+                raise OSError("unsafe foreground lease directory")
+            os.chmod(directory, 0o700)
+            return directory
+        except OSError:
+            logger.debug("Cross-process foreground lease is unavailable")
+            return None
+
+    def _lease_path(self) -> Path | None:
+        directory = self._lease_dir()
+        return directory / f"{self._lease_id}.json" if directory else None
+
+    def _write_lease(self) -> None:
+        """Atomically publish this process's expiry-only foreground lease."""
+        target = self._lease_path()
+        if target is None:
+            return
+        payload = json.dumps(
+            {"version": 1, "expires_at": time.time() + self._lease_ttl},
+            separators=(",", ":"),
+        ).encode("utf-8")
+        temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            view = memoryview(payload)
+            while view:
+                written = os.write(descriptor, view)
+                if written <= 0:
+                    raise OSError("foreground lease write did not make progress")
+                view = view[written:]
+            os.fsync(descriptor)
+            os.close(descriptor)
+            descriptor = None
+            os.replace(temporary, target)
+            try:
+                directory_fd = os.open(
+                    target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                )
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:  # pragma: no cover - directory fsync is platform-specific  # noqa: BLE001 — durability best-effort for an advisory lease; the in-process Event flag remains authoritative for this process
+                pass
+        except OSError:
+            logger.debug("Cross-process foreground lease write failed")
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:  # noqa: BLE001 — best-effort tmp-file cleanup; a leftover `.tmp` file is inert and never read back
+                pass
+
+    def _remove_lease(self) -> None:
+        target = self._lease_path()
+        if target is None:
+            return
+        try:
+            info = target.lstat()
+            if stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid():
+                target.unlink()
+        except OSError:  # noqa: BLE001 — best-effort removal; a stale lease file self-expires via the TTL check in _lease_is_valid
+            pass
+
+    def _lease_is_valid(self, path: Path, now: float) -> bool:
+        """Validate one untrusted lease without following symlinks."""
+        try:
+            info = path.lstat()
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()
+                or info.st_mode & 0o077
+                or info.st_size > _MAX_FOREGROUND_LEASE_BYTES
+            ):
+                return False
+            descriptor = os.open(
+                path,
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NONBLOCK", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+            )
+            try:
+                opened = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or opened.st_uid != os.getuid()
+                    or opened.st_mode & 0o077
+                    or opened.st_size > _MAX_FOREGROUND_LEASE_BYTES
+                ):
+                    return False
+                payload = os.read(descriptor, _MAX_FOREGROUND_LEASE_BYTES + 1)
+            finally:
+                os.close(descriptor)
+            record = json.loads(payload)
+            expires_at = record.get("expires_at")
+            return (
+                record.get("version") == 1
+                and isinstance(expires_at, (int, float))
+                and not isinstance(expires_at, bool)
+                and math.isfinite(expires_at)
+                and now < expires_at <= now + (self._lease_ttl * 2)
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return False
+
+    def _external_foreground_active(self) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            if now - self._lease_cache_at < self._lease_scan_interval:
+                return self._lease_cache_active
+            directory = self._lease_dir()
+            active = False
+            if directory is not None:
+                try:
+                    wall_now = time.time()
+                    with os.scandir(directory) as entries:
+                        for index, entry in enumerate(entries):
+                            if index >= _MAX_FOREGROUND_LEASES:
+                                break
+                            if entry.name.endswith(".json") and self._lease_is_valid(
+                                Path(entry.path), wall_now
+                            ):
+                                active = True
+                                break
+                except OSError:  # noqa: BLE001 — best-effort scan; a missing/unreadable lease dir just means no external foreground is detected (fail-safe default)
+                    pass
+            self._lease_cache_active = active
+            self._lease_cache_at = now
+            return active
+
+    def _heartbeat_lease(self, stop: threading.Event) -> None:
+        while not stop.wait(self._lease_heartbeat):
+            with self._lock:
+                if not self._foreground.is_set() or self._lease_stop is not stop:
+                    return
+                self._write_lease()
 
     # ── foreground (interactive) signalling ──────────────────────────────
     def set_foreground(self, active: bool) -> None:
@@ -40,15 +236,33 @@ class BackgroundThrottle:
         with self._lock:
             if active:
                 self._fg_depth += 1
-                self._foreground.set()
+                if self._fg_depth == 1:
+                    self._foreground.set()
+                    stop = threading.Event()
+                    self._lease_stop = stop
+                    self._write_lease()
+                    self._lease_thread = threading.Thread(
+                        target=self._heartbeat_lease,
+                        args=(stop,),
+                        name="foreground-lease-heartbeat",
+                        daemon=True,
+                    )
+                    self._lease_thread.start()
             else:
                 self._fg_depth = max(0, self._fg_depth - 1)
                 if self._fg_depth == 0:
                     self._foreground.clear()
+                    if self._lease_stop is not None:
+                        self._lease_stop.set()
+                        self._lease_stop = None
+                    self._remove_lease()
+                    self._lease_cache_at = 0.0
 
     @property
     def foreground_active(self) -> bool:
-        return self._foreground.is_set()
+        # The overwhelmingly common nested/local case remains a lock-free Event
+        # check.  Only background-only processes perform the bounded lease scan.
+        return self._foreground.is_set() or self._external_foreground_active()
 
     @contextlib.contextmanager
     def foreground(self):
@@ -95,7 +309,7 @@ class BackgroundThrottle:
         """True when background work should stand down — interactive foreground
         work OR a bulk ingest is in flight. The single check every background
         drain (maintenance, embedding backfill, relevance sweep) consults."""
-        return self._foreground.is_set() or self._ingest.is_set()
+        return self.foreground_active or self._ingest.is_set()
 
     def wait_while_busy(
         self, poll: float = 0.5, max_wait: float | None = 120.0

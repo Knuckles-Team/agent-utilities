@@ -25,7 +25,10 @@ __all__ = [
 ]
 
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
-_STORE_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./#-]{0,511}$")
+# `@<digits>` is an optional trailing KV v2 *version* pin (CONCEPT:AU-KG.ontology.release-key-rotation
+# / D-OC-1): `vault://path#field@2` reads exactly version 2, never "whatever is latest" — the
+# mechanism that makes an overwrite recoverable instead of a silent, unrecoverable swap.
+_STORE_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./#@-]{0,511}$")
 _MAX_REFERENCE_BYTES = 1_024
 _MAX_SECRET_BYTES = 4 * 1024 * 1024
 
@@ -60,6 +63,7 @@ def resolve_runtime_secret_reference(reference: Any) -> str:
     """Resolve one validated CLI reference without disclosing it on failure."""
 
     scheme, rendered = _validated_reference(reference)
+    cause: Exception | None = None
     try:
         if scheme == "env":
             value = setting(rendered.removeprefix("env://"))
@@ -67,10 +71,16 @@ def resolve_runtime_secret_reference(reference: Any) -> str:
             from agent_utilities.security.secrets_client import create_secrets_client
 
             value = create_secrets_client().resolve_ref(rendered)
-    except Exception:
+    except Exception as exc:  # re-raised below without disclosing the reference/value
         value = None
+        cause = exc
     if not isinstance(value, str) or not value:
-        raise RuntimeSecretReferenceError("runtime secret reference is unavailable")
+        # `from cause` keeps the real failure (auth/network/backend error) attached via
+        # `__cause__` for diagnosis; the message itself still never names the reference or
+        # value, so a custody failure is loud (traceable) without ever disclosing a secret.
+        raise RuntimeSecretReferenceError(
+            "runtime secret reference is unavailable"
+        ) from cause
     if len(value.encode("utf-8")) > _MAX_SECRET_BYTES or "\x00" in value:
         raise RuntimeSecretReferenceError("resolved runtime secret is invalid")
     return value

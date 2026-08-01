@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import Field
 from starlette.responses import JSONResponse
 
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import (
     public_error_json,
@@ -279,7 +280,8 @@ def register_state_tools(mcp):
             if action == "submit":
                 if not objective and not skill_ref:
                     return _json.dumps({"error": "submit needs objective or skill_ref"})
-                loop = submit_loop(
+                loop = await run_blocking_ordered(
+                    submit_loop,
                     engine,
                     objective,
                     kind=kind,  # type: ignore[arg-type]
@@ -291,13 +293,16 @@ def register_state_tools(mcp):
                 )
                 return _json.dumps({"action": "submit", "loop": loop}, default=str)
             if action == "list":
+                loops = await run_blocking_ordered(active_loops, engine, limit)
                 return _json.dumps(
-                    {"action": "list", "loops": active_loops(engine, limit)},
+                    {"action": "list", "loops": loops},
                     default=str,
                 )
             if action == "run":
-                rep = LoopController(engine).run_one_cycle(
-                    max_topics=max_topics, mine_discovery=mine_discovery
+                rep = await run_blocking_ordered(
+                    LoopController(engine).run_one_cycle,
+                    max_topics=max_topics,
+                    mine_discovery=mine_discovery,
                 )
                 return _json.dumps(rep, indent=2, default=str)
             if action == "drive":
@@ -305,10 +310,13 @@ def register_state_tools(mcp):
                 # CONCEPT:AU-OS.state.unified-durable-state-externalization) — works for any kind (research/develop/skill).
                 if not loop_id:
                     return _json.dumps({"error": "drive needs a loop_id"})
+                found_loops = await run_blocking_ordered(
+                    active_loops, engine, max(limit, 50)
+                )
                 target = next(
                     (
                         loop_row
-                        for loop_row in active_loops(engine, max(limit, 50))
+                        for loop_row in found_loops
                         if loop_row.get("id") == loop_id
                     ),
                     None,
@@ -320,13 +328,17 @@ def register_state_tools(mcp):
             if action == "cancel":
                 if not loop_id:
                     return _json.dumps({"error": "cancel needs a loop_id"})
-                ok = mark_loop_status(engine, loop_id, "cancelled", source="user")
+                ok = await run_blocking_ordered(
+                    mark_loop_status, engine, loop_id, "cancelled", source="user"
+                )
                 return _json.dumps({"action": "cancel", "id": loop_id, "ok": ok})
             if action == "prioritize":
                 if not loop_id:
                     return _json.dumps({"error": "prioritize needs a loop_id"})
                 bucket = _coerce_prio_bucket(priority_bucket)
-                ok = prioritize_loop(engine, loop_id, bucket)
+                ok = await run_blocking_ordered(
+                    prioritize_loop, engine, loop_id, bucket
+                )
                 return _json.dumps(
                     {
                         "action": "prioritize",
@@ -342,8 +354,9 @@ def register_state_tools(mcp):
                     read_evolution_state,
                 )
 
+                evolution = await run_blocking_ordered(read_evolution_state, engine)
                 return _json.dumps(
-                    {"action": "state", "evolution": read_evolution_state(engine)},
+                    {"action": "state", "evolution": evolution},
                     indent=2,
                     default=str,
                 )
@@ -353,12 +366,13 @@ def register_state_tools(mcp):
                     list_specs,
                 )
 
+                specs = await run_blocking_ordered(
+                    list_specs, engine, status=(status or None), limit=limit
+                )
                 return _json.dumps(
                     {
                         "action": "specs",
-                        "specs": list_specs(
-                            engine, status=(status or None), limit=limit
-                        ),
+                        "specs": specs,
                     },
                     default=str,
                 )
@@ -375,10 +389,13 @@ def register_state_tools(mcp):
                             "error": "review needs spec_id and decision (approve|edit|reject)"
                         }
                     )
+                review_result = await run_blocking_ordered(
+                    review_spec, engine, sid, decision, reviewer="user"
+                )
                 return _json.dumps(
                     {
                         "action": "review",
-                        "result": review_spec(engine, sid, decision, reviewer="user"),
+                        "result": review_result,
                     },
                     default=str,
                 )
@@ -393,15 +410,17 @@ def register_state_tools(mcp):
                     placement_control_loop,
                 )
 
+                placement_result = await run_blocking_ordered(
+                    placement_control_loop,
+                    engine,
+                    tolerance=placement_canary_tolerance,
+                    limit=placement_scan_limit,
+                    enabled=True,
+                )
                 return _json.dumps(
                     {
                         "action": "placement_control",
-                        "result": placement_control_loop(
-                            engine,
-                            tolerance=placement_canary_tolerance,
-                            limit=placement_scan_limit,
-                            enabled=True,
-                        ),
+                        "result": placement_result,
                     },
                     default=str,
                 )
@@ -411,8 +430,9 @@ def register_state_tools(mcp):
                 # into — highest priority (lowest bucket) first, excludes resolved.
                 from agent_utilities.knowledge_graph.research.gaps import open_gaps
 
+                gaps = await run_blocking_ordered(open_gaps, engine, limit=limit)
                 return _json.dumps(
-                    {"action": "gaps", "gaps": open_gaps(engine, limit=limit)},
+                    {"action": "gaps", "gaps": gaps},
                     default=str,
                 )
             if action == "submit_gap":
@@ -434,7 +454,8 @@ def register_state_tools(mcp):
                             "and .statement"
                         }
                     )
-                gap = submit_gap(
+                gap = await run_blocking_ordered(
+                    submit_gap,
                     engine,
                     source=source,
                     signature=signature,
@@ -456,7 +477,7 @@ def register_state_tools(mcp):
                 gap_id = loop_id
                 if not gap_id:
                     return _json.dumps({"error": "gap needs a gap id in loop_id"})
-                gap = get_gap(engine, gap_id)
+                gap = await run_blocking_ordered(get_gap, engine, gap_id)
                 if gap is None:
                     return _json.dumps(
                         {"action": "gap", "id": gap_id, "error": "gap not found"}
@@ -466,7 +487,8 @@ def register_state_tools(mcp):
                     "resolved_by_loop_id": None,
                 }
                 try:
-                    rows = engine.query_cypher(
+                    rows = await run_blocking_ordered(
+                        engine.query_cypher,
                         "MATCH (g:Gap) WHERE g.id = $id "
                         "OPTIONAL MATCH (g)-[:SPECIFIED_BY]->(s) "
                         "OPTIONAL MATCH (l)-[:RESOLVES]->(g) "

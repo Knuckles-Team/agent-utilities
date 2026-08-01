@@ -54,11 +54,16 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (  
 from agent_utilities.security.persistence_privacy import (  # noqa: E402
     PersistencePrivacyGuard,
 )
-from scripts.generate_connector_manifests import _to_yaml, build_manifest  # noqa: E402
+from scripts.generate_connector_manifests import (  # noqa: E402
+    _to_yaml,
+    build_manifest,
+    write_a2a_card,
+)
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_]")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _PROVIDER_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+ONTOLOGY_LOCK = ROOT / "agent_utilities" / "knowledge_graph" / "ontology.lock"
 _MAX_PUBLISH_FILE_BYTES = 8 * 1024 * 1024
 _MAX_PUBLISH_TOTAL_BYTES = 128 * 1024 * 1024
 
@@ -388,9 +393,20 @@ def _stage_one(
     staging_root: Path,
     now: datetime,
     release_signer: ontology_integrity.ReleaseSigner,
+    registry_path: Path | None = None,
 ) -> tuple[_Publication, ...]:
     module = _module_dir(repo)
-    manifest = build_manifest(repo, now=now, release_signer=release_signer)
+    # a2a.json is regenerated in place, in the connector's OWN repo, before the
+    # manifest (and therefore the certification ledger) is built from it — the
+    # certification-bundle pipeline is the one place that always runs before a
+    # provider's artifacts are hashed and signed, so this is the load-bearing
+    # point that keeps a2a.json from ever drifting: there is no hand-maintained
+    # copy left to go stale (CONCEPT:AU-KG.ontology.a2a-card-generation).
+    if (repo / "pyproject.toml").is_file():
+        write_a2a_card(repo, dry_run=False)
+    manifest = build_manifest(
+        repo, now=now, release_signer=release_signer, registry_path=registry_path
+    )
     stage_repo = staging_root / "agents" / repo.name
     stage_module = stage_repo / module.relative_to(repo)
 
@@ -655,6 +671,12 @@ def main() -> int:
     parser.add_argument(
         "--now", required=True, help="UTC timestamp: YYYY-MM-DDTHH:MM:SSZ"
     )
+    parser.add_argument(
+        "--registry",
+        type=Path,
+        default=None,
+        help="MCP fleet registry that owns the server aliases (default: the shipped one)",
+    )
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     now = datetime.strptime(args.now, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
@@ -662,7 +684,9 @@ def main() -> int:
     selected = set(args.connector)
     try:
         configured = set(_configured_provider_names(args.workspace))
-        release_signer = ontology_integrity.ReleaseSigner.from_runtime()
+        release_signer = ontology_integrity.release_signer_for_publication(
+            lock_path=ONTOLOGY_LOCK
+        )
     except Exception:  # noqa: BLE001 - privacy-safe aggregate only
         print("capability bundle generation preflight failed")
         return 1
@@ -713,6 +737,7 @@ def main() -> int:
                         staging_root=staging_root,
                         now=now,
                         release_signer=release_signer,
+                        registry_path=args.registry,
                     )
                 )
             except Exception:  # noqa: BLE001 - privacy-safe aggregate only

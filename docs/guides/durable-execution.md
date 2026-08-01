@@ -86,6 +86,54 @@ capabilities or creates another writable lifecycle. Raw WorkItems remain
 queryable through governed `graph_query` Cypher when an operator needs the DAG
 or audit view.
 
+`graph_jobs(action="cancel")` is the matching cooperative cancellation request.
+It uses the native `CancelWorkItem` transition and returns `not_cancelled` when
+the job is missing, terminal, or cannot be cancelled under its active lease.
+
+### MCP Tasks compatibility
+
+GraphOS maps asynchronous job handles to the durable WorkItem authority; it
+does not create a second task store. The 2026-07-28 MCP Tasks extension requires
+per-request capability negotiation, `server/discover`, polymorphic
+`resultType: "task"` responses, and `tasks/get`, `tasks/update`, and
+`tasks/cancel` wire handlers. FastMCP 3.4.5 explicitly depends on MCP Python SDK
+`<2` and exposes the incompatible 2025-11-25 experimental lifecycle instead.
+The official MCP Python SDK 2.0.0 now implements the new protocol, but it cannot
+be installed underneath this FastMCP release without violating that dependency
+contract. GraphOS therefore disables FastMCP's legacy Tasks capability rather
+than falsely advertising the extension. Status and cancellation remain
+available through `graph_jobs` and `/api/graph/jobs`; full Tasks support requires
+the governed MCP SDK v2 migration or a tested dual-stack protocol adapter.
+
+The tested MCP v2 gateway is that dual-stack adapter. Its public requests remain
+stateless, and each downstream operation uses a fresh short-lived legacy GraphOS
+MCP session. Discovery and listing use one downstream session. A normal tool call
+uses one session for its authorization-filtered catalog and another for the call.
+A durable dispatch uses three: catalog, dispatch, and the status poll that verifies
+the WorkItem before returning its task handle.
+
+Every session that advertises or calls `graph_jobs` activates exactly that gated
+tool with `load_tools(tools=["graph_jobs"], auto_unload=True)` and confirms it in a
+second `tools/list` on the same session. Calls auto-retract the tool after use;
+list-only and error paths perform an idempotent `unload_tools` before terminating
+the session. Empty multiplexer visibility records are pruned, so concurrent
+short-lived sessions neither share visibility nor accumulate process-global state.
+A failed activation or confirmation remains fail-closed: Tasks are not advertised
+and `graph_jobs` is not called. Authorization, tenant parameters, and trace headers
+are forwarded unchanged through every session step.
+
+```mermaid
+sequenceDiagram
+    participant C as MCP v2 client
+    participant G as v2 gateway
+    participant O as GraphOS legacy MCP
+    C->>G: graph_jobs dispatch with Tasks
+    G->>O: session 1: activate → list catalog → unload → DELETE
+    G->>O: session 2: activate → dispatch (auto-unload) → unload → DELETE
+    G->>O: session 3: activate → status poll (auto-unload) → unload → DELETE
+    G-->>C: durable task handle
+```
+
 ## Operational checks
 
 - Run `agent-utilities-doctor --only engine a2a_persistence` before dispatch.

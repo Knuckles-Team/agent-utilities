@@ -104,7 +104,7 @@ class _GraphReader:
             return []
         try:
             return self.engine.get_nodes_by_label(label, 0) or []
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — best-effort; the sole caller (_signal_cold_start) treats an empty result as "no prior RunTrace found", which only makes cold_start fire (the conservative, escalate-favoring direction), never suppresses a signal
             logger.debug("escalation: get_nodes_by_label(%s) failed: %s", label, e)
             return []
 

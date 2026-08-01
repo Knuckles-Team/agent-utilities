@@ -23,12 +23,17 @@ from agent_utilities.harness.tracing import (
 
 
 class _FakeKG:
+    """Mirrors the real ``IntelligenceGraphEngine.add_node(node_id, node_type,
+    properties)`` contract (D-5.1-5) — no ``**kwargs`` catch-all."""
+
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}
         self.edges: list[tuple[str, str, str]] = []
 
-    def add_node(self, node_id: str, **props) -> None:
-        self.nodes[node_id] = props
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict | None = None
+    ) -> None:
+        self.nodes[node_id] = {"node_type": node_type, **(properties or {})}
 
     def link_nodes(self, src: str, dst: str, rel, **_kw) -> None:
         self.edges.append((src, dst, str(rel)))

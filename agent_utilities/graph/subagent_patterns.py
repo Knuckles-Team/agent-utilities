@@ -343,7 +343,7 @@ class SubagentPatternRouter:
                     historical_rate,
                 )
                 return adjusted
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — returns base_confidence, the value already computed by the caller before this optional adjustment; this outer except is the second layer of an already-tiered backend/NX best-effort lookup
             logger.debug("Historical pattern lookup failed: %s", e)
 
         return base_confidence
@@ -381,7 +381,7 @@ class SubagentPatternRouter:
             else:
                 # Tier 2 fallback: NX only
                 self.engine.graph.add_node(node_id, **node_data)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — select_pattern returns the in-memory decision object unconditionally regardless of persistence outcome; a failure only makes this one decision invisible to future _adjust_from_history queries, not a falsely-recorded state
             logger.debug("Failed to persist pattern decision: %s", e)
 
     def record_outcome(
@@ -420,7 +420,7 @@ class SubagentPatternRouter:
                         duration_ms,
                     )
                     break
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — decision.outcome_success is the in-memory return value callers act on; a KG-update failure here silently drops this one outcome from future _adjust_from_history stats, it does not mark anything as falsely successful
             logger.debug("Failed to record pattern outcome: %s", e)
 
 

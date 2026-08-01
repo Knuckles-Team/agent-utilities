@@ -127,7 +127,7 @@ class TestStateCheckpointer:
         cp = KGBackend(engine=None)
         state = self._make_mock_state()
         ckpt_id = cp.checkpoint(state, session_id="test-sess")
-        assert "test-sess" in ckpt_id
+        assert ckpt_id is None
 
     def test_checkpoint_with_nx_engine(self):
         from agent_utilities.core.checkpoint.manager import KGBackend

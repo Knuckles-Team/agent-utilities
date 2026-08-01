@@ -461,6 +461,28 @@ def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
     }.get(status, "unknown")
 
 
+def _retryable_partial_materialization(error: BaseException) -> dict[str, Any] | None:
+    """Return the engine's typed hydration signal, never a text lookalike.
+
+    A catalog-known graph deliberately rejects every graph operation while its
+    bounded lazy-open rebuild is incomplete.  That is availability state, not
+    an ingestion failure.  Only the exact retryable wire payload is safe to
+    defer; malformed, stale, and terminal materialization errors continue
+    through ordinary failure handling.
+    """
+    try:
+        payload = json.loads(str(error))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if (
+        isinstance(payload, dict)
+        and payload.get("code") == "PARTIAL_MATERIALIZATION"
+        and payload.get("retryable") is True
+    ):
+        return payload
+    return None
+
+
 # Enrichment pass sizing (config discipline): per-tick LLM-card batch budget. The
 # per-batch summarization concurrency is CPU/mem auto-sized via
 # compute_ingest_worker_count(); these batch caps are bounded constants, not env
@@ -802,7 +824,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         try:
             from llama_index.core import SimpleDirectoryReader  # noqa: F401
             from llama_index.core.embeddings import BaseEmbedding  # noqa: F401
-        except ImportError as exc:
+        except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional-dependency pre-import (already labeled 'optional dependency' in the log message); LlamaIndex readers are looked up again, lazily, wherever they're actually used
             logger.debug("LlamaIndex pre-import skipped (optional dependency): %s", exc)
 
         # Initialize pluggable persistent task queue
@@ -1137,7 +1159,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
             if repo_counts:
                 return max(repo_counts, key=repo_counts.get)  # type: ignore[arg-type]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — best-effort heuristic; returns None (the documented 'unknown' case) exactly like when repo_counts is empty, so callers already handle this return uniformly
             logger.debug(f"Primary codebase detection failed: {e}")
         return None
 
@@ -1390,7 +1412,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.info(
                     "Reaped %d idle dev-workspace container(s).", len(workspaces)
                 )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — reap is best-effort (mirrors the warm-parent reap above); a skipped tick just leaves idle containers for the NEXT scheduled tick to reap, no state is falsely advanced
             logger.debug("dev-workspace reap skipped: %s", e)
 
     def _tick_package_install_ingest(self) -> None:
@@ -1441,7 +1463,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             result = collect_local_sessions()
             if result.get("ingested"):
                 logger.info("usage_log_sync: %s", result)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — one maintenance-tick usage-log sync; the next tick retries with no state to reconcile (collect_local_sessions is safe to call repeatedly)
             logger.debug("usage_log_sync skipped: %s", e)
 
     def _tick_usage_pricing_refresh(self) -> None:
@@ -1456,7 +1478,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 backend = None
             n = refresh_catalog(backend=backend)
             logger.debug("usage_pricing_refresh: merged %d models", n)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — one maintenance-tick pricing-catalog refresh; the catalog simply stays at its last-known values until the next tick retries
             logger.debug("usage_pricing_refresh skipped: %s", e)
 
     def _tick_hygiene(self) -> None:
@@ -1883,7 +1905,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                 if get_throttle().should_yield_background:
                     return
-            except ImportError as exc:
+            except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional background-throttle signal; when unavailable the tick proceeds without the early-yield check rather than the enrichment batch being lost
                 logger.debug(
                     "background-throttle check skipped (optional dependency): %s", exc
                 )
@@ -2205,7 +2227,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             take = min(per_table, remaining)
             try:
                 items = self._collect_unembedded_rows(conn_factory, tbl, take)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — one table's row-selection query for this backfill tick; `continue`s to the next table so a single bad table doesn't stop the whole backfill pass, and nothing is marked embedded for the skipped table
                 logger.debug("embed backfill query failed: %s", e)
                 continue
 
@@ -2232,7 +2254,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 total += len(items)
                 remaining -= len(items)
                 self._embed_circuit_record(True, now)  # healthy → close breaker
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — already the safe direction: `total`/`remaining` are only advanced above this except (never inside it), and the circuit breaker is explicitly recorded False + the tick breaks rather than continuing to hammer a down endpoint
                 logger.debug("embed backfill store failed: %s", e)
                 # An embed/store failure means the endpoint is likely down for
                 # every table — record it and stop hammering the rest this tick.
@@ -2576,7 +2598,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     if get_throttle().should_yield_background:
                         time.sleep(busy)
                         continue
-                except ImportError as exc:
+                except ImportError as exc:  # noqa: BLE001 — background_throttle is an optional yield-to-foreground hint; when absent the loop just skips the yield and proceeds straight to _tick_embedding_backfill() below, it does not skip or mark any embedding work
                     logger.debug(
                         "background-throttle check skipped (optional dependency): %s",
                         exc,
@@ -2851,9 +2873,15 @@ class TaskManagerMixin(GraphEngineProtocol):
                         # Filter valid properties
                         valid_keys = schema_cache.get(label)
                         props = {k: v for k, v in node.items() if v is not None}
-                        # Preserve original semantic type for Code nodes (file/symbol/module)
+                        # Preserve original semantic type for Code nodes (file/symbol/module).
+                        # The Code table declares ``symbol_type`` (not a bare ``type``, which
+                        # the schema retired in favor of ``node_type``) for exactly this — the
+                        # same column parse.py/graph_compute.py/blast_radius.py already read
+                        # and write. Writing "type" here used to alias the schema's generic
+                        # column; now it would be silently dropped by the valid_keys filter
+                        # below, so route it to the dedicated column instead.
                         if label == "Code" and raw_type and raw_type != "code":
-                            props["type"] = raw_type
+                            props["symbol_type"] = raw_type
 
                         # Collect extra properties into metadata dict, mirroring sync.py logic
                         if valid_keys is not None and "metadata" in valid_keys:
@@ -2905,7 +2933,18 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                         self.backend.execute(query, params)
 
-                # Execute all edges sequentially
+                # Execute all edges sequentially. A comma-pattern MATCH plus an
+                # edge MERGE both exceed the engine's native Cypher write
+                # subset (one leading MATCH, MERGE on a single bare node only;
+                # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+                # ``link_nodes`` dispatches through the typed engine API for a
+                # native authority (which requires both endpoints to already
+                # exist, unlike the portable Cypher fallback used for a
+                # non-native store) and per-edge best effort (matching the
+                # original MATCH's silent no-op for a dangling reference): the
+                # staged item is retried wholesale on failure (below), so one
+                # edge referencing a node outside this batch must not doom the
+                # whole item to an infinite retry loop.
                 for edge in edges:
                     if "source" in edge and "target" in edge and "type" in edge:
                         src = edge.pop("source")
@@ -2915,11 +2954,16 @@ class TaskManagerMixin(GraphEngineProtocol):
                         if not etype:
                             continue
 
-                        u_label = node_type_map.get(src, "Code")
-                        v_label = node_type_map.get(tgt, "Code")
-
-                        query = f"MATCH (a:{u_label} {{id: $uid}}), (b:{v_label} {{id: $vid}}) MERGE (a)-[r:{etype}]->(b)"
-                        self.backend.execute(query, {"uid": src, "vid": tgt})
+                        try:
+                            self.link_nodes(src, tgt, etype)
+                        except Exception as exc:  # noqa: BLE001 — dangling edge reference against a native authority; logged and skipped so it can't wedge this staged item in an infinite retry loop
+                            logger.debug(
+                                "Skipped staged edge %s -[%s]-> %s: %s",
+                                src,
+                                etype,
+                                tgt,
+                                exc,
+                            )
 
                 # Only acknowledge and remove from staging if successful
                 self._submission_queue.ack_staged_graph(item_id)
@@ -3052,10 +3096,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                 self._dropped_tables: set[str] = set()
             new_tables = [t for t in affected_tables if t not in self._dropped_tables]
             if new_tables:
-                self._dropped_tables.update(new_tables)
                 try:
                     self.backend.drop_vector_indices(tables=new_tables)
-                except Exception as e:
+                    # D-DST-3 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): only
+                    # mark these tables dropped AFTER drop_vector_indices actually succeeds.
+                    # Marking them first (the prior order) meant a failed drop was never
+                    # retried on the next submit_task call for this task_type — the write-
+                    # then-mark-seen shape this triage was scoped to find — while the still-
+                    # indexed columns kept failing the ingestion SET the comment above warns
+                    # about ("Kuzu can't SET on indexed columns").
+                    self._dropped_tables.update(new_tables)
+                except Exception as e:  # noqa: BLE001 — the drop stays un-marked on failure (see above), so the next task submission for this task_type retries it instead of permanently believing the indexes are gone
                     logger.debug(f"Pre-ingestion index drop skipped: {e}")
 
         # Lazily start workers if they aren't already running
@@ -3308,12 +3359,54 @@ class TaskManagerMixin(GraphEngineProtocol):
         # ORCH-1.81: record the live pool size so the admission registry/policy
         # (hot spare, per-lane min coverage, codebase cap) size to this host's pool.
         self._ingest_worker_count = int(worker_count)
-        logger.info(f"Starting {worker_count} TaskManager workers...")
+
+        # CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness — reserve a small floor of
+        # this pool for HYDRATION-priority work (:data:`~agent_utilities.core.
+        # resource_priority.HYDRATION_TASK_TYPES`, e.g. the fleet tool-schema
+        # boot/scheduled probe) so it always has a worker that checks it FIRST,
+        # regardless of how many ordinary connector-sync jobs occupy the rest of
+        # the pool. Reuses the existing hot-spare sizing
+        # (``SchedulerConfig.reserved`` / ``KG_SCHED_RESERVED``, same knob the
+        # interactive-lane floor uses) rather than introducing a second reservation
+        # knob. A dedicated ``worker_count - 1`` cap keeps at least one thread
+        # NEVER hydration-first even on a large pool, so a hydration firehose
+        # can't fully starve ordinary connector-sync work either.
+        from .worker_scheduler import scheduler_config_from_env
+
+        hydration_reserved_count = 0
+        # D-43: a single-worker pool used to reserve 0 (the ``worker_count - 1``
+        # cap forces this — you cannot dedicate a whole 1-worker pool to
+        # hydration-first without a *second* thread to still guarantee general
+        # work, which doesn't exist here). That left minimal/laptop deployments
+        # with the original starvation exposure this whole mechanism exists to
+        # close. Since ``_claim_next_task(hydration_reserved=True)`` already
+        # FALLS THROUGH to the normal unrestricted claim whenever no hydration
+        # work is pending (see its docstring), a hydration-first check never
+        # drops general-work coverage by itself — the only real risk is a
+        # sustained hydration-type firehose keeping the sole worker permanently
+        # in the hydration branch, starving general work in the OTHER
+        # direction. Alternating the check (hydration-first on every other
+        # poll) gives hydration work a genuine floor without that full-reversal
+        # risk: even under a firehose, half the polls still go straight to the
+        # general claim.
+        single_worker_alternate = worker_count == 1
+        if worker_count > 1:
+            hydration_reserved_count = min(
+                max(1, scheduler_config_from_env(worker_count).reserved),
+                worker_count - 1,
+            )
+
+        logger.info(
+            f"Starting {worker_count} TaskManager workers "
+            f"({hydration_reserved_count} hydration-reserved"
+            f"{', alternating on the sole worker' if single_worker_alternate else ''})..."
+        )
         for i in range(worker_count):
             t = _authorized_background_thread(
                 background_session,
                 self._task_worker_loop,
                 name=f"KGTaskWorker-{i}",
+                args=(i < hydration_reserved_count, single_worker_alternate),
             )
             t.start()
 
@@ -3498,6 +3591,25 @@ class TaskManagerMixin(GraphEngineProtocol):
                 pass
         return reg
 
+    def _admission_policy(self):
+        """Lazy, cached :class:`AdmissionPolicy` bound to the live registry/config.
+
+        Reuses the SAME :class:`SchedulerConfig`/:class:`WorkerRegistry` pair
+        :meth:`_worker_registry` lazily builds (calling it here ensures
+        ``_sched_config`` exists too) — the reservation/heavy-type/cap knobs and
+        in-process running-worker picture an admission decision reads must be
+        the ones the rest of the scheduler is using, not a second, unbound
+        instance that would drift from the registry workers actually claim into.
+        """
+        policy = getattr(self, "_admission_pol", None)
+        if policy is None:
+            from .worker_scheduler import AdmissionPolicy
+
+            registry = self._worker_registry()
+            policy = AdmissionPolicy(self._sched_config, registry)
+            self._admission_pol = policy
+        return policy
+
     def _pending_by_lane(self) -> dict[str, int]:
         """Ready WorkItem count per functional resource-class lane."""
         from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES
@@ -3532,8 +3644,32 @@ class TaskManagerMixin(GraphEngineProtocol):
             claim = self._active_work_item_claims.get(job_id)
             return dict(claim) if claim is not None else None
 
-    def _start_work_item_lease_heartbeat(self, job_id: str) -> None:
-        """Renew one claimed ingestion WorkItem until its task body returns."""
+    def _start_work_item_lease_heartbeat(
+        self,
+        job_id: str,
+        *,
+        cancellation_event: threading.Event | None = None,
+    ) -> None:
+        """Renew one claimed ingestion WorkItem's lease — until its task body
+        returns, OR until ``cancellation_event`` fires, whichever comes first.
+
+        CONCEPT:AU-ORCH.scheduling.soft-timeout-lease-quarantine — a claimed task that has already
+        exceeded its lane's soft timeout (:mod:`.task_lanes`) has, by definition,
+        overrun its expected envelope; renewing its lease forever just because the
+        cooperative cancellation it was sent went unheeded turns one uncooperative
+        synchronous call into a PERMANENT hole in the pool (proven live: both the
+        boot fleet-tool-schema hydration job and its hourly schedule counterpart
+        were observed renewing past their soft timeout with the worker still
+        wedged). Once ``cancellation_event`` is set, renewal STOPS here — the
+        lease is left to expire on its own TTL (``_TASK_WORK_ITEM_LEASE_SEC``) so
+        another worker (this host or another) can reclaim the WorkItem and make
+        progress on it, instead of the job being quarantined indefinitely
+        alongside a thread Python cannot forcibly reclaim. This is safe against a
+        duplicate/stale commit from the abandoned original run:
+        ``_require_live_work_item_lease`` re-checks (and re-attempts) the lease
+        immediately before any terminal write, so a run whose lease has already
+        moved on can never commit a result out from under the new owner.
+        """
         claim = self._active_work_item_claim(job_id)
         if claim is None:
             raise RuntimeError(f"ingestion job {job_id!r} has no active WorkItem claim")
@@ -3546,6 +3682,16 @@ class TaskManagerMixin(GraphEngineProtocol):
             from agent_utilities.orchestration import work_item as _wi
 
             while not stop.wait(_TASK_WORK_ITEM_HEARTBEAT_SEC):
+                if cancellation_event is not None and cancellation_event.is_set():
+                    lost.set()
+                    logger.warning(
+                        "ingestion WorkItem lease renewal stopped for %s — its "
+                        "soft timeout already fired; the lease will expire and "
+                        "the job becomes reclaimable rather than being renewed "
+                        "indefinitely",
+                        job_id,
+                    )
+                    return
                 active_claim = self._active_work_item_claim(job_id)
                 if active_claim is None:
                     return
@@ -3618,18 +3764,57 @@ class TaskManagerMixin(GraphEngineProtocol):
         return dict(metadata)
 
     def _claim_next_task(
-        self, worker_id: str | None = None
+        self,
+        worker_id: str | None = None,
+        *,
+        hydration_reserved: bool = False,
     ) -> tuple[str, dict[str, Any]] | None:
-        """Claim the next runnable ingestion WorkItem natively."""
+        """Claim the next runnable ingestion WorkItem natively.
+
+        ``hydration_reserved`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) — this
+        worker is one of the pool's reserved hydration slots
+        (:func:`start_task_workers`): it FIRST tries to claim one of the small,
+        foundational :data:`~agent_utilities.core.resource_priority.HYDRATION_TASK_TYPES`
+        (e.g. ``capability_hydration``), scoped per type via ``resource_class``/
+        ``fairness_group`` so it never picks up an ordinary ``connector_sync``
+        sharing the same lane. Only when NONE of those are pending does it fall
+        through to the normal unrestricted claim, so a reserved worker still does
+        useful background work rather than idling — it just never lets that work
+        block it from claiming hydration work the instant some is enqueued. This
+        is what gives priority-1 capability/boot work a real floor: unlike the
+        ordinary rotation, this worker's NEXT claim attempt (which happens as
+        soon as its current task ends) always checks hydration lanes first, so
+        it cannot be starved by however many concurrent legacy connector syncs
+        are occupying the rest of the pool.
+        """
         from agent_utilities.orchestration import work_item as _wi
 
         token = self._get_host_token()
-        claim = _wi.claim_next(
-            self._work_item_engine,
-            queue="ingest_task",
-            token=token,
-            lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
-        )
+        claim = None
+        if hydration_reserved:
+            from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
+            from agent_utilities.knowledge_graph.core.task_lanes import (
+                lane_for_task_type,
+            )
+
+            for hydration_type in sorted(HYDRATION_TASK_TYPES):
+                claim = _wi.claim_next(
+                    self._work_item_engine,
+                    queue="ingest_task",
+                    resource_class=lane_for_task_type(hydration_type),
+                    fairness_group=hydration_type,
+                    token=token,
+                    lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
+                )
+                if claim is not None:
+                    break
+        if claim is None:
+            claim = _wi.claim_next(
+                self._work_item_engine,
+                queue="ingest_task",
+                token=token,
+                lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
+            )
         if claim is None:
             return None  # authoritative negative; no secondary scan/fallback
         if not _wi.mark_running(self._work_item_engine, claim["work_item_id"], claim):
@@ -3644,33 +3829,124 @@ class TaskManagerMixin(GraphEngineProtocol):
             raise _wi.WorkItemBackendUnavailable(
                 "ClaimWorkItem returned an ingest item without payload_ref"
             )
+        # Claim authority must be locally visible before the metadata read. The
+        # read is graph-scoped and can be the first operation to observe a lazy
+        # materialization transition; remembering only afterwards stranded an
+        # already-consumed native attempt with no job id on the worker frame.
+        self._remember_work_item_claim(job_id, claim)
         try:
             meta = self._ingest_task_metadata(job_id)
-        except _wi.WorkItemBackendUnavailable:
-            _wi.commit_result(
-                self._work_item_engine,
-                claim["work_item_id"],
-                claim,
-                outcome="failed",
-                error_ref=f"invalid_ingest_definition:{job_id}",
-                retryable=False,
-            )
+        except Exception as exc:
+            materialization = _retryable_partial_materialization(exc)
+            if materialization is not None:
+                # Mirror _task_worker_loop's in-body materialization handling:
+                # an unexpected failure releasing the native lease must still
+                # drop the in-memory claim so it cannot be mistaken for a live
+                # local reservation. The native WorkItem itself self-heals via
+                # its own lease TTL + the pre-existing expired-lease reaper —
+                # never converted into an application failed/dead-letter path.
+                try:
+                    self._defer_task_for_materialization(job_id, materialization)
+                except Exception as defer_error:  # noqa: BLE001 - infrastructure transition is logged below
+                    self._active_work_item_claim(job_id, pop=True)
+                    logger.error(
+                        "TaskManager could not defer %s while the graph was "
+                        "materializing: %s",
+                        job_id,
+                        defer_error,
+                    )
+                return None
+            if isinstance(exc, _wi.WorkItemBackendUnavailable):
+                try:
+                    _wi.commit_result(
+                        self._work_item_engine,
+                        claim["work_item_id"],
+                        claim,
+                        outcome="failed",
+                        error_ref=f"invalid_ingest_definition:{job_id}",
+                        retryable=False,
+                    )
+                finally:
+                    self._active_work_item_claim(job_id, pop=True)
+            else:
+                # Every OTHER failure of the metadata read (a transient engine /
+                # connection error surfacing as a bare RuntimeError, say) must
+                # drop the in-memory claim too, or it strands here forever: the
+                # claim is now remembered BEFORE the read (see above), so unlike
+                # the previous ordering this except path can leak one. The
+                # native WorkItem lease still self-heals via its TTL + the
+                # expired-lease reaper; this only keeps the local bookkeeping
+                # honest so a dead claim is never mistaken for a live local
+                # reservation. The exception itself is always re-raised.
+                self._active_work_item_claim(job_id, pop=True)
             raise
+        # Stamp the winning claim's own lease identity onto the returned
+        # metadata — ``claim`` (from ``_wi.claim_next``/``claim_specific``)
+        # already carries the authoritative ``lease_owner``/``lease_epoch``
+        # native WorkItem fields; nothing downstream previously surfaced them,
+        # so a caller/log line had no way to say WHO holds this task or WHICH
+        # fencing generation it's running under. This is an in-memory
+        # enrichment of the dict handed back to the caller ONLY — it is never
+        # persisted onto another node's durable metadata (that would create a
+        # second writable ownership authority; the native WorkItem lease
+        # remains the sole source of truth, per ``_remember_work_item_claim``).
+        meta["claimed_by"] = claim.get("lease_owner")
+        meta["work_item_epoch"] = claim.get("lease_epoch")
+        meta["work_item_id"] = claim.get("work_item_id")
         tkind = str(meta.get("type") or "document")
-        self._remember_work_item_claim(job_id, claim)
         if worker_id is not None:
             from agent_utilities.knowledge_graph.core.task_lanes import (
                 lane_for_task_type,
             )
 
-            self._worker_registry().start(worker_id, lane_for_task_type(tkind), tkind)
+            lane = lane_for_task_type(tkind)
+            # CONCEPT:AU-ORCH.dispatch.worker-scheduling — gate the claim through the
+            # reserved-worker fair AdmissionPolicy before this worker commits to the
+            # task. Only applied to the general/unrestricted claim: the
+            # ``hydration_reserved`` priority-floor path above must never be
+            # second-guessed here — that floor exists specifically so hydration
+            # work can't be starved, which is the opposite of what admission's
+            # hot-spare/heavy-type/coverage rules are for. A denied admission
+            # releases the native lease without consuming a retry attempt, so a
+            # later (better-suited) poll — by this worker or another — picks the
+            # task back up once the pool's live picture allows it.
+            if not hydration_reserved:
+                decision = self._admission_policy().decide(
+                    lane, tkind, self._pending_by_lane()
+                )
+                if not decision.admit:
+                    logger.debug(
+                        "worker %s admission denied for %s/%s: %s — deferring claim",
+                        worker_id,
+                        lane,
+                        tkind,
+                        decision.reason,
+                    )
+                    self._defer_task_for_admission(job_id)
+                    return None
+            self._worker_registry().start(worker_id, lane, tkind)
         return job_id, meta
 
-    def _task_worker_loop(self):
-        """Distributed polling loop that picks up pending tasks natively."""
+    def _task_worker_loop(
+        self, hydration_reserved: bool = False, hydration_alternate: bool = False
+    ):
+        """Distributed polling loop that picks up pending tasks natively.
+
+        ``hydration_reserved`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) marks this
+        as one of the pool's reserved hydration-priority workers — see
+        :meth:`_claim_next_task` and :meth:`start_task_workers`.
+
+        ``hydration_alternate`` (D-43) is the degenerate single-worker case: this
+        worker checks the hydration lane first on every OTHER poll instead of
+        never (``hydration_reserved`` stays permanently ``False`` when there is
+        no second thread to keep pinned to general work). Bounded so a sustained
+        hydration-type firehose can't fully starve ordinary connector-sync work
+        either — only every other poll is hydration-first.
+        """
         # ORCH-1.81: a stable per-thread id keys this worker in the admission
         # registry, so the policy knows what THIS worker is processing.
         worker_id = threading.current_thread().name
+        poll_count = 0
         while True:
             try:
                 job_id = None
@@ -3678,7 +3954,14 @@ class TaskManagerMixin(GraphEngineProtocol):
                 is_codebase = False
                 task_type = "document"
 
-                claimed = self._claim_next_task(worker_id=worker_id)
+                effective_hydration_reserved = hydration_reserved or (
+                    hydration_alternate and poll_count % 2 == 0
+                )
+                poll_count += 1
+                claimed = self._claim_next_task(
+                    worker_id=worker_id,
+                    hydration_reserved=effective_hydration_reserved,
+                )
                 if claimed:
                     job_id, meta = claimed
                     if meta:
@@ -3726,6 +4009,53 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._worker_registry().finish(worker_id)
 
             except Exception as e:
+                materialization = _retryable_partial_materialization(e)
+                if materialization is not None:
+                    if job_id:
+                        try:
+                            deferred = self._defer_task_for_materialization(
+                                job_id, materialization
+                            )
+                        except Exception as defer_error:  # noqa: BLE001 - infrastructure transition is logged below
+                            self._active_work_item_claim(job_id, pop=True)
+                            logger.error(
+                                "TaskManager could not defer %s while the graph was "
+                                "materializing: %s",
+                                job_id,
+                                defer_error,
+                            )
+                        else:
+                            if deferred:
+                                logger.info(
+                                    "TaskManager deferred materializing task %s "
+                                    "(phase=%s cursor=%s)",
+                                    job_id,
+                                    materialization.get("phase"),
+                                    materialization.get("completeness_cursor"),
+                                )
+                            else:
+                                logger.warning(
+                                    "TaskManager discarded fenced claim for "
+                                    "materializing task %s (phase=%s cursor=%s)",
+                                    job_id,
+                                    materialization.get("phase"),
+                                    materialization.get("completeness_cursor"),
+                                )
+                        # A materialization transition is infrastructure state,
+                        # never an application attempt. Do not fall through to
+                        # the generic retry/dead-letter path even if the fenced
+                        # control transition was lost to another owner.
+                        continue
+                    else:
+                        logger.info(
+                            "TaskManager waiting for graph materialization before "
+                            "claiming work (phase=%s cursor=%s)",
+                            materialization.get("phase"),
+                            materialization.get("completeness_cursor"),
+                        )
+                        time.sleep(5)
+                        continue
+
                 logger.error(f"TaskManager worker error: {e}")
                 if job_id:
                     try:
@@ -3761,11 +4091,24 @@ class TaskManagerMixin(GraphEngineProtocol):
         budget and starve live queries (CONCEPT:AU-KG.compute.registered-edge-type read/ingest plane
         isolation). Lightweight types (diff/conversation/…) run unthrottled.
         """
+        # CONCEPT:AU-ORCH.scheduling.soft-timeout-lease-quarantine — shared with the lease
+        # heartbeat below so renewal STOPS the moment this task's soft timeout fires
+        # (see :meth:`_start_work_item_lease_heartbeat`), instead of an unconditional
+        # heartbeat keeping an already-exceeded task's lease alive indefinitely.
+        cancellation_event = threading.Event()
         lease_heartbeat_active = self._active_work_item_claim(job_id) is not None
         if lease_heartbeat_active:
-            self._start_work_item_lease_heartbeat(job_id)
+            self._start_work_item_lease_heartbeat(
+                job_id, cancellation_event=cancellation_event
+            )
         try:
-            self._execute_claimed_task_body(job_id, target_path, is_codebase, task_type)
+            self._execute_claimed_task_body(
+                job_id,
+                target_path,
+                is_codebase,
+                task_type,
+                cancellation_event=cancellation_event,
+            )
         finally:
             if lease_heartbeat_active:
                 self._stop_work_item_lease_heartbeat(job_id)
@@ -3776,6 +4119,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         target_path: Path,
         is_codebase: bool,
         task_type: str = "document",
+        *,
+        cancellation_event: threading.Event,
     ) -> None:
         """Execute the bounded task body while its enclosing lease stays live."""
         _HEAVY_TASK_TYPES = {
@@ -3810,16 +4155,22 @@ class TaskManagerMixin(GraphEngineProtocol):
         # worker instead of spawning a per-attempt daemon.  A tiny authorized
         # watchdog only sets the cancellation event and then exits.  Cooperative
         # loops stop promptly.  An uncooperative synchronous call remains
-        # quarantined in its original fixed-capacity worker, whose lease heartbeat
-        # stays live; it cannot become a detached zombie or trigger a duplicate
-        # retry.  Network clients must still enforce their own I/O timeout because
-        # Python cannot safely kill an arbitrary running thread.
+        # quarantined in its original fixed-capacity worker — Python cannot
+        # safely kill an arbitrary running thread, so that worker slot is not
+        # freed here (bound the call itself at its transport layer instead; see
+        # ``_sync_fleet``'s ``_run_async(..., timeout=...)`` for a worked
+        # example). What IS bounded here is the WorkItem's *lease*: this same
+        # ``cancellation_event`` stops :meth:`_start_work_item_lease_heartbeat`
+        # from renewing past the soft timeout (CONCEPT:AU-ORCH.scheduling.soft-timeout-lease-quarantine), so the
+        # lease expires and another worker/host can pick the job back up instead
+        # of it being quarantined forever alongside the stuck thread. A late
+        # write from the abandoned original run is fenced out by
+        # ``_require_live_work_item_lease`` before any terminal commit.
         from .task_lanes import task_soft_timeout
 
         timeout = task_soft_timeout(task_type)
         heavy = task_type in _HEAVY_TASK_TYPES
         outcome: dict[str, BaseException] = {}
-        cancellation_event = threading.Event()
         body_done = threading.Event()
 
         def _run_body() -> None:
@@ -3869,8 +4220,11 @@ class TaskManagerMixin(GraphEngineProtocol):
             cancellation_event.set()
             logger.warning(
                 "[KG-2.286] task %s (%s) exceeded soft timeout %.0fs — "
-                "cooperative cancellation requested; its fixed worker and live "
-                "lease remain quarantined until the in-flight body exits",
+                "cooperative cancellation requested; its fixed worker stays "
+                "quarantined until the in-flight body exits, but its WorkItem "
+                "lease STOPS being renewed from here "
+                "(CONCEPT:AU-ORCH.scheduling.soft-timeout-lease-quarantine) so "
+                "the job becomes reclaimable on lease expiry",
                 job_id,
                 task_type,
                 timeout,
@@ -4484,9 +4838,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     IngestionEngine,
                 )
 
-                self_tools = await IngestionEngine(
-                    kg_engine=self
-                )._ingest_self_tools()
+                self_tools = await IngestionEngine(kg_engine=self)._ingest_self_tools()
                 if self_tools.status == "failed":
                     raise RuntimeError("self tool-surface ingestion failed")
                 self._update_task_status(
@@ -4500,11 +4852,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                         "edges_added": self_tools.edges_created,
                     },
                 )
-            elif task_type == "connector_sync":
+            elif task_type in ("connector_sync", "capability_hydration"):
                 # CONCEPT:AU-ORCH.scheduling.connector-sync-lane — one external connector's delta sync, run as a LANED task
                 # (the 'connectors' lane). The */20m fleet sweep enqueues one of these per
                 # connector so they fan out in PARALLEL instead of one slow connector
                 # (gitlab/servicenow) blocking the rest in a sequential inline loop.
+                #
+                # ``capability_hydration`` (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) is the SAME
+                # dispatch — its metadata's ``target`` is always ``"fleet"`` — but a
+                # distinct task type so it can be given its own reserved-worker floor
+                # (see ``start_task_workers``) instead of competing 1:1 with however
+                # many ordinary ``connector_sync`` jobs the */20m sweep has in flight.
                 from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
                 connector_meta = self._ingest_task_metadata(job_id)
@@ -4852,7 +5210,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "(will retry next cycle)."
                 )
                 return {"status": "deferred", "reason": "bulk_ingest_or_foreground"}
-        except ImportError as exc:
+        except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional background-throttle signal, same pattern as the enrichment tick above; the sweep proceeds without the early-defer check rather than being lost
             logger.debug(
                 "background-throttle check skipped (optional dependency): %s", exc
             )
@@ -5244,7 +5602,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "scorer_version": "0.12.0",
                 },
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one relevance-scoring edge write inside the sweep's per-item loop; a failed write is simply absent from the next query_relevance_rankings read, it does not falsely appear scored
             logger.debug(f"RelevanceSweep: edge persistence error for {item_id}: {e}")
 
     def query_relevance_rankings(
@@ -5399,6 +5757,77 @@ class TaskManagerMixin(GraphEngineProtocol):
         if result == "dead_letter":
             logger.warning("ingestion WorkItem %s exhausted retries", job_id)
 
+    def _defer_task_for_materialization(
+        self, job_id: str, materialization: dict[str, Any]
+    ) -> bool:
+        """Release a claimed task immediately without consuming an attempt.
+
+        GraphOS does its bounded materialization wait before workers start, so
+        an in-flight task must never wait behind the same graph-wide gate while
+        holding a short renewable lease.  The engine-native defer is one fenced
+        transition: success restores the exact prior attempt count; a rejected
+        transition means this worker no longer owns the lease and is never
+        converted into an application failure.
+        """
+        from agent_utilities.orchestration import work_item as _wi
+
+        claim = self._active_work_item_claim(job_id)
+        if claim is None:
+            raise _wi.WorkItemBackendUnavailable(
+                f"ingestion job {job_id!r} has no active native WorkItem claim"
+            )
+        work_item_id = str(
+            claim.get("work_item_id") or _wi.ingest_task_work_item_id(job_id)
+        )
+        logger.debug(
+            "Deferring ingestion job %s at materialization phase=%s cursor=%s",
+            job_id,
+            materialization.get("phase"),
+            materialization.get("completeness_cursor"),
+        )
+        try:
+            deferred = _wi.defer_work_item(
+                self._work_item_engine,
+                work_item_id,
+                claim,
+                next_retry_at=time.time() + 1.0,
+                reason_ref="partial_materialization",
+            )
+        finally:
+            self._active_work_item_claim(job_id, pop=True)
+        return bool(deferred)
+
+    def _defer_task_for_admission(self, job_id: str) -> bool:
+        """Release a claim the :class:`AdmissionPolicy` denied, without consuming an attempt.
+
+        The native ``claim_next`` CAS commits the lease before the task's lane/
+        type is known, so a candidate the pool's own admission rules refuse
+        (heavy-type cap, hot-spare reservation, interactive floor, best-effort
+        lane cap, memory-gen pool cap, …) is un-claimed the same way a
+        materialization-blocked task is: a fenced, near-immediate-retry defer
+        rather than running work this host's own scheduler just decided it
+        should hold back on. Mirrors :meth:`_defer_task_for_materialization`.
+        """
+        from agent_utilities.orchestration import work_item as _wi
+
+        claim = self._active_work_item_claim(job_id)
+        if claim is None:
+            return False
+        work_item_id = str(
+            claim.get("work_item_id") or _wi.ingest_task_work_item_id(job_id)
+        )
+        try:
+            deferred = _wi.defer_work_item(
+                self._work_item_engine,
+                work_item_id,
+                claim,
+                next_retry_at=time.time() + 1.0,
+                reason_ref="admission_denied",
+            )
+        finally:
+            self._active_work_item_claim(job_id, pop=True)
+        return bool(deferred)
+
     def aggregate_ingest_metrics(self, window_sec: int = 86400) -> dict[str, Any]:
         """Per-category ingest metrics from ingestion WorkItems.
 
@@ -5427,7 +5856,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         )
                         if completed < cutoff:
                             continue
-                    except (ValueError, TypeError) as exc:
+                    except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable completed_at timestamp; the item is included un-window-filtered (as the log message and the comment above it describe) rather than silently dropped from the aggregate — the safer direction for a metrics report
                         logger.debug(
                             "ingest metrics: unparseable completed_at %r, not window-filtered: %s",
                             ca,
@@ -5553,7 +5982,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     )
                     if completed_dt < cutoff:
                         continue
-                except (ValueError, TypeError) as exc:
+                except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable completed_at timestamp in the tail-tasks profile report — same documented un-window-filtered fallback as aggregate_ingest_metrics above
                     logger.debug(
                         "ingest tail tasks: unparseable completed_at %r, not window-filtered: %s",
                         ca,
@@ -5646,7 +6075,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                             if isinstance(ts, int | float)
                             else datetime.fromisoformat(str(ts)).timestamp()
                         )
-                    except (ValueError, TypeError) as exc:
+                    except (ValueError, TypeError) as exc:  # noqa: BLE001 — unparseable timestamp is excluded from this one latency bucket (as the log message says) — a metrics-precision loss, not a correctness issue, since the item is simply absent from the bucket
                         logger.debug(
                             "ingest metrics: unparseable timestamp %r, excluded from bucket: %s",
                             ts,

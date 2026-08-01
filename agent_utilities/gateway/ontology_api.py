@@ -387,6 +387,32 @@ async def describe_sampling_profile(task_class: str) -> OntologyEnvelope:
     )
 
 
+# ── Model profiles (CONCEPT:AU-KG.ontology.model-profile-graph-resource) ──────────────────────────────────────
+
+
+@ontology_router.get("/ontology/model-profiles", response_model=OntologyEnvelope)
+async def list_model_profiles() -> OntologyEnvelope:
+    """List the active registry's models as profile previews (no KG write)."""
+    return OntologyEnvelope(result=await _call("ontology_model_profile", action="list"))
+
+
+@ontology_router.get(
+    "/ontology/model-profiles/{model_id}", response_model=OntologyEnvelope
+)
+async def get_model_profile(model_id: str) -> OntologyEnvelope:
+    """Get one model's profile — persisted if already synced, else the live projection."""
+    result = await _call("ontology_model_profile", action="get", model_id=model_id)
+    if isinstance(result, dict) and result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return OntologyEnvelope(result=result)
+
+
+@ontology_router.post("/ontology/model-profiles/sync", response_model=OntologyEnvelope)
+async def sync_model_profiles() -> OntologyEnvelope:
+    """Upsert a ``ModelProfileVersionNode`` per configured model into the KG."""
+    return OntologyEnvelope(result=await _call("ontology_model_profile", action="sync"))
+
+
 # ── Functions (CONCEPT:AU-KG.ontology.default-runtime-bound-import) ──────────────────────────────────────────────
 
 

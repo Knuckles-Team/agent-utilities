@@ -244,6 +244,30 @@ class TestDecodeJWT:
         with pytest.raises(RuntimeError, match="requires HTTPS"):
             await _fetch_jwks("http://identity.example.test/jwks")
 
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    def test_missing_joserfc_dependency_raises_loud_500_not_401(self, monkeypatch):
+        """A missing JWT dependency (the historical defect: a runtime image
+        installed without ``[auth]`` had no ``joserfc``) must raise a distinct,
+        loud 500 identifying the missing dependency — never the generic 401
+        ``Token validation failed`` a real invalid credential produces. This is
+        the failure mode a no-extras install can no longer hit (``joserfc`` is
+        now a base dependency), but the distinction must hold regardless."""
+        import sys
+
+        from fastapi import HTTPException
+
+        monkeypatch.setitem(sys.modules, "joserfc", None)
+        with pytest.raises(HTTPException) as exc_info:
+            _decode_jwt(
+                "irrelevant.token.value",
+                {"keys": []},
+                issuer=None,
+                audience=None,
+            )
+        assert exc_info.value.status_code == 500
+        assert "joserfc" in exc_info.value.detail
+        assert exc_info.value.detail != "Token validation failed"
+
 
 # ---------------------------------------------------------------------------
 # Combined Credential Verification
@@ -352,6 +376,65 @@ class TestBearerHeaderParser:
             "sub": "principal:verified",
             "auth_type": "jwt",
         }
+
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    @pytest.mark.asyncio
+    async def test_decode_dependency_fault_propagates_not_collapsed_to_permission_error(
+        self,
+    ):
+        """A non-401 fault from ``_decode_jwt`` (currently only the 500 raised
+        when its JWT dependency is missing) must propagate as-is. Collapsing
+        every ``HTTPException`` here into ``PermissionError("invalid bearer
+        token")`` is exactly how a missing dependency was misreported as a
+        rejected credential — only a genuine 401 credential rejection may
+        collapse to ``PermissionError``."""
+        from fastapi import HTTPException
+
+        cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch(
+                "agent_utilities.security.auth._fetch_jwks",
+                new=mock.AsyncMock(return_value={"keys": []}),
+            ),
+            mock.patch(
+                "agent_utilities.security.auth._decode_jwt",
+                side_effect=HTTPException(status_code=500, detail="joserfc missing"),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await authenticate_header_values(
+                    authorization=[b"Bearer opaque-token"]
+                )
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "joserfc missing"
+
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    @pytest.mark.asyncio
+    async def test_decode_401_still_collapses_to_permission_error(self):
+        """A genuine credential rejection (401) from ``_decode_jwt`` still
+        collapses to ``PermissionError`` — only the non-401 fault class
+        changed behavior."""
+        from fastapi import HTTPException
+
+        cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch(
+                "agent_utilities.security.auth._fetch_jwks",
+                new=mock.AsyncMock(return_value={"keys": []}),
+            ),
+            mock.patch(
+                "agent_utilities.security.auth._decode_jwt",
+                side_effect=HTTPException(
+                    status_code=401, detail="Invalid token signature"
+                ),
+            ),
+        ):
+            with pytest.raises(PermissionError):
+                await authenticate_header_values(
+                    authorization=[b"Bearer opaque-token"]
+                )
 
 
 # ---------------------------------------------------------------------------

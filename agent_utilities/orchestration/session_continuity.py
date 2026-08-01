@@ -146,12 +146,23 @@ async def persist_session_turn(
             add_node = getattr(engine, "add_node", None)
             add_edge = getattr(engine, "add_edge", None)
             if callable(add_node) and callable(add_edge):
-                add_node(
-                    snode,
-                    "Session",
-                    properties={"id": snode, "session_ref": session_ref},
-                )
-                add_edge(snode, trace_id(rid), "HAS_RUN")
+                # D-51: these two writes were previously synchronous, unhopped
+                # calls directly in this async def's body — genuine event-loop
+                # blocking on every streamed turn. run_blocking_ordered (used by
+                # the rest of this exact CONCEPT across the codebase, e.g.
+                # mcp/tools/query_tools.py) offloads them with ordered-cancellation
+                # semantics (the worker completes before CancelledError re-raises).
+                from agent_utilities.core.event_loop import run_blocking_ordered
+
+                def _persist_session_edge() -> None:
+                    add_node(
+                        snode,
+                        "Session",
+                        properties={"id": snode, "session_ref": session_ref},
+                    )
+                    add_edge(snode, trace_id(rid), "HAS_RUN")
+
+                await run_blocking_ordered(_persist_session_edge)
 
     # 2) Memory parity — compress this turn into a per-session memento via the SAME core
     #    primitive the messaging path uses (CONCEPT:AU-ECO.messaging.universal-graph-agent), then refresh the session

@@ -114,7 +114,9 @@ async def router_step(
     # fall back to using the MCP registry directly for keyword-based routing.
     routing_tags = deps.tag_prompts
     if not routing_tags:
-        registry = get_discovery_registry()
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — the registry hydration is a
+        # synchronous backend round-trip; keep it off the event loop.
+        registry = await asyncio.to_thread(get_discovery_registry)
         routing_tags = {a.name: a.description for a in registry.agents}
         if routing_tags:
             logger.warning(
@@ -165,7 +167,7 @@ async def router_step(
                 designated = designate_specialists(ke, ctx.state.query, k=5)
                 if designated:
                     _matched.update(designated)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — one of several matching mechanisms feeding `_matched` (keyword lookup above, hybrid search / policy / process discovery below); a failure here just leaves out the ANN-designated specialists this pass, the others still populate the router's candidate set
                 logger.debug("Router: capability designation skipped: %s", e)
             # 2. Hybrid Search (Semantic + Keyword)
             _hybrid = ke.search_hybrid(ctx.state.query, top_k=5)
@@ -277,7 +279,7 @@ async def router_step(
                             deps.event_queue, "router", "node_complete"
                         )
                         return "dispatcher"
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — 1st of 3 sequential planning strategies; ctx.state.plan is unconditionally reassigned by the LLM planner below if this path doesn't return "dispatcher"
                 logger.debug(
                     f"TeamConfig lookup failed, continuing with LLM planning: {e}"
                 )
@@ -288,7 +290,11 @@ async def router_step(
             try:
                 from .kg_graph_factory import build_pydantic_graph_from_kg
 
-                kg_result = build_pydantic_graph_from_kg(
+                # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — KG AgentTemplate materialization
+                # is several SYNCHRONOUS engine round-trips (template search, KGTeamComposer
+                # reuse-lookup, TeamConfig/synthesize_team fallback); run off the event loop.
+                kg_result = await asyncio.to_thread(
+                    build_pydantic_graph_from_kg,
                     query=ctx.state.query,
                     engine=deps.knowledge_engine,
                     deps=deps,
@@ -335,7 +341,7 @@ async def router_step(
                     )
                     _emit_node_lifecycle(deps.event_queue, "router", "node_complete")
                     return "dispatcher"
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — same fallback chain as the TeamConfig lookup above; falls through to the LLM planner, which reassigns ctx.state.plan unconditionally
                 logger.debug(
                     f"KG AgentTemplate routing failed, continuing with LLM planning: {e}"
                 )
@@ -348,9 +354,9 @@ async def router_step(
                 from .routing.enrichers.self_model import self_model_context
 
                 memory_retriever = MemoryRetriever(deps.knowledge_engine)
-                current = memory_retriever.get_current()
+                current = await asyncio.to_thread(memory_retriever.get_current)
                 discovery_context += self_model_context(current)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — pure prompt-context string enrichment (discovery_context +=); failure just omits the extra text, router prompt still built normally
                 logger.debug(f"Self-Model proficiency injection failed: {e}")
     # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — DIRECT-DISPATCH FAST PATH.
     # When the task resolves to a single connected MCP server (the common single-server
@@ -484,7 +490,7 @@ async def router_step(
         logger.info("[LAYER:GRAPH:ROUTER] Fetching specialist tags...")
         specialist_tags = deps.tag_prompts
         if not specialist_tags:
-            registry = get_discovery_registry()
+            registry = await asyncio.to_thread(get_discovery_registry)
             specialist_tags = {a.name: a.description for a in registry.agents}
             if specialist_tags:
                 logger.info(
@@ -492,8 +498,11 @@ async def router_step(
                 )
 
         # CONCEPT:AU-ORCH.routing.filtered-specialist-injection — Filtered specialist injection for prompt bloat reduction
-        relevant = get_relevant_specialists(
-            ctx.state.query, engine=deps.knowledge_engine, top_n=7
+        relevant = await asyncio.to_thread(
+            get_relevant_specialists,
+            ctx.state.query,
+            engine=deps.knowledge_engine,
+            top_n=7,
         )
 
         # R7 (CONCEPT:AU-KG.memory.tiered-memory-caching) — Reward-Driven Optimization (pheromone filtering) and
@@ -510,17 +519,18 @@ async def router_step(
                 from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
                 memory_retriever = MemoryRetriever(deps.knowledge_engine)
-                current = memory_retriever.get_current()
+                current = await asyncio.to_thread(memory_retriever.get_current)
                 if current and current.pheromone_trails and relevant:
                     relevant = filter_by_pheromone(relevant, current.pheromone_trails)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — `relevant` keeps its pre-filter value on failure, identical shape to the sibling telemetry-pruning block just below (already annotated in this codebase)
             logger.debug(f"Reward-driven routing optimization failed: {e}")
 
         try:
             if deps.knowledge_engine:
-                anomaly_results = deps.knowledge_engine.query_cypher(
+                anomaly_results = await asyncio.to_thread(
+                    deps.knowledge_engine.query_cypher,
                     "MATCH (a:Agent)-[:CAUSED]->(p:PerformanceAnomaly) "
-                    "RETURN a.id AS agent_name, count(p) AS anomaly_count"
+                    "RETURN a.id AS agent_name, count(p) AS anomaly_count",
                 )
                 if anomaly_results:
                     anomaly_map = {
@@ -529,7 +539,7 @@ async def router_step(
                         if r.get("agent_name")
                     }
                     relevant = prune_by_telemetry(relevant, anomaly_map)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — per-request routing refinement; `relevant` just keeps its pre-prune value on failure, this pass falls back to the unpruned specialist set rather than an incorrect or stale one
             logger.debug(f"Telemetry-driven routing optimization failed: {e}")
 
         # R6 (CONCEPT:AU-ORCH.routing.filtered-specialist-injection) — filtered specialist injection (prompt-bloat reduction).
@@ -544,7 +554,9 @@ async def router_step(
             subtask_and_widesearch_instructions,
         )
 
-        router_prompt = load_specialized_prompts("router")
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — prompt load is file I/O + registry
+        # lookup; keep it off the event loop.
+        router_prompt = await asyncio.to_thread(load_specialized_prompts, "router")
         system_prompt_str = (
             f"{router_prompt}\n\n"
             f"### IMPORTANT: PLANNING ONLY MODE\n"
@@ -622,10 +634,24 @@ async def router_step(
             # KG-Native Topological overrides
             if deps.knowledge_engine:
                 try:
+
+                    def _read_topology_signals() -> tuple[list[Any], list[Any]]:
+                        return (
+                            deps.knowledge_engine.search_hybrid(
+                                ctx.state.query
+                                + " TradingPipeline RiskScoringOntology",
+                                top_k=2,
+                            ),
+                            deps.knowledge_engine.search_hybrid(
+                                ctx.state.query
+                                + " MathematicalFoundationNode vectorized topologies OWL Almgren-Chriss",
+                                top_k=2,
+                            ),
+                        )
+
                     # CONCEPT:AU-AHE.evaluation.backtest-harness Agentic detection
-                    task_topologies = deps.knowledge_engine.search_hybrid(
-                        ctx.state.query + " TradingPipeline RiskScoringOntology",
-                        top_k=2,
+                    task_topologies, math_topologies = await asyncio.to_thread(
+                        _read_topology_signals
                     )
                     if any(
                         "Trading" in t.get("name", "") or "Risk" in t.get("name", "")
@@ -637,11 +663,6 @@ async def router_step(
                         )
 
                     # CONCEPT:AU-AHE.evaluation.backtest-harness Reasoning detection
-                    math_topologies = deps.knowledge_engine.search_hybrid(
-                        ctx.state.query
-                        + " MathematicalFoundationNode vectorized topologies OWL Almgren-Chriss",
-                        top_k=2,
-                    )
                     if any(
                         "Math" in t.get("name", "")
                         or "Quant" in t.get("name", "")
@@ -861,6 +882,13 @@ async def dispatcher_step(
         ctx.state.error = "Execution budget exceeded: max node transitions."
         return "error_recovery"
 
+    if budget.max_tool_calls and len(ctx.state.tool_calls) > budget.max_tool_calls:
+        logger.error(
+            f"Dispatcher: Execution budget exceeded for tool calls ({len(ctx.state.tool_calls)} > {budget.max_tool_calls})"
+        )
+        ctx.state.error = "Execution budget exceeded: max tool calls."
+        return "error_recovery"
+
     if (
         budget.max_total_tokens
         and ctx.state.session_usage.total_tokens > budget.max_total_tokens
@@ -927,10 +955,16 @@ async def dispatcher_step(
             logger.error("Dispatcher: Doom loop detected: %s", incident.name)
             ctx.state.error = f"Doom loop detected: {incident.name}"
             return "error_recovery"
-    except ImportError:
+    except ImportError:  # noqa: BLE001 — optional stability detector is not installed
         pass
     except Exception as e:
-        logger.debug("Doom loop detection skipped: %s", e)
+        # D-DST-4 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): DoomLoopDetector
+        # is a safety control (AU-OS.safety.doom-loop-detection), not best-effort telemetry —
+        # a runtime failure here (module present but erroring, unlike the ImportError case
+        # above) silently disables loop protection for this transition with no operator-
+        # visible signal. Raised to warning so a persistently-failing detector is
+        # diagnosable instead of invisible.
+        logger.warning("Doom loop detection failed (safety check skipped): %s", e)
 
     # CONCEPT:AU-ORCH.routing.transition-state-checkpoint — State checkpoint at transition boundary.
     # Routes through the consolidated CheckpointManager (KG backend). The old
@@ -941,11 +975,19 @@ async def dispatcher_step(
         from ..core.checkpoint.manager import CheckpointManager
 
         if hasattr(ctx.deps, "knowledge_engine") and ctx.deps.knowledge_engine:
-            checkpointer = CheckpointManager.create(
-                persistence_type="kg", engine=ctx.deps.knowledge_engine
-            )
-            checkpointer.save(ctx.state, session_id=ctx.state.session_id)
-    except Exception as e:
+            # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — a KG-backed checkpoint save is a
+            # synchronous engine write; run the create+save pair off the event loop.
+            def _checkpoint_state() -> Any:
+                checkpointer = CheckpointManager.create(
+                    persistence_type="kg", engine=ctx.deps.knowledge_engine
+                )
+                return checkpointer.save(ctx.state, session_id=ctx.state.session_id)
+
+            checkpoint_id = await asyncio.to_thread(_checkpoint_state)
+            if isinstance(checkpoint_id, str) and checkpoint_id:
+                ctx.state.checkpoint_ids.append(checkpoint_id)
+                ctx.state.checkpoint_ts = time.time()
+    except Exception as e:  # noqa: BLE001 — ctx.state.checkpoint_ids.append() only executes inside the try after a successful save (guarded by the isinstance check above), so a failure here never records a checkpoint id that doesn't exist; this is best-effort HSM state durability, not the primary transition flow
         logger.debug("State checkpointing skipped: %s", e)
 
     # HSM: Process deferred events (user follows-up received mid-execution)
@@ -1263,19 +1305,30 @@ async def expert_executor_step(
                 tools_to_inject = []
 
                 if engine:
+
+                    def _read_dynamic_bindings(
+                        kg_engine: Any = engine,
+                        dynamic_node_id: str = node_id,
+                    ) -> tuple[list[Any], list[Any]]:
+                        return (
+                            kg_engine.query_cypher(
+                                "MATCH (p:Prompt) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p.system_prompt AS sp LIMIT 1",
+                                {"name": dynamic_node_id},
+                            ),
+                            kg_engine.query_cypher(
+                                "MATCH (t:Tool) WHERE any(tag IN t.tags WHERE toLower(tag) CONTAINS toLower($name)) OR toLower(t.name) CONTAINS toLower($name) RETURN t.name AS name, t.mcp_server AS server ORDER BY t.relevance_score DESC LIMIT 5",
+                                {"name": dynamic_node_id},
+                            ),
+                        )
+
                     # Check for explicit prompt node
-                    prompt_res = engine.query_cypher(
-                        "MATCH (p:Prompt) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p.system_prompt AS sp LIMIT 1",
-                        {"name": node_id},
+                    prompt_res, tool_res = await asyncio.to_thread(
+                        _read_dynamic_bindings
                     )
                     if prompt_res and "sp" in prompt_res[0]:
                         system_prompt = prompt_res[0]["sp"]
 
                     # Find relevant tools (by tag or semantic overlap if we had embeddings, using tag heuristic for now)
-                    tool_res = engine.query_cypher(
-                        "MATCH (t:Tool) WHERE any(tag IN t.tags WHERE toLower(tag) CONTAINS toLower($name)) OR toLower(t.name) CONTAINS toLower($name) RETURN t.name AS name, t.mcp_server AS server ORDER BY t.relevance_score DESC LIMIT 5",
-                        {"name": node_id},
-                    )
                     tools_to_inject = [t["name"] for t in tool_res]
 
                 logger.info(
@@ -1463,7 +1516,7 @@ async def dynamic_mcp_routing_step(
     targets = []
 
     if engine and hasattr(engine, "discover_callable_resources"):
-        resources = engine.discover_callable_resources()
+        resources = await asyncio.to_thread(engine.discover_callable_resources)
         if resources:
             targets = [res.name for res in resources]
 
@@ -1515,14 +1568,16 @@ async def mcp_server_step(
         if engine and hasattr(engine, "ogm"):
             from ..models.knowledge_graph import CallableResourceNode
 
-            nodes = engine.ogm.find(
-                CallableResourceNode, properties={"name": server_name}
+            nodes = await asyncio.to_thread(
+                engine.ogm.find,
+                CallableResourceNode,
+                properties={"name": server_name},
             )
             if nodes:
                 resource_node = nodes[0]
 
         # Check if there's a matching dynamic MCP agent in the registry
-        registry = get_discovery_registry()
+        registry = await asyncio.to_thread(get_discovery_registry)
         matching_agents = [a for a in registry.agents if a.mcp_server == server_name]
 
         if matching_agents:

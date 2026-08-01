@@ -69,6 +69,22 @@ logger = logging.getLogger(__name__)
 # Actions that route to source sync (used by the scheduler dispatch).
 SYNC_ACTIONS = {"delta", "full", "reconcile"}
 
+# CONCEPT:AU-ORCH.scheduling.hard-io-deadline — the fleet MCP tool-schema probe
+# (:func:`_sync_fleet`) is synchronous, network-bound work invoked INLINE from an
+# async task body (``connector_sync``/``capability_hydration`` in the ``connectors``
+# lane, and the ``fleet-tool-schema-sync`` scheduled job in ``maint``) — it does not
+# hit an ``await`` the surrounding cooperative-cancellation watchdog can act on.
+# Proven live: both call sites were observed exceeding their lane's soft timeout
+# (180s / 600s) with the worker still wedged afterward. Bound it at BOTH layers:
+# a cooperative ``budget`` into ``probe_catalog`` (cancels straggling per-server
+# probes cleanly — the correct outcome) and a slightly longer hard ``timeout`` on
+# the outer sync wait (the backstop for whatever that cooperative cancellation
+# itself cannot unblock, e.g. a child-process spawn that blocks before its first
+# ``await``). Sized as a fraction of the tightest lane bound (``connectors``,
+# 180s) so the whole call reliably returns well inside it, in either lane.
+_FLEET_PROBE_BUDGET_FRACTION = 0.6
+_FLEET_PROBE_GRACE_SEC = 15.0
+
 
 def _read_envelope_watermark(
     engine: Any,
@@ -318,19 +334,51 @@ def _derive_tool_mode(input_schema: dict | None) -> str:
     return "verbose"
 
 
+def _privacy_safe(text: str) -> str:
+    """Redact fleet-supplied prose before it becomes graph state.
+
+    A child's tool/skill descriptions are EXTERNAL material: they routinely
+    embed absolute paths and other host detail. The native
+    ``ApplyChangeEnvelope`` commit rejects (does not redact) such inline text,
+    so a single offending description used to fail the ENTIRE fleet slice —
+    every tool and skill from every reachable server — with the unactionable
+    message "persistence privacy policy rejected inline text". Redacting here
+    mirrors what :func:`~..ingestion.skill_workflow_ingest.ingest_runnable_skill`
+    already does for skill bodies, so one noisy description degrades to a
+    redacted description instead of dropping the whole sync.
+    """
+    from ...security.persistence_privacy import PersistencePrivacyGuard
+
+    safe, _privacy = PersistencePrivacyGuard().sanitize_text(str(text or ""))
+    return safe
+
+
 def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     """Write a probed multiplexer catalog into the KG as capability nodes.
 
-    ``catalog`` is the ``{server: {"tools": [{name, description, ...}], "error":
-    str|None}}`` map returned by :meth:`MCPMultiplexer.probe_catalog`. For each
-    reachable server every tool becomes a ``Tool`` node carrying the schema the
-    dispatcher reads (``name``, ``description``, ``mcp_server``, ``tags``,
-    ``relevance_score``, ``requires_approval``) plus ``synonyms`` for the lexical
-    gate, linked to its (defensively upserted) ``MCPServer`` via ``SERVES``.
-    Idempotent: stable node ids + the write-layer content-hash delta skip
-    unchanged tools on re-sync. Factored out of :func:`_sync_fleet` so it is
+    ``catalog`` is the ``{server: {"tools": [{name, description, ...}],
+    "skills": [{name, uri, description}], "error": str|None}}`` map returned by
+    :meth:`MCPMultiplexer.probe_catalog` (``skills`` is the Skills-over-MCP
+    subset of a probed server's Resources, CONCEPT:AU-ECO.mcp.skills-over-mcp-provider — absent/empty for
+    a fastmcp-3 or pre-skills server). For each reachable server every tool
+    becomes a ``Tool`` node and every ``skill://{name}/SKILL.md`` resource
+    becomes a ``Skill`` node, both carrying the schema the dispatcher/ranker
+    reads (``name``, ``description``, ``mcp_server``, ``tags``,
+    ``relevance_score``, ``requires_approval``) plus ``synonyms`` for the
+    lexical gate, linked to their (defensively upserted) ``MCPServer`` via
+    ``SERVES``. A fleet ``Skill`` node is id-namespaced per-server
+    (``skill_{server}_{name}``), distinct from a locally-executed skill's
+    canonical ``skill:<slug>`` identity (:func:`~..ingestion.skill_workflow_ingest.skill_reference`)
+    so a thin fleet probe write can never clobber a richer in-loop skill's
+    ``body``/``instruction`` properties — ``kind='mcp_skill'`` plus
+    ``source_ref='skill://<slug>'`` still lets ranking recognize both as the
+    same capability *kind*. Idempotent: stable node ids + the write-layer
+    content-hash delta (over the whole probed slice) skip unchanged
+    tools/skills on re-sync. Factored out of :func:`_sync_fleet` so it is
     testable without spawning any servers.
     """
+    from ..ingestion.skill_workflow_ingest import skill_reference
+
     entities: list[dict[str, Any]] = []
     relationships: list[dict[str, Any]] = []
     unreachable: dict[str, str] = {}
@@ -343,7 +391,8 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
             unreachable[server_name] = str(err)
             continue
         tools = info.get("tools") or []
-        if not tools:
+        skills = info.get("skills") or []
+        if not tools and not skills:
             continue
 
         synonyms = derive_capability_synonyms(server_name)
@@ -371,9 +420,17 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                     "id": tool_node_id,
                     "type": "Tool",
                     "name": tool_name,
-                    "description": entry.get("description", "") or "",
+                    "description": _privacy_safe(entry.get("description", "")),
                     "mcp_server": server_name,
                     "tags": [product] if product else [],
+                    # ``ToolShape`` (governance.shapes.ttl) requires minCount 1
+                    # ``capabilityCategory``, and it was never written — so the
+                    # SHACL gate rejected the WHOLE fleet slice, silently: the
+                    # rejection surfaced only as the class name "ValueError".
+                    # The category is the de-suffixed product this server
+                    # provides (``servicenow-mcp`` → ``servicenow``), falling
+                    # back to the server name so it is never empty.
+                    "capabilityCategory": product or server_name,
                     "relevance_score": 0.5,
                     "requires_approval": False,
                     "synonyms": synonyms,
@@ -386,15 +443,153 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                 {"source": server_node_id, "target": tool_node_id, "type": "SERVES"}
             )
 
+        for entry in skills:
+            if not isinstance(entry, dict):
+                continue
+            skill_name = entry.get("name")
+            if not skill_name:
+                continue
+            skill_node_id = f"skill_{server_name}_{skill_name}"
+            skill_props: dict[str, Any] = {
+                "id": skill_node_id,
+                "type": "Skill",
+                "name": skill_name,
+                "description": _privacy_safe(entry.get("description", "")),
+                "mcp_server": server_name,
+                "tags": [product] if product else [],
+                "relevance_score": 0.5,
+                "requires_approval": False,
+                "synonyms": synonyms,
+                "kind": "mcp_skill",
+                "disabled": _existing_disabled(engine, skill_node_id),
+                    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
+                    # fleet skill is (or is not) runnable, recorded on the node
+                    # so the execution path can name the unmet precondition
+                    # instead of failing with a generic "not found or runnable".
+                "runnable_blocked_by": _privacy_safe(entry.get("harvest_error", "")),
+            }
+            # ``skill://<name>`` collides with the persistence-privacy policy's
+            # posix-path heuristics whenever a skill name starts with a
+            # filesystem-root token (``opt``ions-…, ``workspace``-manager,
+            # ``tmp``…, ``var``…). The native ApplyChangeEnvelope commit REJECTS
+            # such text, and a rejection fails the WHOLE slice — so six oddly
+            # named skills silently cost every tool and skill from every
+            # reachable server. Writing a redacted ref instead would be worse:
+            # it is no longer a ``skill://`` reference at all, which is the
+            # contract every ranking consumer checks. So the ref is omitted and
+            # the reason logged; the skill's canonical runnable identity comes
+            # from the promotion path, which does not use this envelope.
+            source_ref = skill_reference(skill_name)
+            if _privacy_safe(source_ref) == source_ref:
+                skill_props["source_ref"] = source_ref
+            else:
+                logger.warning(
+                    "Fleet skill %s omits its source_ref: %r trips the "
+                    "persistence privacy policy's local-path heuristic",
+                    skill_name,
+                    source_ref,
+                )
+            entities.append(skill_props)
+            relationships.append(
+                {"source": server_node_id, "target": skill_node_id, "type": "SERVES"}
+            )
+
+    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — promotion runs BEFORE the
+    # catalog slice write, and deliberately so. The catalog write is ONE native
+    # ChangeEnvelope over every server's every tool and skill: it is atomic, so
+    # a single rejected row (observed live: one tool description whose prose
+    # about credential handling tripped the engine's persistence-privacy policy)
+    # discards the whole slice. Making a fleet skill RUNNABLE must not be
+    # hostage to that all-or-nothing write — promotion writes per skill through
+    # ``ingest_runnable_skill`` and fails closed per skill, so one noisy
+    # description can no longer cost the entire fleet its runnable capability.
+    harvest = _promote_fleet_skills(engine, catalog)
+
+    rejected: list[str] = []
     if entities:
-        _ingest_graph_slice_via_envelope(
-            engine, "fleet", entities, relationships, source_instance="catalog"
-        )
+        rejected = _write_fleet_slice(engine, entities, relationships)
 
     return {
+        "catalog_rows_rejected": len(rejected),
+        "catalog_rejected_ids": rejected,
         "servers_written": sum(1 for item in entities if item["type"] == "MCPServer"),
         "tools_written": sum(1 for item in entities if item["type"] == "Tool"),
+        "skills_written": sum(1 for item in entities if item["type"] == "Skill"),
         "unreachable": unreachable,
+        **harvest,
+    }
+
+
+def _write_fleet_slice(
+    engine: Any, entities: list[dict[str, Any]], relationships: list[dict[str, Any]]
+) -> list[str]:
+    """Write the fleet catalog slice, isolating rows the engine rejects.
+
+    The native ``ApplyChangeEnvelope`` commit is ATOMIC, so one unacceptable row
+    discards the entire slice — observed live: a single ServiceNow tool whose
+    description explains its credential handling tripped the engine's
+    persistence-privacy policy and cost every tool and skill of every reachable
+    fleet server. The engine reports rejection for the slice, not the row, and
+    that policy lives engine-side (it is NOT reproducible from the Python
+    ``PersistencePrivacyGuard``, which leaves that description unchanged), so
+    the offender can only be identified by bisection.
+
+    On rejection this halves the slice and retries, isolating each offending
+    row, dropping ONLY those, and returning their ids. Cost is O(k log n)
+    commits for k offenders — negligible when k is small, which is the case
+    this exists for. A rejected row is returned (and logged at error) so it is
+    never a silent omission.
+    """
+    def _attempt(rows: list[dict[str, Any]]) -> bool:
+        by_id = {row["id"] for row in rows}
+        edges = [
+            edge
+            for edge in relationships
+            if edge["source"] in by_id and edge["target"] in by_id
+        ]
+        try:
+            _ingest_graph_slice_via_envelope(
+                engine, "fleet", rows, edges, source_instance="catalog"
+            )
+        except Exception as exc:  # noqa: BLE001 — retried by bisection below;
+            # the final per-row failure is logged with its reason by the caller.
+            logger.debug(
+                "fleet catalog slice of %d row(s) rejected (%s: %s)",
+                len(rows),
+                type(exc).__name__,
+                exc,
+            )
+            return False
+        return True
+
+    def _bisect(rows: list[dict[str, Any]]) -> list[str]:
+        if not rows or _attempt(rows):
+            return []
+        if len(rows) == 1:
+            logger.error(
+                "fleet catalog row %s was REJECTED by the engine and is omitted "
+                "from the catalog; every other row was still written",
+                rows[0].get("id"),
+            )
+            return [str(rows[0].get("id"))]
+        middle = len(rows) // 2
+        return _bisect(rows[:middle]) + _bisect(rows[middle:])
+
+    return _bisect(entities)
+
+
+def _promote_fleet_skills(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
+    """Promote harvested fleet skills, reporting the outcome under its own keys."""
+    from ..ingestion.fleet_skill_harvest import promote_harvested_skills
+
+    report = promote_harvested_skills(engine, catalog)
+    return {
+        "skills_promoted": report["promoted"],
+        "skills_promoted_names": report["promoted_skills"],
+        "skills_blocked": report["blocked"],
+        "skills_blocked_detail": report["blocked_detail"],
+        "skills_promote_errors": report["errors"],
+        "skills_promote_error_detail": report["error_detail"],
     }
 
 
@@ -519,9 +714,17 @@ def _sync_fleet(
                 "source": "fleet",
                 "reason": "no mcp_config.json with servers found",
             }
+        from .task_lanes import lane_soft_timeout
+
+        probe_budget = max(
+            10.0, lane_soft_timeout("connectors") * _FLEET_PROBE_BUDGET_FRACTION
+        )
         try:
             mux = MCPMultiplexer(config_path)
-            catalog = _run_async(mux.probe_catalog())
+            catalog = _run_async(
+                mux.probe_catalog(budget=probe_budget),
+                timeout=probe_budget + _FLEET_PROBE_GRACE_SEC,
+            )
         except Exception as exc:  # noqa: BLE001 — probe is best-effort
             return {"status": "error", "source": "fleet", "reason": str(exc)}
 
@@ -1354,6 +1557,7 @@ def _sync_rss(
     is the cross-run dedup.
     """
     from ...automation.feed_sources import (
+        _scholarx_mcp_configured,
         list_feed_sources,
         register_feed_nodes,
         scholarx_feed_documents,
@@ -1375,16 +1579,21 @@ def _sync_rss(
         ):
             native_url_set.add(str(node["feed_url"]))
     native_urls = sorted(native_url_set)
+    # ScholarX is reachable either via the local package (its own arXiv parser) or,
+    # per CONCEPT:AU-KG.ingest.research-connector-presets, via the fleet's scholarx-mcp server — either
+    # is sufficient to enable the research feed (``scholarx_feed_documents`` itself
+    # prefers the package and falls back to MCP).
     try:
         import scholarx  # noqa: F401
 
         scholarx_ok = True
     except Exception:  # noqa: BLE001
-        scholarx_ok = False
+        scholarx_ok = _scholarx_mcp_configured()
     if not native_urls and not scholarx_ok:
         return {
             "status": "skipped",
-            "reason": "no native RSS feeds (set KG_RSS_FEEDS) and scholarx not installed",
+            "reason": "no native RSS feeds (set KG_RSS_FEEDS) and scholarx not "
+            "configured (install scholarx or add scholarx-mcp to mcp_config)",
         }
 
     since = None if mode == "full" else _read_envelope_watermark(engine, "rss")
@@ -1433,6 +1642,100 @@ def _sync_rss(
         "source": "rss",
         "mode": mode,
         "delta_capable": True,
+        "items_seen": len(docs),
+        "ingested": report.ingested,
+        "relevant": report.relevant,
+        "marginal": report.marginal,
+        "research": report.research,
+        "skipped_unchanged": report.skipped,
+        "failed": report.failed,
+        "since": since,
+        "watermark": new_watermark or since,
+    }
+
+
+def _sync_arxiv(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Native arXiv category listings through the ONE world-model research gate.
+
+    Zero-infra sibling to ``rss``/``freshrss``/ScholarX (CONCEPT:AU-KG.ingest.arxiv-feed-connector, KG-7.3):
+    drains the native ``arxiv`` connector (``export.arxiv.org``, no MCP server or
+    account needed) and routes every item through
+    :meth:`WorldModelPipelineRunner.run_gated_ingest`, which recognizes it as
+    research (``origin.streamId="arxiv:api"``) and defers to the SAME
+    ``grade_and_enqueue_paper`` budget gate as FreshRSS-arXiv and ScholarX — this
+    connector only widens the funnel's mouth, never bypasses its throat.
+
+    **Opt-in only** (``KG_ARXIV_CATEGORIES``): an unscoped arXiv query is not a
+    valid listing (``ArxivConnector`` raises without categories), so this handler
+    skips cleanly rather than defaulting to a firehose-shaped category set.
+    """
+    from ...automation.feed_sources import upsert_feed_source
+    from ...automation.worldmodel_pipeline import WorldModelPipelineRunner
+    from ...core.config import config as _cfg
+    from ...protocols.source_connectors.base import ConnectorCheckpoint
+    from ...protocols.source_connectors.registry import build_connector
+
+    categories = [
+        c.strip()
+        for c in (getattr(_cfg, "kg_arxiv_categories", "") or "").split(",")
+        if c.strip()
+    ]
+    if not categories:
+        return {
+            "status": "skipped",
+            "reason": "arXiv not configured (set KG_ARXIV_CATEGORIES, e.g. 'cs.AI,cs.LG')",
+        }
+
+    for category in categories:
+        upsert_feed_source(
+            engine,
+            key=category,
+            source_system="arxiv",
+            feed_url=f"https://export.arxiv.org/api/query?search_query=cat:{category}",
+            kind="RssFeed",
+            name=f"arXiv {category}",
+        )
+
+    since = None if mode == "full" else _read_envelope_watermark(engine, "arxiv")
+    try:
+        max_results = int(getattr(_cfg, "kg_arxiv_max_results", 50) or 50)
+    except (TypeError, ValueError):
+        max_results = 50
+    conn = build_connector(
+        "arxiv", {"categories": categories, "max_results": max_results}
+    )
+    cp = ConnectorCheckpoint(watermark=since) if since else None
+    docs = list(conn.poll_all(cp)) if hasattr(conn, "poll_all") else list(conn.load())  # type: ignore[attr-defined]
+
+    report = WorldModelPipelineRunner(
+        engine=engine, connector="arxiv"
+    ).run_gated_ingest(docs)
+
+    iso_dates = [d.updated_at for d in docs if getattr(d, "updated_at", None)]
+    new_watermark = max(iso_dates) if iso_dates else None
+    if not report.failed and new_watermark and (since is None or new_watermark > since):
+        _ingest_graph_slice_via_envelope(
+            engine,
+            "arxiv",
+            [
+                {
+                    "id": "arxiv:review-checkpoint",
+                    "type": "SourceReviewCheckpoint",
+                    "updatedAt": new_watermark,
+                    "items_seen": len(docs),
+                }
+            ],
+            checkpoint=new_watermark,
+        )
+
+    return {
+        "status": "partial" if report.failed else "ok",
+        "source": "arxiv",
+        "mode": mode,
+        "delta_capable": True,
+        "categories": categories,
         "items_seen": len(docs),
         "ingested": report.ingested,
         "relevant": report.relevant,
@@ -4092,6 +4395,7 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "gitlab": _sync_gitlab,
     "freshrss": _sync_freshrss,
     "rss": _sync_rss,
+    "arxiv": _sync_arxiv,
     "jira": _sync_jira,
     "confluence": _sync_confluence,
     "plane": _sync_plane,
@@ -4280,6 +4584,14 @@ def _dispatch_sync_source(
                     "no client",
                     "credential",
                     "unconfigured",
+                    # A source is "configured" (e.g. its MCP server is registered
+                    # in mcp_config) but the connector PACKAGE that ships the
+                    # matching contributed mcp_tool preset isn't pip-installed in
+                    # this process — e.g. FreshRSS/ScholarX reached purely over
+                    # the wire without the freshrss-agent/scholarx package
+                    # co-installed (CONCEPT:AU-KG.ingest.research-connector-presets). Also a skip, not a
+                    # task failure — the preset genuinely isn't resolvable here.
+                    "unknown mcp_tool preset",
                 )
             ):
                 return {"status": "skipped", "source": source, "reason": str(exc)[:160]}

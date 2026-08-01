@@ -50,6 +50,8 @@ GraphResearchAction = Literal[
     "evolve_variants",
     "track_citations",
     "spawn_background",
+    "night_shift",
+    "contradictions",
 ]
 GraphEvaluateAction = Literal[
     "evaluate",
@@ -61,6 +63,7 @@ GraphEvaluateAction = Literal[
     "specialize",
     "world_model_rollout",
     "latent_efficiency_benchmark",
+    "assimilation_benchmark",
     "evolve_model",
     "forecast",
     "causal",
@@ -140,15 +143,19 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "'background_research' (spawn background research), 'relevance_sweep' (sweep "
             "ingested content for relevance), 'research_ingest' (ingest a research artifact), "
             "'evolve_variants' (evolve solution variants), 'track_citations' (citation graph), "
-            "'spawn_background' (spawn a background analysis job). query=source/topic; jobs "
-            "return a job_id to poll with graph_ingest(action='status')."
+            "'spawn_background' (spawn a background analysis job), 'night_shift' (run one "
+            "autonomous overnight second-brain research cycle over a local markdown vault — "
+            "scout/catalog/cartograph/critique/edit; target=vault root, propose-only), "
+            "'contradictions' (the night-shift Critic — flag existing nodes that OPPOSE a "
+            "new claim in `query`; propose-only, KG-2.83). "
+            "query=source/topic; jobs return a job_id to poll with graph_ingest(action='status')."
         ),
         tags=["graph-os", "research"],
     )
     async def graph_research(
         action: GraphResearchAction = Field(
             default="synthesize",
-            description="synthesize | deep_extract | background_research | relevance_sweep | research_ingest | evolve_variants | track_citations | spawn_background",
+            description="synthesize | deep_extract | background_research | relevance_sweep | research_ingest | evolve_variants | track_citations | spawn_background | night_shift | contradictions",
         ),
         query: str = Field(default="", description="Source / topic / artifact."),
         top_k: int = Field(default=10, description="Complexity budget / result count."),
@@ -168,7 +175,9 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "(formal concentration/no-regression SHACL gate — AHE-3.53), 'check_constraints', "
             "'specialize' (one SAI specialization cycle + superhuman cert — AHE-3.29), "
             "'world_model_rollout' (forward-simulate the world model — KG-2.73b), "
-            "'latent_efficiency_benchmark' (AHE-3.48), 'evolve_model', 'forecast', 'causal', "
+            "'latent_efficiency_benchmark' (AHE-3.48), 'assimilation_benchmark' "
+            "(measured empirical-parity evidence for assimilated paper mechanisms "
+            "vs baseline — AHE-3.39), 'evolve_model', 'forecast', 'causal', "
             "'invariant', plus the finance evaluation actions 'quant_crypto', "
             "'quant_exchange', 'quant_microstructure', 'quant_strategy', "
             "'quant_regime', and 'quant_insider'."
@@ -178,7 +187,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
     async def graph_evaluate(
         action: GraphEvaluateAction = Field(
             default="evaluate",
-            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | evolve_model | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
+            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
         ),
         query: str = Field(
             default="",
@@ -233,22 +242,50 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "assertions + low scores joined to their trace's agent, grouped; query=agent/"
             "capability filter), 'prompt_regression' (mean score per prompt version — which "
             "regressed), 'failure_cluster' (failing traces clustered by the failed assertion "
-            "— systemic breaks across agents)."
+            "— systemic breaks across agents), 'error_detail' (resolve a failed operation's "
+            "opaque `error.detail_ref` back to its sanitized error_class/failing_layer/"
+            "traceback — query=the detail_ref; scoped to the caller's own tenant authority, "
+            "fails closed — CONCEPT:AU-KG.audit.error-detail-resolution)."
         ),
         tags=["graph-os", "observe", "eval"],
     )
     async def graph_observe(
         action: str = Field(
             default="trace_rootcause",
-            description="trace_rootcause | prompt_regression | failure_cluster",
+            description="trace_rootcause | prompt_regression | failure_cluster | error_detail",
         ),
         query: str = Field(
             default="",
-            description="Optional agent/capability filter (trace_rootcause).",
+            description="Agent/capability filter (trace_rootcause) or a detail_ref (error_detail).",
         ),
         top_k: int = Field(default=20, description="Max rows/clusters."),
     ) -> str:
         """Observability + eval analytics over the trace/score subgraph (KG-2.257)."""
+        if action == "error_detail":
+            # Resolving a previously recorded failure is unrelated to the
+            # trace/score subgraph below and needs no active engine — it must
+            # keep working even when the engine the ORIGINAL failure came from
+            # is unavailable (that is frequently WHY the caller is resolving
+            # it in the first place).
+            from agent_utilities.security.brain_context import IdentityRequiredError
+            from agent_utilities.security.error_surface import (
+                resolve_error_detail_for_actor,
+            )
+
+            try:
+                detail = resolve_error_detail_for_actor(query)
+            except (IdentityRequiredError, PermissionError) as exc:
+                return public_error_text(exc, code="permission_denied")
+            if detail is None:
+                return json.dumps({"resolved": False, "detail_ref": query})
+            # tenant_id is internal bookkeeping for the authority check above
+            # (already the caller's own tenant, having passed that check) —
+            # omit it from the returned shape rather than echo it back.
+            public_detail = {k: v for k, v in detail.items() if k != "tenant_id"}
+            return json.dumps(
+                {"resolved": True, "detail_ref": query, **public_detail}, default=str
+            )
+
         engine = kg_server._get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."

@@ -33,8 +33,11 @@ from .goal import (
 )
 from .graph import (
     ExecutionStep,
+    GraphExecutionEvidence,
     GraphPlan,
     GraphResponse,
+    GraphTaskEvidence,
+    GraphTransitionEvidence,
     ParallelBatch,
     WideSearchWorkboard,
 )
@@ -109,6 +112,9 @@ __all__ = [
     "DiscoveredSpecialist",
     "MCPServerHealth",
     "GraphResponse",
+    "GraphExecutionEvidence",
+    "GraphTransitionEvidence",
+    "GraphTaskEvidence",
     "ExecutionStep",
     "ParallelBatch",
     "GraphPlan",

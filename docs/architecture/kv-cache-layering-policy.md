@@ -7,7 +7,11 @@
 > **Related:** `CONCEPT:AU-ORCH.routing.sampling-profile-selection` (the per-call sampling seam this rides on) ·
 > `CONCEPT:AU-KG.backend.kvcache-vllm-connector` (`EpistemicGraphKVBackend`, the L2 store) ·
 > `CONCEPT:EG-KG.memory.byte-bounded-tiers/186/187` (tiered, content-addressed engine KV-cache) ·
-> [KV-Cache Layering guide](../guides/kvcache-vllm-lmcache.md).
+> [KV-Cache Layering guide](../guides/kvcache-vllm-lmcache.md) ·
+> [KV-Checkpoint Intelligence](kv-checkpoint-intelligence.md) — the sibling decision:
+> this page decides whether ONE EXECUTION's KV blocks are worth storing; that one decides
+> whether the CURRENT CONTEXT is at a good moment to be frozen as a named, restorable
+> checkpoint, and whether that checkpoint may live past the session.
 
 ## Why
 
@@ -114,3 +118,33 @@ env-sprawl):
   is a ready input for **warming / routing** decisions (e.g. pre-warm a reuse-heavy
   context, or route a cache-worthy conversation to a warm worker) — surfaced but
   not yet wired to a router.
+
+## Related: zero-copy branch forking + KV checkpoints
+
+This page covers the **store-side, per-request** decision (write this request's
+KV blocks into LMCache, or don't). Two related capabilities build on the SAME
+underlying `EpistemicGraphKVBackend`/engine KV surface but answer a different
+question — not "should I store", but "can several branches/agents **share** what
+was already stored" and "can I **snapshot and later reload** a KV state":
+
+- **Default-on zero-copy fork for branch fan-out** — `CrossModalForkFanout.fan_out`
+  (`agent_utilities/runtime/crossmodal_fork.py`, `graph_fork` MCP tool) snapshots
+  and forks a `>1`-branch cohort's shared prefix over the engine's
+  `/kv/snapshot` → `/kv/snapshot/<id>/fork` → `/kv/branch/<bid>/<key>` primitive
+  (`CONCEPT:EG-KG.memory.zero-copy-snapshot-fork`) instead of a per-branch
+  `copy.deepcopy`, whenever the resolved backend advertises `supports_fork()`.
+  This policy's own `PriorityClass` fold-in (`BACKGROUND_INGESTION` never stores,
+  `INTERACTIVE` halves the store thresholds) is the STORE-side lever that biases
+  which pages are still resident to fork over in the first place.
+- **KV checkpoints as first-class graph resources** — `KVCheckpointStore`
+  (`agent_utilities/kvcache/checkpoint.py`, `graph_kv_checkpoint` MCP tool) lets an
+  operator checkpoint a KV blob at a point of ideal understanding and later
+  `instantiate_agent`/`restore_conversation` from it, fail-closed on a
+  cross-tenant/stale load.
+
+Full mechanism, sequencing, and a mermaid diagram for both:
+[KV-Cache Layering guide § Zero-copy branch forking (default-on) + KV
+checkpoints](../guides/kvcache-vllm-lmcache.md#zero-copy-branch-forking-default-on-kv-checkpoints)
+— kept there rather than duplicated onto a second architecture page, since the
+guide already carries the wire-level `/kv/snapshot`/`/kv/branch` detail both
+capabilities build on.
