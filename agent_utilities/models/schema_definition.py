@@ -23,7 +23,7 @@ EMBEDDING_TYPE = f"FLOAT[{EMBEDDING_DIM}]"
 # the Postgres transpiler — ignore it; they accept arbitrary labels natively.)
 GENERIC_NODE_COLUMNS: dict[str, str] = {
     "id": "STRING PRIMARY KEY",
-    "type": "STRING",
+    "node_type": "STRING",
     "name": "STRING",
     "description": "STRING",
     "concept_id": "STRING",
@@ -45,7 +45,7 @@ SCHEMA = GraphSchemaDefinition(
             name="BusinessRole",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "concept_id": "STRING",
@@ -59,7 +59,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ApplicationComponent",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "concept_id": "STRING",
@@ -73,7 +73,7 @@ SCHEMA = GraphSchemaDefinition(
             name="BusinessProcess",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "concept_id": "STRING",
@@ -87,7 +87,7 @@ SCHEMA = GraphSchemaDefinition(
             name="LanguageModel",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "provider": "STRING",
                 "supports_json": "BOOLEAN",
                 "vision": "BOOLEAN",
@@ -109,7 +109,7 @@ SCHEMA = GraphSchemaDefinition(
             name="EmbeddingModel",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "provider": "STRING",
                 "parallel_instances": "INT64",
                 "max_parallel_calls": "INT64",
@@ -125,7 +125,7 @@ SCHEMA = GraphSchemaDefinition(
             name="DiffEntry",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "content": "STRING",
                 "embedding": EMBEDDING_TYPE,
                 "target_path": "STRING",
@@ -142,7 +142,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ExecutionSummary",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "workflow_id": "STRING",
                 "session_id": "STRING",
                 "success_rate": "FLOAT",
@@ -157,7 +157,7 @@ SCHEMA = GraphSchemaDefinition(
             name="PerformanceAnomaly",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "target_node_id": "STRING",
                 "anomaly_type": "STRING",  # e.g., "TIMEOUT", "HIGH_TOKEN_USAGE", "FALLBACK_LIMIT_EXCEEDED"
                 "threshold_exceeded": "FLOAT",
@@ -172,7 +172,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SystemConfig",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "routing_strategy": "STRING",
                 "graph_router_timeout": "FLOAT",
                 "kg_llm_concurrency": "INT64",
@@ -188,7 +188,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Agent",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "agent_type": "STRING",
@@ -208,7 +208,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Tool",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "mcp_server": "STRING",
@@ -227,7 +227,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Server",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "url": "STRING",
                 "status": "STRING",
@@ -245,7 +245,7 @@ SCHEMA = GraphSchemaDefinition(
             name="HardwareNode",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "hostname": "STRING",
                 "ip_address": "STRING",
                 "ssh_port": "INT64",
@@ -262,7 +262,7 @@ SCHEMA = GraphSchemaDefinition(
             name="PlatformService",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "agent_stack": "STRING",
                 "docker_compose_source": "STRING",
@@ -278,7 +278,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Action",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "action_type": "STRING",
                 "status": "STRING",
@@ -295,7 +295,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Prompt",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "system_prompt": "STRING",
@@ -314,7 +314,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Skill",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "version": "STRING",
                 "embedding": EMBEDDING_TYPE,
@@ -328,7 +328,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Code",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "file_path": "STRING",
                 # Code-symbol attributes the code-nav surface projects/queries
@@ -354,7 +354,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Symbol",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "symbol_type": "STRING",
                 "file_path": "STRING",
@@ -370,7 +370,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Memory",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "category": "STRING",
@@ -387,7 +387,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Client",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -400,7 +400,7 @@ SCHEMA = GraphSchemaDefinition(
             name="User",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "role": "STRING",
                 "importance_score": "FLOAT",
@@ -413,7 +413,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Preference",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "category": "STRING",
                 "value": "STRING",
                 "importance_score": "FLOAT",
@@ -426,7 +426,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Job",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "schedule": "STRING",
                 "command": "STRING",
@@ -442,7 +442,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Log",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "timestamp": "STRING",
                 "task_id": "STRING",
                 "task_name": "STRING",
@@ -458,7 +458,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Thread",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "title": "STRING",
                 "created_at": "STRING",
                 "importance_score": "FLOAT",
@@ -472,7 +472,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Message",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "role": "STRING",
                 "content": "STRING",
                 "timestamp": "STRING",
@@ -486,7 +486,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Memento",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "content": "STRING",
                 "source": "STRING",
@@ -506,7 +506,7 @@ SCHEMA = GraphSchemaDefinition(
             name="EvictedBlock",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 # This is always a fixed encryption marker in current records. Plaintext raw
                 # conversation content is intentionally forbidden at this persistence boundary.
@@ -526,7 +526,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Heartbeat",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "agent_name": "STRING",
                 "timestamp": "STRING",
                 "status": "STRING",
@@ -541,7 +541,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ChatSummary",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "summary_text": "STRING",
                 "original_count": "INT64",
                 "importance_score": "FLOAT",
@@ -555,7 +555,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ReasoningTrace",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "thought": "STRING",
                 "reflection": "STRING",
                 "confidence": "FLOAT",
@@ -569,7 +569,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ToolCall",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "trace_schema_version": "INT64",
                 "run_id": "STRING",
                 "tool_name": "STRING",
@@ -602,7 +602,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Entity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "entity_type": "STRING",
                 "properties": "STRING",
                 "importance_score": "FLOAT",
@@ -615,7 +615,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Event",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "timestamp": "STRING",
                 "event_type": "STRING",
                 "importance_score": "FLOAT",
@@ -627,7 +627,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Reflection",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "content": "STRING",
                 "confidence": "FLOAT",
                 "importance_score": "FLOAT",
@@ -640,7 +640,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Goal",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "goal_text": "STRING",
                 "status": "STRING",
                 "importance_score": "FLOAT",
@@ -653,7 +653,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Episode",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "timestamp": "STRING",
                 "source": "STRING",
                 "description": "STRING",
@@ -666,7 +666,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Fact",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "content": "STRING",
                 "certainty": "FLOAT",
                 "importance_score": "FLOAT",
@@ -692,7 +692,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ExternalGraphReference",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "endpoint_url": "STRING",
                 "graph_type": "STRING",
                 "sourceUrl": "STRING",
@@ -707,7 +707,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ExternalEntity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "externalSystemId": "STRING",
                 "externalUri": "STRING",
                 "platform": "STRING",
@@ -722,7 +722,7 @@ SCHEMA = GraphSchemaDefinition(
             name="TweetNode",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "post_id": "STRING",
                 "text_content": "STRING",
                 "author_handle": "STRING",
@@ -737,7 +737,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Capability",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
@@ -750,7 +750,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ToolMetadata",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "tags": "STRING[]",
                 "prompt_template": "STRING",
                 "resources": "STRING",
@@ -768,7 +768,7 @@ SCHEMA = GraphSchemaDefinition(
             name="CallableResource",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "resource_type": "STRING",
                 "endpoint": "STRING",
@@ -793,7 +793,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SpawnedAgent",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "system_prompt": "STRING",
                 "tool_ids": "STRING[]",
@@ -809,7 +809,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SystemPrompt",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "content": "STRING",
                 "version": "STRING",
@@ -828,7 +828,7 @@ SCHEMA = GraphSchemaDefinition(
             name="AgentTemplate",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "role": "STRING",
@@ -850,7 +850,7 @@ SCHEMA = GraphSchemaDefinition(
             name="RunTrace",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "trace_schema_version": "INT64",
                 "run_id": "STRING",
                 "attribution_ref": "STRING",
@@ -901,7 +901,7 @@ SCHEMA = GraphSchemaDefinition(
             name="TraceConsumerCursor",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "trace_schema_version": "INT64",
                 "consumer_ref": "STRING",
                 "cursor_kind": "STRING",
@@ -918,7 +918,7 @@ SCHEMA = GraphSchemaDefinition(
             name="EvolutionCycle",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "triggered_by": "STRING",
                 "topics_scanned": "INT64",
                 "papers_scored": "INT64",
@@ -935,7 +935,7 @@ SCHEMA = GraphSchemaDefinition(
             name="OutcomeEvaluation",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "trace_schema_version": "INT64",
                 "trace_id": "STRING",
                 "status": "STRING",
@@ -960,7 +960,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Critique",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "textual_gradient": "STRING",
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
@@ -972,7 +972,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SelfEvaluation",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "confidence_calibration": "FLOAT",
                 "task_difficulty": "FLOAT",
                 "importance_score": "FLOAT",
@@ -985,7 +985,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Experiment",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "status": "STRING",
                 "importance_score": "FLOAT",
                 "metadata": "STRING",
@@ -996,7 +996,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ProposedSkill",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "code_content": "STRING",
                 "frontmatter": "STRING",
                 "importance_score": "FLOAT",
@@ -1010,7 +1010,7 @@ SCHEMA = GraphSchemaDefinition(
             name="KnowledgeBase",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "topic": "STRING",
                 "description": "STRING",
@@ -1028,7 +1028,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Article",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "summary": "STRING",
                 "content": "STRING",
@@ -1048,7 +1048,7 @@ SCHEMA = GraphSchemaDefinition(
             name="RawSource",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "file_path": "STRING",
                 "source_type": "STRING",
@@ -1065,7 +1065,7 @@ SCHEMA = GraphSchemaDefinition(
             name="KBConcept",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "embedding": EMBEDDING_TYPE,
@@ -1079,7 +1079,7 @@ SCHEMA = GraphSchemaDefinition(
             name="KBFact",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "content": "STRING",
                 "certainty": "FLOAT",
                 "source_ids": "STRING[]",
@@ -1094,7 +1094,7 @@ SCHEMA = GraphSchemaDefinition(
             name="KBIndex",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "content": "STRING",
                 "kb_id": "STRING",
                 "article_count": "INT64",
@@ -1108,7 +1108,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Checkpoint",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "label": "STRING",
                 "turn": "INT64",
                 "message_count": "INT64",
@@ -1123,7 +1123,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Team",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "status": "STRING",
                 "member_count": "INT64",
@@ -1137,7 +1137,7 @@ SCHEMA = GraphSchemaDefinition(
             name="WorkItem",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "tenant": "STRING",
                 "kind": "STRING",
@@ -1183,7 +1183,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Policy",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "policy_id": "STRING",
                 "name": "STRING",
                 "description": "STRING",
@@ -1205,7 +1205,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ProcessFlow",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "flow_id": "STRING",
                 "name": "STRING",
                 "goal": "STRING",
@@ -1222,7 +1222,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ProcessStep",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "step_id": "STRING",
                 "name": "STRING",
                 "step_type": "STRING",
@@ -1238,7 +1238,7 @@ SCHEMA = GraphSchemaDefinition(
             name="KnowledgeBaseTopic",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "topic_id": "STRING",
                 "name": "STRING",
                 "description": "STRING",
@@ -1254,7 +1254,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Source",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "source_id": "STRING",
                 "title": "STRING",
                 "doi": "STRING",
@@ -1271,7 +1271,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Evidence",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "evidence_id": "STRING",
                 "claim": "STRING",
                 "confidence_score": "FLOAT",
@@ -1285,7 +1285,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Person",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "person_id": "STRING",
                 "name": "STRING",
                 "expertise": "STRING[]",
@@ -1300,7 +1300,7 @@ SCHEMA = GraphSchemaDefinition(
             name="PatternTemplate",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "pattern_type": "STRING",
                 "content": "STRING",
@@ -1316,7 +1316,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Codemap",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "prompt": "STRING",
                 "mode": "STRING",
                 "hierarchy": "STRING",
@@ -1334,7 +1334,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ChangeManifest",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "round_id": "STRING",
                 "baseline_score": "FLOAT",
                 "predicted_score": "FLOAT",
@@ -1352,7 +1352,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ComponentEditRecord",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "component_type": "STRING",
                 "file_path": "STRING",
                 "edit_summary": "STRING",
@@ -1370,7 +1370,7 @@ SCHEMA = GraphSchemaDefinition(
             name="EvidenceRecord",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "task_id": "STRING",
                 "pass_fail": "BOOLEAN",
                 "root_cause": "STRING",
@@ -1388,7 +1388,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ConstraintState",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "description": "STRING",
                 "current_level": "STRING",
                 "violation_count": "INT64",
@@ -1405,7 +1405,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Organization",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "org_id": "STRING",
@@ -1424,7 +1424,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Role",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "role_id": "STRING",
@@ -1442,7 +1442,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Place",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "place_id": "STRING",
@@ -1461,7 +1461,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Phase",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "phase_id": "STRING",
@@ -1479,7 +1479,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Decision",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "decision_id": "STRING",
@@ -1501,7 +1501,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Incident",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "incident_id": "STRING",
@@ -1522,7 +1522,7 @@ SCHEMA = GraphSchemaDefinition(
             name="System",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "system_id": "STRING",
@@ -1542,7 +1542,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Belief",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "statement": "STRING",
@@ -1563,7 +1563,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Hypothesis",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "prediction": "STRING",
@@ -1584,7 +1584,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Principle",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "principle_id": "STRING",
@@ -1607,7 +1607,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Document",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "title": "STRING",
@@ -1631,7 +1631,7 @@ SCHEMA = GraphSchemaDefinition(
             name="CreativeWork",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "title": "STRING",
@@ -1650,7 +1650,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Dataset",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "distribution_url": "STRING",
@@ -1669,7 +1669,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SoftwareProject",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "repo_url": "STRING",
@@ -1688,7 +1688,7 @@ SCHEMA = GraphSchemaDefinition(
             name="MedicalEntity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "entity_type": "STRING",
@@ -1704,7 +1704,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Procedure",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "steps": "STRING[]",
@@ -1722,7 +1722,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Regulation",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "jurisdiction": "STRING",
@@ -1741,7 +1741,7 @@ SCHEMA = GraphSchemaDefinition(
             name="FinancialInstrument",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "instrument_type": "STRING",
@@ -1759,7 +1759,7 @@ SCHEMA = GraphSchemaDefinition(
             name="FinancialTransaction",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "transaction_type": "STRING",
@@ -1778,7 +1778,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Account",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "account_type": "STRING",
@@ -1795,7 +1795,7 @@ SCHEMA = GraphSchemaDefinition(
             name="GeopoliticalEntity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -1808,7 +1808,7 @@ SCHEMA = GraphSchemaDefinition(
             name="EnergyEntity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -1821,7 +1821,7 @@ SCHEMA = GraphSchemaDefinition(
             name="InfrastructureEntity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -1836,7 +1836,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Container",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "container_id": "STRING",
@@ -1857,7 +1857,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ContainerStack",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "stack_name": "STRING",
@@ -1878,7 +1878,7 @@ SCHEMA = GraphSchemaDefinition(
             name="NetworkSubnet",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "cidr": "STRING",
@@ -1896,7 +1896,7 @@ SCHEMA = GraphSchemaDefinition(
             name="NetworkInterface",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "interface_name": "STRING",
@@ -1915,7 +1915,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ReverseProxy",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "proxy_type": "STRING",
@@ -1933,7 +1933,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ProxyRoute",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "domain": "STRING",
@@ -1951,7 +1951,7 @@ SCHEMA = GraphSchemaDefinition(
             name="VPNTunnel",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "tunnel_type": "STRING",
@@ -1969,7 +1969,7 @@ SCHEMA = GraphSchemaDefinition(
             name="DNSService",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "dns_type": "STRING",
@@ -1987,7 +1987,7 @@ SCHEMA = GraphSchemaDefinition(
             name="DNSRewrite",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "domain": "STRING",
@@ -2004,7 +2004,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ObservabilityStack",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "stack_type": "STRING",
@@ -2020,7 +2020,7 @@ SCHEMA = GraphSchemaDefinition(
             name="MetricsExporter",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "exporter_type": "STRING",
@@ -2037,7 +2037,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ContainerRegistry",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "registry_type": "STRING",
@@ -2053,7 +2053,7 @@ SCHEMA = GraphSchemaDefinition(
             name="DDClient",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "ddclient_type": "STRING",
@@ -2071,7 +2071,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Rack",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "rack_id": "STRING",
@@ -2090,7 +2090,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Chassis",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "chassis_id": "STRING",
@@ -2108,7 +2108,7 @@ SCHEMA = GraphSchemaDefinition(
             name="BladeServer",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "blade_id": "STRING",
@@ -2125,7 +2125,7 @@ SCHEMA = GraphSchemaDefinition(
             name="GPUAccelerator",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "gpu_model": "STRING",
@@ -2143,7 +2143,7 @@ SCHEMA = GraphSchemaDefinition(
             name="StorageArray",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "array_type": "STRING",
@@ -2160,7 +2160,7 @@ SCHEMA = GraphSchemaDefinition(
             name="PowerDistribution",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "pdu_id": "STRING",
@@ -2177,7 +2177,7 @@ SCHEMA = GraphSchemaDefinition(
             name="CoolingUnit",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "unit_type": "STRING",
@@ -2193,7 +2193,7 @@ SCHEMA = GraphSchemaDefinition(
             name="FabricSwitch",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "switch_type": "STRING",
@@ -2209,7 +2209,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Country",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2222,7 +2222,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Region",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2235,7 +2235,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Leader",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2248,7 +2248,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Alliance",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2261,7 +2261,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SanctionEvent",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2274,7 +2274,7 @@ SCHEMA = GraphSchemaDefinition(
             name="RiskIndex",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2287,7 +2287,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Commodity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2300,7 +2300,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Chokepoint",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2313,7 +2313,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ProductionFacility",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2326,7 +2326,7 @@ SCHEMA = GraphSchemaDefinition(
             name="EnergyReserve",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2339,7 +2339,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SupplyRoute",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2352,7 +2352,7 @@ SCHEMA = GraphSchemaDefinition(
             name="DisruptionEvent",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2365,7 +2365,7 @@ SCHEMA = GraphSchemaDefinition(
             name="EconomicIndicator",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2378,7 +2378,7 @@ SCHEMA = GraphSchemaDefinition(
             name="DemandForecast",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2391,7 +2391,7 @@ SCHEMA = GraphSchemaDefinition(
             name="WeatherEvent",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2404,7 +2404,7 @@ SCHEMA = GraphSchemaDefinition(
             name="MCPServer",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "command": "STRING",
                 "args": "STRING",
@@ -2418,7 +2418,7 @@ SCHEMA = GraphSchemaDefinition(
             name="NativeTool",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "version": "STRING",
@@ -2433,7 +2433,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Corpus",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "base_path": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2446,7 +2446,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ChatLog",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "content": "STRING",
                 "agent_id": "STRING",
                 "importance_score": "FLOAT",
@@ -2459,7 +2459,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SDD",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "content": "STRING",
                 "agent_id": "STRING",
                 "importance_score": "FLOAT",
@@ -2472,7 +2472,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Execution",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "status": "STRING",
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
@@ -2485,7 +2485,7 @@ SCHEMA = GraphSchemaDefinition(
             name="WorkflowDefinition",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "nl_spec": "STRING",
@@ -2508,7 +2508,7 @@ SCHEMA = GraphSchemaDefinition(
             name="WorkflowStep",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "node_id": "STRING",
                 "step_order": "INT64",
                 "is_parallel": "BOOLEAN",
@@ -2528,7 +2528,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ImplementationPlan",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "title": "STRING",
                 "version": "INT64",
                 "chatSessionId": "STRING",
@@ -2544,7 +2544,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Tasks",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "title": "STRING",
                 "version": "INT64",
                 "chatSessionId": "STRING",
@@ -2559,7 +2559,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SoftwareFeature",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "title": "STRING",
                 "description": "STRING",
                 "status": "STRING",
@@ -2573,7 +2573,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Project",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "importance_score": "FLOAT",
@@ -2586,7 +2586,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Session",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "title": "STRING",
                 "status": "STRING",
                 "importance_score": "FLOAT",
@@ -2599,7 +2599,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Relationship",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "relationship_type": "STRING",
@@ -2616,7 +2616,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Continuant",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2629,7 +2629,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Occurrent",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2642,7 +2642,7 @@ SCHEMA = GraphSchemaDefinition(
             name="SpatialRegion",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2655,7 +2655,7 @@ SCHEMA = GraphSchemaDefinition(
             name="TemporalRegion",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2668,7 +2668,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Boundary",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2681,7 +2681,7 @@ SCHEMA = GraphSchemaDefinition(
             name="QuantityValue",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2694,7 +2694,7 @@ SCHEMA = GraphSchemaDefinition(
             name="UnitOfMeasure",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2707,7 +2707,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Product",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2720,7 +2720,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Offer",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2733,7 +2733,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ProvenanceActivity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2746,7 +2746,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ProvenanceAgent",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2759,7 +2759,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Gene",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2772,7 +2772,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Disease",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2785,7 +2785,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Drug",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2798,7 +2798,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Anatomy",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2811,7 +2811,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ClinicalTrial",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2824,7 +2824,7 @@ SCHEMA = GraphSchemaDefinition(
             name="MedicalObservation",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2837,7 +2837,7 @@ SCHEMA = GraphSchemaDefinition(
             name="BankAccount",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2850,7 +2850,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Equity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2863,7 +2863,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Derivative",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2876,7 +2876,7 @@ SCHEMA = GraphSchemaDefinition(
             name="CorporateAction",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2889,7 +2889,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Loan",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2902,7 +2902,7 @@ SCHEMA = GraphSchemaDefinition(
             name="MarketIndex",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2915,7 +2915,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Sensor",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2928,7 +2928,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Actuator",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2941,7 +2941,7 @@ SCHEMA = GraphSchemaDefinition(
             name="IotDevice",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2954,7 +2954,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ManufacturingPlant",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2967,7 +2967,7 @@ SCHEMA = GraphSchemaDefinition(
             name="MaterialAsset",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2980,7 +2980,7 @@ SCHEMA = GraphSchemaDefinition(
             name="MaintenanceLog",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -2993,7 +2993,7 @@ SCHEMA = GraphSchemaDefinition(
             name="LegalContract",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3006,7 +3006,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Jurisdiction",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3019,7 +3019,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Legislation",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3032,7 +3032,7 @@ SCHEMA = GraphSchemaDefinition(
             name="CourtRuling",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3045,7 +3045,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ThreatActor",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3058,7 +3058,7 @@ SCHEMA = GraphSchemaDefinition(
             name="CulturalArtifact",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3071,7 +3071,7 @@ SCHEMA = GraphSchemaDefinition(
             name="MuseumExhibit",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3084,7 +3084,7 @@ SCHEMA = GraphSchemaDefinition(
             name="MusicalWork",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3097,7 +3097,7 @@ SCHEMA = GraphSchemaDefinition(
             name="PublicationRecord",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3110,7 +3110,7 @@ SCHEMA = GraphSchemaDefinition(
             name="HistoricalEvent",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3123,7 +3123,7 @@ SCHEMA = GraphSchemaDefinition(
             name="BusinessDivision",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3136,7 +3136,7 @@ SCHEMA = GraphSchemaDefinition(
             name="CostCenter",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3149,7 +3149,7 @@ SCHEMA = GraphSchemaDefinition(
             name="BoardOfDirectors",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3162,7 +3162,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Committee",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3175,7 +3175,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Employee",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3188,7 +3188,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Contractor",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3201,7 +3201,7 @@ SCHEMA = GraphSchemaDefinition(
             name="VirtualWorker",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3214,7 +3214,7 @@ SCHEMA = GraphSchemaDefinition(
             name="PayGrade",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3227,7 +3227,7 @@ SCHEMA = GraphSchemaDefinition(
             name="PerformanceReview",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3240,7 +3240,7 @@ SCHEMA = GraphSchemaDefinition(
             name="TrainingModule",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3253,7 +3253,7 @@ SCHEMA = GraphSchemaDefinition(
             name="AuthorityDelegation",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3266,7 +3266,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ComplianceAudit",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3279,7 +3279,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ResourceQuota",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3292,7 +3292,7 @@ SCHEMA = GraphSchemaDefinition(
             name="AllHandsMeeting",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3305,7 +3305,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ExecutiveMemo",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3318,7 +3318,7 @@ SCHEMA = GraphSchemaDefinition(
             name="TownHall",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "timestamp": "STRING",
@@ -3331,7 +3331,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Company",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3343,7 +3343,7 @@ SCHEMA = GraphSchemaDefinition(
             name="GovernancePolicy",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3355,7 +3355,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Jurisdiction",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3367,7 +3367,7 @@ SCHEMA = GraphSchemaDefinition(
             name="BusinessDivision",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3379,7 +3379,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Product",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3391,7 +3391,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Drug",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3403,7 +3403,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Disease",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3415,7 +3415,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Person",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3427,7 +3427,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Employee",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3439,7 +3439,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Contractor",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3451,7 +3451,7 @@ SCHEMA = GraphSchemaDefinition(
             name="VirtualWorker",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3463,7 +3463,7 @@ SCHEMA = GraphSchemaDefinition(
             name="AuthorityDelegation",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3475,7 +3475,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ComplianceAudit",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3487,7 +3487,7 @@ SCHEMA = GraphSchemaDefinition(
             name="CostCenter",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3499,7 +3499,7 @@ SCHEMA = GraphSchemaDefinition(
             name="QuantityValue",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3511,7 +3511,7 @@ SCHEMA = GraphSchemaDefinition(
             name="UnitOfMeasure",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3523,7 +3523,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ProvenanceActivity",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "timestamp": "STRING",
                 "importance_score": "FLOAT",
@@ -3540,7 +3540,7 @@ SCHEMA = GraphSchemaDefinition(
             name="Claim",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "claim_text": "STRING",
@@ -3561,7 +3561,7 @@ SCHEMA = GraphSchemaDefinition(
             name="ExtractionRun",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
+                "node_type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
                 "source_id": "STRING",
