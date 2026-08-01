@@ -20,13 +20,13 @@ from agent_utilities.models.schema_pack import (
 def _make_engine():
     engine = MagicMock()
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("hub", type="concept")
-    g.add_node("leaf", type="fact")
-    g.add_node("isolated", type="event")
+    g.add_node("hub", node_type="concept")
+    g.add_node("leaf", node_type="fact")
+    g.add_node("isolated", node_type="event")
     for i in range(10):
-        g.add_node(f"s{i}", type="entity")
-        g.add_edge(f"s{i}", "hub", type="related_to")
-    g.add_edge("hub", "leaf", type="provides")
+        g.add_node(f"s{i}", node_type="entity")
+        g.add_edge(f"s{i}", "hub", relationship="related_to")
+    g.add_edge("hub", "leaf", relationship="provides")
     engine.graph = g
     engine.backend = None
     return engine

@@ -196,8 +196,16 @@ class EventLedger:
         # Fallback to Tier 2 in-memory MultiDiGraph
         if not events:
             for nid, data in self.engine.graph.nodes(data=True):
-                # OGM serializes type as enum value string ("event")
-                if data.get("type") == "event" and data.get("episode_id") == run_id:
+                # OGM._serialize (ogm.py) writes the canonical `node_type` key
+                # (enum value string, e.g. "event"), never the retired bare
+                # `type` this used to check -- so this fallback branch matched
+                # ZERO nodes against any node actually written through the OGM
+                # (D-W2N-3 family: same defect class already fixed once for
+                # knowledge_tools.sync_feature_to_memory).
+                if (
+                    data.get("node_type") == "event"
+                    and data.get("episode_id") == run_id
+                ):
                     try:
                         events.append(self.mapper._deserialize(dict(data), EventNode))
                     except Exception:  # nosec B110, B112
