@@ -222,7 +222,7 @@ def _run_owl_cycle(engine: Any) -> dict[str, Any]:
         )
         stats = bridge.run_cycle(lightweight=True)
         return {"status": "success", **stats}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — best-effort OWL cycle, caller already treats result as optional
         logger.debug("OWL cycle skipped: %s", e)
         return {"status": "skipped", "reason": str(e)}
 

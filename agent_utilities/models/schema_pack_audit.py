@@ -108,7 +108,7 @@ class SchemaCandidateAuditor:
         try:
             with open(_audit_path(), "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record) + "\n")
-        except Exception as e:  # pragma: no cover - never block the write path
+        except Exception as e:  # pragma: no cover - never block the write path  # noqa: BLE001 — audit-log write, best-effort telemetry
             logger.debug("schema candidate audit write failed: %s", e)
             return False
         return True

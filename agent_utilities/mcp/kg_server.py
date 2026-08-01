@@ -2812,7 +2812,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                                     "disabled": disabled,
                                 },
                             )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
                     logger.debug("Failed to ingest a native-tool module: %s", exc)
         logger.info("Ingested Native Tools")
     except Exception as exc:
@@ -4540,7 +4540,7 @@ def mcp_server() -> None:
         if fleet_mux is not None:
             try:
                 asyncio.run(fleet_mux.aclose())
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — best-effort teardown of a lazily-mounted fleet child at process exit
                 logger.debug("fleet loader close failed: %s", exc)
 
 

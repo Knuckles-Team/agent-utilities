@@ -293,7 +293,7 @@ def size_position(
             else:
                 f = client.finance.kelly_fraction(estimate, price, cfg.kelly_fraction)
             return float(f) * multiplier
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — equivalent local Kelly fallback formula follows
             logger.debug("engine Kelly unavailable, using local fallback: %s", exc)
     # local fallback (kept identical to the engine's point-Kelly formula)
     if price >= estimate or price <= 0.0 or price >= 1.0:
