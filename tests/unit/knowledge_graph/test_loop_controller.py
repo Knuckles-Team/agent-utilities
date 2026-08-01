@@ -479,10 +479,30 @@ class _BeliefStubEngine:
             return list(self._belief_rows)
         return []
 
-    def add_node(self, node_id: str, properties: dict[str, Any]) -> None:
+    def add_node(
+        self,
+        node_id: str,
+        node_type: str,
+        properties: dict[str, Any] | None = None,
+        ephemeral: bool = False,
+        *,
+        session: Any = None,
+    ) -> None:
+        # Matches IntelligenceGraphEngine.add_node's real signature
+        # (core/engine.py): node_type is a required positional arg between
+        # node_id and properties, not a 2-arg (node_id, properties) call —
+        # _run_belief_revision calls add_node(node_id, "BeliefRevisionProposal",
+        # properties=...), which this stub's previous 2-arg signature couldn't
+        # accept (TypeError, silently swallowed by the caller's best-effort
+        # per-item persistence try/except, so persisted_nodes stayed 0).
         if any(node_id.startswith(f) for f in self._fail_add_node_ids):
             raise RuntimeError(f"persist failed for {node_id}")
-        self.added_nodes.append((node_id, properties))
+        # Mirrors IntelligenceGraphEngine.add_node's own real behavior: it
+        # folds node_type into the persisted properties under the canonical
+        # 'node_type' key (the retired 'type' key raises ValueError there).
+        stored = dict(properties or {})
+        stored["node_type"] = node_type
+        self.added_nodes.append((node_id, stored))
 
 
 def _belief_row(
@@ -530,7 +550,7 @@ def test_run_belief_revision_recomputes_and_persists_proposals():
 
     node_id, props = eng.added_nodes[0]
     assert node_id.startswith("BeliefRevisionProposal:")
-    assert props["type"] == "BeliefRevisionProposal"
+    assert props["node_type"] == "BeliefRevisionProposal"
     assert props["status"] == "proposal"
     assert props["belief_id"] in {"belief:a", "belief:b"}
     assert "reasoning_trace" in props

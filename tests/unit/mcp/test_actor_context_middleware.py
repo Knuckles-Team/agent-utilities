@@ -60,7 +60,13 @@ async def test_bridge_scopes_call_to_okta_identity_and_resets(monkeypatch):
     assert captured["session"].policy_version == "policy-v1"
     # Contextvar restored after the call (no leakage).
     assert current_actor() == ambient
-    assert current_actor().authenticated is False
+    # The request's principal specifically did not leak into the ambient actor.
+    # (This used to assert `authenticated is False`, which encoded an assumption
+    # about the *suite's* ambient actor rather than about leakage; the suite
+    # fixture now binds an authenticated service principal. The assertion was
+    # never executed before D-SP-1 because minting reached the engine, so the
+    # whole test skipped in an engine-less environment.)
+    assert current_actor().actor_id != "principal:verified"
 
 
 @pytest.mark.asyncio

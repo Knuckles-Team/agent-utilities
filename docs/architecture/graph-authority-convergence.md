@@ -32,6 +32,41 @@ context. Request payloads cannot replace or widen those fields. When production
 session enforcement is enabled, a missing session and a caller-created
 replacement both fail closed.
 
+### Identity, not topology
+
+Minting establishes **who the caller is**; it never resolves **where the data
+lives**. `endpoint`, `placement_group`, and `catalog_epoch` are deliberately
+left unbound by `security/request_identity.py::_mint_graph_session`
+(`endpoint=None` is `GraphSession`'s documented "resolve normally" value). The
+authoritative route is bound **per call** by the data plane in
+`knowledge_graph/core/graph_compute.py`, which is also the only thing that can
+keep it fresh across a leader failover or an online partition move.
+
+This is a security boundary, not a layering preference. Placement is an engine
+read: `PlacementRoute` declares `authz_action = "admin:cluster-read"`
+(epistemic-graph `crates/eg-capabilities/src/lib.rs:2274`), enforced twice in
+`src/server/dispatch.rs` — against the caller's token scopes (`:2185`), and
+again against the engine's own `IsolationLayer` through
+`require_admin_capability` (`:2199` → `src/server/access.rs:858`), which **no
+JWT claim can satisfy**. Resolving placement while minting therefore made
+*engine cluster-administrator authority a precondition for authenticating any
+request on every served surface*. It looked healthy only for as long as every
+credential in use belonged to a cluster admin.
+
+The mint-time route was also never authoritative: for the one payload where the
+epoch is load-bearing — `placement_epoch` and `fencing_token` on
+`ApplyChangeEnvelope` — `graph_compute._route_bound_params` overwrites whatever
+the session carried with the live per-call route. Every other reader of
+`catalog_epoch` treats `None` as "not tracked" and falls back to the data-plane
+epoch. The gate `scripts/security/check_tenant_identity_contract.py` pins this
+statically: the minter may contain none of `resolve_placement`, `with_route`,
+`use_session`, `GraphComputeEngine`, or `resolve_endpoints`.
+
+The packaged-local engine transport is still provisioned eagerly, but at the
+process-authority boundary where it belongs — `mcp/kg_server.py`'s
+`_start_engine_bootstrap`, under the process session, before the server accepts
+a request — not implicitly on every authenticated request.
+
 The session is signed into epistemic-graph's v2 verified request context. The
 engine rechecks audience, tenant, policy version, replay nonce, method/body
 binding, primitive capability policy, and graph isolation. The facade's stable
