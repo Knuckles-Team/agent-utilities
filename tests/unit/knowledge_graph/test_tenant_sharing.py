@@ -89,7 +89,25 @@ def test_visibility_predicate_unsafe_id_fails_closed():
 def test_apply_visibility_injects_into_where():
     out = ts.apply_visibility("MATCH (n) WHERE n.x = 1 RETURN n", _user("alice"))
     assert "WHERE (n._owner_id = 'alice'" in out
-    assert "AND n.x = 1" in out
+    # The pre-existing WHERE body is parenthesized as its own unit before being
+    # ANDed with the visibility predicate: a bare `<visibility> AND n.x = 1`
+    # splice would silently mis-group against any top-level OR already in the
+    # caller's own predicate (AND binds tighter than OR), letting a disjunct
+    # bypass visibility scoping entirely. See cypher_scoping.inject_and_predicate.
+    assert "AND (n.x = 1)" in out
+
+
+def test_apply_visibility_parenthesizes_existing_or_predicate():
+    """A caller's own top-level OR must not let a disjunct bypass the injected
+    visibility predicate (the same class of hole this fix closes for the
+    tenant predicate in TenancyManager.scope_cypher_query)."""
+    out = ts.apply_visibility(
+        "MATCH (p:Policy) WHERE p.name CONTAINS 'x' OR p.description CONTAINS 'x' RETURN p",
+        _user("alice"),
+    )
+    assert (
+        "AND (p.name CONTAINS 'x' OR p.description CONTAINS 'x')" in out
+    ), out
 
 
 def test_apply_visibility_injects_before_return():
