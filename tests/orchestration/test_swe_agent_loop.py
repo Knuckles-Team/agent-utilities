@@ -10,6 +10,7 @@ from __future__ import annotations
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from agent_utilities.core.contextual_model import use_grounding_policy
 from agent_utilities.models import AgentDeps
 from agent_utilities.orchestration.swe_agent import build_swe_agent, run_swe_task
 from agent_utilities.runtime import DevWorkspace, LocalWorkspace
@@ -85,7 +86,15 @@ async def test_full_swe_loop_edits_and_runs_tests():
     )
     try:
         agent = build_swe_agent(model=_script())
-        result = await run_swe_task("Fix add() so tests pass.", deps, agent=agent)
+        # CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract: no
+        # ContextCompiler engine is configured in this unit test, so the
+        # default "required" policy would raise GroundingUnavailableError
+        # before the FunctionModel script ever runs. This test is about the
+        # SWE edit/test-run loop, not the grounding gate, so opt into
+        # degraded operation explicitly (matching tests/harness/
+        # test_model_tracing_wrap.py's identical fix).
+        with use_grounding_policy("best_effort"):
+            result = await run_swe_task("Fix add() so tests pass.", deps, agent=agent)
         # the agent's edit landed
         cat = await run_command(_Ctx(deps), "cat calc.py")
         assert "a + b" in cat

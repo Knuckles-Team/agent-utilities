@@ -245,6 +245,38 @@ def test_propose_stores_evidence_refs_and_is_listable():
     assert any(p["proposal_id"] == proposal_id for p in listed)
 
 
+def test_propose_reconciles_typed_evidence_refs_to_their_evidence_id():
+    """D-75-6: a caller passing a real, typed Evidence from the unified
+    Evidence resource (knowledge_graph.research.evidence) gets its
+    content-addressed evidence_id stored, not repr(obj); a plain opaque
+    string ref is unaffected (backward compatible)."""
+    from agent_utilities.knowledge_graph.research.evidence import (
+        Evidence,
+        EvidenceChannel,
+        EvidenceOutcome,
+    )
+
+    typed = Evidence(
+        channel=EvidenceChannel.RESEARCH_FINDING,
+        subject_id="http://example.org/pets",
+        outcome=EvidenceOutcome.PROPOSED,
+        signal=0.8,
+        confidence=0.9,
+    )
+    result = evolution.propose_ontology_change(
+        None,
+        None,
+        PETS_TTL,
+        iri="http://example.org/pets",
+        source_type="text",
+        evidence_refs=[typed, "doc:123#span=4-9"],
+    )
+    proposal_id = result["proposal"]["proposal_id"]
+    fetched = evolution.get_proposal(None, None, proposal_id)
+    assert fetched["evidence_refs"] == [typed.evidence_id, "doc:123#span=4-9"]
+    assert fetched["evidence_refs"][0].startswith("evolution_evidence:")
+
+
 # ── review ───────────────────────────────────────────────────────────────
 
 

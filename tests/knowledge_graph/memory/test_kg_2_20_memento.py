@@ -219,8 +219,14 @@ def test_memento_capability_registered_in_factory_default_on():
     import inspect
 
     from agent_utilities.agent import factory
+    from agent_utilities.capabilities import composition
 
     sig = inspect.signature(factory.create_agent)
     assert sig.parameters["memento_compaction"].default is True
-    src = inspect.getsource(factory)
-    assert "MementoCompaction(" in src  # actually appended, not just imported
+    # factory.create_agent threads memento_compaction through to
+    # default_runtime_capabilities (capabilities/composition.py) -- that is
+    # where MementoCompaction is actually appended, not inline in factory.py.
+    factory_src = inspect.getsource(factory)
+    assert "memento_compaction=memento_compaction" in factory_src
+    composition_src = inspect.getsource(composition)
+    assert "MementoCompaction(" in composition_src  # actually appended, not just imported

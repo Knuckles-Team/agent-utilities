@@ -1140,6 +1140,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_analyze",
+        "action": "distill_memory",
+        "name": "graph_analyze_distill_memory",
+    },
+    {
+        "tool": "graph_analyze",
         "action": "enrichment_coverage",
         "name": "graph_analyze_enrichment_coverage",
     },
@@ -1371,6 +1376,16 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_configure",
+        "action": "stardog_export_graph",
+        "name": "graph_configure_stardog_export_graph",
+    },
+    {
+        "tool": "graph_configure",
+        "action": "stardog_import_graph",
+        "name": "graph_configure_stardog_import_graph",
+    },
+    {
+        "tool": "graph_configure",
         "action": "stardog_sparql",
         "name": "graph_configure_stardog_sparql",
     },
@@ -1481,6 +1496,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_epistemic", "action": "why_not", "name": "graph_epistemic_why_not"},
     {"tool": "graph_etl", "action": "lineage", "name": "graph_etl_lineage"},
     {"tool": "graph_etl", "action": "list", "name": "graph_etl_list"},
+    {
+        "tool": "graph_evaluate",
+        "action": "assimilation_benchmark",
+        "name": "graph_evaluate_assimilation_benchmark",
+    },
     {"tool": "graph_evaluate", "action": "causal", "name": "graph_evaluate_causal"},
     {
         "tool": "graph_evaluate",
@@ -2056,6 +2076,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_research",
+        "action": "contradictions",
+        "name": "graph_research_contradictions",
+    },
+    {
+        "tool": "graph_research",
         "action": "deep_extract",
         "name": "graph_research_deep_extract",
     },
@@ -2063,6 +2088,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_research",
         "action": "evolve_variants",
         "name": "graph_research_evolve_variants",
+    },
+    {
+        "tool": "graph_research",
+        "action": "night_shift",
+        "name": "graph_research_night_shift",
     },
     {
         "tool": "graph_research",
