@@ -242,9 +242,14 @@ class TestLinkPromptToAgent:
         # under the canonical ``relationship`` property key (add_edge hard-
         # rejects the retired ``type``/``rel_type``/... aliases outright), so
         # assert against that contract instead of a nonexistent "rel_type"
-        # canonicalization.
+        # canonicalization. link_prompt_to_agent (with a backend attached, as
+        # here) dispatches through IntelligenceGraphEngine.link_nodes, which
+        # unconditionally upper-cases the relationship type to the
+        # Cypher/Neo4j convention (engine.py's ``rel_type = rel_type.upper()``)
+        # -- so the stored value is the canonical UPPER form, not the
+        # lowercase ``RegistryEdgeType`` enum value.
         assert any(
-            e.get("relationship") == RegistryEdgeType.USES_PROMPT.value
+            e.get("relationship") == RegistryEdgeType.USES_PROMPT.value.upper()
             for e in edge_data.values()
         )
 

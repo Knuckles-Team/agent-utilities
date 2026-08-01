@@ -2572,6 +2572,15 @@ class IngestionEngine:
                     "source_kind": "web-document",
                     "fetch_backend": "bounded-http",
                     "fetched_at": _now(),
+                    # The raw URL for immediate in-process use (e.g. the
+                    # downstream doc.file_path fallback at
+                    # manifest.metadata.get("source_url")) -- source_uri
+                    # above is the privacy-abstracted reference instead.
+                    # 'source_url' is in the persistence privacy guard's
+                    # _LOCATION_FIELDS allowlist, so it is redacted before
+                    # crossing the durable/telemetry boundary
+                    # (_privacy_safe_result).
+                    "source_url": url,
                 },
                 force=manifest.force,
             )
