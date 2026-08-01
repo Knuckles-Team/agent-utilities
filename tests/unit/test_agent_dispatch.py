@@ -909,16 +909,16 @@ def test_orchestrator_task_claim_execute_writeback(fake_queue, monkeypatch):
 # exist; the AU-P1-1 authority-convergence assimilation rewrote agent task
 # claiming around the engine-native WorkItem state machine
 # (engine_claim.claim_agent_task -> work_item.claim_agent_task_via_work_item).
-# The 6 tests that lived here (test_claim_agent_task_unknown_task_is_skipped,
-# _terminal_status_is_duplicate_skip, _claims_and_writes_lease,
-# _skips_task_with_fresh_live_lease, _reclaims_stale_lease_crash_recovery,
-# _default_token_and_now) targeted the deleted KG-:AgentLease-node claim path
-# with a fake engine shaped for its raw query_cypher contract (a
-# ``does-not-exist`` skip, a terminal-status skip, a claim+lease write, a
-# fresh-lease skip, a stale-lease reclaim, and default token/now — all six
-# CONCEPT:AU-OS.state.cognitive-scheduler-preemption stale-claim-aware
-# idempotency behaviors). The identical behavior against the CURRENT
-# WorkItem-native contract is already fully covered:
+# D-DSTO-5 (reports/deferred/lane-dst-orch.md): the 6 tests that lived here
+# (test_claim_agent_task_unknown_task_is_skipped, _terminal_status_is_duplicate_skip,
+# _claims_and_writes_lease, _skips_task_with_fresh_live_lease,
+# _reclaims_stale_lease_crash_recovery, _default_token_and_now) targeted the
+# deleted KG-:AgentLease-node claim path with a fake engine shaped for its raw
+# query_cypher contract (a ``does-not-exist`` skip, a terminal-status skip, a
+# claim+lease write, a fresh-lease skip, a stale-lease reclaim, and default
+# token/now — all six CONCEPT:AU-OS.state.cognitive-scheduler-preemption
+# stale-claim-aware idempotency behaviors). The identical behavior against the
+# CURRENT WorkItem-native contract is already fully covered:
 #   * tests/unit/test_engine_claim.py — backend resolution + delegation
 #     through claim_agent_task_via_work_item;
 #   * tests/unit/test_agent_dispatch_work_item_backend.py — claim/lease/
