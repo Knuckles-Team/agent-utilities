@@ -100,12 +100,28 @@ def nx_graph() -> GraphComputeEngine:
 
 @pytest.fixture
 def kb_engine(nx_graph) -> KBIngestionEngine:
-    """KBIngestionEngine with no real LLM (fallback mode)."""
+    """KBIngestionEngine with no real LLM (fallback mode).
+
+    ``KBExtractor._get_*_agent()`` treats ``self._article_agent is None`` as
+    "not yet lazily built" and constructs a REAL, governed
+    ``create_context_agent`` on first access -- setting the attribute to
+    ``None`` (its own ``__init__`` default) does not disable it, it just
+    means the next call builds one. That agent's invocation requires
+    grounding='required' (the default) with no configured ContextCompiler
+    engine in this hermetic test, so it fails closed
+    (``ContextCompilationError`` -> the grounding-policy refusal), and on
+    ``force=True`` re-ingestion the retry/circuit-breaker path around that
+    repeated failure hung past ``pytest-timeout`` instead of failing fast
+    (``test_force_reingest``). ``tests/unit/knowledge_graph/test_kb_logic.py``
+    already established the correct pattern for this: patch the *getter*
+    method itself, not the underlying sentinel attribute, so no agent is
+    ever constructed and every extraction call goes straight to
+    ``_fallback_article``/its no-LLM equivalents.
+    """
     extractor = KBExtractor()
-    # Patch the agent to use fallback (no LLM)
-    extractor._article_agent = None
-    extractor._health_agent = None
-    extractor._index_agent = None
+    extractor._get_article_agent = lambda: None
+    extractor._get_health_agent = lambda: None
+    extractor._get_index_agent = lambda: None
     return KBIngestionEngine(graph=nx_graph, backend=None, extractor=extractor)
 
 
@@ -359,7 +375,10 @@ class TestKBExtractor:
     @pytest.mark.asyncio
     async def test_extract_article_fallback_when_no_agent(self):
         extractor = KBExtractor()
-        extractor._article_agent = None
+        # See kb_engine's fixture docstring above: _article_agent = None is
+        # the class's own "not yet built" sentinel, not an opt-out -- patch
+        # the getter itself so no real (governed) agent is constructed.
+        extractor._get_article_agent = lambda: None
 
         chunks = [
             DocumentChunk(
@@ -378,7 +397,9 @@ class TestKBExtractor:
     @pytest.mark.asyncio
     async def test_health_check_fallback(self):
         extractor = KBExtractor()
-        extractor._health_agent = None
+        # See kb_engine's fixture docstring above: patch the getter, not the
+        # "not yet built" sentinel attribute, so no real agent is created.
+        extractor._get_health_agent = lambda: None
 
         report = await extractor.run_health_check("kb:test", "Test KB", [])
         assert isinstance(report, KBHealthReport)
