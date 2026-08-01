@@ -49,6 +49,58 @@ _MACHINE_PATHS = (
     re.compile(rb"(?<![A-Za-z0-9._-])/home/(?P<account>[A-Za-z0-9._-]+)"),
 )
 
+# D-CIP-15/D-ORC-23: the gate previously matched only machine paths and local
+# identities -- a real credential shipped in a source file (e.g. a deployment
+# wizard's baked-in default DSN) passed silently. These patterns catch the
+# shapes credential material actually takes: a URI with an embedded
+# user:password, a PEM private-key block, and a quoted password/secret/token
+# assignment. Kept self-contained (no import of agent_utilities) so the gate
+# stays runnable standalone against a wheel with nothing installed.
+_CREDENTIAL_URI_RE = re.compile(
+    rb"[A-Za-z][A-Za-z0-9+.-]*://[^\s/@:'\"]+:(?P<secret>[^\s/@'\"]+)@"
+)
+_PRIVATE_KEY_RE = re.compile(
+    rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----"
+)
+_SECRET_ASSIGNMENT_RE = re.compile(
+    rb"(?i)\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?key|"
+    rb"private[_-]?key|auth[_-]?token)\s*[:=]\s*['\"](?P<secret>[^'\"\s]{4,})['\"]"
+)
+# Sentinel fragments that mean "this is a documented placeholder, not a live
+# secret" -- mirrors agent_utilities.observability.langfuse_trust's
+# _CREDENTIAL_SENTINELS convention so the same words are safe everywhere.
+_CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
+    {
+        "changeme",
+        "change_me",
+        "example",
+        "masked",
+        "placeholder",
+        "redacted",
+        "your",
+        "xxxx",
+        "replace",
+        "todo",
+        "fixme",
+        "password",
+        "secret",
+        "test",
+        "sample",
+    }
+)
+
+
+def _is_credential_placeholder(secret: bytes) -> bool:
+    rendered = secret.decode("utf-8", errors="ignore").strip()
+    if not rendered:
+        return True
+    if re.fullmatch(r"(?:\*+|#+|x{4,})", rendered, flags=re.IGNORECASE):
+        return True
+    tokens = set(re.findall(r"[a-z0-9]+", rendered.lower()))
+    if tokens & _CREDENTIAL_PLACEHOLDER_TOKENS:
+        return True
+    return False
+
 
 def _path_identifiers(value: str) -> set[str]:
     normalized = value.replace("\\", "/")
@@ -130,6 +182,18 @@ def _contains_machine_path(payload: bytes) -> bool:
     return False
 
 
+def _contains_credential_material(payload: bytes) -> bool:
+    if _PRIVATE_KEY_RE.search(payload):
+        return True
+    for match in _CREDENTIAL_URI_RE.finditer(payload):
+        if not _is_credential_placeholder(match.group("secret")):
+            return True
+    for match in _SECRET_ASSIGNMENT_RE.finditer(payload):
+        if not _is_credential_placeholder(match.group("secret")):
+            return True
+    return False
+
+
 def wheel_privacy_findings(
     wheel: Path,
     *,
@@ -168,6 +232,8 @@ def wheel_privacy_findings(
                 findings.add("machine-path-content")
             if any(pattern.search(payload) for pattern in identity_patterns):
                 findings.add("local-identity-content")
+            if _contains_credential_material(payload):
+                findings.add("credential-content")
     return tuple(sorted(findings))
 
 

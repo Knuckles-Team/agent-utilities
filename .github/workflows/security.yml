@@ -53,6 +53,28 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
+      # D-CIP-2: uv.lock pins epistemic-graph/langfuse-agent as editable workspace
+      # siblings at .uv-workspace-siblings/<name> -- untracked, dev-machine-only
+      # paths that do not exist in a bare `actions/checkout`. Every other workflow
+      # sidesteps this with `--no-install-package epistemic-graph --no-install-package
+      # langfuse-agent` (pipeline.yml's build-wheel: "a wheel build does not import
+      # its runtime engine"), but this job's license audit
+      # (check_sbom_licenses.py) genuinely needs both installed to audit their
+      # real license metadata, not a stub. Both are public sibling repos on the
+      # same org, so materialize them here exactly where uv.lock expects them,
+      # matching what a local dev checkout of the full workspace provides.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/epistemic-graph
+          path: .uv-workspace-siblings/epistemic-graph
+          persist-credentials: false
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/langfuse-agent
+          path: .uv-workspace-siblings/langfuse-agent
+          persist-credentials: false
+
       - name: Sync frozen security environment
         run: |
           uv sync --frozen --group guardrails --extra agent-runtime

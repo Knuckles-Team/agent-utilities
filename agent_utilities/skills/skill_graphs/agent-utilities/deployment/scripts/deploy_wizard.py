@@ -83,7 +83,7 @@ PROFILES: dict[str, dict] = {
     "prod-small": {
         "graph_backend": "fanout",  # engine authority + pg-age mirror
         "graph_mirror_targets": "age",
-        "graph_db_uri": "postgresql://agent:agent@pggraph:5432/agent_kg",
+        "graph_db_uri": "postgresql://agent:CHANGEME@pggraph:5432/agent_kg",
         "app_profile": "production",
         "deploy": "docker",
         "host": "0.0.0.0",
@@ -101,7 +101,7 @@ PROFILES: dict[str, dict] = {
     "prod-scale": {
         "graph_backend": "fanout",  # engine authority + pooled pg-age mirror
         "graph_mirror_targets": "age",
-        "graph_db_uri": "postgresql://agent:agent@pggraph:5432/agent_kg",
+        "graph_db_uri": "postgresql://agent:CHANGEME@pggraph:5432/agent_kg",
         "app_profile": "production",
         "deploy": "kubernetes",
         "host": "0.0.0.0",
@@ -246,7 +246,7 @@ def interview(tier: str) -> dict:
         )
         s["graph_db_uri"] = ask(
             "GRAPH_DB_URI (pg-age mirror DSN)",
-            s["graph_db_uri"] or "postgresql://agent:agent@pggraph:5432/agent_kg",
+            s["graph_db_uri"] or "postgresql://agent:CHANGEME@pggraph:5432/agent_kg",
         )
     else:
         s["graph_mirror_targets"] = None
@@ -322,6 +322,12 @@ def _warn_production_safety(s: dict) -> None:
         problems.append("a2a_broker=in-memory loses messages on restart")
     if not s.get("kafka_bootstrap_servers"):
         problems.append("kafka_bootstrap_servers unset (no durable event ledger)")
+    if "CHANGEME" in (s.get("graph_db_uri") or ""):
+        problems.append(
+            "GRAPH_DB_URI still has its placeholder CHANGEME password -- "
+            "this is a template DSN, not a working credential (D-CIP-15); "
+            "inject the real one from your deployment secret provider"
+        )
     if problems:
         print(
             "\n  \033[33m⚠ APP_PROFILE=production will be REJECTED by the profile "
