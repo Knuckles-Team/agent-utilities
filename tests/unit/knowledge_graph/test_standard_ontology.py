@@ -465,10 +465,15 @@ def test_every_standard_edge_has_rel_definition() -> None:
 
 
 def test_standard_table_definitions_include_base_columns() -> None:
-    """Standard ontology tables include RegistryNode base columns."""
+    """Standard ontology tables include RegistryNode base columns.
+
+    ``node_type`` (not a bare ``type``, which the schema retired) is the
+    actual declared column — see ``TableDefinition.columns`` in
+    ``schema_definition.py`` and ``IntelligenceGraphEngine._serialize_node``.
+    """
     base_cols = {
         "id",
-        "type",
+        "node_type",
         "name",
         "description",
         "importance_score",
@@ -553,11 +558,11 @@ def test_standard_inference_skos_broader_transitivity() -> None:
     from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("concept:a", type="concept", name="A")
-    g.add_node("concept:b", type="concept", name="B")
-    g.add_node("concept:c", type="concept", name="C")
-    g.add_edge("concept:a", "concept:b", type="broader")
-    g.add_edge("concept:b", "concept:c", type="broader")
+    g.add_node("concept:a", node_type="concept", name="A")
+    g.add_node("concept:b", node_type="concept", name="B")
+    g.add_node("concept:c", node_type="concept", name="C")
+    g.add_edge("concept:a", "concept:b", relationship="broader")
+    g.add_edge("concept:b", "concept:c", relationship="broader")
 
     engine = IntelligenceGraphEngine(db_path=":memory:", graph=g)
     engine.backend = None  # type: ignore[assignment]
@@ -575,11 +580,11 @@ def test_standard_inference_prov_derivation_transitivity() -> None:
     from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("doc:a", type="document", name="A")
-    g.add_node("doc:b", type="document", name="B")
-    g.add_node("doc:c", type="document", name="C")
-    g.add_edge("doc:a", "doc:b", type="was_derived_from")
-    g.add_edge("doc:b", "doc:c", type="was_derived_from")
+    g.add_node("doc:a", node_type="document", name="A")
+    g.add_node("doc:b", node_type="document", name="B")
+    g.add_node("doc:c", node_type="document", name="C")
+    g.add_edge("doc:a", "doc:b", relationship="was_derived_from")
+    g.add_edge("doc:b", "doc:c", relationship="was_derived_from")
 
     engine = IntelligenceGraphEngine(db_path=":memory:", graph=g)
     engine.backend = None  # type: ignore[assignment]
@@ -597,11 +602,11 @@ def test_standard_inference_temporal_phase_containment() -> None:
     from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("event:1", type="event", name="E1")
-    g.add_node("phase:q2", type="phase", name="Q2")
-    g.add_node("phase:2026", type="phase", name="2026")
-    g.add_edge("event:1", "phase:q2", type="occurred_during")
-    g.add_edge("phase:q2", "phase:2026", type="part_of")
+    g.add_node("event:1", node_type="event", name="E1")
+    g.add_node("phase:q2", node_type="phase", name="Q2")
+    g.add_node("phase:2026", node_type="phase", name="2026")
+    g.add_edge("event:1", "phase:q2", relationship="occurred_during")
+    g.add_edge("phase:q2", "phase:2026", relationship="part_of")
 
     engine = IntelligenceGraphEngine(db_path=":memory:", graph=g)
     engine.backend = None  # type: ignore[assignment]
