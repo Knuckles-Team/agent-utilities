@@ -609,6 +609,13 @@ def build_agent_app(
                 header_value = None
                 valid = False
             else:
+                # An empty header value (``x-agent-model-id: ``) is treated the
+                # same as the header being absent entirely, not as an invalid
+                # model id -- ``_MODEL_ID_RE`` requires at least one character,
+                # so without this coercion an empty value would 400 instead of
+                # falling back to the default model.
+                if header_value == "":
+                    header_value = None
                 valid = header_value is None or bool(
                     _MODEL_ID_RE.fullmatch(header_value)
                 )

@@ -30,11 +30,59 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
+from agent_utilities.core.config import config
 from agent_utilities.graph.executor import pick_specialist_model
 from agent_utilities.graph.state import REQUESTED_MODEL_ID_CTX, GraphDeps
 from agent_utilities.models import ModelDefinition, ModelRegistry
 from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 from agent_utilities.server import build_agent_app
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_jwt_auth(monkeypatch):
+    """Keep this file's TestClient hermetic to the host's real identity provider
+    AND to the server-minted-identity requirement ``register_graph_routes``
+    wires in, neither of which this file exists to exercise.
+
+    Two independent things stack up against an unauthenticated request here:
+
+    1. ``config.auth_jwt_jwks_uri``/``auth_jwt_issuer``/``auth_jwt_audience``
+       are process-global settings sourced from this machine's XDG runtime
+       config (``core/config.py::_commit_xdg_environment_projection``) -- on
+       a host that has ever run agent-utilities as a real deployed service
+       behind Keycloak (see ``~/.config/agent-utilities/config.json``), those
+       are non-empty here too, which would otherwise route a *presented*
+       token through real JWKS verification (``security/auth.py::
+       authenticate_header_values``).
+    2. ``build_agent_app`` unconditionally calls
+       ``gateway/graph_api.py::register_graph_routes``, which mounts
+       ``ActorIdentityMiddleware`` via ``app.add_middleware(...)`` --
+       Starlette middleware is never scoped to the ``/api`` prefix that
+       function registers routes under, so it wraps the WHOLE app, including
+       routes this file (and the real ``/stream``/``/ag-ui`` core routes)
+       adds afterward. That middleware 401s any request without a valid
+       Bearer identity regardless of ``auth_jwt_jwks_uri`` (see its
+       docstring: "No valid identity -> 401 (health paths exempt)"), so
+       clearing the JWKS settings alone is not sufficient here. None of
+       these tests set an Authorization header -- they test the model-
+       override middleware in isolation, per the module docstring -- so the
+       identity middleware is replaced with a passthrough for this file only.
+    """
+    monkeypatch.setattr(config, "auth_jwt_jwks_uri", None)
+    monkeypatch.setattr(config, "auth_jwt_issuer", None)
+    monkeypatch.setattr(config, "auth_jwt_audience", None)
+
+    class _PassthroughIdentityMiddleware:
+        def __init__(self, app: Any) -> None:
+            self.app = app
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            await self.app(scope, receive, send)
+
+    monkeypatch.setattr(
+        "agent_utilities.security.request_identity.ActorIdentityMiddleware",
+        _PassthroughIdentityMiddleware,
+    )
 
 
 @pytest.fixture
@@ -74,7 +122,20 @@ def registry() -> ModelRegistry:
 
 
 def _build_client(agent, **kwargs) -> TestClient:
-    """Construct a TestClient without mounting the web UI or ACP."""
+    """Construct a TestClient without mounting the web UI or ACP.
+
+    ``host`` is pinned to the loopback address so this test is hermetic to
+    the ambient environment: a host whose XDG runtime config has ever
+    projected ``HOST=0.0.0.0`` (e.g. after a real service deployment on the
+    same machine, see ``core/config.py::_commit_xdg_environment_projection``)
+    would otherwise make ``build_agent_app``'s non-loopback listener guard
+    (``_http_boundary_settings``) reject construction with "A non-loopback
+    REST listener requires direct TLS or a trusted TLS-terminating ingress"
+    -- a real security guard doing exactly what it should for a genuine
+    deployment, but not what this in-process ``TestClient`` (which never
+    actually listens on the network) needs to exercise.
+    """
+    kwargs.setdefault("host", "127.0.0.1")
     with patch("agent_utilities.server.app.create_agent", return_value=(agent, [])):
         app = build_agent_app(
             enable_web_ui=False,
@@ -98,6 +159,9 @@ def _probe_app(
     """
     captures: list[dict[str, Any]] = []
 
+    # host pinned to loopback for the same reason as _build_client above --
+    # ambient XDG-projected HOST=0.0.0.0 would otherwise trip the real
+    # non-loopback listener guard for this in-process-only TestClient.
     with patch("agent_utilities.server.app.create_agent", return_value=(agent, [])):
         app = build_agent_app(
             enable_web_ui=False,
@@ -105,6 +169,7 @@ def _probe_app(
             enable_otel=False,
             graph_bundle=("graph", {"valid_domains": []}),
             model_registry=registry,
+            host="127.0.0.1",
         )
 
     @app.post("/__probe")
@@ -377,6 +442,15 @@ def test_executor_override_ignored_when_registry_empty():
 
     A lone ``requested_model_id`` without a registry must not crash; the
     executor returns the legacy ``agent_model`` verbatim.
+
+    ``GraphDeps.__post_init__`` eagerly resolves any string ``agent_model``
+    through ``create_model()`` (CONCEPT boundary: every downstream
+    ``Agent(model=ctx.deps.*_model)`` call must be governed, see its
+    docstring), so by the time this assertion runs ``deps.agent_model`` is
+    already the resolved model object, not the raw ``"DEFAULT"`` string
+    passed to the constructor -- comparing against ``deps.agent_model``
+    (identity, not the pre-init string) is what "verbatim" actually means
+    post-resolution.
     """
     deps = GraphDeps(
         tag_prompts={},
@@ -386,7 +460,7 @@ def test_executor_override_ignored_when_registry_empty():
         model_registry=None,
         requested_model_id="premium-cloud",
     )
-    assert pick_specialist_model(deps, "researcher") == "DEFAULT"
+    assert pick_specialist_model(deps, "researcher") is deps.agent_model
 
 
 def test_invalid_model_id_falls_back_to_default(registry):
