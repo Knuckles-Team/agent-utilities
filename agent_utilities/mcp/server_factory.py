@@ -552,7 +552,7 @@ def create_mcp_parser(
         "--public-base-url",
         default=setting("MCP_PUBLIC_BASE_URL"),
         help="Public base URL of this MCP server, used to advertise RFC 9728 "
-        "protected-resource metadata for JWT auth (e.g. https://graph-os.arpa) "
+        "protected-resource metadata for JWT auth (e.g. https://graph-os.example) "
         "so an RFC 9728-aware client can discover the authorization server and "
         "refresh its own token instead of a static JWT",
     )
