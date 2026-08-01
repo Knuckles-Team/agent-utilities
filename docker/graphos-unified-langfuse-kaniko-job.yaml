@@ -9,7 +9,9 @@
 #   kubectl logs -n image-build -f job/graphos-unified-langfuse-image-build
 #
 # Prereqs (same as the original job — not created by this file):
-#   1. The au worktree checked out at the hostPath below (this follow-ups worktree).
+#   1. The au worktree checked out at the hostPath below (this follow-ups worktree),
+#      materialized under the shared `apps` build account, NOT a personal account (D-PCC-1: GitHub
+#      is public-facing, so tracked manifests must never leak a personal account name).
 #   2. Secret `kaniko-dockerhub-config` in the `image-build` namespace (already exists —
 #      reused here unchanged, same as the original job).
 #
@@ -59,7 +61,7 @@ spec:
       volumes:
         - name: workspace
           hostPath:
-            path: /home/genius/.local/state/repository-worktrees/agent-utilities/followups
+            path: /home/apps/worktrees/au-followups
             type: Directory
         - name: eg-wheel
           hostPath:

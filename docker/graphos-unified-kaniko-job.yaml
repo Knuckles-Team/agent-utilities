@@ -5,7 +5,9 @@
 #   kubectl logs -n image-build -f job/graphos-unified-image-build
 #
 # Prereqs this manifest assumes are already in place (not created by this file):
-#   1. The au worktree checked out at the hostPath below (git worktree add ... wC-unified-image).
+#   1. The au worktree checked out at the hostPath below (git worktree add ... wC-unified-image),
+#      materialized under the shared `apps` build account, NOT a personal account (D-PCC-1: GitHub
+#      is public-facing, so tracked manifests must never leak a personal account name).
 #   2. A Secret `kaniko-dockerhub-config` in the `image-build` namespace holding a standard
 #      docker config.json (auths for index.docker.io) — e.g.:
 #        kubectl create secret generic kaniko-dockerhub-config \
@@ -62,7 +64,7 @@ spec:
       volumes:
         - name: workspace
           hostPath:
-            path: /home/genius/.local/state/repository-worktrees/agent-utilities/wC-unified-image
+            path: /home/apps/worktrees/wC-unified-image
             type: Directory
         - name: eg-wheel
           hostPath:
