@@ -176,14 +176,6 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Auth & permissions (OS-5.1)",
     },
     {
-        "module": "agent_utilities.security.threat_defense_engine",
-        "entry": "GuardrailRule",
-        "capability": "guardrails",
-        "layer": "security",
-        "domain": "general",
-        "desc": "Input/output guardrails (OS-5.7)",
-    },
-    {
         "module": "agent_utilities.server.concurrency",
         "entry": "AsyncioConcurrencyManager",
         "capability": "concurrency_control",
