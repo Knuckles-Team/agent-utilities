@@ -154,16 +154,25 @@ class FakeEngine:
         return job_id
 
     def get_task_status(self, job_id: str) -> dict[str, Any] | None:
-        """Read back the WorkItem node ``submit_task`` created.
+        """Render one queued task's metadata, mirroring the real engine's
+        ``get_task_status`` contract (``engine_tasks.py``:
+        ``{"metadata": dict(item.get("metadata") or {}), ...}``).
 
-        ``deploy_watch._load_spec`` depends on this to resume a watch's exact
-        original spec (including ``deadline_unix``). Without it, every caller
-        falls into the exception fallback, which re-derives a FRESH window from
-        the global default (300s) rather than the caller's requested one — with
-        ``sleep`` stubbed to a no-op in tests, that turned into a tight loop
-        spinning on real wall-clock time until pytest-timeout killed it at 300s.
+        D-DSTO-6 (reports/deferred/lane-dst-orch.md): this method was
+        entirely absent, so ``deploy_watch._load_spec``'s
+        ``engine.get_task_status(job_id)`` call raised ``AttributeError`` on
+        EVERY call against this fake — silently caught by ``_load_spec``'s
+        own except clause, which fabricates a FRESH ``deadline_unix = now +
+        deploy_watch_window`` (default 300s) instead of reading back the
+        durable spec's real (test-supplied, often sub-second) ``window_s``.
+        With the test's ``sleep=lambda s: None`` no-op, ``run_deploy_watch``'s
+        poll loop then busy-spins on the real wall clock for the full
+        (fabricated) 300s window — the hang this item reports.
         """
-        return self.nodes.get(job_id)
+        node = self.nodes.get(job_id)
+        if node is None:
+            return None
+        return {"metadata": dict(node.get("metadata") or {})}
 
 
 class FakeObserver:

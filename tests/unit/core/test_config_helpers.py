@@ -690,6 +690,122 @@ def test_get_discovery_registry_tool_query_error(
 
 
 # ---------------------------------------------------------------------------
+# D-DSTO-1 (reports/deferred/lane-dst-orch.md): a fetch that hit a transient
+# KG failure must NOT be cached for the life of the process -- the next
+# access should retry against the KG rather than being stuck with the
+# partial/empty result forever (the write-then-mark-seen shape this item
+# exists to close).
+# ---------------------------------------------------------------------------
+
+
+def _install_fake_engine(monkeypatch: pytest.MonkeyPatch, fake_engine: MagicMock) -> None:
+    fake_engine_cls = MagicMock(get_active=MagicMock(return_value=fake_engine))
+    fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "agent_utilities.knowledge_graph.core.engine",
+        fake_kg,
+    )
+
+
+def test_a_degraded_fetch_is_not_cached_and_the_next_call_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transient tool-query failure must not latch an empty registry into
+    the cache -- the very bug D-DSTO-2 fixed one layer down in
+    knowledge_graph/core/engine.py, here at the registry-fetch layer."""
+    failing_engine = MagicMock()
+    failing_engine.backend = MagicMock()
+    failing_engine.backend.execute.side_effect = [
+        [],  # prompts
+        [],  # specialist agents
+        RuntimeError("transient KG hiccup"),  # tools
+    ]
+    _install_fake_engine(monkeypatch, failing_engine)
+
+    degraded = ch.get_discovery_registry()
+    assert degraded.tools == []
+    # The bug: this used to latch permanently regardless of the failure.
+    assert ch._RegistryCache._registry is None
+
+    healthy_engine = MagicMock()
+    healthy_engine.backend = MagicMock()
+    healthy_engine.backend.execute.side_effect = [
+        [],  # prompts
+        [],  # specialist agents
+        [
+            {
+                "t.name": "tool1",
+                "t.description": "desc",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 80,
+                "t.tags": ["git"],
+                "t.requires_approval": False,
+            }
+        ],
+    ]
+    _install_fake_engine(monkeypatch, healthy_engine)
+
+    healthy = ch.get_discovery_registry()
+    assert len(healthy.tools) == 1
+    assert ch._RegistryCache._registry is healthy  # this one DID latch
+
+
+def test_a_clean_fetch_still_caches_exactly_as_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: the fix must not stop caching the common, healthy
+    case (no error on any of the three sources)."""
+    fake_engine = MagicMock()
+    fake_engine.backend = MagicMock()
+    fake_engine.backend.execute.side_effect = [[], [], []]
+    _install_fake_engine(monkeypatch, fake_engine)
+
+    result = ch.get_discovery_registry()
+    assert ch._RegistryCache._registry is result
+
+    # A second call is a pure cache hit -- no further engine calls.
+    fake_engine.backend.execute.reset_mock()
+    result2 = ch.get_discovery_registry()
+    assert result2 is result
+    fake_engine.backend.execute.assert_not_called()
+
+
+def test_missing_backend_is_treated_as_degraded_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No engine/backend at all (e.g. KG not up yet at process boot) is the
+    same permanently-cached-empty-registry hazard D-DSTO-1 describes, just
+    from a different cause than a raised exception -- must not cache either."""
+    fake_engine = MagicMock(backend=None)
+    _install_fake_engine(monkeypatch, fake_engine)
+
+    result = ch.get_discovery_registry()
+    assert result.agents == []
+    assert ch._RegistryCache._registry is None
+
+    healthy_engine = MagicMock()
+    healthy_engine.backend = MagicMock()
+    healthy_engine.backend.execute.side_effect = [[], [], []]
+    _install_fake_engine(monkeypatch, healthy_engine)
+
+    result2 = ch.get_discovery_registry()
+    assert ch._RegistryCache._registry is result2
+
+
+def test_env_bypass_is_not_a_failure_and_caches_the_intentional_empty_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ENABLE_KG_REGISTRY_FETCH=false is a deliberate, stable answer -- unlike
+    a transient failure, it SHOULD cache (nothing to retry toward)."""
+    monkeypatch.setenv("ENABLE_KG_REGISTRY_FETCH", "false")
+
+    result = ch.get_discovery_registry()
+    assert result.agents == []
+    assert ch._RegistryCache._registry is result
+
+
+# ---------------------------------------------------------------------------
 # load_specialized_prompts
 # ---------------------------------------------------------------------------
 

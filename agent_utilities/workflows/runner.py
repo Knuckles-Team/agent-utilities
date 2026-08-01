@@ -223,8 +223,14 @@ def _default_gate_checker(engine: Any, step: Any) -> str | None:
     if graph is not None:
         try:
             for _src, _tgt, edata in graph.out_edges(step_id, data=True):
+                # "relationship" is the canonical GraphComputeEngine edge property
+                # (engine.link_nodes writes it); "type"/"rel_type" are kept as a
+                # fallback for callers that hand this a raw/foreign edge dict.
                 rel = str(
-                    (edata or {}).get("type") or (edata or {}).get("rel_type") or ""
+                    (edata or {}).get("relationship")
+                    or (edata or {}).get("type")
+                    or (edata or {}).get("rel_type")
+                    or ""
                 )
                 if rel == "satisfiedBy":
                     return _decision(edata or {})
@@ -532,14 +538,21 @@ class WorkflowRunner:
         if graph is not None:
             try:
                 for nid, data in graph.nodes(data=True):
-                    if (
-                        data.get("type") != "WorkflowDefinition"
-                        or data.get("name") != workflow_name
-                    ):
+                    # "node_type" is the canonical GraphComputeEngine node
+                    # property; "type" is kept as a fallback for callers that
+                    # hand this a raw/foreign node dict.
+                    node_label = data.get("node_type") or data.get("type")
+                    if node_label != "WorkflowDefinition" or data.get(
+                        "name"
+                    ) != workflow_name:
                         continue
                     for _src, tgt, edata in graph.out_edges(nid, data=True):
+                        # "relationship" is the canonical GraphComputeEngine edge
+                        # property; "type"/"rel_type" are kept as a fallback for
+                        # callers that hand this a raw/foreign edge dict.
                         rel = str(
-                            (edata or {}).get("type")
+                            (edata or {}).get("relationship")
+                            or (edata or {}).get("type")
                             or (edata or {}).get("rel_type")
                             or ""
                         ).upper()

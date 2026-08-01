@@ -88,8 +88,14 @@ class _FakeGraph(EpistemicGraphBackend):
       same node store the inherited native Cypher engine reads.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, graph_name: str | None = None) -> None:
+        # A bare ``EpistemicGraphBackend()`` resolves the ambient tenant's ONE
+        # shared default graph (``resolve_routing_graph(None)``) — deterministic
+        # per-tenant, not per-instance. Two bare ``_FakeGraph()``s in the same
+        # test (e.g. simulating two independent federation hubs) would silently
+        # collapse onto the identical graph and see each other's data. Callers
+        # that need genuinely isolated hubs must pass distinct ``graph_name``s.
+        super().__init__(graph_name)
         self.broker = _FakeBusBroker()
         self.txn = SimpleNamespace(
             begin=lambda *, graph: {"graph": graph, "nodes": []},
@@ -110,7 +116,9 @@ class _FakeGraph(EpistemicGraphBackend):
 
     def _txn_commit(self, txn) -> bool:
         for node_id, props in txn["nodes"]:
-            self.add_node(node_id, "", **props)
+            props = dict(props)
+            node_type = props.pop("node_type", "")
+            self.add_node(node_id, node_type, **props)
         return True
 
 
