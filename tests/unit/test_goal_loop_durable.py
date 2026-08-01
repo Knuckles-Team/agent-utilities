@@ -29,6 +29,39 @@ def loop_env(tmp_path, monkeypatch):
             "epistemic-graph engine not reachable; goal-loop live path needs it"
         )
 
+    # run_goal_loop() resolves its engine via
+    # sessions._goal_engine() or IntelligenceGraphEngine.get_or_create() --
+    # the get_or_create() fallback builds its own backend via
+    # create_backend(), whose bare EpistemicGraphBackend() resolves its own
+    # routing graph via resolve_routing_graph(None) BEFORE GraphComputeEngine
+    # is ever asked for one. Under this suite's tenant-bearing ambient actor,
+    # that lands on the FIXED "tenant__tenant_test____commons__" graph --
+    # shared across every test that hits this same fallback (not this test's
+    # own isolated graph), causing cross-test STALE_FENCE conflicts between
+    # goal ids run by different tests. Pre-populating
+    # IntelligenceGraphEngine._ACTIVE_ENGINE with one bound to an
+    # already-isolated GraphComputeEngine makes _goal_engine() resolve to it
+    # directly, skipping the divergent get_or_create() fallback entirely.
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    # Capture+restore BEFORE constructing: monkeypatch.setattr snapshots
+    # whatever is there right now (the pre-test ambient value) and restores
+    # exactly that at teardown, regardless of what this fixture sets it to
+    # in between.
+    monkeypatch.setattr(
+        IntelligenceGraphEngine, "_ACTIVE_ENGINE", None, raising=False
+    )
+    compute = GraphComputeEngine(backend_type="rust")
+    isolated_backend = object.__new__(EpistemicGraphBackend)
+    isolated_backend._graph = compute
+    isolated_backend.graph_name = compute.graph_name
+    isolated_backend.create_schema()
+    IntelligenceGraphEngine(backend=isolated_backend)
+
     db = tmp_path / "sessions.db"
     conn = sqlite3.connect(str(db))
     conn.executescript(_sessions._SQLITE_DDL)

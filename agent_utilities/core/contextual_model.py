@@ -34,7 +34,9 @@ uses only privacy-safe opaque references.
 
 import asyncio
 import logging
+import threading
 import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
@@ -149,9 +151,154 @@ _ctx_compile_degradation_streak = 0
 _ctx_compile_breaker_reopen_at = 0.0  # monotonic timestamp; 0.0 == breaker CLOSED
 
 _compiler_engine: Any | None = None
+# Explicit operator/test override for the compiled-bundle KV cache — None means
+# "no override installed", which is NOT the same as "caching disabled"; see
+# :func:`_resolve_compiler_cache` for the deployment-default fallback below.
 _compiler_cache: Any | None = None
 _WRAPPER_CLASS: Any | None = None
 _MISSING_MODEL = object()
+
+# CONCEPT:AU-KG.retrieval.context-compiler-kv-seam — deployment-default in-process
+# bundle cache. Lazily constructed on first resolution (see
+# :func:`_resolve_compiler_cache`), guarded by this lock so a burst of
+# concurrent first calls builds exactly one instance.
+_DEFAULT_BUNDLE_CACHE_MAXSIZE = 512
+_DEFAULT_BUNDLE_CACHE_TTL_S = 300.0
+_default_bundle_cache: Any | None = None
+_default_bundle_cache_lock = threading.Lock()
+
+
+class _InProcessBundleCache:
+    """Bounded, TTL-expiring, thread-safe in-process cache for compiled
+    :class:`~agent_utilities.knowledge_graph.retrieval.context_compiler.ContextBundle`
+    payloads (CONCEPT:AU-KG.retrieval.context-compiler-kv-seam, Seam 6).
+
+    Implements the SAME duck-typed ``get(key) -> bytes | None`` /
+    ``put(key, bytes) -> bool`` shape :class:`~agent_utilities.kvcache.EpistemicGraphKVBackend`
+    does (plus an optional ``delete`` the TMS revalidation sweep already probes
+    for — see ``knowledge_graph.adaptation.tms_revalidation._revalidate_context_bundle``),
+    so it is a drop-in ``kv_backend=`` for :meth:`ContextCompiler.compile` — but
+    purely in-process, with NO network round-trip. That is what makes it safe to
+    leave on by default: a miss costs one dict lookup under a lock, so there is
+    no latency downside to an always-on default, only upside on a genuine repeat.
+
+    **Tenant/ACL safety.** Every key this cache ever sees is
+    ``compute_bundle_cache_key``'s output — a SHA-256 digest over the
+    pseudonymized tenant, principal, graph, policy_version, catalog_epoch,
+    query, and every other assembly parameter that could change the assembled
+    bundle (see that function's docstring). Two different
+    tenants/actors/queries/policy-versions/catalog-epochs cannot collide on the
+    same key by construction, so ONE process-wide instance shared across every
+    tenant and actor can only ever hand back "the bundle THIS EXACT identity
+    already got for THIS EXACT query under THIS EXACT policy" — the same
+    guarantee any pure-function memoization gives, never a cross-tenant read.
+    This class is intentionally identity-blind: it never inspects a key's
+    contents, only stores/returns opaque bytes under an opaque key, so it
+    cannot itself introduce a boundary violation regardless of what the key
+    encodes.
+    """
+
+    def __init__(
+        self,
+        maxsize: int = _DEFAULT_BUNDLE_CACHE_MAXSIZE,
+        ttl_s: float = _DEFAULT_BUNDLE_CACHE_TTL_S,
+    ) -> None:
+        self._maxsize = max(1, int(maxsize))
+        self._ttl_s = max(0.0, float(ttl_s))
+        self._lock = threading.Lock()
+        # value = (monotonic expiry timestamp, opaque blob)
+        self._store: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
+
+    def get(self, key: str) -> bytes | None:
+        now = time.monotonic()
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            expires_at, blob = entry
+            if expires_at <= now:
+                del self._store[key]
+                return None
+            self._store.move_to_end(key)
+            return blob
+
+    def put(self, key: str, blob: bytes) -> bool:
+        with self._lock:
+            self._store[key] = (time.monotonic() + self._ttl_s, blob)
+            self._store.move_to_end(key)
+            while len(self._store) > self._maxsize:
+                self._store.popitem(last=False)
+        return True
+
+    def delete(self, key: str) -> bool:
+        """Best-effort eviction — the TMS revalidation sweep's optional hook."""
+        with self._lock:
+            return self._store.pop(key, None) is not None
+
+
+def _default_compiler_cache_enabled() -> bool:
+    """Deployment-level OPT-IN for the DEFAULT in-process bundle cache.
+
+    Config-contract style (:func:`agent_utilities.core.config.setting`).
+    **Default ``False``** — deliberately opt-in, not opt-out, unlike the
+    sibling :func:`_context_compiler_enabled` escape hatch. The cache key
+    (``compute_bundle_cache_key``) is scoped by evidence-ID SET, not full
+    node content, which is the correct identity for real KG data (a stable id
+    ⇒ stable content) but means a caller that mutates a node's content in
+    place without changing its id — most commonly a test double reusing fixed
+    ids across cases — would observe a stale-looking hit. Reproduced live:
+    flipping this default to ``True`` surfaced exactly that pattern in
+    ``tests/retrieval/test_context_compiler_delegated_run_default.py`` (many
+    cases share one session + query + fixed evidence ids with per-case
+    content). Turning this on is therefore a genuine, reviewed deployment
+    decision (``MODEL_CONTEXT_COMPILER_CACHE_ENABLED=true``), not a default —
+    D-DPF-2 tracks auditing the wider suite for the same assumption so the
+    default can flip safely. An explicit :func:`set_context_compiler_cache`
+    override always wins regardless of this setting either way (an operator/
+    test that installs a specific backend meant it).
+    """
+
+    return bool(setting("MODEL_CONTEXT_COMPILER_CACHE_ENABLED", False))
+
+
+def _resolve_compiler_cache() -> Any | None:
+    """The ACTIVE kv_backend for :func:`compile_model_context`: an explicit
+    override (:func:`set_context_compiler_cache`) if one is installed, else the
+    lazily-built deployment-default :class:`_InProcessBundleCache` (or ``None``
+    when :func:`_default_compiler_cache_enabled` is off)."""
+
+    if _compiler_cache is not None:
+        return _compiler_cache
+    if not _default_compiler_cache_enabled():
+        return None
+    global _default_bundle_cache
+    if _default_bundle_cache is None:
+        with _default_bundle_cache_lock:
+            if _default_bundle_cache is None:
+                try:
+                    maxsize = int(
+                        setting(
+                            "MODEL_CONTEXT_COMPILER_CACHE_MAXSIZE",
+                            _DEFAULT_BUNDLE_CACHE_MAXSIZE,
+                        )
+                        or _DEFAULT_BUNDLE_CACHE_MAXSIZE
+                    )
+                except (TypeError, ValueError):
+                    maxsize = _DEFAULT_BUNDLE_CACHE_MAXSIZE
+                try:
+                    ttl_s = float(
+                        setting(
+                            "MODEL_CONTEXT_COMPILER_CACHE_TTL_S",
+                            _DEFAULT_BUNDLE_CACHE_TTL_S,
+                        )
+                        or _DEFAULT_BUNDLE_CACHE_TTL_S
+                    )
+                except (TypeError, ValueError):
+                    ttl_s = _DEFAULT_BUNDLE_CACHE_TTL_S
+                _default_bundle_cache = _InProcessBundleCache(
+                    maxsize=maxsize, ttl_s=ttl_s
+                )
+    return _default_bundle_cache
 
 
 class ContextCompilationError(PermissionError):
@@ -306,15 +453,28 @@ def use_context_compiler_engine(engine: Any) -> Iterator[None]:
 
 
 def set_context_compiler_cache(cache: Any | None) -> None:
-    """Install an optional shared KV backend for compiled bundles."""
+    """Install an explicit shared KV backend override for compiled bundles.
+
+    Passing ``None`` CLEARS any previous explicit override and reverts to the
+    deployment default (:func:`_resolve_compiler_cache`): a bounded in-process
+    cache (:class:`_InProcessBundleCache`) when
+    ``MODEL_CONTEXT_COMPILER_CACHE_ENABLED`` (default ``False`` — opt-in, see
+    :func:`_default_compiler_cache_enabled`) is on, else no caching. An
+    explicit override here (installing a SPECIFIC backend — e.g. the networked
+    ``EpistemicGraphKVBackend`` for cross-process reuse, or a test double)
+    always wins regardless of that setting.
+    """
 
     global _compiler_cache
     _compiler_cache = cache
 
 
 def get_context_compiler_cache() -> Any | None:
-    """Return the process's configured KV-cache backend, or ``None`` (CONCEPT:
-    AU-KG.retrieval.context-compiler-kv-seam).
+    """Return the ACTIVE KV-cache backend for compiled bundles (CONCEPT:
+    AU-KG.retrieval.context-compiler-kv-seam) — an explicit
+    :func:`set_context_compiler_cache` override if one is installed, else the
+    lazily-built deployment-default in-process cache, else ``None`` when that
+    default is disabled.
 
     Read-side counterpart to :func:`set_context_compiler_cache` — lets the
     ``tms_revalidation`` maintenance task (W3.2 TMS live-wiring) reach the SAME
@@ -322,7 +482,7 @@ def get_context_compiler_cache() -> Any | None:
     bundle the engine's TMS marks stale can be dropped from the shared cache.
     """
 
-    return _compiler_cache
+    return _resolve_compiler_cache()
 
 
 @contextmanager
@@ -388,7 +548,7 @@ def compile_model_context(
         str(query or ""),
         authority,
         token_budget=budget,
-        kv_backend=_compiler_cache,
+        kv_backend=_resolve_compiler_cache(),
         model_version=str(model_version or ""),
         redaction_version=str(
             setting("MODEL_CONTEXT_REDACTION_VERSION", "permissioning-v1")

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -95,7 +98,7 @@ def test_shadow_workspace_never_replaces_non_symlink(
         )
 
 
-def test_uv_invocation_selects_worktree_package_and_environment(
+def test_uv_plan_selects_worktree_package_and_environment(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -104,17 +107,19 @@ def test_uv_invocation_selects_worktree_package_and_environment(
     worktree = tmp_path / "worktree"
     shadow = tmp_path / "shadow"
 
-    command, environment = uv_workspace.uv_invocation(
+    plan = uv_workspace.uv_plan(
         ["run", "--all-extras", "python", "-c", "pass"],
         worktree=worktree,
         shadow=shadow,
     )
+    command, environment = list(plan.execute), plan.environment
 
-    assert command[:7] == [
+    assert command[:8] == [
         "/usr/bin/uv",
         "--project",
         str(shadow),
         "run",
+        "--no-sync",
         "--locked",
         "--package",
         "agent-utilities",
@@ -126,7 +131,7 @@ def test_uv_invocation_selects_worktree_package_and_environment(
     assert "PYTHONPATH" not in environment
 
 
-def test_uv_invocations_share_native_cache_across_hermetic_worktrees(
+def test_uv_plans_share_native_cache_across_hermetic_worktrees(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -144,12 +149,13 @@ def test_uv_invocations_share_native_cache_across_hermetic_worktrees(
             str(worktree / "unsafe-inherited-cache"),
         )
 
-        _command, environment = uv_workspace.uv_invocation(
-            ["run", "python", "-c", "pass"],
-            worktree=worktree,
-            shadow=shadow,
+        environments.append(
+            uv_workspace.uv_plan(
+                ["run", "python", "-c", "pass"],
+                worktree=worktree,
+                shadow=shadow,
+            ).environment
         )
-        environments.append(environment)
 
     expected = user_home / ".cache" / "epistemic-graph" / "native-artifacts" / "v1"
     assert {
@@ -254,13 +260,13 @@ def test_lock_invocation_is_always_locked(
 ) -> None:
     monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
 
-    command, _environment = uv_workspace.uv_invocation(
+    command = uv_workspace.uv_plan(
         ["lock"],
         worktree=tmp_path / "worktree",
         shadow=tmp_path / "shadow",
-    )
+    ).execute
 
-    assert command[-2:] == ["lock", "--locked"]
+    assert list(command[-2:]) == ["lock", "--locked"]
 
 
 def test_sync_invocation_is_always_locked(
@@ -269,10 +275,321 @@ def test_sync_invocation_is_always_locked(
 ) -> None:
     monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
 
-    command, _environment = uv_workspace.uv_invocation(
+    command = uv_workspace.uv_plan(
         ["sync"],
+        worktree=tmp_path / "worktree",
+        shadow=tmp_path / "shadow",
+    ).execute
+
+    assert list(command[-4:]) == ["sync", "--locked", "--package", "agent-utilities"]
+
+
+# ---------------------------------------------------------------------------
+# Environment partitioning (D-VI-1). One worktree serves many concurrent
+# invocations asking for DIFFERENT dependency selections; they used to share one
+# `.venv` and rewrite it underneath each other.
+# ---------------------------------------------------------------------------
+def test_distinct_selections_never_share_an_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The collision itself: two selections, one worktree, two environments."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+    worktree = tmp_path / "worktree"
+
+    directories = {
+        uv_workspace.uv_plan(
+            arguments,
+            worktree=worktree,
+            shadow=tmp_path / "shadow",
+        ).environment_path
+        for arguments in (
+            ["run", "--all-extras", "pytest"],
+            ["run", "pytest"],
+            ["run", "--extra", "graph", "pytest"],
+            ["run", "--extra", "graph", "--extra", "owl", "pytest"],
+        )
+    }
+
+    assert len(directories) == 4, "each dependency selection must own its environment"
+    assert all(path.parent == worktree for path in directories)
+
+
+def test_canonical_selection_keeps_the_conventional_venv_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """`.venv/bin` is on the PATH built by bootstrap.sh and both CI workflows."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+    worktree = tmp_path / "worktree"
+
+    plan = uv_workspace.uv_plan(
+        ["run", "--all-extras", "pytest"],
+        worktree=worktree,
+        shadow=tmp_path / "shadow",
+    )
+
+    assert plan.environment_path == worktree / ".venv"
+
+
+def test_selection_identity_ignores_order_and_repetition(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Equivalent requests must not fork the environment and double the disk."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+    worktree = tmp_path / "worktree"
+
+    directories = {
+        uv_workspace.uv_plan(
+            arguments,
+            worktree=worktree,
+            shadow=tmp_path / "shadow",
+        ).environment_path
+        for arguments in (
+            ["run", "--extra", "graph", "--extra", "owl", "pytest"],
+            ["run", "--extra", "owl", "--extra", "graph", "pytest"],
+            ["run", "--extra=owl", "--extra", "graph", "--extra", "owl", "pytest"],
+            ["run", "--locked", "--extra", "graph", "--extra", "owl", "pytest"],
+        )
+    }
+
+    assert len(directories) == 1
+
+
+def test_run_synchronises_before_exec_and_never_syncs_during_the_child(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """uv frees the environment lock BEFORE exec, so the child must not resync."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    plan = uv_workspace.uv_plan(
+        ["run", "--all-extras", "pytest", "tests", "-q"],
         worktree=tmp_path / "worktree",
         shadow=tmp_path / "shadow",
     )
 
-    assert command[-4:] == ["sync", "--locked", "--package", "agent-utilities"]
+    assert len(plan.prepare) == 1
+    assert "sync" in plan.prepare[0]
+    assert "--locked" in plan.prepare[0]
+    assert "--all-extras" in plan.prepare[0]
+    assert "--no-sync" in plan.execute, (
+        "the child must run against a frozen environment"
+    )
+
+
+def test_unrecognized_flag_degrades_instead_of_guessing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An identity we cannot derive falls back to uv's own behaviour, loudly."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    plan = uv_workspace.uv_plan(
+        ["run", "--some-future-uv-flag", "pytest"],
+        worktree=tmp_path / "worktree",
+        shadow=tmp_path / "shadow",
+    )
+
+    assert plan.selection_recognized is False
+    assert plan.prepare == ()
+    assert "--no-sync" not in plan.execute
+
+
+def test_failed_preparation_never_execs_the_child(tmp_path: Path) -> None:
+    """A half-built environment must not be handed to a test run."""
+    workspace = tmp_path / "workspace"
+    shadow = tmp_path / "shadow"
+    worktree = tmp_path / "worktree"
+    for directory in (workspace, shadow, worktree):
+        directory.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    returncode = uv_workspace.run_uv(
+        [sys.executable, "-c", "raise SystemExit('the child must never run')"],
+        worktree=worktree,
+        environment=dict(os.environ),
+        workspace=workspace,
+        shadow=shadow,
+        prepare=[[sys.executable, "-c", "raise SystemExit(3)"]],
+    )
+
+    assert returncode == 3
+
+
+def test_partitioned_environment_is_a_classified_resource() -> None:
+    """An unclassified shared resource is exactly how this defect survived."""
+    from agent_utilities.governance import lanes
+
+    assert (
+        lanes.resource_class("uv-project-environment")
+        is lanes.ArbitrationClass.PARTITION
+    )
+
+
+def test_concurrent_shadow_refresh_never_collides(
+    tmp_path: Path,
+    workspace_layout: tuple[Path, Path, Path],
+) -> None:
+    """The shadow is keyed by worktree, so concurrent invocations refresh it at once.
+
+    A fixed staging filename made them race: one invocation's rename consumed the
+    file another had just written and the second died with FileNotFoundError
+    before uv ever started — which is how the acceptance run for the environment
+    partition first failed.
+    """
+    workspace, canonical, worktree = workspace_layout
+    state_root = tmp_path / "state"
+    errors: list[BaseException] = []
+    start = threading.Barrier(8)
+
+    def refresh() -> None:
+        start.wait()
+        for _ in range(25):
+            try:
+                uv_workspace.shadow_workspace(
+                    worktree,
+                    canonical,
+                    workspace,
+                    state_root=state_root,
+                )
+            except BaseException as exc:  # noqa: BLE001 - recorded, then asserted
+                errors.append(exc)
+                return
+
+    threads = [threading.Thread(target=refresh) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors, f"concurrent shadow refresh collided: {errors[:3]}"
+    shadow = uv_workspace.shadow_workspace(
+        worktree, canonical, workspace, state_root=state_root
+    )
+    assert (shadow / "uv.lock").read_bytes() == (workspace / "uv.lock").read_bytes()
+    assert not list(shadow.glob(".*.tmp")), "staging files must never be left behind"
+
+
+# ---------------------------------------------------------------------------
+# Interpreter guard (D-SP-4). `uv run pytest` does not fail when the environment
+# lacks pytest — it falls through to the system one and runs the project's tests
+# under /usr/bin/python against system site-packages.
+# ---------------------------------------------------------------------------
+def _console_script(directory: Path, name: str, interpreter: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    script = directory / name
+    script.write_text(f"#!{interpreter}\n", encoding="utf-8")
+    script.chmod(0o755)
+    return script
+
+
+def test_python_tool_outside_the_environment_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The exact shape that reported fastmcp 3.3.1 from /usr/bin/python."""
+    system_bin = tmp_path / "usr" / "bin"
+    system_pytest = _console_script(system_bin, "pytest", "/usr/bin/python")
+    monkeypatch.setenv("PATH", str(system_bin))
+    environment = tmp_path / "worktree" / ".venv-base"
+    (environment / "bin").mkdir(parents=True)
+
+    foreign = uv_workspace.foreign_python_console_script("pytest", environment)
+
+    assert foreign == system_pytest
+
+
+def test_tool_installed_in_the_environment_is_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    system_bin = tmp_path / "usr" / "bin"
+    _console_script(system_bin, "pytest", "/usr/bin/python")
+    monkeypatch.setenv("PATH", str(system_bin))
+    environment = tmp_path / "worktree" / ".venv"
+    _console_script(environment / "bin", "pytest", str(environment / "bin" / "python"))
+
+    assert uv_workspace.foreign_python_console_script("pytest", environment) is None
+
+
+def test_non_python_command_outside_the_environment_is_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """`bash` and `find` legitimately live outside the environment."""
+    system_bin = tmp_path / "usr" / "bin"
+    binary = system_bin / "bash"
+    system_bin.mkdir(parents=True)
+    binary.write_bytes(b"\x7fELF not a script")
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(system_bin))
+    environment = tmp_path / "worktree" / ".venv-base"
+    (environment / "bin").mkdir(parents=True)
+
+    assert uv_workspace.foreign_python_console_script("bash", environment) is None
+
+
+def test_run_refuses_the_foreign_interpreter_before_executing_anything(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    workspace_layout: tuple[Path, Path, Path],
+) -> None:
+    """The guard must fire between preparation and exec, so nothing runs wrong."""
+    workspace, _canonical, worktree = workspace_layout
+    shadow = tmp_path / "shadow"
+    shadow.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (shadow / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+
+    system_bin = tmp_path / "usr" / "bin"
+    _console_script(system_bin, "pytest", "/usr/bin/python")
+    monkeypatch.setenv("PATH", str(system_bin))
+    environment = worktree / ".venv-base"
+    (environment / "bin").mkdir(parents=True)
+    executed: list[list[str]] = []
+
+    def record(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        executed.append(list(command))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(uv_workspace.subprocess, "run", record)
+
+    with pytest.raises(RuntimeError, match="refusing to run 'pytest'"):
+        uv_workspace.run_uv(
+            ["uv", "run", "pytest"],
+            worktree=worktree,
+            environment={},
+            workspace=workspace,
+            shadow=shadow,
+            prepare=[["uv", "sync"]],
+            environment_path=environment,
+            command_name="pytest",
+        )
+
+    assert executed == [["uv", "sync"]], "preparation only; the child never ran"
+
+
+def test_plan_identifies_the_command_it_must_guard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    for arguments, expected in (
+        (["run", "pytest", "-q"], "pytest"),
+        (["run", "--all-extras", "pytest", "tests"], "pytest"),
+        (["run", "--extra", "graph", "ruff", "check"], "ruff"),
+        (["run", "python", "-m", "pytest"], "python"),
+        (["run", "--some-future-uv-flag", "pytest"], None),
+    ):
+        plan = uv_workspace.uv_plan(
+            arguments,
+            worktree=tmp_path / "worktree",
+            shadow=tmp_path / "shadow",
+        )
+        assert plan.command_name == expected, arguments

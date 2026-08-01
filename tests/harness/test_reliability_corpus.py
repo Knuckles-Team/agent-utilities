@@ -33,7 +33,10 @@ def test_eval_corpus_metadata_defaults_empty():
     corpus = EvalCorpus()
     corpus.add_case("q", "a")
     (case,) = corpus.load_cases()
-    assert case.metadata == {}
+    # add_case always attaches its own opaque provenance ref (optimization_backend's
+    # opaque_program_reference) regardless of caller-supplied metadata -- "empty" means
+    # no CALLER metadata, not a literally-empty dict.
+    assert set(case.metadata) == {"program_example_ref"}
 
 
 # --- Seed corpus run -------------------------------------------------------

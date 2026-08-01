@@ -27,7 +27,7 @@ def test_add_from_trace_promotes_to_dataset_and_case():
     assert "t1" not in source_ref
     assert case["assertion"] == "answer is 4"
     # and a DatasetItemNode(source=trace) was persisted
-    di = [p for p in kg.nodes.values() if p.get("type") == "dataset_item"]
+    di = [p for p in kg.nodes.values() if p.get("node_type") == "dataset_item"]
     assert di and di[0]["source"] == "trace"
     assert di[0]["source_trace_ref"] == source_ref
 

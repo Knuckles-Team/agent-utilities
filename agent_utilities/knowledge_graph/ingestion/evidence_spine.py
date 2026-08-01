@@ -144,6 +144,15 @@ FRAGMENT_KINDS: frozenset[str] = frozenset(
         "span",
         "record",
         "field",
+        # The domain-pack framework's three additional structural units
+        # (CONCEPT:AU-KG.ingest.domain-pack-framework, D-GP2-2) — a corpus
+        # structure the generic markdown/PDF/record fragmenters above don't
+        # themselves produce, but which the SAME addressable-citation
+        # contract (this module, not a rival stand-in) must still be able to
+        # name so every consumer speaks one Fragment vocabulary:
+        "frontmatter_key",  # one YAML frontmatter key/value pair
+        "link",  # one inline `[text](href)` markdown link
+        "json_field",  # one dotted-path field in a JSON document/API record
     }
 )
 FragmentKind = Literal[
@@ -162,6 +171,9 @@ FragmentKind = Literal[
     "span",
     "record",
     "field",
+    "frontmatter_key",
+    "link",
+    "json_field",
 ]
 
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
@@ -347,13 +359,22 @@ class Fragment:
 
     @property
     def version_id(self) -> str:
-        """``<fragment_id>@<short content hash>`` — a content-pinned citation.
+        """``<fragment_id>#<short content hash>`` — a content-pinned citation.
 
         Use this when a citation must be immutable (an audit record, a published
         claim's evidence).  Use :attr:`fragment_id` when it must *follow* the
         fragment through edits.  Both are needed; neither substitutes.
+
+        Separator is ``#``, not ``@``: the engine's ``ApplyChangeEnvelope``
+        commit path (``change_envelope.rs``'s ``validate_safe_text``) rejects
+        any ``@`` in inline text outright as an email/host-leak privacy guard —
+        by design, and correctly so; a blanket exemption for ``@`` would weaken
+        that guard fleet-wide. ``#`` carries the same "pin a version" meaning
+        (a URL fragment identifier pins a specific view of a resource) without
+        colliding with the privacy scan (see D-GM-4 / D-GS856-6 / D-MW-1 /
+        D-MW-2 in the deferred ledger for the full investigation).
         """
-        return f"{self.fragment_id}@{self.content_hash[7:23]}"
+        return f"{self.fragment_id}#{self.content_hash[7:23]}"
 
     def to_locus(self) -> dict[str, Any]:
         """Render an engine ``ArtifactLocus``-shaped selector for this fragment.
@@ -414,7 +435,7 @@ class Artifact:
     An artifact is the *object* — a markdown file, a PDF, an API record, a row
     set — not one delivery of it.  :attr:`artifact_id` is therefore keyed to
     source identity and stays put across revisions, while
-    :attr:`content_hash` identifies the revision.  Governance is NOT re-declared
+    :attr:`content_hash` identifies the revision.  Governance is NOT redeclared
     here: it is carried verbatim off the envelope, which is the trust boundary
     that decided it.
 
@@ -428,8 +449,11 @@ class Artifact:
         byte_length: Size of the retrieved content in bytes.
         content_ref: Where the bytes live when they are not inline (a blob key /
             URI — the envelope's ``blob_ref``), else ``""``.
-        envelope_id / idempotency_key / source_version / schema_version: The
-            delivery this artifact was extracted from.
+        envelope_id / idempotency_key / source_version / schema_version /
+            ontology_mapping_version: The delivery this artifact was extracted
+            from — ``ontology_mapping_version`` is the domain-pack revision
+            that mapped the raw payload onto graph facts, the last link in a
+            source-to-claim lineage walk (CONCEPT:AU-KG.retrieval.source-to-claim-lineage).
         classification / retention / legal_hold / external_access: Governance,
             copied from the envelope.
         fragments: The artifact's fragments in document order.
@@ -451,6 +475,7 @@ class Artifact:
     idempotency_key: str = ""
     source_version: str = ""
     schema_version: str = "1"
+    ontology_mapping_version: str = ""
     tenant: str = ""
 
     classification: str = "internal"
@@ -521,6 +546,7 @@ class Artifact:
             idempotency_key=envelope.idempotency_key,
             source_version=envelope.source_version,
             schema_version=envelope.schema_version,
+            ontology_mapping_version=envelope.ontology_mapping_version,
             tenant=envelope.tenant,
             classification=envelope.classification.value,
             retention=envelope.retention,
@@ -551,6 +577,7 @@ class Artifact:
             "idempotency_key": self.idempotency_key,
             "source_version": self.source_version,
             "schema_version": self.schema_version,
+            "ontology_mapping_version": self.ontology_mapping_version,
             "classification": self.classification,
             "legal_hold": self.legal_hold,
         }
@@ -965,9 +992,7 @@ def _split_row(line: str) -> list[str]:
 _BLOCK_SPLIT_RE = re.compile(r"\n\s*\n")
 
 
-def fragment_pdf(
-    pages: Sequence[str], *, artifact_id: str
-) -> tuple[Fragment, ...]:
+def fragment_pdf(pages: Sequence[str], *, artifact_id: str) -> tuple[Fragment, ...]:
     """Fragment already-extracted PDF page text into ``page`` + ``paragraph``.
 
     ``pages`` is per-page text (see

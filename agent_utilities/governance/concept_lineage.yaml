@@ -1,0 +1,203 @@
+# Concept lineage — HAND-AUTHORED governance record. Not generated.
+#
+# Two dispositions for a CONCEPT: marker that is not itself an architectural
+# decision (see agent_utilities/governance/concept_lineage.py for the rules and
+# .specify/design/concept-lineage-parent-doc/design.md for why this exists):
+#
+#   parents:  <child-id>: {parent: <id>, rationale: <why that doc covers this>}
+#       The child realises a decision documented under the parent. The gate
+#       (scripts/check_concept_governance.py) treats the child as documented —
+#       but ONLY after verifying the parent is live and genuinely has a design
+#       document. One hop only: a parent may not itself be a child.
+#
+#   retired:  <id>: {reason: <why this never named a decision>}
+#       The marker was deleted. Recording it makes retirement a ratchet: a
+#       re-introduced retired id FAILS the gate instead of silently returning.
+#
+# A rationale that merely re-spells the concept id is rejected by the loader.
+# Propose entries with `scripts/concept_domain_triage.py propose <PILLAR>.<domain>`;
+# a human confirms each decision; `... apply` does the typing.
+
+parents:
+  AU-KG.compute.audiobookshelf-libraries-books-authors:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.capability-abstraction:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: names the hydration-layer seam through which the parent's three configuration regimes (server-registered,
+      env-token, always-local) are expressed; it is the shape of that rule, not a separate choice
+  AU-KG.compute.confluence-first-class-delta:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: confluence is literally one of the three dedicated trackers the parent decision is about;
+      its handler entry realises that routing rule rather than choosing anything new
+  AU-KG.compute.dockerhub-repositories:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.firefly-iii-accounts-transactions:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.gitlab-api-gitlab-atlassian:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.gramps-web-people-families:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.graph-builder:
+    parent: AU-KG.compute.graph-compute-engine
+    rationale: the agent registry graph persists engine-only with no Python-side twin — the parent's refusal
+      to keep authority outside the engine, applied to one graph
+  AU-KG.compute.home-assistant-states:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.jira-first-class-delta:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: jira is literally one of the three dedicated trackers the parent decision is about; its
+      handler entry realises that routing rule rather than choosing anything new
+  AU-KG.compute.lane-bound-task:
+    parent: AU-KG.compute.offloaded-memory-write
+    rationale: a task carries the functional lane it belongs to, which is what lets offloaded work be
+      scheduled apart from serving work at all
+  AU-KG.compute.lane-soft-timeout:
+    parent: AU-KG.compute.interactive-lane-floor
+    rationale: the per-lane soft execution bound that stops a stuck task from holding a reserved slot
+      forever; it protects the parent's guarantee rather than making its own trade-off
+  AU-KG.compute.langfuse-traces-observations:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.numeric-kernel:
+    parent: AU-KG.compute.numpy-scipy-drop
+    rationale: the engine-side member of that same pair — the compiled backend the parent made mandatory
+      rather than optional
+  AU-KG.compute.p99-latency-metric:
+    parent: AU-KG.compute.offloaded-memory-write
+    rationale: the tail-latency signal that tells you whether separating the read path from the embed
+      path actually worked; it measures the parent, it is not its own choice
+  AU-KG.compute.paperless-ngx-documents-correspondents:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.per-channel-embedding-backfill:
+    parent: AU-KG.compute.offloaded-memory-write
+    rationale: round-robin fairness across channels WITHIN the background plane, chosen over a single
+      FIFO that would let one channel monopolise it; a rule inside the parent's separation rather than
+      a separate architecture
+  AU-KG.compute.persistent-task-tracking:
+    parent: AU-KG.compute.offloaded-memory-write
+    rationale: the durable task record exists so an enqueued write is observable after the serving call
+      has already returned; it only makes sense given the parent's separation of planes
+  AU-KG.compute.plane-first-class-delta:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: plane is literally one of the three dedicated trackers the parent decision is about; its
+      handler entry realises that routing rule rather than choosing anything new
+  AU-KG.compute.priority-class-propagation:
+    parent: AU-KG.compute.interactive-lane-floor
+    rationale: carries the same class across a spawned child agent and the observability correlation context
+      so the reservation does not stop at a process boundary; an extension of the parent's reach, not
+      a different rule
+  AU-KG.compute.reactive-push:
+    parent: AU-KG.compute.offloaded-memory-write
+    rationale: how a caller learns that work handed to the background plane has finished — a direct consequence
+      of the parent no longer answering synchronously
+  AU-KG.compute.registered-edge-type:
+    parent: AU-KG.compute.offloaded-memory-write
+    rationale: background edge-type registration work, which exists only because there is a plane to run
+      non-serving writes on
+  AU-KG.compute.reuse-model-latent:
+    parent: AU-KG.compute.first-class-action-conditioned
+    rationale: persistent latent memory blended across rollout steps — a mechanism inside the parent world
+      model, already written up in the latent-native-memory design
+  AU-KG.compute.single-dropped-connection:
+    parent: AU-KG.compute.graph-compute-engine
+    rationale: adaptive transient-retry on the engine client's breaker so one blip never cascades; a tuning
+      rule on the parent's single authenticated transport
+  AU-KG.compute.surface-analytics-program:
+    parent: AU-KG.compute.numpy-scipy-drop
+    rationale: Surface A of the Analytics Program's one-kernel-two-surfaces pairing; it is the shape the
+      parent's removal took, mirroring only the API subset a 598-site audit found in use
+  AU-KG.compute.task-priority-tag:
+    parent: AU-KG.compute.interactive-lane-floor
+    rationale: the tag by which a unit of work declares which reserved class it belongs to — the input
+      to the parent's admission rule
+  AU-KG.compute.technitium-dns-zones-records:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.tokio-service-layer:
+    parent: AU-KG.compute.graph-compute-engine
+    rationale: the Tokio-first service layer the compute client is built on, declared in the same module
+      header as the parent and inseparable from it
+  AU-KG.compute.tunnel-manager-hosts:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.twenty-crm-people-companies:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.ufunc-method-surface:
+    parent: AU-KG.compute.numpy-scipy-drop
+    rationale: 'a shim detail: wrapper objects so accumulate/reduce/outer/at route to the compiled cumulative
+      op on bare 1-D float64 input; no alternative was weighed'
+  AU-KG.compute.uptime-kuma-monitors:
+    parent: AU-KG.compute.mcp-backed-dedicated-trackers
+    rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
+      tracker reaches its upstream only through its fleet MCP server; the marker says which typed nodes
+      this source yields, it makes no choice of its own
+  AU-KG.compute.world-model-forward-simulation:
+    parent: AU-KG.compute.first-class-action-conditioned
+    rationale: the MCP action that forward-simulates the parent's learned model; an exposure surface,
+      not a modelling choice
+retired:
+  AU-KG.compute.automates:
+    reason: a single generic verb naming an ontology EDGE TYPE (AUTOMATES), not a decision; the connector-to-skill
+      synthesis it annotates is written up in docs/architecture/knowledge_distillation_skill_graphs.md
+  AU-KG.compute.code-feature:
+    reason: 'never a concept: the id exists only as a string literal inside a test fixture in tests/unit/test_concept_allocator.py,
+      which the tree-wide marker scan mistook for a live marker'
+  AU-KG.compute.executed-p2-p3-rollout:
+    reason: a past-tense sentence fragment recording that a mechanical call-site migration was carried
+      out; the decision it followed from is the numpy/scipy drop
+  AU-KG.compute.homelab-rss-reader-as:
+    reason: slugified out of the sentence 'homelab RSS reader as ...' and truncated by the grammar; the
+      FreshRSS drainer it marks is the flagship instance of the connector-declared page drainer
+  AU-KG.compute.is-installed-kernel-discovery:
+    reason: slugified out of 'is installed ...'; it exists only in docs/guides/numeric-kernel.md describing
+      a CI parity job, and the parity contract is stated in the numpy/scipy drop design
+  AU-KG.compute.kg-2:
+    reason: a bare citation of the retired KG-N.NN numbering that OKF-CIS replaced, glued on by the migration
+      as though it were a name; the one-engine-plan decision it sat on is recorded in the engine-native
+      compute design
+  AU-KG.compute.resolve:
+    reason: a single generic verb; the real decision (ask the live engine for its durable shard-writer
+      width K instead of estimating from local CPU count) belongs to AU-KG.ingest.floor-codebase-admission-cap,
+      which already states it
+  AU-KG.compute.same-semantics-as:
+    reason: slugified out of '... the same semantics as ...'; the concurrency precedence rule it annotates
+      is part of the adaptive controller sizing decision
+  AU-KG.compute.vector:
+    reason: a single generic noun, and the marker text (.../214/215) shows the author was writing a citation
+      list rather than naming anything; the decision is recorded in the engine-native compute design
+  AU-KG.compute.when-exposes:
+    reason: slugified out of 'when the engine exposes the native ...'; the native multiplexed transport
+      decision it annotates is recorded in the engine-native compute design
+  AU-KG.compute.when-exposes-native:
+    reason: the same sentence fragment one clause later, on the server-side entity-resolution escalation;
+      same decision, same document

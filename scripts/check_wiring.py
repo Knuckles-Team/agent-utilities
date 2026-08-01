@@ -332,35 +332,45 @@ def shortest_chain(
     return None
 
 
-def _load_testpaths() -> list[str]:
+def _load_testpaths(*, pytest_ini: Path = PYTEST_INI) -> list[str]:
     """Parse ``testpaths = ...`` out of ``pytest.ini`` (pytest.ini wins over
     ``pyproject.toml`` per pytest's own ini-file precedence, so that's the
     only file this needs to read to know what ``pytest`` actually collects
-    by default)."""
-    if not PYTEST_INI.exists():
+    by default). ``pytest_ini`` is overridable (default: the real repo's)
+    so a caller testing this in isolation (``tests/gates/test_wire_first_gate.py``)
+    can point it at a synthetic ini instead of silently falling back to
+    reading THIS repo's real, live ``pytest.ini`` regardless of the fixture
+    under test."""
+    if not pytest_ini.exists():
         return []
-    for line in PYTEST_INI.read_text(encoding="utf-8").splitlines():
+    for line in pytest_ini.read_text(encoding="utf-8").splitlines():
         m = re.match(r"\s*testpaths\s*=\s*(.+)$", line)
         if m:
             return m.group(1).split()
     return []
 
 
-def _load_explicit_pytest_paths() -> set[str]:
+def _load_explicit_pytest_paths(
+    *,
+    precommit_config: Path = PRECOMMIT_CONFIG,
+    workflows_dir: Path = WORKFLOWS_DIR,
+) -> set[str]:
     """``tests/...`` paths explicitly passed to ``pytest`` in a pre-commit
     hook ``entry:`` or a GitHub Actions ``run:`` step, outside of
     ``testpaths``. These are structurally collected even though
     ``testpaths`` doesn't cover them (e.g. ``tests/gates``, ``tests/docs``,
     ``tests/scale/test_prod_profile_guard.py``) — derived by regex over the
     hook/workflow files themselves so this can't hand-drift from what they
-    actually run.
+    actually run. ``precommit_config``/``workflows_dir`` are overridable
+    (default: the real repo's) for the same isolation reason as
+    ``_load_testpaths``'s ``pytest_ini`` parameter.
     """
     paths: set[str] = set()
     texts: list[str] = []
-    if PRECOMMIT_CONFIG.exists():
-        texts.append(PRECOMMIT_CONFIG.read_text(encoding="utf-8"))
-    if WORKFLOWS_DIR.exists():
-        for f in sorted(WORKFLOWS_DIR.glob("*.yml")):
+    if precommit_config.exists():
+        texts.append(precommit_config.read_text(encoding="utf-8"))
+    if workflows_dir.exists():
+        for f in sorted(workflows_dir.glob("*.yml")):
             texts.append(f.read_text(encoding="utf-8"))
     for text in texts:
         for m in re.finditer(r"pytest\s+((?:tests/[\w./\-]+\s*)+)", text):
@@ -377,16 +387,26 @@ def _under_any(rel_path: str, prefixes: set[str]) -> bool:
 
 
 def find_orphaned_test_files(
-    *, tests_dir: Path = TESTS_DIR, display_root: Path = ROOT
+    *,
+    tests_dir: Path = TESTS_DIR,
+    display_root: Path = ROOT,
+    pytest_ini: Path = PYTEST_INI,
+    precommit_config: Path = PRECOMMIT_CONFIG,
+    workflows_dir: Path = WORKFLOWS_DIR,
 ) -> list[str]:
     """Test files under ``tests/`` collected by NEITHER ``testpaths`` NOR an
     explicit pytest invocation in pre-commit/CI (D-OB-13a). ``tests_dir``/
-    ``display_root`` are overridable (default: the real repo) so
-    ``tests/gates/test_wire_first_gate.py`` can prove this trips on a
-    synthetic fixture — "a gate that can't fail is not a gate"."""
+    ``display_root``/``pytest_ini``/``precommit_config``/``workflows_dir``
+    are all overridable (default: the real repo) so
+    ``tests/gates/test_wire_first_gate.py`` can prove this trips on a fully
+    synthetic fixture, isolated from whatever this repo's OWN live
+    ``pytest.ini``/``.pre-commit-config.yaml``/``.github/workflows`` happen
+    to say — "a gate that can't fail is not a gate"."""
     if not tests_dir.exists():
         return []
-    collected = set(_load_testpaths()) | _load_explicit_pytest_paths()
+    collected = set(_load_testpaths(pytest_ini=pytest_ini)) | _load_explicit_pytest_paths(
+        precommit_config=precommit_config, workflows_dir=workflows_dir
+    )
     orphans = []
     for py in sorted(tests_dir.rglob("test_*.py")):
         rel = py.relative_to(display_root).as_posix()
@@ -628,6 +648,20 @@ def find_test_only_symbols(
             total_test_calls.update(calls)
 
     findings: list[dict] = []
+    # (file, symbol) -> next ordinal (D-OP-11: the baseline key must be
+    # stable under pure line motion elsewhere in the file; a bare (file,
+    # symbol) pair is unique for the overwhelming majority of real findings,
+    # but this ordinal disambiguates the rare genuine collision — same
+    # traversal-order pattern already proven for check_swallowed_errors.py's
+    # HandlerKey, D-SWG-1).
+    ordinals: dict[tuple[str, str], int] = {}
+
+    def _next_ordinal(rel: str, symbol: str) -> int:
+        key = (rel, symbol)
+        ordinal = ordinals.get(key, 0)
+        ordinals[key] = ordinal + 1
+        return ordinal
+
     for rel, source in au_sources.items():
         if rel.endswith("__init__.py"):
             continue
@@ -648,6 +682,7 @@ def find_test_only_symbols(
                         "file": rel,
                         "line": lineno,
                         "test_refs": test_refs,
+                        "ordinal": _next_ordinal(rel, name),
                     }
                 )
 
@@ -660,20 +695,41 @@ def find_test_only_symbols(
             same_file = au_calls[rel].get(meth_name, 0)
             test_refs = total_test_calls.get(meth_name, 0)
             if other_au == 0 and same_file <= 0 and test_refs > 0:
+                symbol = f"{cls_name}.{meth_name}"
                 findings.append(
                     {
                         "kind": "method",
-                        "symbol": f"{cls_name}.{meth_name}",
+                        "symbol": symbol,
                         "file": rel,
                         "line": m_lineno,
                         "test_refs": test_refs,
+                        "ordinal": _next_ordinal(rel, symbol),
                     }
                 )
     return findings
 
 
+_FINDING_KEY_SEP = "\t"
+
+
 def _finding_key(entry: dict) -> str:
-    return f"{entry['file']}:{entry['line']}:{entry['symbol']}"
+    """A (file, symbol, ordinal) key -- stable under pure line motion.
+
+    D-OP-11: the previous ``path:line:symbol`` key re-keyed EVERY finding
+    below any inserted line as a spurious "NEW" entry, making
+    ``--update-wire-first-baseline`` the only practical way back to green —
+    which silently absorbs unrelated pre-existing debt. Ported verbatim from
+    the same fix already proven on the sibling gate
+    (check_swallowed_errors.py's HandlerKey, D-SWG-1): drop the line number
+    from the key entirely; a (file, symbol) pair is unique for the
+    overwhelming majority of findings, and ``ordinal`` (assigned in
+    traversal order, see find_test_only_symbols) disambiguates the rare
+    genuine collision. TAB-separated (not ``:``) so a symbol/path
+    containing a colon can never be misparsed.
+    """
+    return _FINDING_KEY_SEP.join(
+        [entry["file"], entry["symbol"], str(entry.get("ordinal", 0))]
+    )
 
 
 def _load_wire_first_baseline() -> dict[str, list[str]]:
@@ -717,7 +773,13 @@ def _print_ratchet_result(
     if new:
         print(f"\n{label}: {len(new)} NEW finding(s) beyond baseline:")
         for k in new:
-            print(f"  {k}")
+            # test_only_symbols keys are TAB-separated (file, symbol,
+            # ordinal) — render for a human as "file:symbol" (dropping the
+            # near-always-zero ordinal); orphaned_test_files keys are plain
+            # paths and pass through unchanged.
+            print(
+                f"  {k.replace(_FINDING_KEY_SEP, ':') if _FINDING_KEY_SEP in k else k}"
+            )
     removed_note = f", {len(fixed)} fixed since baseline" if fixed else ""
     print(
         f"{label}: {len(current_set)} total "

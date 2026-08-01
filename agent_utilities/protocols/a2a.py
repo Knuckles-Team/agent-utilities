@@ -379,7 +379,7 @@ def register_a2a_peer(
     )
 
     try:
-        engine.graph.add_node(node.id, **node.model_dump())
+        engine.graph.add_node(node.id, **node.to_graph_properties())
         return f"A2A peer '{name}' registered successfully in the Knowledge Graph."
     except Exception as e:
         return f"Error registering A2A peer: {e}"

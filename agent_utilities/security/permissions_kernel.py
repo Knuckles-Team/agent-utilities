@@ -704,7 +704,7 @@ class PermissionsKernel:
                     "max_token_quota": policy.max_token_quota,
                 },
             )
-            self.engine.graph.add_node(node_id, **node.model_dump())
+            self.engine.graph.add_node(node_id, **node.to_graph_properties())
             synced += 1
 
         # Sync identities
@@ -721,14 +721,14 @@ class PermissionsKernel:
                 importance_score=0.8,
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
-            self.engine.graph.add_node(node_id, **node.model_dump())
+            self.engine.graph.add_node(node_id, **node.to_graph_properties())
 
             # Link identity to agent node if it exists
             if agent_id in self.engine.graph:
                 self.engine.graph.add_edge(
                     agent_id,
                     node_id,
-                    type=RegistryEdgeType.HAS_IDENTITY,
+                    relationship=RegistryEdgeType.HAS_IDENTITY,
                 )
             synced += 1
 
@@ -836,13 +836,13 @@ class PermissionsKernel:
                 importance_score=0.8,
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
-            self.engine.graph.add_node(node_id, **node.model_dump())
+            self.engine.graph.add_node(node_id, **node.to_graph_properties())
 
             if identity.agent_id in self.engine.graph:
                 self.engine.graph.add_edge(
                     identity.agent_id,
                     node_id,
-                    type=RegistryEdgeType.HAS_IDENTITY,
+                    relationship=RegistryEdgeType.HAS_IDENTITY,
                 )
 
             # Push to epistemic-graph backend for Zero-Trust Consensus

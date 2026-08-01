@@ -200,6 +200,9 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
         EpistemicGraphBackend,
     )
     from agent_utilities.knowledge_graph.core.epistemic_row import EpistemicRow
+    from agent_utilities.knowledge_graph.core.graph_compute import (
+        GraphComputeEngine,
+    )
     from agent_utilities.knowledge_graph.core.session import (
         GraphSession,
         reset_session,
@@ -236,13 +239,31 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
                 "valid_from": 1_700_000_000,
                 "valid_until": 1_800_000_000,
                 "tx_from": 1_650_000_000,
+                # secured_reads.scope() injects a mandatory
+                # "n.tenant_id = <actor's tenant>" predicate (KG-2.6,
+                # cross-org isolation) into every read below — the raw
+                # engine-client seed here bypasses the guarded write path
+                # that normally stamps this, so without it the node is
+                # invisible to kg.query() regardless of the actor's
+                # privileges (scope() has no privileged bypass; it is the
+                # PRIMARY isolation boundary).
+                "tenant_id": TEST_TENANT,
             },
         )
         raw.nodes.add(
             evidence_id,
-            {"node_type": "Evidence", "confidence": 0.95},
+            {
+                "node_type": "Evidence",
+                "confidence": 0.95,
+                "tenant_id": TEST_TENANT,
+            },
         )
-        raw.edges.add(evidence_id, claim_id, {"relationship_type": "SUPPORTS"})
+        # "relationship" (not "relationship_type") is the canonical edge
+        # property key the native engine's SUPPORTS-edge provenance scan
+        # matches on (crates/eg-jobs/src/claim.rs: "two SUPPORTS edges
+        # (relationship = 'SUPPORTS', the canonical key ...)"; every
+        # Rust-side SUPPORTS edge construction uses this same key).
+        raw.edges.add(evidence_id, claim_id, {"relationship": "SUPPORTS"})
     finally:
         raw.close()
 
@@ -271,14 +292,53 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
     token = set_session(session)
     kg: KnowledgeGraph | None = None
     try:
+        # A bare EpistemicGraphBackend() independently resolves the ambient
+        # ACTOR's tenant-routed default graph (resolve_routing_graph(None)
+        # reads current_actor().tenant_id, NOT the GraphSession set just
+        # above), not the explicit test_graph_name this test seeded through
+        # the raw client. Construct the compute client bound to that exact
+        # graph_name first and rebind the backend to it — the same idiom
+        # already established for this defect elsewhere (D-OTR-2/D-OTR-3).
+        # KnowledgeGraph.compute also requires an active process-owned
+        # engine unless explicitly injected (see from_engine's docstring);
+        # this test has no IntelligenceGraphEngine, so set kg._compute
+        # directly too.
+        compute = GraphComputeEngine(graph_name=test_graph_name, backend_type="rust")
         kg = KnowledgeGraph()
         kg._store = EpistemicGraphBackend()
+        kg._store._graph = compute
+        kg._compute = compute
+        # ontology.permissioning's mandatory-marking lookup independently
+        # constructs a BARE KnowledgeGraph() and reads its .store, which
+        # requires IntelligenceGraphEngine.get_active() to be set (same
+        # "active process-owned engine" requirement .compute has above) --
+        # bind and activate a real engine over the SAME isolated backend so
+        # that internal lookup resolves consistently instead of raising.
+        from agent_utilities.knowledge_graph.core.engine import (
+            IntelligenceGraphEngine,
+        )
+
+        active_engine = IntelligenceGraphEngine(backend=kg._store)
+        IntelligenceGraphEngine.set_active(active_engine)
         if not hasattr(kg.store.graph, "explain_provenance_by_ids"):  # pragma: no cover
             pytest.skip(
                 "installed epistemic_graph client predates "
                 "explain_provenance_by_ids (CONCEPT:EG-KB-CURRENCY)"
             )
         cypher = f"MATCH (n:Claim) WHERE n.id = '{claim_id}' RETURN n"
+
+        # kg.query's read path also runs every row through
+        # ontology.permissioning.enforce() (restricted_view ->
+        # _acl_permits): a node with NO explicit ACL is denied to EVERY
+        # actor, privileged or not ("No ACL defined — default deny") — the
+        # raw engine-client seed above bypasses whatever write path would
+        # normally register one. Register an explicit ACL granting this
+        # test's actor read access via data_owner, the same helper
+        # (build_acl) the permissioning module exports for exactly this.
+        from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
+
+        build_acl(claim_id, data_owner=TEST_AGENT_ID)
+        build_acl(evidence_id, data_owner=TEST_AGENT_ID)
 
         # Default path — byte-for-byte unaffected: plain dict rows.
         plain_rows = kg.query(cypher)
@@ -337,5 +397,10 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
                     pass
             if graph_engine is not None:
                 graph_engine._client = None
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine as _IGE,
+            )
+
+            _IGE.set_active(None)
         finally:
             reset_session(token)

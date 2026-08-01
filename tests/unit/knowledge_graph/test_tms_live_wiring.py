@@ -50,7 +50,13 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 from agent_utilities.knowledge_graph.research.candidate_insight import (
     register_claim_materialization,
 )
-from agent_utilities.models.knowledge_graph import ClaimNode, RegistryNodeType
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    ClaimNode,
+    RegistryNodeType,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 
 pytestmark = pytest.mark.concept("EG-KG.epistemic.truth-maintenance")
 
@@ -174,10 +180,10 @@ class _StrictEngine:
     ) -> None:
         props = dict(properties or {})
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is retired; use the node_type argument"
-            )
-        self.nodes[node_id] = {"node_type": node_type, **props}
+            raise retired_node_type_property_error()
+        # Mirrors IntelligenceGraphEngine.add_node: the node_type ARGUMENT is
+        # authoritative and overwrites any node_type carried in properties.
+        self.nodes[node_id] = {**props, "node_type": node_type}
 
     def add_edge(
         self,
@@ -189,14 +195,9 @@ class _StrictEngine:
         session: Any = None,
         **properties: Any,
     ) -> None:
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            properties
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(properties)
         if aliases:
-            raise ValueError(
-                f"edge relationship aliases are retired ({', '.join(sorted(aliases))}); "
-                "use the rel_type argument"
-            )
+            raise retired_edge_relationship_property_error(aliases)
         if not str(rel_type).strip():
             raise ValueError("rel_type is required")
         self.edges.append((source, target, rel_type))
@@ -279,7 +280,9 @@ class FaithfulTmsEngine:
         **_kw: Any,
     ) -> None:
         props = dict(properties or {})
-        self.nodes[node_id] = {"node_type": node_type, **props}
+        # Mirrors IntelligenceGraphEngine.add_node: the node_type ARGUMENT is
+        # authoritative and overwrites any node_type carried in properties.
+        self.nodes[node_id] = {**props, "node_type": node_type}
         self._versions[node_id] = self._versions.get(node_id, 0) + 1
         self._retracted.discard(node_id)
         deps = set(props.get("invalidation_deps") or ())
@@ -429,7 +432,7 @@ def test_end_to_end_claim_register_invalidate_tick_revalidates():
         claim.id,
         "Claim",
         properties={
-            **claim.model_dump(mode="json", exclude={"type"}),
+            **claim.to_graph_properties(),
             "status": "proposal",
         },
     )
@@ -561,7 +564,7 @@ def test_bounded_per_tick_respects_the_candidate_limit():
             claim.id,
             "Claim",
             properties={
-                **claim.model_dump(mode="json", exclude={"type"}),
+                **claim.to_graph_properties(),
                 "status": "p",
             },
         )
@@ -582,7 +585,7 @@ def test_a_single_stale_candidate_probe_failure_does_not_stop_the_rest():
         claim_ok.id,
         "Claim",
         properties={
-            **claim_ok.model_dump(mode="json", exclude={"type"}),
+            **claim_ok.to_graph_properties(),
             "status": "p",
         },
     )

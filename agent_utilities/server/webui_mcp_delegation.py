@@ -35,11 +35,47 @@ mutation.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict
+
+if TYPE_CHECKING:  # the runtime import stays lazy, inside the helpers
+    from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
+        McpResourceContent,
+    )
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["webui_mcp_delegation_helpers"]
+__all__ = ["WebUiMcpDelegation", "webui_mcp_delegation_helpers"]
+
+
+class _CallMcpTool(Protocol):
+    def __call__(
+        self,
+        *,
+        server_name: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        timeout: float = ...,
+    ) -> Awaitable[Any]: ...
+
+
+class _ReadMcpResource(Protocol):
+    def __call__(
+        self, *, server_name: str, uri: str, timeout: float = ...
+    ) -> Awaitable[McpResourceContent]: ...
+
+
+class WebUiMcpDelegation(TypedDict):
+    """The two workspace-helper keys the WebUI looks up by name.
+
+    A typed seam on purpose: ``agent_webui.api_extensions`` resolves these with
+    ``get_helper('call_mcp_tool')`` / ``get_helper('read_mcp_resource')`` and
+    answers 501 when either is missing, so a rename here must be a type error
+    rather than a silently-unwired route.
+    """
+
+    call_mcp_tool: _CallMcpTool
+    read_mcp_resource: _ReadMcpResource
 
 
 async def _call_mcp_tool(
@@ -75,7 +111,7 @@ async def _read_mcp_resource(
     server_name: str,
     uri: str,
     timeout: float = 30.0,
-) -> dict[str, Any]:
+) -> McpResourceContent:
     """Read one fleet MCP resource (e.g. an MCP App's ``ui://`` HTML)."""
     from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
         read_resource_once,
@@ -85,9 +121,9 @@ async def _read_mcp_resource(
     return await read_resource_once(server=server_name, uri=uri, timeout=timeout)
 
 
-def webui_mcp_delegation_helpers() -> dict[str, Any]:
+def webui_mcp_delegation_helpers() -> WebUiMcpDelegation:
     """The ``call_mcp_tool`` / ``read_mcp_resource`` workspace helpers."""
-    return {
-        "call_mcp_tool": _call_mcp_tool,
-        "read_mcp_resource": _read_mcp_resource,
-    }
+    return WebUiMcpDelegation(
+        call_mcp_tool=_call_mcp_tool,
+        read_mcp_resource=_read_mcp_resource,
+    )

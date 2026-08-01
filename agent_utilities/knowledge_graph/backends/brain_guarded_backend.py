@@ -66,6 +66,24 @@ def _stamp_ownership(properties: dict[str, Any], actor: Any) -> None:
     stamp_ownership(properties, actor)
 
 
+def _stamp_classification(properties: dict[str, Any]) -> None:
+    """Stamp a durable ACL ``classification`` (CONCEPT:AU-KG.backend.company-brain-write-guard).
+
+    This proxy is a THIRD write chokepoint distinct from
+    ``IntelligenceGraphEngine._upsert_node``/``GraphComputeEngine.add_node``
+    (its own docstring: "activates the dormant Company Brain on the write path
+    without editing the dozens of writers" — ``registry.write_batch``,
+    ``pipeline._write_*``, extractors, ... call ``self.backend.add_node``
+    directly). Without this it shared the identical "written but permanently
+    unreadable" gap those two chokepoints fix. Callers use either ``label=`` or
+    ``node_type=`` for the type kwarg; both are tried.
+    """
+    from ..core.tenant_sharing import stamp_classification
+
+    label = properties.get("node_type") or properties.get("label")
+    stamp_classification(properties, label)
+
+
 def _verified_actor() -> Any:
     actor = current_actor()
     if (
@@ -272,6 +290,7 @@ class BrainGuardedBackend:
         merged["_confidence"] = round(base_auth, 4)
         merged["_ts"] = self._iso()
         _stamp_ownership(merged, actor)
+        _stamp_classification(merged)
         self._record_node(node_id, actor, source, base_auth)
         self._seen[node_id] = (source, base_auth, now_mono)
         self._inner.add_node(node_id, **merged)
@@ -315,6 +334,7 @@ class BrainGuardedBackend:
         properties.setdefault("_confidence", round(base_auth, 4))
         properties.setdefault("_ts", self._iso())
         _stamp_ownership(properties, actor)
+        _stamp_classification(properties)
         self._record_node(node_id, actor, source, base_auth)
         self._seen[node_id] = (source, base_auth, now)
         self._inner.add_node(node_id, **properties)

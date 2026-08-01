@@ -58,8 +58,13 @@ def test_noncanonical_or_unregistered_domain_is_rejected(
 
 
 def test_registry_and_code_ids_cannot_be_reserved(repo: Path) -> None:
+    # Built by concatenation, never as a literal marker in this file's own
+    # source: a literal one would make this fixture id a LIVE concept for the
+    # repo-wide scanner (check_concept_governance.all_registered_concepts), which
+    # is how `AU-KG.compute.code-feature` ended up in the undocumented-concept
+    # backlog with no code behind it. Same trap, same fix, as commit 38a9b918.
     (repo / "agent_utilities" / "feature.py").write_text(
-        "# CONCEPT:AU-KG.compute.code-feature\n", encoding="utf-8"
+        "# " + "CONCEPT:" + "AU-KG.compute.code-feature\n", encoding="utf-8"
     )
     for concept_id in (
         "AU-KG.compute.registered-feature",

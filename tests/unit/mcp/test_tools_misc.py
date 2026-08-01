@@ -166,6 +166,15 @@ def test_mcp_authorization_receives_declared_required_capability(
     kernel = MagicMock()
     kernel.authorize_tool.return_value = "allow"
     identity = object()
+    # The renewal seam (tool_guard.py's own comment: "refresh-on-use ... at
+    # the per-tool-call authorization boundary") calls
+    # kernel.refresh_identity_if_expiring(identity) and forwards WHATEVER it
+    # returns to authorize_tool -- a real kernel returns the SAME identity
+    # object when it isn't near expiry. A bare MagicMock() auto-creates that
+    # method and returns a freshly-minted, different Mock by default, which
+    # would then get forwarded instead of `identity`. Echo `identity` back,
+    # matching the "not expiring" case this test means to exercise.
+    kernel.refresh_identity_if_expiring.return_value = identity
     wrapped = tg.flag_mcp_tool_definitions(
         [mcp_ts], permissions_kernel=kernel, agent_identity=identity
     )[0]
@@ -482,7 +491,7 @@ async def test_list_team_tasks_with_tasks() -> None:
         (
             "task1",
             {
-                "type": "task",
+                "node_type": "task",
                 "status": "pending",
                 "assigned_to": "agent_x",
                 "content": "Do thing",
@@ -579,7 +588,7 @@ async def test_list_output_styles_with_kb() -> None:
     engine.graph.nodes.return_value = [
         (
             "art:1",
-            {"type": "article", "name": "sassy", "tags": ["style"]},
+            {"node_type": "article", "name": "sassy", "tags": ["style"]},
         )
     ]
     ctx = MagicMock()
