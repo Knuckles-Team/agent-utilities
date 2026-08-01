@@ -96,7 +96,7 @@ def test_multiplexer_tool_filtering():
 
 
 @pytest.mark.asyncio
-async def test_multiplexer_start_children_aggregation():
+async def test_multiplexer_start_children_aggregation(tmp_path):
     import json
     from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -116,11 +116,16 @@ async def test_multiplexer_start_children_aggregation():
         }
     }
 
-    mock_config_path = MagicMock()
-    mock_config_path.exists.return_value = True
-    mock_config_path.read_text.return_value = json.dumps(config)
+    # load_catalog() reads the config through _read_catalog_text, a bounded
+    # raw os.open()/os.read() reader (regular-file-only, no symlinks, size
+    # capped) -- not Path.read_text(). A mocked Path (whose .read_text()
+    # this test used to stub) stringifies to a garbage path
+    # ("MagicMock/mock/<id>") under os.open, which always failed and left
+    # the catalog empty. Use a real temp config file instead.
+    config_path = tmp_path / "mcp_config.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
 
-    multiplexer = MCPMultiplexer(mock_config_path)
+    multiplexer = MCPMultiplexer(config_path)
 
     # Mock _start_child to return a successful tuple for healthy, and None for failing
     async def mock_start_child(server_name, cfg):
@@ -130,6 +135,10 @@ async def test_multiplexer_start_children_aggregation():
             mock_tool.name = "healthy_tool"
             mock_tool.description = "Healthy description"
             mock_tool.input_schema = {}
+            # mcp.types.Tool(_meta=...) requires a dict or None -- an unset
+            # MagicMock attribute auto-vivifies to another MagicMock, which
+            # fails pydantic validation.
+            mock_tool.meta = None
             return server_name, mock_session, [mock_tool], cfg
         return None
 

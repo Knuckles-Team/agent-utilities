@@ -11,10 +11,14 @@ Identity comes from the ambient :func:`current_actor` (set by the MCP server /
 agent runner via ``use_actor``); callers may override per-call.
 """
 
-from typing import Any
+import json
+from typing import TYPE_CHECKING, Any
 
 from ...security.brain_context import ActorContext, current_actor
 from .company_brain_runtime import get_company_brain
+
+if TYPE_CHECKING:
+    from ...models.company_brain import DataClassification
 
 
 def _verified_actor(actor: ActorContext | None) -> ActorContext:
@@ -58,12 +62,23 @@ def permit(
 
 
 def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """Fetch durable ACL material for cache misses in one native round-trip.
+    """Fetch durable ACL material for cache misses in one bounded round-trip.
 
     No active process-owned graph means there is no hydration authority and the
-    caller remains default-denied. An active authority without the current
-    batched-properties primitive is a configuration failure, not permission to
-    fall back to N per-node reads.
+    caller remains default-denied. An active authority without a readable
+    backend is a configuration failure, not permission to fall back to N
+    per-node reads.
+
+    Reads through ``active.backend`` — the SAME authority every node write
+    (``IngestionMixin._upsert_node``, used by ``ingest_mcp_server`` and every
+    other platform-node ingestion path) targets. Earlier this read
+    ``active.graph_compute`` instead: that object is only the SAME store as
+    ``active.backend`` when the backend happens to expose a reusable
+    ``.graph`` (the single-process EpistemicGraphBackend chain); for any other
+    backend it is a distinct, never-written-to compute scratchpad, so newly
+    ingested platform nodes had no durable ACL material to hydrate and the
+    fail-closed guard denied them. Reading the backend directly removes that
+    asymmetry instead of loosening the guard.
     """
 
     from .engine import IntelligenceGraphEngine
@@ -71,24 +86,83 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     active = IntelligenceGraphEngine.get_active()
     if active is None:
         return {}
-    graph = getattr(active, "graph_compute", None)
-    client = getattr(graph, "client", None) or getattr(graph, "_client", None)
-    nodes = getattr(client, "nodes", None)
-    batch = getattr(nodes, "properties_batch", None)
-    if not callable(batch):
+    backend = getattr(active, "backend", None)
+    execute_read = getattr(backend, "execute_read", None)
+    if not callable(execute_read):
         raise PermissionError("Durable ACL hydration authority is unavailable")
-    raw = batch(node_ids)
-    if not isinstance(raw, dict):
+    try:
+        rows = execute_read(
+            "MATCH (n) WHERE n.id IN $ids RETURN n.id AS id, "
+            "n.tenant_id AS tenant_id, n.classification AS classification, "
+            "n.external_access AS external_access, n._owner_id AS owner_id",
+            {"ids": list(node_ids)},
+        )
+    except Exception as exc:
+        raise PermissionError("Durable ACL hydration query failed") from exc
+    if not isinstance(rows, list):
         raise PermissionError("Durable ACL hydration response is invalid")
-    return {
-        str(node_id): properties
-        for node_id, properties in raw.items()
-        if isinstance(node_id, str) and isinstance(properties, dict)
-    }
+
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise PermissionError("Durable ACL hydration response is invalid")
+        node_id = row.get("id")
+        if not isinstance(node_id, str):
+            continue
+        external_access = row.get("external_access")
+        if isinstance(external_access, str):
+            try:
+                external_access = json.loads(external_access)
+            except (TypeError, ValueError):
+                external_access = None
+        result[node_id] = {
+            "tenant_id": row.get("tenant_id"),
+            "classification": row.get("classification"),
+            "external_access": external_access,
+            "owner_id": row.get("owner_id"),
+        }
+    return result
+
+
+def _parse_classification(raw: Any) -> DataClassification | None:
+    """Best-effort ``DataClassification`` parse; ``None`` for anything unrecognized."""
+    from ...models.company_brain import DataClassification
+
+    try:
+        return DataClassification(str(raw or ""))
+    except ValueError:
+        return None
 
 
 def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
-    """Rebuild process-local ACL entries from governed durable node metadata."""
+    """Rebuild process-local ACL entries from governed durable node metadata.
+
+    Two independent durable-metadata shapes are understood, mirroring the two
+    write-time governance stamps (CONCEPT:AU-KG.backend.company-brain-write-guard):
+
+    1. **Connector-sourced access** (``external_access``, a source-connector
+       ``ExternalAccess`` descriptor) — synced via :func:`sync_access`,
+       unchanged from before.
+    2. **First-party write-time stamp** (``classification`` +
+       ``_owner_id``/``tenant_id``, stamped by
+       ``tenant_sharing.stamp_classification``/``stamp_ownership`` at the
+       ``IntelligenceGraphEngine._upsert_node`` / ``GraphComputeEngine.add_node``
+       chokepoints) — synthesized directly into a :class:`NodeACL` here. First-
+       party (non-connector) nodes never carry an ``external_access``
+       descriptor — only Documents ingested through a source connector do — so
+       without this fallback EVERY internally-created node (Memory, Episode,
+       Skill, CallableResource, Concept, ...) had no durable ACL material the
+       connector-oriented gate above understood, and stayed permanently
+       denied — even to its own owning actor, in production, not just tests.
+
+    A node with neither ``external_access`` nor a stamped ``_owner_id``/
+    ``PUBLIC`` classification (unowned/system data, or first-party data
+    written before this fix existed) is left unregistered and stays denied —
+    fail-closed, exactly as before this fallback existed. This only unblocks a
+    node's own real, verified owner or genuinely PUBLIC data; it never widens
+    access for anyone else, and the cross-tenant check above still gates
+    every branch.
+    """
 
     from ...models.company_brain import DataClassification
     from ...protocols.source_connectors.base import ExternalAccess
@@ -102,37 +176,33 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
         if str(properties.get("tenant_id") or "") != actor.tenant_id:
             continue
         raw_access = properties.get("external_access")
-        if not isinstance(raw_access, dict):
-            # First-party (non-connector) nodes never carry an
-            # ``external_access`` descriptor — only Documents ingested
-            # through a source connector do (tenant_sharing.stamp_ownership()
-            # only ever stamps tenant_id/_owner_id/_shared_scope, never
-            # external_access; see tenant_sharing.py's owner/scope model).
-            # Without a fallback, EVERY internally-created node (Memory,
-            # Episode, Skill, CallableResource, ...) has no durable ACL
-            # material this connector-oriented gate understands, so
-            # ``get_acl()`` stays None forever and ``check_permission``
-            # unconditionally "No ACL defined — default deny"s it — even for
-            # its own owning actor, in production, not just tests. Synthesize
-            # a private, owner-readable ACL directly from the ownership
-            # metadata tenant_sharing.py DOES stamp, mirroring its own
-            # private-by-default semantics (an unowned/system node is left
-            # with no owner and stays denied here exactly as before — this
-            # only unblocks a node's own real, verified owner).
-            owner_id = str(properties.get("_owner_id") or "").strip()
-            if owner_id:
-                get_company_brain().permissions.classify_node(
-                    node_id, DataClassification.CONFIDENTIAL, data_owner=owner_id
+        if isinstance(raw_access, dict):
+            try:
+                access = ExternalAccess.model_validate(raw_access)
+                classification = DataClassification(
+                    str(properties.get("classification") or "")
                 )
+                sync_access(node_id, access, classification=classification)
+            except Exception as exc:
+                raise PermissionError("Durable ACL metadata is invalid") from exc
             continue
-        try:
-            access = ExternalAccess.model_validate(raw_access)
-            classification = DataClassification(
-                str(properties.get("classification") or "")
+
+        # No connector descriptor: synthesize from the first-party write-time
+        # stamp instead of leaving the node permanently unclassified.
+        parsed_classification = _parse_classification(properties.get("classification"))
+        owner_id = str(properties.get("owner_id") or "").strip()
+        if parsed_classification is DataClassification.PUBLIC:
+            get_company_brain().permissions.classify_node(
+                node_id, DataClassification.PUBLIC
             )
-            sync_access(node_id, access, classification=classification)
-        except Exception as exc:
-            raise PermissionError("Durable ACL metadata is invalid") from exc
+        elif owner_id:
+            get_company_brain().permissions.classify_node(
+                node_id,
+                parsed_classification or DataClassification.CONFIDENTIAL,
+                data_owner=owner_id,
+            )
+        # else: no owner and not PUBLIC -> nothing to synthesize; the node
+        # stays denied (fail closed), identical to pre-fix behavior.
 
 
 def audit_read(
@@ -158,11 +228,22 @@ def scope(
     cypher: str,
     actor: ActorContext | None = None,
 ) -> str:
-    """Tenant-scope a Cypher read query for ``actor`` (``n.tenant_id = <tenant>``).
+    """Tenant-scope a Cypher read query for ``actor`` (``<bound var>.tenant_id = <tenant>``).
 
     Cross-org isolation, the primary boundary (KG-2.6). Kept to a simple,
     portable equality; finer owner/scope visibility (KG-2.60) is applied as a
     mandatory post-filter in :func:`visible`.
+
+    The injected predicate is written against the query's own first bound
+    node variable (:func:`~.cypher_scoping.first_bound_node_variable`), never
+    a hardcoded ``n`` — a caller-written query keeps whatever variable name it
+    chose (``MATCH (p:Policy) ...``, ``MATCH (f:ProcessFlow) ...``). When
+    ``cypher`` has a ``WHERE``/``RETURN`` clause to scope but no derivable
+    bound node variable, ``scope_cypher_query`` raises
+    :class:`~.cypher_scoping.UnscopableQueryError` (a ``PermissionError``
+    subclass) rather than silently emitting an unscoped or mis-scoped read;
+    this fails the same way here, wrapped below like every other scoping
+    failure.
     """
     actor = _verified_actor(actor)
     try:

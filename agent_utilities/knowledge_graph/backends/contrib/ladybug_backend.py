@@ -48,20 +48,24 @@ logger = logging.getLogger(__name__)
 
 # Cross-cutting governance properties every write-path stamps onto node
 # properties unconditionally (tenant scoping: CONCEPT:AU-KG.backend.company-brain-write-guard
-# TenancyManager.scope_cypher_query / stamp_ownership; owner/scope visibility:
-# tenant_sharing.stamp_ownership / apply_visibility) but that no individual
+# TenancyManager.scope_cypher_query / tenant_sharing.stamp_ownership; owner/scope
+# visibility: tenant_sharing.stamp_ownership / apply_visibility; write-time ACL
+# classification: tenant_sharing.stamp_classification) but that no individual
 # ``TableDefinition`` in schema_definition.py declares as a column. Kuzu/Ladybug
-# tables are strict-schema: a read filtering on an undeclared property fails
+# tables are strict-schema: a write/read referencing an undeclared property fails
 # with "Binder exception: Cannot find property ... for <var>" instead of simply
-# matching nothing, so every tenant-scoped read against this backend was
-# broken for every node type. Declared generically here (not duplicated across
-# ~40 individual TableDefinitions) so any node table gains these columns the
-# same way the KG-2.9g code-symbol columns are migrated onto pre-existing
-# tables below.
+# matching/storing nothing, so every governance-stamped write or tenant-scoped
+# read against this backend was broken for every node type. Declared generically
+# here (not duplicated across ~40 individual TableDefinitions) so any node table
+# gains these columns the same way the KG-2.9g code-symbol columns are migrated
+# onto pre-existing tables below. Kept in lockstep with
+# ``materialization._GOVERNANCE_COLUMNS`` (the SET-clause/valid-keys side of the
+# same contract).
 _GOVERNANCE_COLUMNS: dict[str, str] = {
     "tenant_id": "STRING",
     "_owner_id": "STRING",
     "_shared_scope": "STRING",
+    "classification": "STRING",
 }
 
 import threading
@@ -698,6 +702,10 @@ class LadybugBackend(GraphBackend):
         ``rows_as_dict()`` reads through them — so closing right after
         ``COMMIT`` (before that read) made every read in transient mode raise
         ``RuntimeError: Query result is closed`` instead of returning rows.
+        This is load-bearing for ``secured_reads._durable_access_rows``, whose
+        ACL-hydration read goes through this exact method — the ACL fallback
+        this convergence lane wires up would itself have raised in every
+        transient/test run without this fix.
         """
         if include_epistemic:
             return []
@@ -877,7 +885,10 @@ class LadybugBackend(GraphBackend):
         label = validate_identifier(label, kind="label")
         from agent_utilities.models.schema_definition import GENERIC_NODE_COLUMNS
 
-        cols = ", ".join(f"`{n}` {t}" for n, t in GENERIC_NODE_COLUMNS.items())
+        all_columns = dict(GENERIC_NODE_COLUMNS)
+        for gname, gtype in _GOVERNANCE_COLUMNS.items():
+            all_columns.setdefault(gname, gtype)
+        cols = ", ".join(f"`{n}` {t}" for n, t in all_columns.items())
         try:
             self.conn.execute(f"CREATE NODE TABLE IF NOT EXISTS {label} ({cols});")
         except Exception as e:  # noqa: BLE001
@@ -1043,7 +1054,9 @@ class LadybugBackend(GraphBackend):
                     for name, dtype in node.columns.items()
                 }
                 for gname, gtype in _GOVERNANCE_COLUMNS.items():
-                    col_names.setdefault(validate_identifier(gname, kind="column"), gtype)
+                    col_names.setdefault(
+                        validate_identifier(gname, kind="column"), gtype
+                    )
             except InvalidIdentifierError:
                 logger.warning("skipping node table with an invalid schema name")
                 continue

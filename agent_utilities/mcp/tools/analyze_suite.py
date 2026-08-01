@@ -61,6 +61,7 @@ GraphEvaluateAction = Literal[
     "specialize",
     "world_model_rollout",
     "latent_efficiency_benchmark",
+    "assimilation_benchmark",
     "evolve_model",
     "forecast",
     "causal",
@@ -168,7 +169,9 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "(formal concentration/no-regression SHACL gate — AHE-3.53), 'check_constraints', "
             "'specialize' (one SAI specialization cycle + superhuman cert — AHE-3.29), "
             "'world_model_rollout' (forward-simulate the world model — KG-2.73b), "
-            "'latent_efficiency_benchmark' (AHE-3.48), 'evolve_model', 'forecast', 'causal', "
+            "'latent_efficiency_benchmark' (AHE-3.48), 'assimilation_benchmark' "
+            "(measured empirical-parity evidence for assimilated paper mechanisms "
+            "vs baseline — AHE-3.39), 'evolve_model', 'forecast', 'causal', "
             "'invariant', plus the finance evaluation actions 'quant_crypto', "
             "'quant_exchange', 'quant_microstructure', 'quant_strategy', "
             "'quant_regime', and 'quant_insider'."
@@ -178,7 +181,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
     async def graph_evaluate(
         action: GraphEvaluateAction = Field(
             default="evaluate",
-            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | evolve_model | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
+            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
         ),
         query: str = Field(
             default="",

@@ -586,32 +586,33 @@ class IntelligenceGraphEngine(
         # path always passes `"id": node_id` explicitly) — but `data` isn't
         # guaranteed to carry an "id" key itself; some callers build props
         # from scratch and pass the node id ONLY as this method's own
-        # `node_id` argument (e.g. skill_workflow_ingest.ingest_runnable_skill).
-        # Without this, the raw-Cypher/MERGE branch below sent `$id` in the
-        # query text with no matching key in the params dict, and the native
-        # parser rejected it outright ("Parameter id not found") rather than
-        # silently mismatching, so this failure mode wasn't just a phantom
-        # read gap — same governance-consistency principle as the tenant
-        # stamp below, generically guaranteed here for every caller.
+        # `node_id` argument. Without this, the raw-Cypher/MERGE branch below
+        # sent `$id` in the query text with no matching key in the params
+        # dict, and the native parser rejected it outright ("Parameter id not
+        # found") rather than silently mismatching.
         prepared.setdefault("id", node_id)
 
-        # Stamp tenant/owner governance properties (CONCEPT:AU-KG.backend.company-brain-write-guard)
-        # on EVERY node write through this one generic upsert seam, not only
-        # writes routed through the BrainGuardedBackend proxy. The read path
-        # (QueryMixin.query_cypher) applies TenancyManager.scope_cypher_query's
-        # ``WHERE <var>.tenant_id = '<tenant>'`` unconditionally to every read,
-        # for every backend — so a write that skipped stamping made its own
-        # data permanently unreadable through query_cypher (matched zero rows,
-        # not an error) whenever the active backend wasn't wrapped by
-        # BrainGuardedBackend. Best-effort: writes with no bound actor (system/
-        # background/control-plane paths) proceed unstamped exactly as before.
-        if not prepared.get("tenant_id"):
-            try:
-                from .tenant_sharing import stamp_ownership
+        # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard):
+        # stamp tenant/owner governance AND a durable ACL classification on
+        # EVERY node write through this one generic upsert seam — the single
+        # chokepoint ~50+ ingestion/write call sites across the codebase all
+        # funnel through (directly, or via IntelligenceGraphEngine.add_node).
+        # secured_reads.permit() is default-deny for any node with no
+        # registered ACL; before this, nothing on the write path ever
+        # registered one, so data was writable but permanently unreadable —
+        # even by its own creator. secured_reads._hydrate_missing_acls reads
+        # these exact durable properties back at query time to reconstruct
+        # the ACL lazily (the read-time fallback layer of this same defence).
+        # Best-effort: writes with no bound actor (system/background/
+        # control-plane paths) proceed unstamped exactly as before this seam
+        # existed, not a hidden failure.
+        try:
+            from .tenant_sharing import stamp_classification, stamp_ownership
 
-                stamp_ownership(prepared)
-            except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor (system/background/control-plane write) means nothing to stamp; the write proceeds unstamped exactly as before this seam existed, not a hidden failure
-                pass
+            stamp_ownership(prepared)
+            stamp_classification(prepared, label)
+        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
+            pass
 
         typed_support = getattr(self.backend, "typed_mutation_support", "")
         if typed_support == "native":

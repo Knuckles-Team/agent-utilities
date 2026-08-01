@@ -947,14 +947,18 @@ async def test_link_knowledge_nodes_target_missing() -> None:
 
 @pytest.mark.asyncio
 async def test_link_knowledge_nodes_success() -> None:
-    """Link succeeds and emits MATCH/MERGE query."""
+    """Link succeeds and calls the typed link_nodes API."""
     ctx = _mock_ctx()
     ctx.deps.knowledge_engine.graph.add_node("a")
     ctx.deps.knowledge_engine.graph.add_node("b")
     result = await kt.link_knowledge_nodes(ctx, "a", "b", "depends_on")
     assert "Successfully established" in result
     assert "depends_on" in result
-    ctx.deps.knowledge_engine.backend.execute.assert_called_once()
+    # link_knowledge_nodes calls engine.link_nodes(...) (a typed native call),
+    # not a raw backend.execute(...) Cypher query.
+    ctx.deps.knowledge_engine.link_nodes.assert_called_once_with(
+        "a", "b", "depends_on"
+    )
 
 
 @pytest.mark.asyncio
@@ -1050,7 +1054,7 @@ async def test_sync_feature_to_memory_updates_existing(
     # Pre-seed graph with existing memory
     ctx.deps.knowledge_engine.graph.add_node(
         "mem:existing",
-        type="memory",
+        node_type="memory",
         name="SDD Feature Memory: feat-001",
     )
     fake_manager = MagicMock()
@@ -1077,12 +1081,14 @@ async def test_log_heartbeat_no_engine() -> None:
 
 @pytest.mark.asyncio
 async def test_log_heartbeat_success() -> None:
-    """Happy path writes two queries and returns the hb id."""
+    """Happy path writes the heartbeat + agent nodes and links them."""
     ctx = _mock_ctx()
     result = await kt.log_heartbeat(ctx, "agent1", "ok", issues=["i1"])
     assert "Heartbeat logged" in result
-    # Two queries: MERGE heartbeat + MERGE relationship
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    # Typed native calls, not raw backend.execute(...) Cypher: two add_node
+    # (heartbeat + agent) plus one link_nodes.
+    assert ctx.deps.knowledge_engine.add_node.call_count == 2
+    ctx.deps.knowledge_engine.link_nodes.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -1143,17 +1149,19 @@ async def test_create_user_with_client_id() -> None:
     ctx = _mock_ctx()
     result = await kt.create_user(ctx, "Alice", role="admin", client_id="c1")
     assert "User created" in result
-    # Two queries: MERGE user + MATCH...MERGE relationship
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    # Typed native calls: one add_node (user) + one link_nodes (to the client).
+    ctx.deps.knowledge_engine.add_node.assert_called_once()
+    ctx.deps.knowledge_engine.link_nodes.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_create_user_no_client_id() -> None:
-    """No client_id -> only the MERGE user query runs."""
+    """No client_id -> only the add_node(user) call runs, no link_nodes."""
     ctx = _mock_ctx()
     result = await kt.create_user(ctx, "Alice")
     assert "User created" in result
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 1
+    ctx.deps.knowledge_engine.add_node.assert_called_once()
+    ctx.deps.knowledge_engine.link_nodes.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -1184,7 +1192,8 @@ async def test_save_preference_success() -> None:
     ctx = _mock_ctx()
     result = await kt.save_preference(ctx, "u1", "lang", "python")
     assert "Preference saved" in result
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    ctx.deps.knowledge_engine.add_node.assert_called_once()
+    ctx.deps.knowledge_engine.link_nodes.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -1215,7 +1224,9 @@ async def test_save_chat_message_success() -> None:
     ctx = _mock_ctx()
     result = await kt.save_chat_message(ctx, "t1", "user", "hi")
     assert "Message saved" in result
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    # Typed native calls: two add_node (message + thread) + one link_nodes.
+    assert ctx.deps.knowledge_engine.add_node.call_count == 2
+    ctx.deps.knowledge_engine.link_nodes.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -1242,11 +1253,13 @@ async def test_log_cron_execution_no_engine() -> None:
 
 @pytest.mark.asyncio
 async def test_log_cron_execution_success() -> None:
-    """Happy path logs two queries."""
+    """Happy path logs the cron log + job nodes and links them."""
     ctx = _mock_ctx()
     result = await kt.log_cron_execution(ctx, "j1", "ok", "done")
     assert "Cron execution logged" in result
-    assert ctx.deps.knowledge_engine.backend.execute.call_count == 2
+    # Typed native calls: two add_node (log + job) + one link_nodes.
+    assert ctx.deps.knowledge_engine.add_node.call_count == 2
+    ctx.deps.knowledge_engine.link_nodes.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -1451,7 +1464,7 @@ async def test_get_kb_article_found() -> None:
     ctx = _mock_ctx()
     ctx.deps.knowledge_engine.graph.add_node(
         "art:1",
-        type="article",
+        node_type="article",
         name="My Article",
         content="# Heading\ntext",
     )

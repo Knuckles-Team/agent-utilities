@@ -85,14 +85,25 @@ class RegistryMixin(_Base):
         query: str,
         max_nodes: int = 150,
         min_centrality: float = 0.01,
+        skip_quality_gate: bool = False,
     ) -> FocusedSubgraph:
         """
         Task-specific subgraph extraction — the core engine behind Codemaps.
         Reuses existing search + topological analysis.
+
+        ``skip_quality_gate`` passes through to :meth:`search_hybrid` — the
+        keyword-fallback path (no embedder available) never stamps a
+        ``_score`` on its candidates, so the retrieval quality gate always
+        sees ``composite=0.0`` and rejects them outright regardless of match
+        quality. Callers that know they are keyword-only (e.g. no configured
+        embedder) can opt out of that gate the same way ``search_hybrid``'s
+        other direct callers already do.
         """
         # 1. Hybrid search for initial candidates
         logger.info(f"Extracting subgraph for query: {query}")
-        search_results = self.search_hybrid(query, top_k=max_nodes * 2)
+        search_results = self.search_hybrid(
+            query, top_k=max_nodes * 2, skip_quality_gate=skip_quality_gate
+        )
         logger.info(f"Hybrid search found {len(search_results)} candidates")
 
         # 2. Build initial node set
@@ -154,11 +165,29 @@ class RegistryMixin(_Base):
 
     async def get_codemap_by_id(self, codemap_id: str) -> Any | None:
         """Retrieve a codemap artifact by its ID."""
-        # Check in-memory first if we store them there
-        cm_node_id = f"codemap:{codemap_id}"
+        # Check in-memory first if we store them there. Same bare id
+        # store_codemap writes under -- the graph's stored 'id' property must
+        # match the node's storage key everywhere (GraphComputeEngine.add_node),
+        # so this can't carry a local "codemap:" prefix the backend upsert
+        # path (self._upsert_node("Codemap", artifact.id, ...) below) never
+        # used either.
+        cm_node_id = codemap_id
         if self.graph.has_node(cm_node_id):
-            data = self.graph._get_node_properties(cm_node_id)
+            data = dict(self.graph._get_node_properties(cm_node_id) or {})
             from ...models.codemap import CodemapArtifact
+
+            # Same JSON-string normalization as the backend-Cypher path below:
+            # complex fields can come back JSON-serialized (the add_node write
+            # path's clean_props/serialize does not round-trip lists back to
+            # lists on every backend). This branch was previously unreachable
+            # (the "codemap:"-prefixed lookup key never matched what
+            # store_codemap actually wrote), so this gap was latent.
+            import json
+
+            for k in ["hierarchy", "nodes", "edges", "evidence_refs"]:
+                if k in data and isinstance(data[k], str):
+                    with contextlib.suppress(Exception):
+                        data[k] = json.loads(data[k])
 
             return CodemapArtifact.model_validate(data)
 
@@ -182,7 +211,14 @@ class RegistryMixin(_Base):
 
     async def store_codemap(self, artifact: Any):
         """Persist a codemap artifact to the graph."""
-        node_id = f"codemap:{artifact.id}"
+        # Bare artifact.id, matching every other _canonical_node_payload
+        # caller in this module and the backend upsert below -- a local
+        # "codemap:" prefix here made the stored 'id' property diverge from
+        # the node's own storage key, which add_node's identity invariant now
+        # rejects outright (previously a silent split-identity: the in-memory
+        # write and the backend upsert created two different node ids for one
+        # artifact).
+        node_id = artifact.id
         data = _canonical_node_payload(artifact, "Codemap")
 
         # Add to in-memory graph
@@ -284,11 +320,17 @@ class RegistryMixin(_Base):
             props.update(updates)
             self.graph.add_node(node_id, props)
         if self.backend:
-            set_clause = self._get_set_clause(updates, alias="n", label="SystemPrompt")
-            query = f"MATCH (n:SystemPrompt {{id: $id}}){set_clause}"
-            params = {"id": node_id}
-            params.update(updates)
-            self.backend.execute(query, params)
+            # D-W2-13: was a hand-built ``MATCH ... SET n.`field` = $field``
+            # (materialization.set_clause always backtick-quotes property
+            # names), sent through self.backend.execute() unconditionally --
+            # against the native engine that is rejected outright (the
+            # hand-written Cypher parser has no backtick-quoted-property
+            # grammar). _upsert_node already dispatches correctly per backend
+            # (the SAME typed native seam add_agent_identity/add_prompt use
+            # for CREATE), and its native path is a field-merge upsert, so it
+            # is the exact semantic equivalent of this MATCH+SET for an
+            # existing node.
+            self._upsert_node("SystemPrompt", node_id, updates)
 
     # ─────────────────────────────────────────────────────────────────────
     #  Prompt Management (with versioning and rollback)
@@ -432,11 +474,13 @@ class RegistryMixin(_Base):
             data["version_number"] = next_version
             data["parent_id"] = prompt_id
             self._upsert_node("Prompt", new_id, data)
-            self.backend.execute(
-                "MATCH (a:Prompt {id: $new_id}), (b:Prompt {id: $old_id}) "
-                "MERGE (a)-[:SUPERSEDES]->(b)",
-                {"new_id": new_id, "old_id": prompt_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only, never an edge;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # ``link_nodes`` dispatches through the typed engine API instead
+            # (both endpoints are already upserted above).
+            self.link_nodes(new_id, prompt_id, RegistryEdgeType.SUPERSEDES)
 
         return {
             "id": new_id,
@@ -901,11 +945,12 @@ class RegistryMixin(_Base):
             },
         )
         if self.backend:
-            self.backend.execute(
-                "MATCH (tc {id: $tc_id}), (sc {id: $sc_id}) "
-                "MERGE (tc)-[:REUSED_TEAM]->(sc)",
-                {"tc_id": tc_id, "sc_id": coalition_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only, never an edge;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # ``link_nodes`` dispatches through the typed engine API instead.
+            self.link_nodes(tc_id, coalition_id, RegistryEdgeType.REUSED_TEAM)
 
         # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Invalidate cache after TeamConfig promotion
         from ...core.config import invalidate_registry_cache
@@ -938,26 +983,47 @@ class RegistryMixin(_Base):
         """
         alpha = 0.3
 
-        new_rate = alpha * reward + (1 - alpha) * 0.5
+        old_rate = 0.5
+        usage_count = 0
         if self.graph.has_node(team_config_id):
             data = self.graph._get_node_properties(team_config_id)
             old_rate = data.get("success_rate", 0.5)
-            new_rate = alpha * reward + (1 - alpha) * old_rate
+            usage_count = data.get("usage_count", 0)
+        elif self.backend:
+            # Compute-layer cache miss (e.g. a fresh process with a warm
+            # backend): read the current counters so the increment below is
+            # still correct rather than assuming a cold start.
+            rows = self.backend.execute(
+                "MATCH (tc:TeamConfig {id: $id}) "
+                "RETURN tc.success_rate, tc.usage_count",
+                {"id": team_config_id},
+            )
+            if rows:
+                old_rate = rows[0].get("tc.success_rate") or 0.5
+                usage_count = rows[0].get("tc.usage_count") or 0
+
+        new_rate = alpha * reward + (1 - alpha) * old_rate
+        new_usage_count = usage_count + 1
+
+        if self.graph.has_node(team_config_id):
+            data = self.graph._get_node_properties(team_config_id)
             data["success_rate"] = new_rate
-            data["usage_count"] = data.get("usage_count", 0) + 1
+            data["usage_count"] = new_usage_count
             # _get_node_properties returns a detached snapshot; persist the
             # mutated values back to the graph store so reads see the update.
             self.graph.add_node(team_config_id, data)
 
         if self.backend:
-            self.backend.execute(
-                "MATCH (tc:TeamConfig {id: $id}) "
-                "SET tc.success_rate = $rate, "
-                "    tc.usage_count = COALESCE(tc.usage_count, 0) + 1",
-                {
-                    "id": team_config_id,
-                    "rate": new_rate,
-                },
+            # ``SET tc.usage_count = COALESCE(tc.usage_count, 0) + 1`` is a
+            # function-call SET value, outside the native write subset (SET
+            # values must be literals; epistemic-graph/crates/eg-query/src/
+            # cypher/parser.rs:1184). The increment is now computed as a
+            # Python literal above; ``_upsert_node`` is the typed field-merge
+            # upsert equivalent of the old MATCH+SET for an existing node.
+            self._upsert_node(
+                "TeamConfig",
+                team_config_id,
+                {"success_rate": new_rate, "usage_count": new_usage_count},
             )
 
         logger.info(
@@ -987,10 +1053,12 @@ class RegistryMixin(_Base):
             },
         )
         if self.backend:
-            self.backend.execute(
-                "MATCH (a {id: $aid}), (p {id: $pid}) MERGE (a)-[:USES_PROMPT]->(p)",
-                {"aid": agent_id, "pid": prompt_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only, never an edge;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # ``link_nodes`` dispatches through the typed engine API instead.
+            self.link_nodes(agent_id, prompt_id, RegistryEdgeType.USES_PROMPT)
         logger.info("Linked agent to prompt (USES_PROMPT)")
 
     # ─────────────────────────────────────────────────────────────────────
@@ -1049,12 +1117,12 @@ class RegistryMixin(_Base):
         self.graph.add_node(function_id, node_data)
 
         if self.backend:
-            set_clause = self._get_set_clause(
-                node_data, alias="n", label="CallableResource"
-            )
-            query = f"MERGE (n:CallableResource {{id: $id}}){set_clause}"
-            params: dict[str, Any] = {"id": function_id, **node_data}
-            self.backend.execute(query, params)
+            # D-W2-13: same fix as update_agent_identity above -- a hand-built
+            # MERGE + backtick-quoted SET clause sent unconditionally through
+            # self.backend.execute() is rejected by the native engine's
+            # Cypher parser. _upsert_node is the typed-native-aware
+            # equivalent of this MERGE + SET (create-or-field-merge).
+            self._upsert_node("CallableResource", function_id, node_data)
 
         logger.info(
             "[CONCEPT:AU-ECO.toolkit.self-describing-registry] Registered function '%s' (type=%s, triggers=%d)",
