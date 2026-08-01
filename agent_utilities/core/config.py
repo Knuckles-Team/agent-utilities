@@ -2839,6 +2839,61 @@ class AgentConfig(BaseSettings):
             validated[alias] = reference
         return validated
 
+    # CONCEPT:AU-KG.ingest.governed-claim-promotion — per-pack/per-domain
+    # confidence thresholds for candidate-claim promotion
+    # (knowledge_graph/ingestion/promotion.py). A single global threshold
+    # cannot be correct across domains with different risk tolerances (a
+    # low-stakes wiki fact vs a high-stakes CMDB relationship), and the value
+    # is genuinely deployment-varying with no universal default — but it stays
+    # ONE mapping, not a family of per-domain env flags (Configuration
+    # discipline). Domains absent from this mapping fall back to
+    # ``DEFAULT_CONFIDENCE_THRESHOLD`` in ``promotion.py``.
+    ingestion_confidence_thresholds: dict[str, float] = Field(
+        default_factory=dict,
+        alias="INGESTION_CONFIDENCE_THRESHOLDS",
+    )
+    """JSON object mapping a domain/pack name to its minimum promotion
+    confidence (e.g. ``{"cmdb": 0.8, "wiki": 0.5}``). Omit a domain to use the
+    conservative default."""
+
+    @field_validator("ingestion_confidence_thresholds", mode="before")
+    @classmethod
+    def _validate_ingestion_confidence_thresholds(cls, value: Any) -> dict[str, float]:
+        if value in (None, ""):
+            return {}
+        if isinstance(value, str):
+            import json as _json
+
+            try:
+                value = _json.loads(value)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "INGESTION_CONFIDENCE_THRESHOLDS must be a JSON object of "
+                    "domain -> threshold"
+                ) from None
+        if not isinstance(value, Mapping) or len(value) > 512:
+            raise ValueError(
+                "INGESTION_CONFIDENCE_THRESHOLDS must be a bounded mapping"
+            )
+        validated: dict[str, float] = {}
+        for raw_domain, raw_threshold in value.items():
+            if not isinstance(raw_domain, str) or not raw_domain.strip():
+                raise ValueError(
+                    "INGESTION_CONFIDENCE_THRESHOLDS keys must be non-empty strings"
+                )
+            try:
+                threshold = float(raw_threshold)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "INGESTION_CONFIDENCE_THRESHOLDS values must be numeric"
+                ) from None
+            if not 0.0 <= threshold <= 1.0:
+                raise ValueError(
+                    "INGESTION_CONFIDENCE_THRESHOLDS values must be in [0.0, 1.0]"
+                )
+            validated[raw_domain.strip()] = threshold
+        return validated
+
     mcp_tool_mode: Literal["intent", "condensed", "verbose", "both"] = Field(
         default="intent", alias="MCP_TOOL_MODE"
     )
@@ -4504,15 +4559,23 @@ class AgentConfig(BaseSettings):
     placement_catalog_enabled: bool = Field(
         default=True, alias="PLACEMENT_CATALOG_ENABLED"
     )
-    """Consult the engine's authoritative PlacementCatalog when resolving a
-    sharded graph's owning endpoint (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, DIST-P2-2b —
-    ``knowledge_graph.core.placement_catalog.resolve_placement``), instead of
-    deciding placement purely from the static client-side HRW ring. Default
-    True: the catalog is authoritative WHEN a reachable engine advertises one;
-    an engine that doesn't (every endpoint unreachable, or an older engine
-    with no placement-route RPC) transparently falls back to the existing HRW
-    ring, so today's deployments are unaffected either way. Set False to force
-    pure HRW routing and skip the catalog round-trip entirely."""
+    """Reserved switch for the engine's authoritative PlacementCatalog
+    (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, DIST-P2-2b —
+    ``knowledge_graph.core.placement_catalog.resolve_placement``).
+
+    **Not yet wired (D-WD-2, reports/deferred/lane-webui-dataplane.md).** No
+    code path reads this field today — a repository grep finds only its own
+    definition — and there is no "static client-side HRW ring" fallback
+    implemented to fall back *to*; despite the name, placement resolution is
+    currently mandatory whenever an engine route is configured, regardless of
+    this flag's value. Setting it to ``False`` has **no effect** right now.
+
+    It is kept, rather than deleted, because it is the natural switch for
+    making placement resolution conditional in
+    ``security.request_identity._mint_graph_session`` (D-WD-1) — a session's
+    authority should not depend on a cluster-admin-gated RPC. Do not rely on
+    this flag changing behavior until that lane lands; this docstring will be
+    corrected in the same change that wires it."""
 
     epistemic_graph_max_resident_graphs: int = Field(
         default=256, ge=1, le=100_000, alias="EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS"
@@ -6100,7 +6163,9 @@ def _fetch_prompt_agents(engine: Any) -> list[MCPAgent]:
         # of the process — a transient failure here silently produces a partial/empty
         # agent registry that then never self-heals. Raised to warning for visibility;
         # the cache-poisoning fix itself belongs to _RegistryCache (see D-DSTO follow-up).
-        logger.warning(f"Failed to fetch Prompt nodes (registry cache may go stale): {e}")
+        logger.warning(
+            f"Failed to fetch Prompt nodes (registry cache may go stale): {e}"
+        )
     return agents
 
 
@@ -6129,7 +6194,9 @@ def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
     except Exception as e:
         # D-DST-6: same _RegistryCache no-TTL exposure as _fetch_prompt_agents above —
         # raised to warning so a persistently-failing fetch is diagnosable.
-        logger.warning(f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}")
+        logger.warning(
+            f"Failed to fetch specialist agents from KG (registry cache may go stale): {e}"
+        )
     return agents
 
 

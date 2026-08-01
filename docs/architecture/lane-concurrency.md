@@ -70,6 +70,29 @@ fail to exclude the actor that collides with you.
 Read it live with `agent-utilities lane classify`. An unregistered resource is a
 hard error, not a default — you must classify a resource before contending for it.
 
+### D-OB-12 — why `pre-commit --all-files` needs a wrapper as well as a lease
+
+The lease and the wrapper solve **different** problems, and both are required.
+The lease serialises lanes; the wrapper protects unstaged work from the hooks.
+
+Under the hood, `pre-commit run --all-files` `git stash`es every **unstaged** change
+before running hooks and restores it after. When a **file-rewriting** hook
+(`ruff-format`, `turtle-format`, `guardrail-docs-contract --write`, …) touches a path
+that also had unstaged edits, the restore can **silently drop those edits instead of
+merging them** — this repo lost a full round of regenerated docs to exactly this during
+the fastmcp-4 migration. It is acutely dangerous here because
+`docs/concept_reservations.yaml` is a shared cross-session coordination ledger
+**deliberately left unstaged** (concurrent sessions append to it without staging), so one
+careless `--all-files` run can destroy another session's in-flight reservations.
+
+`python3 scripts/safe_precommit_all_files.py`
+(CONCEPT:AU-OS.governance.precommit-all-files-safety) backs up your full unstaged diff
+before the run, warns if a known shared-ledger file is unstaged going in, and verifies
+afterward that your unstaged changes still apply — pointing at the backup and the exact
+`git apply --3way` recovery command if a hook altered or dropped them. A **targeted**
+bare `pre-commit run` against specific files/hooks does not carry this risk the same way;
+prefer that narrower form whenever you do not need every hook re-run.
+
 ## PARTITION — supply the affordance, don't just ban the verb
 
 The `git stash` rule is the instructive one. It was stated prominently and

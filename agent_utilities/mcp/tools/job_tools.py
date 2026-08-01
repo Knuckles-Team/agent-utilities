@@ -20,18 +20,30 @@ def register_job_tools(mcp: Any) -> None:
             "Submit and inspect durable orchestration WorkItems. Actions: 'dispatch' "
             "(enqueue a task and return its job handle), 'status' (read a WorkItem, "
             "RunTrace, or workflow-session trace by id), 'cancel' (request "
-            "cooperative cancellation through the same WorkItem authority), or "
+            "cooperative cancellation through the same WorkItem authority), "
             "'input' (submit a client response to a WorkItem awaiting input -- the "
-            "MCP Tasks extension's 'tasks/update' backed by the same WorkItem)."
+            "MCP Tasks extension's 'tasks/update' backed by the same WorkItem), "
+            "'dead_letter' (list WorkItems whose retry budget is exhausted -- "
+            "CONCEPT:AU-KG.ingest.dead-letter-drain, never a silent aggregate-only "
+            "count), or 'drain' (explicitly requeue ONE dead-lettered WorkItem as a "
+            "fresh attempt -- never automatic, never mutates the original, which "
+            "stays visible for audit)."
         ),
         tags=["graph-os", "jobs", "orchestration"],
     )
     async def graph_jobs(
         action: str = Field(
-            default="status", description="dispatch | status | cancel | input"
+            default="status",
+            description="dispatch | status | cancel | input | dead_letter | drain",
         ),
         task: str = Field(default="", description="Task to dispatch."),
-        job_id: str = Field(default="", description="Job/run/session id for status."),
+        job_id: str = Field(
+            default="",
+            description=(
+                "Job/run/session id for status|cancel|input, or the dead-lettered "
+                "WorkItem id for 'drain'."
+            ),
+        ),
         agent_name: str = Field(
             default="", description="Optional agent hint for the queued turn."
         ),
@@ -44,6 +56,13 @@ def register_job_tools(mcp: Any) -> None:
                 "JSON object of client input responses for action='input' "
                 "(the MCP Tasks extension's tasks/update inputResponses)."
             ),
+        ),
+        kind: str = Field(
+            default="", description="'dead_letter' only: filter to one WorkItem kind."
+        ),
+        limit: int = Field(default=50, description="'dead_letter' only: max rows."),
+        reason: str = Field(
+            default="", description="'drain' only: why this item is being drained."
         ),
     ) -> str:
         engine = kg_server._get_engine()
@@ -144,6 +163,36 @@ def register_job_tools(mcp: Any) -> None:
                 return json.dumps(
                     {"status": "submitted", "job_id": job_id}, default=str
                 )
+            if action == "dead_letter":
+                from agent_utilities.knowledge_graph.ingestion.dead_letter import (
+                    list_dead_letter_items,
+                )
+
+                view = getattr(engine, "_work_item_engine", engine)
+                return json.dumps(
+                    {
+                        "action": "dead_letter",
+                        "items": list_dead_letter_items(view, kind=kind, limit=limit),
+                    },
+                    default=str,
+                )
+            if action == "drain":
+                if not job_id:
+                    return "Error: job_id required"
+                from agent_utilities.knowledge_graph.core.session import (
+                    resolve_session,
+                )
+                from agent_utilities.knowledge_graph.ingestion.dead_letter import (
+                    drain_dead_letter_item,
+                )
+
+                view = getattr(engine, "_work_item_engine", engine)
+                session = resolve_session(required_scope="kg:write")
+                actor = getattr(session.actor, "actor_id", None) or "unknown"
+                result = drain_dead_letter_item(
+                    view, job_id, actor=str(actor), reason=reason
+                )
+                return json.dumps({"action": "drain", **result}, default=str)
             return f"Error: Unknown graph_jobs action '{action}'"
         except PermissionError:
             raise
