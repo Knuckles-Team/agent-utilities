@@ -10,25 +10,21 @@ wiring — including the prose fallback for un-attributed proposals.
 from __future__ import annotations
 
 import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent / "unit"))
+from tests.unit.fleet_autonomy_fakes import FakeEngine
 
-from fleet_autonomy_fakes import FakeEngine  # noqa: E402
-
-from agent_utilities.knowledge_graph.research import code_synthesis  # noqa: E402
-from agent_utilities.knowledge_graph.research.change_publisher import (  # noqa: E402
+from agent_utilities.knowledge_graph.research import code_synthesis
+from agent_utilities.knowledge_graph.research.change_publisher import (
     LocalBranchPublisher,
     governed_publish,
 )
-from agent_utilities.knowledge_graph.research.change_synthesis import (  # noqa: E402
+from agent_utilities.knowledge_graph.research.change_synthesis import (
     FileChange,
     synthesize_change_set,
 )
-from agent_utilities.knowledge_graph.research.code_synthesis import (  # noqa: E402
+from agent_utilities.knowledge_graph.research.code_synthesis import (
     resolve_target_file,
     synthesize_code,
 )
