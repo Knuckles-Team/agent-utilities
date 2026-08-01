@@ -56,7 +56,10 @@ async def search_knowledge_graph(ctx: RunContext[AgentDeps], query: str) -> str:
 
     output = []
     for res in results:
-        ntype = res.get("type", "unknown")
+        # Real engine node data carries the current ``node_type`` property; a
+        # bare ``type`` is only ever seen on stale/legacy rows (the schema
+        # retired the bare key in favor of ``node_type``).
+        ntype = res.get("node_type") or res.get("type", "unknown")
         output.append(
             f"[{ntype.upper()}] [ID: {res.get('id')}] {res.get('name')}: {res.get('description', '')[:200]}"
         )
@@ -85,7 +88,8 @@ async def get_code_impact(ctx: RunContext[AgentDeps], symbol_or_file: str) -> st
     output = [f"Impact Set for '{symbol_or_file}':"]
     for node in impact:
         output.append(
-            f"- [{node.get('type')}] {node.get('id')} (File: {node.get('file_path', 'N/A')})"
+            f"- [{node.get('node_type') or node.get('type')}] {node.get('id')} "
+            f"(File: {node.get('file_path', 'N/A')})"
         )
 
     return "\n".join(output)
@@ -273,7 +277,13 @@ async def sync_feature_to_memory(ctx: RunContext[AgentDeps], feature_id: str) ->
     existing_mem_id = None
     for node_id in engine.graph.node_ids():
         data = engine.graph._get_node_properties(node_id)
-        if data.get("type") == "memory" and data.get("name") == mem_name:
+        # ``add_memory``/``_serialize_node`` write the current ``node_type``
+        # property (the schema retired the bare ``type`` key); accept a
+        # legacy bare ``type`` too so old rows still match. Without this,
+        # this lookup always missed against real engine data and every sync
+        # silently duplicated the memory node instead of updating it.
+        node_type = data.get("node_type") or data.get("type")
+        if node_type == "memory" and data.get("name") == mem_name:
             existing_mem_id = node_id
             break
 

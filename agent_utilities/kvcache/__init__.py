@@ -30,8 +30,11 @@ from agent_utilities.kvcache.checkpoint import (
 from agent_utilities.kvcache.config import KvCacheConfig
 from agent_utilities.kvcache.eligibility import (
     AlwaysDenyEligibility,
+    AuthorityDerivedEligibility,
+    CallerAuthority,
+    ContributingSource,
     EligibilityDecision,
-    OperatorGrantEligibility,
+    PersistenceDerivation,
     PersistenceEligibilityGate,
     PersistenceRequest,
     get_persistence_eligibility_gate,
@@ -77,6 +80,9 @@ from agent_utilities.kvcache.worthiness import (
 
 __all__ = [
     "AlwaysDenyEligibility",
+    "AuthorityDerivedEligibility",
+    "CallerAuthority",
+    "ContributingSource",
     "CheckpointAdvisor",
     "CheckpointNotFoundError",
     "CheckpointObservation",
@@ -100,7 +106,7 @@ __all__ = [
     "KvCacheConfig",
     "KvCacheStats",
     "ModelSelfReport",
-    "OperatorGrantEligibility",
+    "PersistenceDerivation",
     "PersistenceEligibilityGate",
     "PersistenceRequest",
     "RAMCheckpointRecord",
