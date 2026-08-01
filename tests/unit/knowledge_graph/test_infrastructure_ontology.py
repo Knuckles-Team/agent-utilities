@@ -100,10 +100,11 @@ def test_host_ingestion_and_sparql_matchmaking(mock_inventory_file):
     assert len(ingested) == 4
     assert any(node_id.startswith("host:pref_host_") for node_id in ingested)
 
-    # Verify LPG relationships were correctly created. The engine stores the
-    # edge's canonical property verbatim under "relationship" (no case
-    # transform), so read edge data via get_edge_data rather than networkx
-    # adjacency subscripting.
+    # Verify LPG relationships were correctly created. link_nodes() (the typed
+    # engine API these edges now route through — see engine_infra.py's
+    # ingest_hosts_from_inventory) canonicalizes the relationship type
+    # (uppercased) on write, so read edge data via get_edge_data rather than
+    # networkx adjacency subscripting.
     def _host_role(node_id: str) -> str:
         # dict-valued properties (like HostNode.labels) are JSON-encoded for
         # storage (IntelligenceGraphEngine._serialize_node) and come back as a
@@ -119,7 +120,7 @@ def test_host_ingestion_and_sparql_matchmaking(mock_inventory_file):
     storage_id = storage_host.replace("host:", "storage:", 1)
     assert engine.graph.has_edge(storage_host, storage_id)
     storage_edge = engine.graph.get_edge_data(storage_host, storage_id)[0]
-    assert storage_edge["relationship"] == "attached_storage"
+    assert storage_edge["relationship"] == "ATTACHED_STORAGE"
 
     accelerator_host = next(
         node_id for node_id in ingested if _host_role(node_id) == "gpu"
@@ -127,7 +128,7 @@ def test_host_ingestion_and_sparql_matchmaking(mock_inventory_file):
     accelerator_id = accelerator_host.replace("host:", "gpu:", 1)
     assert engine.graph.has_edge(accelerator_host, accelerator_id)
     gpu_edge = engine.graph.get_edge_data(accelerator_host, accelerator_id)[0]
-    assert gpu_edge["relationship"] == "has_accelerator"
+    assert gpu_edge["relationship"] == "HAS_ACCELERATOR"
 
     # Matchmaking runs SPARQL over the OWL backend, which needs owlready2
     # (an optional extra). Skip that portion when it isn't installed, matching
