@@ -179,7 +179,12 @@ class AgentBus:
             )
             return False
         durable_depth = int(rows[0].get("n", 0)) if rows else 0
-        return max(self._depth_from_stats(backend.stats()), durable_depth) < limit
+        # No log backend configured (``resolve_bus_log_backend()``'s documented
+        # "valid degraded state, not an error" — see D-OTD-1) — the durable
+        # BusOutbox depth is the only signal available; there is no live queue
+        # to call ``.stats()`` on.
+        backend_depth = self._depth_from_stats(backend.stats()) if backend else 0
+        return max(backend_depth, durable_depth) < limit
 
     @classmethod
     def reset_log_backend_cache_for_tests(cls) -> None:
@@ -686,6 +691,16 @@ class AgentBus:
         materializer resolves the authoritative subscription registry at commit time;
         ``_subscribers(topic)`` here is only a reporting read.
         """
+        if backend is None:
+            # No log backend configured -- ``resolve_bus_log_backend()``'s
+            # documented "valid degraded state, not an error" (D-OTD-1). The
+            # caller (``send()``) already committed a durable ``BusOutbox``
+            # entry before calling here; report "not yet published" so it
+            # stays queued for replay (``_replay_pending_outbox``) once a
+            # backend becomes available, instead of crashing on
+            # ``backend.publish_*`` against ``None``.
+            _metrics.BUS_MESSAGES.labels(kind=kind, outcome="failed").inc()
+            return {"ok": False, "msg_group": group, "delivered": []}
         from agent_utilities.messaging.bus_log import current_bus_tenant
 
         tenant = current_bus_tenant()
@@ -731,6 +746,13 @@ class AgentBus:
         tenant = current_bus_tenant()
         agent_id = bus_reference("agent", agent_id, tenant=tenant)
         backend = self._log_backend()
+        if backend is None:
+            # No log backend configured -- ``resolve_bus_log_backend()``'s
+            # documented "valid degraded state, not an error" (D-OTD-1).
+            # There is no live queue to replay/poll; fall back to whatever
+            # was already durably committed to this agent's inbox (e.g. by a
+            # backend that WAS configured earlier, or direct graph writes).
+            return self._read_committed_inbox(agent_id, since=since)
         self._replay_pending_outbox(backend, tenant=tenant)
         pending = backend.receive(
             tenant=bus_reference("tenant", tenant),
@@ -1017,6 +1039,27 @@ class AgentBus:
 
         backend = self._log_backend()
         delivered: list[str] = []
+        if backend is None:
+            # No log backend configured -- ``resolve_bus_log_backend()``'s
+            # documented "valid degraded state, not an error" (D-OTD-1). Still
+            # commit the durable outbox entries so they're replayed once a
+            # backend becomes available, but don't crash calling
+            # ``backend.publish_*`` against ``None``.
+            if topic:
+                commit_message_outbox(
+                    self._resolve_engine(), wire_message, tenant=tenant, now=now
+                )
+            else:
+                for recipient in recipients:
+                    if not recipient:
+                        continue
+                    commit_message_outbox(
+                        self._resolve_engine(),
+                        {**wire_message, "recipient": recipient},
+                        tenant=tenant,
+                        now=now,
+                    )
+            return delivered
         if topic:
             commit_message_outbox(
                 self._resolve_engine(), wire_message, tenant=tenant, now=now
@@ -1172,7 +1215,10 @@ class AgentBus:
             "agents": len(roster),
             "online": online,
             "topics": sorted({t.get("name") for t in topics if t.get("name")}),
-            "log_backend": backend.name,
+            # No log backend configured is a valid degraded state, not an
+            # error (D-OTD-1) -- report it as such rather than crashing on
+            # ``None.name``.
+            "log_backend": backend.name if backend is not None else None,
         }
 
 
