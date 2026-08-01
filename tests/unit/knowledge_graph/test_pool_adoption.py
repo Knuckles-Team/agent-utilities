@@ -91,10 +91,7 @@ def test_batch_update_concurrent_pipelines_on_one_transport() -> None:
     with _running_engine_loop() as loop:
         engine = _engine_with_client(loop, _FakeAsyncClient(probe, op_delay))
         batches = [
-            [
-                {"op": "add_node", "id": f"b{batch}_n{node}"}
-                for node in range(3)
-            ]
+            [{"op": "add_node", "id": f"b{batch}_n{node}"} for node in range(3)]
             for batch in range(batch_count)
         ]
 
@@ -154,7 +151,7 @@ def test_batched_backend_fans_node_flush_then_edges() -> None:
 
     backend = _BatchedBackend(_Backend(), batch_size=8)
     for index in range(8):
-        backend.add_node(f"n{index}", type="Code")
+        backend.add_node(f"n{index}", node_type="Code")
     for index in range(7):
         backend.add_edge(f"n{index}", f"n{index + 1}", rel_type="CALLS")
     backend.flush()

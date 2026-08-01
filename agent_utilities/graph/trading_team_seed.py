@@ -98,7 +98,7 @@ def seed_trading_team(engine: Any) -> str | None:
         logger.debug("seed_trading_team: no graph on engine; skipped")
         return None
     try:
-        graph.add_node(node.id, **node.model_dump())
+        graph.add_node(node.id, **node.to_graph_properties())
         upsert = getattr(engine, "_upsert_node", None)
         serialize = getattr(engine, "_serialize_node", None)
         if getattr(engine, "backend", None) and upsert and serialize:

@@ -1205,7 +1205,7 @@ class EvaluationMonitor:
                 session_id=evaluation.session_id,
             )
             if hasattr(self._engine, "upsert_node"):
-                self._engine.upsert_node(node.model_dump())
+                self._engine.upsert_node(node.to_graph_properties())
             logger.info("Persisted evaluation to KG: %.2f", evaluation.composite_score)
         except Exception:
             logger.debug("KG persistence skipped for evaluation")
