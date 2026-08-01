@@ -491,30 +491,43 @@ class EcosystemTopologyBuilder:
             )
             persisted += 1
 
-            # Create dependency edges
+            # Create dependency edges. Two sequential MATCH clauses plus an edge
+            # MERGE exceed the engine's native Cypher write subset (one leading
+            # MATCH, MERGE on a single bare node only;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # ``link_nodes`` dispatches through the typed engine API for a
+            # native authority (which -- unlike the portable Cypher fallback
+            # used for a non-native store -- requires both endpoints to
+            # already exist) and, since ``packages`` is upserted in list
+            # order, a forward dependency reference is expected, not an
+            # error: caught and logged rather than aborting the whole batch,
+            # matching the original MATCH-based query's silent no-op.
             for dep in pkg.dependencies:
                 if dep in ecosystem_names:
-                    edge_query = """
-                    MATCH (a:EcosystemPackage {id: $src})
-                    MATCH (b:EcosystemPackage {id: $tgt})
-                    MERGE (a)-[:DEPENDS_ON]->(b)
-                    """
-                    engine.backend.execute(
-                        edge_query,
-                        {"src": f"pkg:{pkg.name}", "tgt": f"pkg:{dep}"},
-                    )
+                    try:
+                        engine.link_nodes(f"pkg:{pkg.name}", f"pkg:{dep}", "DEPENDS_ON")
+                    except Exception as exc:  # noqa: BLE001 — forward dependency reference against a native authority; logged and skipped, not fatal to the rest of the batch
+                        logger.debug(
+                            "Deferred DEPENDS_ON edge %s -> %s: %s",
+                            pkg.name,
+                            dep,
+                            exc,
+                        )
 
             # Create kernel consumption edges for non-kernel packages
             if not pkg.is_kernel and "agent-utilities" in pkg.dependencies:
-                consume_query = """
-                MATCH (a:EcosystemPackage {id: $src})
-                MATCH (k:EcosystemPackage {id: $kernel})
-                MERGE (a)-[:CONSUMES_FROM_KERNEL]->(k)
-                """
-                engine.backend.execute(
-                    consume_query,
-                    {"src": f"pkg:{pkg.name}", "kernel": "pkg:agent-utilities"},
-                )
+                try:
+                    engine.link_nodes(
+                        f"pkg:{pkg.name}",
+                        "pkg:agent-utilities",
+                        "CONSUMES_FROM_KERNEL",
+                    )
+                except Exception as exc:  # noqa: BLE001 — same forward-reference tolerance as DEPENDS_ON above
+                    logger.debug(
+                        "Deferred CONSUMES_FROM_KERNEL edge for %s: %s",
+                        pkg.name,
+                        exc,
+                    )
 
         logger.info("Persisted %d ecosystem packages to KG", persisted)
         return persisted
