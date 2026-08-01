@@ -63,11 +63,23 @@ logger = logging.getLogger(__name__)
 #: previously fell through to the full scan and could trip the case-insensitive
 #: IBAN pattern by chance (~1 in 20 sha256 digests), rejecting a genuine
 #: connector-owned document/record id with no PII involved.
-_OPAQUE_INTERNAL_ID_RE = re.compile(r"^(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$")
+#:
+#: Also exempts 40-hex/160-bit digests (``evidence_spine.py``'s
+#: ``artifact_id_for``/``fragment_id_for`` — ``sha256(...).hexdigest()[:40]``)
+#: and an optional trailing ``@<16-hex>`` content-pin suffix
+#: (``Fragment.version_id`` — ``f"{fragment_id}@{content_hash[7:23]}"``, a
+#: content-pinned citation address). Same class of defect as D-GM-3, on the
+#: same shared gate: a fragment's ``fragment:<40-hex>@<16-hex>`` version_id
+#: fell through to the full scan (neither length nor the ``@`` suffix was
+#: recognised) and reproducibly tripped the IBAN pattern, rejecting entire
+#: git-markdown connector documents with no PII involved.
+_OPAQUE_DIGEST = r"(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64})"
+_OPAQUE_VERSION_PIN = r"(?:@[0-9a-f]{16})?"
+_OPAQUE_INTERNAL_ID_RE = re.compile(f"^{_OPAQUE_DIGEST}{_OPAQUE_VERSION_PIN}$")
 _OPAQUE_NAMESPACED_ID_RE = re.compile(
     r"^(?P<namespace>[a-z][a-z0-9._-]{0,63}"
     r"(?::[a-z][a-z0-9._-]{0,63}){0,7}):"
-    r"(?:[0-9a-f]{24}|[0-9a-f]{32}|[0-9a-f]{64})$"
+    f"{_OPAQUE_DIGEST}{_OPAQUE_VERSION_PIN}$"
 )
 
 __all__ = [
