@@ -2564,7 +2564,7 @@ class GraphComputeEngine:
         reorder_filter_selectivity: float | None = None,
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:AU-KG.compute.kg-2).
+        """Run ONE cross-modal unified plan in a single costed round-trip.
 
         ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
         ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
@@ -2573,7 +2573,7 @@ class GraphComputeEngine:
         traverse via petgraph BFS, rank via the native ANN, RRF fusion in-plan).
         This is the engine doing filter+traverse+vector+rerank itself instead of
         the old hand-orchestrated Python pipeline of siloed round-trips
-        (CONCEPT:AU-KG.compute.vector/214/215). Returns ``[{"id": str, "score": float|None}]``
+        Returns ``[{"id": str, "score": float|None}]``
         in the plan's final (post-``Rank``) order.
 
         Requires an engine built with the ``query`` feature; on a build without it
@@ -3789,7 +3789,7 @@ class GraphComputeEngine:
         merge_threshold: float = 0.92,
         node_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Native entity-resolution candidate generation (CONCEPT:AU-KG.compute.when-exposes-native).
+        """Native entity-resolution candidate generation.
 
         Returns merge proposals (``{canonical, members, score, kind}``;
         ``kind`` = ``same_as`` | ``extends``) — the server-side escalation tier the
@@ -3906,7 +3906,7 @@ class GraphComputeEngine:
         """
         return self._client.lifecycle.evict_lru(max_nodes)
 
-    # ── Native multiplexed engine transport (CONCEPT:AU-KG.compute.when-exposes) ────────────
+    # ── Native multiplexed engine transport ────────────
     # The current client demultiplexes many in-flight requests by request id on
     # the ONE authenticated process transport. An auxiliary connection pool is
     # redundant and would pin one caller's authority into long-lived clients.

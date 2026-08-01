@@ -977,7 +977,7 @@ class RegistryEdgeType(StrEnum):
     REACHED_DEAD_END = "reached_dead_end"
     CERTIFIES = "certifies"  # seal_certificate --certifies--> research_artifact
 
-    # Connector → Skill synthesis edges (CONCEPT:AU-KG.compute.automates). AUTOMATES: a proposed
+    # Connector → Skill synthesis edges. AUTOMATES: a proposed
     # Skill/Workflow automates a BusinessProcess/Capability. DERIVED_FROM:
     # provenance from a proposal back to the source system node it was distilled
     # from. COMPOSES: a SkillWorkflowProposal composes its atomic Skill steps.

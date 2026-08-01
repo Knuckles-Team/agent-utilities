@@ -6,12 +6,39 @@ on:
       - 'agent_utilities/**'
       - 'docs/**'
       - 'AGENTS.md'
+  # D-RG2-3: the PR job below is diff-based (git diff origin/main...HEAD) and
+  # is therefore structurally blind the moment a lane merges — main becomes
+  # its own base, the diff is empty, and a concept that landed with no design
+  # doc is invisible forever after. This job runs on EVERY push to main (not
+  # gated by path filters, since the audit itself decides what's in scope) so
+  # merged-but-undocumented debt stays visible instead of silently recurring.
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
+  merged-concept-audit:
+    name: Merged-Concept Visibility Audit (D-RG2-3)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Audit every live concept id against the design corpus
+        run: python3 scripts/check_concept_governance.py --audit-merged
+
   concept-check:
+    if: github.event_name == 'pull_request'
     name: Extend-Before-Invent Gate
     runs-on: ubuntu-latest
     steps:
