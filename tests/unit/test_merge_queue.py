@@ -97,6 +97,140 @@ def test_terminal_state_supersedes_rather_than_edits(canonical: Path) -> None:
     assert everything["lane-a"].state == mq.WITHDRAWN
 
 
+def test_fold_resolves_cross_lane_state_by_recorded_time_not_lane_name_sort(
+    canonical: Path,
+) -> None:
+    """D-F6-1: a candidate enqueued from a lane whose name sorts AFTER
+    "canonical" alphabetically ('z' > 'c'), then landed via a state
+    transition recorded from the canonical lane (the real shape: enqueue
+    from a candidate's own worktree, land from the canonical checkout),
+    must resolve to its terminal state -- not get stuck reporting "queued"
+    forever because FragmentStore.fold()'s default `group[-1]` picked
+    whichever lane's NAME sorted alphabetically last ('zzz-late-lane'),
+    which happened to hold the OLDER queued record, over the canonical
+    lane's newer terminal one."""
+    lane = _branch(canonical, "zzz-late-lane", {"pkg/z.py": "Z = 1\n"})
+    mq.enqueue(path=lane)
+    candidate = mq.queued(canonical)[0]
+    # The terminal write is recorded from `canonical`, a DIFFERENT lane than
+    # the one that enqueued it -- exactly what `land()`'s callers do.
+    mq._record_state(candidate, mq.LANDED, "", canonical)
+    store = mq.queue_store(canonical)
+    assert {"zzz-late-lane", "canonical"} <= set(store.lanes())  # premise: 2 fragments
+    resolved = {c.branch: c for c in mq._all_candidates(canonical)}
+    assert resolved["zzz-late-lane"].state == mq.LANDED
+    assert mq.queued(canonical) == []  # not stuck reporting queued forever
+
+
+def _folded_state_under_old_group_last_resolve(canonical: Path, branch: str) -> str:
+    """What FragmentStore.fold()'s OLD default (group[-1], no resolve=) would
+    have reported for *branch* against the fragments as they exist RIGHT NOW.
+
+    Used only to prove a D-CVG-9 test is not vacuous (D-ORC-17): reads the
+    SAME on-disk fragments the fixed code just resolved, through the
+    UNPATCHED default resolver, so a test that would already pass under the
+    restored bug is caught rather than silently accepted."""
+    store = mq.queue_store(canonical)
+    for record in store.fold():  # no resolve= -> the pre-D-F6-1 default
+        if record.get("id") == branch:
+            return str(record.get("state", ""))
+    raise AssertionError(f"{branch!r} not found in any fragment")
+
+
+def test_withdraw_then_reenqueue_from_an_earlier_sorting_lane_is_not_silently_lost(
+    canonical: Path,
+) -> None:
+    """D-CVG-9 (production incident, lane-converge-0801): a candidate is
+    withdrawn from `canonical` (fragment "canonical.yaml"), then
+    RE-ENQUEUED from a lane whose fragment sorts ALPHABETICALLY BEFORE
+    "canonical" (e.g. "au-pc-lint-0801.yaml", 'a' < 'c'). Under the D-F6-1
+    bug, `enqueue()`'s own return value happily says {"enqueued": True,
+    "state": "queued"} (it just echoes back the record it wrote), but the
+    GLOBAL folded view -- what `queued()`/`run_queue()` actually act on --
+    stayed permanently stuck on the withdrawal, because "au-pc-lint-0801"
+    sorts BEFORE "canonical" and so its records are never last in
+    `fold()`'s lane-sorted grouping. The failure is SILENT: the CLI reports
+    success, the candidate never actually queues.
+
+    D-ORC-17: proves non-vacuousness by re-resolving the SAME on-disk
+    fragments through the OLD group[-1] resolver and asserting THAT reports
+    the wrong (stuck) state -- so this test would have caught the bug had
+    it existed when this test was written, not just today."""
+    lane = _branch(canonical, "au-pc-lint-0801", {"pkg/x.py": "X = 1\n"})
+    mq.enqueue(path=lane)
+    withdrawn = mq.queued(canonical)[0]
+    mq._record_state(withdrawn, mq.WITHDRAWN, "changed mind", canonical)
+    mq.enqueue(path=lane)  # re-enqueue, chronologically AFTER the withdrawal
+
+    old_state = _folded_state_under_old_group_last_resolve(
+        canonical, "au-pc-lint-0801"
+    )
+    assert old_state != mq.QUEUED, (
+        "D-ORC-17: this fixture does not reproduce D-CVG-9 under the OLD "
+        f"resolver (got {old_state!r}) -- the test below would be vacuous"
+    )
+
+    resolved = {c.branch: c for c in mq._all_candidates(canonical)}
+    assert resolved["au-pc-lint-0801"].state == mq.QUEUED
+    assert "au-pc-lint-0801" in {c.branch for c in mq.queued(canonical)}
+
+
+def test_withdraw_then_reenqueue_reverse_lane_ordering_is_not_silently_lost(
+    canonical: Path,
+) -> None:
+    """D-CVG-9, the mirror-image ordering: withdrawn from a lane sorting
+    AFTER "canonical" ('z' > 'c'), re-enqueued via a state transition
+    written INTO canonical's own fragment -- proving the bug (and the fix)
+    is about recency, not about which side of the alphabet a lane name
+    falls on."""
+    lane = _branch(canonical, "zzz-lane", {"pkg/z.py": "Z = 1\n"})
+    mq.enqueue(path=lane)
+    withdrawn = mq.queued(canonical)[0]
+    mq._record_state(withdrawn, mq.WITHDRAWN, "changed mind", lane)
+    # Re-enqueue via a state transition recorded from `canonical` (a
+    # DIFFERENT, alphabetically-EARLIER-sorting fragment than "zzz-lane").
+    revived = [c for c in mq._all_candidates(canonical) if c.branch == "zzz-lane"][0]
+    mq._record_state(revived, mq.QUEUED, "", canonical)
+
+    old_state = _folded_state_under_old_group_last_resolve(canonical, "zzz-lane")
+    assert old_state != mq.QUEUED, (
+        "D-ORC-17: this fixture does not reproduce D-CVG-9 (reverse "
+        f"ordering) under the OLD resolver (got {old_state!r}) -- the test "
+        "below would be vacuous"
+    )
+
+    resolved = {c.branch: c for c in mq._all_candidates(canonical)}
+    assert resolved["zzz-lane"].state == mq.QUEUED
+    assert "zzz-lane" in {c.branch for c in mq.queued(canonical)}
+
+
+def test_a_genuinely_withdrawn_candidate_is_never_resurrected(
+    canonical: Path,
+) -> None:
+    """The other half of D-CVG-9's report: the SAME class of bug also
+    revived stale entries whose fragments happened to sort after
+    "canonical". A candidate withdrawn and never touched again must stay
+    withdrawn -- not resurface as "queued" merely because of where its
+    lane's fragment file falls alphabetically. D-ORC-17: this fixture is
+    proven non-vacuous below (the restored bug DOES flip this one to
+    "queued", the opposite direction from the other two tests here)."""
+    lane = _branch(canonical, "dead-lane", {"pkg/d.py": "D = 1\n"})
+    mq.enqueue(path=lane)
+    candidate = mq.queued(canonical)[0]
+    mq._record_state(candidate, mq.WITHDRAWN, "truly abandoned", canonical)
+
+    old_state = _folded_state_under_old_group_last_resolve(canonical, "dead-lane")
+    assert old_state != mq.WITHDRAWN, (
+        "D-ORC-17: this fixture does not reproduce the false-resurrection "
+        f"half of D-CVG-9 under the OLD resolver (got {old_state!r}) -- "
+        "the test below would be vacuous"
+    )
+
+    resolved = {c.branch: c for c in mq._all_candidates(canonical)}
+    assert resolved["dead-lane"].state == mq.WITHDRAWN
+    assert "dead-lane" not in {c.branch for c in mq.queued(canonical)}
+
+
 def test_enqueue_refuses_the_base_itself(canonical: Path) -> None:
     with pytest.raises(mq.MergeQueueError, match="named branch"):
         mq.enqueue("main", path=canonical)
@@ -125,7 +259,7 @@ def test_clean_merge_that_does_not_import_is_rejected(canonical: Path) -> None:
     mq.enqueue(path=consumer)
     scope = lanes.lane_scope(canonical)
     head, accepted, conflicted = mq._build_chain(
-        canonical, "main", mq.queued(canonical)
+        canonical, "main", mq.queued(canonical), scope=scope
     )
     assert conflicted == [] and len(accepted) == 1  # git is perfectly happy
     changed = mq.changed_paths(canonical, "main", "lane-consumer")
@@ -967,3 +1101,108 @@ def test_pre_existing_contract_debt_does_not_block_an_unrelated_candidate(
     assert check["ok"] is True
     assert "BAD_existing" in check["detail"]
     assert "pre-existing" in check["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Regenerate-on-land — a conflict confined to GENERATED_FILES is resolved by
+# regenerating them from the merged truth, never by rejecting the candidate
+# or picking a side (CONCEPT:AU-OS.governance.merge-queue-regenerate-on-land)
+# ---------------------------------------------------------------------------
+
+
+def _with_fake_generators(canonical: Path) -> None:
+    """Stub ``scripts/{build_concepts_yaml,gen_docs,gen_agents_md}.py`` that
+    write FIXED, deterministic content — enough to prove the regenerate-on-land
+    mechanism runs the real commands and uses their output, without needing the
+    real doc-generation logic in a synthetic test repo."""
+    _write(
+        canonical,
+        "scripts/build_concepts_yaml.py",
+        "from pathlib import Path\n"
+        "Path('docs').mkdir(exist_ok=True)\n"
+        "Path('docs/concepts.yaml').write_text('regenerated: true\\n')\n",
+    )
+    _write(
+        canonical,
+        "scripts/gen_docs.py",
+        "from pathlib import Path\n"
+        "Path('README.md').write_text('REGENERATED README\\n')\n",
+    )
+    _write(
+        canonical,
+        "scripts/gen_agents_md.py",
+        "from pathlib import Path\n"
+        "Path('docs').mkdir(exist_ok=True)\n"
+        "Path('AGENTS.md').write_text('REGENERATED AGENTS\\n')\n"
+        "Path('docs/project_structure.md').write_text('REGENERATED STRUCTURE\\n')\n",
+    )
+    _write(canonical, "docs/concepts.yaml", "concepts: stale\n")
+    _write(canonical, "README.md", "stale readme\n")
+    _write(canonical, "AGENTS.md", "stale agents\n")
+    _write(canonical, "docs/project_structure.md", "stale structure\n")
+    _commit(canonical, "add fake generators + generated files")
+
+
+def test_conflict_confined_to_generated_files_is_regenerated_not_rejected(
+    canonical: Path,
+) -> None:
+    """Two lanes each hand-edit README.md (simulating each having run its own
+    stale copy of the generator locally) alongside an UNRELATED source change.
+    Merging the two branches conflicts on README.md alone -- the real-world
+    shape the module docstring describes ("every land regenerates ... so
+    every other branch then conflicts"). The queue must resolve this itself
+    by regenerating GENERATED_FILES from the merged tree, landing BOTH
+    candidates, rather than rejecting either."""
+    _with_fake_generators(canonical)
+    a = _branch(
+        canonical,
+        "lane-a",
+        {"pkg/a.py": "A = 1\n", "README.md": "lane-a's stale regeneration\n"},
+    )
+    b = _branch(
+        canonical,
+        "lane-b",
+        {"pkg/b.py": "B = 1\n", "README.md": "lane-b's stale regeneration\n"},
+    )
+    mq.enqueue(path=a)
+    mq.enqueue(path=b)
+    # Confirm the premise BEFORE resolution: git itself cannot auto-merge the
+    # two branches' README.md edits -- that is the conflict this feature
+    # must catch and resolve, not something already harmless.
+    scope = lanes.lane_scope(canonical)
+    head0 = mq._require_git(["rev-parse", "main"], canonical)
+    raw_trial = mq.trial_merge(canonical, head0, "lane-a")
+    assert raw_trial.ok
+    chained = mq._commit_trial(canonical, raw_trial.tree, [head0], "premise: lane-a")
+    raw_trial_2 = mq.trial_merge(canonical, chained, "lane-b")
+    assert not raw_trial_2.ok and "README.md" in raw_trial_2.conflicts
+
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 2 and result["rejected"] == 0, result
+    head = mq._require_git(["rev-parse", "main"], canonical)
+    with mq.materialized(canonical, head, scope=scope) as tree:
+        # Regenerated from the (fake) generator, not either lane's stale copy.
+        assert (tree / "README.md").read_text() == "REGENERATED README\n"
+        assert (tree / "docs" / "concepts.yaml").read_text() == "regenerated: true\n"
+        assert (tree / "AGENTS.md").read_text() == "REGENERATED AGENTS\n"
+        assert (
+            tree / "docs" / "project_structure.md"
+        ).read_text() == "REGENERATED STRUCTURE\n"
+        # Both lanes' REAL (non-generated) source changes are present.
+        assert (tree / "pkg" / "a.py").read_text() == "A = 1\n"
+        assert (tree / "pkg" / "b.py").read_text() == "B = 1\n"
+
+
+def test_conflict_outside_generated_files_is_still_rejected(canonical: Path) -> None:
+    """The narrowness guarantee: if even one conflicted path falls OUTSIDE
+    GENERATED_FILES, regeneration must NOT kick in -- this stays a real,
+    human-resolvable conflict."""
+    _with_fake_generators(canonical)
+    c = _branch(canonical, "lane-c", {"pkg/core.py": "VALUE = 1\nC = 1\n"})
+    d = _branch(canonical, "lane-d", {"pkg/core.py": "VALUE = 1\nD = 1\n"})
+    mq.enqueue(path=c)
+    mq.enqueue(path=d)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 1 and result["rejected"] == 1, result
+    rejected = next(o for o in result["outcomes"] if not o["landed"])
+    assert "pkg/core.py" in rejected["reason"]

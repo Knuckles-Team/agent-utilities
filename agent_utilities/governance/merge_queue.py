@@ -289,6 +289,16 @@ class Candidate:
     enqueued_at: str = ""
     state: str = QUEUED
     reason: str = ""
+    #: D-F6-1: WHEN this specific record was appended — distinct from
+    #: ``enqueued_at``, which is the original enqueue time and stays fixed
+    #: across every later state transition (see ``_record_state``). Used by
+    #: :func:`_resolve_latest_candidate_record` to pick the chronologically
+    #: LATEST record for an id across every lane's fragment, instead of
+    #: :meth:`FragmentStore.fold`'s default "last in lane-name-sorted
+    #: iteration order" — which silently prefers whichever lane's name
+    #: sorts alphabetically last, not whichever record was actually written
+    #: most recently.
+    recorded_at: str = ""
 
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> Candidate:
@@ -300,6 +310,7 @@ class Candidate:
             enqueued_at=str(record.get("enqueued_at", "")),
             state=str(record.get("state", QUEUED)),
             reason=str(record.get("reason", "")),
+            recorded_at=str(record.get("recorded_at", "")),
         )
 
     def to_record(self) -> dict[str, Any]:
@@ -311,6 +322,7 @@ class Candidate:
             "enqueued_at": self.enqueued_at,
             "state": self.state,
             "reason": self.reason,
+            "recorded_at": self.recorded_at,
         }
 
 
@@ -347,13 +359,15 @@ def enqueue(
             f"refusing to enqueue {branch!r}: a candidate must be a named branch "
             f"that is not {base!r} (detached HEAD or the base itself is never one)"
         )
+    now = _now()
     candidate = Candidate(
         branch=branch,
         lane=scope.lane,
         base=base,
         worktree=str(Path(worktree).resolve()) if worktree else str(scope.tree),
-        enqueued_at=_now(),
+        enqueued_at=now,
         state=QUEUED,
+        recorded_at=now,
     )
     store = queue_store(scope.tree)
     store.append(candidate.to_record(), lane=scope.lane)
@@ -366,8 +380,18 @@ def _record_state(
     """Supersede a candidate's record with its terminal state.
 
     A *new* append, never an edit: the fold collapses records sharing an ``id`` to
-    the last one written, so a landed/rejected record supersedes the queued one
-    without any writer ever rewriting a file another lane also writes.
+    the CHRONOLOGICALLY LATEST one written (D-F6-1 — see
+    :func:`_resolve_latest_candidate_record`), so a landed/rejected record
+    supersedes the queued one without any writer ever rewriting a file another
+    lane also writes — including when the terminal state is recorded from a
+    DIFFERENT lane's fragment than the one that originally enqueued it (the
+    common shape: enqueue from a candidate's own worktree, land from the
+    canonical checkout).
+
+    ``recorded_at`` is stamped FRESH here — unlike ``enqueued_at``, which is
+    preserved from the original record so the candidate's true enqueue time
+    survives every later transition — because it is specifically WHEN THIS
+    record was written, the field the fold resolves ties on.
     """
     scope = lane_scope(path)
     store = queue_store(scope.tree)
@@ -379,6 +403,7 @@ def _record_state(
         enqueued_at=candidate.enqueued_at,
         state=state,
         reason=reason,
+        recorded_at=_now(),
     )
     store.append(updated.to_record(), lane=scope.lane)
 
@@ -393,8 +418,43 @@ def withdraw(branch: str, *, reason: str = "", path: Path | str | None = None) -
     raise MergeQueueError(f"{branch!r} is not in the queue")
 
 
+def _resolve_latest_candidate_record(
+    group: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Pick the chronologically LATEST record in *group* by ``recorded_at``
+    (D-F6-1), not :meth:`FragmentStore.fold`'s default ``group[-1]``.
+
+    ``fold()`` groups every lane's record for one id together in
+    ``self.lanes()``'s (alphabetically SORTED) iteration order, then hands
+    the whole group here. ``group[-1]`` alone would therefore silently
+    prefer whichever LANE NAME sorts alphabetically last among every lane
+    that ever wrote a record for this id — completely unrelated to which
+    record was actually written most recently. That is exactly backwards
+    when a candidate is enqueued from its own worktree (lane e.g.
+    ``lane-foo``) and its terminal state is later recorded from the
+    canonical checkout (lane ``canonical``): ``"canonical" < "lane-foo"``
+    alphabetically, so the OLDER queued record from ``lane-foo`` would win
+    over the newer terminal one from ``canonical`` — reproduced live as a
+    candidate that had genuinely landed still reporting ``queued`` forever.
+
+    ISO-8601 ``recorded_at`` timestamps sort correctly as plain strings, so
+    ``max(..., key=...)`` is enough. Falls back to ``group[-1]`` — the OLD
+    behavior — only when every candidate in a tie is missing/blank
+    ``recorded_at`` (a record written before this field existed), so
+    existing fragment files degrade gracefully rather than needing a
+    migration.
+    """
+    with_timestamp = [r for r in group if str(r.get("recorded_at", "")).strip()]
+    if not with_timestamp:
+        return group[-1]
+    return max(with_timestamp, key=lambda r: str(r.get("recorded_at", "")))
+
+
 def _all_candidates(path: Path | str | None = None) -> list[Candidate]:
-    return [Candidate.from_record(r) for r in queue_store(path).fold()]
+    return [
+        Candidate.from_record(r)
+        for r in queue_store(path).fold(resolve=_resolve_latest_candidate_record)
+    ]
 
 
 def queued(path: Path | str | None = None) -> list[Candidate]:
@@ -639,6 +699,54 @@ def _interpreter(tree: Path) -> str:
     return sys.executable
 
 
+def _venv_signature(interpreter: str) -> str:
+    """A cheap content signature of *interpreter*'s installed package set.
+
+    D-MQD-1: the baseline caches (:func:`_baseline_cache_path` /
+    :func:`_contract_baseline_cache_path`) were keyed on ``(base_sha,
+    interpreter)`` where ``interpreter`` is a bare PATH STRING. If the venv
+    at that path is rebuilt IN PLACE with different package versions while
+    ``base_sha`` stays the same (the path itself doesn't change), the old key
+    still resolves and the cache would silently serve a failing-id set
+    computed against packages that no longer exist.
+
+    Folding this signature into the key busts the cache on exactly that
+    event: it lists every ``*.dist-info``/``*.egg-info`` directory name
+    (which encodes ``name-version``) under the interpreter's
+    ``site-packages``, sorted and hashed — one directory listing, no
+    subprocess, no import of the target environment's own packages. Falls
+    back to the interpreter file's own mtime+size when the standard venv
+    layout isn't found (a non-standard interpreter, e.g. bare
+    ``sys.executable`` on a system without a discoverable site-packages) —
+    still busts the cache on a full venv recreation (a fresh venv/binary
+    always changes mtime), just not on an in-place `pip install` into that
+    unusual layout. Never raises: an unresolvable signature degrades to
+    ``"unknown"`` (busts every cache uniformly) rather than failing the gate.
+    """
+    try:
+        venv_root = Path(interpreter).resolve().parent.parent
+    except OSError:
+        return "unknown"
+    dist_infos: list[str] = []
+    for site_packages in (
+        *sorted(venv_root.glob("lib/python*/site-packages")),
+        *sorted(venv_root.glob("Lib/site-packages")),  # Windows layout
+    ):
+        dist_infos.extend(p.name for p in site_packages.glob("*.dist-info"))
+        dist_infos.extend(p.name for p in site_packages.glob("*.egg-info"))
+    if dist_infos:
+        return hashlib.sha256("\n".join(sorted(dist_infos)).encode("utf-8")).hexdigest()[
+            :16
+        ]
+    try:
+        stat = Path(interpreter).stat()
+    except OSError:
+        return "unknown"
+    return hashlib.sha256(f"{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8")).hexdigest()[
+        :16
+    ]
+
+
 def select_tests(tree: Path, paths: Iterable[str]) -> list[str]:
     """Test files worth running for *paths* — targeted, and honest when it can't be.
 
@@ -837,8 +945,19 @@ def _contract_baseline_cache_path(
     item, not per whole request" shape as :func:`_baseline_cache_path`, just at
     script granularity instead of test-file granularity (there are only a
     handful of contract scripts, so no delta-run optimization is needed beyond
-    "don't recompute a script already known for this base_sha")."""
-    digest = hashlib.sha256((base_sha + "\n" + interpreter).encode("utf-8")).hexdigest()
+    "don't recompute a script already known for this base_sha").
+
+    D-MQD-1: the key includes :func:`_venv_signature` alongside the bare
+    interpreter path, so an in-place venv rebuild (same path, different
+    installed packages, same ``base_sha``) busts this cache instead of
+    silently serving a baseline computed against packages that no longer
+    exist.
+    """
+    digest = hashlib.sha256(
+        (base_sha + "\n" + interpreter + "\n" + _venv_signature(interpreter)).encode(
+            "utf-8"
+        )
+    ).hexdigest()
     return (
         scope.arbitration_dir
         / QUEUE_DIRNAME
@@ -1251,8 +1370,16 @@ def _baseline_cache_path(scope: LaneScope, base_sha: str, *, interpreter: str) -
     :func:`_merge_file_baseline_cache`'s read-merge-atomic-replace); nothing needs
     the queue's APPEND-ONLY discipline here because a cache entry for a given
     ``(base_sha, file)`` is immutable once written — only new files get merged in.
+
+    D-MQD-1: the key includes :func:`_venv_signature` alongside the bare
+    interpreter path — see that function's docstring for why a bare path is
+    not enough to catch an in-place venv rebuild.
     """
-    digest = hashlib.sha256((base_sha + "\n" + interpreter).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(
+        (base_sha + "\n" + interpreter + "\n" + _venv_signature(interpreter)).encode(
+            "utf-8"
+        )
+    ).hexdigest()
     return (
         scope.arbitration_dir
         / QUEUE_DIRNAME
@@ -1816,23 +1943,124 @@ def prune_landed(candidate: Candidate, *, repo_name: str, base: str) -> dict[str
 
 
 # ---------------------------------------------------------------------------
+# Regenerate-on-land — the queue resolves a GENERATED-FILE-ONLY conflict
+# itself instead of rejecting the candidate (CONCEPT:AU-OS.governance.merge-queue-regenerate-on-land)
+# ---------------------------------------------------------------------------
+
+#: The 4 files every land regenerates (see the module `build_concepts_yaml.py`
+#: / `gen_docs.py` / `gen_agents_md.py` docstrings) — so with ~76 candidates
+#: converging on one base, nearly every OTHER candidate that also touched one
+#: of these (or added a `CONCEPT:` marker, changing the count) conflicts on
+#: it too, even though there is no real disagreement: both sides just have a
+#: stale copy of a purely-derived file. Regenerating from the ALREADY-MERGED
+#: source of truth (the trial tree itself, after the two branches' real
+#: content is combined) is the correct resolution — never "pick a side" via
+#: ``checkout --theirs``, which silently drops whichever side lost.
+GENERATED_FILES = frozenset(
+    {
+        "docs/concepts.yaml",
+        "README.md",
+        "AGENTS.md",
+        "docs/project_structure.md",
+    }
+)
+
+#: Regeneration order matters: ``gen_docs.py --write`` reads
+#: ``docs/concepts.yaml`` (must be fresh first); ``gen_agents_md.py`` writes
+#: both ``AGENTS.md`` and ``docs/project_structure.md`` last.
+_REGENERATE_COMMANDS: tuple[tuple[str, ...], ...] = (
+    ("scripts/build_concepts_yaml.py",),
+    ("scripts/gen_docs.py", "--write"),
+    ("scripts/gen_agents_md.py",),
+)
+
+
+def _regenerate_generated_files(repo: Path, tree: str, *, scope: LaneScope) -> str:
+    """Materialize *tree*, regenerate :data:`GENERATED_FILES` in place, and
+    return the OID of the resulting tree.
+
+    Runs the same 3 commands the module docstring's manual recipe named
+    (``build_concepts_yaml.py && gen_docs.py --write && gen_agents_md.py``),
+    against a REAL worktree (``materialized`` — the generators read/write
+    actual files, not git objects) built from the trial tree, which already
+    holds BOTH sides' real changes merged — so this is regeneration from
+    truth, never a "pick a side" resolution. Fail-closed: a script that
+    exits non-zero raises :class:`MergeQueueError` rather than silently
+    keeping a stale or half-regenerated tree.
+    """
+    throwaway = _commit_trial(repo, tree, [], "merge-queue: regenerate-on-land scratch")
+    interpreter = _interpreter(scope.tree)
+    with materialized(repo, throwaway, scope=scope) as work_tree:
+        for command in _REGENERATE_COMMANDS:
+            script = work_tree / command[0]
+            if not script.is_file():
+                raise MergeQueueError(
+                    f"regenerate-on-land: generator script missing in the "
+                    f"materialized tree: {script}"
+                )
+            try:
+                proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                    [interpreter, str(script), *command[1:]],
+                    cwd=str(work_tree),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=120,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise MergeQueueError(
+                    f"regenerate-on-land: could not run {' '.join(command)}: {exc}"
+                ) from exc
+            if proc.returncode != 0:
+                raise MergeQueueError(
+                    "regenerate-on-land: "
+                    f"{' '.join(command)} exited {proc.returncode}: "
+                    f"{proc.stderr.strip() or proc.stdout.strip()}"
+                )
+        _require_git(["add", "--", *sorted(GENERATED_FILES)], work_tree)
+        return _require_git(["write-tree"], work_tree)
+
+
+def _resolve_generated_file_conflict(
+    repo: Path, trial: TrialMerge, *, scope: LaneScope
+) -> TrialMerge:
+    """If *trial* conflicts ONLY within :data:`GENERATED_FILES`, resolve it by
+    regenerating them; otherwise return *trial* unchanged.
+
+    Deliberately narrow: if even one conflicted path falls OUTSIDE
+    ``GENERATED_FILES``, this is a real, human-resolvable conflict and the
+    candidate is rejected exactly as before — regeneration never touches a
+    conflict that also involves hand-written content.
+    """
+    if trial.ok or not trial.conflicts:
+        return trial
+    if not set(trial.conflicts) <= GENERATED_FILES:
+        return trial
+    resolved_tree = _regenerate_generated_files(repo, trial.tree, scope=scope)
+    return TrialMerge(ok=True, tree=resolved_tree, detail=trial.detail)
+
+
+# ---------------------------------------------------------------------------
 # The queue runner — optimistic batching with bisection on failure
 # ---------------------------------------------------------------------------
 def _build_chain(
-    repo: Path, base: str, candidates: list[Candidate]
+    repo: Path, base: str, candidates: list[Candidate], *, scope: LaneScope
 ) -> tuple[str, list[Candidate], list[tuple[Candidate, TrialMerge]]]:
     """Merge each candidate onto a rolling trial commit; split off the conflicted.
 
     A conflicting candidate is identified precisely (it is the one whose
     ``merge-tree`` exited 1 against the rolling head) and dropped from the batch
     rather than poisoning it, so one lane's conflict never rejects seven innocent
-    ones.
+    ones — UNLESS the conflict is confined to :data:`GENERATED_FILES`, in which
+    case :func:`_resolve_generated_file_conflict` regenerates them from the
+    merged truth and the candidate proceeds as accepted.
     """
     head = _require_git(["rev-parse", base], repo)
     accepted: list[Candidate] = []
     conflicted: list[tuple[Candidate, TrialMerge]] = []
     for candidate in candidates:
         trial = trial_merge(repo, head, candidate.branch)
+        trial = _resolve_generated_file_conflict(repo, trial, scope=scope)
         if not trial.ok:
             conflicted.append((candidate, trial))
             continue
@@ -1874,7 +2102,7 @@ def integrate_batch(
     if not candidates:
         return []
 
-    head, accepted, conflicted = _build_chain(repo, base, candidates)
+    head, accepted, conflicted = _build_chain(repo, base, candidates, scope=scope)
     outcomes: list[dict[str, Any]] = [
         {
             "branch": c.branch,
