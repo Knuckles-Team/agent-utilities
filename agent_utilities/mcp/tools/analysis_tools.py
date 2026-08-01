@@ -1206,8 +1206,22 @@ def register_analysis_tools(mcp):
 
                 if not query:
                     return "Error: contradictions needs the new claim text in `query`."
+                # skip_quality_gate=True: this is a propose-only friction SCAN, not
+                # a confident-answer retrieval — the quality gate exists to avoid
+                # presenting a low-relevance result AS the answer, which doesn't
+                # apply here. ContradictionDetector.check() below does its own
+                # independent opposition/similarity scoring per candidate, so a
+                # weak neighbour is still legitimate input for human-judgment
+                # review (never auto-resolved); the gate would otherwise silently
+                # zero out every candidate and make the whole action a no-op
+                # whenever relevance is merely borderline.
                 neighbours = (
-                    await run_blocking_ordered(engine.search_hybrid, query, top_k=top_k)
+                    await run_blocking_ordered(
+                        engine.search_hybrid,
+                        query,
+                        top_k=top_k,
+                        skip_quality_gate=True,
+                    )
                     or []
                 )
                 existing = [

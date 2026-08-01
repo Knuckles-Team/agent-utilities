@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import hashlib
 import json
 import logging
@@ -51,6 +52,7 @@ import re
 import threading
 import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -95,6 +97,18 @@ _PROCESS_SESSION: Any = None
 _PROCESS_SESSION_REFRESH_LOCK = threading.Lock()
 _PROCESS_AUTHORITY_STOP = threading.Event()
 _PROCESS_AUTHORITY_THREAD: threading.Thread | None = None
+
+# D-SNV-5 follow-up: guards :func:`authority_keepalive_scope` against starting a
+# second renewal loop for the same lease when one guarded scope nests inside
+# another on the same task tree (for example an MCP tool dispatch whose tool body
+# itself calls ``Orchestrator.execute_agent`` for a sub-delegation). contextvars
+# propagate across ``await``, ``asyncio.ensure_future``/``create_task``, and
+# ``asyncio.to_thread`` (which copies the current context into the worker thread),
+# so the guard is visible to a nested scope even when the nesting crosses a
+# to_thread boundary.
+_AUTHORITY_KEEPALIVE_ACTIVE: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_authority_keepalive_active", default=False
+)
 
 _CALLER_AUTHORITY_FIELDS = frozenset({"_actor", "_roles", "_tenant"})
 
@@ -225,26 +239,18 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
             with verified_tool_session_scope():
                 # D-SNV-5: a dispatch may run for the whole _TOOL_CALL_TIMEOUT_S
                 # window, but authority is otherwise checked only once, at entry.
-                # A renewable (server-minted process/client-credentials) session
-                # gets a background keepalive for the dispatch's duration so a
-                # long delegation renews its own authority instead of failing
-                # closed mid-flight. A caller-presented bearer JWT has no
-                # credential_lease and is never proactively renewed here — that
-                # would be forging authority the server does not hold.
-                lease = getattr(
-                    getattr(active_session, "actor", None), "credential_lease", None
-                )
-                if lease is None:
+                # authority_keepalive_scope gives a renewable (server-minted
+                # process/client-credentials) session a background keepalive for
+                # the dispatch's duration so a long delegation renews its own
+                # authority instead of failing closed mid-flight — the SAME
+                # primitive Orchestrator.execute_agent opens directly, so a
+                # nested execute_agent call here (a tool that itself delegates)
+                # does not start a second renewal loop. A caller-presented
+                # bearer JWT has no credential_lease and is never proactively
+                # renewed here — that would be forging authority the server
+                # does not hold.
+                async with authority_keepalive_scope(active_session):
                     return await _run()
-                keepalive = asyncio.ensure_future(
-                    _keep_process_authority_current(active_session)
-                )
-                try:
-                    return await _run()
-                finally:
-                    keepalive.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await keepalive
         except TimeoutError:
             return {
                 "error": (
@@ -3262,8 +3268,9 @@ async def _keep_process_authority_current(session: Any) -> None:
     object is replaced and no verification is weakened; a caller-presented
     bearer JWT (no lease) never reaches this function at all.
 
-    Runs only for the lifetime of the caller's dispatch (started and
-    cancelled by ``_guarded()``) — never a free-running background task.
+    Runs only for the lifetime the caller's :func:`authority_keepalive_scope`
+    is open (started and cancelled there) — never a free-running background
+    task.
     """
     from agent_utilities.knowledge_graph.core.session import SessionExpiredError
 
@@ -3285,6 +3292,78 @@ async def _keep_process_authority_current(session: Any) -> None:
                 )
     except asyncio.CancelledError:
         pass
+
+
+@contextlib.asynccontextmanager
+async def authority_keepalive_scope(session: Any | None = None) -> AsyncIterator[None]:
+    """Renew a renewable session's authority for the duration of the wrapped call.
+
+    CONCEPT:AU-ORCH.execution.delegation-hot-path-authority — keep a long delegation authorized for its whole run, on every entrypoint, not just MCP dispatch.
+
+    Every delegation entrypoint — the MCP ``_execute_tool`` dispatch, the
+    ``agent-webui``/REST gateway, the messaging router (Telegram/Mattermost), the
+    autonomous ``agent_dispatch_worker``, ``org_runtime``, a governed dynamic
+    workflow, and the parallel engine — converges on the single function
+    :meth:`agent_utilities.orchestration.manager.Orchestrator.execute_agent`.
+    A background keepalive wired ONLY into ``_execute_tool`` (the original
+    D-SNV-5 fix) therefore covered MCP-dispatched delegations only; anything that
+    reached ``execute_agent`` some other way still expired mid-flight with
+    ``SessionExpiredError``. This context manager is the one reusable primitive
+    both ``_execute_tool`` and ``Orchestrator.execute_agent`` open, so every
+    surface inherits the renewal by construction instead of each caller
+    reimplementing it.
+
+    Security posture is unchanged from the original ``_execute_tool``-only fix:
+
+    * Only a server-minted, renewable ``credential_lease`` is ever proactively
+      renewed. A caller-presented bearer JWT carries no ``credential_lease`` and
+      is never touched here — it stays exactly as fail-closed as before.
+    * The SAME mutable :class:`~agent_utilities.security.brain_context.CredentialLease`
+      object the session already holds is renewed in place, so every downstream
+      authority check (``GraphSession.ensure_authority_current``, e.g.
+      ``graph_compute.py``'s ``_invoke_at``) sees it transparently — no session
+      object is replaced and the expiry check itself is never weakened or
+      lengthened.
+    * ``session`` defaults to the ambient :func:`GraphSession
+      <agent_utilities.knowledge_graph.core.session.current_session>` (falling
+      back to the stdio ``_PROCESS_SESSION``, same as ``verified_tool_session_scope``)
+      resolved WITHOUT raising when neither is set — this helper only ever adds
+      renewal; it must never introduce a new precondition. A caller with no
+      ambient/process session at all fails exactly as it already would, at the
+      first real engine boundary (``SessionRequiredError``), not here.
+
+    Idempotent/reentrant via :data:`_AUTHORITY_KEEPALIVE_ACTIVE`: a scope nested
+    inside another already-open scope on the same task tree (a nested MCP
+    dispatch that itself calls ``execute_agent``, or vice versa) is a no-op —
+    the outer scope already renews the same lease, and the extra loop would only
+    add redundant token round-trips, not extra safety.
+    """
+    if _AUTHORITY_KEEPALIVE_ACTIVE.get():
+        yield
+        return
+
+    if session is None:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        session = current_session() or _PROCESS_SESSION
+    if session is None:
+        yield
+        return
+
+    lease = getattr(getattr(session, "actor", None), "credential_lease", None)
+    if lease is None:
+        yield
+        return
+
+    guard_token = _AUTHORITY_KEEPALIVE_ACTIVE.set(True)
+    keepalive = asyncio.ensure_future(_keep_process_authority_current(session))
+    try:
+        yield
+    finally:
+        keepalive.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await keepalive
+        _AUTHORITY_KEEPALIVE_ACTIVE.reset(guard_token)
 
 
 def _process_authority_refresh_loop(session: Any) -> None:

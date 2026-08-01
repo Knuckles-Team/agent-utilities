@@ -1577,6 +1577,105 @@ async def test_keepalive_cancels_cleanly_when_dispatch_finishes_first() -> None:
     mock_renew.assert_not_called()
 
 
+# --------------------------------------------------------------------------- #
+# D-SNV-5 follow-up: ``authority_keepalive_scope`` is the ONE reusable primitive
+# both ``_execute_tool`` (MCP dispatch) and ``Orchestrator.execute_agent`` open,
+# so every delegation entrypoint — not just MCP-dispatched ones — renews a
+# renewable session's authority for the duration of a long call. These tests
+# exercise the shared primitive directly; the non-MCP-entrypoint proof lives in
+# ``tests/unit/orchestration/test_execute_agent_authority_keepalive.py``.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_authority_keepalive_scope_renews_a_renewable_session() -> None:
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 2)
+    session = _verified_session("scope-runtime")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+    renewed = threading.Event()
+
+    def renew(_session: GraphSession) -> GraphSession:
+        lease.renew(int(time.time()) + 300)
+        renewed.set()
+        return _session
+
+    with patch.object(kg_server, "_refresh_process_authority", side_effect=renew):
+        async with kg_server.authority_keepalive_scope(session):
+            for _ in range(50):
+                if renewed.is_set():
+                    break
+                await asyncio.sleep(0.1)
+            assert renewed.is_set()
+
+    assert lease.expires_at > int(time.time()) + 100
+
+
+@pytest.mark.asyncio
+async def test_authority_keepalive_scope_is_a_noop_for_a_bearer_caller() -> None:
+    """A caller-presented bearer JWT has no ``credential_lease`` — the scope
+    must never spawn a renewal loop for it (would forge authority the server
+    does not hold)."""
+    from agent_utilities.mcp import kg_server
+
+    session = _verified_session("scope-bearer")
+    assert session.actor.credential_lease is None
+
+    with patch.object(kg_server, "_refresh_process_authority") as mock_renew:
+        async with kg_server.authority_keepalive_scope(session):
+            await asyncio.sleep(0)
+
+    mock_renew.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_authority_keepalive_scope_does_not_double_start_when_nested() -> None:
+    """A nested scope (an MCP-dispatched tool whose body itself calls
+    ``execute_agent`` for a sub-delegation, or vice versa) must not start a
+    second renewal loop for the same lease — the outer scope already covers
+    it."""
+    from agent_utilities.mcp import kg_server
+
+    lease = CredentialLease(int(time.time()) + 300)
+    session = _verified_session("scope-nested")
+    session = replace(
+        session,
+        actor=replace(
+            session.actor,
+            credential_expires_at=lease.expires_at,
+            credential_lease=lease,
+        ),
+    )
+    started: list[Any] = []
+    real_keepalive = kg_server._keep_process_authority_current
+
+    async def counting_keepalive(_session: Any) -> None:
+        started.append(_session)
+        await real_keepalive(_session)
+
+    with patch.object(
+        kg_server, "_keep_process_authority_current", side_effect=counting_keepalive
+    ):
+        async with kg_server.authority_keepalive_scope(session):
+            async with kg_server.authority_keepalive_scope(session):
+                await asyncio.sleep(0)
+            # The inner scope's exit must not have cancelled the outer loop.
+            await asyncio.sleep(0)
+
+    assert len(started) == 1, (
+        "authority_keepalive_scope started a second renewal loop for an "
+        "already-covered lease"
+    )
+
+
 def test_process_authority_refresh_updates_only_the_shared_expiry() -> None:
     from agent_utilities.mcp import kg_server
 
