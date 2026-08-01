@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1136
+total_concepts: 1139
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3309,6 +3309,13 @@ concepts:
   - agent_utilities/knowledge_graph/extraction/fact_extractor.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: document → atomic-triple fact extraction
+- id: AU-KG.enrichment.candidate-claim-extraction
+  name: AU-KG.enrichment.candidate-claim-extraction
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/extraction/candidate_claims.py
+  doc: AU-KG.enrichment.candidate-claim-extraction
 - id: AU-KG.enrichment.card-attempt-status
   name: keeps a down card LLM from being retry-stormed
   pillar: AU-KG
@@ -3619,6 +3626,14 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/messaging/router.py
   doc: migrate_legacy_assets_bulk progress callback failed
+- id: AU-KG.identity.entity-resolution-candidates
+  name: AU-KG.identity.entity-resolution-candidates
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/assimilation/identity_candidates.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: AU-KG.identity.entity-resolution-candidates
 - id: AU-KG.identity.evidence-spine-convergence
   name: Evidence write failed for occurrence
   pillar: AU-KG
@@ -5355,6 +5370,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   doc: / 2.186 / ORCH-1.84
+- id: AU-KG.ontology.pack-identity-rules
+  name: and threaded in here as plain
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/assimilation/identity_candidates.py
+  - agent_utilities/models/schema_pack.py
+  doc: and threaded in here as plain
 - id: AU-KG.ontology.pack-owl-closure
   name: the engine reasons over OWL axioms; surface the active
   pillar: AU-KG
@@ -6108,6 +6131,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/assimilation/identity_candidates.py
   - agent_utilities/knowledge_graph/kb/entity_claim_extractor.py
   - agent_utilities/knowledge_graph/kb/link_inference.py
   - agent_utilities/models/schema_pack.py
