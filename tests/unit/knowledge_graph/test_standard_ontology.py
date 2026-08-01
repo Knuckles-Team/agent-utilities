@@ -501,10 +501,15 @@ def test_every_standard_edge_has_rel_definition() -> None:
 
 
 def test_standard_table_definitions_include_base_columns() -> None:
-    """Standard ontology tables include RegistryNode base columns."""
+    """Standard ontology tables include RegistryNode base columns.
+
+    ``node_type`` (not a bare ``type``, which the schema retired) is the
+    actual declared column — see ``TableDefinition.columns`` in
+    ``schema_definition.py`` and ``IntelligenceGraphEngine._serialize_node``.
+    """
     base_cols = {
         "id",
-        "type",
+        "node_type",
         "name",
         "description",
         "importance_score",
