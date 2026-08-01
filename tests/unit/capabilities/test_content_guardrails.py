@@ -17,11 +17,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from pydantic_ai import Agent
+from pydantic_ai import Agent, UnexpectedModelBehavior
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai_harness import InputGuardrail, OutputGuardrail
-from pydantic_ai_harness.guardrails import OutputBlocked
 
 from agent_utilities.capabilities.content_guardrails import (
     output_schema_guardrail,
@@ -176,11 +175,45 @@ async def test_secret_leak_guard_does_not_trip_on_ordinary_prose_live_path():
 
 # ---------------------------------------------------------------------------
 # Live path: output-schema violation
+#
+# CONCEPT:AU-AHE.harness.loop-exit-conditions — reconciled against the harness's ``retry`` output-guardrail
+# verdict (D-track-7): a missing-key / invalid-JSON violation is RECOVERABLE, so the
+# guard now hands the output back to the model (``GuardrailResult.retry()``) instead
+# of discarding it outright (``block()``). See ``output_schema_guardrail``'s docstring.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_output_missing_required_keys_is_caught_live_path():
+async def test_output_missing_required_keys_sends_it_back_to_the_model_to_fix_live_path():
+    """The model gets ONE retry with the specific missing keys named, fixes it,
+    and the run succeeds — this is the ``retry`` verdict actually earning its
+    keep over a hard ``block``: the salvageable answer is not discarded."""
+    calls: list[str] = []
+
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        calls.append("call")
+        if len(calls) == 1:
+            return ModelResponse(parts=[TextPart(content='{"status": "ok"}')])
+        return ModelResponse(
+            parts=[TextPart(content='{"status": "ok", "result": 42}')]
+        )
+
+    agent = Agent(
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[output_schema_guardrail(["status", "result"])],
+    )
+    result = await agent.run("go")
+
+    assert len(calls) == 2  # the guard forced exactly one retry
+    assert result.output == '{"status": "ok", "result": 42}'
+
+
+@pytest.mark.asyncio
+async def test_output_still_missing_required_keys_after_retries_exhausted_live_path():
+    """A model that never fixes it still fails closed — ``retry`` is not an
+    infinite loop, it is pydantic-ai's own bounded output-retry budget."""
+
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content='{"status": "ok"}')])
 
@@ -190,10 +223,33 @@ async def test_output_missing_required_keys_is_caught_live_path():
         capabilities=[output_schema_guardrail(["status", "result"])],
     )
 
-    with pytest.raises(OutputBlocked) as exc_info:
+    with pytest.raises(UnexpectedModelBehavior) as exc_info:
         await agent.run("go")
 
-    assert "result" in str(exc_info.value)
+    assert "output retries" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_output_not_valid_json_sends_it_back_to_the_model_to_fix_live_path():
+    calls: list[str] = []
+
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        calls.append("call")
+        if len(calls) == 1:
+            return ModelResponse(parts=[TextPart(content="not json at all")])
+        return ModelResponse(
+            parts=[TextPart(content='{"status": "ok", "result": 42}')]
+        )
+
+    agent = Agent(
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[output_schema_guardrail(["status", "result"])],
+    )
+    result = await agent.run("go")
+
+    assert len(calls) == 2
+    assert result.output == '{"status": "ok", "result": 42}'
 
 
 @pytest.mark.asyncio

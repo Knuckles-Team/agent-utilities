@@ -1206,8 +1206,22 @@ def register_analysis_tools(mcp):
 
                 if not query:
                     return "Error: contradictions needs the new claim text in `query`."
+                # skip_quality_gate=True: this is a propose-only friction SCAN, not
+                # a confident-answer retrieval — the quality gate exists to avoid
+                # presenting a low-relevance result AS the answer, which doesn't
+                # apply here. ContradictionDetector.check() below does its own
+                # independent opposition/similarity scoring per candidate, so a
+                # weak neighbour is still legitimate input for human-judgment
+                # review (never auto-resolved); the gate would otherwise silently
+                # zero out every candidate and make the whole action a no-op
+                # whenever relevance is merely borderline.
                 neighbours = (
-                    await run_blocking_ordered(engine.search_hybrid, query, top_k=top_k)
+                    await run_blocking_ordered(
+                        engine.search_hybrid,
+                        query,
+                        top_k=top_k,
+                        skip_quality_gate=True,
+                    )
                     or []
                 )
                 existing = [
@@ -2410,16 +2424,19 @@ def register_analysis_tools(mcp):
         description=(
             "Structural and operational KG analysis. Actions: inspect | "
             "enrichment_coverage | process_writeback | placement_plan | "
-            "infra_sweep | security_scan. Use graph_code, graph_research, "
-            "graph_evaluate, graph_explain, or graph_observe for their focused domains. "
-            "Returns the sole typed EvidenceBundle response."
+            "infra_sweep | security_scan | distill_memory (KG-2.316/2.318 — "
+            "export consolidated/procedural memory to a SFT/DPO/GRPO corpus and "
+            "optionally submit=true to dispatch a live data-science-mcp train; "
+            "poll_job_id=<id> reads a submitted job's status back). Use graph_code, "
+            "graph_research, graph_evaluate, graph_explain, or graph_observe for "
+            "their focused domains. Returns the sole typed EvidenceBundle response."
         ),
         tags=["graph-os", "analyze"],
     )
     async def graph_analyze(
         action: str = Field(
             default="inspect",
-            description="inspect | enrichment_coverage | process_writeback | placement_plan | infra_sweep | security_scan",
+            description="inspect | enrichment_coverage | process_writeback | placement_plan | infra_sweep | security_scan | distill_memory",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(default=10, description="Result or complexity bound."),
@@ -2427,6 +2444,14 @@ def register_analysis_tools(mcp):
         depth: int = Field(default=2, description="Traversal depth."),
         target: str = Field(default="", description="Analysis target."),
     ) -> EvidenceBundle:
+        # CONCEPT:AU-KG.memory.memory-weights-distillation-export — "distill_memory" is handled
+        # by the shared action core (_run_analysis_action) below but was left out
+        # of this tool's own allowlist when graph_analyze's other ~24 actions were
+        # split into the focused graph_code/graph_research/graph_evaluate/
+        # graph_explain/graph_observe suite (analyze_suite.py); none of those
+        # picked it up either, so it was unreachable from any live MCP/REST
+        # surface. It doesn't fit those five focused domains, so it stays here
+        # on graph_analyze's structural/operational surface.
         allowed = {
             "inspect",
             "enrichment_coverage",
@@ -2434,6 +2459,7 @@ def register_analysis_tools(mcp):
             "placement_plan",
             "infra_sweep",
             "security_scan",
+            "distill_memory",
         }
         if action not in allowed:
             return EvidenceBundle.from_payload(

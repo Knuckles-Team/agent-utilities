@@ -100,12 +100,28 @@ def nx_graph() -> GraphComputeEngine:
 
 @pytest.fixture
 def kb_engine(nx_graph) -> KBIngestionEngine:
-    """KBIngestionEngine with no real LLM (fallback mode)."""
+    """KBIngestionEngine with no real LLM (fallback mode).
+
+    ``KBExtractor._get_*_agent()`` treats ``self._article_agent is None`` as
+    "not yet lazily built" and constructs a REAL, governed
+    ``create_context_agent`` on first access -- setting the attribute to
+    ``None`` (its own ``__init__`` default) does not disable it, it just
+    means the next call builds one. That agent's invocation requires
+    grounding='required' (the default) with no configured ContextCompiler
+    engine in this hermetic test, so it fails closed
+    (``ContextCompilationError`` -> the grounding-policy refusal), and on
+    ``force=True`` re-ingestion the retry/circuit-breaker path around that
+    repeated failure hung past ``pytest-timeout`` instead of failing fast
+    (``test_force_reingest``). ``tests/unit/knowledge_graph/test_kb_logic.py``
+    already established the correct pattern for this: patch the *getter*
+    method itself, not the underlying sentinel attribute, so no agent is
+    ever constructed and every extraction call goes straight to
+    ``_fallback_article``/its no-LLM equivalents.
+    """
     extractor = KBExtractor()
-    # Patch the agent to use fallback (no LLM)
-    extractor._article_agent = None
-    extractor._health_agent = None
-    extractor._index_agent = None
+    extractor._get_article_agent = lambda: None
+    extractor._get_health_agent = lambda: None
+    extractor._get_index_agent = lambda: None
     return KBIngestionEngine(graph=nx_graph, backend=None, extractor=extractor)
 
 
@@ -308,15 +324,25 @@ class TestKBDocumentParser:
         assert h1 == h2
         assert h1 != h3
 
-    @patch("httpx.get")
-    def test_parse_url(self, mock_get):
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.text = "<html><body><p>Hello from the web</p></body></html>"
-        mock_get.return_value = mock_resp
+    def test_parse_url(self):
+        # `KBDocumentParser.parse_url` fetches through the SSRF-safe
+        # `safe_get_text` wrapper (protocols/source_connectors/http_safety.py),
+        # imported locally at call time — not a raw `httpx.get` — so mocking
+        # the raw client never intercepted the call and the request always
+        # fell into `parse_url`'s `except Exception`, silently returning None.
+        # Mirrors the established pattern in
+        # tests/test_skill_graph_pipeline.py (`monkeypatch.setattr(http_safety,
+        # "safe_get_text", ...)`), which patches the module attribute the
+        # local import resolves at call time.
+        from agent_utilities.protocols.source_connectors import http_safety
 
-        parser = KBDocumentParser()
-        source = parser.parse_url("https://example.com/article", "web")
+        with patch.object(
+            http_safety,
+            "safe_get_text",
+            return_value="<html><body><p>Hello from the web</p></body></html>",
+        ):
+            parser = KBDocumentParser()
+            source = parser.parse_url("https://example.com/article", "web")
         assert source is not None
         assert source.source_type == "url"
         assert len(source.chunks) >= 1
@@ -349,7 +375,10 @@ class TestKBExtractor:
     @pytest.mark.asyncio
     async def test_extract_article_fallback_when_no_agent(self):
         extractor = KBExtractor()
-        extractor._article_agent = None
+        # See kb_engine's fixture docstring above: _article_agent = None is
+        # the class's own "not yet built" sentinel, not an opt-out -- patch
+        # the getter itself so no real (governed) agent is constructed.
+        extractor._get_article_agent = lambda: None
 
         chunks = [
             DocumentChunk(
@@ -368,7 +397,9 @@ class TestKBExtractor:
     @pytest.mark.asyncio
     async def test_health_check_fallback(self):
         extractor = KBExtractor()
-        extractor._health_agent = None
+        # See kb_engine's fixture docstring above: patch the getter, not the
+        # "not yet built" sentinel attribute, so no real agent is created.
+        extractor._get_health_agent = lambda: None
 
         report = await extractor.run_health_check("kb:test", "Test KB", [])
         assert isinstance(report, KBHealthReport)
@@ -398,7 +429,7 @@ class TestKBIngestionEngine:
 
         assert kb_id in kb_engine.graph.nodes
         kb_data = kb_engine.graph.nodes[kb_id]
-        assert kb_data.get("type") == RegistryNodeType.KNOWLEDGE_BASE
+        assert kb_data.get("node_type") == RegistryNodeType.KNOWLEDGE_BASE
         assert kb_data.get("status") == "ready"
 
     @pytest.mark.asyncio
@@ -409,7 +440,7 @@ class TestKBIngestionEngine:
         articles = [
             n
             for n in kb_engine.graph.predecessors(kb_id)
-            if kb_engine.graph.nodes[n].get("type") == RegistryNodeType.ARTICLE
+            if kb_engine.graph.nodes[n].get("node_type") == RegistryNodeType.ARTICLE
         ]
         assert len(articles) >= 1
 
@@ -429,7 +460,7 @@ class TestKBIngestionEngine:
             else [
                 n
                 for n in kb_engine.graph.predecessors(kb_id)
-                if kb_engine.graph.nodes[n].get("type") == RegistryNodeType.RAW_SOURCE
+                if kb_engine.graph.nodes[n].get("node_type") == RegistryNodeType.RAW_SOURCE
             ]
         )
         assert len(raw_sources) >= 1
@@ -442,7 +473,7 @@ class TestKBIngestionEngine:
 
         assert index_id in kb_engine.graph.nodes
         idx_data = kb_engine.graph.nodes[index_id]
-        assert idx_data.get("type") == RegistryNodeType.KB_INDEX
+        assert idx_data.get("node_type") == RegistryNodeType.KB_INDEX
 
     @pytest.mark.asyncio
     async def test_deduplication_same_hash(self, kb_engine, sample_skill_graph):
@@ -511,7 +542,7 @@ class TestKBIngestionEngine:
 
         # Set low importance on articles to trigger compression
         for n in kb_engine.graph.predecessors(kb_id):
-            if kb_engine.graph.nodes[n].get("type") == RegistryNodeType.ARTICLE:
+            if kb_engine.graph.nodes[n].get("node_type") == RegistryNodeType.ARTICLE:
                 kb_engine.graph.nodes[n]["importance_score"] = 0.1
                 kb_engine.graph.nodes[n]["content"] = "Some full content"
 

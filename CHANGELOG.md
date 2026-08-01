@@ -40,19 +40,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     trigger paths — `checkpoint_now` (user/agent), `recommend` (agent), `observe`
     (system-autonomous, taking the payload as a callable so a non-worthy moment never
     pays to serialize KV state).
-- **A required, deny-by-default persistence eligibility gate.**
-  `kvcache/eligibility.py` (`CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility`)
-  — a KV cache is derived from user content, so writing one to the blob store is
-  data-at-rest and keeping it past the session is a retention decision. Every durable
-  write consults a pluggable `PersistenceEligibilityGate`; the default
-  `OperatorGrantEligibility` **denies** unless the request carries an explicit operator
-  grant, makes no residency/classification judgement (this platform has no source for
-  either — `D-5.1-3`/`D-KCI-1`), and reports every unanswerable policy question on every
-  decision so the gap is visible at runtime rather than only in a report. **RAM never
-  implies disk consent:** `promote()` re-runs the gate even for a checkpoint that has been
-  resident all session. `set_persistence_eligibility_gate()` is the extension point — a
-  code seam, not a flag, because widening what may be written to disk should require
-  someone to write and review the rule.
+- **A required persistence eligibility gate, derived from the caller's own authority.**
+  `kvcache/eligibility.py` (`CONCEPT:AU-OS.governance.checkpoint-persistence-eligibility`
+  + `CONCEPT:AU-OS.governance.authority-derived-persistence-eligibility`) — a KV cache is
+  derived from user content, so writing one to the blob store is data-at-rest and keeping
+  it past the session is a retention decision. Every durable write consults a pluggable
+  `PersistenceEligibilityGate`, and the default `AuthorityDerivedEligibility` decides it
+  **systematically and automatically**, with no operator table and no grant flag:
+
+  > persist iff the caller's *effective* authority — the verified `GraphSession`
+  > intersected with any active `SpawnDelegation.ceiling` — dominates the **most
+  > restrictive** composition of **every** contributing source's labels, within the
+  > session's own tenancy.
+
+  Labels inherit **restrictively** (classification = max, residency = set intersection,
+  retention = min, markings = union), so adding a source can only make a checkpoint less
+  persistable. Authority delegates **non-increasingly**, so a spawned agent can never
+  exceed its delegator — the ceiling intersection is applied *unconditionally*, not under
+  `ENABLE_DELEGATED_IDENTITY`'s permissive `warn` posture, because an observe-before-
+  enforce soak is a reasonable trade for tool scope and an unacceptable one for
+  data-at-rest. Which trigger fired is **provenance, not authority**: an agent that
+  decides a checkpoint is worth persisting persists it exactly when the authority it is
+  acting under already covers the material. Absence denies everywhere and names itself —
+  no session, no declared sources, a source missing any label, an empty residency
+  intersection, or an unresolvable ceiling. **RAM never implies disk consent:**
+  `promote()` re-runs the gate *and re-derives the authority* even for a checkpoint that
+  has been resident all session. `set_persistence_eligibility_gate()` /
+  `set_source_label_resolver()` are the extension points — code seams, not flags.
+
+  This closes `D-5.1-3` / `D-KCI-1`: residency, classification and retention are no longer
+  reported as permanently unresolved, they are answered from each source's own
+  `NodeACL` (`classification` / `data_residency_regions` / `retention_days`, both new
+  fields defaulting to *undeclared* so no existing ACL silently became permissive).
+
+### Removed
+- **`OperatorGrantEligibility` and the `operator_grant` argument.** Over the
+  `graph_kv_checkpoint` MCP surface, `initiator="user"` and `operator_grant=true` were
+  values any caller could simply assert, which made a deny-by-default gate defeatable by
+  a caller that chose to lie. Both are gone; `initiator` is renamed `trigger` and is
+  provenance only, and the tenant a durable write is authorized under is now read from
+  the verified session (a payload tenant that disagrees is refused rather than
+  preferred).
 - **The recommendation reaches the LLM.**
   `CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface` — scoring a moment
   publishes the verdict to a `ContextVar` (per-run, so interleaved agent runs never read
@@ -173,6 +201,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2.21.0) so a single oversized tool result cannot blow a run in one request.
 
 ### Fixed
+- **Authenticating a request no longer requires engine cluster-admin authority.**
+  `security/request_identity.py::_mint_graph_session` ended with a live
+  `placement_catalog.resolve_placement` round-trip. Because *every* authenticated
+  request on *every* served surface mints a `GraphSession`, that made engine
+  cluster-administrator authority a precondition for authenticating at all:
+  epistemic-graph declares `PlacementRoute` with
+  `authz_action = "admin:cluster-read"` (`crates/eg-capabilities/src/lib.rs:2274`)
+  and enforces it twice in `src/server/dispatch.rs` — against the caller's token
+  scopes (`:2185`) and again against the engine's own `IsolationLayer` via
+  `require_admin_capability` (`:2199` → `src/server/access.rs:858`), which no JWT
+  claim can satisfy. graph-os only looked healthy because every credential in use
+  belonged to a cluster admin; the first genuinely non-admin principal got a
+  blanket HTTP 500 (`PlacementAuthorityError` is a `RuntimeError`, so it matched
+  none of the middleware's 401/403 arms). Minting now establishes **identity, not
+  topology**: `endpoint`/`placement_group`/`catalog_epoch` are left unbound
+  (`endpoint=None` is `GraphSession`'s documented "resolve normally" value) and
+  the data plane binds the authoritative route per call in `graph_compute`, which
+  already overwrote the session's epoch and fencing token on every
+  `ApplyChangeEnvelope` — so the mint-time route was never authoritative. Every
+  authority field, every `PermissionError`, and `UNAUTHENTICATED_PATHS` are
+  unchanged; `scripts/security/check_tenant_identity_contract.py` now statically
+  forbids the minter from resolving topology at all. (D-WD-1 / D-SP-1)
 - **Budget exhaustion is always terminal.** `error_recovery_step` previously
   only treated the node-transition budget as non-retryable; a token, cost, or
   duration budget was silently retried through the planner for up to 2 more
@@ -181,6 +231,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `run_graph` surfaces a truthful `outcome: "budget_exceeded"` +
   `budget_dimension`, preserving partial specialist results alongside the
   error instead of discarding them.
+- **JWT verification no longer depends on which extra was installed.**
+  `joserfc` (the JWT decoder `security/auth.py` `_decode_jwt` needs) lived
+  only in the optional `[auth]` extra, so a runtime image that installed
+  `agent-utilities` without it had no verifier — and `_decode_jwt`'s resulting
+  `ImportError`, turned into an `HTTPException(500)`, was blanket-caught by
+  `authenticate_header_values` and `ActorIdentityMiddleware` and reported as a
+  generic `401 "Token validation failed"`. No correctly issued token could
+  ever have been accepted, and the error blamed the credential instead of the
+  missing dependency. `joserfc` is now a **base** dependency (pure Python; its
+  only requirement, `cryptography`, was already mandatory, so this adds no
+  new transitive package and the import stays lazy — zero cost for a process
+  that never verifies a JWT). `[auth]` remains a no-op alias extra so the
+  ~69 external manifests pinning `agent-utilities[auth]` keep resolving.
+  Enforcement is now purely the existing `AUTH_JWT_JWKS_URI` runtime/config
+  toggle, never an accident of packaging. Independently, `authenticate_header_values`
+  and `ActorIdentityMiddleware` no longer collapse every verification-path
+  fault into that generic 401 — only a genuine 401 credential rejection from
+  `_decode_jwt` does; any other status (currently only the dependency-missing
+  500) now surfaces with its real status and detail.
 
 ## [2.1.1] - 2026-07-28 — Native-cache, connector, teardown, and intent hardening
 

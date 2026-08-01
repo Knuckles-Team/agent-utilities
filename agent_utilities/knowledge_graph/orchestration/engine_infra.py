@@ -78,11 +78,12 @@ class InfrastructureEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="PullRequest")
             self._upsert_node("PullRequest", pr_id, data)
-            self.backend.execute(
-                "MATCH (r:SoftwareProject {id: $rid}), (p:PullRequest {id: $pid}) "
-                "MERGE (r)-[:HAS_PR]->(p)",
-                {"rid": repo_id, "pid": pr_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # ``link_nodes`` dispatches through the typed engine API.
+            self.link_nodes(repo_id, pr_id, "HAS_PR")
         return pr_id
 
     def share_cross_tenant_insight(self, source_tenant: str, insight_id: str) -> str:
@@ -105,11 +106,9 @@ class InfrastructureEngineMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="CrossTenantInsight")
             self._upsert_node("CrossTenantInsight", cross_id, data)
-            self.backend.execute(
-                "MATCH (i {id: $iid}), (c:CrossTenantInsight {id: $cid}) "
-                "MERGE (i)-[:MAPPED_TO_EXTERNAL]->(c)",
-                {"iid": insight_id, "cid": cross_id},
-            )
+            # See register_mcp_package/record_pull_request above for why this
+            # is a typed link, not a comma-pattern MATCH + edge MERGE.
+            self.link_nodes(insight_id, cross_id, "MAPPED_TO_EXTERNAL")
         return cross_id
 
     def ingest_hosts_from_inventory(
@@ -295,11 +294,12 @@ class InfrastructureEngineMixin(_Base):
                 # Add edge has_accelerator
                 self.graph.add_edge(host_id, gpu_id, relationship="has_accelerator")
                 if self.backend:
-                    self.backend.execute(
-                        "MATCH (h:Host {id: $hid}), (g:GPUAccelerator {id: $gid}) "
-                        "MERGE (h)-[:HAS_ACCELERATOR]->(g)",
-                        {"hid": host_id, "gid": gpu_id},
-                    )
+                    # A comma-pattern MATCH plus an edge MERGE both exceed the
+                    # engine's native Cypher write subset (one leading MATCH,
+                    # MERGE on a single bare node only;
+                    # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+                    # ``link_nodes`` dispatches through the typed engine API.
+                    self.link_nodes(host_id, gpu_id, "HAS_ACCELERATOR")
 
             if labels["role"] == "storage" and "capacity_tb" in labels:
                 storage_id = f"storage:{host_ref}"
@@ -322,11 +322,9 @@ class InfrastructureEngineMixin(_Base):
                     host_id, storage_id, relationship="attached_storage"
                 )
                 if self.backend:
-                    self.backend.execute(
-                        "MATCH (h:Host {id: $hid}), (s:StorageArray {id: $sid}) "
-                        "MERGE (h)-[:ATTACHED_STORAGE]->(s)",
-                        {"hid": host_id, "sid": storage_id},
-                    )
+                    # See the GPU accelerator link above for why this is a
+                    # typed link, not a comma-pattern MATCH + edge MERGE.
+                    self.link_nodes(host_id, storage_id, "ATTACHED_STORAGE")
 
         logger.info("Ingested %d pseudonymous inventory hosts", len(ingested_ids))
         return ingested_ids

@@ -156,13 +156,14 @@ def test_invalid_or_non_authoritative_answers_fail_closed(answer: Any) -> None:
 
 
 def test_unreachable_contacts_fail_closed_instead_of_hashing() -> None:
-    with pytest.raises(PlacementAuthorityError):
+    with pytest.raises(PlacementAuthorityError) as excinfo:
         resolve_placement(
             "tenant:workspace",
             ["tls://a.invalid:9443", "tls://b.invalid:9443"],
             config=_Config(),
             client_factory=lambda _endpoint: _Client(ConnectionError("down"), []),
         )
+    assert isinstance(excinfo.value.__cause__, ConnectionError)
 
 
 def test_raw_send_only_client_is_not_a_compatibility_reader() -> None:
@@ -177,6 +178,27 @@ def test_raw_send_only_client_is_not_a_compatibility_reader() -> None:
             config=_Config(),
             client_factory=lambda _endpoint: _RawClient(),
         )
+
+
+def test_last_contact_failure_is_the_chained_cause() -> None:
+    """D-WD-4: the caller-visible error must chain the *real* per-contact
+    cause (e.g. an engine ACCESS_DENIED), not just a bare failure count."""
+    errors = iter([ConnectionError("first down"), PermissionError("ACCESS_DENIED")])
+
+    def _factory(_endpoint: str) -> _Client:
+        return _Client(next(errors), [])
+
+    with pytest.raises(PlacementAuthorityError) as excinfo:
+        resolve_placement(
+            "tenant:workspace",
+            ["tls://a.invalid:9443", "tls://b.invalid:9443"],
+            config=_Config(),
+            client_factory=_factory,
+        )
+    # The chained cause is the LAST contact tried, not the first -- callers
+    # debugging "why did this fail" want the most recent attempt's reason.
+    assert isinstance(excinfo.value.__cause__, PermissionError)
+    assert "ACCESS_DENIED" in str(excinfo.value.__cause__)
 
 
 def test_cache_and_force_refresh_carry_the_previous_epoch() -> None:

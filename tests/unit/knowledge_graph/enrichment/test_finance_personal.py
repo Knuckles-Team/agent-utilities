@@ -183,14 +183,27 @@ def test_emerald_extract():
     }
 
 
-def test_emerald_high_stakes_queues_never_executes(monkeypatch):
+def test_emerald_high_stakes_queues_never_executes(monkeypatch, engine_graph):
     """Enabled + live + unapproved → queued, client NEVER called."""
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
     client = FakeExchange()
     out = run_writeback(
         "emerald",
         client=client,
         dry_run=False,
+        # High-stakes queuing goes through ProposalQueue, which -- with no
+        # backend supplied -- resolves one via require_engine_authority_backend,
+        # falling back to a bare EpistemicGraphBackend(). That bare
+        # construction resolves its own routing graph, bypassing the autouse
+        # isolate_graph_compute_engine per-test redirect and colliding with
+        # every other test's bare-constructed backend on the same shared
+        # graph identity (STALE_FENCE). Bind explicitly to the per-test
+        # engine_graph tenant instead.
+        backend=EpistemicGraphBackend(graph_name=engine_graph.graph_name),
         orders=[{"symbol": "BTC", "side": "buy", "qty": 0.1}],
     )
     assert out["status"] == "queued"
@@ -234,13 +247,21 @@ class FakeLegal:
         return "drafted"
 
 
-def test_legal_high_stakes_queues(monkeypatch):
+def test_legal_high_stakes_queues(monkeypatch, engine_graph):
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
     client = FakeLegal()
     out = run_writeback(
         "legal",
         client=client,
         dry_run=False,
+        # See test_emerald_high_stakes_queues_never_executes above: pin the
+        # ProposalQueue's engine backend to the isolated per-test tenant
+        # instead of letting it bare-construct one (STALE_FENCE).
+        backend=EpistemicGraphBackend(graph_name=engine_graph.graph_name),
         filings=[{"type": "EINApplication", "legal_name": "Acme LLC"}],
     )
     assert out["status"] == "queued"

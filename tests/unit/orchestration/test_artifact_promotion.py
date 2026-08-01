@@ -1,4 +1,4 @@
-"""The unified artifact-promotion gate (CONCEPT:AU-AHE.evolution.unified-promotion-gate)
+"""The unified artifact-promotion gate (CONCEPT:AU-AHE.harness.unified-promotion-gate)
 — ``evaluate_promotion``/``promote`` generalizing ``skill_gate.evaluate_promotion`` and
 ``program_optimization.should_promote`` into one comparison rule, then the SAME
 ``action_policy.decide()`` veto every reserved-kind call site uses.

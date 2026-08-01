@@ -170,13 +170,27 @@ def check_sources(sources: dict[str, str]) -> dict[str, Any]:
         "if not tenant:",
         "if not audience or not policy_version:",
         "tenant_graph_name(tenant",
-        "GraphSession(",
-        "with use_session(unrouted):",
-        "resolve_placement(",
-        "return unrouted.with_route(",
+        "return GraphSession(",
     ):
         if marker not in mint_source:
             raise TenantIdentityContractError("session minting authority is incomplete")
+    # Authentication establishes identity, never topology (D-SP-1). Resolving a
+    # placement route here made the engine's `admin:cluster-read` PlacementRoute
+    # a precondition for authenticating ANY request on EVERY served surface, so
+    # only a cluster-admin credential could authenticate at all. The route is
+    # resolved by the data plane that uses it, per call. These are the symbols
+    # that would reintroduce the coupling.
+    for forbidden in (
+        "resolve_placement",
+        "with_route",
+        "use_session",
+        "GraphComputeEngine",
+        "resolve_endpoints",
+    ):
+        if forbidden in mint_source:
+            raise TenantIdentityContractError(
+                "session minting resolves engine topology at authentication time"
+            )
     middleware = _function(trees["identity"], "__call__")
     middleware_source = ast.get_source_segment(identity, middleware) or ""
     if (
@@ -225,6 +239,16 @@ def self_check(root: Path) -> None:
     retired_switch = dict(sources)
     retired_switch["identity"] += "\n" + "KG_" + "SERVED_PROFILE = True\n"
     mutations.append(retired_switch)
+    # D-SP-1: re-binding an engine placement route inside the minter is the
+    # regression that made cluster-admin authority a precondition for
+    # authenticating any request. It must be rejected statically.
+    mint_time_placement = dict(sources)
+    mint_time_placement["identity"] = mint_time_placement["identity"].replace(
+        "    return GraphSession(",
+        "    placement = resolve_placement(graph, [], None)\n    return GraphSession(",
+        1,
+    )
+    mutations.append(mint_time_placement)
     for mutation in mutations:
         try:
             check_sources(mutation)

@@ -79,6 +79,24 @@ from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
+
+def redact_path_for_log(path: object) -> str:
+    """Short, deterministic, non-reversible tag for a path in a log line.
+
+    CONCEPT:AU-OS.observability.log-location-privacy — a raw filesystem path in
+    a log line leaks host layout to anyone with log read access. Stdlib-only
+    (this module's own "must not import anything the venv provides" constraint
+    rules out the shared ``agent_utilities.security.log_redaction`` helper);
+    the same input always hashes to the same tag within a process, so repeated
+    log lines about the same path can still be correlated without the literal
+    value ever appearing.
+    """
+    if not path:
+        return "<empty>"
+    digest = hashlib.sha256(str(path).encode("utf-8", errors="replace")).hexdigest()
+    return f"<redacted:{digest[:12]}>"
+
+
 __all__ = [
     "ActivityProbe",
     "ActivityRecord",
@@ -93,6 +111,9 @@ __all__ = [
     "PackageDelta",
     "PlanParseError",
     "ProbeResult",
+    "PruneCandidate",
+    "PruneOutcome",
+    "PrunePlan",
     "SANCTIONED_SYNC_FLAGS",
     "SyncContext",
     "SyncInvocation",
@@ -113,11 +134,15 @@ __all__ = [
     "exclusive_lock",
     "main",
     "member_install_states",
+    "plan_prune",
     "plan_sync",
+    "prune",
+    "redact_path_for_log",
     "register_activity_probe",
     "register_guardrail",
     "register_verify_probe",
     "rollback",
+    "session_start_hint",
     "sync",
     "upgrade",
     "verify",
@@ -338,7 +363,11 @@ def _project_name(path: Path) -> str | None:
     try:
         document = tomllib.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        logger.warning("workspace member %s has an unreadable manifest: %s", path, exc)
+        logger.warning(
+            "workspace member %s has an unreadable manifest: %s",
+            redact_path_for_log(path),
+            exc,
+        )
         return None
     name = document.get("project", {}).get("name")
     return name if isinstance(name, str) and name else None
@@ -555,6 +584,27 @@ def _build_or_test_command(cmdline: Sequence[str]) -> str | None:
     return None
 
 
+def _looks_like_interpreter_or_test_command(cmdline: Sequence[str]) -> bool:
+    """Whether ``cmdline`` is plausibly python/test work, not merely an
+    inherited environment (D-VS-9).
+
+    ``VIRTUAL_ENV`` is inherited by every descendant of an activated shell, so
+    an unrelated child of that shell (``tail -40``, ``ls``, an editor) reads as
+    "busy" purely because its parent activated the venv — a live run showed
+    exactly this with ``tail -40``. Require the executable itself to look like
+    a Python interpreter/tool or a recognised build/test command before
+    treating an inherited ``VIRTUAL_ENV`` as evidence of in-flight work; the
+    ``cmdline[0].startswith(venv_bin)`` and lease probes are unaffected and
+    still catch the real cases directly.
+    """
+    if not cmdline:
+        return False
+    exe = Path(cmdline[0]).name
+    if exe.startswith("python") or exe in {"pip", "pip3"}:
+        return True
+    return _build_or_test_command(cmdline) is not None
+
+
 class ProcessActivityProbe:
     """Detect live processes bound to the shared venv by reading ``/proc``.
 
@@ -597,8 +647,12 @@ class ProcessActivityProbe:
             reason: str | None = None
             if cmdline[0].startswith(venv_bin):
                 reason = "executing from the shared venv"
-            elif _proc_environ_virtualenv(entry) == str(workspace.venv):
-                reason = "VIRTUAL_ENV points at the shared venv"
+            elif _proc_environ_virtualenv(entry) == str(
+                workspace.venv
+            ) and _looks_like_interpreter_or_test_command(cmdline):
+                reason = (
+                    "VIRTUAL_ENV points at the shared venv (interpreter/test command)"
+                )
             else:
                 tool = _build_or_test_command(cmdline)
                 if tool is not None:
@@ -641,7 +695,7 @@ class LeaseActivityProbe:
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
-                logger.warning("ignoring unreadable lease %s: %s", path, exc)
+                logger.warning("ignoring unreadable lease %s: %s", redact_path_for_log(path), exc)
                 continue
             expires = float(payload.get("expires_at", 0.0))
             if expires <= now:
@@ -1206,7 +1260,7 @@ def _unlink_quietly(path: Path) -> None:
     try:
         path.unlink(missing_ok=True)
     except OSError as exc:
-        logger.warning("could not remove %s: %s", path, exc)
+        logger.warning("could not remove %s: %s", redact_path_for_log(path), exc)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1440,6 +1494,160 @@ def _sync_locked(
             f"{len(plan.removals)} removal(s), {len(plan.replacements)} replacement(s)"
         ),
         duration_s=time.monotonic() - started,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Prune (D-VS-8)
+#
+# ``--inexact`` — permanently forced into SANCTIONED_SYNC_FLAGS, unconditionally
+# — means uv's own dry-run plan NEVER reports a genuinely extraneous package as
+# a removal. Verified live 2026-07-31 against a real throwaway uv workspace: an
+# installed distribution absent from the lock survived `sync(workspace,
+# allow_uninstalls=1)` completely untouched — `plan_sync()` returned
+# `installs=[], uninstalls=[]` even though the package was undeniably present
+# and undeniably not in `uv.lock`. `UninstallBudgetGuardrail` was therefore
+# unreachable through the only code path that fed it a plan: not merely
+# "unexercised" as originally filed, but structurally dead code. Fixed here by
+# giving the SAME guardrail machinery a plan source that can actually contain
+# removals, computed without ever touching `uv sync` at all — so it can never
+# produce the destructive bare-sync argv `_assert_sanctioned` exists to catch.
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class PruneCandidate:
+    """An installed distribution that is neither locked nor a workspace member."""
+
+    name: str
+    version: str
+
+
+@dataclass(frozen=True)
+class PrunePlan:
+    """What `prune()` would remove — computed by set difference, not `uv sync`."""
+
+    candidates: tuple[PruneCandidate, ...]
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.candidates
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "candidates": [f"{c.name}=={c.version}" for c in self.candidates],
+        }
+
+
+def plan_prune(workspace: Workspace) -> PrunePlan:
+    """Find installed distributions `--inexact` deliberately leaves behind.
+
+    Read-only: compares `.dist-info` on disk against `uv.lock`'s package set
+    and the workspace's own member names. Never invokes `uv sync`, so it sees
+    exactly what a hand-audit of the venv would see, independent of any sync
+    flag.
+    """
+
+    site = workspace.site_packages()
+    if site is None or not site.is_dir():
+        return PrunePlan(candidates=())
+    installed = _installed_distributions(site)
+    locked = _locked_distribution_names(workspace)
+    member_names = {m.canonical for m in workspace.members()}
+    candidates = tuple(
+        PruneCandidate(name=record.name, version=record.version)
+        for canon, record in sorted(installed.items())
+        if canon not in locked and canon not in member_names
+    )
+    return PrunePlan(candidates=candidates)
+
+
+@dataclass(frozen=True)
+class PruneOutcome:
+    """The result of asking for extraneous packages to be removed."""
+
+    plan: PrunePlan
+    applied: bool
+    refused: bool = False
+    detail: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "plan": self.plan.as_dict(),
+            "applied": self.applied,
+            "refused": self.refused,
+            "detail": self.detail,
+        }
+
+
+def prune(
+    workspace: Workspace,
+    *,
+    allow_uninstalls: int,
+    apply: bool = True,
+    ignore_activity: bool = False,
+) -> PruneOutcome:
+    """Remove up to `allow_uninstalls` packages that are installed but not
+    locked and not a workspace member — the class `sync()` can never reach.
+
+    Deliberately budgeted and explicit: `allow_uninstalls` has no default
+    that removes anything (`prune(workspace, allow_uninstalls=0)` always
+    refuses), matching `--allow-uninstalls`'s existing "any uninstall
+    refuses by default" contract elsewhere in this module. Removes one
+    package per `uv pip uninstall` call — never `uv sync` — so this path can
+    never produce the destructive bare-sync argv `_assert_sanctioned` exists
+    to catch, and a locked or member distribution can never appear as a
+    candidate in the first place (excluded by construction in `plan_prune`).
+    """
+
+    if allow_uninstalls <= 0:
+        raise VenvSyncError(
+            "prune() refuses without an explicit allow_uninstalls > 0 budget "
+            "(0 is the same as sync()'s default: any uninstall refuses)"
+        )
+    if not ignore_activity:
+        activity = detect_activity(workspace)
+        if activity:
+            names = "; ".join(f"{r.probe}:{r.identifier}" for r in activity[:5])
+            return PruneOutcome(
+                plan=PrunePlan(candidates=()),
+                applied=False,
+                detail=f"deferred: environment busy ({names})",
+            )
+
+    plan = plan_prune(workspace)
+    if plan.is_empty:
+        return PruneOutcome(plan=plan, applied=False, detail="nothing to prune")
+    if len(plan.candidates) > allow_uninstalls:
+        names = ", ".join(c.name for c in plan.candidates[:8])
+        return PruneOutcome(
+            plan=plan,
+            applied=False,
+            refused=True,
+            detail=(
+                f"plan would remove {len(plan.candidates)} package(s) "
+                f"({names}) but only {allow_uninstalls} are sanctioned for "
+                "this operation; re-run with a larger --allow-uninstalls "
+                "budget if this is intended"
+            ),
+        )
+    if not apply:
+        return PruneOutcome(
+            plan=plan,
+            applied=False,
+            detail=f"plan approved but not applied (--dry-run): {len(plan.candidates)} removal(s)",
+        )
+
+    python = workspace.venv / "bin" / "python"
+    for candidate in plan.candidates:
+        result = run_uv(
+            workspace, ["pip", "uninstall", "--python", str(python), candidate.name]
+        )
+        if not result.ok:
+            raise VenvSyncError(
+                f"uv pip uninstall {candidate.name} failed "
+                f"(rc={result.returncode}): {result.output[-2000:]}"
+            )
+    return PruneOutcome(
+        plan=plan, applied=True, detail=f"removed {len(plan.candidates)} package(s)"
     )
 
 
@@ -1888,7 +2096,7 @@ def _read_entry_points(path: Path) -> tuple[str, ...]:
     except FileNotFoundError:
         return ()
     except OSError as exc:
-        logger.warning("unreadable entry points %s: %s", path, exc)
+        logger.warning("unreadable entry points %s: %s", redact_path_for_log(path), exc)
         return ()
     scripts: list[str] = []
     section = ""
@@ -2093,6 +2301,43 @@ def _pending_intent_count(workspace: Workspace) -> int:
     if not directory.is_dir():
         return 0
     return len(list(directory.glob("*.json")))
+
+
+def session_start_hint(workspace: Workspace) -> str | None:
+    """A near-zero-cost drift check, safe to run on every agent session start.
+
+    CONCEPT:AU-OS.deployment.workspace-venv-reconciler (D-VS-6). ``detect_drift``
+    is the full picture, but two of its three checks (``lock_check``,
+    ``plan_sync``) spawn a real ``uv`` subprocess each — ~10s combined, an
+    operator-visible latency this lane declined to impose on every session
+    start by default. ``member_install_states`` is pure Python (reads
+    dist-info + ``pyproject.toml`` off disk, no subprocess), so it is the one
+    piece of drift detection cheap enough to run unconditionally. It also
+    covers the single highest-signal case: an editable member whose *source*
+    has moved (version, console scripts, editability) without a resync —
+    exactly what went undetected for ten days before this lane existed.
+
+    Returns ``None`` when there is nothing to say (clean, or the check itself
+    could not run) so a hooked-up caller stays silent on the common case;
+    never raises, so it can never turn a session-start hook into a failure.
+    """
+    try:
+        if not workspace.venv.is_dir():
+            return None
+        stale = [s for s in member_install_states(workspace) if s.stale]
+    except (OSError, VenvSyncError):  # noqa: BLE001 — best-effort session hint,
+        # never the reason a session fails to start; caller sees silence.
+        logger.debug("session_start_hint: drift check failed", exc_info=True)
+        return None
+    if not stale:
+        return None
+    names = ", ".join(sorted(s.member.name for s in stale)[:5])
+    more = f" (+{len(stale) - 5} more)" if len(stale) > 5 else ""
+    return (
+        f"agent-utilities-venv: {len(stale)} editable member(s) look stale in "
+        f"the shared venv ({names}{more}) — run `agent-utilities-venv status` "
+        "for the full report, `agent-utilities-venv sync` to reconcile."
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2464,9 +2709,37 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         metavar="N",
-        help="sanction up to N uninstalls (default 0 — any uninstall refuses)",
+        help=(
+            "sanction up to N uninstalls of a LOCKED distribution or workspace "
+            "member (default 0 — any such uninstall refuses). Never reaches a "
+            "merely-extraneous package: this sync always runs --inexact, so "
+            "uv's own plan never proposes removing one; use `prune` for that"
+        ),
     )
     sync_cmd.add_argument("--reason", default="manual")
+
+    prune_cmd = sub.add_parser(
+        "prune",
+        help=(
+            "remove installed packages that are neither locked nor a "
+            "workspace member (D-VS-8) — the class --inexact deliberately "
+            "leaves behind; never runs `uv sync`"
+        ),
+    )
+    prune_cmd.add_argument(
+        "--allow-uninstalls",
+        type=int,
+        default=0,
+        metavar="N",
+        required=True,
+        help="required: sanction up to N removals (0 always refuses, on purpose)",
+    )
+    prune_cmd.add_argument("--dry-run", action="store_true")
+    prune_cmd.add_argument(
+        "--ignore-activity",
+        action="store_true",
+        help="proceed even though other lanes are using the environment",
+    )
 
     up = sub.add_parser("upgrade", help="move dependencies forward, verify, auto-roll-back")
     up.add_argument("--package", action="append", default=[], dest="packages")
@@ -2487,6 +2760,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("verify", help="run the post-change health probes")
     sub.add_parser("members", help="per-member editable install state")
     sub.add_parser("activity", help="what the activity probes currently see")
+    sub.add_parser(
+        "session-hint",
+        help=(
+            "near-zero-cost drift check (D-VS-6), safe for a SessionStart hook: "
+            "silent when clean, never raises, no `uv` subprocess"
+        ),
+    )
 
     lease = sub.add_parser("lease", help="declare/release a do-not-swap window")
     lease.add_argument("action", choices=["acquire", "release", "list"])
@@ -2566,6 +2846,16 @@ def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
         emit(outcome.as_dict(), as_json=as_json)
         return 0 if outcome.verdict.allowed else 3
 
+    if args.command == "prune":
+        outcome = prune(
+            workspace,
+            allow_uninstalls=args.allow_uninstalls,
+            apply=not args.dry_run,
+            ignore_activity=args.ignore_activity,
+        )
+        emit(outcome.as_dict(), as_json=as_json)
+        return 0 if not outcome.refused else 3
+
     if args.command in ("upgrade", "relock"):
         outcome = upgrade(
             workspace,
@@ -2616,6 +2906,18 @@ def _dispatch(args: argparse.Namespace, workspace: Workspace) -> int:
             as_json=as_json,
         )
         return 0 if not any(s.stale for s in states) else 3
+
+    if args.command == "session-hint":
+        # D-VS-6: deliberately never propagates a raised error and always
+        # exits 0 — a SessionStart hook command that can fail a session is a
+        # worse outcome than staying silent about drift for one session.
+        hint = session_start_hint(workspace)
+        if hint is not None:
+            if as_json:
+                emit({"hint": hint}, as_json=True)
+            else:
+                print(hint)
+        return 0
 
     if args.command == "activity":
         records = detect_activity(workspace)

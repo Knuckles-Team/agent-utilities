@@ -113,10 +113,19 @@ configuration is:
 SECRETS_BACKEND=vault
 SECRETS_VAULT_URL=<openbao url>
 SECRETS_VAULT_MOUNT=apps
-ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF=vault://agent-utilities#ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY
+ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF=vault://agent-utilities#ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY@2
 ```
 
 (the `vault` extra — `hvac` — must be installed on the release host).
+
+**Pin the KV version (D-AR-5).** The bare form above (no `@<version>`) resolves whatever KV
+v2 version is *current* at signing time — reproducible only as long as nobody else writes to
+`apps/agent-utilities` in the meantime. `resolve_ref()` (`security/secrets_client.py`) supports
+an explicit `#field@<version>` pin (CONCEPT:AU-KG.ontology.release-key-rotation, D-OC-1) so the
+reference names an immutable version instead of "latest"; the release host's actual
+`ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF` should always carry an explicit `@<version>` suffix
+(bump it deliberately, as a recorded step, whenever `deploy/release/signing-key-rotation.yml`
+gains a new entry) rather than track "latest" implicitly.
 
 **Agreement.** The mismatch was only discovered at *admission* time, long after artifacts
 had been produced. `assert_signing_key_matches_locks()` performs the same comparison at

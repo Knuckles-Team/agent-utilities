@@ -79,3 +79,37 @@ def test_enum_type_value_resolved():
     g = _EngineGraph({"team": [["t1", {"node_type": "team"}]]})
     out = dict(iter_nodes_by_types(g, _NT()))
     assert set(out) == {"t1"}
+
+
+def test_legacy_bare_type_key_still_matches_on_the_bounded_path():
+    """A row written before the ``node_type`` convention existed (e.g. a
+    pre-AU-P1-4 legacy ``:MediaAsset`` node, which only ever carried a bare
+    ``type`` property) must still be found by a type-filtered scan — a scan
+    keyed on ``node_type`` alone silently returns nothing for such rows, which
+    is exactly why ``MediaStore.migrate_legacy_assets_bulk``'s sweep for
+    ``type == 'MediaAsset'`` nodes previously found zero matches."""
+    g = _EngineGraph(
+        {"MediaAsset": [["media:1", {"type": "MediaAsset", "name": "legacy"}]]}
+    )
+    out = dict(iter_nodes_by_types(g, "MediaAsset"))
+    assert set(out) == {"media:1"}
+
+
+def test_legacy_bare_type_key_still_matches_on_the_local_full_scan_path():
+    g = _LocalGraph(
+        {
+            "a": {"type": "MediaAsset", "name": "legacy"},
+            "b": {"node_type": "team", "name": "current"},
+        }
+    )
+    out = dict(iter_nodes_by_types(g, "MediaAsset"))
+    assert set(out) == {"a"}
+
+
+def test_node_type_wins_over_a_stray_bare_type_when_both_present():
+    """``node_type`` is the CURRENT key — it must win over a legacy bare
+    ``type`` a row might still (incorrectly) carry alongside it."""
+    g = _LocalGraph({"a": {"node_type": "team", "type": "policy"}})
+    out = dict(iter_nodes_by_types(g, "team"))
+    assert set(out) == {"a"}
+    assert dict(iter_nodes_by_types(g, "policy")) == {}

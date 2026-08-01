@@ -1130,12 +1130,18 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "computer_use",
         "name": "graph_agents_computer_use",
     },
+    {"tool": "graph_agents", "action": "reason", "name": "graph_agents_reason"},
     {"tool": "graph_agents", "action": "run_org", "name": "graph_agents_run_org"},
     {"tool": "graph_agents", "action": "swarm", "name": "graph_agents_swarm"},
     {
         "tool": "graph_agents",
         "action": "synthesize_org",
         "name": "graph_agents_synthesize_org",
+    },
+    {
+        "tool": "graph_analyze",
+        "action": "distill_memory",
+        "name": "graph_analyze_distill_memory",
     },
     {
         "tool": "graph_analyze",
@@ -1414,8 +1420,18 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_document_tree",
+        "action": "cite",
+        "name": "graph_document_tree_cite",
+    },
+    {
+        "tool": "graph_document_tree",
         "action": "content",
         "name": "graph_document_tree_content",
+    },
+    {
+        "tool": "graph_document_tree",
+        "action": "fragments",
+        "name": "graph_document_tree_fragments",
     },
     {
         "tool": "graph_document_tree",
@@ -1480,6 +1496,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_epistemic", "action": "why_not", "name": "graph_epistemic_why_not"},
     {"tool": "graph_etl", "action": "lineage", "name": "graph_etl_lineage"},
     {"tool": "graph_etl", "action": "list", "name": "graph_etl_list"},
+    {
+        "tool": "graph_evaluate",
+        "action": "assimilation_benchmark",
+        "name": "graph_evaluate_assimilation_benchmark",
+    },
     {"tool": "graph_evaluate", "action": "causal", "name": "graph_evaluate_causal"},
     {
         "tool": "graph_evaluate",
@@ -1577,6 +1598,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_evolution",
         "action": "distill_skills",
         "name": "graph_evolution_distill_skills",
+    },
+    {
+        "tool": "graph_evolution",
+        "action": "evidence_lineage",
+        "name": "graph_evolution_evidence_lineage",
     },
     {
         "tool": "graph_evolution",
@@ -1817,8 +1843,8 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {"tool": "graph_jobs", "action": "dispatch", "name": "graph_jobs_dispatch"},
+    {"tool": "graph_jobs", "action": "input", "name": "graph_jobs_input"},
     {"tool": "graph_jobs", "action": "status", "name": "graph_jobs_status"},
-    {"tool": "graph_jobs", "action": "cancel", "name": "graph_jobs_cancel"},
     {
         "tool": "graph_kv_checkpoint",
         "action": "checkpoint_now",
@@ -1943,14 +1969,35 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_ontology_deactivate",
     },
     {"tool": "graph_ontology", "action": "delete", "name": "graph_ontology_delete"},
+    {
+        "tool": "graph_ontology",
+        "action": "deprecate",
+        "name": "graph_ontology_deprecate",
+    },
     {"tool": "graph_ontology", "action": "get", "name": "graph_ontology_get"},
+    {
+        "tool": "graph_ontology",
+        "action": "get_proposal",
+        "name": "graph_ontology_get_proposal",
+    },
     {
         "tool": "graph_ontology",
         "action": "import_stardog",
         "name": "graph_ontology_import_stardog",
     },
     {"tool": "graph_ontology", "action": "list", "name": "graph_ontology_list"},
+    {
+        "tool": "graph_ontology",
+        "action": "list_proposals",
+        "name": "graph_ontology_list_proposals",
+    },
     {"tool": "graph_ontology", "action": "load", "name": "graph_ontology_load"},
+    {
+        "tool": "graph_ontology",
+        "action": "promote_proposal",
+        "name": "graph_ontology_promote_proposal",
+    },
+    {"tool": "graph_ontology", "action": "propose", "name": "graph_ontology_propose"},
     {
         "tool": "graph_ontology",
         "action": "publish_stardog",
@@ -1958,8 +2005,23 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_ontology",
+        "action": "review_proposal",
+        "name": "graph_ontology_review_proposal",
+    },
+    {
+        "tool": "graph_ontology",
+        "action": "rollback_proposal",
+        "name": "graph_ontology_rollback_proposal",
+    },
+    {
+        "tool": "graph_ontology",
         "action": "sync_packages",
         "name": "graph_ontology_sync_packages",
+    },
+    {
+        "tool": "graph_ontology",
+        "action": "undeprecate",
+        "name": "graph_ontology_undeprecate",
     },
     {"tool": "graph_ontology", "action": "update", "name": "graph_ontology_update"},
     {"tool": "graph_ontology", "action": "validate", "name": "graph_ontology_validate"},
@@ -2014,6 +2076,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_research",
+        "action": "contradictions",
+        "name": "graph_research_contradictions",
+    },
+    {
+        "tool": "graph_research",
         "action": "deep_extract",
         "name": "graph_research_deep_extract",
     },
@@ -2021,6 +2088,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_research",
         "action": "evolve_variants",
         "name": "graph_research_evolve_variants",
+    },
+    {
+        "tool": "graph_research",
+        "action": "night_shift",
+        "name": "graph_research_night_shift",
     },
     {
         "tool": "graph_research",

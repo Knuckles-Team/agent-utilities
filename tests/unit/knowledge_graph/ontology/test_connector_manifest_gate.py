@@ -333,7 +333,16 @@ def test_remote_only_provider_uses_release_pinned_bundle(monkeypatch):
         assert okta_presets is not None
         assert okta_fingerprints is not None
         okta = okta_presets["okta-users"]
-        assert okta["server"] == "okta-agent"
+        # "okta-mcp", not "okta-agent": the preset's ``server`` is the alias the
+        # FLEET actually runs, derived from deploy/mcp-fleet.registry.yml (which
+        # registers ``name: okta-mcp`` for ``package: okta-agent``) via
+        # fleet_reconciler.registry_server_alias
+        # (CONCEPT:AU-KG.ontology.registry-derived-server-alias). Asserting the
+        # distribution name here encoded the very drift that fix removed — D-OB-7,
+        # where 27 providers' signed manifests named a server the registry did not
+        # have (``github-agent`` where the fleet runs ``github-mcp``). A source
+        # connector pointing at the package name cannot reach the deployed server.
+        assert okta["server"] == "okta-mcp"
         assert len(okta_fingerprints["okta_users"]) == 64
 
         paperless_presets = mcp_tool.provider_tool_presets("paperless-ngx-mcp")

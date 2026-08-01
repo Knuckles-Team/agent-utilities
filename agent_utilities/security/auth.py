@@ -308,8 +308,16 @@ async def authenticate_header_values(
                 issuer=config.auth_jwt_issuer,
                 audience=config.auth_jwt_audience,
             )
-        except HTTPException:
-            raise PermissionError("invalid bearer token") from None
+        except HTTPException as exc:
+            # Only a genuine credential rejection (401) collapses to
+            # PermissionError here. A verification-path fault that is NOT a
+            # credential rejection (currently only the 500 `_decode_jwt` raises
+            # when the JWT stack's dependency is missing) must propagate
+            # as-is — collapsing it into "invalid bearer token" is exactly how
+            # a missing dependency gets misreported as a rejected credential.
+            if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                raise PermissionError("invalid bearer token") from exc
+            raise
         return {**claims, "auth_type": "jwt"}
 
     raise PermissionError("authentication required")

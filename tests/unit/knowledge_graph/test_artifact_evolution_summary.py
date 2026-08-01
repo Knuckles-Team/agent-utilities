@@ -1,5 +1,5 @@
 """``artifact_evolution_summary`` — the cross-vector artifact-version lineage read
-(CONCEPT:AU-AHE.evolution.unified-artifact-lineage). Scans every known
+(CONCEPT:AU-AHE.harness.unified-artifact-lineage). Scans every known
 artifact-version node label (``skill_version``, ``prompt_version``) and
 aggregates by status/kind — the query `grep -rn "evolution_matrix"` finds
 nothing for today.
