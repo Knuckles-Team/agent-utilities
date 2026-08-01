@@ -20,3 +20,17 @@ Detach anything that runs longer than ~90s; a foreground harness call is killed 
 *cumulative* mean that mixes quiet and contended periods, so it reads as "every op is
 slow". The histogram buckets show the truth is bimodal — most calls are ~100us, a
 minority stall for seconds. These probes separate the two.
+
+## `grounding_exit_probe.py`
+
+Shows which of the THREE fail-closed exits in
+`contextual_model._compiled_evidence_and_bundle_bounded` a delegation is hitting
+(D-PERF-6): **A** timeout (10s budget), **B** error (e.g. `EngineCircuitOpenError`),
+or **C** the retrieval quality gate — which fires *even on a compile that fit the
+budget*, so no latency fix can clear it.
+
+⚠ It must construct the engine first (`IntelligenceGraphEngine.get_or_create`)
+before calling the bounded compile. Without an active engine
+`compile_model_context` raises `ContextCompilationError: authenticated model
+invocation requires a configured ContextCompiler engine` (contextual_model.py:538)
+— a *probe* artifact that is easily mistaken for a live configuration defect.
