@@ -11,6 +11,7 @@ Identity comes from the ambient :func:`current_actor` (set by the MCP server /
 agent runner via ``use_actor``); callers may override per-call.
 """
 
+import json
 from typing import Any
 
 from ...security.brain_context import ActorContext, current_actor
@@ -58,12 +59,23 @@ def permit(
 
 
 def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """Fetch durable ACL material for cache misses in one native round-trip.
+    """Fetch durable ACL material for cache misses in one bounded round-trip.
 
     No active process-owned graph means there is no hydration authority and the
-    caller remains default-denied. An active authority without the current
-    batched-properties primitive is a configuration failure, not permission to
-    fall back to N per-node reads.
+    caller remains default-denied. An active authority without a readable
+    backend is a configuration failure, not permission to fall back to N
+    per-node reads.
+
+    Reads through ``active.backend`` — the SAME authority every node write
+    (``IngestionMixin._upsert_node``, used by ``ingest_mcp_server`` and every
+    other platform-node ingestion path) targets. Earlier this read
+    ``active.graph_compute`` instead: that object is only the SAME store as
+    ``active.backend`` when the backend happens to expose a reusable
+    ``.graph`` (the single-process EpistemicGraphBackend chain); for any other
+    backend it is a distinct, never-written-to compute scratchpad, so newly
+    ingested platform nodes had no durable ACL material to hydrate and the
+    fail-closed guard denied them. Reading the backend directly removes that
+    asymmetry instead of loosening the guard.
     """
 
     from .engine import IntelligenceGraphEngine
@@ -71,20 +83,41 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     active = IntelligenceGraphEngine.get_active()
     if active is None:
         return {}
-    graph = getattr(active, "graph_compute", None)
-    client = getattr(graph, "client", None) or getattr(graph, "_client", None)
-    nodes = getattr(client, "nodes", None)
-    batch = getattr(nodes, "properties_batch", None)
-    if not callable(batch):
+    backend = getattr(active, "backend", None)
+    execute_read = getattr(backend, "execute_read", None)
+    if not callable(execute_read):
         raise PermissionError("Durable ACL hydration authority is unavailable")
-    raw = batch(node_ids)
-    if not isinstance(raw, dict):
+    try:
+        rows = execute_read(
+            "MATCH (n) WHERE n.id IN $ids RETURN n.id AS id, "
+            "n.tenant_id AS tenant_id, n.classification AS classification, "
+            "n.external_access AS external_access",
+            {"ids": list(node_ids)},
+        )
+    except Exception as exc:
+        raise PermissionError("Durable ACL hydration query failed") from exc
+    if not isinstance(rows, list):
         raise PermissionError("Durable ACL hydration response is invalid")
-    return {
-        str(node_id): properties
-        for node_id, properties in raw.items()
-        if isinstance(node_id, str) and isinstance(properties, dict)
-    }
+
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise PermissionError("Durable ACL hydration response is invalid")
+        node_id = row.get("id")
+        if not isinstance(node_id, str):
+            continue
+        external_access = row.get("external_access")
+        if isinstance(external_access, str):
+            try:
+                external_access = json.loads(external_access)
+            except (TypeError, ValueError):
+                external_access = None
+        result[node_id] = {
+            "tenant_id": row.get("tenant_id"),
+            "classification": row.get("classification"),
+            "external_access": external_access,
+        }
+    return result
 
 
 def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
@@ -137,11 +170,22 @@ def scope(
     cypher: str,
     actor: ActorContext | None = None,
 ) -> str:
-    """Tenant-scope a Cypher read query for ``actor`` (``n.tenant_id = <tenant>``).
+    """Tenant-scope a Cypher read query for ``actor`` (``<bound var>.tenant_id = <tenant>``).
 
     Cross-org isolation, the primary boundary (KG-2.6). Kept to a simple,
     portable equality; finer owner/scope visibility (KG-2.60) is applied as a
     mandatory post-filter in :func:`visible`.
+
+    The injected predicate is written against the query's own first bound
+    node variable (:func:`~.cypher_scoping.first_bound_node_variable`), never
+    a hardcoded ``n`` — a caller-written query keeps whatever variable name it
+    chose (``MATCH (p:Policy) ...``, ``MATCH (f:ProcessFlow) ...``). When
+    ``cypher`` has a ``WHERE``/``RETURN`` clause to scope but no derivable
+    bound node variable, ``scope_cypher_query`` raises
+    :class:`~.cypher_scoping.UnscopableQueryError` (a ``PermissionError``
+    subclass) rather than silently emitting an unscoped or mis-scoped read;
+    this fails the same way here, wrapped below like every other scoping
+    failure.
     """
     actor = _verified_actor(actor)
     try:
