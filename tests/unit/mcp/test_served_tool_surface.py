@@ -41,6 +41,14 @@ from agent_utilities.mcp.multiplexer import (
 from agent_utilities.mcp.verbose_tools import VALID_TOOL_MODES, _provider_tools
 
 #: Fleet meta-tools. Infrastructure, not a mode's tool set — always served.
+#: MCP Apps entry-point tools (``mcp/tools/mcp_apps.py``). Served in EVERY mode,
+#: including ``intent``, on purpose: each one is the only way to launch its app,
+#: so gating it would leave a fully built UI unreachable — the Wire-First failure
+#: this repo keeps re-learning. They are listed explicitly rather than relaxing
+#: the assertion to a superset, so a genuine surface leak (the 118-vs-11
+#: regression this test exists for) still fails.
+MCP_APP_TOOLS = frozenset({"graph_task_progress_app", "graph_trace_waterfall_app"})
+
 FLEET_META_TOOLS = frozenset(
     {
         "find_tools",
@@ -99,7 +107,7 @@ def test_intent_mode_serves_exactly_the_verbs_and_the_meta_tools(monkeypatch, tm
     """
     _mcp, _mux, visible = _served_surface(monkeypatch, tmp_path, "intent")
 
-    assert visible == set(INTENT_VERBS) | set(FLEET_META_TOOLS)
+    assert visible == set(INTENT_VERBS) | set(FLEET_META_TOOLS) | set(MCP_APP_TOOLS)
 
 
 def test_intent_mode_keeps_the_granular_surface_registered_and_load_tools_reachable(
@@ -134,10 +142,22 @@ def test_non_intent_modes_serve_their_granular_surface_plus_the_meta_tools(
     _mcp, mux, visible = _served_surface(monkeypatch, tmp_path, mode)
 
     assert FLEET_META_TOOLS <= visible
-    assert not mux._local_gated, (
-        f"MCP_TOOL_MODE={mode!r} must not gate the host's own tools; "
-        f"gating is intent-only, got {sorted(mux._local_gated)[:5]}"
-    )
+    if mode == "verbose":
+        # D-WS-1's fix: ``verbose`` now RUNS the condensed registrars (so the
+        # dispatch core and the REST table are live — see
+        # tests/unit/mcp/test_dispatch_registry_contract.py) and gates only their
+        # VISIBILITY, so they are not double-listed beside the 1:1 verbose tools.
+        # Gating is therefore no longer intent-only; what still must hold is that
+        # a gated tool stays reachable through ``load_tools``.
+        assert mux._local_gated, (
+            "verbose mode registers the condensed tools and gates their view; "
+            "an empty gate means the registrars did not run (D-WS-1 regression)"
+        )
+    else:
+        assert not mux._local_gated, (
+            f"MCP_TOOL_MODE={mode!r} must not gate the host's own tools; "
+            f"gating is intent/verbose-only, got {sorted(mux._local_gated)[:5]}"
+        )
     # The mode's own surface is actually served (condensed action tools in
     # condensed/both; the 1:1 expansion in verbose/both).
     assert len(visible) > len(FLEET_META_TOOLS) + len(INTENT_VERBS)

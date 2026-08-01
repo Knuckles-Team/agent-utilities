@@ -208,7 +208,7 @@ async def test_component_resolution_rejects_workspace_escape(tmp_path):
 
 
 # ── G1/G8/G2: optimize → better prompt → WRITTEN only when BOTH gates allow ──
-# CONCEPT:AU-AHE.evolution.unified-promotion-gate — the Phase-2 safety tightening:
+# CONCEPT:AU-AHE.harness.unified-promotion-gate — the Phase-2 safety tightening:
 # KG_AGENT_AUTO_APPLY=True alone used to be sufficient to write source (the
 # vector `action_policy` never consulted); it is now ALSO gated by the same
 # operational veto every other promotion vector clears.

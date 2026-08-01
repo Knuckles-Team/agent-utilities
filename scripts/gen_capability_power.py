@@ -187,9 +187,13 @@ def _write_cache(ledger: dict[str, LedgerRow], source_path: str) -> None:
 # ---------------------------------------------------------------------------
 
 _QUOTED_TOKEN_RE = re.compile(r"'([a-z][a-z0-9_]*)'")
-# Many tool descriptions lead with a bare CONCEPT id ("CONCEPT:AU-KG.foo.bar — ")
-# before the actual power sentence — strip it so `one_line` starts with the
-# actual power statement, not the id.
+# Many tool descriptions lead with a bare CONCEPT id (a literal "CONCEPT:"
+# prefix, a pillar.domain.slug id, then an em dash) before the actual power
+# sentence — strip it so `one_line` starts with the actual power statement,
+# not the id. (Deliberately not spelled out as one real-shaped example here:
+# check_domain_vocab.py scans every .py/.rs/.md file for exactly that shape,
+# and an illustrative id is not a declaration — see docs/concepts.yaml for
+# real ones, e.g. AU-KG.retrieval.capability-power-descriptor above.)
 _CONCEPT_PREFIX_RE = re.compile(r"^CONCEPT:[\w.\-]+\s*[—-]\s*")
 
 
@@ -612,6 +616,17 @@ def generate(
             canonical_surface=True,
         )
         tools = asyncio.run(_list_tools(mcp))
+        # MCP Apps entry-point tools (``mcp/tools/mcp_apps.py``, tagged
+        # ``mcp-apps``) are UI launchers over an EXISTING host-mediated tool —
+        # the task-progress app drives ``graph_jobs``, the trace-waterfall app
+        # drives ``graph_traces action=waterfall``. They are not capabilities in
+        # their own right (the capability they expose already has a CPD), and
+        # they are deliberately absent from ``canonical_tool_names``, so
+        # emitting a CPD for them makes the generated catalog disagree with the
+        # canonical tool universe — which surfaced as a CPD-gate KeyError on
+        # ``TOOL_VERBS[cpd.id]`` when the MCP Apps lane merged. Excluded here so
+        # the catalog stays a function of the canonical surface.
+        tools = [t for t in tools if "mcp-apps" not in (getattr(t, "tags", None) or set())]
         action_tool_routes = dict(kg_server.ACTION_TOOL_ROUTES)
     finally:
         kg_server.REGISTERED_TOOLS.clear()

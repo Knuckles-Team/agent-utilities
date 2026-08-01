@@ -267,7 +267,10 @@ See [middlewares.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/
 The agent server uses JWT bearer authentication for remote listeners.
 
 Validates tokens against a JWKS endpoint from any OIDC provider (Azure AD,
-Okta, Keycloak, Auth0, etc.). Requires `pip install agent-utilities[auth]`.
+Okta, Keycloak, Auth0, etc.). The JWT verifier (`joserfc`) is a **base**
+dependency — every `agent-utilities` install already has it, so enforcement is
+purely a runtime/config toggle, never a packaging concern. (`[auth]` still
+resolves as a no-op alias extra for existing manifests that pin it.)
 
 ```bash
 export AUTH_JWT_JWKS_URI=https://login.microsoftonline.com/.../discovery/v2.0/keys
@@ -276,9 +279,14 @@ export AUTH_JWT_AUDIENCE=api://my-agent-api
 export KG_POLICY_VERSION=policy-v1
 ```
 
-The server accepts a valid JWT bearer token. When no JWKS endpoint is
-configured, only a loopback listener is allowed to operate without
-authentication.
+The server accepts a valid JWT bearer token. `AUTH_JWT_JWKS_URI` is the
+toggle: when it is unset, only a loopback listener is allowed to operate
+without authentication; setting it turns bearer-token enforcement on for
+every non-loopback listener. A verification-path fault that is not a
+credential rejection (for example, an unexpected error inside the JWT
+decoder) surfaces as a distinct 5xx rather than being reported as an
+invalid-credential 401 — a 401 always means the credential itself was
+rejected.
 
 | Config Variable | Description |
 |----------------|-------------|

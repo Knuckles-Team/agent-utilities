@@ -311,6 +311,8 @@ async def test_audit_log_capability_records_a_live_run(engine: FakeEngine) -> No
     not merely expose hooks that unit-test in isolation."""
     from pydantic_ai.models.test import TestModel
 
+    from agent_utilities.core.contextual_model import use_grounding_policy
+
     sink = KgAuditSink(engine=engine)
     agent = create_context_agent(
         TestModel(),
@@ -321,7 +323,14 @@ async def test_audit_log_capability_records_a_live_run(engine: FakeEngine) -> No
     def ping() -> str:
         return "pong"
 
-    result = await agent.run("say hi")
+    # This test double has no real ContextCompiler engine wired up (it only
+    # implements the ToolCall/RunTrace audit surface KgAuditSink reads/writes);
+    # AU-KG.retrieval.fail-closed-grounding-contract makes "required" grounding
+    # the default for every ``agent.run``, so opt this unrelated-to-grounding
+    # test into the documented "none" escape hatch (contextual_model.py's
+    # ``use_grounding_policy``) rather than failing closed.
+    with use_grounding_policy("none"):
+        result = await agent.run("say hi")
     assert result.output is not None
 
     tool_calls = engine.by_type("ToolCall")
@@ -341,6 +350,8 @@ async def test_audit_log_capability_uses_default_kg_sink_resolver(
 
     from pydantic_ai.models.test import TestModel
 
+    from agent_utilities.core.contextual_model import use_grounding_policy
+
     @dataclass
     class Deps:
         graph_engine: Any = None
@@ -353,7 +364,8 @@ async def test_audit_log_capability_uses_default_kg_sink_resolver(
     def ping() -> str:
         return "pong"
 
-    await agent.run("say hi", deps=Deps(graph_engine=engine))
+    with use_grounding_policy("none"):
+        await agent.run("say hi", deps=Deps(graph_engine=engine))
 
     assert engine.by_type("ToolCall")
     assert engine.by_type("RunTrace")
@@ -364,13 +376,16 @@ async def test_audit_log_capability_no_engine_is_a_no_op() -> None:
     itself is unaffected (matches every other default reliability capability)."""
     from pydantic_ai.models.test import TestModel
 
+    from agent_utilities.core.contextual_model import use_grounding_policy
+
     agent = create_context_agent(TestModel(), capabilities=[AuditLog()])
 
     @agent.tool_plain
     def ping() -> str:
         return "pong"
 
-    result = await agent.run("say hi")
+    with use_grounding_policy("none"):
+        result = await agent.run("say hi")
     assert result.output is not None
 
 

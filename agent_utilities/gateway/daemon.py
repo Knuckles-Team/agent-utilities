@@ -22,6 +22,7 @@ from typing import Any
 
 from agent_utilities.core.config import setting
 from agent_utilities.security.error_surface import public_error_payload
+from agent_utilities.security.log_redaction import redact_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ def start_daemon_metrics_listener() -> bool:
                 "a scrapeable metrics endpoint — SCHEDULED_JOB_*/LANE_*/"
                 "KG_INGEST_*/DISPATCH_* series stay uncollectable until this "
                 "is resolved.",
-                host,
+                redact_for_log(host),
                 port,
                 exc,
             )
@@ -137,7 +138,7 @@ def start_daemon_metrics_listener() -> bool:
         logger.info(
             "Daemon metrics listener started on %s:%d "
             "(CONCEPT:AU-OS.observability.daemon-metrics-listener).",
-            host,
+            redact_for_log(host),
             port,
         )
         return True

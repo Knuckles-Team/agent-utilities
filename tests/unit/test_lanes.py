@@ -502,3 +502,194 @@ def test_guard_refusal_names_the_remedy(canonical: Path) -> None:
     message = str(excinfo.value)
     assert "worktree add" in message and str(canonical) in message
     assert os.path.sep in message
+
+
+# ---------------------------------------------------------------------------
+# D-CP-3/D-CP-4 reach — the gate and the cargo binding work from a repo that is
+# NOT agent-utilities, proven by invoking the real installed script as a
+# subprocess (exactly how another repo's `.pre-commit-config.yaml` calls it),
+# not by calling its Python functions directly.
+# ---------------------------------------------------------------------------
+GUARD_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "check_lane_guard.py"
+
+
+def _init_foreign_repo(root: Path, *, with_cargo: bool = False) -> Path:
+    """A repo wholly unrelated to agent-utilities — the reach proof needs one."""
+    root.mkdir(parents=True, exist_ok=True)
+    _run(["git", "init", "-b", "main"], root)
+    _run(["git", "config", "user.email", "foreign@test"], root)
+    _run(["git", "config", "user.name", "Foreign Test"], root)
+    if with_cargo:
+        (root / "Cargo.toml").write_text(
+            '[package]\nname = "foreign"\nversion = "0.1.0"\nedition = "2021"\n',
+            encoding="utf-8",
+        )
+        (root / "src").mkdir(exist_ok=True)
+        (root / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+    else:
+        (root / "README.md").write_text("foreign repo\n", encoding="utf-8")
+    _run(["git", "add", "-A"], root)
+    _run(["git", "commit", "-qm", "base"], root)
+    return root
+
+
+def test_gate_reaches_a_repo_that_is_not_agent_utilities(tmp_path: Path) -> None:
+    """The SAME script, invoked from a foreign repo, guards THAT repo — not AU.
+
+    Before this reach fix, ``main()`` resolved ``lanes.current_tree(REPO)``
+    where ``REPO`` was hardcoded to wherever the script file itself lives
+    (agent-utilities), so a foreign caller would silently guard
+    agent-utilities' OWN tree and never see its own staged work at all — a
+    no-op gate for every other repo (D-CP-3). It must now resolve the tree
+    from cwd, which is what pre-commit always sets to the repo being
+    committed.
+    """
+    foreign = _init_foreign_repo(tmp_path / "foreign")
+    lane = _add_worktree(foreign, "foreign-lane")
+    (lane / "new.py").write_text("x = 1\n", encoding="utf-8")
+    _run(["git", "add", "new.py"], lane)
+    env = dict(os.environ)
+    env.pop("CARGO_TARGET_DIR", None)
+    proc = subprocess.run(
+        ["python3", str(GUARD_SCRIPT)],
+        cwd=str(lane),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "foreign-lane" in proc.stdout
+    assert str(foreign) not in proc.stdout
+
+
+def test_gate_still_refuses_a_canonical_commit_in_a_foreign_repo(tmp_path: Path) -> None:
+    """Reach cuts both ways: a foreign repo's OWN canonical checkout is guarded too."""
+    foreign = _init_foreign_repo(tmp_path / "foreign2")
+    (foreign / "new.py").write_text("x = 1\n", encoding="utf-8")
+    _run(["git", "add", "new.py"], foreign)
+    env = dict(os.environ)
+    env.pop("CARGO_TARGET_DIR", None)
+    proc = subprocess.run(
+        ["python3", str(GUARD_SCRIPT)],
+        cwd=str(foreign),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 1
+    assert "CANONICAL checkout" in proc.stderr
+
+
+def test_gate_detects_a_stray_cargo_target_dir_export_in_a_foreign_cargo_repo(
+    tmp_path: Path,
+) -> None:
+    """A global CARGO_TARGET_DIR export is refused loudly — the residual gap, made loud."""
+    foreign = _init_foreign_repo(tmp_path / "foreign-cargo", with_cargo=True)
+    lane = _add_worktree(foreign, "cargo-lane")
+    env = dict(os.environ)
+    env["CARGO_TARGET_DIR"] = "/some/shared/global/target"
+    proc = subprocess.run(
+        ["python3", str(GUARD_SCRIPT)],
+        cwd=str(lane),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 1
+    assert "CARGO_TARGET_DIR" in proc.stderr
+    assert "target-isolated" in proc.stderr
+
+
+def test_gate_accepts_the_lanes_own_cargo_target_dir_export(tmp_path: Path) -> None:
+    """The lane's OWN partitioned dir, if exported, is not flagged as an override."""
+    foreign = _init_foreign_repo(tmp_path / "foreign-cargo-ok", with_cargo=True)
+    lane = _add_worktree(foreign, "cargo-lane-ok")
+    own_target = lanes.partitioned_paths(lane).cargo_target_dir
+    env = dict(os.environ)
+    env["CARGO_TARGET_DIR"] = str(own_target)
+    proc = subprocess.run(
+        ["python3", str(GUARD_SCRIPT)],
+        cwd=str(lane),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+# ---------------------------------------------------------------------------
+# D-CP-4 — PARTITION binds: a REAL `cargo` invocation lands in the lane's own
+# target dir once `write_cargo_partition_config` has run, with no env var set.
+# ---------------------------------------------------------------------------
+def test_write_cargo_partition_config_refuses_a_non_cargo_tree(tmp_path: Path) -> None:
+    plain = _init_foreign_repo(tmp_path / "not-cargo")
+    with pytest.raises(lanes.LaneArbitrationError, match="Cargo.toml"):
+        lanes.write_cargo_partition_config(plain)
+
+
+def test_write_cargo_partition_config_refuses_to_clobber_existing_config(
+    tmp_path: Path,
+) -> None:
+    repo = _init_foreign_repo(tmp_path / "cargo-existing", with_cargo=True)
+    cargo_dir = repo / ".cargo"
+    cargo_dir.mkdir()
+    (cargo_dir / "config.toml").write_text(
+        '[target.x86_64]\nrustflags = ["-C", "target-cpu=native"]\n', encoding="utf-8"
+    )
+    with pytest.raises(lanes.LaneArbitrationError, match="already exists"):
+        lanes.write_cargo_partition_config(repo)
+    forced = lanes.write_cargo_partition_config(repo, force=True)
+    assert forced["written"] and forced["appended"]
+    content = (cargo_dir / "config.toml").read_text(encoding="utf-8")
+    assert "target-cpu=native" in content  # untouched
+    assert 'target-dir = "target-isolated"' in content  # appended
+
+
+@pytest.mark.skipif(
+    subprocess.run(["which", "cargo"], capture_output=True, check=False).returncode
+    != 0,
+    reason="cargo not installed",
+)
+def test_write_cargo_partition_config_binds_a_real_cargo_invocation(
+    tmp_path: Path,
+) -> None:
+    """The load-bearing proof: `cargo metadata` — a REAL cargo invocation, not a
+    unit assertion about the written TOML — resolves ``target_directory`` to
+    THIS lane's own partitioned dir, with no env var and no --target-dir flag.
+    """
+    import json
+
+    repo = _init_foreign_repo(tmp_path / "cargo-real", with_cargo=True)
+    lane = _add_worktree(repo, "cargo-real-lane")
+    result = lanes.write_cargo_partition_config(lane)
+    assert result["written"]
+    _run(["git", "add", ".cargo/config.toml"], lane)
+    _run(["git", "commit", "-qm", "bind cargo partition"], lane)
+    env = dict(os.environ)
+    env.pop("CARGO_TARGET_DIR", None)
+    proc = subprocess.run(
+        ["cargo", "metadata", "--no-deps", "--format-version=1"],
+        cwd=str(lane),
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    resolved = Path(json.loads(proc.stdout)["target_directory"])
+    assert resolved == lanes.partitioned_paths(lane).cargo_target_dir.resolve()
+    # And it is genuinely PER-WORKTREE: a second worktree of the same repo
+    # resolves to a DIFFERENT directory without writing any new config —
+    # the relative path in the committed file does the rest.
+    lane2 = _add_worktree(repo, "cargo-real-lane-2")
+    _run(["git", "merge", "cargo-real-lane"], lane2)  # pick up the committed config
+    proc2 = subprocess.run(
+        ["cargo", "metadata", "--no-deps", "--format-version=1"],
+        cwd=str(lane2),
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    resolved2 = Path(json.loads(proc2.stdout)["target_directory"])
+    assert resolved2 == lanes.partitioned_paths(lane2).cargo_target_dir.resolve()
+    assert resolved2 != resolved
