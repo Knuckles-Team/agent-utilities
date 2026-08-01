@@ -1,8 +1,11 @@
 """Tests for the trading-knowledge curator — CONCEPT:AU-AHE.assimilation.trading-curator."""
 
+import asyncio
+
 from agent_utilities.knowledge_graph.distillation.trading_curator import (
     build_knowledge_nodes,
     classify_trading_concept,
+    organize_trading_knowledge,
 )
 
 
@@ -57,3 +60,60 @@ class TestBuildKnowledgeNodes:
         # provenance + citation preserved on the knowledge node
         exec_node = next(n for n in out["knowledge"] if n.topic == "execution")
         assert exec_node.source == "Trading and Exchanges" and exec_node.chapter == "3"
+
+
+class _FakeNodes:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def add(self, node_id, properties=None):
+        self.calls.append((node_id, properties))
+
+
+class _FakeEdges:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def add(self, source_id, target_id, properties=None):
+        # Mirrors the real epistemic_graph.client.EdgeClient.add contract:
+        # `properties` must be a dict (or None), never a bare relationship
+        # string — a str here is a caller bug (D-W2N-2).
+        if properties is not None and not isinstance(properties, dict):
+            raise TypeError(
+                f"properties must be a dict or None, got {type(properties).__name__}"
+            )
+        self.calls.append((source_id, target_id, properties))
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.nodes = _FakeNodes()
+        self.edges = _FakeEdges()
+
+
+class TestOrganizeTradingKnowledgeWritesDerivedFromEdge:
+    def test_derived_from_edge_is_a_properties_dict_not_a_bare_string(self):
+        # D-W2N-2: organize_trading_knowledge used to call
+        # client.edges.add(source, target, "DERIVED_FROM") — a bare string in
+        # the properties slot. A real client TypeErrors on that (caught by
+        # the surrounding best-effort except and only logged at debug), so
+        # the DERIVED_FROM provenance edge silently never landed. Assert the
+        # edge write now succeeds and carries a proper relationship dict.
+        concepts = [
+            {
+                "id": "c1",
+                "text": "Order flow imbalance in the limit order book signals short-term direction.",
+                "chapter": "3",
+            }
+        ]
+        client = _FakeClient()
+        result = asyncio.run(
+            organize_trading_knowledge(client, concepts, source_title="Book")
+        )
+
+        assert result["signal_seeds"] == 1
+        assert client.edges.calls, "expected a DERIVED_FROM edge write attempt"
+        source_id, target_id, properties = client.edges.calls[0]
+        assert source_id == "sig:book:c1"
+        assert target_id == "tk:execution:c1"
+        assert properties == {"relationship": "DERIVED_FROM"}
