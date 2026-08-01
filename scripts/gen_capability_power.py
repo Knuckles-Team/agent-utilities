@@ -46,6 +46,14 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _gate_interpreter import require_project_interpreter  # noqa: E402
+
+# Re-exec under this repo's declared interpreter BEFORE importing the MCP
+# server surface: under an out-of-contract python this gate does not fail,
+# it stops functioning. See scripts/_gate_interpreter.py.
+require_project_interpreter(ROOT)
 
 from agent_utilities.knowledge_graph.retrieval.capability_power_descriptor import (  # noqa: E402
     MEASURED_LATENCY_MS,
@@ -626,7 +634,9 @@ def generate(
         # canonical tool universe — which surfaced as a CPD-gate KeyError on
         # ``TOOL_VERBS[cpd.id]`` when the MCP Apps lane merged. Excluded here so
         # the catalog stays a function of the canonical surface.
-        tools = [t for t in tools if "mcp-apps" not in (getattr(t, "tags", None) or set())]
+        tools = [
+            t for t in tools if "mcp-apps" not in (getattr(t, "tags", None) or set())
+        ]
         action_tool_routes = dict(kg_server.ACTION_TOOL_ROUTES)
     finally:
         kg_server.REGISTERED_TOOLS.clear()
@@ -653,9 +663,7 @@ def generate(
     # whose heavy extra isn't installed in THIS interpreter never reaches
     # ``mcp.list_tools()`` above — recover its CPD from the checked-in
     # catalog rather than silently dropping a real, shipped capability.
-    cpds.extend(
-        _fallback_cpds_for_missing_optional_tools({t.name for t in tools})
-    )
+    cpds.extend(_fallback_cpds_for_missing_optional_tools({t.name for t in tools}))
     cpds.sort(key=lambda c: c.id)
     generated_at = generation_timestamp()
     return cpds, generated_at

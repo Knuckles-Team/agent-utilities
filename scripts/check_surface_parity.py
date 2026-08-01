@@ -59,6 +59,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # namespace package and fail with a spurious "cannot import name ... (unknown
 # location)" ImportError that has nothing to do with a real surface-parity drift.
 sys.path.insert(0, str(ROOT))
+from _gate_interpreter import require_project_interpreter  # noqa: E402
+
+# Re-exec under this repo's declared interpreter BEFORE importing the MCP
+# server surface: under an out-of-contract python this gate does not fail,
+# it stops functioning. See scripts/_gate_interpreter.py.
+require_project_interpreter(ROOT)
+
 from check_wiring import bfs_hops, build_graph  # noqa: E402
 
 BASELINE = Path(__file__).resolve().parent / "surface_parity_baseline.txt"

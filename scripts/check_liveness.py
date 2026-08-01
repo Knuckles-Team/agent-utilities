@@ -25,11 +25,26 @@ import importlib.util
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 TARGET = REPO / "agent_utilities"
 BASELINE = REPO / ".liveness_baseline.json"
+
+
+def _head_commit() -> str:
+    """The commit a baseline is being taken against (best effort)."""
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(REPO), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return "unknown"
+    return res.stdout.strip() or "unknown"
 
 
 def _find_analyzer() -> Path | None:
@@ -62,12 +77,34 @@ def main() -> int:
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode not in (0, 1):  # 0=ok/pass, 1=regression; other=crash
         sys.stderr.write(res.stderr)
-        print("liveness gate: analyzer error — skipping (does not block CI)")
-        return 0
+        # A crashing analyzer is NOT a pass. This previously returned 0, which
+        # made a broken detector indistinguishable from a clean tree — the same
+        # silently-non-functional-gate failure mode `check_cpd.py` and
+        # `check_surface_parity.py` were both in (see scripts/_gate_interpreter.py).
+        print(
+            f"liveness gate FAILED: the detector crashed (exit {res.returncode}); "
+            "it enforced nothing. Fix the analyzer — do not re-baseline around it."
+        )
+        return 1
 
     report = json.loads(res.stdout)
     if update:
-        BASELINE.write_text(json.dumps({"counts": report["counts"]}, indent=2) + "\n")
+        # Record WHAT the baseline was taken against, not just the numbers. A
+        # bare counts blob cannot be told apart from a fresh one, which is how
+        # this file silently drifted ~4 days behind `main` (D-KCI-11) while the
+        # gate kept reporting "regressed" against the wrong reference. Extra
+        # keys are inert to the analyzer, which reads only ``counts``.
+        BASELINE.write_text(
+            json.dumps(
+                {
+                    "counts": report["counts"],
+                    "taken_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    "taken_against": _head_commit(),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
         print(f"liveness baseline updated: {report['counts']}")
         return 0
 
