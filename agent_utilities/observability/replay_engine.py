@@ -124,7 +124,7 @@ class DistributedReplayEngine:
                 self.engine.graph.add_edge(
                     manifest.id,
                     record.step_id,
-                    type="HAS_STEP",
+                    relationship="HAS_STEP",
                 )
             except Exception as e:  # noqa: BLE001 — best-effort step mirror; the in-memory manifest.steps append above already recorded the step regardless of this KG write's outcome
                 logger.debug("Failed to persist interaction step node: %s", e)

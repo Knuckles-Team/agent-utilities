@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
+import logging
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import public_error_text
+
+logger = logging.getLogger(__name__)
 
 
 class ReasoningStepOutput(BaseModel):
@@ -67,6 +70,105 @@ def _reasoning_step_fn(agent: Any, task: str):
     return step_fn
 
 
+class ToTChildOutput(BaseModel):
+    """One candidate next-thought a ToT ``generate_fn`` call proposes.
+
+    ``score``/``is_goal`` are produced in the SAME call that proposes
+    ``content`` — never a separate round-trip — so :func:`_tot_functions`'s
+    ``score_fn``/``is_goal_fn`` can answer from cache instead of re-querying
+    the model once per child (bounds ToT's LLM-call count to one call per
+    EXPANDED node, matching :func:`_reasoning_step_fn`'s one-call-per-step
+    contract for CoT).
+    """
+
+    content: str
+    score: float = Field(ge=0.0, le=1.0)
+    is_goal: bool
+
+
+class ToTGenerateOutput(BaseModel):
+    """The full structured output one ToT expansion call produces."""
+
+    children: list[ToTChildOutput]
+
+
+def _tot_functions(
+    agent: Any, task: str, *, branching_factor: int
+) -> tuple[Any, Any, Any]:
+    """Build LLM-backed ``(generate_fn, score_fn, is_goal_fn)`` for :func:`~agent_utilities.graph.reasoning.tot.run_tot`.
+
+    ``agent is None`` (no reachable model) degrades every function to an
+    honest, immediate empty/zero/false answer — :func:`run_tot` then
+    converges on ``degraded=True`` rather than looping forever with no model,
+    mirroring :func:`_reasoning_step_fn`'s same no-model contract.
+    """
+    from agent_utilities.core.event_loop import run_sync_isolated
+
+    # content -> (score, is_goal), populated by generate_fn so score_fn/
+    # is_goal_fn (called separately, per child, by run_tot's own loop) never
+    # re-query the model for something this SAME expansion call already rated.
+    cache: dict[str, tuple[float, bool]] = {}
+
+    def generate_fn(parent_content: str) -> list[str]:
+        if agent is None:
+            return []
+        prompt = (
+            f"QUESTION:\n{task}\n\n"
+            f"CURRENT THOUGHT:\n{parent_content}\n\n"
+            f"Propose up to {branching_factor} DISTINCT next reasoning steps "
+            "that could each extend this thought toward answering the "
+            "question. For EACH one, self-rate its promise (0.0-1.0) and "
+            "whether it already IS a complete, final answer (is_goal)."
+        )
+        try:
+            result = run_sync_isolated(lambda: agent.run_sync(prompt))
+            output: ToTGenerateOutput = result.output
+        except Exception as exc:  # noqa: BLE001 — a failed expansion ends that branch honestly
+            logger.debug("tot: generate_fn step failed: %s", exc, exc_info=True)
+            return []
+        children = list(output.children)[:branching_factor]
+        for child in children:
+            cache[child.content] = (child.score, child.is_goal)
+        return [child.content for child in children]
+
+    def score_fn(content: str) -> float:
+        return cache.get(content, (0.0, False))[0]
+
+    def is_goal_fn(content: str) -> bool:
+        # Uncached only for the ROOT question itself (run_tot's very first
+        # is_goal_fn call, before any generate_fn call has populated the
+        # cache) -- a bare question is never itself a complete answer, so
+        # False is the honest default, not a guess standing in for a model call.
+        return cache.get(content, (0.0, False))[1]
+
+    return generate_fn, score_fn, is_goal_fn
+
+
+def _create_reasoning_agent(output_type: type, system_prompt: str) -> Any:
+    """Build the live LLM agent one reasoning topology's step/expansion
+    function drives — the configured chat model (``DEFAULT_LLM_PROVIDER``/
+    ``DEFAULT_KG_MODEL_ID``, the fleet's vLLM-served model), or ``None`` on
+    any construction failure (no reachable model) so every topology's own
+    functions can degrade honestly rather than raise.
+    """
+    from agent_utilities.core.config import DEFAULT_KG_MODEL_ID, DEFAULT_LLM_PROVIDER
+    from agent_utilities.core.contextual_model import create_context_agent
+    from agent_utilities.core.model_factory import create_model
+
+    try:
+        model = create_model(
+            provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
+        )
+    except Exception:
+        return None
+    try:
+        return create_context_agent(
+            model=model, output_type=output_type, system_prompt=system_prompt
+        )
+    except Exception:
+        return None
+
+
 async def _run_reasoning_topology(
     engine: Any,
     *,
@@ -74,69 +176,101 @@ async def _run_reasoning_topology(
     task: str,
     num_samples: int,
     loop_budget: int,
+    branching_factor: int = 3,
+    beam_width: int = 3,
+    max_depth: int = 5,
 ) -> dict[str, Any]:
     """Run a real :mod:`agent_utilities.graph.reasoning` topology over ``task``.
 
     CONCEPT:AU-ORCH.planning.reasoning-graph-topologies — the live entry point
     the reasoning-topology package lacked (built + unit-tested, zero live
-    callers). Drives the real ``run_cot``/``run_self_consistent_cot`` entry
-    points with an LLM-backed step function (:func:`_reasoning_step_fn`), then
-    registers/updates the run as a versioned, graph-addressable topology
-    resource through :mod:`agent_utilities.graph.reasoning.topology`'s own
-    API (:func:`~.topology.register_topology`, :func:`~.topology.
+    callers). Drives the real ``run_cot``/``run_self_consistent_cot``/``run_tot``
+    entry points with an LLM-backed step/expansion function
+    (:func:`_reasoning_step_fn`/:func:`_tot_functions`), then registers/updates
+    the run as a versioned, graph-addressable topology resource through
+    :mod:`agent_utilities.graph.reasoning.topology`'s own API
+    (:func:`~.topology.register_topology`, :func:`~.topology.
     record_topology_outcome`) — the SAME best-effort, engine-optional pattern
     :class:`agent_utilities.graph.topology_engine.TopologyEngine` already uses
     for team-composition topologies, reused here rather than reimplemented.
+
+    ``topology in {"tot_bfs", "tot_dfs"}`` runs Tree-of-Thought (D-5.3-5.6-3):
+    unlike CoT's single linear chain, each expanded node fans out to up to
+    ``branching_factor`` candidate next-thoughts in ONE LLM call
+    (:class:`ToTGenerateOutput`), each self-scored and self-judged for
+    goal-completion by the SAME call — never a separate round-trip per child.
     """
-    from agent_utilities.core.config import DEFAULT_KG_MODEL_ID, DEFAULT_LLM_PROVIDER
-    from agent_utilities.core.contextual_model import create_context_agent
-    from agent_utilities.core.model_factory import create_model
     from agent_utilities.graph.reasoning import (
         COT_SPEC,
         SELF_CONSISTENT_COT_SPEC,
+        TOT_BFS_SPEC,
+        TOT_DFS_SPEC,
         Budgets,
         record_topology_outcome,
         register_topology,
         run_cot,
         run_self_consistent_cot,
+        run_tot,
     )
 
-    try:
-        model = create_model(
-            provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
-        )
-    except Exception:
-        model = None
-
-    agent = None
-    if model is not None:
-        try:
-            agent = create_context_agent(
-                model=model,
-                output_type=ReasoningStepOutput,
-                system_prompt=(
-                    "You are one step in a graph-of-thought reasoning process "
-                    "toward answering a question. Given the question and the "
-                    "reasoning accumulated so far, produce ONLY the next "
-                    "reasoning step."
-                ),
-            )
-        except Exception:
-            agent = None
-
-    step_fn = _reasoning_step_fn(agent, task)
     budgets = Budgets(loop_budget=max(1, loop_budget))
 
-    if topology == "self_consistent_cot":
-        spec = SELF_CONSISTENT_COT_SPEC
-        state, proof, answer = run_self_consistent_cot(
-            step_fn, question=task, num_samples=max(1, num_samples), budgets=budgets
+    if topology in ("tot_bfs", "tot_dfs"):
+        agent = _create_reasoning_agent(
+            ToTGenerateOutput,
+            "You are the expansion step of a Tree-of-Thought search toward "
+            "answering a question. Given the question and one current "
+            "thought, propose several DISTINCT candidate next thoughts, "
+            "each self-scored for promise and self-judged for whether it is "
+            "already a complete final answer.",
         )
-    else:
-        spec = COT_SPEC
-        state, proof = run_cot(step_fn, question=task, budgets=budgets)
+        generate_fn, score_fn, is_goal_fn = _tot_functions(
+            agent, task, branching_factor=max(1, branching_factor)
+        )
+        spec = TOT_BFS_SPEC if topology == "tot_bfs" else TOT_DFS_SPEC
+        strategy: Literal["bfs", "dfs"] = "bfs" if topology == "tot_bfs" else "dfs"
+        state, proof = run_tot(
+            generate_fn,
+            score_fn,
+            is_goal_fn,
+            question=task,
+            budgets=budgets,
+            strategy=strategy,
+            branching_factor=max(1, branching_factor),
+            beam_width=max(1, beam_width),
+            max_depth=max(1, max_depth),
+        )
         terminal = next((n for n in state.nodes.values() if n.is_terminal), None)
-        answer = terminal.content if terminal is not None else ""
+        if terminal is not None:
+            answer = terminal.content
+        elif state.nodes:
+            best = max(state.nodes.values(), key=lambda n: (n.value or 0.0, n.node_id))
+            answer = best.content
+        else:
+            answer = ""
+    else:
+        agent = _create_reasoning_agent(
+            ReasoningStepOutput,
+            "You are one step in a graph-of-thought reasoning process "
+            "toward answering a question. Given the question and the "
+            "reasoning accumulated so far, produce ONLY the next "
+            "reasoning step.",
+        )
+        step_fn = _reasoning_step_fn(agent, task)
+
+        if topology == "self_consistent_cot":
+            spec = SELF_CONSISTENT_COT_SPEC
+            state, proof, answer = run_self_consistent_cot(
+                step_fn,
+                question=task,
+                num_samples=max(1, num_samples),
+                budgets=budgets,
+            )
+        else:
+            spec = COT_SPEC
+            state, proof = run_cot(step_fn, question=task, budgets=budgets)
+            terminal = next((n for n in state.nodes.values() if n.is_terminal), None)
+            answer = terminal.content if terminal is not None else ""
 
     clean_success = bool(proof.success) and not proof.degraded
     register_topology(engine, spec)
@@ -239,10 +373,11 @@ def register_agent_execution_tools(mcp: Any) -> None:
             "Execute graph-grounded agent collectives. Actions: 'swarm' performs governed "
             "goal decomposition and parallel-wave synthesis; 'computer_use' drives a GUI "
             "sandbox; 'synthesize_org' builds a staffed runtime org; 'run_org' executes its "
-            "WorkItem DAG; 'reason' runs a versioned graph/reasoning topology (CoT or "
-            "self-consistent CoT — CONCEPT:AU-ORCH.planning.reasoning-graph-topologies) "
-            "over 'task' via a real LLM step function, then registers/updates the run as "
-            "a graph-addressable topology resource. Single-agent delegation remains "
+            "WorkItem DAG; 'reason' runs a versioned graph/reasoning topology (CoT, "
+            "self-consistent CoT, or Tree-of-Thought BFS/DFS — "
+            "CONCEPT:AU-ORCH.planning.reasoning-graph-topologies) over 'task' via a real "
+            "LLM step/expansion function, then registers/updates the run as a "
+            "graph-addressable topology resource. Single-agent delegation remains "
             "graph_orchestrate."
         ),
         tags=["graph-os", "agents", "swarm", "computer-use", "org", "reasoning"],
@@ -269,12 +404,29 @@ def register_agent_execution_tools(mcp: Any) -> None:
         ),
         topology: str = Field(
             default="cot",
-            description="reason only: 'cot' | 'self_consistent_cot'.",
+            description=(
+                "reason only: 'cot' | 'self_consistent_cot' | 'tot_bfs' | 'tot_dfs'."
+            ),
         ),
         num_samples: int = Field(
             default=3,
             ge=1,
             description="reason only: self_consistent_cot sample count.",
+        ),
+        branching_factor: int = Field(
+            default=3,
+            ge=1,
+            description="reason(tot_bfs|tot_dfs) only: candidate next-thoughts per expansion.",
+        ),
+        beam_width: int = Field(
+            default=3,
+            ge=1,
+            description="reason(tot_bfs|tot_dfs) only: frontier survivors kept per expansion.",
+        ),
+        max_depth: int = Field(
+            default=5,
+            ge=1,
+            description="reason(tot_bfs|tot_dfs) only: max thought-chain depth before giving up.",
         ),
     ) -> str:
         engine = kg_server._get_engine()
@@ -299,10 +451,15 @@ def register_agent_execution_tools(mcp: Any) -> None:
                 if not task:
                     raise ValueError("task is required for reason")
                 topology_norm = (topology or "cot").strip().lower()
-                if topology_norm not in {"cot", "self_consistent_cot"}:
+                if topology_norm not in {
+                    "cot",
+                    "self_consistent_cot",
+                    "tot_bfs",
+                    "tot_dfs",
+                }:
                     raise ValueError(
-                        f"unknown topology {topology_norm!r} for reason; "
-                        "choose 'cot' or 'self_consistent_cot'"
+                        f"unknown topology {topology_norm!r} for reason; choose "
+                        "'cot', 'self_consistent_cot', 'tot_bfs', or 'tot_dfs'"
                     )
                 return json.dumps(
                     await _run_reasoning_topology(
@@ -310,6 +467,9 @@ def register_agent_execution_tools(mcp: Any) -> None:
                         topology=topology_norm,
                         task=task,
                         num_samples=num_samples,
+                        branching_factor=branching_factor,
+                        beam_width=beam_width,
+                        max_depth=max_depth,
                         loop_budget=max_steps,
                     ),
                     default=str,

@@ -505,15 +505,35 @@ def test_root_cause_materialize_claims_denial_is_logged_with_actor_and_action(
     with caplog.at_level(
         "WARNING", logger="agent_utilities.mcp.tools.ops_causal_tools"
     ):
-        json.loads(
+        out = json.loads(
             _call(tool_fn, action="root_cause", node_id="trace:1", links_json=_LINKS)
         )
 
+    # This governance rule ("forbidden") denies EVERY promote_mined_claim
+    # verdict, so with _LINKS's 6-edge fixture graph multiple above-floor
+    # root-cause candidates are materialized and denied, not just one — assert
+    # against the tool's OWN reported deny count (never a silent drop means
+    # EVERY deny is logged, not that there is exactly one) rather than a
+    # hardcoded number tied to how many candidates this fixture happens to
+    # rank above the confidence floor.
+    denied_claim_ids = [
+        cid
+        for cid, verdict in out["claims_governance"].items()
+        if verdict["decision"] == "deny"
+    ]
+    assert denied_claim_ids
     denials = [r for r in caplog.records if "governance DENY" in r.message]
-    assert len(denials) == 1
-    assert "kind=promote_mined_claim" in denials[0].message
-    assert "actor=mcp" in denials[0].message
-    assert "claim:insight:ops_causal_root_cause:" in denials[0].message
+    assert len(denials) == len(denied_claim_ids)
+    for record in denials:
+        assert "kind=promote_mined_claim" in record.message
+        assert "actor=mcp" in record.message
+        assert "claim:insight:ops_causal_root_cause:" in record.message
+    logged_claim_ids = {
+        cid
+        for cid in denied_claim_ids
+        if any(cid in record.message for record in denials)
+    }
+    assert logged_claim_ids == set(denied_claim_ids)
 
 
 # --------------------------------------------------------------------------- #

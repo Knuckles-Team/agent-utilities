@@ -600,6 +600,14 @@ class EphemeralLoopbackOidcAuthority:
         server = self._server
         if server is None:
             raise CertificationAuthorityError("authority is not running")
+        # Deliberately bypasses core.http_client (allowlisted in
+        # scripts/check_http_egress_boundary.py): this is a loopback-only
+        # connection to the ephemeral, process-local authority `start()`
+        # just bound, pinned to a freshly generated one-run CA. The response
+        # read below is capped at exactly `_MAX_BODY_BYTES + 1` bytes off the
+        # raw socket regardless of what the peer sends -- a bounded-read
+        # guarantee the httpx-based factory's synchronous surface does not
+        # offer directly. Not general outbound egress.
         connection = http.client.HTTPSConnection(
             _BIND_HOST,
             server.server_address[1],

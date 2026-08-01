@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-370 publishable pages · 183 direct nav targets · 119 public capabilities · 777 action rows · 547 typed configuration fields · 356 runtime-only call-site inputs.
+374 publishable pages · 186 direct nav targets · 119 public capabilities · 777 action rows · 548 typed configuration fields · 360 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -143,6 +143,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 ## Architecture
 
+- [ACL Registration Convergence — Write-Time Registration + Read-Time Fallback](../architecture/acl_registration_convergence.md) — direct nav
 - [Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity](../architecture/adaptive_model_concurrency.md) — direct nav
 - [The Agent-Operator Program — closing the loops](../architecture/agent-operator-program.md) — direct nav
 - [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — direct nav
@@ -170,6 +171,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Drift-proof release & versioning](../architecture/drift_proof_release.md) — direct nav
 - [Dynamic graph construction](../architecture/dynamic-graph-construction.md) — catalog
 - [Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)](../architecture/edit_application_engine.md) — direct nav
+- [Empirical Development Standards — the incidents behind the rules](../architecture/empirical-development-standards.md) — catalog
 - [Tenant-Partitioned Engine Sharding](../architecture/engine_sharding.md) — direct nav
 - [Enterprise Parity, Supervisory Plane & Durable Execution](../architecture/enterprise_supervisory_and_parity.md) — catalog
 - [Entrypoint Unification — one orchestrator, thin entrypoints](../architecture/entrypoint-unification.md) — direct nav
@@ -178,6 +180,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Epistemic OS Hardening (Phase 0–2 + Exceed X-series, AU 1.21.0)](../architecture/epistemic-os-hardening.md) — direct nav
 - [Event Backbone Architecture](../architecture/event_backbone_architecture.md) — direct nav
 - [Event Sourcing and Query Routing Architecture](../architecture/event_sourcing_and_routing.md) — catalog
+- [Evidence spine — Artifact → addressable Fragment](../architecture/evidence-spine.md) — direct nav
 - [Evidence-Spine Convergence (Seam 2)](../architecture/evidence_spine_convergence.md) — catalog
 - [The Evolvable Surface — Native Program Optimization](../architecture/evolvable_surface.md) — direct nav
 - [Failure-Driven Evolution (CONCEPT:AU-AHE.harness.failure-evolution)](../architecture/failure_driven_evolution.md) — direct nav
@@ -212,6 +215,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [MCP authentication and network trust](../architecture/mcp_auth.md) — direct nav
 - [GraphOS Embedded Fleet Gateway](../architecture/mcp_multiplexer.md) — catalog
 - [GraphOS MCP v2 compatibility gateway](../architecture/mcp_v2_gateway.md) — direct nav
+- [The merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — direct nav
 - [Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — direct nav
 - [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — direct nav
 - [Model Registry as Graph Resources + Rejected-Alternative Routing Provenance](../architecture/model_registry_graph_resources.md) — direct nav

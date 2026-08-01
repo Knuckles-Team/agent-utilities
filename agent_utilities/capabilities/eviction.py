@@ -81,7 +81,7 @@ class ToolOutputEviction(AbstractCapability[Any]):
                     engine.add_node(
                         node.id,
                         str(node.type),
-                        properties=node.model_dump(exclude={"id", "type"}),
+                        properties=node.to_graph_properties(exclude={"id"}),
                     )
                 except Exception as e:
                     logger.error(f"Failed to evict content to graph: {e}")

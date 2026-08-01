@@ -31,7 +31,7 @@ Pipeline, per note under ``source`` changed since ``since``:
    ``validate``/``accept``/``retract`` it from there.
 3. **ContradictionDetector**, scanning each new claim against topically
    similar EXISTING graph content (the same ``search_hybrid`` candidate
-   retrieval the ``graph_analyze action="contradictions"`` tool already uses).
+   retrieval the ``graph_research action="contradictions"`` tool already uses).
    A finding is persisted as a ``:BeliefRevisionProposal`` — the exact node
    shape :meth:`~agent_utilities.knowledge_graph.research.loop_controller.
    LoopController._run_belief_revision` already persists for its own periodic
@@ -172,7 +172,7 @@ def _existing_claims(
 ) -> list[Claim]:
     """Topically-similar EXISTING graph content to scan one new claim against.
 
-    Mirrors the ``graph_analyze action="contradictions"`` MCP action's own
+    Mirrors the ``graph_research action="contradictions"`` MCP action's own
     neighbour retrieval (``mcp/tools/analysis_tools.py``) so both surfaces see
     the same candidate pool — the search itself is delegated to the engine's
     ``search_hybrid``, never re-implemented here.

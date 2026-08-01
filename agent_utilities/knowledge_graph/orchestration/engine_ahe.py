@@ -87,11 +87,16 @@ class AHEMixin(_Base):
             data = self._serialize_node(node, label="SpawnedAgent")
             self._upsert_node("SpawnedAgent", agent_id, data)
             for tid in tool_ids:
-                # Use explicit node match for resources
-                self.backend.execute(
-                    "MATCH (a:SpawnedAgent {id: $aid}), (t:CallableResource {id: $tid}) MERGE (a)-[:USES]->(t)",
-                    {"aid": agent_id, "tid": tid},
-                )
+                # A comma-pattern MATCH plus an edge MERGE both exceed the
+                # engine's native Cypher write subset (one leading MATCH,
+                # MERGE on a single bare node only;
+                # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+                # ``link_nodes`` dispatches through the typed engine API for a
+                # native authority and falls back to the portable multi-clause
+                # Cypher (which tolerates a tool id that doesn't resolve to an
+                # existing CallableResource, same as the original MATCH) for
+                # a non-native store.
+                self.link_nodes(agent_id, tid, "USES")
         return agent_id
 
     # --- Self-Improvement Tools (Lightning style) ---
@@ -144,11 +149,12 @@ class AHEMixin(_Base):
             data = self._serialize_node(node, label=OUTCOME_NODE_LABEL)
             data.update(canonical)
             self._upsert_node(OUTCOME_NODE_LABEL, eval_id, data)
-            self.backend.execute(
-                f"MATCH (r:RunTrace), (o:{OUTCOME_NODE_LABEL}) "
-                f"WHERE r.id = $rid AND o.id = $oid MERGE (r)-[:{TRACE_PRODUCED_OUTCOME_EDGE}]->(o)",
-                {"rid": tid, "oid": eval_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset (one leading MATCH, MERGE
+            # on a single bare node only;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # both endpoints were just upserted above.
+            self.link_nodes(tid, eval_id, TRACE_PRODUCED_OUTCOME_EDGE)
 
         # Link in graph compute as well
         if tid in self.graph:
@@ -175,22 +181,27 @@ class AHEMixin(_Base):
             self.graph.add_edge(
                 actor_id,
                 optimization_goal_id,
-                type="optimizesFor",
+                relationship="optimizesFor",
                 reward_score=reward,
                 timestamp=ts,
                 trace_id=trace_ref,
             )
 
         if self.backend:
-            self.backend.execute(
-                "MATCH (a), (g) WHERE a.id = $aid AND g.id = $gid MERGE (a)-[r:OPTIMIZES_FOR]->(g) SET r.reward_score = $rew, r.timestamp = $ts, r.trace_id = $trace_id",
-                {
-                    "aid": actor_id,
-                    "gid": optimization_goal_id,
-                    "rew": reward,
-                    "ts": ts,
-                    "trace_id": trace_ref,
-                },
+            # A comma-pattern MATCH, an edge MERGE, and a relationship-variable
+            # SET all exceed the engine's native Cypher write subset (one
+            # leading MATCH, MERGE on a single bare node only;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # ``link_nodes`` dispatches through the typed engine API for a
+            # native authority and falls back to the portable multi-clause
+            # Cypher (tolerant of an actor/goal id that doesn't resolve to an
+            # existing node, same as the original MATCH) for a non-native
+            # store.
+            self.link_nodes(
+                actor_id,
+                optimization_goal_id,
+                "OPTIMIZES_FOR",
+                {"reward_score": reward, "timestamp": ts, "trace_id": trace_ref},
             )
         return "edge_recorded"
 
@@ -227,10 +238,15 @@ class AHEMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="SelfEvaluation")
             self._upsert_node("SelfEvaluation", eval_id, data)
-            self.backend.execute(
-                "MATCH (r:RunTrace), (s:SelfEvaluation) WHERE r.id = $rid AND s.id = $sid MERGE (r)-[:SELF_REFLECTS_ON]->(s)",
-                {"rid": tid, "sid": eval_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset
+            # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # ``link_nodes`` dispatches through the typed engine API for a
+            # native authority and falls back to the portable multi-clause
+            # Cypher (tolerant of the RunTrace referenced by ``episode_id``
+            # not existing, same as the original MATCH) for a non-native
+            # store.
+            self.link_nodes(tid, eval_id, "SELF_REFLECTS_ON")
 
         if tid in self.graph:
             self.graph.add_edge(tid, eval_id, relationship="SELF_REFLECTS_ON")
@@ -275,10 +291,14 @@ class AHEMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="Critique")
             self._upsert_node("Critique", crit_id, data)
-            self.backend.execute(
-                "MATCH (r:ReasoningTrace), (c:Critique) WHERE r.id = $rid AND c.id = $cid MERGE (r)-[:GENERATED_CRITIQUE]->(c)",
-                {"rid": reasoning_trace_id, "cid": crit_id},
-            )
+            # A comma-pattern MATCH plus an edge MERGE both exceed the
+            # engine's native Cypher write subset
+            # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # ``link_nodes`` falls back to the portable multi-clause Cypher
+            # (tolerant of a ``reasoning_trace_id`` that doesn't resolve to
+            # an existing node, same as the original MATCH) for a non-native
+            # store.
+            self.link_nodes(reasoning_trace_id, crit_id, "GENERATED_CRITIQUE")
 
         if reasoning_trace_id in self.graph:
             self.graph.add_edge(
@@ -316,14 +336,15 @@ class AHEMixin(_Base):
             )
             data = self._serialize_node(node, label="SystemPrompt")
             self._upsert_node("SystemPrompt", new_id, data)
-            self.backend.execute(
-                "MATCH (old:SystemPrompt), (new:SystemPrompt) WHERE old.id = $oid AND new.id = $nid MERGE (new)-[:EVOLVED_FROM]->(old)",
-                {"oid": prompt_id, "nid": new_id},
-            )
-            self.backend.execute(
-                "MATCH (c:Critique), (p:SystemPrompt) WHERE c.id = $cid AND p.id = $pid MERGE (c)-[:LED_TO]->(p)",
-                {"cid": critique_id, "pid": new_id},
-            )
+            # Comma-pattern MATCH clauses plus edge MERGEs both exceed the
+            # engine's native Cypher write subset
+            # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
+            # ``new_id`` was just upserted above, but ``prompt_id``/
+            # ``critique_id`` may be stale references -- ``link_nodes``
+            # falls back to the portable multi-clause Cypher (tolerant of
+            # that, like the original MATCH) for a non-native store.
+            self.link_nodes(new_id, prompt_id, "EVOLVED_FROM")
+            self.link_nodes(critique_id, new_id, "LED_TO")
         return new_id
 
     def run_self_improvement_cycle(self):

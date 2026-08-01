@@ -17,16 +17,19 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from pydantic_ai import Agent
+from pydantic_ai import UnexpectedModelBehavior
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai_harness import InputGuardrail, OutputGuardrail
-from pydantic_ai_harness.guardrails import OutputBlocked
 
 from agent_utilities.capabilities.content_guardrails import (
     output_schema_guardrail,
     pii_redaction_guardrails,
     secret_leak_guardrail,
+)
+from agent_utilities.core.contextual_model import (
+    create_context_agent,
+    use_grounding_policy,
 )
 from agent_utilities.http.redaction import REDACTED
 
@@ -40,10 +43,12 @@ async def test_pii_in_output_is_redacted_live_path():
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content="My SSN is 123-45-6789.")])
 
-    agent = Agent(
-        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails()
+    agent = create_context_agent(
+        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails(),
+        default_capabilities=False,
     )
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert "123-45-6789" not in result.output
     assert "[REDACTED_SSN]" in result.output
@@ -54,10 +59,12 @@ async def test_clean_output_passes_pii_guard_unchanged_live_path():
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content="The answer is 4.")])
 
-    agent = Agent(
-        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails()
+    agent = create_context_agent(
+        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails(),
+        default_capabilities=False,
     )
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert result.output == "The answer is 4."
 
@@ -73,10 +80,12 @@ async def test_pii_in_input_is_redacted_before_reaching_model_live_path():
                     seen_prompts.append(part.content)
         return ModelResponse(parts=[TextPart(content="ok")])
 
-    agent = Agent(
-        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails()
+    agent = create_context_agent(
+        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails(),
+        default_capabilities=False,
     )
-    await agent.run("Contact john@example.com about my SSN 123-45-6789")
+    with use_grounding_policy("none"):
+        await agent.run("Contact john@example.com about my SSN 123-45-6789")
 
     combined = " ".join(seen_prompts)
     assert "123-45-6789" not in combined
@@ -92,17 +101,22 @@ async def test_pii_in_input_is_redacted_before_reaching_model_live_path():
 
 @pytest.mark.asyncio
 async def test_secret_shaped_output_is_redacted_not_blocked_live_path():
-    def func(messages: list[Any], info: Any) -> ModelResponse:
-        return ModelResponse(
-            parts=[TextPart(content="here is the key: AKIAABCDEFGHIJKLMNOP")]
-        )
-
-    agent = Agent(
-        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()]
+    fixture_value = (
+        "AKIAABCDEFGHIJKLMNOP"  # sanitizer:ignore - synthetic, not a live credential
     )
-    result = await agent.run("go")
+    fixture_secret = f"here is the key: {fixture_value}"
 
-    assert "AKIAABCDEFGHIJKLMNOP" not in result.output
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content=fixture_secret)])
+
+    agent = create_context_agent(
+        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()],
+        default_capabilities=False,
+    )
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
+
+    assert fixture_value not in result.output
     assert REDACTED in result.output
     assert "here is the key:" in result.output
 
@@ -127,10 +141,12 @@ async def test_k8s_manifest_secret_is_redacted_and_content_survives_live_path():
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content=manifest)])
 
-    agent = Agent(
-        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()]
+    agent = create_context_agent(
+        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()],
+        default_capabilities=False,
     )
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert "hunter2" not in result.output
     assert REDACTED in result.output
@@ -145,10 +161,12 @@ async def test_clean_output_passes_secret_leak_guard_live_path():
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content="The weather is sunny today.")])
 
-    agent = Agent(
-        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()]
+    agent = create_context_agent(
+        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()],
+        default_capabilities=False,
     )
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert result.output == "The weather is sunny today."
 
@@ -163,34 +181,99 @@ async def test_secret_leak_guard_does_not_trip_on_ordinary_prose_live_path():
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content=prose)])
 
-    agent = Agent(
-        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()]
+    agent = create_context_agent(
+        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()],
+        default_capabilities=False,
     )
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert result.output == prose
 
 
 # ---------------------------------------------------------------------------
 # Live path: output-schema violation
+#
+# CONCEPT:AU-AHE.harness.loop-exit-conditions — reconciled against the harness's ``retry`` output-guardrail
+# verdict (D-track-7): a missing-key / invalid-JSON violation is RECOVERABLE, so the
+# guard now hands the output back to the model (``GuardrailResult.retry()``) instead
+# of discarding it outright (``block()``). See ``output_schema_guardrail``'s docstring.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_output_missing_required_keys_is_caught_live_path():
-    def func(messages: list[Any], info: Any) -> ModelResponse:
-        return ModelResponse(parts=[TextPart(content='{"status": "ok"}')])
+async def test_output_missing_required_keys_sends_it_back_to_the_model_to_fix_live_path():
+    """The model gets ONE retry with the specific missing keys named, fixes it,
+    and the run succeeds — this is the ``retry`` verdict actually earning its
+    keep over a hard ``block``: the salvageable answer is not discarded."""
+    calls: list[str] = []
 
-    agent = Agent(
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        calls.append("call")
+        if len(calls) == 1:
+            return ModelResponse(parts=[TextPart(content='{"status": "ok"}')])
+        return ModelResponse(
+            parts=[TextPart(content='{"status": "ok", "result": 42}')]
+        )
+
+    agent = create_context_agent(
         FunctionModel(func),
         output_type=str,
         capabilities=[output_schema_guardrail(["status", "result"])],
+        default_capabilities=False,
+    )
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
+
+    assert len(calls) == 2  # the guard forced exactly one retry
+    assert result.output == '{"status": "ok", "result": 42}'
+
+
+@pytest.mark.asyncio
+async def test_output_still_missing_required_keys_after_retries_exhausted_live_path():
+    """A model that never fixes it still fails closed — ``retry`` is not an
+    infinite loop, it is pydantic-ai's own bounded output-retry budget."""
+
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content='{"status": "ok"}')])
+
+    agent = create_context_agent(
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[output_schema_guardrail(["status", "result"])],
+        default_capabilities=False,
     )
 
-    with pytest.raises(OutputBlocked) as exc_info:
-        await agent.run("go")
+    with pytest.raises(UnexpectedModelBehavior) as exc_info:
+        with use_grounding_policy("none"):
+            await agent.run("go")
 
-    assert "result" in str(exc_info.value)
+    assert "output retries" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_output_not_valid_json_sends_it_back_to_the_model_to_fix_live_path():
+    calls: list[str] = []
+
+    def func(messages: list[Any], info: Any) -> ModelResponse:
+        calls.append("call")
+        if len(calls) == 1:
+            return ModelResponse(parts=[TextPart(content="not json at all")])
+        return ModelResponse(
+            parts=[TextPart(content='{"status": "ok", "result": 42}')]
+        )
+
+    agent = create_context_agent(
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[output_schema_guardrail(["status", "result"])],
+        default_capabilities=False,
+    )
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
+
+    assert len(calls) == 2
+    assert result.output == '{"status": "ok", "result": 42}'
 
 
 @pytest.mark.asyncio
@@ -198,12 +281,14 @@ async def test_output_with_required_keys_present_passes_live_path():
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content='{"status": "ok", "result": 42}')])
 
-    agent = Agent(
+    agent = create_context_agent(
         FunctionModel(func),
         output_type=str,
         capabilities=[output_schema_guardrail(["status", "result"])],
+        default_capabilities=False,
     )
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert result.output == '{"status": "ok", "result": 42}'
 
@@ -213,12 +298,14 @@ async def test_output_schema_guardrail_is_a_noop_with_no_required_keys_live_path
     def func(messages: list[Any], info: Any) -> ModelResponse:
         return ModelResponse(parts=[TextPart(content="not json at all")])
 
-    agent = Agent(
+    agent = create_context_agent(
         FunctionModel(func),
         output_type=str,
         capabilities=[output_schema_guardrail([])],
+        default_capabilities=False,
     )
-    result = await agent.run("go")
+    with use_grounding_policy("none"):
+        result = await agent.run("go")
 
     assert result.output == "not json at all"
 

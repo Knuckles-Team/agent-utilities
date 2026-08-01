@@ -180,6 +180,38 @@ def test_aggregate_read_is_tenant_and_owner_scope_filtered_query_side(brain):
     assert "_shared_scope IN ['org', 'commons']" in sent_query
 
 
+def test_aggregate_read_on_a_non_n_variable_is_scoped_by_its_own_variable(brain):
+    """D-SH-4 (reports/deferred/lane-skill-harvest.md): a query aliased as
+    `w` rather than `n` (mirroring the exact shape used by
+    orchestration/agent_activation.py's and agent_dispatch_worker.py's engine
+    reachability probes, `MATCH (w:WorkItem) RETURN count(w) AS c` -- a
+    content label is used here instead of `WorkItem` only so this test
+    exercises the content-backend path, not control-plane routing, which is
+    orthogonal to this bug) used to get a visibility/tenant predicate written
+    against a hardcoded `n`, a variable never bound in this query. Cypher
+    treats a reference to an unbound variable as never matching, so the whole
+    read silently collapsed to a zero-row/zero-count result instead of the
+    real answer -- the exact divergence this lane found between
+    `engine.query_cypher` and `engine.backend.execute` on an identical query.
+    """
+    backend = _Backend(rows=[{"c": 7}])
+    engine = _Harness(backend=backend)
+    actor = _actor("agent:reader", roles=("kg:read",), tenant="acme")
+    session = _session(actor)
+
+    with use_actor(actor), use_session(session):
+        rows = engine.query_cypher(
+            "MATCH (w:Widget) RETURN count(w) AS c", session=session
+        )
+
+    assert rows == [{"c": 7}]
+    sent_query, _params = backend.calls[-1]
+    assert "w.tenant_id = 'acme'" in sent_query
+    assert "w._owner_id = 'agent:reader'" in sent_query
+    assert "n.tenant_id" not in sent_query  # the bug: referenced an undefined var
+    assert "n._owner_id" not in sent_query
+
+
 def test_aggregate_read_privileged_actor_gets_no_owner_scope_predicate(brain):
     backend = _Backend(rows=[{"c": 3}])
     engine = _Harness(backend=backend)

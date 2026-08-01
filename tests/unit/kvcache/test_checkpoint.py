@@ -340,7 +340,7 @@ def test_instantiate_agent_links_a_new_agent_run_to_the_checkpoint():
     assert (
         "agentrun:run-2",
         f"kvcheckpoint:{key.checkpoint_id}",
-        {"type": "initializedFrom"},
+        {"relationship": "initializedFrom"},
     ) in client.edges.edges
 
 
@@ -377,7 +377,7 @@ def test_restore_conversation_restores_bytes_on_success():
     assert (
         "conversation:conv-1",
         f"kvcheckpoint:{key.checkpoint_id}",
-        {"type": "restoredFrom"},
+        {"relationship": "restoredFrom"},
     ) in client.edges.edges
 
 

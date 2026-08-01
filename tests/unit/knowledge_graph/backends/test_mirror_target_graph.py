@@ -559,7 +559,11 @@ def _updates(fake) -> str:
 
 
 def test_stardog_dedicated_graph_routes_every_write_into_that_graph(fake_stardog):
-    """The DEFAULT dedicated level: one named graph, inside the same database."""
+    """The DEFAULT dedicated level: a per-source graph NESTED inside the mirror
+    (D-MT-4) -- everything stays under the ``urn:mirror:kg_mirror`` namespace, so
+    it can never collide with the instance's OWN ``urn:source:*`` graphs, while
+    source structure is preserved as real named-graph structure rather than
+    flattened to a bare property."""
     backend = _stardog(
         MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_GRAPH)
     )
@@ -568,13 +572,26 @@ def test_stardog_dedicated_graph_routes_every_write_into_that_graph(fake_stardog
         {"id": "app:1", "source_system": "leanix"},
     )
     blob = _updates(fake_stardog)
-    assert "GRAPH <urn:mirror:kg_mirror>" in blob
-    # Source partitioning must NOT leak the write out of the dedicated graph...
-    assert "urn:source:leanix" not in blob
-    # ...but the source stays queryable as a property inside it.
+    # Nested under the mirror's own namespace -- never the instance's bare
+    # urn:source:leanix, which would collide with a real (non-mirrored) source.
+    assert "GRAPH <urn:mirror:kg_mirror:source:leanix>" in blob
+    assert "GRAPH <urn:source:leanix>" not in blob
+    # ...and the source also stays queryable as a property inside it.
     assert "source_system" in blob
     # The database is untouched by a graph-level dedication.
     assert backend._database == "agent_kg"
+
+
+def test_stardog_dedicated_graph_uses_its_own_root_for_sourceless_data(fake_stardog):
+    """Data with no real source_system (internal/derived nodes) stays in the
+    mirror's own root graph, unchanged from before D-MT-4."""
+    backend = _stardog(
+        MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_GRAPH)
+    )
+    backend.execute("MERGE (n:Claim {id: $id})", {"id": "c1"})
+    blob = _updates(fake_stardog)
+    assert "GRAPH <urn:mirror:kg_mirror>" in blob
+    assert ":source:" not in blob
 
 
 def test_stardog_dedicated_database_isolates_at_the_other_level(fake_stardog):
