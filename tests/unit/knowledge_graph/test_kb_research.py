@@ -1,6 +1,6 @@
 """CONCEPT:AU-KG.research.research-pipeline-runner"""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, NonCallableMagicMock, patch
 
 import pytest
 
@@ -17,6 +17,20 @@ from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 @pytest.fixture(autouse=True)
 def mock_epistemic_graph_client():
     with patch("epistemic_graph.client.SyncEpistemicGraphClient") as mock_client:
+        # ``GraphComputeEngine.__init__`` connects via
+        # ``SyncEpistemicGraphClient.connect(...)`` and wraps the result in a
+        # ``BreakerClientProxy`` (engine_breaker.py), whose ``__getattr__``
+        # distinguishes a "namespace" attribute (wrapped recursively so
+        # ``.tenants.create(...)`` stays reachable) from a "leaf" attribute
+        # (guard-wrapped as a plain callable) purely via ``callable(attr)``. A
+        # bare ``MagicMock`` auto-vivifies ``.tenants`` as itself callable, so
+        # the proxy mis-treats it as a leaf and ``.tenants.create`` breaks with
+        # "'function' object has no attribute 'create'". Pin ``tenants`` to a
+        # non-callable mock so it round-trips as the namespace the real client
+        # exposes.
+        connected = mock_client.connect.return_value
+        connected.tenants = NonCallableMagicMock()
+        connected.tenants.list.return_value = []
         yield mock_client
 
 
@@ -31,7 +45,7 @@ async def test_kb_model_validation():
         doi="10.1234/nature.2026",
         authors=["Alice", "Bob"],
     )
-    assert src.id == "src:1"
+    assert src.node_id == "src:1"  # GraphNode.node_id has alias="id" (input-only)
     assert "Source" in src.labels
 
     # Concept
@@ -118,17 +132,45 @@ async def test_concept_merging():
 
 @pytest.mark.asyncio
 async def test_cross_domain_emergence():
-    """Test that topics are linked via shared concepts or similarity."""
+    """Test that topics are linked to Policies/ProcessFlows via similarity.
+
+    The engine's native Cypher write subset supports only one leading MATCH
+    and MERGE on a single bare node
+    (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184), so an inline
+    ``vector.similarity(...)`` WHERE clause paired with a cross-node MERGE
+    never executes -- ``link_topics_to_policies_and_processes`` computes
+    similarity in Python (like ``_similar_concept_pairs``' numpy fallback)
+    and links through the typed engine API instead.
+    """
     mock_backend = MagicMock()
+
+    def _execute(query, params=None):
+        q = " ".join(query.split())
+        if "MATCH (t:KnowledgeBaseTopic) WHERE t.embedding" in q:
+            return [{"id": "topic:1", "embedding": [0.1, 0.2, 0.3]}]
+        if "MATCH (p:Policy) WHERE p.embedding" in q:
+            return [{"id": "policy:1", "embedding": [0.1, 0.2, 0.31]}]
+        # GROUNDED_IN/REFERENCES existing-link lookups, ProcessFlow read,
+        # and the downstream typed-edge label lookups/MERGE -> no rows.
+        return []
+
+    mock_backend.execute.side_effect = _execute
+
     GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(backend=mock_backend)
     maintainer = GraphMaintainer(engine=engine)
 
-    # This tests the link_topics_to_policies_and_processes logic (extended for general topics)
-    # Since we use vector.similarity in Cypher, we just check if it runs
-    maintainer.link_topics_to_policies_and_processes()
+    with patch(
+        "agent_utilities.knowledge_graph.core.engine.cosine_similarity",
+        return_value=0.99,
+    ):
+        linked = maintainer.link_topics_to_policies_and_processes()
 
-    # Should have executed a query with vector.similarity
+    assert linked == 1
+    # The typed edge write reaches the backend as a GROUNDED_IN MERGE (the
+    # portable fallback for a non-native mock backend).
     mock_backend.execute.assert_called()
-    last_query = mock_backend.execute.call_args[0][0]
-    assert "vector.similarity" in last_query
+    assert any(
+        "GROUNDED_IN" in str(call.args[0])
+        for call in mock_backend.execute.call_args_list
+    )
