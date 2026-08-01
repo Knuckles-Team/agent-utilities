@@ -14,7 +14,6 @@ Two layers:
 
 from __future__ import annotations
 
-import json
 import uuid
 from typing import Any
 
@@ -234,15 +233,40 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,
     )
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
+    )
 
     ingest_routing._reset_for_tests()
 
-    # Write a uniquely-identifiable node into a routed CONTENT graph.
+    # Write a uniquely-identifiable node into a routed CONTENT graph. A
+    # `for_graph()`/`EpistemicGraphBackend(graph_name=...)` view is routing
+    # METADATA only -- it is never itself authority to retarget the verified
+    # GraphSession (the engine's fail-closed guard rejects that: "A
+    # graph-scoped view cannot retarget the verified GraphSession"). The
+    # sanctioned way to legitimately write/read a different named graph
+    # within the SAME authenticated identity is
+    # `use_session(session.with_graph(target))` -- the pattern already used
+    # in production by analogy_engine.py and by this suite's own conftest.py
+    # test-graph teardown. This admin-scoped test session (`engine_graph`
+    # grants full kg:admin/*) is entitled to route into its own content
+    # graphs; it just needs to exercise that authority through the sanctioned
+    # API instead of relying on the unscoped view alone. `for_graph()` also
+    # never auto-provisions a tenant, so it must be created explicitly too.
     routed = f"code:routetest-{uuid.uuid4().hex[:10]}"
     node_id = f"RouteProbe::{uuid.uuid4().hex[:12]}"
     backend = EpistemicGraphBackend(graph_name=routed)
+    base_session = current_session()
     try:
-        backend.add_node(node_id, label="RouteProbe", name="route-probe")
+        with use_session(base_session.with_graph(routed)):
+            client = getattr(backend._graph, "_client", None)
+            if client is not None:
+                try:
+                    client.tenants.create(routed)
+                except Exception:
+                    pass
+            backend.add_node(node_id, label="RouteProbe", name="route-probe")
         ingest_routing.register_content_graph(routed)
 
         # The unified read resolver must fan across the content-graph set.
@@ -258,10 +282,22 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
         )
 
         # Run the actual query across the union and confirm the node surfaces.
+        # Each fanned-out entry targets its OWN graph (the default graph plus
+        # every active routed content graph), so the session must be
+        # rescoped per entry the same way the write above was.
         found = False
         for _name, engine in entries:
+            entry_graph = getattr(getattr(engine, "backend", None), "graph_name", None)
+            scoped = (
+                use_session(base_session.with_graph(entry_graph))
+                if entry_graph
+                else use_session(base_session)
+            )
             try:
-                rows = engine.query_cypher("MATCH (n:RouteProbe) RETURN n.id AS id", {})
+                with scoped:
+                    rows = engine.query_cypher(
+                        "MATCH (n:RouteProbe) RETURN n.id AS id", {}
+                    )
             except Exception:
                 continue
             if any((r or {}).get("id") == node_id for r in rows or []):
@@ -274,7 +310,8 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
         try:
             client = getattr(backend._graph, "_client", None)
             if client is not None:
-                client.tenants.delete(routed)
+                with use_session(base_session.with_graph(routed)):
+                    client.tenants.delete(routed)
         except Exception:
             pass
         ingest_routing._reset_for_tests()
@@ -391,7 +428,10 @@ async def test_aggregation_query_merges_not_duplicates(monkeypatch) -> None:
         cypher="MATCH (r:Record) RETURN r.lane AS lane, r.status AS status, count(*) AS n",
         target="",
     )
-    rows = json.loads(out)
+    # graph_query's public contract is the sole typed EvidenceBundle
+    # (CONCEPT:evidence-bundle-envelope) — row payloads land in `.claims`,
+    # not a JSON string.
+    rows = out.claims
     assert rows == canonical_rows  # exactly one row per group, NOT 24 duplicates
 
 
@@ -419,7 +459,10 @@ async def test_routed_node_query_still_fans_and_dedups_once(monkeypatch) -> None
         cypher="MATCH (f:Function {name:'probe'}) RETURN f.id AS id, f.name AS name",
         target="",
     )
-    rows = json.loads(out)
+    # graph_query's public contract is the sole typed EvidenceBundle
+    # (CONCEPT:evidence-bundle-envelope) — row payloads land in `.claims`,
+    # not a JSON string.
+    rows = out.claims
     ids = [r["id"] for r in rows]
     assert ids.count("Func::probe") == 1  # routed node returned exactly once
     assert "Func::other" in ids  # fan still gathers other routed content

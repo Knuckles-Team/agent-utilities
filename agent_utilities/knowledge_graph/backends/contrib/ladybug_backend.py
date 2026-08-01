@@ -66,6 +66,14 @@ _GOVERNANCE_COLUMNS: dict[str, str] = {
     "_owner_id": "STRING",
     "_shared_scope": "STRING",
     "classification": "STRING",
+    # D-ACL-6: secured_reads._durable_access_rows unconditionally SELECTs
+    # ``n.external_access`` for ACL hydration (a JSON-encoded connector
+    # access descriptor). Same undeclared-column story as the other four —
+    # every non-connector node type (e.g. CallableResource) had no such
+    # column, so the ACL-hydration read itself failed with a Kuzu Binder
+    # exception ("Cannot find property external_access for n") instead of
+    # simply finding none, for EVERY node write on this backend.
+    "external_access": "STRING",
 }
 
 import threading

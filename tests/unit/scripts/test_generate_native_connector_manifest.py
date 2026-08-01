@@ -44,6 +44,7 @@ def test_native_manifest_inventory_and_code_pins_are_deterministic():
         "database",
         "external_graph",
         "filesystem",
+        "git_markdown",
         "graphql_document",
         "reader",
         "rest",

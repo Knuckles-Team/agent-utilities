@@ -167,11 +167,24 @@ class TestChangeManifest:
         assert len(prompt_edits) == 1
 
     def test_sdd_path(self):
+        # to_sdd_path is documented as returning a "portable, non-identifying
+        # path" -- it hashes round_id (sha256, truncated) rather than
+        # embedding it literally, the same opaque-reference pattern already
+        # established by persistence_reference() (never leak identifying
+        # content into a stored path). Assert the actual contract: the
+        # manifests dir, a deterministic hash-named file, and that the raw
+        # round_id text does NOT leak into the path.
+        import hashlib
+
         manifest = ChangeManifest(round_id="round:test123")
         with tempfile.TemporaryDirectory() as tmpdir:
             path = manifest.to_sdd_path(tmpdir)
             assert "manifests" in path
-            assert "round:test123.json" in path
+            assert "round:test123" not in path
+            token = hashlib.sha256(b"round:test123").hexdigest()[:32]
+            assert f"manifest-{token}.json" in path
+            # Deterministic: same round_id -> same path.
+            assert manifest.to_sdd_path(tmpdir) == path
 
 
 class TestVerificationResult:

@@ -10,6 +10,31 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "agent_utilities"
 FACTORY = Path("agent_utilities/core/http_client.py")
 
+# Files whose direct construction of a blocked HTTP client is intentional and
+# justified inline at the call site, not just here (mirrors
+# ``check_context_compiler_boundary.py``'s ``RAW_PROVIDER_ALLOWLIST`` idiom).
+_ALLOWLIST = {
+    # EphemeralLoopbackOidcAuthority._verified_json: a purpose-built,
+    # process-local, ephemeral-CA-pinned mTLS loopback authority (skill
+    # certification only) that deliberately reads AT MOST
+    # ``_MAX_BODY_BYTES + 1`` bytes off the raw socket to bound memory use
+    # regardless of what the (self-generated, self-controlled) peer sends --
+    # a property ``core.http_client``'s httpx-based factory does not offer
+    # as a simple synchronous read cap. Not general outbound egress: the
+    # host is always the loopback authority this same process just bound.
+    "agent_utilities/deployment/certification_oidc.py",
+}
+
+# D-CIM-4 perf: every ``_BLOCKED`` pattern is rooted at one of these six
+# modules (``_qualified`` only ever resolves a call target through an alias
+# that ``_imports`` traced back to an actual ``import``/``from ... import``
+# statement). A file that never mentions one of these module names in its
+# source text therefore cannot import, and so cannot call through, any
+# blocked constructor — skip the alias-collection + call-scan walks for it.
+# Purely a redundant-work cut: it never narrows what a real match requires,
+# and ``ast.parse``'s own syntax-error detection still runs unconditionally.
+_TRIGGER_MARKERS = ("aiohttp", "requests", "httpx", "urllib3", "urllib", "http.client")
+
 _BLOCKED = {
     "aiohttp.ClientSession",
     "http.client.HTTPConnection",
@@ -35,7 +60,24 @@ def _imports(tree: ast.AST) -> dict[str, str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for item in node.names:
-                aliases[item.asname or item.name.split(".")[0]] = item.name
+                if item.asname:
+                    # ``import a.b.c as x`` binds ``x`` directly to the full
+                    # dotted target.
+                    aliases[item.asname] = item.name
+                else:
+                    # ``import a.b.c`` (no asname) binds ONLY the top-level
+                    # name ``a`` in the local namespace -- Python attribute
+                    # access (``a.b.c``) reaches the submodule from there.
+                    # The alias must therefore resolve to ``a``, not the full
+                    # ``item.name`` ("a.b.c"): storing the full dotted path
+                    # here made ``_qualified`` double-count the submodule
+                    # segment (e.g. producing "http.client.client.HTTPConnection"
+                    # instead of "http.client.HTTPConnection"), silently
+                    # blinding this check to EVERY unaliased dotted-submodule
+                    # import -- including both ``http.client.*`` and
+                    # ``urllib.request.*`` entries in ``_BLOCKED``.
+                    root = item.name.split(".")[0]
+                    aliases[root] = root
         elif isinstance(node, ast.ImportFrom) and node.module:
             for item in node.names:
                 aliases[item.asname or item.name] = f"{node.module}.{item.name}"
@@ -68,16 +110,23 @@ def validate(package: Path = PACKAGE) -> list[str]:
         if relative == FACTORY or "__pycache__" in relative.parts:
             continue
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(relative))
-        except (OSError, SyntaxError) as exc:
+            source = path.read_text(encoding="utf-8")
+        except OSError as exc:
             errors.append(f"{relative.as_posix()}: parse failed ({type(exc).__name__})")
+            continue
+        try:
+            tree = ast.parse(source, filename=str(relative))
+        except SyntaxError as exc:
+            errors.append(f"{relative.as_posix()}: parse failed ({type(exc).__name__})")
+            continue
+        if not any(marker in source for marker in _TRIGGER_MARKERS):
             continue
         aliases = _imports(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
             target = _qualified(node.func, aliases)
-            if target in _BLOCKED:
+            if target in _BLOCKED and relative.as_posix() not in _ALLOWLIST:
                 errors.append(
                     f"{relative.as_posix()}:{node.lineno}: direct {target}; "
                     "use core.http_client"

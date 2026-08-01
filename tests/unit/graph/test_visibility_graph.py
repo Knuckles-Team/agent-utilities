@@ -48,7 +48,7 @@ class TestAccessListModel:
         assert restored.access_list == step.access_list
 
     def test_access_list_json_schema(self):
-        """access_list appears in the JSON schema with CONCEPT:AU-ORCH.execution.execution-budget-caps reference."""
+        """access_list appears in the JSON schema with CONCEPT:AU-ORCH.execution.visibility-allow-list reference."""
         schema = ExecutionStep.model_json_schema()
         # ExecutionStep (== Task) is self-referential (subtasks), so pydantic emits the
         # properties under $defs behind a top-level $ref rather than at the root.
@@ -58,7 +58,7 @@ class TestAccessListModel:
         )
         assert "access_list" in props
         desc = props["access_list"]["description"]
-        assert "CONCEPT:AU-ORCH.execution.execution-budget-caps" in desc
+        assert "CONCEPT:AU-ORCH.execution.visibility-allow-list" in desc
 
     def test_access_list_in_graphplan(self):
         """GraphPlan with mixed access_list configurations."""

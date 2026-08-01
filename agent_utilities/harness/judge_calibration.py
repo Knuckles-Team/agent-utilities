@@ -88,7 +88,9 @@ class PairwiseVerdict:
 PairwiseJudge = Callable[[str, str, str], PairwiseVerdict]
 
 
-def _winner_from_scores(score_a: float, score_b: float, *, tie_eps: float = 1e-9) -> Winner:
+def _winner_from_scores(
+    score_a: float, score_b: float, *, tie_eps: float = 1e-9
+) -> Winner:
     if abs(score_a - score_b) <= tie_eps:
         return "tie"
     return "a" if score_a > score_b else "b"
