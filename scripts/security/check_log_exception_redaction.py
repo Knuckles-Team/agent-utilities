@@ -114,13 +114,16 @@ landing above a baselined site shifts its line and the gate reports a false
 "NEW violation". This baseline happens to be empty as of this writing (its
 15 sites were fixed), but the mechanism is the landmine, not the current
 entry count — the next lane to add an entry here would inherit the same
-churn. The key is now ``(path, symbol, logger_name, ordinal)`` — ``symbol``
-is the enclosing function's dotted qualname from a manual parent-tracking
-DFS (mirrors ``check_cypher_write_subset.py``'s ``_scope_units`` /
-``check_swallowed_errors.py``'s ``_iter_except_handlers_with_scope``,
-D-SWG-1), ``logger_name`` narrows to the specific out-of-boundary logger,
-and ``ordinal`` disambiguates two violations on the same logger in the same
-symbol, assigned in deterministic AST discovery order.
+churn. The key is now ``(path, symbol, logger_name, content_hash)`` —
+matching ``check_cypher_write_subset.py``'s D-F6-2 fix exactly (the same
+convention, reused rather than a second scheme): ``symbol`` is the
+enclosing function's dotted qualname from a manual parent-tracking DFS
+(mirrors that gate's ``_scope_units`` / ``check_swallowed_errors.py``'s
+``_iter_except_handlers_with_scope``, D-SWG-1), ``logger_name`` narrows to
+the specific out-of-boundary logger, and ``content_hash`` is a hash of the
+flagged snippet's own text — content, not position, disambiguates two
+violations on the same logger in the same symbol, and is unaffected by
+unrelated violations elsewhere in that symbol appearing/disappearing.
 
 Usage:
   python3 scripts/security/check_log_exception_redaction.py
@@ -136,6 +139,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -184,9 +188,10 @@ class Violation:
     #: ``"<module>"``), used for the content-anchored baseline key instead
     #: of ``line`` — see ``_baseline_key``.
     symbol: str = "<module>"
-    #: Disambiguates two violations on the same logger in the same
-    #: ``symbol`` — assigned in deterministic AST discovery order.
-    ordinal: int = 0
+    #: A hash of the flagged snippet's own text — disambiguates two
+    #: violations on the same logger in the same ``symbol`` by CONTENT, the
+    #: same convention ``check_cypher_write_subset.py`` uses (D-F6-2).
+    content_hash: str = ""
 
     def render(self) -> str:
         return f"{self.path}:{self.line} [{_SHAPE}] logger={self.logger_name!r} {self.snippet}"
@@ -436,17 +441,19 @@ def _find_violations(rel: str, tree: ast.Module) -> list[Violation]:
         if key not in seen:
             seen[key] = (logger_name, snippet)
             order.append(key)
-    #: D-MT-2: ordinal per (symbol, logger_name), assigned in the same
-    #: deterministic discovery order — the second half of the
-    #: content-anchored baseline key.
-    ordinal_counts: dict[tuple[str, str], int] = {}
     violations: list[Violation] = []
     for symbol, lineno in order:
         logger_name, snippet = seen[(symbol, lineno)]
-        ordinal_key = (symbol, logger_name)
-        ordinal = ordinal_counts.get(ordinal_key, 0)
-        ordinal_counts[ordinal_key] = ordinal + 1
-        violations.append(Violation(rel, lineno, logger_name, snippet, symbol, ordinal))
+        #: D-MT-2: content_hash over (logger_name, snippet) — the same
+        #: "hash the flagged content" convention
+        #: ``check_cypher_write_subset.py`` uses (D-F6-2), reused rather
+        #: than inventing a second scheme.
+        content_hash = hashlib.sha256(
+            f"{logger_name}\x00{snippet}".encode("utf-8")
+        ).hexdigest()[:16]
+        violations.append(
+            Violation(rel, lineno, logger_name, snippet, symbol, content_hash)
+        )
     return sorted(violations, key=lambda v: v.line)
 
 
@@ -509,13 +516,16 @@ BASELINE = Path(__file__).resolve().parent / "log_exception_redaction_baseline.t
 _BASELINE_SEP = "\t"
 
 
-#: D-MT-2: (path, enclosing symbol, logger_name, ordinal) — NOT line. Stable
-#: under unrelated code landing above/below the flagged call.
-BaselineKey = tuple[str, str, str, int]
+#: D-MT-2: (path, enclosing symbol, logger_name, content_hash) — NOT line.
+#: Stable under unrelated code landing above/below the flagged call, AND
+#: under unrelated violations appearing/disappearing elsewhere in the same
+#: symbol (content_hash, not position, disambiguates). Mirrors
+#: ``check_cypher_write_subset.py``'s ``BaselineKey`` (D-F6-2).
+BaselineKey = tuple[str, str, str, str]
 
 
 def _baseline_key(v: Violation) -> BaselineKey:
-    return (v.path, v.symbol, v.logger_name, v.ordinal)
+    return (v.path, v.symbol, v.logger_name, v.content_hash)
 
 
 def _load_baseline() -> set[BaselineKey]:
@@ -527,17 +537,17 @@ def _load_baseline() -> set[BaselineKey]:
         if not line or line.startswith("#"):
             continue
         fields = line.split(_BASELINE_SEP)
-        if len(fields) < 4 or not fields[3].isdigit():
+        if len(fields) < 4 or not fields[3]:
             continue
-        out.add((fields[0], fields[1], fields[2], int(fields[3])))
+        out.add((fields[0], fields[1], fields[2], fields[3]))
     return out
 
 
 def _write_baseline(violations: list[Violation]) -> None:
     lines = [
         f"{v.path}{_BASELINE_SEP}{v.symbol}{_BASELINE_SEP}{v.logger_name}"
-        f"{_BASELINE_SEP}{v.ordinal}{_BASELINE_SEP}# line {v.line}: {v.snippet}"
-        for v in sorted(violations, key=lambda v: (v.path, v.symbol, v.logger_name, v.ordinal))
+        f"{_BASELINE_SEP}{v.content_hash}{_BASELINE_SEP}# line {v.line}: {v.snippet}"
+        for v in sorted(violations, key=lambda v: (v.path, v.symbol, v.line))
     ]
     BASELINE.write_text(
         "# Frozen baseline of pre-existing raw-exception log violations this\n"
@@ -549,13 +559,14 @@ def _write_baseline(violations: list[Violation]) -> None:
         "# MCP-session-isolation lane that owns that file. Registered as D-LR-1\n"
         "# in the deferred registry — a ratchet, not a permanent exemption:\n"
         "# burn down toward zero once that lane lands. TAB-separated:\n"
-        "# path\\tsymbol\\tlogger_name\\tordinal\\t# line N: snippet (D-MT-2:\n"
-        "# keyed by symbol+logger+ordinal, NOT line -- the trailing 'line N'\n"
-        "# in the comment is informational only, not parsed, and WILL drift\n"
-        "# as the codebase changes -- expected and harmless). A NEW entry\n"
-        "# (not here) fails check_log_exception_redaction.py. Fixing a\n"
-        "# baselined site shrinks this file on the next --update-baseline;\n"
-        "# never hand-add an entry to make a real violation disappear.\n"
+        "# path\\tsymbol\\tlogger_name\\tcontent_hash\\t# line N: snippet (D-MT-2:\n"
+        "# keyed on the enclosing symbol + logger + a hash of the flagged\n"
+        "# snippet text, NOT line -- the trailing 'line N' in the comment is\n"
+        "# informational only, not parsed, and WILL drift as the codebase\n"
+        "# changes -- expected and harmless). A NEW entry (not here) fails\n"
+        "# check_log_exception_redaction.py. Fixing a baselined site shrinks\n"
+        "# this file on the next --update-baseline; never hand-add an entry\n"
+        "# to make a real violation disappear.\n"
         + "\n".join(lines)
         + ("\n" if lines else ""),
         encoding="utf-8",
