@@ -227,8 +227,8 @@ def audit_read(
 def scope(
     cypher: str,
     actor: ActorContext | None = None,
-) -> str:
-    """Tenant-scope a Cypher read query for ``actor`` (``<bound var>.tenant_id = <tenant>``).
+) -> tuple[str, dict[str, Any]]:
+    """Tenant-scope a Cypher read query for ``actor`` (``<bound var>.tenant_id = $_tenant_scope_id``).
 
     Cross-org isolation, the primary boundary (KG-2.6). Kept to a simple,
     portable equality; finer owner/scope visibility (KG-2.60) is applied as a
@@ -244,6 +244,12 @@ def scope(
     subclass) rather than silently emitting an unscoped or mis-scoped read;
     this fails the same way here, wrapped below like every other scoping
     failure.
+
+    Returns:
+        ``(scoped_cypher, extra_params)`` (D-W2T-2 — the tenant id is a bound
+        parameter, not a string-literal splice). The caller MUST merge
+        ``extra_params`` into whatever params dict it executes
+        ``scoped_cypher`` with.
     """
     actor = _verified_actor(actor)
     try:

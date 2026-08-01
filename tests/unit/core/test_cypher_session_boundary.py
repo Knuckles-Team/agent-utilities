@@ -72,7 +72,7 @@ def test_guarded_facade_read_fails_closed_when_acl_filter_is_unavailable(monkeyp
     from agent_utilities.knowledge_graph.core import secured_reads
 
     class PolicyBrain:
-        tenancy = SimpleNamespace(scope_cypher_query=lambda query, _tenant: query)
+        tenancy = SimpleNamespace(scope_cypher_query=lambda query, _tenant: (query, {}))
 
         @property
         def permissions(self):
@@ -108,7 +108,7 @@ def test_guarded_facade_read_fails_closed_when_audit_is_unavailable(monkeypatch)
     from agent_utilities.knowledge_graph.core import secured_reads
 
     class PolicyBrain:
-        tenancy = SimpleNamespace(scope_cypher_query=lambda query, _tenant: query)
+        tenancy = SimpleNamespace(scope_cypher_query=lambda query, _tenant: (query, {}))
 
         @property
         def provenance(self):

@@ -72,6 +72,17 @@ to block every future merge. Only a violation NOT already in the baseline
 fails the gate; fixing a baselined site shrinks the baseline on the next
 ``--update-baseline`` run.
 
+D-F6-2 (a recurrence of D-MW-11, but for the baseline instead of the
+allowlist): the baseline used to key each entry on ``(path, line, shape)``
+and drifted 3 separate times as unrelated commits landed above a baselined
+site — each drift required a manual ``--update-baseline`` re-derive just to
+confirm nothing had actually changed. It is now keyed on ``(path, symbol,
+content_hash, shape)`` — the enclosing function's qualified name plus a hash
+of the actual (untruncated) query text — neither of which moves when
+unrelated code lands above or below the site. ``line`` is still recorded in
+the baseline file's trailing comment for human debugging, but is display-only
+and never part of the match.
+
 Usage:
   python3 scripts/security/check_cypher_write_subset.py
   python3 scripts/security/check_cypher_write_subset.py --repository-root DIR
@@ -86,6 +97,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import re
 import subprocess
@@ -136,14 +148,23 @@ class Violation:
     line: int
     shape: str
     snippet: str
+    #: D-F6-2: the enclosing function's (dotted, class-qualified where
+    #: nested) name, or ``"<module>"`` for module-level code — a stable
+    #: anchor that survives unrelated code landing above/below the call
+    #: site, unlike ``line``. See ``_baseline_key``.
+    symbol: str = "<module>"
+    #: D-F6-2: a short content hash of the FULL (untruncated) resolved query
+    #: text — disambiguates multiple same-shape violations within the same
+    #: symbol (e.g. ``inference_engine.py:76,80,84``, three distinct
+    #: ``merge_on_edge_pattern`` sites inside the same ``run_inference``
+    #: function) without relying on line number either.
+    content_hash: str = ""
 
     def render(self) -> str:
-        return f"{self.path}:{self.line} [{self.shape}] {self.snippet}"
+        return f"{self.path}:{self.line} ({self.symbol}) [{self.shape}] {self.snippet}"
 
 
-def _literal_text(
-    node: ast.expr, local_strings: dict[str, str]
-) -> str | None:
+def _literal_text(node: ast.expr, local_strings: dict[str, str]) -> str | None:
     """Best-effort reconstruction of a query expression's literal text.
 
     Handles a plain/triple-quoted string, an f-string (interpolated
@@ -237,14 +258,35 @@ def _shape(query: str) -> str | None:
     return None
 
 
-def _scope_units(tree: ast.Module) -> list[tuple[ast.AST, list[ast.stmt]]]:
-    """(owning node, body) for the module and every function/async-function —
-    the units ``_find_violations`` tracks local string assignments and the
-    typed-dispatch guard within."""
-    units: list[tuple[ast.AST, list[ast.stmt]]] = [(tree, tree.body)]
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            units.append((node, node.body))
+def _scope_units(tree: ast.Module) -> list[tuple[ast.AST, list[ast.stmt], str]]:
+    """(owning node, body, qualified symbol) for the module and every
+    function/async-function — the units ``_find_violations`` tracks local
+    string assignments and the typed-dispatch guard within.
+
+    D-F6-2: the qualified symbol (e.g. ``ClassName.method_name``, or
+    ``"<module>"`` for module-level code) is a stable violation-baseline
+    anchor that survives unrelated code landing above/below it — unlike the
+    line number the ``cypher_write_subset_baseline.txt`` key used to be
+    keyed on. Built with an explicit recursive walk (not ``ast.walk``, which
+    is unordered w.r.t. nesting) so a function's qualified name always
+    reflects its REAL enclosing class, including functions nested inside
+    functions and classes nested inside functions.
+    """
+    units: list[tuple[ast.AST, list[ast.stmt], str]] = [(tree, tree.body, "<module>")]
+
+    def _walk(node: ast.AST, prefix: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qual = child.name if prefix == "<module>" else f"{prefix}.{child.name}"
+                units.append((child, child.body, qual))
+                _walk(child, qual)
+            elif isinstance(child, ast.ClassDef):
+                qual = child.name if prefix == "<module>" else f"{prefix}.{child.name}"
+                _walk(child, qual)
+            else:
+                _walk(child, prefix)
+
+    _walk(tree, "<module>")
     return units
 
 
@@ -273,7 +315,7 @@ def _find_violations(rel: str, source: str, tree: ast.Module) -> list[Violation]
     # gate's runtime (measured: the majority of a ~17s full-tree scan) on a
     # file with many functions, each getting its own scope-unit lookup.
     lines = source.splitlines()
-    for owner, body in _scope_units(tree):
+    for owner, body, symbol in _scope_units(tree):
         start = getattr(owner, "lineno", 1) - 1
         end = getattr(owner, "end_lineno", len(lines))
         owner_source = "\n".join(lines[max(start, 0) : end])
@@ -304,7 +346,10 @@ def _find_violations(rel: str, source: str, tree: ast.Module) -> list[Violation]
             if _pragma_allows(lines, node):
                 continue
             snippet = " ".join(text.split())[:160]
-            violations.append(Violation(rel, node.lineno, shape, snippet))
+            content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+            violations.append(
+                Violation(rel, node.lineno, shape, snippet, symbol, content_hash)
+            )
     return violations
 
 
@@ -424,43 +469,57 @@ BASELINE = Path(__file__).resolve().parent / "cypher_write_subset_baseline.txt"
 _BASELINE_SEP = "\t"
 
 
-def _baseline_key(v: Violation) -> tuple[str, int, str]:
-    return (v.path, v.line, v.shape)
+def _baseline_key(v: Violation) -> tuple[str, str, str, str]:
+    """D-F6-2: (path, symbol, shape, content_hash) — deliberately NOT
+    ``line``. A baseline keyed on line number drifted every time unrelated
+    code landed above a baselined site (the same failure mode D-MW-11 fixed
+    for the allowlist, observed 3 times against this exact file:
+    ``graph_compute.py``'s ``flush_ledger_to_backend`` re-pointed 3357 ->
+    3352, plus two more baseline entries drifting 1-3 lines from unrelated
+    commits). The enclosing symbol + a hash of the actual (untruncated)
+    query text together survive any amount of code motion around the site,
+    while still disambiguating multiple same-shape violations within one
+    symbol (e.g. ``inference_engine.py``'s three ``merge_on_edge_pattern``
+    sites, all inside ``run_inference``)."""
+    return (v.path, v.symbol, v.shape, v.content_hash)
 
 
-def _load_baseline() -> set[tuple[str, int, str]]:
+def _load_baseline() -> set[tuple[str, str, str, str]]:
     if not BASELINE.exists():
         return set()
-    out: set[tuple[str, int, str]] = set()
+    out: set[tuple[str, str, str, str]] = set()
     for line in BASELINE.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         fields = line.split(_BASELINE_SEP)
-        if len(fields) < 3 or not fields[1].isdigit():
+        if len(fields) < 4:
             continue
-        out.add((fields[0], int(fields[1]), fields[2]))
+        out.add((fields[0], fields[1], fields[2], fields[3]))
     return out
 
 
 def _write_baseline(violations: list[Violation]) -> None:
     lines = [
-        f"{v.path}{_BASELINE_SEP}{v.line}{_BASELINE_SEP}{v.shape}"
-        f"{_BASELINE_SEP}# {v.snippet}"
-        for v in sorted(violations, key=lambda v: (v.path, v.line))
+        f"{v.path}{_BASELINE_SEP}{v.symbol}{_BASELINE_SEP}{v.shape}"
+        f"{_BASELINE_SEP}{v.content_hash}{_BASELINE_SEP}"
+        f"# line {v.line} at freeze time: {v.snippet}"
+        for v in sorted(violations, key=lambda v: (v.path, v.symbol, v.line))
     ]
     BASELINE.write_text(
         "# Frozen baseline of pre-existing Cypher write-subset violations\n"
         "# OUTSIDE this lane's assigned 14 files (a ratchet — burn down\n"
         "# toward zero, same convention as scripts/swallowed_error_baseline.txt).\n"
-        "# TAB-separated: path\\tline\\tshape\\t# snippet (snippet is a comment,\n"
-        "# not parsed, and will drift as the codebase changes -- expected).\n"
+        "# TAB-separated: path\\tsymbol\\tshape\\tcontent_hash\\t# comment\n"
+        "# (D-F6-2: keyed on the enclosing symbol + a hash of the query text,\n"
+        "# NOT line number -- a line-anchored key drifted on every unrelated\n"
+        "# commit landing above a baselined site. The trailing '# line N at\n"
+        "# freeze time: ...' comment is display-only, not parsed, and WILL\n"
+        "# drift -- that is expected and does not affect matching.)\n"
         "# A NEW entry (not here) fails check_cypher_write_subset.py. Fixing a\n"
         "# baselined site (see the module docstring's fix pattern) shrinks this\n"
         "# file on the next --update-baseline; never hand-add an entry to make\n"
-        "# a real violation disappear.\n"
-        + "\n".join(lines)
-        + ("\n" if lines else ""),
+        "# a real violation disappear.\n" + "\n".join(lines) + ("\n" if lines else ""),
         encoding="utf-8",
     )
 
@@ -489,7 +548,7 @@ def check(root: Path) -> dict[str, Any]:
 # doesn't flag the supported subset or the allowlisted exemption.
 # ---------------------------------------------------------------------------
 
-_GOOD_FIXTURE = '''
+_GOOD_FIXTURE = """
 def upsert_thread(backend):
     backend.execute(
         "MERGE (t:Thread {id: $id}) SET t.title = $title",
@@ -500,45 +559,45 @@ def upsert_thread(backend):
 
 def link_via_typed_api(engine):
     engine.link_nodes("a", "b", "CONTAINS")
-'''
+"""
 
 _BAD_FIXTURES: dict[str, str] = {
-    "comma_pattern_match": '''
+    "comma_pattern_match": """
 def f(backend):
     backend.execute(
         "MATCH (a:X {id: $a}), (b:Y {id: $b}) MERGE (a)-[:REL]->(b)",
         {},
     )
-''',
-    "multiple_match_clauses": '''
+""",
+    "multiple_match_clauses": """
 def f(backend):
     backend.execute(
         "MATCH (a:X {id: $a}) MATCH (b:Y {id: $b}) MERGE (a)-[:REL]->(b)",
         {},
     )
-''',
-    "merge_on_edge_pattern": '''
+""",
+    "merge_on_edge_pattern": """
 def f(backend):
     query = "MATCH (a:X {id: $a}) MERGE (a)-[:REL]->(b:Y {id: $b})"
     backend.execute(query, {})
-''',
-    "with_in_write_statement": '''
+""",
+    "with_in_write_statement": """
 def f(backend):
     backend.execute(
         "MATCH (l:Log) WITH l ORDER BY l.timestamp DESC SKIP 5 DETACH DELETE l",
     )
-''',
-    "set_map_merge_assignment": '''
+""",
+    "set_map_merge_assignment": """
 def f(backend):
     backend.execute("MATCH (n:Concept {id: $id}) SET n += $props", {})
-''',
-    "set_function_call_value": '''
+""",
+    "set_function_call_value": """
 def f(backend):
     backend.execute(
         "MERGE (j:Job {id: $id}) SET j.last_run = coalesce(j.last_run, '-')",
         {},
     )
-''',
+""",
 }
 
 
@@ -548,20 +607,20 @@ def f(backend):
 #: ABOVE the pragma'd site, simulating an unrelated merge landing ahead of
 #: it) variant of each prove the mechanism has no line-number anchor to
 #: drift: only line COUNT changes, the pragma's suppression is unaffected.
-_PRAGMA_ABOVE_FIXTURE = '''
+_PRAGMA_ABOVE_FIXTURE = """
 def f(backend):
     # cypher-write-subset-allow: LadybugBackend, not the native parser.
     backend.execute(
         "MATCH (a:X {id: $a}), (b:Y {id: $b}) MERGE (a)-[:REL]->(b)", {}
     )
-'''
+"""
 
-_PRAGMA_TRAILING_FIXTURE = '''
+_PRAGMA_TRAILING_FIXTURE = """
 def f(backend):
     backend.execute(  # cypher-write-subset-allow: LadybugBackend here too.
         "MATCH (a:X {id: $a}), (b:Y {id: $b}) MERGE (a)-[:REL]->(b)", {}
     )
-'''
+"""
 
 
 def self_check() -> None:
@@ -642,16 +701,63 @@ def self_check() -> None:
         )
 
     # The ratchet baseline: a violation present in the baseline is tolerated
-    # (burn-down, not a block), but a violation at a DIFFERENT line for the
-    # same shape/file is treated as genuinely new.
-    baselined = Violation("fixture_baselined.py", 10, "comma_pattern_match", "x")
-    new_one = Violation("fixture_baselined.py", 20, "comma_pattern_match", "y")
+    # (burn-down, not a block), but a violation with DIFFERENT query text at
+    # the same symbol/shape (content_hash differs) is treated as genuinely
+    # new -- mirrors the real inference_engine.py:76/80/84 shape, three
+    # distinct merge_on_edge_pattern sites inside one function.
+    baselined = Violation(
+        "fixture_baselined.py", 10, "comma_pattern_match", "x", "f", "hash-a"
+    )
+    new_one = Violation(
+        "fixture_baselined.py", 20, "comma_pattern_match", "y", "f", "hash-b"
+    )
     baseline_keys = {_baseline_key(baselined)}
-    still_new = [v for v in (baselined, new_one) if _baseline_key(v) not in baseline_keys]
+    still_new = [
+        v for v in (baselined, new_one) if _baseline_key(v) not in baseline_keys
+    ]
     if still_new != [new_one]:
         raise CypherWriteSubsetGateError(
             "self-check: baseline ratchet did not distinguish a baselined "
             f"site from a new one (got {still_new!r})"
+        )
+
+    # D-F6-2: baseline suppression must survive unrelated code landing ABOVE
+    # a baselined site -- this file's own baseline drifted 3 times while it
+    # was still keyed on line number (D-MW-11's failure mode, but for the
+    # baseline instead of the allowlist). Freeze a real bad-fixture
+    # violation's key, then re-scan a PADDED variant (unrelated lines
+    # inserted above) and prove the key is UNCHANGED even though ``line``
+    # moved -- so a baseline entry recorded against the unpadded source
+    # still recognizes the padded one as the SAME site, not a new violation.
+    drift_fixture = _BAD_FIXTURES["merge_on_edge_pattern"]
+    drift_hits = _find_violations(
+        "fixture_drift.py", drift_fixture, ast.parse(drift_fixture)
+    )
+    if len(drift_hits) != 1:
+        raise CypherWriteSubsetGateError(
+            "self-check: expected exactly 1 drift-fixture violation, got "
+            f"{len(drift_hits)}"
+        )
+    frozen_key = _baseline_key(drift_hits[0])
+    padded_drift = ("\n" * 7) + drift_fixture
+    padded_drift_hits = _find_violations(
+        "fixture_drift.py", padded_drift, ast.parse(padded_drift)
+    )
+    if len(padded_drift_hits) != 1:
+        raise CypherWriteSubsetGateError(
+            "self-check: expected exactly 1 violation in the padded drift "
+            f"fixture, got {len(padded_drift_hits)}"
+        )
+    if padded_drift_hits[0].line == drift_hits[0].line:
+        raise CypherWriteSubsetGateError(
+            "self-check: padding did not actually move the drift fixture's "
+            "line -- the drift-survival proof below would be vacuous"
+        )
+    if _baseline_key(padded_drift_hits[0]) != frozen_key:
+        raise CypherWriteSubsetGateError(
+            "self-check: a baseline key changed after unrelated lines "
+            "landed above the site (line-anchor drift): "
+            f"{frozen_key!r} -> {_baseline_key(padded_drift_hits[0])!r}"
         )
 
 
