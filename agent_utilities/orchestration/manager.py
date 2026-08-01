@@ -978,18 +978,48 @@ class Orchestrator:
 
         It now routes to the real :class:`WorkflowRunner` (ORCH-1.24), which
         ``load_workflow(name)`` → builds dependency waves → runs each step on the
-        local LLM. The SHACL+ACL ontology gate (ORCH-1.42) still runs upstream in
-        the ``graph_workflows`` handler before this is called, so governance stays
-        in the path. Returns the ``WorkflowResult`` as a dict carrying the ``run_id``
-        handle (the session id) so a delegated workflow run is trackable (ORCH-1.97).
+        local LLM. The SHACL+ACL ontology gate (ORCH-1.42) now runs HERE, at this
+        chokepoint, rather than only in the ``graph_workflows`` MCP handler
+        (D-WS-8): four production callers —
+        ``knowledge_graph.adaptation.ticket_playbooks._dispatch_workflow``,
+        ``knowledge_graph.research.loop_controller._default_skill_runner`` (the
+        autonomous Loop engine), ``knowledge_graph.memory.weights_distillation.
+        _dispatch_train_workflow``, and ``core.schedule_engine``'s
+        ``kind in (workflow, agent)`` dispatch — call
+        :meth:`execute_workflow` directly and previously skipped SHACL shape
+        validation and the ACL permission check entirely. Gating at the single
+        function every caller converges on (the same pattern used for the ACL
+        registration convergence, ``e34a1039``, and the delegation authority
+        keepalive, ``0551a806``) means every caller now inherits it instead of
+        each needing its own call to ``gate_workflow_execution``. The
+        ``graph_workflows`` handler's own gate call becomes a harmless,
+        redundant pre-check (cheap: it is the same SHACL+ACL work done twice,
+        not a second kind of check) rather than the only enforcement point.
+        Returns the ``WorkflowResult`` as a dict carrying the ``run_id`` handle
+        (the session id) so a delegated workflow run is trackable (ORCH-1.97).
 
         ``grounding`` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract) gives
         every step in the run the same opt-in ``execute_agent``/``execute_capability``
         already has — each step still defaults to the process-wide fail-closed
         ``"required"`` policy when unset.
+
+        Raises:
+            WorkflowGateDeniedError: the stored definition fails SHACL shape
+                validation, or no definition is stored under ``workflow_id``.
+            PermissionError: the ontology permission gate denies the current
+                actor (raised by :func:`gate_workflow_execution` itself).
         """
         if task:
             self._scan_task(task)
+
+        from agent_utilities.knowledge_graph.core.workflow_gate import (
+            WorkflowGateDeniedError,
+            gate_workflow_execution,
+        )
+
+        gate = gate_workflow_execution(self.engine, workflow_id)
+        if gate.get("allowed") is not True:
+            raise WorkflowGateDeniedError(workflow_id, gate)
 
         logger.info(f"Executing workflow {workflow_id} via WorkflowRunner...")
         from agent_utilities.observability.gateway_metrics import delegation_span
