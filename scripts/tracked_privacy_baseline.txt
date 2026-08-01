@@ -1,0 +1,67 @@
+# Frozen baseline of pre-existing privacy leaks that D-CIP-10's scope
+# fix made VISIBLE for the first time (a ratchet — burn down toward
+# zero, same convention as scripts/security/cypher_write_subset_baseline.txt).
+#
+# Until D-CIP-10, check_tracked_privacy had two passes with a hole
+# between them: the whole-tree pass was location-filtered to docs/,
+# .github/, top-level and *.toml, and the unrestricted pass was scoped
+# to `git diff`. Anything committed earlier under docker/ or
+# agent_utilities/ was scanned by neither, so these leaks were public
+# and invisible. They are NOT new — only newly seen.
+#
+# These entries are tracked debt, not exemptions. Two are the personal
+# account name in live kaniko Job manifests (D-PCC-1, owned by
+# lane-release-0801); the rest are internal endpoints and shared-account
+# paths. GitHub is public-facing and gets STRICT standards, so this file
+# must reach zero before the repository is pushed.
+#
+# TAB-separated: path\tline\tcategory. Line numbers drift as the
+# codebase changes -- expected; re-run --update-baseline to re-anchor.
+# A NEW leak (not listed here) FAILS the gate. Fixing a listed site
+# shrinks this file on the next --update-baseline; never hand-add an
+# entry to make a real leak disappear.
+agent_utilities/base_utilities.py	270	hard-coded internal endpoint in runtime source
+agent_utilities/deployment/venv_sync.py	287	machine-specific home path in runtime source
+agent_utilities/knowledge_graph/core/nl_planner.py	81	hard-coded internal endpoint in runtime source
+agent_utilities/mcp/server_factory.py	555	hard-coded internal endpoint in runtime source
+agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	86	credential-bearing URI in runtime source
+agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	104	credential-bearing URI in runtime source
+agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	249	credential-bearing URI in runtime source
+agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	300	hard-coded internal endpoint in runtime source
+agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	362	hard-coded internal endpoint in runtime source
+deploy/k8s/graphos-homelab-live-config-fix.yaml	76	hard-coded internal endpoint in runtime source
+deploy/k8s/graphos-homelab-live-config-fix.yaml	99	hard-coded internal endpoint in runtime source
+deploy/k8s/graphos-homelab-live-config-fix.yaml	116	hard-coded internal endpoint in runtime source
+deploy/k8s/graphos-homelab-live-config-fix.yaml	117	hard-coded internal endpoint in runtime source
+deploy/k8s/graphos-homelab-live-config-fix.yaml	119	hard-coded internal endpoint in runtime source
+deploy/k8s/graphos-homelab-live-config-fix.yaml	120	hard-coded internal endpoint in runtime source
+deploy/k8s/graphos-homelab-live-config-fix.yaml	129	hard-coded internal endpoint in runtime source
+deploy/k8s/graphos-homelab-live-config-fix.yaml	135	hard-coded internal endpoint in runtime source
+deploy/k8s/graphos-homelab-live-config-fix.yaml	136	hard-coded internal endpoint in runtime source
+docker/graphos-unified-fastmcp4-kaniko-job.yaml	13	machine-specific home path in runtime source
+docker/graphos-unified-fastmcp4-kaniko-job.yaml	48	local account or host identifier in runtime source
+docker/graphos-unified-fastmcp4-kaniko-job.yaml	81	machine-specific home path in runtime source
+docker/graphos-unified-fastmcp4-kaniko-job.yaml	85	machine-specific home path in runtime source
+docker/graphos-unified-fastmcp4-kaniko-job.yaml	89	machine-specific home path in runtime source
+docker/graphos-unified-kaniko-job.yaml	19	machine-specific home path in runtime source
+docker/graphos-unified-kaniko-job.yaml	27	local account or host identifier in runtime source
+docker/graphos-unified-kaniko-job.yaml	43	local account or host identifier in runtime source
+docker/graphos-unified-kaniko-job.yaml	65	machine-specific home path in runtime source
+docker/graphos-unified-kaniko-job.yaml	69	machine-specific home path in runtime source
+docker/graphos-unified-langfuse-kaniko-job.yaml	18	local account or host identifier in runtime source
+docker/graphos-unified-langfuse-kaniko-job.yaml	23	local account or host identifier in runtime source
+docker/graphos-unified-langfuse-kaniko-job.yaml	40	local account or host identifier in runtime source
+docker/graphos-unified-langfuse-kaniko-job.yaml	62	machine-specific home path in runtime source
+docker/graphos-unified-langfuse-kaniko-job.yaml	66	machine-specific home path in runtime source
+docker/graphos-unified-langfuse-kaniko-job.yaml	70	machine-specific home path in runtime source
+docker/graphos-unified-skill-runtime-kaniko-job.yaml	23	local account or host identifier in runtime source
+docker/graphos-unified-skill-runtime-kaniko-job.yaml	56	machine-specific home path in runtime source
+docker/graphos-unified-skill-runtime-kaniko-job.yaml	60	machine-specific home path in runtime source
+docker/graphos-unified-skill-runtime-kaniko-job.yaml	64	machine-specific home path in runtime source
+docs/architecture/merge-queue.md	453	machine-specific home path
+docs/architecture/merge-queue.md	479	machine-specific home path
+docs/architecture/merge-queue.md	480	machine-specific home path
+docs/architecture/merge-queue.md	486	machine-specific home path
+docs/architecture/merge-queue.md	489	machine-specific home path
+docs/architecture/rca-mcp-tool-state-desync.md	6	machine-specific home path
+docs/architecture/rca-mcp-tool-state-desync.md	299	machine-specific home path

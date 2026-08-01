@@ -9,6 +9,7 @@ checked independently, so the gate remains useful in clean CI environments.
 
 from __future__ import annotations
 
+import argparse
 import getpass
 import os
 import pwd
@@ -482,14 +483,108 @@ def scan(root: Path = ROOT) -> list[Violation]:
     return violations
 
 
+BASELINE = Path(__file__).resolve().parent / "tracked_privacy_baseline.txt"
+
+_BASELINE_SEP = "\t"
+
+
+def _baseline_key(violation: Violation) -> tuple[str, int, str]:
+    return (violation.path, violation.line, violation.category)
+
+
+def _load_baseline() -> set[tuple[str, int, str]]:
+    """Pre-existing leaks this gate newly *sees* but did not previously report.
+
+    A missing baseline file is an EMPTY baseline — stricter, never laxer — so a
+    lost or renamed path can only turn known debt back into hard failures, it
+    can never silently excuse a real leak.
+    """
+    if not BASELINE.exists():
+        return set()
+    out: set[tuple[str, int, str]] = set()
+    for raw in BASELINE.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split(_BASELINE_SEP)
+        if len(fields) < 3 or not fields[1].isdigit():
+            continue
+        out.add((fields[0], int(fields[1]), fields[2]))
+    return out
+
+
+def _write_baseline(violations: list[Violation]) -> None:
+    lines = [
+        f"{v.path}{_BASELINE_SEP}{v.line}{_BASELINE_SEP}{v.category}"
+        for v in sorted(violations, key=lambda v: (v.path, v.line, v.category))
+    ]
+    BASELINE.write_text(
+        "# Frozen baseline of pre-existing privacy leaks that D-CIP-10's scope\n"
+        "# fix made VISIBLE for the first time (a ratchet — burn down toward\n"
+        "# zero, same convention as scripts/security/cypher_write_subset_baseline.txt).\n"
+        "#\n"
+        "# Until D-CIP-10, check_tracked_privacy had two passes with a hole\n"
+        "# between them: the whole-tree pass was location-filtered to docs/,\n"
+        "# .github/, top-level and *.toml, and the unrestricted pass was scoped\n"
+        "# to `git diff`. Anything committed earlier under docker/ or\n"
+        "# agent_utilities/ was scanned by neither, so these leaks were public\n"
+        "# and invisible. They are NOT new — only newly seen.\n"
+        "#\n"
+        "# These entries are tracked debt, not exemptions. Two are the personal\n"
+        "# account name in live kaniko Job manifests (D-PCC-1, owned by\n"
+        "# lane-release-0801); the rest are internal endpoints and shared-account\n"
+        "# paths. GitHub is public-facing and gets STRICT standards, so this file\n"
+        "# must reach zero before the repository is pushed.\n"
+        "#\n"
+        "# TAB-separated: path\\tline\\tcategory. Line numbers drift as the\n"
+        "# codebase changes -- expected; re-run --update-baseline to re-anchor.\n"
+        "# A NEW leak (not listed here) FAILS the gate. Fixing a listed site\n"
+        "# shrinks this file on the next --update-baseline; never hand-add an\n"
+        "# entry to make a real leak disappear.\n"
+        + "\n".join(lines)
+        + ("\n" if lines else ""),
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(prog="check-tracked-privacy")
+    parser.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help="re-anchor the frozen baseline to the current violations",
+    )
+    args = parser.parse_args()
+
     violations = scan()
-    if violations:
+    if args.update_baseline:
+        _write_baseline(violations)
+        print(f"Wrote {BASELINE.name}: {len(violations)} baselined leak(s).")
+        return 0
+
+    baseline = _load_baseline()
+    new = [v for v in violations if _baseline_key(v) not in baseline]
+    current = {_baseline_key(v) for v in violations}
+    fixed = len(baseline - current)
+
+    if new:
         print("Tracked artifact privacy gate FAILED:")
-        for violation in violations:
+        for violation in new:
             print(f"  - {violation.render()}")
         print("Matched values are intentionally suppressed.")
+        print(
+            f"{len(new)} NEW leak(s) not in {BASELINE.name}. "
+            f"({len(baseline)} pre-existing leak(s) remain baselined — "
+            "burn them down, never grow the file.)"
+        )
         return 1
+    if fixed:
+        print(
+            f"Tracked artifact privacy gate passed. {fixed} baselined leak(s) "
+            f"are now fixed — re-run with --update-baseline to shrink "
+            f"{BASELINE.name}."
+        )
+        return 0
     print("Tracked artifact privacy gate PASSED.")
     return 0
 
