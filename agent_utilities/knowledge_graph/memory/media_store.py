@@ -87,7 +87,7 @@ modality: it stores the media (as :meth:`store_media` always has), then ALSO wri
 governed ``eg_modality::EvidenceLocus`` (a ``PageRegion`` ``EvidenceAddress`` plus the
 required ``id``/``subject``/``policy_ref``/``derivation_ref`` identity envelope) plus
 the occurrence/blob identity chain, and — when a ``claim_id`` is given — the SAME
-``relationship_type: "SUPPORTS"`` edge convention ``eg_epistemic``'s own claim
+``relationship: "SUPPORTS"`` edge convention ``eg_epistemic``'s own claim
 materialization (``src/server/handlers/mining.rs::materialize_claim``) writes. No new
 engine write endpoint was needed: the generic ``nodes.add``/``edges.add`` RPCs the
 rest of this module already uses are sufficient to produce the EXACT property/edge
@@ -117,7 +117,7 @@ import hashlib
 import logging
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -569,7 +569,7 @@ class MediaStore:
 
         occurrence_id = f"{_OCCURRENCE_PREFIX}{uuid.uuid4().hex}"
         occurrence_props: dict[str, Any] = {
-            "type": "AssetOccurrence",
+            "node_type": "AssetOccurrence",
             "name": name or f"media {media_type or mime_type or digest[:8]}",
             "content_digest": digest,
             "blob_id": blob_id,
@@ -597,7 +597,7 @@ class MediaStore:
 
         effective_graph = session.graph or self._graph
         blob_props = {
-            "type": "Blob",
+            "node_type": "Blob",
             "content_digest": digest,
             "file_size_bytes": len(data),
             "created_at": now,
@@ -619,10 +619,10 @@ class MediaStore:
         # Link occurrence→blob (:hasBlob) and occurrence→message (:attachedToMessage)
         # edges so the graph is navigable. Best-effort, outside the txn (pure graph edges).
         try:
-            client.edges.add(occurrence_id, blob_id, {"type": "hasBlob"})
+            client.edges.add(occurrence_id, blob_id, {"relationship": "hasBlob"})
             if message_id:
                 client.edges.add(
-                    occurrence_id, message_id, {"type": "attachedToMessage"}
+                    occurrence_id, message_id, {"relationship": "attachedToMessage"}
                 )
         except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above; these are pure navigability edges outside the txn (per the comment), so get_media/read paths that key off the node's own properties are unaffected
             logger.debug(
@@ -686,7 +686,7 @@ class MediaStore:
            plus ``occurrence_id``/``blob_ref`` — the SAME identity-chain
            convention ``eg_epistemic::evidence`` documents — and a structural
            ``extractedFrom`` edge back to the occurrence.
-        3. When ``claim_id`` is given, a ``relationship_type: "SUPPORTS"`` edge
+        3. When ``claim_id`` is given, a ``relationship: "SUPPORTS"`` edge
            from the evidence node to it — the SAME convention
            ``src/server/handlers/mining.rs::materialize_claim``'s own
            ``supports_edge`` writes, so ``eg_epistemic``'s support/contradiction/
@@ -735,14 +735,16 @@ class MediaStore:
                 client.nodes.add(
                     source_object_id,
                     {
-                        "type": "SourceObject",
+                        "node_type": "SourceObject",
                         "document_id": document_id,
                         "mime_type": mime_type,
                         "created_at": now,
                     },
                 )
             client.edges.add(
-                source_object_id, stored.occurrence_id, {"type": "hasOccurrence"}
+                source_object_id,
+                stored.occurrence_id,
+                {"relationship": "hasOccurrence"},
             )
         except Exception as e:  # noqa: BLE001 — best-effort, mirrors the module's posture
             logger.warning(
@@ -754,7 +756,7 @@ class MediaStore:
 
         evidence_id = f"evidence:{uuid.uuid4().hex}"
         evidence_props: dict[str, Any] = {
-            "type": "Evidence",
+            "node_type": "Evidence",
             "about": document_id,
             "confidence": float(confidence),
             "evidence_locus": self._governed_locus(
@@ -776,12 +778,10 @@ class MediaStore:
         try:
             client.nodes.add(evidence_id, evidence_props)
             client.edges.add(
-                evidence_id, stored.occurrence_id, {"type": "extractedFrom"}
+                evidence_id, stored.occurrence_id, {"relationship": "extractedFrom"}
             )
             if claim_id:
-                client.edges.add(
-                    evidence_id, claim_id, {"relationship_type": "SUPPORTS"}
-                )
+                client.edges.add(evidence_id, claim_id, {"relationship": "SUPPORTS"})
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 "[CONCEPT:AU-KG.identity.evidence-spine-convergence] Evidence write failed for occurrence %s: %s",
@@ -852,14 +852,16 @@ class MediaStore:
                 client.nodes.add(
                     source_object_id,
                     {
-                        "type": "SourceObject",
+                        "node_type": "SourceObject",
                         "object_id": about_id,
                         "mime_type": mime_type,
                         "created_at": now,
                     },
                 )
             client.edges.add(
-                source_object_id, stored.occurrence_id, {"type": "hasOccurrence"}
+                source_object_id,
+                stored.occurrence_id,
+                {"relationship": "hasOccurrence"},
             )
         except Exception as e:  # noqa: BLE001 — best-effort, mirrors the module's posture
             logger.warning(
@@ -871,7 +873,7 @@ class MediaStore:
 
         evidence_id = f"evidence:{uuid.uuid4().hex}"
         evidence_props: dict[str, Any] = {
-            "type": "Evidence",
+            "node_type": "Evidence",
             "about": about_id,
             "confidence": float(confidence),
             "evidence_locus": self._governed_locus(
@@ -887,12 +889,10 @@ class MediaStore:
         try:
             client.nodes.add(evidence_id, evidence_props)
             client.edges.add(
-                evidence_id, stored.occurrence_id, {"type": "extractedFrom"}
+                evidence_id, stored.occurrence_id, {"relationship": "extractedFrom"}
             )
             if claim_id:
-                client.edges.add(
-                    evidence_id, claim_id, {"relationship_type": "SUPPORTS"}
-                )
+                client.edges.add(evidence_id, claim_id, {"relationship": "SUPPORTS"})
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 "[CONCEPT:AU-KG.identity.evidence-spine-convergence] Evidence write failed for occurrence %s: %s",
@@ -1376,7 +1376,7 @@ class MediaStore:
         rendition_id = f"{_RENDITION_PREFIX}{uuid.uuid4().hex}"
 
         rendition_props: dict[str, Any] = {
-            "type": "Rendition",
+            "node_type": "Rendition",
             "content_digest": digest,
             "blob_id": blob_id,
             "rendition_type": rendition_type,
@@ -1393,7 +1393,7 @@ class MediaStore:
 
         effective_graph = session.graph or self._graph
         blob_props = {
-            "type": "Blob",
+            "node_type": "Blob",
             "content_digest": digest,
             "file_size_bytes": len(data),
             "created_at": now,
@@ -1413,12 +1413,16 @@ class MediaStore:
             return None
 
         try:
-            client.edges.add(rendition_id, blob_id, {"type": "hasBlob"})
+            client.edges.add(rendition_id, blob_id, {"relationship": "hasBlob"})
             client.edges.add(
-                rendition_id, f"{_BLOB_PREFIX}{source_digest}", {"type": "derivedFrom"}
+                rendition_id,
+                f"{_BLOB_PREFIX}{source_digest}",
+                {"relationship": "derivedFrom"},
             )
             if occurrence_id:
-                client.edges.add(occurrence_id, rendition_id, {"type": "hasRendition"})
+                client.edges.add(
+                    occurrence_id, rendition_id, {"relationship": "hasRendition"}
+                )
         except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above; these are pure navigability edges (hasBlob/derivedFrom/hasRendition), the rendition node itself and its own properties are unaffected
             logger.debug(
                 "[CONCEPT:AU-KG.identity.asset-occurrence] rendition edge link skipped: %s",
@@ -1571,7 +1575,7 @@ class MediaStore:
         occurrence_id = f"{_OCCURRENCE_PREFIX}{uuid.uuid4().hex}"
 
         occurrence_props: dict[str, Any] = {
-            "type": "AssetOccurrence",
+            "node_type": "AssetOccurrence",
             "name": legacy.get("name", "") or f"media {digest[:8]}",
             "content_digest": digest,
             "blob_id": blob_id,
@@ -1597,7 +1601,7 @@ class MediaStore:
 
         effective_graph = session.graph or self._graph
         blob_props = {
-            "type": "Blob",
+            "node_type": "Blob",
             "content_digest": digest,
             "file_size_bytes": legacy.get("file_size_bytes", 0),
             "created_at": now,
@@ -1617,13 +1621,15 @@ class MediaStore:
             return None
 
         try:
-            client.edges.add(occurrence_id, blob_id, {"type": "hasBlob"})
-            client.edges.add(occurrence_id, legacy_asset_id, {"type": "migratedFrom"})
+            client.edges.add(occurrence_id, blob_id, {"relationship": "hasBlob"})
+            client.edges.add(
+                occurrence_id, legacy_asset_id, {"relationship": "migratedFrom"}
+            )
             if legacy.get("message_id"):
                 client.edges.add(
                     occurrence_id,
                     legacy["message_id"],
-                    {"type": "attachedToMessage"},
+                    {"relationship": "attachedToMessage"},
                 )
         except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above; _migrated_legacy_ids' idempotency check (below) reads the `legacy_asset_id` PROPERTY already on the committed occurrence node, not this migratedFrom edge, so a failed edge link does not cause a duplicate re-migration on the next bulk sweep
             logger.debug(
@@ -1652,11 +1658,9 @@ class MediaStore:
         empty set (worst case a re-run mints one duplicate occurrence for the
         affected ids, rather than raising).
         """
-        from ..core.bounded_read import iter_nodes_by_types
-
         migrated: set[str] = set()
         try:
-            for _nid, data in iter_nodes_by_types(self._compute, "AssetOccurrence"):
+            for _nid, data in self._iter_nodes_by_written_type("AssetOccurrence"):
                 legacy_id = (
                     data.get("legacy_asset_id") if isinstance(data, dict) else None
                 )
@@ -1668,6 +1672,38 @@ class MediaStore:
                 e,
             )
         return migrated
+
+    def _iter_nodes_by_written_type(
+        self, *types: str
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        """Bounded node scan matching THIS module's own write convention.
+
+        :func:`~..core.bounded_read.iter_nodes_by_types` filters strictly on the
+        canonical ``node_type`` property. Every node this module writes (via the
+        native ``client.txn.add_node`` call, not the ``GraphComputeEngine.add_node``
+        Python facade — see :meth:`store_media`/:meth:`migrate_legacy_asset`) is
+        stamped with a ``type`` property instead, so a ``node_type``-only scan
+        silently matches nothing: :meth:`_migrated_legacy_ids` always returned an
+        empty set and :meth:`migrate_legacy_assets_bulk` never found any legacy
+        ``MediaAsset`` node to migrate. Accept either key so the scan finds nodes
+        regardless of which convention wrote them.
+        """
+        from ..core.bounded_read import iter_nodes_by_types
+
+        wanted = {t.lower() for t in types}
+        seen: set[str] = set()
+        for nid, data in iter_nodes_by_types(self._compute, *types):
+            seen.add(nid)
+            yield nid, data
+        by_label = getattr(self._compute, "get_nodes_by_label", None)
+        if not callable(by_label):
+            node_iter = self._compute.nodes(data=True)
+            for nid, data in node_iter:
+                if nid in seen or not isinstance(data, dict):
+                    continue
+                if str(data.get("type", "")).lower() in wanted:
+                    seen.add(nid)
+                    yield nid, data
 
     def migrate_legacy_assets_bulk(
         self,
@@ -1705,11 +1741,9 @@ class MediaStore:
 
         Returns a :class:`BulkMigrationResult` summarizing the whole sweep.
         """
-        from ..core.bounded_read import iter_nodes_by_types
-
         already_migrated = self._migrated_legacy_ids()
         legacy_ids = [
-            nid for nid, _data in iter_nodes_by_types(self._compute, "MediaAsset")
+            nid for nid, _data in self._iter_nodes_by_written_type("MediaAsset")
         ]
         scanned = len(legacy_ids)
         migrated_occurrence_ids: list[str] = []

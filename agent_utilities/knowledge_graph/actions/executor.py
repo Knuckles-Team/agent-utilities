@@ -24,6 +24,7 @@ or KG persistence. The KG backend is probed lazily and degrades gracefully
 offline, mirroring ``domains/finance/forensic_screener.py``.
 """
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -547,34 +548,78 @@ class ActionExecutor:
         if store is None:
             return
         try:
-            store.execute(
-                "MERGE (n {id: $id}) SET n.node_type = 'action_invocation', "
-                "n.action_name = $action_name, n.actor_id = $actor_id, "
-                "n.status = $status, n.result_summary = $summary, "
-                "n.audit_ref = $audit_ref, n.timestamp = $timestamp",
-                {
-                    "id": inv.id,
-                    "action_name": inv.action_name,
-                    "actor_id": inv.actor_id,
-                    "status": str(inv.status),
-                    "summary": inv.result_summary,
-                    "audit_ref": inv.audit_ref,
-                    "timestamp": inv.timestamp,
-                },
-            )
-            # INVOKED_BY → actor
-            store.execute(
-                "MATCH (n {id: $id}) MERGE (a {id: $actor_id}) "
-                "MERGE (n)-[:INVOKED_BY]->(a)",
-                {"id": inv.id, "actor_id": inv.actor_id},
-            )
-            # ACTS_ON → concrete target object (when supplied)
-            if inv.target_id:
-                store.execute(
-                    "MATCH (n {id: $id}) MERGE (t {id: $target_id}) "
-                    "MERGE (n)-[:ACTS_ON]->(t)",
-                    {"id": inv.id, "target_id": inv.target_id},
+            # "MATCH ... MERGE ... MERGE" (an edge MERGE, and a second MATCH)
+            # exceeds the engine's native Cypher write subset -- MERGE supports
+            # only a single bare node there, never an edge pattern
+            # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # Dispatch on ``typed_mutation_support`` exactly like
+            # ``IntelligenceGraphEngine._upsert_node``/``_upsert_edge``: the
+            # typed API for a native authority, the portable multi-clause
+            # Cypher (valid against a richer non-native store, e.g. Ladybug)
+            # otherwise.
+            typed_support = getattr(store, "typed_mutation_support", "")
+            if typed_support == "native":
+                store.add_node(
+                    inv.id,
+                    "action_invocation",
+                    action_name=inv.action_name,
+                    actor_id=inv.actor_id,
+                    status=str(inv.status),
+                    result_summary=inv.result_summary,
+                    audit_ref=inv.audit_ref,
+                    timestamp=inv.timestamp,
                 )
+
+                # The actor/target may already exist as a real typed node
+                # (an Agent, a CallableResource, …) created by another code
+                # path -- only synthesize a minimal placeholder when it is
+                # genuinely new, so this never relabels an existing node
+                # (mirrors the untyped ``MERGE (a {id: ...})`` below, which
+                # never touches an existing node's type either).
+                def _ensure_ref(node_id: str) -> None:
+                    existing = None
+                    with contextlib.suppress(Exception):
+                        existing = store.get_node_properties(node_id)
+                    if not existing:
+                        store.add_node(node_id, "Entity")
+
+                # INVOKED_BY → actor
+                _ensure_ref(inv.actor_id)
+                store.add_edge(inv.id, inv.actor_id, "INVOKED_BY")
+
+                # ACTS_ON → concrete target object (when supplied)
+                if inv.target_id:
+                    _ensure_ref(inv.target_id)
+                    store.add_edge(inv.id, inv.target_id, "ACTS_ON")
+            else:
+                store.execute(
+                    "MERGE (n {id: $id}) SET n.node_type = 'action_invocation', "
+                    "n.action_name = $action_name, n.actor_id = $actor_id, "
+                    "n.status = $status, n.result_summary = $summary, "
+                    "n.audit_ref = $audit_ref, n.timestamp = $timestamp",
+                    {
+                        "id": inv.id,
+                        "action_name": inv.action_name,
+                        "actor_id": inv.actor_id,
+                        "status": str(inv.status),
+                        "summary": inv.result_summary,
+                        "audit_ref": inv.audit_ref,
+                        "timestamp": inv.timestamp,
+                    },
+                )
+                # INVOKED_BY → actor
+                store.execute(
+                    "MATCH (n {id: $id}) MERGE (a {id: $actor_id}) "
+                    "MERGE (n)-[:INVOKED_BY]->(a)",
+                    {"id": inv.id, "actor_id": inv.actor_id},
+                )
+                # ACTS_ON → concrete target object (when supplied)
+                if inv.target_id:
+                    store.execute(
+                        "MATCH (n {id: $id}) MERGE (t {id: $target_id}) "
+                        "MERGE (n)-[:ACTS_ON]->(t)",
+                        {"id": inv.id, "target_id": inv.target_id},
+                    )
             inv.persisted = True
         except Exception as exc:  # noqa: BLE001 — persistence is best-effort
             logger.debug("Failed to persist action invocation %s: %s", inv.id, exc)

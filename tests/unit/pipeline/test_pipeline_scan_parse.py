@@ -31,27 +31,36 @@ def _fake_backend() -> MagicMock:
     return backend
 
 
+def _new_graph() -> GraphComputeEngine:
+    """Return a fresh, isolated graph for a test.
+
+    The autouse ``isolate_graph_compute_engine`` fixture (tests/conftest.py)
+    monkeypatches ``GraphComputeEngine.__init__`` AND binds the ambient
+    ``GraphSession.graph`` to its own per-test unique name — every native
+    engine op routes through that AMBIENT session graph, not through
+    whichever ``graph_name`` a particular ``GraphComputeEngine`` instance was
+    constructed with (``core/graph_compute.py:_send``: ``target = graph or
+    self._fixed_graph or session.graph or self._graph_name``, and normal node/
+    edge ops never pass an explicit ``graph=``). Passing our OWN
+    independently-generated ``graph_name=`` here used to create a tenant
+    under that name and then silently operate against the fixture's
+    (different, but real) ambient session graph instead — every op raised
+    "Graph '<our name>' not found" the moment it actually touched the
+    engine. Omit ``graph_name`` entirely so the fixture's redirect keeps the
+    constructed engine's identity and the ambient session's graph in sync.
+    """
+    return GraphComputeEngine(backend_type="rust")
+
+
 def _make_ctx(
     workspace_path: str = ".tmp/ws",
     graph: GraphComputeEngine | None = None,
     backend: Any | None = None,
     **config_kwargs: Any,
 ) -> PipelineContext:
-    import uuid
-
     """Build a PipelineContext with a given graph and backend."""
     cfg = PipelineConfig(workspace_path=workspace_path, **config_kwargs)
-    if graph is None:
-        name = f"test_{uuid.uuid4().hex[:8]}"
-        g = GraphComputeEngine(backend_type="rust", graph_name=name)
-        if g._client:
-            try:
-                g._client.create_graph(name)
-            except Exception:
-                pass
-            g._client.clear()
-    else:
-        g = graph
+    g = _new_graph() if graph is None else graph
     ctx = PipelineContext(config=cfg, graph=g, backend=backend)
     return ctx
 
@@ -76,21 +85,14 @@ async def test_centrality_empty_graph() -> None:
 @pytest.mark.asyncio
 async def test_centrality_with_nodes() -> None:
     """Graph with nodes -> PageRank computed, top_node returned."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.centrality import (
         execute_centrality,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
-    g.add_node("a", type="file")
-    g.add_node("b", type="file")
-    g.add_edge("a", "b")
+    g = _new_graph()
+    g.add_node("a", node_type="file")
+    g.add_node("b", node_type="file")
+    g.add_edge("a", "b", relationship="depends_on")
     ctx = _make_ctx(graph=g)
     result = await execute_centrality(ctx, {})
     assert result["centrality_calculated"] is True
@@ -105,14 +107,7 @@ async def test_centrality_exception_branch(monkeypatch: pytest.MonkeyPatch) -> N
     def raise_pagerank(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("pagerank failed")
 
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = _new_graph()
     monkeypatch.setattr(g, "pagerank", raise_pagerank)
     g.add_node("a")
     ctx = _make_ctx(graph=g)
@@ -140,21 +135,14 @@ async def test_communities_empty_graph() -> None:
 @pytest.mark.asyncio
 async def test_communities_with_graph() -> None:
     """Populated graph -> louvain_communities count > 0."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.communities import (
         execute_communities,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = _new_graph()
     g.add_node("a")
     g.add_node("b")
-    g.add_edge("a", "b")
+    g.add_edge("a", "b", relationship="depends_on")
     ctx = _make_ctx(graph=g)
     result = await execute_communities(ctx, {})
     assert result["communities"] >= 1
@@ -168,14 +156,7 @@ async def test_communities_louvain_fails(monkeypatch: pytest.MonkeyPatch) -> Non
     def raise_louvain(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("louvain failed")
 
-    import uuid
-
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = _new_graph()
     monkeypatch.setattr(g, "community_detection", raise_louvain)
     g.add_node("a")
     ctx = _make_ctx(graph=g)
@@ -203,28 +184,21 @@ async def test_mro_no_classes() -> None:
 @pytest.mark.asyncio
 async def test_mro_symbol_class_relationship() -> None:
     """Class symbol with bases resolves to inherits_from edge."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.mro import (
         execute_mro,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = _new_graph()
     g.add_node(
         "Parent",
-        type="symbol",
+        node_type="symbol",
         subtype="Class",
         name="Parent",
         args=[],
     )
     g.add_node(
         "Child",
-        type="symbol",
+        node_type="symbol",
         subtype="Class",
         name="Child",
         args=["Parent"],
@@ -237,21 +211,14 @@ async def test_mro_symbol_class_relationship() -> None:
 
 @pytest.mark.asyncio
 async def test_mro_class_type_without_subtype() -> None:
-    """Class with type='Class' (no subtype) still resolves."""
-    import uuid
-
+    """Class with node_type='Class' (no subtype) still resolves."""
     from agent_utilities.knowledge_graph.pipeline.phases.mro import (
         execute_mro,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
-    g.add_node("Parent", type="Class", name="Parent", args=[])
-    g.add_node("Child", type="Class", name="Child", args=["Parent"])
+    g = _new_graph()
+    g.add_node("Parent", node_type="Class", name="Parent", args=[])
+    g.add_node("Child", node_type="Class", name="Child", args=["Parent"])
     ctx = _make_ctx(graph=g)
     result = await execute_mro(ctx, {})
     assert result["resolved_mro"] == 1
@@ -260,21 +227,14 @@ async def test_mro_class_type_without_subtype() -> None:
 @pytest.mark.asyncio
 async def test_mro_unknown_base_is_skipped() -> None:
     """Unknown base class is skipped (not in class_map)."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.mro import (
         execute_mro,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
+    g = _new_graph()
     g.add_node(
         "Child",
-        type="symbol",
+        node_type="symbol",
         subtype="Class",
         name="Child",
         args=["UnknownBase"],
@@ -304,24 +264,17 @@ async def test_reference_no_calls() -> None:
 @pytest.mark.asyncio
 async def test_reference_resolves_calls() -> None:
     """calls_raw edges are rewritten to resolved calls edges."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.reference import (
         execute_reference,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
-    g.add_node("caller", type="symbol", name="caller")
-    g.add_node("target", type="symbol", name="do_thing")
+    g = _new_graph()
+    g.add_node("caller", node_type="symbol", name="caller")
+    g.add_node("target", node_type="symbol", name="do_thing")
     g.add_edge(
         "caller",
         "unresolved",
-        type="calls_raw",
+        relationship="calls_raw",
         raw="do_thing",
     )
     ctx = _make_ctx(graph=g)
@@ -332,24 +285,17 @@ async def test_reference_resolves_calls() -> None:
 @pytest.mark.asyncio
 async def test_reference_method_call_dot_notation() -> None:
     """calls_raw with 'self.method' resolves by name suffix."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.reference import (
         execute_reference,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
-    )
-    g.add_node("caller", type="Function", name="caller")
-    g.add_node("method_target", type="Method", name="my_method")
+    g = _new_graph()
+    g.add_node("caller", node_type="Function", name="caller")
+    g.add_node("method_target", node_type="Method", name="my_method")
     g.add_edge(
         "caller",
         "unresolved",
-        type="calls_raw",
+        relationship="calls_raw",
         raw="self.my_method",
     )
     ctx = _make_ctx(graph=g)
@@ -360,20 +306,15 @@ async def test_reference_method_call_dot_notation() -> None:
 @pytest.mark.asyncio
 async def test_reference_unresolvable_skipped() -> None:
     """calls_raw to unknown symbol is skipped."""
-    import uuid
-
     from agent_utilities.knowledge_graph.pipeline.phases.reference import (
         execute_reference,
     )
 
-    name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    g._client and (
-        getattr(g._client, "create_graph", lambda x: None)(name),
-        g._client.clear(),
+    g = _new_graph()
+    g.add_node("caller", node_type="symbol", name="caller")
+    g.add_edge(
+        "caller", "nowhere", relationship="calls_raw", raw="does_not_exist"
     )
-    g.add_node("caller", type="symbol", name="caller")
-    g.add_edge("caller", "nowhere", type="calls_raw", raw="does_not_exist")
     ctx = _make_ctx(graph=g)
     result = await execute_reference(ctx, {})
     assert result == {"resolved_references": 0}
@@ -406,12 +347,12 @@ async def test_memory_with_shared_backend() -> None:
     backend = _fake_backend()
     # First call: nodes; second: edges
     backend.execute.side_effect = [
-        [{"n": {"id": "n1", "type": "file", "name": "a.py"}}],
+        [{"n": {"id": "n1", "node_type": "file", "name": "a.py"}}],
         [{"u": "n1", "v": "n2", "t": "CALLS"}],
     ]
     ctx = _make_ctx(backend=backend)
     # Add n2 so the edge has both ends
-    ctx.nx_graph.add_node("n2")
+    ctx.graph.add_node("n2")
     result = await execute_memory(ctx, {})
     assert result["nodes_loaded"] >= 1
     assert "duration_ms" in result
