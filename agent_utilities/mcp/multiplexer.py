@@ -3324,12 +3324,80 @@ async def _notify_tools_changed(mcp) -> bool:
     return True
 
 
+# Well-known ``_meta`` key an in-process caller can set on every ``tools/call``
+# it issues (``fastmcp.Client.call_tool(..., meta={_LOCAL_SESSION_META_KEY: id})``)
+# to explicitly identify which logical session it belongs to. Same wire key as
+# ``agent_utilities.observability.correlation.SESSION_HEADER`` so a caller that
+# already threads a correlation/session id through ``correlation.inject()`` /
+# ``current_carrier()`` gets multiplexer session isolation for free — imported
+# lazily below (not at module scope) purely to avoid an eager cross-package
+# import at multiplexer load time, not because of any real cycle.
+_LOCAL_SESSION_META_KEY = "x-session-id"
+_MAX_LOCAL_SESSION_ID_BYTES = 256
+
+
+def _explicit_local_session_key() -> str | None:
+    """A caller-declared session id for a NON-HTTP (stdio/in-memory) request.
+
+    CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — D-W2-6: for stdio/in-memory
+    transports the underlying MCP SDK (fastmcp 4.0.0b1 / mcp 2.0.0) gives NO
+    stable per-connection identity at all: ``Context.session_id``, the
+    low-level ``ServerSession``, and its ``Connection`` are all reconstructed
+    fresh on EVERY single request, even within the same open client connection
+    (verified empirically — not merely a docstring claim). That is why
+    :func:`_session_key`'s non-HTTP branch cannot derive an ambient per-connection
+    key the way the HTTP branch does.
+
+    Multiple logically-distinct local callers sharing ONE process (e.g. an
+    orchestrator dispatching several concurrent internal task sessions against
+    the SAME in-process multiplexer/FastMCP instance) therefore used to
+    collapse onto the single ``"__local_stdio__"`` bucket and see each other's
+    loaded tools — a real process-global visibility leak, not a hypothetical
+    one (reproduced by ``test_per_session_disclosure_isolation`` /
+    ``test_list_catalog_mounted_matches_dispatch_reality_across_sessions``).
+
+    The fix is a caller-supplied session id carried in the standard MCP
+    request ``_meta`` (``Client.call_tool(..., meta={...})`` is a first-class,
+    documented FastMCP mechanism for exactly this kind of contextual data —
+    unlike ``Context.session_id`` it is NOT reconstructed per request, it is
+    literally provided by the caller on each call). This is deliberately only
+    consulted from the non-HTTP branch of :func:`_session_key`: a real HTTP
+    session's key is derived from the AUTHENTICATED connection/token, and must
+    never be overridable by caller-declared request metadata (that would let
+    one HTTP caller simply claim another's session id). Within a single
+    trusted process, callers are not adversarial to each other in this way —
+    this only ever adds isolation between COOPERATING local callers, it can
+    never be used to cross the HTTP trust boundary.
+    """
+    try:
+        from fastmcp.server.dependencies import get_context
+
+        meta = get_context().request_context.meta
+    except Exception:
+        return None
+    if not isinstance(meta, Mapping):
+        return None
+    raw = meta.get(_LOCAL_SESSION_META_KEY)
+    if not isinstance(raw, str) or not raw:
+        return None
+    encoded = raw.encode("utf-8")
+    if len(encoded) > _MAX_LOCAL_SESSION_ID_BYTES or any(
+        ord(character) < 32 for character in raw
+    ):
+        return None
+    digest = hashlib.blake2s(encoded, key=_SESSION_KEY, digest_size=16).hexdigest()
+    return f"local_{digest}"
+
+
 def _session_key() -> str:
     """Stable per-connection key for session-scoped tool visibility.
 
     On a shared streamable-http server every client gets its own
     ``Context.session_id``; with no session context (stdio / single-client) all
-    requests fall back to one key so behaviour matches the pre-Phase-5 server.
+    requests fall back to one key so behaviour matches the pre-Phase-5 server —
+    UNLESS the caller explicitly declares its own session id (see
+    :func:`_explicit_local_session_key`), in which case that takes priority so
+    concurrent local callers in one process are not forced to share a bucket.
 
     The HTTP-context check MUST run before consulting ``Context.session_id``:
     fastmcp 4's ``Context.session_id`` no longer raises when there is no real
@@ -3346,13 +3414,13 @@ def _session_key() -> str:
 
         get_http_request()
     except RuntimeError:
-        return "__local_stdio__"
+        return _explicit_local_session_key() or "__local_stdio__"
     except Exception as exc:  # noqa: BLE001 — deliberate DEBUG: this is a per-request CONTROL-FLOW probe ("is there an HTTP request context?"), not an error path. Every stdio/local call takes it, so WARNING here would emit one line per request. The cause is preserved (interpolated) and the outcome is encoded in the returned key.
         logger.debug(
             "No HTTP request context; trying next key source: %s",
             exc,
         )
-        return "__invalid_http_context__"
+        return _explicit_local_session_key() or "__invalid_http_context__"
     try:
         sid = get_context().session_id
         if sid:
