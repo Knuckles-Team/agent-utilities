@@ -2718,7 +2718,13 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
             "ingested": 0,
             "ready": 0,
             "not_ready": sorted(BUNDLED_SKILLS),
-            "error": f"{type(exc).__name__}: {exc}",
+            # Unlike the logger.error above (an agent_utilities.* logger,
+            # already inside the process-wide privacy boundary), this dict is
+            # published via _set_bundled_skill_readiness for the /health HTTP
+            # surface (agent_utilities/observability/runtime_health.py's
+            # _check_bundled_skills) -- an external caller, so only the
+            # exception TYPE is exposed here, never its raw text (D-LR-2).
+            "error": type(exc).__name__,
         }
     return {
         "required": len(BUNDLED_SKILLS),
@@ -3655,7 +3661,10 @@ def _start_engine_bootstrap(session: Any) -> None:
                 "required": len(BUNDLED_SKILLS),
                 "ready": 0,
                 "not_ready": sorted(BUNDLED_SKILLS),
-                "error": f"{type(exc).__name__}: {exc}",
+                # See _ensure_bundled_skills_ready's identical comment: this
+                # dict is published for the /health HTTP surface, not logged,
+                # so only the exception TYPE is exposed here (D-LR-2).
+                "error": type(exc).__name__,
             }
         )
         return
@@ -4377,7 +4386,7 @@ def _preflight_mcp_sdk_floor() -> None:
         logger.warning("MCP SDK floor check skipped: %s", result["detail"])
         return
 
-    mode = os.environ.get("MCP_SDK_FLOOR_ENFORCE", "error").strip().lower()
+    mode = str(setting("MCP_SDK_FLOOR_ENFORCE", "error") or "error").strip().lower()
     message = (
         f"installed MCP SDK does not satisfy the declared [mcp] floor: {result['detail']}. "
         "The runtime image and this source tree have diverged — rebuild the image "
