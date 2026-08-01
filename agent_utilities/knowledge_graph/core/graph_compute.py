@@ -18,6 +18,7 @@ from typing import Any, cast
 
 from agent_utilities.core.config import setting
 from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+from agent_utilities.security.log_redaction import redact_for_log
 
 try:
     from opentelemetry import trace as _otel_trace
@@ -606,7 +607,7 @@ class _SessionRoutedAsyncClient:
                     logger.warning(
                         "placement-routed endpoint %s stayed unreachable after %d "
                         "reconnect attempt(s) (%s); giving up",
-                        route.endpoint,
+                        redact_for_log(route.endpoint),
                         _MAX_ROUTE_RECONNECT_ATTEMPTS,
                         type(exc).__name__,
                     )
@@ -615,7 +616,7 @@ class _SessionRoutedAsyncClient:
                     "placement-routed endpoint %s unreachable (%s: %s); "
                     "invalidating the cached route and re-resolving via any "
                     "healthy seed (attempt %d/%d)",
-                    route.endpoint,
+                    redact_for_log(route.endpoint),
                     type(exc).__name__,
                     exc,
                     connect_attempt,

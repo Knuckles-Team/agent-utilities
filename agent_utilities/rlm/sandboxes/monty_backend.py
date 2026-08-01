@@ -2,18 +2,21 @@
 
 monty (Pydantic's pure-Rust Python-subset interpreter) is the keystone of the tiering: it is
 the only *isolating* backend that can still serve the RLM host helpers, because async external
-functions suspend the VM and let the host fulfil ``await rlm_query(...)``. It starts in ~0.06ms
-(vs Docker's 100-500ms), needs no daemon or root, and enforces memory/time/recursion limits.
+functions suspend the VM and let the host fulfil ``await rlm_query(...)``. It needs no daemon or
+root and enforces memory/time/recursion limits.
 
-A fresh ``Monty`` is created per call, so a snippet's plain locals do not persist across turns;
-only seeded inputs and values written through ``FINAL_VAR`` cross the boundary. Fresh-per-call
-is also faster than a reused ``MontyRepl`` for the small snippets RLM emits (the REPL offloads
-each resume to a thread).
+``pydantic_monty``'s ``AsyncMonty`` is a worker-*pool* context manager (it owns one or more
+``monty`` subprocess workers), not a per-snippet compiled program — ``AsyncMonty().checkout()``
+hands out a ``MontySession`` bound to one worker, and ``session.feed_run(code, ...)`` executes a
+snippet in it. A fresh pool + session is opened per call here (rather than kept warm across
+calls), so a snippet's plain locals do not persist across turns; only seeded inputs and values
+written through ``FINAL_VAR`` cross the boundary.
 
 Rejection safety: monty rejects unsupported features (``class``, ``@dataclass``, unsupported
-syntax) at *construction* time — before any host helper fires — so escalating to Docker has no
-side effects. A runtime error that surfaces *after* a helper has fired is reported as an
-in-sandbox error (not escalated), to avoid re-invoking side-effecting helpers on the next tier.
+syntax) while *parsing* a fed snippet, which always happens before that snippet's own host
+helpers can fire — so escalating to Docker has no side effects. A runtime error that surfaces
+*after* a helper has fired is reported as an in-sandbox error (not escalated), to avoid
+re-invoking side-effecting helpers on the next tier.
 """
 
 from __future__ import annotations
@@ -101,6 +104,9 @@ class MontySandbox(Sandbox):
         fired = _FireCounter()
         wrapped_helpers = {n: fired.wrap(fn) for n, fn in env.helpers.items()}
         collected = CollectString()
+
+        # Fresh pool + session per call (see module docstring): matches the previous
+        # fresh-per-snippet ``Monty()`` semantics under the current worker-pool API.
         try:
             async with AsyncMonty() as pool:
                 async with pool.checkout(
