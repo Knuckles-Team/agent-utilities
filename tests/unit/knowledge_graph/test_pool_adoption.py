@@ -153,7 +153,7 @@ def test_batched_backend_fans_node_flush_then_edges() -> None:
     for index in range(8):
         backend.add_node(f"n{index}", node_type="Code")
     for index in range(7):
-        backend.add_edge(f"n{index}", f"n{index + 1}", rel_type="CALLS")
+        backend.add_edge(f"n{index}", f"n{index + 1}", relationship="CALLS")
     backend.flush()
 
     phases = [phase for phase, _ in calls]

@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-547 typed fields · 356 runtime-only call-site inputs.
+548 typed fields · 360 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -229,6 +229,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MCP_URL` | `Union` | `unset` |
 | `MCP_CONFIG` | `Union` | `unset` |
 | `MCP_FLEET_SECRET_REFS` | `dict` | `unset` |
+| `INGESTION_CONFIDENCE_THRESHOLDS` | `dict` | `unset` |
 | `MCP_TOOL_MODE` | `Literal` | `intent` |
 | `MCP_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `unset` |
 | `FASTMCP_SERVER_AUTH_STATIC_TOKENS_REF` | `Union` | `unset` |
@@ -751,6 +752,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `CHECKLIST_FILE` | 1 |
 | `CLAUDE_MEMORY_DIR` | 1 |
 | `COMPUTER_USE_TOOLS` | 1 |
+| `DATA_RESIDENCY_REGION` | 1 |
 | `DB_TOOLS` | 2 |
 | `DERIVATIVES_API_KEY` | 1 |
 | `DEVELOPER_TOOLS` | 1 |
@@ -929,6 +931,9 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MODEL_BREAKER_FAIL_THRESHOLD` | 1 |
 | `MODEL_BREAKER_MAX_COOLDOWN_S` | 1 |
 | `MODEL_CIRCUIT_BREAKER` | 1 |
+| `MODEL_CONTEXT_COMPILER_CACHE_ENABLED` | 1 |
+| `MODEL_CONTEXT_COMPILER_CACHE_MAXSIZE` | 1 |
+| `MODEL_CONTEXT_COMPILER_CACHE_TTL_S` | 1 |
 | `MODEL_CONTEXT_COMPILER_ENABLED` | 1 |
 | `MODEL_CONTEXT_ORDERING_VERSION` | 1 |
 | `MODEL_CONTEXT_REDACTION_VERSION` | 1 |

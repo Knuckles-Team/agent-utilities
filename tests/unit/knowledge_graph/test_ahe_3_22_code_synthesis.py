@@ -142,6 +142,10 @@ class TestSynthesizeCode:
 
 
 class TestExtraFilesBridge:
+    @pytest.mark.quarantine(
+        reason="D-TC-1: sandbox-validation forkserver child dies "
+        "(ModuleNotFoundError: http.server) in the shared dev sandbox"
+    )
     def test_generated_files_take_the_code_branch(self):
         proposal = {
             "id": "p:1",
@@ -208,6 +212,10 @@ def target_repo(tmp_path: Path) -> Path:
 
 
 class TestGovernedPublishLivePath:
+    @pytest.mark.quarantine(
+        reason="D-TC-1: sandbox-validation forkserver child dies "
+        "(ModuleNotFoundError: http.server) in the shared dev sandbox"
+    )
     def test_governed_publish_emits_generated_code(
         self, monkeypatch, target_repo, tmp_path
     ):

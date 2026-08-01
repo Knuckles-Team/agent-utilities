@@ -177,25 +177,22 @@ class KGMapper:
     def _serialize(self, node: RegistryNode, label: str) -> dict[str, Any]:
         """Serialize a Pydantic node to a flat dict suitable for KG storage.
 
-        Handles nested structures by JSON-encoding complex types while
-        preserving scalar fields as native KG properties.
+        Nested structures (dict/list) are kept NATIVE here — this one dict is
+        handed to both the graph-compute layer (``engine.graph.add_node``,
+        which stores nested maps/lists natively) and the backend mirror layer
+        (``engine._upsert_node``, whose own ``_prepare_node_props`` already
+        JSON-encodes nested values per-backend, only where that backend's
+        driver actually requires it). Pre-encoding here would be redundant on
+        the backend leg and lossy on the compute leg (a caller reading
+        ``engine.graph.nodes[id]['field']`` back would get a JSON string
+        instead of the dict/list it wrote) — see D-OTR-5.
         """
-        import json
-
         # The one model -> engine projection (``type`` -> canonical ``node_type``).
         props: dict[str, Any] = {}
         for key, value in node.to_graph_properties().items():
             if value is None:
                 continue
-            if isinstance(value, dict | list):
-                # KG backends generally don't support nested structures;
-                # serialize to JSON string for storage, deserialize on load.
-                if key == "embedding" and isinstance(value, list):
-                    props[key] = value  # Keep embeddings as native arrays
-                else:
-                    props[key] = json.dumps(value)
-            else:
-                props[key] = value
+            props[key] = value
         return props
 
     def _deserialize(self, data: dict[str, Any], model_cls: type[T]) -> T:

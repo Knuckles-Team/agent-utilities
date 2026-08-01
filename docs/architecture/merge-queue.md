@@ -100,7 +100,7 @@ budget nobody can read is a budget nobody can hold the queue to.
 | merge-cleanliness (`merge-tree --write-tree`) | **~25 ms per candidate** — no checkout, no index, no ref | fast |
 | materialize the merged commit (`worktree add --detach`) | **0.5–0.8 s** | fast |
 | cross-branch duplicate-symbol scan | **0.3–2.3 s** for 40–70 changed files | fast |
-| repo-invariant contract checks (merged tree) | **0.72–0.81 s** for both live scripts | fast |
+| repo-invariant contract checks (merged tree) | **~31 s** for the 11 discovered scripts, concurrent (was ~73 s sequential; 0.72–0.81 s when only 2 scripts were discoverable, before D-MW-9) | fast |
 | import smoke over changed modules | **1.9 s** (3 modules) → **14.3 s** (36 modules) | fast |
 | targeted tests over changed paths | **34 s** (36 test files) | fast |
 | **whole gate, 1 candidate** | **14.6 s** and **36.4 s** on two real branches | fast |
@@ -286,12 +286,47 @@ Two design choices make this generalize rather than special-case D-WD-1:
   found" and "everything passed" must not share a value, but neither may an honest
   absence be treated as a fault.
 
-**Measured cost: 0.72–0.81 s** for both live scripts together (`check_sbom_licenses`
-1.5 s cold, `check_tenant_identity_contract` ~0.15 s) — under 0.5 % of the 180 s
-budget, and comfortably under the ~2 s expectation. Proven end-to-end: injecting the
-reverted line into an otherwise-clean merged tree flips the check from
-`{"ok": true}` / exit 0 to `{"error": "TenantIdentityContractError"}` / exit 1 in
-146 ms.
+**Measured cost, updated (D-MW-9).** The discovered set grew from 2 scripts to 11:
+`check_swallowed_errors.py` and 6 boundary/contract gates
+(`check_native_change_envelope_boundary.py`, `check_context_compiler_boundary.py`,
+`check_http_egress_boundary.py`, `check_current_only_contract.py`,
+`check_public_graph_boundary.py`, `check_external_graph_contract.py`) had been
+living one directory up, at `scripts/check_*.py` — outside `CONTRACT_CHECK_GLOB`
+entirely, so the queue never ran them (they were wired only into
+`.github/workflows/guardrails.yml`, and that workflow only fires on a push/PR this
+polyrepo's CI actually receives — a real gap when a checkout is ahead of its
+remote). Moved into `scripts/security/` where discovery already looked.
+
+Sequential execution of all 11 measured ~73 s — ~40% of the 180 s
+`FAST_GATE_BUDGET_SECONDS` lease on its own, dominated by
+`check_context_compiler_boundary.py`'s full-repo test-file scan (~30 s). Contract
+checks are independent, read-only scripts against the same tree, so they now run
+**concurrently** (`ThreadPoolExecutor`, `CONTRACT_CHECK_MAX_WORKERS = 8`) — wall
+time tracks the slowest single script, ~31 s measured. Proven end-to-end (pre-move):
+injecting the reverted line into an otherwise-clean merged tree flips
+`check_tenant_identity_contract.py` from `{"ok": true}` / exit 0 to
+`{"error": "TenantIdentityContractError"}` / exit 1 in 146 ms.
+
+**Differential contract gating (D-MW-9).** Three of the newly-discovered gates are
+genuinely red on `main` right now — real, pre-existing feature debt, not a defect
+in the gate: `check_current_only_contract.py` (~490 retired-surface references),
+`check_context_compiler_boundary.py` (23 raw-`Agent`-construction sites),
+`check_native_change_envelope_boundary.py` (1 legacy direct-write seam). Judging
+every discovered script by exit code alone — the original shape of this step —
+would refuse **every** candidate the moment discovery widened, recreating the exact
+absolute-green deadlock this document's differential-test section already escaped.
+`compute_contract_baseline` (mirroring `compute_test_baseline` below) now diffs
+each non-clean script's *output lines* against the same script's output on
+`base_ref`: a line present on the merged tree but absent from the base run is a NEW
+violation and blocks; a line present on both is pre-existing debt, reported
+explicitly, never silent, never blocking. Scripts that fail via a **static message
+or a bare `sys.exit(1)`** with no itemized output (`check_sbom_licenses.py`'s
+`{"error": "LicenseAuditError"}` shape) fall back to script-level
+clean/not-clean — the finest signal available for that class of script, and a
+known, documented limitation: a second, *different* violation in an
+already-red non-itemized script will not be caught until the script itself
+reports its findings one-per-line. Cached per `(base_sha, script)`, same
+per-item granularity as the test-baseline cache below.
 
 > **On the gate's interpreter.** The gate resolves and *reports* the repo `.venv`
 > explicitly and never invokes `uv run`. A bare `uv run pytest` falls back to the
@@ -324,18 +359,34 @@ individual failing-test-id.
   no pre-existing failures." A base that genuinely produces zero failures for the
   selection is the other case, and *that* means any merged-tree failure is
   unambiguously new.
-* **Cached, content-addressed.** Keyed by `(base_sha, sorted selection,
-  interpreter)` under the same shared, unversioned arbitration directory the queue
-  itself uses. `main` is static within a batch — `select_tests` already computes
-  one selection per batch/sub-batch attempt, not per candidate — so the expensive
-  run happens once per distinct selection and every later call is a cache hit.
-  Only a *readable* result is cached: an unreadable run may be a transient fluke,
-  and caching that would turn one bad run into a standing refusal.
+* **Cached, per-file (D-MW-10).** Originally keyed by `(base_sha, sorted
+  selection, interpreter)` under the same shared, unversioned arbitration
+  directory the queue itself uses — but during an active merge wave (`main`
+  moving dozens of times) almost every batch computes a different selection at a
+  different `base_sha`, so that key almost never hit: one real branch was
+  REFUSED after its baseline run exceeded the (then-shared) 120 s budget under
+  concurrent-lane contention. The cache is now keyed per `(base_sha, FILE)`
+  instead of per `(base_sha, whole selection)`: a selection that is a pure
+  SUBSET of one already baselined at the same `base_sha` — exactly what
+  `integrate_batch`'s bisection produces on every retry, since a sub-batch's
+  changed-path union is by construction a subset of its parent's — now costs
+  nothing at all, no subprocess, no worktree checkout. A partially-overlapping
+  selection only pays for the genuinely new files. The base run also has its
+  own, larger, separate budget (`BASELINE_TEST_BUDGET_SECONDS = 240`,
+  decoupled from the merged-tree run's `TARGETED_TEST_BUDGET_SECONDS = 120`)
+  because it is not on a candidate's critical path once its cache is warm.
+  Pure content-hash keying (hash the selected files' bytes, drop `base_sha`
+  from the key entirely) was considered and rejected: most merges touch
+  source files the selected tests import, so a content-only key would reuse a
+  baseline computed against a different, stale tree — violating "never permit
+  a failure that isn't provably present on the base ref." Only a *readable*
+  result is ever cached: an unreadable run may be a transient fluke, and
+  caching that would turn one bad run into a standing refusal.
 * **Measured cost.** Against this repo's own real, pre-existing red
   (`tests/integration/knowledge_graph/test_engine_helpers.py` +
   `test_knowledge_tools.py`, 30 failing / 1 passing on `main` at the time of
-  writing): a cold baseline run took **~34 s** (well inside the 120 s
-  `TARGETED_TEST_BUDGET_SECONDS` ceiling) and a cache hit took **~4 ms**. The
+  writing): a cold baseline run took **~34 s** (well inside even the original
+  120 s ceiling) and a cache hit took **~4 ms**. The
   baseline is only ever computed after the merged-tree run is itself readable, so a
   candidate whose merged tree is fully green pays nothing extra beyond a cache
   lookup when a baseline already exists for that exact selection, and a candidate

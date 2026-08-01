@@ -8,6 +8,8 @@ warnings".
 
 from __future__ import annotations
 
+import dataclasses
+
 import _fixtures
 import pytest
 import yaml
@@ -22,8 +24,11 @@ from agent_utilities.knowledge_graph.domain_packs.pack_loader import (
     DomainPackError,
     DomainPackRegistry,
     canonical_ontology_class_names,
+    get_default_registry,
     load_pack,
+    reset_default_registry,
 )
+from agent_utilities.knowledge_graph.ingestion.evidence_spine import Fragment
 
 
 def test_valid_pack_loads_and_compiles_its_ontology_extension(tmp_path):
@@ -115,24 +120,23 @@ def test_table_edge_target_referencing_unknown_class_is_refused(tmp_path):
 
 
 def test_evaluation_case_mismatch_is_refused(tmp_path):
+    status_fragment = Fragment.at(
+        artifact_id="md:z",
+        kind="frontmatter_key",
+        label="status",
+        text="active",
+        attributes={"key": "status", "value": "active"},
+    )
     bad_case = EvaluationCase(
         name="wrong-on-purpose",
         artifact={
             "artifact_id": "md:z",
-            "source_path": "z.md",
-            "content_hash": "0" * 64,
+            "connector": "test-fixture",
+            "media_type": "text/markdown",
+            "content_hash": "sha256:" + "0" * 64,
+            "source_object_id": "z.md",
         },
-        fragments=[
-            {
-                "fragment_id": "md:z#frontmatter:status",
-                "artifact_id": "md:z",
-                "fragment_type": "frontmatter_key",
-                "locator": "frontmatter.status",
-                "content_hash": "1" * 64,
-                "value": "active",
-                "metadata": {"key": "status"},
-            }
-        ],
+        fragments=[dataclasses.asdict(status_fragment)],
         # Deliberately wrong: the status rule always sets node_type Document.
         expect_entities=[{"id": "md:z", "node_type": "SomethingElseEntirely"}],
         expect_relationships=[],
@@ -216,3 +220,69 @@ def test_one_invalid_pack_does_not_silently_disable_a_valid_sibling(tmp_path):
     # good one directly.
     loaded_good = registry.install(tmp_path / "good-pack")
     assert loaded_good.manifest.pack == "good-pack"
+
+
+@pytest.fixture(autouse=True)
+def _reset_default_registry():
+    """The process-wide default registry (D-GP2-3) is cached global state —
+    isolate every test in this module from whatever an earlier test (or
+    process) left behind."""
+    reset_default_registry()
+    yield
+    reset_default_registry()
+
+
+def test_default_registry_is_empty_when_no_root_configured(monkeypatch):
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "domain_packs_root", "")
+
+    registry = get_default_registry()
+
+    assert registry.list() == []
+    assert registry.get("runbooks") is None
+
+
+def test_default_registry_discovers_from_configured_root(tmp_path, monkeypatch):
+    from agent_utilities.core.config import config
+
+    manifest = _fixtures.build_manifest(pack_name="runbooks")
+    _fixtures.write_pack(tmp_path, manifest)
+    monkeypatch.setattr(config, "domain_packs_root", str(tmp_path))
+
+    registry = get_default_registry()
+
+    assert registry.get("runbooks") is not None
+    # Cached: a second call returns the SAME registry instance, not a re-scan.
+    assert get_default_registry() is registry
+
+
+def test_default_registry_discovery_failure_does_not_raise(tmp_path, monkeypatch, caplog):
+    from agent_utilities.core.config import config
+
+    bad_dir = tmp_path / "bad-pack"
+    bad_dir.mkdir()
+    (bad_dir / "domain_pack.yml").write_text("not: [valid, %%%", encoding="utf-8")
+    monkeypatch.setattr(config, "domain_packs_root", str(tmp_path))
+
+    with caplog.at_level("ERROR"):
+        registry = get_default_registry()
+
+    assert registry.get("bad-pack") is None
+    assert any("discovery" in record.message for record in caplog.records)
+
+
+def test_reset_default_registry_forces_rediscovery(tmp_path, monkeypatch):
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "domain_packs_root", str(tmp_path))
+    first = get_default_registry()
+
+    manifest = _fixtures.build_manifest(pack_name="runbooks")
+    _fixtures.write_pack(tmp_path, manifest)
+    reset_default_registry()
+    second = get_default_registry()
+
+    assert first is not second
+    assert first.get("runbooks") is None
+    assert second.get("runbooks") is not None

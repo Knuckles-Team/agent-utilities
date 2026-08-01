@@ -190,12 +190,17 @@ class TestPromptVersioning:
         assert v2["content"] == "v2"
         assert v2["parent_id"] == v1["id"]
 
-        # Check edge exists. kg_adapter.update_prompt writes the edge property
-        # under the canonical ``relationship`` key (dropping the retired
-        # ``rel_type`` alias), with the raw RegistryEdgeType member as the
-        # value -- a StrEnum, so it compares equal to its lowercase .value.
+        # Check edge exists. kg_adapter.update_prompt's own self.graph.add_edge
+        # call writes the edge property under the canonical ``relationship``
+        # key with the raw (lowercase) RegistryEdgeType value, but when a
+        # backend is configured (as here) update_prompt ALSO dispatches
+        # through self.link_nodes -- which upper-cases the relationship
+        # value before its own write (the converged relationship-type
+        # convention every link_nodes call site uses, D-GS4-1/D-GS7-1) --
+        # so the value actually observable on the compute-leg edge is
+        # upper-cased, not the enum's lowercase .value.
         has_supersedes = any(
-            edata.get("relationship") == RegistryEdgeType.SUPERSEDES
+            edata.get("relationship") == RegistryEdgeType.SUPERSEDES.value.upper()
             for _, _, edata in engine.graph.out_edges(v2["id"], data=True)
         )
         assert has_supersedes

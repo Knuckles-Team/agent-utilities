@@ -120,7 +120,15 @@ async def get_graph_stats():
         }
     try:
         node_rows = engine.query_cypher("MATCH (n) RETURN count(n) AS c") or []
-        edge_rows = engine.query_cypher("MATCH ()-[r]->() RETURN count(r) AS c") or []
+        # A bare `MATCH ()-[r]->()` binds no node variable, so
+        # TenancyManager.scope_cypher_query (CONCEPT:AU-KG.backend.company-brain-write-guard)
+        # cannot derive a tenant predicate to inject and fails closed with
+        # UnscopableQueryError (D-W2T-1) -- this endpoint would then always
+        # error instead of sometimes limping through on an unscoped count.
+        # Binding the source node as `a` scopes the edge count by the SAME
+        # tenant-visibility rule the node count above already uses (an edge is
+        # counted iff its source node is visible to the tenant).
+        edge_rows = engine.query_cypher("MATCH (a)-[r]->() RETURN count(r) AS c") or []
         nodes = int(node_rows[0]["c"]) if node_rows else 0
         edges = int(edge_rows[0]["c"]) if edge_rows else 0
     except Exception as exc:  # noqa: BLE001
