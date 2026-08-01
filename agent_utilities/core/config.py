@@ -2499,6 +2499,19 @@ class AgentConfig(BaseSettings):
     # column size is derived from this, so a mismatch breaks node inserts.
     kg_embedding_dim: str | None = Field(default="768", alias="KG_EMBEDDING_DIM")
 
+    # Auto-embed at ingest time (D-PERF-5 / D-EMB): every typed-entity write that
+    # goes through the ChangeEnvelope boundary (``ingestion/envelope_ingest.py``)
+    # gets a best-effort embedding computed from its own record text, so an entity
+    # never lands with zero vector coverage the way the whole typed-entity fleet
+    # did before this flag existed (only ~6 document-shaped connectors embedded;
+    # every ChangeEnvelope-based connector — ServiceNow, LeanIX, GitHub, Twenty,
+    # ... — did not). A missing/unreachable embedding endpoint degrades this to a
+    # no-op (logged once) rather than failing the entity's write — embedding is a
+    # retrieval nicety, never a durability gate. Default on in production; unit
+    # tests that construct envelopes without a live embedding endpoint configured
+    # get the same no-op behavior for free.
+    kg_ingest_auto_embed: bool = Field(default=True, alias="KG_INGEST_AUTO_EMBED")
+
     # Single dev switch that disables ALL KG background daemons (maintenance
     # scheduler: enrichment/reconcile/file-watch/hygiene/task-reaper + the
     # embedding backfill). Production keeps them all on; this replaces the old

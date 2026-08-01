@@ -813,6 +813,18 @@ class ContextCompiler:
             if quality_gate_failed
             else ""
         )
+        # D-EGD-5: when the gate's own SPARSE_INDEX check fired, fold the
+        # sampled population ratio into the reason string too — "sparse_index"
+        # alone tells a caller THAT the index is empty, but "sparse_index(0.5%)"
+        # tells them by how much, without needing to re-derive it from a
+        # separate diagnostic. index_population_ratio is only ever set when the
+        # gate already sampled it (see RetrievalQualityGate._sample_index_population).
+        if quality_gate_failed and "sparse_index" in quality_reason:
+            ratio = getattr(quality_report, "index_population_ratio", None)
+            if ratio is not None:
+                quality_reason = quality_reason.replace(
+                    "sparse_index", f"sparse_index({ratio * 100:.1f}%)"
+                )
         decisions: list[dict[str, Any]] = []
 
         # ---- 6. POLICY — the SAME fine-grained gate the live read path uses.

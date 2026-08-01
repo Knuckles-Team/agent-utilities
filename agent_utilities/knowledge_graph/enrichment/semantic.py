@@ -254,6 +254,109 @@ def entity_text(node_type: str, name: str, summary: str = "", extra: str = "") -
     return " — ".join(p for p in parts if p)
 
 
+# Field-name priority for the generic (connector-agnostic) text extractor below.
+# Every typed-entity connector (ServiceNow, LeanIX, GitHub, Twenty, Jellyfin, ...)
+# builds its own ``{"id", "type", **props}`` record shape (see
+# ``ChangeEnvelope.from_connector_record``) with its own field names, so there is
+# no single canonical "the title field" — these are the common ones observed
+# across the fleet, checked in priority order. NAME_FIELDS come first (identity),
+# then SUMMARY_FIELDS (free text), mirroring ``entity_text``'s (name, summary)
+# shape.
+_ENTITY_NAME_FIELDS: tuple[str, ...] = (
+    "name",
+    "title",
+    "displayName",
+    "display_name",
+    "label",
+    "subject",
+    "short_description",
+)
+_ENTITY_SUMMARY_FIELDS: tuple[str, ...] = (
+    "description",
+    "summary",
+    "body",
+    "content",
+    "comment",
+    "message",
+    "text",
+    "notes",
+)
+# Never embed identifiers, timestamps, urls, or other low-signal/high-churn
+# fields even when they happen to be strings — keeps ``derive_entity_text``
+# deterministic and avoids polluting the embedding with noise.
+_ENTITY_TEXT_SKIP_KEYS = frozenset(
+    {
+        "id",
+        "embedding",
+        "text",
+        "tenant_id",
+        "tenant",
+        "source_instance",
+        "source_system",
+        "domain",
+        "classification",
+        "retention",
+        "legal_hold",
+        "external_access",
+        "_links",
+        "_features",
+        "_evidence",
+        "_nodes",
+    }
+)
+# Property-value length cap and overall text cap keep one pathological field
+# (e.g. an inlined document body) from producing an oversized embedding input.
+_ENTITY_FIELD_VALUE_CAP = 2000
+_ENTITY_TEXT_CAP = 4000
+
+
+def derive_entity_text(props: dict[str, Any]) -> str:
+    """Best-effort connector-agnostic text extraction for embedding an entity.
+
+    CONCEPT:AU-KG.ingest.entity-embedding-at-write — every typed-entity
+    connector builds a differently-shaped ``dict`` (see
+    ``ChangeEnvelope.from_connector_record``'s docstring), so there is no
+    single field name to embed. This checks a priority list of common
+    name/title fields, then common description/body fields, then — only if
+    neither produced anything — falls back to concatenating every short
+    string-valued leaf property (skipping ids/timestamps/governance fields)
+    so an entity with unusual field names still gets *something* embedded
+    rather than silently landing with no vector.
+
+    Returns "" when no usable text was found (callers must treat that as
+    "skip embedding this record", not as an error).
+    """
+    if not props:
+        return ""
+    node_type = str(props.get("type") or props.get("node_type") or "")
+    name = ""
+    for key in _ENTITY_NAME_FIELDS:
+        value = props.get(key)
+        if isinstance(value, str) and value.strip():
+            name = value.strip()[:_ENTITY_FIELD_VALUE_CAP]
+            break
+    summary = ""
+    for key in _ENTITY_SUMMARY_FIELDS:
+        value = props.get(key)
+        if isinstance(value, str) and value.strip():
+            summary = value.strip()[:_ENTITY_FIELD_VALUE_CAP]
+            break
+    if name or summary:
+        return entity_text(node_type, name or node_type, summary)[:_ENTITY_TEXT_CAP]
+
+    # Fallback: no recognized field matched — concatenate short string leaves so
+    # an unusual connector shape still yields embeddable text.
+    fallback_parts: list[str] = [node_type] if node_type else []
+    for key, value in props.items():
+        if key in _ENTITY_TEXT_SKIP_KEYS or key in _ENTITY_NAME_FIELDS:
+            continue
+        if isinstance(value, str) and value.strip() and len(value) < 500:
+            fallback_parts.append(value.strip())
+        if sum(len(p) for p in fallback_parts) > _ENTITY_TEXT_CAP:
+            break
+    return " — ".join(fallback_parts)[:_ENTITY_TEXT_CAP]
+
+
 def embed_and_store(
     backend: Any, items: list[tuple[str, str]], embed_fn: EmbedFn
 ) -> int:
