@@ -104,6 +104,69 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+class WorkflowHasNoStepsError(ValueError):
+    """Raised when a stored ``WorkflowDefinition`` resolves to zero executable steps.
+
+    CONCEPT:AU-ORCH.execution.no-silent-success-on-empty-workflow (D-FSR-1) — a
+    workflow MAY legitimately be *defined* with zero steps (a placeholder, or a
+    template awaiting authoring); defining one is not this bug. But *executing*
+    a zero-step definition must never report success having done nothing — the
+    caller cannot otherwise distinguish "ran fine" from "ran nothing".
+
+    Raised from :meth:`WorkflowRunner._execute_plan_via_agents`, the single
+    choke point ``execute_by_name``/``resume``/``resume_localized`` all route
+    through, so every caller is covered — including the several that invoke
+    ``Orchestrator.execute_workflow``/``WorkflowRunner`` directly and never
+    pass through the ``graph_workflows`` MCP tool's SHACL/ACL
+    ``workflow_gate.gate_workflow_execution`` pre-dispatch gate (which only
+    guards the MCP boundary): ``ticket_playbooks._dispatch_workflow``,
+    ``loop_controller._default_skill_runner``,
+    ``weights_distillation._dispatch_train_workflow``, and
+    ``schedule_engine``'s ``kind in ("workflow", "agent")`` dispatch. All of
+    those already wrap the call in ``try/except Exception`` and degrade to a
+    failed/skipped result, so raising here turns a fake success into the
+    correctly-surfaced failure at every one of them, not just this MCP tool.
+    """
+
+
+def _callable_resource_skill_hint(engine: Any, workflow_name: str) -> str:
+    """Best-effort: does a ``CallableResource(AGENT_SKILL)`` share this name?
+
+    Purely advisory context for :class:`WorkflowHasNoStepsError` — many of the
+    415 stale zero-step ``WorkflowDefinition`` nodes (the fixed skill-ingester
+    bug, D-FSR-1) now have a sibling correct ``CallableResource(AGENT_SKILL)``
+    node of the same name (the 267-node repair pass, 77 -> 344). Surfacing
+    that here lets a caller self-correct to ``graph_orchestrate`` instead of
+    just hitting a dead end. Never raises; an absent/unreachable backend
+    degrades to no hint, same as every other best-effort graph read in this
+    module.
+    """
+    backend = getattr(engine, "backend", None)
+    if backend is None:
+        return ""
+    try:
+        rows = backend.execute(
+            "MATCH (r:CallableResource) WHERE r.name = $name "
+            "AND r.resource_type = 'AGENT_SKILL' RETURN r.id AS rid LIMIT 1",
+            {"name": workflow_name},
+        )
+    except Exception as exc:  # noqa: BLE001 — advisory hint only, never fatal
+        logger.debug(
+            "[D-FSR-1] CallableResource hint lookup failed for %r: %s",
+            workflow_name,
+            exc,
+        )
+        return ""
+    if rows:
+        return (
+            f"A CallableResource(AGENT_SKILL) named '{workflow_name}' exists — "
+            "consider graph_orchestrate(skill_name=...) instead of executing "
+            "this (stale/empty) WorkflowDefinition."
+        )
+    return ""
+
+
 # Registry for tracking workflow runs (both active and completed) within this process
 _active_workflows: dict[str, WorkflowResult] = {}
 
@@ -899,6 +962,23 @@ class WorkflowRunner:
         wf_started = _time.monotonic()
 
         steps = list(plan.steps)
+        if not steps:
+            # D-FSR-1 — a stored WorkflowDefinition with zero WorkflowStep
+            # nodes must refuse execution, not fall through the (necessarily
+            # empty) wave loop below into a trivially "completed" result.
+            # This is the ONLY correct place for the check: definition-time
+            # (compiling/persisting a workflow) must stay free to create a
+            # legitimately empty/placeholder workflow; it is EXECUTING one
+            # that must never silently report success.
+            hint = _callable_resource_skill_hint(engine, workflow_name)
+            message = (
+                f"Workflow '{workflow_name}' has no executable steps "
+                "(0 WorkflowStep nodes) — refusing to report success for a "
+                "run that would do nothing."
+            )
+            if hint:
+                message = f"{message} {hint}"
+            raise WorkflowHasNoStepsError(message)
         # Resolve per-step (agent_name, task) from the canonical WorkflowStep shape:
         # step.id is the resolvable agent/skill/server name, step.refined_subtask the
         # task (falling back to the step description / the workflow-level task).
