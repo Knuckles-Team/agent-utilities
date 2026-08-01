@@ -3,7 +3,7 @@
 CONCEPT:AU-OS.governance.truthful-state-invariant.
 
 **Status:** root-caused and fixed on `fix/mcp-tool-state-desync` (worktree
-`/home/apps/worktrees/au-mcp-tool-desync`, commit `5f235f52`), **awaiting merge to
+`${WORKTREES_ROOT}/au-mcp-tool-desync`, commit `5f235f52`), **awaiting merge to
 `main`**. This document is the formal RCA the operator asked for; it also
 generalizes the finding into a named invariant and surveys the codebase for
 other places the same class of bug can hide — two of which are still open (see
@@ -296,7 +296,7 @@ surgical to the RCA the operator asked for.
 ## Verification
 
 - Fix branch: `fix/mcp-tool-state-desync` @ `5f235f52`, worktree
-  `/home/apps/worktrees/au-mcp-tool-desync`. 183 tests passed. Awaiting merge.
+  `${WORKTREES_ROOT}/au-mcp-tool-desync`. 183 tests passed. Awaiting merge.
 - 11 pre-existing, unrelated `ChildRuntime`/circuit-breaker test failures are
   recorded separately as `D-DESYNC-1` (`reports/deferred/lane-mcp-desync.md`)
   — reproduced identically on the unmodified base commit, not introduced by
