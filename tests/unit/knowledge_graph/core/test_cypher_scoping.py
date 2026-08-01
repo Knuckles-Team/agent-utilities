@@ -134,6 +134,21 @@ def test_scope_cypher_query_fails_closed_for_an_unscopable_query():
         )
 
 
+def test_scope_cypher_query_scopes_the_bound_edge_count_shape():
+    """D-W2T-1: routers/enhanced.py + routers/commands.py's global-edge-count
+    query used to be the exact anonymous `MATCH ()-[r]->()` shape the previous
+    test proves is unscopable -- so /graph/stats and 'kg stats' always failed
+    with UnscopableQueryError. Both call sites now bind the source node as `a`
+    (``MATCH (a)-[r]->() RETURN count(r) AS c``), which this proves IS scopable.
+    """
+    tm = TenancyManager()
+    scoped = tm.scope_cypher_query(
+        "MATCH (a)-[r]->() RETURN count(r) AS c", tenant_id="tenant-a"
+    )
+    assert "a.tenant_id = 'tenant-a'" in scoped
+    assert "n.tenant_id" not in scoped
+
+
 # ---------------------------------------------------------------------------
 # 3. inject_and_predicate: the OR-precedence hole
 # ---------------------------------------------------------------------------
@@ -163,7 +178,10 @@ def test_scope_cypher_query_closes_the_or_bypass_for_find_relevant_policies():
     # their own parenthesized unit -- NOT `p.tenant_id = 'tenant-a' AND
     # p.name CONTAINS $q OR p.description CONTAINS $q`, which would let any
     # row matching the description clause alone bypass tenant scoping.
-    assert "(p.tenant_id = 'tenant-a') AND (p.name CONTAINS $q OR p.description CONTAINS $q)" in scoped
+    assert (
+        "(p.tenant_id = 'tenant-a') AND (p.name CONTAINS $q OR p.description CONTAINS $q)"
+        in scoped
+    )
 
 
 # ---------------------------------------------------------------------------
