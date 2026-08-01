@@ -14,10 +14,7 @@ from agent_utilities.knowledge_graph.domain_packs.dsl import (
     MappingError,
     evaluate_mapping,
 )
-from agent_utilities.knowledge_graph.domain_packs.fragment_contract import (
-    Artifact,
-    Fragment,
-)
+from agent_utilities.knowledge_graph.ingestion.evidence_spine import Artifact, Fragment
 
 
 def _case_artifact_and_fragments():
@@ -62,14 +59,17 @@ def test_every_produced_fact_is_traceable_to_its_rule():
 
 def test_unmatched_fragment_is_reported_not_silently_dropped():
     manifest = _fixtures.build_manifest(evaluation_cases=[])
-    artifact = Artifact(artifact_id="md:x", source_path="x.md", content_hash="0" * 64)
-    stray = Fragment(
-        fragment_id="md:x#paragraph:0",
+    artifact = Artifact(
         artifact_id="md:x",
-        fragment_type="paragraph",
-        locator="paragraph[0]",
-        content_hash="a" * 64,
-        value="just prose, no rule targets this",
+        connector="test-fixture",
+        media_type="text/markdown",
+        content_hash="sha256:" + "0" * 64,
+    )
+    stray = Fragment.at(
+        artifact_id="md:x",
+        kind="paragraph",
+        ordinal=0,
+        text="just prose, no rule targets this",
     )
 
     result = evaluate_mapping(manifest, artifact, [stray])
@@ -92,15 +92,18 @@ def test_heading_mapping_creates_section_and_parent_edge():
         ],
         evaluation_cases=[],
     )
-    artifact = Artifact(artifact_id="md:h", source_path="h.md", content_hash="0" * 64)
-    heading_fragment = Fragment(
-        fragment_id="md:h#heading:Steps",
+    artifact = Artifact(
         artifact_id="md:h",
-        fragment_type="heading_section",
-        locator="heading[Steps]",
-        content_hash="b" * 64,
-        value="Steps",
-        metadata={"heading": "Steps", "heading_path": "Steps", "level": 1},
+        connector="test-fixture",
+        media_type="text/markdown",
+        content_hash="sha256:" + "0" * 64,
+    )
+    heading_fragment = Fragment.at(
+        artifact_id="md:h",
+        kind="heading",
+        label="Steps",
+        text="Steps",
+        attributes={"heading": "Steps", "heading_path": "Steps", "level": 1},
     )
 
     result = evaluate_mapping(manifest, artifact, [heading_fragment])
@@ -125,15 +128,18 @@ def test_template_referencing_unknown_field_raises_loudly():
         ],
         evaluation_cases=[],
     )
-    artifact = Artifact(artifact_id="md:e", source_path="e.md", content_hash="0" * 64)
-    heading_fragment = Fragment(
-        fragment_id="md:e#heading:Intro",
+    artifact = Artifact(
         artifact_id="md:e",
-        fragment_type="heading_section",
-        locator="heading[Intro]",
-        content_hash="c" * 64,
-        value="Intro",
-        metadata={"heading": "Intro", "heading_path": "Intro"},
+        connector="test-fixture",
+        media_type="text/markdown",
+        content_hash="sha256:" + "0" * 64,
+    )
+    heading_fragment = Fragment.at(
+        artifact_id="md:e",
+        kind="heading",
+        label="Intro",
+        text="Intro",
+        attributes={"heading": "Intro", "heading_path": "Intro"},
     )
 
     try:

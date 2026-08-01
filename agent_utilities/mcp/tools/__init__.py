@@ -12,6 +12,9 @@ from agent_utilities.mcp.tools.analyze_suite import register_analyze_suite_tools
 from agent_utilities.mcp.tools.argument_tools import register_argument_tools
 from agent_utilities.mcp.tools.audit_tools import register_audit_tools
 from agent_utilities.mcp.tools.bus_tools import register_bus_tools
+from agent_utilities.mcp.tools.candidate_claim_tools import (
+    register_candidate_claim_tools,
+)
 from agent_utilities.mcp.tools.claim_tools import register_claim_tools
 from agent_utilities.mcp.tools.compliance_tools import register_compliance_tools
 from agent_utilities.mcp.tools.domain_ops_tools import register_domain_ops_tools
@@ -49,6 +52,7 @@ __all__ = [
     "register_ontology_tools",
     "register_reach_tools",
     "register_bus_tools",
+    "register_candidate_claim_tools",
     "register_claim_tools",
     "register_secret_tools",
     "register_engine_tools",

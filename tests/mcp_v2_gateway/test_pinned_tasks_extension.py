@@ -157,9 +157,10 @@ async def test_tasks_results_conform_to_the_pinned_offline_extension_contract() 
         Draft202012Validator(_GET_TASK_SCHEMA).validate(polled["result"])
         assert polled["result"]["ttlMs"] is None
 
-    created = GraphOSV2Gateway(_TasksDownstream("queued"))._task_from_status(
+    created = await GraphOSV2Gateway(_TasksDownstream("queued"))._task_from_status(
         "job:opaque",
         {"status": "queued", "created_at": 0, "updated_at": 1},
+        context,
         result_type="task",
     )
     Draft202012Validator(_CREATE_TASK_SCHEMA).validate(created)

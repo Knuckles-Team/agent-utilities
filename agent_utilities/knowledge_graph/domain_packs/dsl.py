@@ -1,7 +1,7 @@
 """The declarative mapping DSL evaluator (CONCEPT:AU-KG.ingest.mapping-dsl).
 
 Turns a :class:`~.domain_pack.DomainPackManifest`'s ``mappings`` + a stream of
-:class:`~.fragment_contract.Fragment` objects into **proposed facts** —
+real :class:`~..ingestion.evidence_spine.Fragment` objects into **proposed facts** —
 plain, inert entity/relationship dicts in the exact shape
 ``ingestion.envelope_ingest.ingest_graph_slice`` already accepts. Nothing here
 touches the graph: :func:`evaluate_mapping` is a pure function (fragments in,
@@ -21,9 +21,11 @@ fragment, before anything is written.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..ingestion.evidence_spine import Artifact, Fragment
 from .domain_pack import (
     DomainPackManifest,
     FrontmatterMapping,
@@ -32,7 +34,6 @@ from .domain_pack import (
     LinkMapping,
     TableMapping,
 )
-from .fragment_contract import ArtifactLike, FragmentLike
 
 __all__ = [
     "MappingError",
@@ -159,29 +160,42 @@ def _render(template: str, context: dict[str, Any], *, rule: str) -> str:
 
 def _apply_frontmatter(
     rule: FrontmatterMapping,
-    artifact: ArtifactLike,
-    fragment: FragmentLike,
+    artifact: Artifact,
+    fragment: Fragment,
     result: MappingResult,
 ) -> bool:
-    if fragment.fragment_type != "frontmatter_key":
+    if fragment.kind != "frontmatter_key":
         return False
-    if fragment.metadata.get("key") != rule.key:
+    if fragment.attributes.get("key") != rule.key:
         return False
+    value = fragment.attributes.get("value")
     context = {
         "artifact_id": artifact.artifact_id,
         "key": rule.key,
-        "value": fragment.value,
+        "value": value,
     }
     node_id = _render(rule.id_template, context, rule=f"frontmatter:{rule.key}")
     if rule.produce == "property":
+        # DomainPackManifest's own load-time validator already refuses a pack
+        # with produce=='property' and no 'property' (fail closed at LOAD
+        # time) — this re-check is the runtime narrowing that guarantee
+        # deserves at the one place it's actually used, not a duplicate rule.
+        if rule.property is None:
+            raise MappingError(
+                f"rule 'frontmatter:{rule.key}': produce=='property' requires 'property'"
+            )
         result.add_entity(
             id=node_id,
             node_type=rule.node_type,
-            properties={rule.property: fragment.value},
+            properties={rule.property: value},
             rule=f"frontmatter:{rule.key}",
             fragment_id=fragment.fragment_id,
         )
     else:
+        if rule.relation is None:
+            raise MappingError(
+                f"rule 'frontmatter:{rule.key}': produce=='edge' requires 'relation'"
+            )
         target_context = {**context}
         target_id = _render(
             rule.edge_target_id_template or "{value}",
@@ -212,19 +226,20 @@ def _apply_frontmatter(
 
 def _apply_table(
     rule: TableMapping,
-    artifact: ArtifactLike,
-    fragment: FragmentLike,
+    artifact: Artifact,
+    fragment: Fragment,
     result: MappingResult,
 ) -> bool:
-    if fragment.fragment_type != "table_row":
+    if fragment.kind != "table_row":
         return False
     if (
         rule.heading_path is not None
-        and fragment.metadata.get("heading_path") != rule.heading_path
+        and fragment.attributes.get("heading_path") != rule.heading_path
     ):
         return False
-    row_index = fragment.metadata.get("row_index", 0)
-    row = fragment.value if isinstance(fragment.value, dict) else {}
+    row_index = fragment.attributes.get("row_index", 0)
+    row_value = fragment.attributes.get("row")
+    row = row_value if isinstance(row_value, dict) else {}
     context = {
         "artifact_id": artifact.artifact_id,
         "row_index": row_index,
@@ -236,8 +251,19 @@ def _apply_table(
             continue
         cell_value = row[column]
         if mapping.produce == "property":
+            # ColumnMapping's own load-time validator already refuses this
+            # combination (fail closed) — runtime narrowing for the one call
+            # site that uses it, not a duplicate rule.
+            if mapping.property is None:
+                raise MappingError(
+                    f"rule 'table:{column}': produce=='property' requires 'property'"
+                )
             properties[mapping.property] = cell_value
         else:
+            if mapping.relation is None:
+                raise MappingError(
+                    f"rule 'table:{column}': produce=='edge' requires 'relation'"
+                )
             target_context = {**context, "value": cell_value}
             target_id = _render(
                 mapping.edge_target_id_template or "{value}",
@@ -272,16 +298,16 @@ def _apply_table(
 
 def _apply_heading(
     rule: HeadingMapping,
-    artifact: ArtifactLike,
-    fragment: FragmentLike,
+    artifact: Artifact,
+    fragment: Fragment,
     result: MappingResult,
 ) -> bool:
-    if fragment.fragment_type != "heading_section":
+    if fragment.kind != "heading":
         return False
-    heading_text = fragment.metadata.get("heading", "")
+    heading_text = fragment.attributes.get("heading", "")
     if not re.search(rule.heading_pattern, heading_text):
         return False
-    heading_path = fragment.metadata.get("heading_path", heading_text)
+    heading_path = fragment.attributes.get("heading_path", heading_text)
     context = {
         "artifact_id": artifact.artifact_id,
         "heading": heading_text,
@@ -311,13 +337,13 @@ def _apply_heading(
 
 def _apply_link(
     rule: LinkMapping,
-    artifact: ArtifactLike,
-    fragment: FragmentLike,
+    artifact: Artifact,
+    fragment: Fragment,
     result: MappingResult,
 ) -> bool:
-    if fragment.fragment_type != "link":
+    if fragment.kind != "link":
         return False
-    href = fragment.metadata.get("href", "")
+    href = fragment.attributes.get("href", "")
     if rule.href_pattern is not None and not re.search(rule.href_pattern, href):
         return False
     context = {"artifact_id": artifact.artifact_id, "href": href}
@@ -344,29 +370,41 @@ def _apply_link(
 
 def _apply_json_field(
     rule: JSONFieldMapping,
-    artifact: ArtifactLike,
-    fragment: FragmentLike,
+    artifact: Artifact,
+    fragment: Fragment,
     result: MappingResult,
 ) -> bool:
-    if fragment.fragment_type != "json_field":
+    if fragment.kind != "json_field":
         return False
-    if fragment.locator != rule.path:
+    if fragment.attributes.get("path") != rule.path:
         return False
+    value = fragment.attributes.get("value")
     context = {
         "artifact_id": artifact.artifact_id,
         "path": rule.path,
-        "value": fragment.value,
+        "value": value,
     }
     node_id = _render(rule.id_template, context, rule=f"json_field:{rule.path}")
     if rule.produce == "property":
+        # JSONFieldMapping's own load-time validator already refuses this
+        # combination (fail closed) — runtime narrowing for the one call
+        # site that uses it, not a duplicate rule.
+        if rule.property is None:
+            raise MappingError(
+                f"rule 'json_field:{rule.path}': produce=='property' requires 'property'"
+            )
         result.add_entity(
             id=node_id,
             node_type=rule.node_type,
-            properties={rule.property: fragment.value},
+            properties={rule.property: value},
             rule=f"json_field:{rule.path}",
             fragment_id=fragment.fragment_id,
         )
     else:
+        if rule.relation is None:
+            raise MappingError(
+                f"rule 'json_field:{rule.path}': produce=='edge' requires 'relation'"
+            )
         target_id = _render(
             rule.edge_target_id_template or "{value}",
             context,
@@ -394,7 +432,7 @@ def _apply_json_field(
     return True
 
 
-_APPLY_BY_KIND = {
+_APPLY_BY_KIND: dict[str, Callable[[Any, Artifact, Fragment, MappingResult], bool]] = {
     "frontmatter": _apply_frontmatter,
     "table": _apply_table,
     "heading": _apply_heading,
@@ -405,8 +443,8 @@ _APPLY_BY_KIND = {
 
 def evaluate_mapping(
     pack: DomainPackManifest,
-    artifact: ArtifactLike,
-    fragments: list[FragmentLike],
+    artifact: Artifact,
+    fragments: list[Fragment],
 ) -> MappingResult:
     """Pure evaluation: fragments -> proposed facts. Never touches the graph.
 
