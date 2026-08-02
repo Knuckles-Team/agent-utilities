@@ -29,7 +29,23 @@ from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool
 from fastmcp.utilities.components import FastMCPComponent
-from mcp import types
+
+from agent_utilities.mcp.protocol_compat import mcp_types_module
+
+# NOT `from mcp import types`. The fleet is EXPLICITLY mixed-SDK: most images ship
+# fastmcp 3.x / MCP SDK v1 (where the protocol types live at `mcp.types`), while
+# others ship fastmcp 4.x / SDK v2, which re-homed that whole namespace into the
+# standalone `mcp_types` distribution and left `mcp` with NO `types` attribute at
+# all. A hard import therefore raises ImportError at MODULE scope on one half of
+# the fleet — and `server_factory._configure_middleware` is fail-closed for this
+# middleware (`sys.exit(1)`), so the server dies before it serves. That is not a
+# hypothetical: `aris-mcp` and `freshrss-mcp` crash-looped on it for 9 days.
+# `mcp_types_module()` binds whichever module the installed SDK exposes and raises
+# loudly if neither does — it never degrades to a stub, because a stubbed protocol
+# type would make every identity check in this authorization middleware silently
+# False. Same established shim as `mcp_protocol_error()` for the
+# `McpError`->`MCPError` rename, one namespace over.
+types = mcp_types_module()
 
 logger = logging.getLogger(__name__)
 

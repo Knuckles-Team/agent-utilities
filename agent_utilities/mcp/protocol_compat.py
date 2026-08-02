@@ -52,11 +52,21 @@ attribute set with no other side effects. Delete this module once
 names directly.
 """
 
+import importlib
 import importlib.metadata
 import warnings
+from types import ModuleType
 from typing import Any
 
 _installed = False
+
+#: Module paths that carry the MCP wire-protocol types, newest first. The MCP SDK
+#: v2 line moved `mcp.types` OUT of the `mcp` distribution into a standalone
+#: `mcp_types` one, so `mcp.types` simply does not exist on those installs while
+#: `mcp_types` does; SDK v1 is the mirror image. Both are the SAME protocol-type
+#: namespace (`Tool`, `TextContent`, `SamplingMessage`, …), so code that reads it
+#: must bind whichever module the INSTALLED SDK actually ships.
+_TYPES_MODULE_NAMES = ("mcp.types", "mcp_types")
 
 #: Names `mcp.shared.exceptions` uses for the MCP protocol error, newest first.
 #: SDK v2 (`mcp>=2.0.0`) renamed `McpError` -> `MCPError`; SDK v1 still ships the
@@ -93,6 +103,39 @@ def mcp_protocol_error() -> type[BaseException]:
     )
 
 
+def mcp_types_module() -> ModuleType:
+    """Return the MCP wire-protocol types module for the *installed* MCP SDK line.
+
+    `mcp.types` (SDK v1) became the standalone `mcp_types` distribution in SDK v2.
+    A hard `from mcp import types` therefore raises `ImportError` on every SDK v2
+    install — and because `eunomia_principal` is imported at module scope by
+    `server_factory._configure_middleware`, whose Eunomia leg is deliberately
+    **fail-closed** (`sys.exit(1)` — an authorization middleware that cannot load
+    must not be skipped), that ImportError takes the WHOLE server down before it
+    serves anything. Observed live: `aris-mcp` and `freshrss-mcp` crash-looped for
+    9 days on exactly this, because their images ship `fastmcp 4.0.0a1` +
+    MCP SDK v2 while the rest of the fleet is still on fastmcp 3.x / SDK v1
+    (CONCEPT:AU-ECO.mcp.protocol-compat-bridge).
+
+    This resolves the module by import path instead. Like `mcp_protocol_error()`
+    it is deliberately NOT a `try/except ImportError` that falls back to a benign
+    stand-in: binding this name to a stub would make every `isinstance` check
+    against a protocol type silently False, which is a permission-shaped failure
+    in an authorization middleware. If neither module exists the SDK is unusable
+    here, so this raises loudly.
+    """
+    for name in _TYPES_MODULE_NAMES:
+        try:
+            return importlib.import_module(name)
+        except ImportError:
+            continue
+    raise ImportError(
+        "neither 'mcp.types' (MCP SDK v1) nor 'mcp_types' (MCP SDK v2) is "
+        "importable; the MCP protocol-type surface is unavailable, so tool / "
+        "prompt / resource identity cannot be resolved."
+    )
+
+
 def install_mcp_v2_bridge() -> None:
     """Bridge the MCP SDK v2 attribute renames that `fastmcp._compat` doesn't cover.
 
@@ -104,8 +147,11 @@ def install_mcp_v2_bridge() -> None:
     if _installed:
         return
 
-    from mcp import types as mcp_types
     from mcp.shared import exceptions as mcp_exceptions
+
+    # NOT `from mcp import types` — this bridge exists FOR the SDK v2 line, and
+    # that is exactly the line where `mcp.types` was re-homed to `mcp_types`.
+    mcp_types = mcp_types_module()
 
     # `mcp.shared.exceptions.McpError` was renamed `MCPError` in SDK v2.
     # `pydantic_ai.mcp` still catches the old name in its tool-call error handling.
