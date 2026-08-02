@@ -424,6 +424,62 @@ def test_direct_embedding_replay_requires_durable_verification(
         fan.close()
 
 
+@pytest.mark.parametrize("operation", ["raw", "atomic"])
+def test_vector_replay_is_never_poison_dropped_on_permanent_marker(
+    operation, tmp_path, monkeypatch
+):
+    """Verifier syntax/type wording cannot bypass vector durability fencing."""
+
+    class _MarkerFailureMirror(RecordingBackend):
+        def __init__(self, name: str) -> None:
+            super().__init__(name)
+            self.verification_fails = True
+
+        def verify_node_embedding(self, node_id, embedding):
+            if self.verification_fails:
+                raise RuntimeError("syntax error while verifying durable vector")
+            return super().verify_node_embedding(node_id, embedding)
+
+    monkeypatch.setattr(fanout_module, "_BASE_BACKOFF_S", 0.01)
+    monkeypatch.setattr(fanout_module, "_MAX_BACKOFF_S", 0.02)
+    authority = StatefulBackend("authority")
+    mirror = _MarkerFailureMirror("marker-failure")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    try:
+        if operation == "raw":
+            fan.add_embedding("node-1", [1.0, 2.0])
+        else:
+            assert fan.compare_and_set_node_embedding(
+                "node-1",
+                {"embedding": None, "name": "billing"},
+                {"embedding": [1.0, 2.0]},
+                [1.0, 2.0],
+            )
+
+        deadline = time.monotonic() + 2.0
+        threshold = fanout_module._POISON_DROP_AFTER + 2
+        while fan.durability_stats()["mirrors"]["mirror"]["failures"] < threshold:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+
+        failed_stats = fan.durability_stats()["mirrors"]["mirror"]
+        assert failed_stats["lag"] == 1
+        assert failed_stats["dropped"] == 0
+
+        mirror.verification_fails = False
+        assert fan.flush_mirrors(timeout=2.0)
+        recovered_stats = fan.durability_stats()["mirrors"]["mirror"]
+        assert recovered_stats["lag"] == 0
+        assert recovered_stats["dropped"] == 0
+    finally:
+        fan.close()
+
+
 def test_graph_only_mirror_never_acks_vector_from_ephemeral_cache(
     tmp_path, monkeypatch
 ):

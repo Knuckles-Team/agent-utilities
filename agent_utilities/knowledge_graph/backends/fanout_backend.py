@@ -119,6 +119,9 @@ _MAX_BACKOFF_S = 30.0  # cap on exponential backoff for an unreachable mirror
 _STALL_THRESHOLD = 5  # consecutive failures before a mirror is flagged "stalled"
 _POISON_DROP_AFTER = 3  # permanent-error confirmations on ONE entry before skipping it
 _MUTATION_LOCK_STRIPES = 256  # same-entity ordering without global write serialization
+_NON_DROPPABLE_REPLAY_OPS = frozenset(
+    {"add_embedding", "compare_and_set_node_embedding"}
+)
 
 # Substrings (lowercased) that mark an apply failure as PERMANENT — a malformed or
 # dialect-incompatible query that REPLAY can never fix (vs. a transient mirror outage
@@ -959,13 +962,17 @@ class FanOutBackend(GraphBackend):
                     st.consecutive_failures += 1
                     st.last_error = str(exc)
                     st.stalled = st.consecutive_failures >= _STALL_THRESHOLD
-                    # PERMANENT errors (malformed/dialect-incompatible cypher) never
-                    # apply on replay — after a few confirmations on the SAME entry,
-                    # SKIP it (advance the cursor) so the mirror keeps draining instead
-                    # of blocking + spamming the log forever. Transient outages fall
-                    # through and replay after backoff as before. reconcile() repairs
-                    # any dropped mutation (CONCEPT:AU-KG.backend.mirror-health-repair).
-                    if _is_permanent_apply_error(exc):
+                    # PERMANENT malformed/dialect-incompatible graph mutations are
+                    # skipped after repeated confirmation so one poison query cannot
+                    # block the mirror forever; reconcile() repairs that graph state.
+                    # Vector publication is deliberately exempt: an exception whose
+                    # text happens to contain a permanent marker may have come from
+                    # durable read-back verification. Only successful verification or
+                    # an explicit graph-only capability may advance a vector cursor.
+                    if (
+                        entry.op not in _NON_DROPPABLE_REPLAY_OPS
+                        and _is_permanent_apply_error(exc)
+                    ):
                         if st.poison_seq == entry.seq:
                             st.poison_count += 1
                         else:
