@@ -153,7 +153,7 @@ def test_load_catalog_excludes_self_and_disabled(tmp_path):
     assert mux.load_catalog() is catalog
 
 
-async def test_reload_catalog_drops_stale_routing_and_reparses(tmp_path):
+async def test_reload_catalog_drops_stale_routing_and_reparses(tmp_path, monkeypatch):
     from fastmcp import FastMCP
 
     config_path = _write_config(
@@ -173,7 +173,17 @@ async def test_reload_catalog_drops_stale_routing_and_reparses(tmp_path):
     _register_forwarder(host, mux, mounted[0])
     mux.session_loaded("session-a").add(mounted[0].name)
     mux._always_load_done["session-a"] = {"mounted_servers": ["first"]}
+    mux._always_load_servers = ["first"]
+    mux._always_load_tool_specs = ["first:query"]
     assert await host.get_tool(mounted[0].name) is not None
+
+    def refreshed_always_load_setting(field: str, _alias: str) -> list[str]:
+        return ["second"] if field == "mcp_always_load" else ["second:query"]
+
+    monkeypatch.setattr(
+        "agent_utilities.mcp.multiplexer._always_load_setting",
+        refreshed_always_load_setting,
+    )
 
     config_path.write_text(
         json.dumps({"mcpServers": {"second": {"command": "second-server"}}})
@@ -184,6 +194,8 @@ async def test_reload_catalog_drops_stale_routing_and_reparses(tmp_path):
     assert mux.tool_to_server == {}
     assert mux._exposed == set()
     assert mux._always_load_done == {}
+    assert mux._always_load_servers == ["second"]
+    assert mux._always_load_tool_specs == ["second:query"]
     assert mux.session_loaded("session-a") == set()
     assert await host.get_tool(mounted[0].name) is None
     await mux.aclose()

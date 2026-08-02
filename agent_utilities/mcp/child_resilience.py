@@ -608,7 +608,7 @@ class ChildRuntime:
             await self._on_generation(tools)
         except asyncio.CancelledError:
             raise
-        except BaseException as exc:  # noqa: BLE001 - observer isolation boundary
+        except Exception as exc:
             logger.warning(
                 "Child server '%s' generation observer failed (exception_type=%s): %s",
                 self.name,

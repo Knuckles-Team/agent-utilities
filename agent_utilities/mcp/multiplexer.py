@@ -2047,6 +2047,19 @@ class MCPMultiplexer:
         # result cannot survive a hot reload or an already-connected session
         # would skip mounting the new declaration indefinitely.
         self._always_load_done.clear()
+        if self._host_mcp is not None:
+            # ``graph_config set`` calls :func:`invalidate_live_catalogs` for
+            # every runtime setting update, including the always-load
+            # declarations themselves.  Re-read their validated effective
+            # values here so an already-running GraphOS instance applies the
+            # new eager posture on the next request rather than only after a
+            # process restart.
+            self._always_load_servers = _always_load_setting(
+                "mcp_always_load", "MCP_ALWAYS_LOAD"
+            )
+            self._always_load_tool_specs = _always_load_setting(
+                "mcp_always_load_tools", "MCP_ALWAYS_LOAD_TOOLS"
+            )
         for loaded in self._session_loaded.values():
             loaded.difference_update(stale_tool_names)
         for loaded in self._auto_unload.values():
