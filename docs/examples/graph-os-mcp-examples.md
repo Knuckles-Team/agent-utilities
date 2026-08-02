@@ -120,8 +120,8 @@ Synthesize an executive summary of a concept's implementation.
 ```json
 {
   "action": "deep_extract",
-  "target": "CONCEPT:AU-ORCH.routing.fallback-logic",
-  "query": "Explain how the fallback logic works."
+  "target": "CONCEPT:AU-ORCH.routing.model-fallback-chain",
+  "query": "Explain how the model fallback chain works."
 }
 ```
 

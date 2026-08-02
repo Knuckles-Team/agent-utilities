@@ -294,11 +294,11 @@ def git_archaeology(domain_prefix: str, concepts: set[str]) -> dict[str, Evidenc
     changed a line matching the domain prefix. Walking per-concept instead costs
     ~3.5s each (~4.5 minutes for a 77-concept domain); this is ~9s total.
     """
-    marker = "@@TRIAGE@@"
+    commit_marker = "@@TRIAGE@@"
     raw = _run(
         "git",
         "log",
-        f"--format={marker} %H %ad %s",
+        f"--format={commit_marker} %H %ad %s",
         "--date=short",
         f"-G CONCEPT:{re.escape(domain_prefix)}\\.",
         "-p",
@@ -310,13 +310,13 @@ def git_archaeology(domain_prefix: str, concepts: set[str]) -> dict[str, Evidenc
     per_commit: dict[str, set[str]] = defaultdict(set)
     commit = date = subject = ""
     for line in raw.splitlines():
-        if line.startswith(marker):
+        if line.startswith(commit_marker):
             _, commit, date, subject = (line.split(" ", 3) + ["", "", ""])[:4]
             continue
         if not line.startswith("+") or line.startswith("+++"):
             continue
-        for marker in iter_okf_markers(line):
-            cid = marker.id
+        for okf_marker in iter_okf_markers(line):
+            cid = okf_marker.id
             if cid not in concepts:
                 continue
             first[cid] = (commit, date, subject)

@@ -1,0 +1,1946 @@
+domain: AU-KG.memory
+generated_at: '2026-08-02T16:09:18+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
+  `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
+  and `apply --write`.'
+clusters:
+  AU-KG.memory.decay-scanner-merge:
+  - AU-KG.memory.decay-scanner-merge
+  - AU-KG.memory.targeted-add-update-delete
+  AU-KG.memory.ground-truth-preamble-declaring:
+  - AU-KG.memory.ground-truth-preamble-declaring
+  - AU-KG.memory.team-startup-context
+  AU-KG.memory.ingestion-serving-separation:
+  - AU-KG.memory.ingestion-serving-separation
+  - AU-KG.memory.parammem
+  AU-KG.memory.live-data-science-mcp:
+  - AU-KG.memory.live-data-science-mcp
+  - AU-KG.memory.memory-weights-distillation-export
+  AU-KG.memory.provides-real-ephemeral-one:
+  - AU-KG.memory.provides-real-ephemeral-one
+  - AU-KG.memory.time-series-lives-one
+concepts:
+  AU-KG.memory.ahe-record-this-base:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('# Decentralized per-agent memory + exploit/explore
+      bandit (CONCEPT·AU-KG.memory.ahe-record') — the id itself reads like a real name, so the marker
+      text needs cleaning either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/__init__.py
+      - agent_utilities/harness/agentic_evolution_engine.py
+      - agent_utilities/harness/decentralized_memory.py
+      test_files:
+      - tests/unit/harness/test_decentralized_memory.py
+      doc_files:
+      - docs/architecture/multi_source_assimilation.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: '# Decentralized per-agent memory + exploit/explore bandit (CONCEPT·AU-KG.memory.ahe-record-this-base/AHE-3.33)'
+      sites:
+      - agent_utilities/harness/__init__.py:129
+      - agent_utilities/harness/agentic_evolution_engine.py:382
+      - agent_utilities/harness/decentralized_memory.py:6
+      - docs/architecture/multi_source_assimilation.md:171
+      - tests/unit/harness/test_decentralized_memory.py:2
+  AU-KG.memory.anti-collapse:
+    decision: keep
+    parent: ''
+    rationale: ''
+    reason: 'No rejected alternative: the collapse detection in optimization_engine.py:309-360 is a straight
+      port of LeWorldModel (arXiv:2603.19312v2) SVD/SIGReg method, introduced as "Conceptual Registry
+      Parity" bookkeeping with no prior mechanism displaced. The marker itself (:1199-1203) is additionally
+      a stale pointer to knowledge_stability_engine.py, a module that no longer exists — it was folded
+      back into optimization_engine.py. Needs a marker-hygiene fix, not a design doc.'
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py:1201
+  AU-KG.memory.auto-similarity-memory-graph:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (16 source
+      file(s), 85 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/embedding_utilities.py
+      - agent_utilities/graph/hierarchical_planner.py
+      - agent_utilities/harness/citation_tracker.py
+      - agent_utilities/knowledge_graph/adaptation/experience_alignment.py
+      - agent_utilities/knowledge_graph/enrichment/semantic.py
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py
+      - agent_utilities/knowledge_graph/pipeline/phases/embedding.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py
+      - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py
+      - agent_utilities/knowledge_graph/security/cognitive_trap_defense.py
+      - agent_utilities/mcp/tools/query_tools.py
+      - agent_utilities/messaging/kg_ingest.py
+      - agent_utilities/models/knowledge_graph.py
+      test_files:
+      - tests/unit/knowledge_graph/enrichment/test_embed_fn_fanout.py
+      - tests/unit/knowledge_graph/test_comparative_analysis.py
+      - tests/unit/knowledge_graph/test_fingerprint.py
+      - tests/unit/knowledge_graph/test_graph_validator.py
+      - tests/unit/knowledge_graph/test_rag_kg_unification.py
+      - tests/unit/test_browsecomp_innovations.py
+      - tests/unit/test_serving_embeddings_dependency.py
+      doc_files:
+      - .specify/design/kg-2.3-latentrag-retrieval/design.md
+      - .specify/specs/kg-2.3-latentrag-retrieval/CHECKLIST.md
+      - .specify/specs/kg-2.3-latentrag-retrieval/DRIFT_REPORT.md
+      - .specify/specs/kg-2.3-latentrag-retrieval/spec.md
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      - docs/guides/features.md
+      - docs/guides/knowledge-graph.md
+      - docs/guides/scoring_methodology.md
+      - docs/journey.md
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.5-Topological_Analysis.md
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kg-2.3-latentrag-retrieval/design.md:1
+      - .specify/design/kg-2.3-latentrag-retrieval/design.md:26
+      - .specify/specs/kg-2.3-latentrag-retrieval/CHECKLIST.md:1
+      - .specify/specs/kg-2.3-latentrag-retrieval/DRIFT_REPORT.md:1
+      - .specify/specs/kg-2.3-latentrag-retrieval/spec.md:1
+      - .specify/specs/kg-2.3-latentrag-retrieval/spec.md:61
+      - agent_utilities/core/embedding_utilities.py:4
+      - agent_utilities/graph/hierarchical_planner.py:465
+      - agent_utilities/harness/citation_tracker.py:121
+      - agent_utilities/knowledge_graph/adaptation/experience_alignment.py:4
+      - agent_utilities/knowledge_graph/enrichment/semantic.py:351
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py:727
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py:774
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py:881
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1041
+      - agent_utilities/knowledge_graph/pipeline/phases/embedding.py:22
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:21403
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:21403
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:21450
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:21450
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:215
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:689
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:691
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:717
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:852
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:4
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:4
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:138
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:159
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:223
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:515
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:623
+      - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py:27
+      - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py:57
+      - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py:228
+      - agent_utilities/knowledge_graph/security/cognitive_trap_defense.py:4
+      - agent_utilities/mcp/tools/query_tools.py:1185
+      - agent_utilities/mcp/tools/query_tools.py:1185
+      - agent_utilities/messaging/kg_ingest.py:10
+      - agent_utilities/models/knowledge_graph.py:268
+      - agent_utilities/models/knowledge_graph.py:270
+      - agent_utilities/models/knowledge_graph.py:274
+      - agent_utilities/models/knowledge_graph.py:794
+      - agent_utilities/models/knowledge_graph.py:798
+      - agent_utilities/models/knowledge_graph.py:5563
+      - agent_utilities/models/knowledge_graph.py:5569
+      - agent_utilities/models/knowledge_graph.py:5602
+      - agent_utilities/models/knowledge_graph.py:5619
+      - agent_utilities/models/knowledge_graph.py:5625
+      - agent_utilities/models/knowledge_graph.py:5684
+      - agent_utilities/models/knowledge_graph.py:5690
+      - docs/capabilities-power.json:21403
+      - docs/capabilities-power.json:21403
+      - docs/capabilities-power.json:21450
+      - docs/capabilities-power.json:21450
+      - docs/capabilities-power.md:3694
+      - docs/capabilities-power.md:3696
+      - docs/guides/features.md:478
+      - docs/guides/features.md:479
+      - docs/guides/features.md:521
+      - docs/guides/knowledge-graph.md:181
+      - docs/guides/knowledge-graph.md:744
+      - docs/guides/knowledge-graph.md:793
+      - docs/guides/scoring_methodology.md:3
+      - docs/journey.md:117
+      - docs/journey.md:125
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md:23
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md:23
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md:34
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md:57
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md:68
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md:78
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.5-Topological_Analysis.md:59
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md:257
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md:266
+      - tests/unit/knowledge_graph/enrichment/test_embed_fn_fanout.py:113
+      - tests/unit/knowledge_graph/enrichment/test_embed_fn_fanout.py:132
+      - tests/unit/knowledge_graph/test_comparative_analysis.py:223
+      - tests/unit/knowledge_graph/test_comparative_analysis.py:330
+      - tests/unit/knowledge_graph/test_fingerprint.py:2
+      - tests/unit/knowledge_graph/test_graph_validator.py:2
+      - tests/unit/knowledge_graph/test_rag_kg_unification.py:7
+      - tests/unit/knowledge_graph/test_rag_kg_unification.py:61
+      - tests/unit/test_browsecomp_innovations.py:324
+      - tests/unit/test_serving_embeddings_dependency.py:1
+  AU-KG.memory.background-learning-engine:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 11 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/memory/learning_engine.py
+      test_files:
+      - tests/unit/knowledge_graph/test_kg_2_13_background_learning.py
+      - tests/unit/knowledge_graph/test_kg_2_13_richer_learning.py
+      doc_files:
+      - .specify/design/kg-2.13-background-learning-engine/design.md
+      - .specify/specs/kg-2.13-background-learning-engine/spec.md
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.13-Background_Learning_Engine.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kg-2.13-background-learning-engine/design.md:40
+      - .specify/specs/kg-2.13-background-learning-engine/spec.md:8
+      - agent_utilities/knowledge_graph/memory/learning_engine.py:1
+      - agent_utilities/knowledge_graph/memory/learning_engine.py:39
+      - agent_utilities/knowledge_graph/memory/learning_engine.py:64
+      - agent_utilities/knowledge_graph/memory/learning_engine.py:152
+      - agent_utilities/knowledge_graph/memory/learning_engine.py:185
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.13-Background_Learning_Engine.md:1
+      - docs/reference/documentation-catalog.md:291
+      - tests/unit/knowledge_graph/test_kg_2_13_background_learning.py:1
+      - tests/unit/knowledge_graph/test_kg_2_13_richer_learning.py:1
+  AU-KG.memory.checkpoint-worthiness-scoring:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 26 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/kvcache/rebuild_cost.py
+      - agent_utilities/kvcache/tiering.py
+      - agent_utilities/kvcache/worthiness.py
+      - agent_utilities/mcp/tools/engine_surface_tools.py
+      - agent_utilities/observability/gateway_metrics.py
+      - agent_utilities/patterns/prioritization.py
+      test_files:
+      - tests/unit/kvcache/test_checkpoint_intelligence.py
+      - tests/unit/patterns/test_prioritization.py
+      doc_files:
+      - .specify/design/au-kv-checkpoint-intelligence/design.md
+      - CHANGELOG.md
+      - docs/architecture/kv-checkpoint-intelligence.md
+      introduced: '60f0036e 2026-07-31 feat(kvcache): add the pluggable checkpoint-worthiness scorer framework'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/au-kv-checkpoint-intelligence/design.md:6
+      - .specify/design/au-kv-checkpoint-intelligence/design.md:37
+      - CHANGELOG.md:17
+      - agent_utilities/kvcache/rebuild_cost.py:3
+      - agent_utilities/kvcache/rebuild_cost.py:181
+      - agent_utilities/kvcache/tiering.py:3
+      - agent_utilities/kvcache/tiering.py:290
+      - agent_utilities/kvcache/tiering.py:323
+      - agent_utilities/kvcache/tiering.py:388
+      - agent_utilities/kvcache/tiering.py:398
+      - agent_utilities/kvcache/worthiness.py:3
+      - agent_utilities/kvcache/worthiness.py:322
+      - agent_utilities/kvcache/worthiness.py:967
+      - agent_utilities/kvcache/worthiness.py:1090
+      - agent_utilities/mcp/tools/engine_surface_tools.py:249
+      - agent_utilities/mcp/tools/engine_surface_tools.py:275
+      - agent_utilities/mcp/tools/engine_surface_tools.py:428
+      - agent_utilities/mcp/tools/engine_surface_tools.py:1473
+      - agent_utilities/mcp/tools/engine_surface_tools.py:1597
+      - agent_utilities/observability/gateway_metrics.py:548
+      - agent_utilities/observability/gateway_metrics.py:555
+      - agent_utilities/patterns/prioritization.py:74
+      - agent_utilities/patterns/prioritization.py:204
+      - docs/architecture/kv-checkpoint-intelligence.md:3
+      - tests/unit/kvcache/test_checkpoint_intelligence.py:3
+      - tests/unit/patterns/test_prioritization.py:3
+  AU-KG.memory.decay-scanner-merge:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/cli.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/cli.py:173
+      - agent_utilities/knowledge_graph/memory/cli.py:370
+  AU-KG.memory.drive-one-agent-native:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 10 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/schedule_engine.py
+      - agent_utilities/knowledge_graph/memory/distillation.py
+      - agent_utilities/knowledge_graph/memory/lifecycle.py
+      test_files:
+      - tests/unit/test_memory_lifecycle.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/schedule_engine.py:705
+      - agent_utilities/knowledge_graph/memory/distillation.py:4
+      - agent_utilities/knowledge_graph/memory/lifecycle.py:1
+      - agent_utilities/knowledge_graph/memory/lifecycle.py:95
+      - agent_utilities/knowledge_graph/memory/lifecycle.py:176
+      - agent_utilities/knowledge_graph/memory/lifecycle.py:320
+      - agent_utilities/knowledge_graph/memory/lifecycle.py:383
+      - agent_utilities/knowledge_graph/memory/lifecycle.py:479
+      - agent_utilities/knowledge_graph/memory/lifecycle.py:531
+      - tests/unit/test_memory_lifecycle.py:1
+  AU-KG.memory.episodic-procedural-memory-distillation:
+    decision: parent
+    parent: AU-KG.memory.drive-one-agent-native
+    rationale: 'distillation.py realizes the parent''s agent-native-memory policy rather than deciding
+      anything itself: it explicitly reuses MemoryLifecycle unchanged (distillation.py:4 cross-references
+      the parent) and adds no rejected alternative of its own — commit f99df111 introduces it as a net-new
+      implementation of the paper''s parametric-memory module, with no prior distillation mechanism displaced.'
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 8 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/distillation.py
+      test_files:
+      - tests/unit/test_memory_distillation.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/distillation.py:1
+      - agent_utilities/knowledge_graph/memory/distillation.py:110
+      - agent_utilities/knowledge_graph/memory/distillation.py:146
+      - agent_utilities/knowledge_graph/memory/distillation.py:248
+      - agent_utilities/knowledge_graph/memory/distillation.py:425
+      - agent_utilities/knowledge_graph/memory/distillation.py:517
+      - tests/unit/test_memory_distillation.py:1
+      - tests/unit/test_memory_distillation.py:49
+  AU-KG.memory.generation-scoped-selective-reward:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 14 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/adaptation/feedback.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py
+      - agent_utilities/mcp/tools/write_ingest_tools.py
+      test_files:
+      - tests/retrieval/test_capability_index.py
+      - tests/unit/knowledge_graph/test_feedback_loop.py
+      doc_files:
+      - .specify/reports/memory-2606.26294-comparative-analysis-2026-06-28.md
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      - docs/pillars/memory_architecture.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/reports/memory-2606.26294-comparative-analysis-2026-06-28.md:6
+      - .specify/reports/memory-2606.26294-comparative-analysis-2026-06-28.md:123
+      - agent_utilities/knowledge_graph/adaptation/feedback.py:198
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:14205
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:143
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:367
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:546
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:1086
+      - agent_utilities/mcp/tools/write_ingest_tools.py:370
+      - docs/capabilities-power.json:14205
+      - docs/capabilities-power.md:2380
+      - docs/pillars/memory_architecture.md:63
+      - tests/retrieval/test_capability_index.py:276
+      - tests/unit/knowledge_graph/test_feedback_loop.py:111
+  AU-KG.memory.ground-truth-preamble-declaring:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/memory/memory_engine.py
+      test_files:
+      - tests/unit/knowledge_graph/test_kg_2_14_ground_truth_authority.py
+      doc_files:
+      - .specify/specs/kg-2-14-ground-truth-hierarchy/spec.md
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.14-Ground_Truth_Authority.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/specs/kg-2-14-ground-truth-hierarchy/spec.md:7
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:814
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:827
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:861
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:945
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:1092
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:1136
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.14-Ground_Truth_Authority.md:1
+      - docs/reference/documentation-catalog.md:292
+      - tests/unit/knowledge_graph/test_kg_2_14_ground_truth_authority.py:1
+  AU-KG.memory.ingestion-serving-separation:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/core/engine_memory.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/engine_memory.py:339
+  AU-KG.memory.knowledge-currency:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files: []
+      test_files: []
+      doc_files:
+      - agent_utilities/skills/graph-query-and-explanation/SKILL.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/skills/graph-query-and-explanation/SKILL.md:69
+  AU-KG.memory.kv-checkpoint-resource:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 31 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/kvcache/checkpoint.py
+      - agent_utilities/mcp/tools/engine_surface_tools.py
+      - agent_utilities/observability/gateway_metrics.py
+      test_files:
+      - tests/unit/kvcache/test_checkpoint.py
+      - tests/unit/test_engine_surface_tools.py
+      doc_files:
+      - .specify/design/au-kv-checkpoint-intelligence/design.md
+      - CHANGELOG.md
+      - docs/architecture/kv-checkpoint-intelligence.md
+      introduced: '40b1dd21 2026-07-30 feat(kvcache): default-on zero-copy branch forking + KV checkpoints
+        as graph resources'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/au-kv-checkpoint-intelligence/design.md:24
+      - CHANGELOG.md:14
+      - agent_utilities/kvcache/checkpoint.py:3
+      - agent_utilities/kvcache/checkpoint.py:125
+      - agent_utilities/kvcache/checkpoint.py:215
+      - agent_utilities/kvcache/checkpoint.py:262
+      - agent_utilities/kvcache/checkpoint.py:289
+      - agent_utilities/kvcache/checkpoint.py:303
+      - agent_utilities/kvcache/checkpoint.py:311
+      - agent_utilities/kvcache/checkpoint.py:365
+      - agent_utilities/kvcache/checkpoint.py:423
+      - agent_utilities/kvcache/checkpoint.py:429
+      - agent_utilities/kvcache/checkpoint.py:489
+      - agent_utilities/kvcache/checkpoint.py:589
+      - agent_utilities/kvcache/checkpoint.py:645
+      - agent_utilities/kvcache/checkpoint.py:667
+      - agent_utilities/mcp/tools/engine_surface_tools.py:208
+      - agent_utilities/mcp/tools/engine_surface_tools.py:218
+      - agent_utilities/mcp/tools/engine_surface_tools.py:238
+      - agent_utilities/mcp/tools/engine_surface_tools.py:1452
+      - agent_utilities/mcp/tools/engine_surface_tools.py:1457
+      - agent_utilities/mcp/tools/engine_surface_tools.py:1595
+      - agent_utilities/mcp/tools/engine_surface_tools.py:1735
+      - agent_utilities/observability/gateway_metrics.py:540
+      - docs/architecture/kv-checkpoint-intelligence.md:14
+      - tests/unit/kvcache/test_checkpoint.py:3
+      - tests/unit/kvcache/test_checkpoint.py:282
+      - tests/unit/kvcache/test_checkpoint.py:405
+      - tests/unit/test_engine_surface_tools.py:256
+      - tests/unit/test_engine_surface_tools.py:365
+      - tests/unit/test_engine_surface_tools.py:411
+  AU-KG.memory.layered-project-context:
+    decision: keep
+    parent: ''
+    rationale: ''
+    reason: 'Retroactive labelling, documented as such in its own introducing commit (9f5fc447): the CHANGELOG
+      entry lists it under "Conceptual Registry Parity - Formalized 6 existing features into the 5-Pillar
+      ecosystem architecture to ensure full zero-stub tracking". The marker was applied to pre-existing
+      prompt-building utility code (prompting/builder.py:1-18) for coverage bookkeeping, not alongside
+      any engineering choice.'
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/prompting/builder.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/prompting/builder.py:6
+  AU-KG.memory.live-data-science-mcp:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:42
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:152
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:388
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:716
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:720
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:785
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:898
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:963
+      - agent_utilities/mcp/tools/analysis_tools.py:2323
+  AU-KG.memory.live-refreshable-artifact-models:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 11 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/gateway/artifacts_api.py
+      - agent_utilities/knowledge_graph/live_artifacts/__init__.py
+      - agent_utilities/knowledge_graph/live_artifacts/kg_source.py
+      - agent_utilities/knowledge_graph/live_artifacts/models.py
+      - agent_utilities/knowledge_graph/live_artifacts/store.py
+      - agent_utilities/server/app.py
+      test_files:
+      - tests/unit/knowledge_graph/test_live_artifact_kg_source.py
+      - tests/unit/knowledge_graph/test_live_artifacts.py
+      doc_files:
+      - .specify/design/kg-2.24-live-refreshable-artifact/design.md
+      - docs/CONTEXT.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kg-2.24-live-refreshable-artifact/design.md:44
+      - agent_utilities/gateway/artifacts_api.py:1
+      - agent_utilities/knowledge_graph/live_artifacts/__init__.py:1
+      - agent_utilities/knowledge_graph/live_artifacts/kg_source.py:1
+      - agent_utilities/knowledge_graph/live_artifacts/models.py:1
+      - agent_utilities/knowledge_graph/live_artifacts/models.py:136
+      - agent_utilities/knowledge_graph/live_artifacts/store.py:1
+      - agent_utilities/server/app.py:675
+      - docs/CONTEXT.md:34
+      - tests/unit/knowledge_graph/test_live_artifact_kg_source.py:1
+      - tests/unit/knowledge_graph/test_live_artifacts.py:1
+  AU-KG.memory.mementified-context:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 26 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/capabilities/compaction/_shared.py
+      - agent_utilities/capabilities/memento.py
+      - agent_utilities/knowledge_graph/memory/agent_context.py
+      - agent_utilities/knowledge_graph/memory/lifecycle.py
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py
+      test_files:
+      - tests/knowledge_graph/memory/test_kg_2_20_memento.py
+      - tests/unit/capabilities/test_compaction_tool_pair_safety.py
+      - tests/unit/finance/test_risk_manager.py
+      - tests/unit/knowledge_graph/test_memento_lcm.py
+      - tests/unit/knowledge_graph/test_memento_verification.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/capabilities/compaction/_shared.py:6
+      - agent_utilities/capabilities/memento.py:6
+      - agent_utilities/capabilities/memento.py:75
+      - agent_utilities/capabilities/memento.py:142
+      - agent_utilities/knowledge_graph/memory/agent_context.py:106
+      - agent_utilities/knowledge_graph/memory/agent_context.py:292
+      - agent_utilities/knowledge_graph/memory/agent_context.py:1779
+      - agent_utilities/knowledge_graph/memory/lifecycle.py:203
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:1
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:17
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:267
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:302
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:350
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:357
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:383
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:467
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:503
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:534
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:549
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:596
+      - agent_utilities/knowledge_graph/memory/memento_compressor.py:612
+      - tests/knowledge_graph/memory/test_kg_2_20_memento.py:1
+      - tests/unit/capabilities/test_compaction_tool_pair_safety.py:3
+      - tests/unit/finance/test_risk_manager.py:167
+      - tests/unit/knowledge_graph/test_memento_lcm.py:4
+      - tests/unit/knowledge_graph/test_memento_verification.py:4
+  AU-KG.memory.memento-compress-evict:
+    decision: parent
+    parent: AU-KG.memory.mementified-context
+    rationale: 'An orphan alias: the sole marker site (capabilities/composition.py:99-103) is a wiring
+      comment on the MementoCompaction(...) construction inside default_runtime_capabilities(). The actual
+      block-compress-evict decision — including the deviations from the Memento paper — lives at capabilities/memento.py:4-28
+      under the parent id, which already has a design doc.'
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/capabilities/composition.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/capabilities/composition.py:99
+  AU-KG.memory.memory-lifecycle-manager:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/evolving_memory.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/evolving_memory.py:6
+      - agent_utilities/harness/evolving_memory.py:78
+  AU-KG.memory.memory-weights-distillation-export:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('"""Action-core for ``graph_analyze action=distill_memory``
+      (CONCEPT·AU-KG.memory.memory-we') — the id itself reads like a real name, so the marker text needs
+      cleaning either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files:
+      - tests/unit/test_memory_weights_distillation.py
+      doc_files:
+      - docs/architecture/in_house_training_substrate.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: '"""Action-core for ``graph_analyze action=distill_memory`` (CONCEPT·AU-KG.memory.memory-weights-distillation-export/2.318).'
+      sites:
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:1
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:105
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:215
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:307
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:346
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:379
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:432
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:892
+      - agent_utilities/knowledge_graph/memory/weights_distillation.py:958
+      - agent_utilities/mcp/tools/analysis_tools.py:2378
+      - docs/architecture/in_house_training_substrate.md:168
+      - tests/unit/test_memory_weights_distillation.py:1
+  AU-KG.memory.observational-memory-bridge:
+    decision: keep
+    parent: ''
+    rationale: ''
+    reason: 'Concept-id drift, not a decision at this site: the only literal marker sits on memory_view_dir()
+      (core/paths.py:226-245), a path getter with no logic. The real KG-is-source-of-truth / Markdown-as-projection
+      implementation (MemoryMaterializer, materialize, ingest_memory_edits at memory_engine.py:362-454)
+      is tagged with a DIFFERENT id (tiered-memory-caching), as is its own pillar doc. Re-point the marker
+      before documenting.'
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/paths.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/paths.py:229
+  AU-KG.memory.parammem:
+    decision: retire
+    parent: ''
+    rationale: ''
+    reason: 'A background-research citation tag, not a decision. Its pre-migration id was the generic
+      KG-2.1 (Tiered Memory & Context), reused across ~11 unrelated sites in engine_memory.py (ContextBudgetOptimizer,
+      the trust filter, instruction-aware reranking, context-budget compaction), and the marker text is
+      literally a paper citation ("Research: MEMO Survey (2504.01990v2), ParamMem (2604.27707v1)"). It
+      was never assigned its own numbered concept the way its file-neighbour ingestion-serving-separation
+      (KG-2.130) was.'
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a single generic noun — it names a subject area, not a choice
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/core/engine_memory.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: is a single generic noun — it names a subject area, not a choice
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/engine_memory.py:41
+      - agent_utilities/knowledge_graph/core/engine_memory.py:77
+      - agent_utilities/knowledge_graph/core/engine_memory.py:111
+      - agent_utilities/knowledge_graph/core/engine_memory.py:175
+      - agent_utilities/knowledge_graph/core/engine_memory.py:320
+      - agent_utilities/knowledge_graph/core/engine_memory.py:337
+      - agent_utilities/knowledge_graph/core/engine_memory.py:462
+      - agent_utilities/knowledge_graph/core/engine_memory.py:496
+      - agent_utilities/knowledge_graph/core/engine_memory.py:540
+      - agent_utilities/knowledge_graph/core/engine_memory.py:566
+      - agent_utilities/knowledge_graph/core/engine_memory.py:604
+  AU-KG.memory.persistent-self-model-owl:
+    decision: keep
+    parent: ''
+    rationale: ''
+    reason: No verified rejected alternative. The versioned SUPERSEDES chain + CURRENT_SELF_MODEL pointer
+      (retrieval/memory_retriever.py:4-25, :50-100) arrived fully formed in a version-bump commit (059e777f)
+      with no rationale, and no prior mutable/overwrite self-model exists in history to compare against.
+      The never-delete-always-supersede pattern is genuinely justified elsewhere (kg-2.11-bitemporal-memory-layers)
+      but is not independently re-justified here.
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/memory_retriever.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/memory_retriever.py:4
+      - agent_utilities/knowledge_graph/retrieval/memory_retriever.py:24
+      - agent_utilities/knowledge_graph/retrieval/memory_retriever.py:53
+  AU-KG.memory.provides-real-ephemeral-one:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/timeseries/__init__.py
+      - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py
+      test_files:
+      - tests/_test_engine.py
+      - tests/conftest.py
+      - tests/integration/knowledge_graph/test_evidence_spine_live_commit.py
+      - tests/integration/knowledge_graph/test_git_markdown_domain_packs_live_engine.py
+      - tests/integration/knowledge_graph/test_kb_currency_epistemic_query_paths.py
+      - tests/integration/knowledge_graph/test_knowledge_graph.py
+      - tests/integration/knowledge_graph/test_ocel_live_commit.py
+      - tests/integration/knowledge_graph/test_owl_sparql_shacl_engine.py
+      - tests/knowledge_graph/test_code_health_baseline.py
+      - tests/unit/graph/test_engine_subscription_reactive.py
+      - tests/unit/graph/test_graph_properties.py
+      - tests/unit/knowledge_graph/enrichment/test_cards_optimizations.py
+      - tests/unit/knowledge_graph/enrichment/test_writeback_approval.py
+      - tests/unit/knowledge_graph/test_db_consolidation.py
+      - tests/unit/knowledge_graph/test_ephemeral_engine.py
+      - tests/unit/knowledge_graph/test_epistemic_backend_cypher.py
+      - tests/unit/knowledge_graph/test_placement_mining.py
+      doc_files:
+      - docs/guides/backend-parity-and-profile-testing.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/timeseries/__init__.py:11
+      - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py:19
+      - docs/guides/backend-parity-and-profile-testing.md:150
+      - tests/_test_engine.py:2
+      - tests/conftest.py:8
+      - tests/conftest.py:49
+      - tests/conftest.py:96
+      - tests/conftest.py:594
+      - tests/conftest.py:697
+      - tests/conftest.py:716
+      - tests/integration/knowledge_graph/test_evidence_spine_live_commit.py:22
+      - tests/integration/knowledge_graph/test_git_markdown_domain_packs_live_engine.py:10
+      - tests/integration/knowledge_graph/test_kb_currency_epistemic_query_paths.py:11
+      - tests/integration/knowledge_graph/test_knowledge_graph.py:45
+      - tests/integration/knowledge_graph/test_ocel_live_commit.py:8
+      - tests/integration/knowledge_graph/test_owl_sparql_shacl_engine.py:15
+      - tests/integration/knowledge_graph/test_owl_sparql_shacl_engine.py:36
+      - tests/knowledge_graph/test_code_health_baseline.py:8
+      - tests/unit/graph/test_engine_subscription_reactive.py:3
+      - tests/unit/graph/test_graph_properties.py:12
+      - tests/unit/knowledge_graph/enrichment/test_cards_optimizations.py:22
+      - tests/unit/knowledge_graph/enrichment/test_writeback_approval.py:43
+      - tests/unit/knowledge_graph/test_db_consolidation.py:9
+      - tests/unit/knowledge_graph/test_db_consolidation.py:35
+      - tests/unit/knowledge_graph/test_ephemeral_engine.py:2
+      - tests/unit/knowledge_graph/test_epistemic_backend_cypher.py:8
+      - tests/unit/knowledge_graph/test_placement_mining.py:1451
+  AU-KG.memory.refresh-per-session-memento:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 13 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/session_memento_cache.py
+      - agent_utilities/messaging/router.py
+      - agent_utilities/orchestration/agent_runner.py
+      - agent_utilities/orchestration/session_continuity.py
+      test_files:
+      - tests/unit/test_non_blocking_execution.py
+      doc_files:
+      - docs/architecture/non-blocking-execution.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/session_memento_cache.py:1
+      - agent_utilities/knowledge_graph/memory/session_memento_cache.py:33
+      - agent_utilities/knowledge_graph/memory/session_memento_cache.py:100
+      - agent_utilities/messaging/router.py:792
+      - agent_utilities/orchestration/agent_runner.py:880
+      - agent_utilities/orchestration/agent_runner.py:2475
+      - agent_utilities/orchestration/agent_runner.py:2626
+      - agent_utilities/orchestration/agent_runner.py:2662
+      - agent_utilities/orchestration/session_continuity.py:169
+      - docs/architecture/non-blocking-execution.md:276
+      - tests/unit/test_non_blocking_execution.py:13
+      - tests/unit/test_non_blocking_execution.py:627
+      - tests/unit/test_non_blocking_execution.py:678
+  AU-KG.memory.refresh-service:
+    decision: parent
+    parent: AU-KG.memory.live-refreshable-artifact-models
+    rationale: RefreshService.refresh (live_artifacts/refresh.py:50-89) implements the prior-preserving
+      refresh semantics of the parent live-artifact decision — on a failed re-derivation it keeps prior
+      data/last_rendered rather than surfacing an error state. The parent design doc already discusses
+      RefreshService.refresh directly.
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/live_artifacts/refresh.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/live_artifacts/refresh.py:1
+  AU-KG.memory.rlm-memory-extraction:
+    decision: keep
+    parent: ''
+    rationale: ''
+    reason: Unfinished stub, never adopted. rlm_memory.py (whole 42-line file) is referenced nowhere in
+      the codebase, has zero tests, and its ExtractedFact duplicates the name of the real, wired implementation
+      in extraction/fact_extractor.py that runs the actual ingestion pipeline. There is no decision here
+      to record — flag for a dead-code sweep.
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/rlm_memory.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/rlm_memory.py:3
+  AU-KG.memory.semantic-response-cache:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 17 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - .env.example
+      - agent_utilities/caching/semantic_cache.py
+      - agent_utilities/harness/trace_backend.py
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
+      - agent_utilities/models/knowledge_graph.py
+      - agent_utilities/observability/gateway_metrics.py
+      test_files:
+      - tests/unit/caching/test_semantic_cache.py
+      - tests/unit/caching/test_semantic_cache_live_path.py
+      doc_files: []
+      introduced: 'd70ecf36 2026-07-30 feat(caching): add provider-native prompt caching + opt-in semantic
+        caching'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .env.example:1140
+      - agent_utilities/caching/semantic_cache.py:3
+      - agent_utilities/caching/semantic_cache.py:78
+      - agent_utilities/caching/semantic_cache.py:136
+      - agent_utilities/caching/semantic_cache.py:296
+      - agent_utilities/caching/semantic_cache.py:329
+      - agent_utilities/caching/semantic_cache.py:524
+      - agent_utilities/harness/trace_backend.py:1166
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py:195
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py:222
+      - agent_utilities/models/knowledge_graph.py:196
+      - agent_utilities/models/knowledge_graph.py:555
+      - agent_utilities/models/knowledge_graph.py:1685
+      - agent_utilities/observability/gateway_metrics.py:577
+      - agent_utilities/observability/gateway_metrics.py:586
+      - tests/unit/caching/test_semantic_cache.py:3
+      - tests/unit/caching/test_semantic_cache_live_path.py:5
+  AU-KG.memory.targeted-add-update-delete:
+    decision: parent
+    parent: AU-KG.memory.background-learning-engine
+    rationale: The cli.py:130/:345 (cmd_learn) entrypoint for the targeted ADD/UPDATE/DELETE learner whose
+      decision — extract targeted fact edits rather than dump transcripts, and persist them as bi-temporal
+      mutations instead of Quarq's history-losing rewrite/hard-delete — is documented for the parent at
+      learning_engine.py:166-220.
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.memory.decay-scanner-merge
+    suggestion_why: clusters with 1 sibling(s) around AU-KG.memory.decay-scanner-merge; shares agent_utilities/knowledge_graph/memory/cli.py
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/cli.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/cli.py:130
+      - agent_utilities/knowledge_graph/memory/cli.py:345
+  AU-KG.memory.team-startup-context:
+    decision: keep
+    parent: ''
+    rationale: ''
+    reason: 'No rejected alternative found: _load_team_context (memory_engine.py:1183-1222) loads TeamConfigNode
+      conventions as startup chunks and appears to be a net-new capability with no prior mechanism replaced.
+      Also cross-pillar drift — its pre-migration id was ECO-4.10 (Ecosystem/Peripherals), and it is documented
+      in docs/pillars/4_ecosystem_peripherals.md, so it landed in AU-KG.memory only by rename collision.'
+    suggestion: parent
+    suggested_parent: AU-KG.memory.ground-truth-preamble-declaring
+    suggestion_why: clusters with 1 sibling(s) around AU-KG.memory.ground-truth-preamble-declaring; shares
+      agent_utilities/knowledge_graph/memory/memory_engine.py; both introduced by c5f21018 (OKF-CIS atomic
+      cutover on agent-utilities (AU-OS.governance.); the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/memory_engine.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:1186
+  AU-KG.memory.tiered-memory-caching:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (28 source
+      file(s), 158 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/__init__.py
+      - agent_utilities/capabilities/eviction.py
+      - agent_utilities/core/chat_persistence.py
+      - agent_utilities/graph/_router_impl.py
+      - agent_utilities/graph/parallel_engine.py
+      - agent_utilities/graph/routing/enrichers/self_model.py
+      - agent_utilities/graph/routing/strategies/fast_path.py
+      - agent_utilities/graph/routing/strategies/workflow_context.py
+      - agent_utilities/graph/subagent_patterns.py
+      - agent_utilities/graph/workspace_attention.py
+      - agent_utilities/harness/__init__.py
+      - agent_utilities/harness/agentic_evolution_engine.py
+      - agent_utilities/knowledge_graph/core/agents_md.py
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      - agent_utilities/knowledge_graph/core/model_display.py
+      - agent_utilities/knowledge_graph/ingestion/engine.py
+      - agent_utilities/knowledge_graph/memory/__init__.py
+      - agent_utilities/knowledge_graph/memory/agent_context.py
+      - agent_utilities/knowledge_graph/memory/cli.py
+      - agent_utilities/knowledge_graph/memory/memory_engine.py
+      - agent_utilities/knowledge_graph/memory/observer.py
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py
+      - agent_utilities/knowledge_graph/retrieval/budget.py
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      - agent_utilities/messaging/kg_ingest.py
+      - agent_utilities/messaging/router.py
+      - agent_utilities/models/knowledge_graph.py
+      test_files:
+      - tests/consolidation/test_memory_engine_paths.py
+      - tests/harness/test_evolving_memory.py
+      - tests/harness/test_skill_memory_adoption.py
+      - tests/integration/core/test_parallel_engine_advanced.py
+      - tests/unit/core/test_core_modules_misc.py
+      - tests/unit/core/test_prompt_builder.py
+      - tests/unit/knowledge_graph/test_company_models.py
+      - tests/unit/knowledge_graph/test_consolidation_engine.py
+      - tests/unit/knowledge_graph/test_contextual_embeddings.py
+      - tests/unit/knowledge_graph/test_facade_modules.py
+      - tests/unit/knowledge_graph/test_federation.py
+      - tests/unit/knowledge_graph/test_homeostatic_compaction.py
+      - tests/unit/knowledge_graph/test_law_models.py
+      - tests/unit/knowledge_graph/test_memory_bridge.py
+      - tests/unit/knowledge_graph/test_memory_retriever.py
+      - tests/unit/knowledge_graph/test_research_enhancements.py
+      - tests/unit/knowledge_graph/test_retrieval_budget.py
+      - tests/unit/test_context_compactor.py
+      - tests/unit/test_lcm_integration.py
+      doc_files:
+      - .specify/design/kg-2.1-memory-consolidation/design.md
+      - .specify/reports/memento-comparative-analysis.md
+      - .specify/specs/kg-2.1-memory-consolidation/CHECKLIST.md
+      - .specify/specs/kg-2.1-memory-consolidation/DRIFT_REPORT.md
+      - .specify/specs/kg-2.1-memory-consolidation/spec.md
+      - README.md
+      - docs/architecture/global_workspace_attention.md
+      - docs/guides/agent-os-architecture.md
+      - docs/guides/architecture.md
+      - docs/guides/conductor-orchestration.md
+      - docs/guides/design-patterns-alignment.md
+      - docs/guides/emergent-architecture.md
+      - docs/guides/features.md
+      - docs/guides/first-principles.md
+      - docs/guides/scoring_methodology.md
+      - docs/guides/squeeze-evolve-routing.md
+      - docs/journey.md
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.1-Tiered_Memory_And_Context.md
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.8-Observational_Memory_Bridge.md
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md
+      - docs/pillars/memory_architecture.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.time-series-lives-one
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kg-2.1-memory-consolidation/design.md:1
+      - .specify/design/kg-2.1-memory-consolidation/design.md:27
+      - .specify/reports/memento-comparative-analysis.md:57
+      - .specify/specs/kg-2.1-memory-consolidation/CHECKLIST.md:1
+      - .specify/specs/kg-2.1-memory-consolidation/DRIFT_REPORT.md:1
+      - .specify/specs/kg-2.1-memory-consolidation/spec.md:1
+      - .specify/specs/kg-2.1-memory-consolidation/spec.md:71
+      - README.md:283
+      - agent_utilities/__init__.py:296
+      - agent_utilities/__init__.py:304
+      - agent_utilities/__init__.py:509
+      - agent_utilities/__init__.py:512
+      - agent_utilities/capabilities/eviction.py:6
+      - agent_utilities/core/chat_persistence.py:271
+      - agent_utilities/graph/_router_impl.py:164
+      - agent_utilities/graph/_router_impl.py:352
+      - agent_utilities/graph/_router_impl.py:511
+      - agent_utilities/graph/_router_impl.py:615
+      - agent_utilities/graph/parallel_engine.py:1463
+      - agent_utilities/graph/routing/enrichers/self_model.py:1
+      - agent_utilities/graph/routing/strategies/fast_path.py:1
+      - agent_utilities/graph/routing/strategies/workflow_context.py:47
+      - agent_utilities/graph/subagent_patterns.py:283
+      - agent_utilities/graph/workspace_attention.py:14
+      - agent_utilities/graph/workspace_attention.py:23
+      - agent_utilities/graph/workspace_attention.py:131
+      - agent_utilities/graph/workspace_attention.py:295
+      - agent_utilities/graph/workspace_attention.py:379
+      - agent_utilities/graph/workspace_attention.py:507
+      - agent_utilities/harness/__init__.py:125
+      - agent_utilities/harness/agentic_evolution_engine.py:292
+      - agent_utilities/harness/agentic_evolution_engine.py:361
+      - agent_utilities/knowledge_graph/core/agents_md.py:6
+      - agent_utilities/knowledge_graph/core/agents_md.py:57
+      - agent_utilities/knowledge_graph/core/agents_md.py:101
+      - agent_utilities/knowledge_graph/core/agents_md.py:143
+      - agent_utilities/knowledge_graph/core/agents_md.py:196
+      - agent_utilities/knowledge_graph/core/agents_md.py:263
+      - agent_utilities/knowledge_graph/core/agents_md.py:346
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:2779
+      - agent_utilities/knowledge_graph/core/model_display.py:16
+      - agent_utilities/knowledge_graph/ingestion/engine.py:3245
+      - agent_utilities/knowledge_graph/memory/__init__.py:3
+      - agent_utilities/knowledge_graph/memory/__init__.py:4
+      - agent_utilities/knowledge_graph/memory/agent_context.py:17
+      - agent_utilities/knowledge_graph/memory/agent_context.py:38
+      - agent_utilities/knowledge_graph/memory/agent_context.py:144
+      - agent_utilities/knowledge_graph/memory/agent_context.py:175
+      - agent_utilities/knowledge_graph/memory/agent_context.py:192
+      - agent_utilities/knowledge_graph/memory/agent_context.py:206
+      - agent_utilities/knowledge_graph/memory/agent_context.py:226
+      - agent_utilities/knowledge_graph/memory/agent_context.py:552
+      - agent_utilities/knowledge_graph/memory/agent_context.py:585
+      - agent_utilities/knowledge_graph/memory/agent_context.py:667
+      - agent_utilities/knowledge_graph/memory/agent_context.py:737
+      - agent_utilities/knowledge_graph/memory/agent_context.py:802
+      - agent_utilities/knowledge_graph/memory/agent_context.py:862
+      - agent_utilities/knowledge_graph/memory/agent_context.py:1146
+      - agent_utilities/knowledge_graph/memory/agent_context.py:1240
+      - agent_utilities/knowledge_graph/memory/agent_context.py:1294
+      - agent_utilities/knowledge_graph/memory/agent_context.py:1333
+      - agent_utilities/knowledge_graph/memory/agent_context.py:1397
+      - agent_utilities/knowledge_graph/memory/agent_context.py:1425
+      - agent_utilities/knowledge_graph/memory/cli.py:6
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:4
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:59
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:367
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:428
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:792
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:890
+      - agent_utilities/knowledge_graph/memory/memory_engine.py:1227
+      - agent_utilities/knowledge_graph/memory/observer.py:6
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py:1211
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py:1463
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py:1716
+      - agent_utilities/knowledge_graph/memory/optimization_engine.py:1820
+      - agent_utilities/knowledge_graph/retrieval/budget.py:4
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:37
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1220
+      - agent_utilities/messaging/kg_ingest.py:9
+      - agent_utilities/messaging/kg_ingest.py:39
+      - agent_utilities/messaging/kg_ingest.py:135
+      - agent_utilities/messaging/router.py:429
+      - agent_utilities/models/knowledge_graph.py:207
+      - agent_utilities/models/knowledge_graph.py:209
+      - agent_utilities/models/knowledge_graph.py:363
+      - agent_utilities/models/knowledge_graph.py:376
+      - agent_utilities/models/knowledge_graph.py:911
+      - agent_utilities/models/knowledge_graph.py:923
+      - agent_utilities/models/knowledge_graph.py:2150
+      - agent_utilities/models/knowledge_graph.py:2163
+      - agent_utilities/models/knowledge_graph.py:3300
+      - agent_utilities/models/knowledge_graph.py:3306
+      - docs/architecture/global_workspace_attention.md:3
+      - docs/architecture/global_workspace_attention.md:37
+      - docs/guides/agent-os-architecture.md:118
+      - docs/guides/architecture.md:137
+      - docs/guides/architecture.md:146
+      - docs/guides/conductor-orchestration.md:180
+      - docs/guides/design-patterns-alignment.md:13
+      - docs/guides/emergent-architecture.md:3
+      - docs/guides/emergent-architecture.md:28
+      - docs/guides/emergent-architecture.md:189
+      - docs/guides/emergent-architecture.md:273
+      - docs/guides/emergent-architecture.md:324
+      - docs/guides/emergent-architecture.md:335
+      - docs/guides/emergent-architecture.md:353
+      - docs/guides/features.md:303
+      - docs/guides/features.md:455
+      - docs/guides/features.md:455
+      - docs/guides/features.md:503
+      - docs/guides/features.md:514
+      - docs/guides/features.md:541
+      - docs/guides/first-principles.md:15
+      - docs/guides/first-principles.md:31
+      - docs/guides/scoring_methodology.md:96
+      - docs/guides/scoring_methodology.md:111
+      - docs/guides/squeeze-evolve-routing.md:39
+      - docs/guides/squeeze-evolve-routing.md:74
+      - docs/guides/squeeze-evolve-routing.md:183
+      - docs/guides/squeeze-evolve-routing.md:199
+      - docs/journey.md:108
+      - docs/journey.md:288
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.1-Tiered_Memory_And_Context.md:1
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.1-Tiered_Memory_And_Context.md:12
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.1-Tiered_Memory_And_Context.md:23
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.8-Observational_Memory_Bridge.md:3
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md:64
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md:234
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md:265
+      - docs/pillars/memory_architecture.md:7
+      - docs/pillars/memory_architecture.md:8
+      - docs/pillars/memory_architecture.md:9
+      - docs/reference/documentation-catalog.md:288
+      - tests/consolidation/test_memory_engine_paths.py:8
+      - tests/harness/test_evolving_memory.py:4
+      - tests/harness/test_skill_memory_adoption.py:4
+      - tests/integration/core/test_parallel_engine_advanced.py:291
+      - tests/unit/core/test_core_modules_misc.py:545
+      - tests/unit/core/test_prompt_builder.py:3
+      - tests/unit/knowledge_graph/test_company_models.py:4
+      - tests/unit/knowledge_graph/test_consolidation_engine.py:3
+      - tests/unit/knowledge_graph/test_contextual_embeddings.py:1
+      - tests/unit/knowledge_graph/test_facade_modules.py:6
+      - tests/unit/knowledge_graph/test_federation.py:4
+      - tests/unit/knowledge_graph/test_homeostatic_compaction.py:4
+      - tests/unit/knowledge_graph/test_law_models.py:4
+      - tests/unit/knowledge_graph/test_memory_bridge.py:4
+      - tests/unit/knowledge_graph/test_memory_retriever.py:4
+      - tests/unit/knowledge_graph/test_research_enhancements.py:6
+      - tests/unit/knowledge_graph/test_research_enhancements.py:8
+      - tests/unit/knowledge_graph/test_research_enhancements.py:122
+      - tests/unit/knowledge_graph/test_research_enhancements.py:126
+      - tests/unit/knowledge_graph/test_research_enhancements.py:299
+      - tests/unit/knowledge_graph/test_research_enhancements.py:303
+      - tests/unit/knowledge_graph/test_retrieval_budget.py:1
+      - tests/unit/test_context_compactor.py:4
+      - tests/unit/test_lcm_integration.py:6
+  AU-KG.memory.time-series-lives-one:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.memory.provides-real-ephemeral-one
+    suggestion_why: clusters with 1 sibling(s) around AU-KG.memory.provides-real-ephemeral-one; shares
+      agent_utilities/knowledge_graph/memory/timeseries/__init__.py, agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/timeseries/__init__.py
+      - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.unified-memory-crud-core
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/timeseries/__init__.py:6
+      - agent_utilities/knowledge_graph/memory/timeseries/__init__.py:22
+      - agent_utilities/knowledge_graph/memory/timeseries/__init__.py:31
+      - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py:1
+      - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py:95
+      - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py:126
+  AU-KG.memory.unified-memory-crud-core:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/tools/engine_surface_tools.py
+      test_files:
+      - tests/unit/mcp/test_graph_tool_targeting.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.memory.ahe-record-this-base
+      - AU-KG.memory.anti-collapse
+      - AU-KG.memory.auto-similarity-memory-graph
+      - AU-KG.memory.background-learning-engine
+      - AU-KG.memory.generation-scoped-selective-reward
+      - AU-KG.memory.ground-truth-preamble-declaring
+      - AU-KG.memory.ingestion-serving-separation
+      - AU-KG.memory.live-data-science-mcp
+      - AU-KG.memory.live-refreshable-artifact-models
+      - AU-KG.memory.mementified-context
+      - AU-KG.memory.memento-compress-evict
+      - AU-KG.memory.memory-weights-distillation-export
+      - AU-KG.memory.observational-memory-bridge
+      - AU-KG.memory.parammem
+      - AU-KG.memory.persistent-self-model-owl
+      - AU-KG.memory.provides-real-ephemeral-one
+      - AU-KG.memory.refresh-per-session-memento
+      - AU-KG.memory.team-startup-context
+      - AU-KG.memory.tiered-memory-caching
+      - AU-KG.memory.time-series-lives-one
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/tools/engine_surface_tools.py:883
+      - agent_utilities/mcp/tools/engine_surface_tools.py:2011
+      - agent_utilities/mcp/tools/engine_surface_tools.py:2050
+      - tests/unit/mcp/test_graph_tool_targeting.py:135
+  AU-KG.memory.universal-knowledge-assimilation:
+    decision: keep
+    parent: ''
+    rationale: ''
+    reason: Borderline, and no alternative substantiated. The source-agnostic classifier (kb/knowledge_classifier.py:1-25)
+      states its design positively ("source-agnostic by design") but is not phrased against a rejected
+      per-source design; git log --diff-filter=D found no deleted per-source classifiers, and the introducing
+      commit (eb9c6764) is a test-suite commit with no rationale. Greenfield choice, not a documented
+      pivot.
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/kb/knowledge_classifier.py
+      - agent_utilities/knowledge_graph/kb/x_workflows.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/kb/knowledge_classifier.py:4
+      - agent_utilities/knowledge_graph/kb/x_workflows.py:6
+      - agent_utilities/knowledge_graph/kb/x_workflows.py:177
+      - agent_utilities/knowledge_graph/kb/x_workflows.py:215
+  AU-KG.memory.working-set-eviction:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/core/working_set_manager.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/working_set_manager.py:6

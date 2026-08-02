@@ -1,0 +1,1636 @@
+domain: AU-ORCH.routing
+generated_at: '2026-08-02T16:08:59+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
+  `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
+  and `apply --write`.'
+clusters:
+  AU-ORCH.routing.altitude-description:
+  - AU-ORCH.routing.altitude-description
+  - AU-ORCH.routing.chat-budget-routing
+  AU-ORCH.routing.filtered-specialist-injection:
+  - AU-ORCH.routing.filtered-specialist-injection
+  - AU-ORCH.routing.mcp-child-error-unwrap
+  - AU-ORCH.routing.transition-state-checkpoint
+  AU-ORCH.routing.route-inference-parameters:
+  - AU-ORCH.routing.route-inference-parameters
+  - AU-ORCH.routing.topological-routing
+  - AU-ORCH.routing.uno-orchestra-derived
+  AU-ORCH.routing.single-router-edge:
+  - AU-ORCH.routing.single-router-edge
+  - AU-ORCH.routing.structural-build-reuse
+concepts:
+  AU-ORCH.routing.adaptive-role-routing:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/model_factory.py
+      - agent_utilities/core/model_router.py
+      test_files:
+      - tests/unit/test_operator_phase2_autonomy.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/model_factory.py:189
+      - agent_utilities/core/model_router.py:4
+      - tests/unit/test_operator_phase2_autonomy.py:3
+  AU-ORCH.routing.altitude-description:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/router.py:575
+  AU-ORCH.routing.chat-budget-routing:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('# a slow round (CONCEPT·AU-ORCH.routing.chat-budget-routing/4.74).
+      The real cause, if any,') — the id itself reads like a real name, so the marker text needs cleaning
+      either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: '# a slow round (CONCEPT·AU-ORCH.routing.chat-budget-routing/4.74). The real cause,
+        if any,'
+      sites:
+      - agent_utilities/messaging/router.py:1050
+      - agent_utilities/messaging/router.py:1065
+      - agent_utilities/messaging/router.py:1391
+      - agent_utilities/messaging/router.py:1492
+      - agent_utilities/messaging/router.py:1496
+      - agent_utilities/messaging/router.py:1514
+      - agent_utilities/messaging/router.py:1520
+      - agent_utilities/messaging/router.py:1538
+  AU-ORCH.routing.conductor-per-step-model:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 19 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/graph/executor.py
+      - agent_utilities/graph/routing/strategies/llm_planner.py
+      - agent_utilities/models/model_registry.py
+      - agent_utilities/models/sdd.py
+      - agent_utilities/rlm/roles.py
+      test_files:
+      - tests/unit/graph/test_conductor_model_id.py
+      - tests/unit/test_orch_1_27_role_routing.py
+      doc_files:
+      - .specify/design/orch-1.27-role-specialized-routing/design.md
+      - .specify/specs/orch-1.27-role-specialized-routing/spec.md
+      - docs/architecture/configuration.md
+      - docs/pillars/1_graph_orchestration/ORCH-1.27-Role_Specialized_Model_Routing.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/orch-1.27-role-specialized-routing/design.md:43
+      - .specify/specs/orch-1.27-role-specialized-routing/spec.md:9
+      - agent_utilities/graph/executor.py:165
+      - agent_utilities/graph/executor.py:1808
+      - agent_utilities/graph/routing/strategies/llm_planner.py:29
+      - agent_utilities/models/model_registry.py:52
+      - agent_utilities/models/model_registry.py:57
+      - agent_utilities/models/model_registry.py:73
+      - agent_utilities/models/model_registry.py:313
+      - agent_utilities/models/model_registry.py:394
+      - agent_utilities/models/model_registry.py:408
+      - agent_utilities/models/sdd.py:88
+      - agent_utilities/models/sdd.py:137
+      - agent_utilities/rlm/roles.py:1
+      - docs/architecture/configuration.md:404
+      - docs/pillars/1_graph_orchestration/ORCH-1.27-Role_Specialized_Model_Routing.md:1
+      - docs/reference/documentation-catalog.md:272
+      - tests/unit/graph/test_conductor_model_id.py:4
+      - tests/unit/test_orch_1_27_role_routing.py:1
+  AU-ORCH.routing.confidence-gated-routing-log:
+    decision: parent
+    parent: AU-ORCH.routing.adaptive-role-routing
+    rationale: The tier-shift primitive (_tier_down/_tier_up/_effective_tier, model_registry.py:474-570)
+      that the adaptive reward-EMA router drives; its companion GraphState.routing_confidence_log (graph/state.py:451-456)
+      is written by no production path, only tests, so the "log" half names an intent rather than a shipped
+      choice.
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/state.py
+      - agent_utilities/models/model_registry.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/state.py:192
+      - agent_utilities/graph/state.py:452
+      - agent_utilities/models/model_registry.py:33
+      - agent_utilities/models/model_registry.py:474
+      - agent_utilities/models/model_registry.py:480
+      - agent_utilities/models/model_registry.py:489
+      - agent_utilities/models/model_registry.py:529
+  AU-ORCH.routing.confidence-signal-forwarding:
+    decision: parent
+    parent: AU-ORCH.routing.adaptive-role-routing
+    rationale: 'Parameter-forwarding glue in ResourceOptimizer.select_model_for_step (resource_optimizer.py:131-181):
+      it composes the budget-derived tier downgrade with the SAME pick_for_task_adaptive gate, guarded
+      by hasattr. A call site of the adaptive routing decision, not an independent trade-off.'
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/resource_optimizer.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/resource_optimizer.py:142
+      - agent_utilities/core/resource_optimizer.py:149
+      - agent_utilities/core/resource_optimizer.py:151
+      - agent_utilities/core/resource_optimizer.py:165
+  AU-ORCH.routing.depth-tiered-sampling:
+    decision: parent
+    parent: AU-ORCH.routing.sampling-profile-selection
+    rationale: 'One application of the parent mechanism: rlm/repl.py:658-666 selects the rlm-root profile
+      at depth 0 and rlm-executor below. Commit 0fce51c5 (same sampling-profile epic) shows the prior
+      code passed no model_settings at all; picking curated profiles is the extension point the parent
+      decision created.'
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/rlm/repl.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/rlm/repl.py:658
+  AU-ORCH.routing.emergent-specialization-discovery-pass:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/specialization_discovery.py
+      test_files:
+      - tests/unit/graph/test_orch_collective.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/specialization_discovery.py:6
+      - tests/unit/graph/test_orch_collective.py:2
+  AU-ORCH.routing.fallback-logic:
+    decision: retire
+    parent: ''
+    rationale: ''
+    reason: Names nothing in shipped source. git grep finds it only at docs/examples/graph-os-mcp-examples.md:123,
+      as an illustrative "target" placeholder in a graph_analyze deep_extract JSON example, alongside
+      equally fictional targets ("Code:auth.py", "Trace-1"), plus a generated tracking list. The real
+      fallback feature exists under its own separate id AU-ORCH.routing.model-fallback-chain (capabilities/model_fallback.py);
+      this id is not an alias of it and has no implementation to rescue.
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files: []
+      doc_files:
+      - docs/examples/graph-os-mcp-examples.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - docs/examples/graph-os-mcp-examples.md:123
+  AU-ORCH.routing.filtered-specialist-injection:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ORCH.routing.mcp-child-error-unwrap
+    suggestion_why: clusters with 2 sibling(s) around AU-ORCH.routing.mcp-child-error-unwrap; shares agent_utilities/graph/_router_impl.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/_router_impl.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/_router_impl.py:503
+      - agent_utilities/graph/_router_impl.py:548
+  AU-ORCH.routing.functional-role-resolution:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/model_factory.py
+      - agent_utilities/models/sdd.py
+      - agent_utilities/workflows/runner.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/model_factory.py:166
+      - agent_utilities/core/model_factory.py:476
+      - agent_utilities/core/model_factory.py:490
+      - agent_utilities/models/sdd.py:131
+      - agent_utilities/workflows/runner.py:183
+      - agent_utilities/workflows/runner.py:270
+      - agent_utilities/workflows/runner.py:1134
+  AU-ORCH.routing.kg-specialist-estimation:
+    decision: keep
+    parent: ''
+    rationale: ''
+    reason: 'Not a decision: estimate_specialist_count (graph/subagent_patterns.py:244-275) is never called
+      anywhere, tests included. Its docstring claims it replaces "the caller guessing specialist_count",
+      but select_pattern still takes specialist_count as a caller-supplied parameter (:145,:155) and nothing
+      wires the KG estimate in — the stated alternative is still literally what production does. Aspirational
+      dead code; wire it or delete it rather than document a trade-off that was never made.'
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/subagent_patterns.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/subagent_patterns.py:247
+  AU-ORCH.routing.load-shedding-backoff:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 14 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/core/embedding_failover.py
+      - agent_utilities/core/model_circuit_breaker.py
+      - agent_utilities/core/model_concurrency.py
+      test_files: []
+      doc_files:
+      - docs/architecture/distributed_gpu_concurrency.md
+      - docs/architecture/llm-server-capacity-guard.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:1407
+      - agent_utilities/core/embedding_failover.py:23
+      - agent_utilities/core/embedding_failover.py:146
+      - agent_utilities/core/model_circuit_breaker.py:1
+      - agent_utilities/core/model_circuit_breaker.py:64
+      - agent_utilities/core/model_circuit_breaker.py:81
+      - agent_utilities/core/model_circuit_breaker.py:147
+      - agent_utilities/core/model_circuit_breaker.py:271
+      - agent_utilities/core/model_circuit_breaker.py:294
+      - agent_utilities/core/model_concurrency.py:237
+      - agent_utilities/core/model_concurrency.py:311
+      - agent_utilities/core/model_concurrency.py:378
+      - docs/architecture/distributed_gpu_concurrency.md:295
+      - docs/architecture/llm-server-capacity-guard.md:3
+  AU-ORCH.routing.mcp-child-error-unwrap:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/_router_impl.py
+      - agent_utilities/orchestration/agent_runner.py
+      test_files:
+      - tests/unit/knowledge_graph/test_mcp_orchestrate.py
+      - tests/unit/knowledge_graph/test_orchestrate_mcp.py
+      - tests/unit/test_agent_stack_seams.py
+      - tests/unit/test_spawn_agent_auth.py
+      doc_files:
+      - docs/architecture/non-blocking-execution.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/_router_impl.py:1472
+      - agent_utilities/orchestration/agent_runner.py:1
+      - agent_utilities/orchestration/agent_runner.py:236
+      - agent_utilities/orchestration/agent_runner.py:600
+      - agent_utilities/orchestration/agent_runner.py:2354
+      - agent_utilities/orchestration/agent_runner.py:2970
+      - agent_utilities/orchestration/agent_runner.py:3020
+      - agent_utilities/orchestration/agent_runner.py:3556
+      - docs/architecture/non-blocking-execution.md:10
+      - tests/unit/knowledge_graph/test_mcp_orchestrate.py:3
+      - tests/unit/knowledge_graph/test_orchestrate_mcp.py:3
+      - tests/unit/test_agent_stack_seams.py:12
+      - tests/unit/test_spawn_agent_auth.py:3
+  AU-ORCH.routing.model-fallback-chain:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/capabilities/model_fallback.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/capabilities/model_fallback.py:16
+  AU-ORCH.routing.offload-sync-roundtrip:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 27 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/_router_impl.py
+      - agent_utilities/graph/executor.py
+      - agent_utilities/graph/hierarchical_planner.py
+      - agent_utilities/graph/verification.py
+      - agent_utilities/orchestration/agent_runner.py
+      - agent_utilities/orchestration/engine.py
+      test_files:
+      - tests/unit/test_non_blocking_execution.py
+      doc_files:
+      - docs/architecture/non-blocking-execution.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/_router_impl.py:120
+      - agent_utilities/graph/_router_impl.py:141
+      - agent_utilities/graph/_router_impl.py:247
+      - agent_utilities/graph/_router_impl.py:296
+      - agent_utilities/graph/_router_impl.py:560
+      - agent_utilities/graph/_router_impl.py:981
+      - agent_utilities/graph/executor.py:429
+      - agent_utilities/graph/executor.py:1491
+      - agent_utilities/graph/executor.py:1613
+      - agent_utilities/graph/executor.py:1660
+      - agent_utilities/graph/executor.py:1697
+      - agent_utilities/graph/executor.py:1810
+      - agent_utilities/graph/hierarchical_planner.py:106
+      - agent_utilities/graph/hierarchical_planner.py:193
+      - agent_utilities/graph/hierarchical_planner.py:515
+      - agent_utilities/graph/hierarchical_planner.py:673
+      - agent_utilities/graph/hierarchical_planner.py:1123
+      - agent_utilities/graph/verification.py:573
+      - agent_utilities/graph/verification.py:804
+      - agent_utilities/graph/verification.py:1028
+      - agent_utilities/graph/verification.py:1121
+      - agent_utilities/orchestration/agent_runner.py:829
+      - agent_utilities/orchestration/agent_runner.py:1013
+      - agent_utilities/orchestration/engine.py:1454
+      - docs/architecture/non-blocking-execution.md:293
+      - tests/unit/test_non_blocking_execution.py:12
+      - tests/unit/test_non_blocking_execution.py:470
+  AU-ORCH.routing.optional-role-override:
+    decision: parent
+    parent: AU-ORCH.routing.conductor-per-step-model
+    rationale: 'The config-surface restatement of role->{tier,tags} binding: core/config.py:4938-4944
+      declares the role_routing field with no logic, and empty roles fall back to _DEFAULT_ROLE_ROUTING
+      in model_registry.py. Introduced in the same commit (2a7d6eab) as the parent, which already documents
+      the rejected hardcoded-per-role-client alternative.'
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:4941
+  AU-ORCH.routing.original-rule-was-far:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/routing/strategies/fast_path.py
+      test_files:
+      - tests/unit/test_non_blocking_execution.py
+      doc_files:
+      - docs/architecture/non-blocking-execution.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/routing/strategies/fast_path.py:1
+      - agent_utilities/graph/routing/strategies/fast_path.py:10
+      - agent_utilities/graph/routing/strategies/fast_path.py:121
+      - docs/architecture/non-blocking-execution.md:260
+      - tests/unit/test_non_blocking_execution.py:9
+  AU-ORCH.routing.rejected-candidate-provenance:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 17 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/capabilities/model_fallback.py
+      - agent_utilities/core/model_factory.py
+      - agent_utilities/core/model_router.py
+      - agent_utilities/harness/trace_backend.py
+      - agent_utilities/models/knowledge_graph.py
+      - agent_utilities/models/model_registry.py
+      test_files:
+      - tests/unit/core/test_model_factory_routing_decision.py
+      - tests/unit/core/test_model_registry.py
+      - tests/unit/test_operator_phase2_autonomy.py
+      doc_files:
+      - docs/architecture/model_registry_graph_resources.md
+      introduced: '6b9d81bb 2026-07-30 feat(models): expose model registry as graph resources + rejected-alternative
+        routing provenance + OpenAI catalogue verification'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/capabilities/model_fallback.py:32
+      - agent_utilities/core/model_factory.py:215
+      - agent_utilities/core/model_router.py:100
+      - agent_utilities/harness/trace_backend.py:1111
+      - agent_utilities/models/knowledge_graph.py:193
+      - agent_utilities/models/knowledge_graph.py:552
+      - agent_utilities/models/knowledge_graph.py:1658
+      - agent_utilities/models/model_registry.py:38
+      - agent_utilities/models/model_registry.py:48
+      - agent_utilities/models/model_registry.py:136
+      - agent_utilities/models/model_registry.py:159
+      - agent_utilities/models/model_registry.py:572
+      - agent_utilities/models/model_registry.py:585
+      - docs/architecture/model_registry_graph_resources.md:2
+      - tests/unit/core/test_model_factory_routing_decision.py:2
+      - tests/unit/core/test_model_registry.py:291
+      - tests/unit/test_operator_phase2_autonomy.py:90
+  AU-ORCH.routing.resolve-body-single-canonical:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (9 source
+      file(s), 18 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/agent/registry_builder.py
+      - agent_utilities/core/workspace.py
+      - agent_utilities/messaging/bus.py
+      - agent_utilities/orchestration/action_policy.py
+      - agent_utilities/prompting/builder.py
+      - agent_utilities/prompting/structured.py
+      - scripts/check_prompt_schema.py
+      - scripts/gen_prompt_schema.py
+      - scripts/migrate_prompts.py
+      test_files:
+      - tests/integration/core/test_workspace.py
+      - tests/unit/core/test_workspace_unit.py
+      doc_files:
+      - agent_utilities/prompts/README.md
+      - docs/architecture/modular-prompt-skill-contribution.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/agent/registry_builder.py:110
+      - agent_utilities/core/workspace.py:82
+      - agent_utilities/messaging/bus.py:1105
+      - agent_utilities/orchestration/action_policy.py:100
+      - agent_utilities/prompting/builder.py:43
+      - agent_utilities/prompting/builder.py:147
+      - agent_utilities/prompting/builder.py:208
+      - agent_utilities/prompting/builder.py:394
+      - agent_utilities/prompting/structured.py:472
+      - agent_utilities/prompting/structured.py:738
+      - agent_utilities/prompting/structured.py:749
+      - agent_utilities/prompts/README.md:15
+      - docs/architecture/modular-prompt-skill-contribution.md:3
+      - scripts/check_prompt_schema.py:4
+      - scripts/gen_prompt_schema.py:4
+      - scripts/migrate_prompts.py:4
+      - tests/integration/core/test_workspace.py:28
+      - tests/unit/core/test_workspace_unit.py:55
+  AU-ORCH.routing.role-specialized-model-routing:
+    decision: parent
+    parent: AU-ORCH.routing.conductor-per-step-model
+    rationale: 'The MCP write-surface for the same binding: the set_role_routing action (analysis_tools.py:3934-3977)
+      persists a role_routing override map. The parent design doc explicitly lists this wiring hop; the
+      action itself came from a structural MCP-module split, not a new decision.'
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/tools/analysis_tools.py:3934
+  AU-ORCH.routing.route-inference-parameters:
+    decision: parent
+    parent: AU-ORCH.routing.sampling-profile-selection
+    rationale: The RoutingDecision.sampling_profile field (adaptive_agent_router.py:79-101, populated
+      at :222/:292/:616) — the data carrier that makes the task-aware sampling bundle travel with the
+      chosen model. Same epic (c75bbbc7).
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/adaptive_agent_router.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/adaptive_agent_router.py:94
+  AU-ORCH.routing.route-outcome-feedback:
+    decision: parent
+    parent: AU-ORCH.routing.adaptive-role-routing
+    rationale: 'The write half of the adaptive router loop: feedback.py:374-384 forwards a model_route:
+      action outcome into record_model_outcome, training the very reward-EMA the parent decision reads.
+      Same loop, opposite end.'
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/adaptation/feedback.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/adaptation/feedback.py:374
+  AU-ORCH.routing.sampling-profile-selection:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: 'the marker text is truncated by the grammar (''"one_line": "Task-aware LLM sampling
+      profiles (CONCEPT·AU-ORCH.routing.sampling-profile-se'') — the id itself reads like a real name,
+      so the marker text needs cleaning either way; decide whether the concept survives that cleanup'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/agent/factory.py
+      - agent_utilities/agent/sampling_profile.py
+      - agent_utilities/gateway/ontology_api.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/mcp/tools/ontology_tools.py
+      - agent_utilities/models/model_registry.py
+      test_files:
+      - tests/unit/test_sampling_profiles.py
+      doc_files:
+      - docs/architecture/kv-cache-layering-policy.md
+      - docs/architecture/sampling_profiles.md
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: '"one_line": "Task-aware LLM sampling profiles (CONCEPT·AU-ORCH.routing.sampling-profile-selection/KG-2.94):
+        list/describe the per-task-class profiles, ''resolve'' the profile that would be picked for a
+        prompt/role,",'
+      sites:
+      - agent_utilities/agent/factory.py:669
+      - agent_utilities/agent/factory.py:830
+      - agent_utilities/agent/sampling_profile.py:5
+      - agent_utilities/agent/sampling_profile.py:59
+      - agent_utilities/agent/sampling_profile.py:220
+      - agent_utilities/agent/sampling_profile.py:276
+      - agent_utilities/gateway/ontology_api.py:367
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25827
+      - agent_utilities/mcp/tools/ontology_tools.py:379
+      - agent_utilities/models/model_registry.py:101
+      - agent_utilities/models/model_registry.py:320
+      - agent_utilities/models/model_registry.py:444
+      - agent_utilities/models/model_registry.py:447
+      - agent_utilities/models/model_registry.py:458
+      - agent_utilities/models/model_registry.py:809
+      - docs/architecture/kv-cache-layering-policy.md:7
+      - docs/architecture/sampling_profiles.md:1
+      - docs/architecture/sampling_profiles.md:42
+      - docs/architecture/sampling_profiles.md:79
+      - docs/capabilities-power.json:25827
+      - docs/capabilities-power.md:121
+      - docs/capabilities-power.md:4585
+      - docs/reference/documentation-catalog.md:250
+      - tests/unit/test_sampling_profiles.py:3
+  AU-ORCH.routing.single-router-edge:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/builder.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/builder.py:786
+  AU-ORCH.routing.structural-build-reuse:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('**P1 — non-blocking:** ✅ **DONE** (CONCEPT·AU-ORCH.routing.structural-build-reuse/1.65)
+      — ') — the id itself reads like a real name, so the marker text needs cleaning either way; decide
+      whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/builder.py
+      test_files:
+      - tests/unit/test_non_blocking_execution.py
+      doc_files:
+      - docs/architecture/non-blocking-execution.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: '**P1 — non-blocking:** ✅ **DONE** (CONCEPT·AU-ORCH.routing.structural-build-reuse/1.65)
+        — except item 6 (deferred)'
+      sites:
+      - agent_utilities/graph/builder.py:80
+      - agent_utilities/graph/builder.py:129
+      - agent_utilities/graph/builder.py:458
+      - agent_utilities/graph/builder.py:478
+      - agent_utilities/graph/builder.py:879
+      - agent_utilities/graph/builder.py:912
+      - docs/architecture/non-blocking-execution.md:278
+      - docs/architecture/non-blocking-execution.md:284
+      - tests/unit/test_non_blocking_execution.py:11
+      - tests/unit/test_non_blocking_execution.py:318
+      - tests/unit/test_non_blocking_execution.py:368
+  AU-ORCH.routing.topological-routing:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ORCH.routing.route-inference-parameters
+    suggestion_why: clusters with 2 sibling(s) around AU-ORCH.routing.route-inference-parameters; shares
+      agent_utilities/graph/adaptive_agent_router.py; both introduced by c5f21018 (OKF-CIS atomic cutover
+      on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/adaptive_agent_router.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/adaptive_agent_router.py:554
+  AU-ORCH.routing.topology-escalation-policy:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/reasoning/policy.py
+      test_files: []
+      doc_files:
+      - docs/architecture/reasoning-graph-topologies.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/reasoning/policy.py:6
+      - docs/architecture/reasoning-graph-topologies.md:9
+  AU-ORCH.routing.transition-state-checkpoint:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ORCH.routing.mcp-child-error-unwrap
+    suggestion_why: clusters with 2 sibling(s) around AU-ORCH.routing.mcp-child-error-unwrap; shares agent_utilities/graph/_router_impl.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/_router_impl.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.uno-orchestra-derived
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/_router_impl.py:554
+      - agent_utilities/graph/_router_impl.py:972
+  AU-ORCH.routing.uno-orchestra-derived:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ORCH.routing.route-inference-parameters
+    suggestion_why: clusters with 2 sibling(s) around AU-ORCH.routing.route-inference-parameters; shares
+      agent_utilities/graph/adaptive_agent_router.py; both introduced by c5f21018 (OKF-CIS atomic cutover
+      on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/adaptive_agent_router.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.virtual-agent-economy-task
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/adaptive_agent_router.py:24
+      - agent_utilities/graph/adaptive_agent_router.py:52
+      - agent_utilities/graph/adaptive_agent_router.py:80
+      - agent_utilities/graph/adaptive_agent_router.py:196
+      - agent_utilities/graph/adaptive_agent_router.py:299
+      - agent_utilities/graph/adaptive_agent_router.py:445
+      - agent_utilities/graph/adaptive_agent_router.py:507
+  AU-ORCH.routing.virtual-agent-economy-task:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/orchestration/agent_market.py
+      test_files:
+      - tests/unit/graph/test_orch_collective.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ORCH.routing.adaptive-role-routing
+      - AU-ORCH.routing.altitude-description
+      - AU-ORCH.routing.chat-budget-routing
+      - AU-ORCH.routing.conductor-per-step-model
+      - AU-ORCH.routing.confidence-gated-routing-log
+      - AU-ORCH.routing.confidence-signal-forwarding
+      - AU-ORCH.routing.depth-tiered-sampling
+      - AU-ORCH.routing.emergent-specialization-discovery-pass
+      - AU-ORCH.routing.filtered-specialist-injection
+      - AU-ORCH.routing.functional-role-resolution
+      - AU-ORCH.routing.kg-specialist-estimation
+      - AU-ORCH.routing.load-shedding-backoff
+      - AU-ORCH.routing.mcp-child-error-unwrap
+      - AU-ORCH.routing.offload-sync-roundtrip
+      - AU-ORCH.routing.original-rule-was-far
+      - AU-ORCH.routing.resolve-body-single-canonical
+      - AU-ORCH.routing.role-specialized-model-routing
+      - AU-ORCH.routing.route-inference-parameters
+      - AU-ORCH.routing.route-outcome-feedback
+      - AU-ORCH.routing.sampling-profile-selection
+      - AU-ORCH.routing.single-router-edge
+      - AU-ORCH.routing.structural-build-reuse
+      - AU-ORCH.routing.topological-routing
+      - AU-ORCH.routing.transition-state-checkpoint
+      - AU-ORCH.routing.uno-orchestra-derived
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/orchestration/agent_market.py:6
+      - tests/unit/graph/test_orch_collective.py:2

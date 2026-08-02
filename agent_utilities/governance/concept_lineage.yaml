@@ -165,6 +165,68 @@ parents:
     parent: AU-KG.compute.first-class-action-conditioned
     rationale: the MCP action that forward-simulates the parent's learned model; an exposure surface,
       not a modelling choice
+  AU-KG.memory.episodic-procedural-memory-distillation:
+    parent: AU-KG.memory.drive-one-agent-native
+    rationale: 'distillation.py realizes the parent''s agent-native-memory policy rather than deciding
+      anything itself: it explicitly reuses MemoryLifecycle unchanged (distillation.py:4 cross-references
+      the parent) and adds no rejected alternative of its own — commit f99df111 introduces it as a net-new
+      implementation of the paper''s parametric-memory module, with no prior distillation mechanism displaced.'
+  AU-KG.memory.memento-compress-evict:
+    parent: AU-KG.memory.mementified-context
+    rationale: 'An orphan alias: the sole marker site (capabilities/composition.py:99-103) is a wiring
+      comment on the MementoCompaction(...) construction inside default_runtime_capabilities(). The actual
+      block-compress-evict decision — including the deviations from the Memento paper — lives at capabilities/memento.py:4-28
+      under the parent id, which already has a design doc.'
+  AU-KG.memory.refresh-service:
+    parent: AU-KG.memory.live-refreshable-artifact-models
+    rationale: RefreshService.refresh (live_artifacts/refresh.py:50-89) implements the prior-preserving
+      refresh semantics of the parent live-artifact decision — on a failed re-derivation it keeps prior
+      data/last_rendered rather than surfacing an error state. The parent design doc already discusses
+      RefreshService.refresh directly.
+  AU-KG.memory.targeted-add-update-delete:
+    parent: AU-KG.memory.background-learning-engine
+    rationale: The cli.py:130/:345 (cmd_learn) entrypoint for the targeted ADD/UPDATE/DELETE learner whose
+      decision — extract targeted fact edits rather than dump transcripts, and persist them as bi-temporal
+      mutations instead of Quarq's history-losing rewrite/hard-delete — is documented for the parent at
+      learning_engine.py:166-220.
+  AU-ORCH.routing.confidence-gated-routing-log:
+    parent: AU-ORCH.routing.adaptive-role-routing
+    rationale: The tier-shift primitive (_tier_down/_tier_up/_effective_tier, model_registry.py:474-570)
+      that the adaptive reward-EMA router drives; its companion GraphState.routing_confidence_log (graph/state.py:451-456)
+      is written by no production path, only tests, so the "log" half names an intent rather than a shipped
+      choice.
+  AU-ORCH.routing.confidence-signal-forwarding:
+    parent: AU-ORCH.routing.adaptive-role-routing
+    rationale: 'Parameter-forwarding glue in ResourceOptimizer.select_model_for_step (resource_optimizer.py:131-181):
+      it composes the budget-derived tier downgrade with the SAME pick_for_task_adaptive gate, guarded
+      by hasattr. A call site of the adaptive routing decision, not an independent trade-off.'
+  AU-ORCH.routing.depth-tiered-sampling:
+    parent: AU-ORCH.routing.sampling-profile-selection
+    rationale: 'One application of the parent mechanism: rlm/repl.py:658-666 selects the rlm-root profile
+      at depth 0 and rlm-executor below. Commit 0fce51c5 (same sampling-profile epic) shows the prior
+      code passed no model_settings at all; picking curated profiles is the extension point the parent
+      decision created.'
+  AU-ORCH.routing.optional-role-override:
+    parent: AU-ORCH.routing.conductor-per-step-model
+    rationale: 'The config-surface restatement of role->{tier,tags} binding: core/config.py:4938-4944
+      declares the role_routing field with no logic, and empty roles fall back to _DEFAULT_ROLE_ROUTING
+      in model_registry.py. Introduced in the same commit (2a7d6eab) as the parent, which already documents
+      the rejected hardcoded-per-role-client alternative.'
+  AU-ORCH.routing.role-specialized-model-routing:
+    parent: AU-ORCH.routing.conductor-per-step-model
+    rationale: 'The MCP write-surface for the same binding: the set_role_routing action (analysis_tools.py:3934-3977)
+      persists a role_routing override map. The parent design doc explicitly lists this wiring hop; the
+      action itself came from a structural MCP-module split, not a new decision.'
+  AU-ORCH.routing.route-inference-parameters:
+    parent: AU-ORCH.routing.sampling-profile-selection
+    rationale: The RoutingDecision.sampling_profile field (adaptive_agent_router.py:79-101, populated
+      at :222/:292/:616) — the data carrier that makes the task-aware sampling bundle travel with the
+      chosen model. Same epic (c75bbbc7).
+  AU-ORCH.routing.route-outcome-feedback:
+    parent: AU-ORCH.routing.adaptive-role-routing
+    rationale: 'The write half of the adaptive router loop: feedback.py:374-384 forwards a model_route:
+      action outcome into record_model_outcome, training the very reward-EMA the parent decision reads.
+      Same loop, opposite end.'
 retired:
   AU-KG.compute.automates:
     reason: a single generic verb naming an ontology EDGE TYPE (AUTOMATES), not a decision; the connector-to-skill
@@ -201,3 +263,16 @@ retired:
   AU-KG.compute.when-exposes-native:
     reason: the same sentence fragment one clause later, on the server-side entity-resolution escalation;
       same decision, same document
+  AU-KG.memory.parammem:
+    reason: 'A background-research citation tag, not a decision. Its pre-migration id was the generic
+      KG-2.1 (Tiered Memory & Context), reused across ~11 unrelated sites in engine_memory.py (ContextBudgetOptimizer,
+      the trust filter, instruction-aware reranking, context-budget compaction), and the marker text is
+      literally a paper citation ("Research: MEMO Survey (2504.01990v2), ParamMem (2604.27707v1)"). It
+      was never assigned its own numbered concept the way its file-neighbour ingestion-serving-separation
+      (KG-2.130) was.'
+  AU-ORCH.routing.fallback-logic:
+    reason: Names nothing in shipped source. git grep finds it only at docs/examples/graph-os-mcp-examples.md:123,
+      as an illustrative "target" placeholder in a graph_analyze deep_extract JSON example, alongside
+      equally fictional targets ("Code:auth.py", "Trace-1"), plus a generated tracking list. The real
+      fallback feature exists under its own separate id AU-ORCH.routing.model-fallback-chain (capabilities/model_fallback.py);
+      this id is not an alias of it and has no implementation to rescue.
