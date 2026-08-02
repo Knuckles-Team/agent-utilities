@@ -524,6 +524,58 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual, pre-push]
+  # D-CIP-6: 9 test files that guardrails.yml/security.yml run directly (not
+  # via tests/gates or tests/scale, which ARE already covered by
+  # guardrail-gate-meta-tests/guardrail-prod-profile above) had no always-run
+  # local mirror — the default `pytest` hook above is diff-scoped
+  # (always_run: false, types: [python]) so it only fires when a staged file
+  # happens to touch these suites. Split into the SAME 4 groups CI itself
+  # uses (one pytest invocation per CI step) rather than one combined
+  # invocation: bisected and confirmed that combining
+  # tests/unit/mcp/test_graphos_bootstrap_isolation.py with
+  # tests/unit/scripts/test_check_fleet_supply_chain.py in a single pytest
+  # process causes 2 of the latter's tests to fail (their capsys-captured
+  # stdout ends up on stderr) — a real cross-file global-state leak in the
+  # test suite, but CI never exercises that combination either (they run in
+  # different jobs/steps), so grouping any other way would test a
+  # CI-parity gate against a combination CI itself never proves clean.
+  - id: check-security-parser-fuzz
+    name: CI parity — security.yml parser-fuzz suite
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/security/test_parser_fuzz.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/security/test_parser_fuzz.py -q -p no:cacheprovider -o addopts=""; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
+  - id: check-security-identity-isolation
+    name: CI parity — security.yml identity/graphos-isolation/cli-secret-refs suite
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/core/test_request_identity.py tests/unit/mcp/test_graphos_bootstrap_isolation.py tests/unit/security/test_cli_secret_references.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/core/test_request_identity.py tests/unit/mcp/test_graphos_bootstrap_isolation.py tests/unit/security/test_cli_secret_references.py -q -p no:cacheprovider -o addopts=""; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
+  - id: check-security-tenant-identity
+    name: CI parity — security.yml tenant-identity-contract suite
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/security/test_tenant_identity_contract.py tests/unit/test_tenant_e2e_au_p0_5.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/security/test_tenant_identity_contract.py tests/unit/test_tenant_e2e_au_p0_5.py -q -p no:cacheprovider -o addopts=""; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
+  # D-CIP-17: 2 tests in this group (test_promote_local_release.py) are
+  # EXPECTED to fail with `ReleaseError: unsupported-platform` when the
+  # project's own sanctioned local interpreter (a uv-managed
+  # python-build-standalone CPython) was built without os.memfd_create —
+  # confirmed root cause via direct interpreter probe, not a code
+  # regression, and not reproduced under the system python3 that CI's
+  # actions/setup-python step most likely provides. Wired anyway (not
+  # skipped) so the other 2 files in this group stay covered and the gap
+  # stays visible with its tracked root cause, rather than silently omitted.
+  - id: check-guardrails-release-supply-chain
+    name: CI parity — guardrails.yml promote/supply-chain suite (D-CIP-17, needs memfd_create)
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/release/test_promote_local_release.py tests/unit/scripts/test_run_guardrails_lean.py tests/unit/scripts/test_check_fleet_supply_chain.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/release/test_promote_local_release.py tests/unit/scripts/test_run_guardrails_lean.py tests/unit/scripts/test_check_fleet_supply_chain.py -q -p no:cacheprovider -o addopts=""; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   # backend-parity (replaces the deleted backend-parity-nightly.yml). That nightly
   # ran the LIVE cross-backend conformance matrix, which needs a running engine +
   # Docker testcontainers (pggraph/AGE, Neo4j, FalkorDB, Fuseki) and so could never
