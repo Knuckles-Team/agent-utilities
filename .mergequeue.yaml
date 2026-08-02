@@ -1,0 +1,95 @@
+# Merge-queue gate declaration for `agent-utilities` (a PYTHON repository).
+#
+# Copy to the repository root as `.mergequeue.yaml`.
+#
+# This is the migration target for agent_utilities/governance/merge_queue.py:
+# every gate its fast tier hard-codes, re-expressed as declarative config. Read
+# side by side with epistemic-graph.mergequeue.yaml -- the two repositories share
+# ZERO gates and one mechanism, which is the whole point of the split.
+#
+# NOT YET IN EFFECT. The au queue is live and actively landing branches; see the
+# migration plan in docs/merge-queue.md. Placing the file in a repo is what
+# switches that repo over, so this preset is inert until it is copied.
+
+base: main
+batch_size: 8
+
+# The venv's installed distribution set is used automatically when no command is
+# declared, but declaring it explicitly makes the fingerprint legible and pins it
+# to the interpreter the gates actually run under. A verdict is only ever a claim
+# about the interpreter that produced it -- the ambient `python3` instead of the
+# repo `.venv` produced ~80 false "environment-blocked" verdicts here in one day.
+environment_signature: [".venv/bin/python", "-c", "import sys, sysconfig; print(sys.version, sysconfig.get_paths()['purelib'])"]
+
+gates:
+  # ── the au queue's `contract-checks` step ────────────────────────────────
+  # Discovered in the MERGED tree, so a candidate that ADDS an invariant has it
+  # enforced against itself in the same run. `compare: lines` reproduces the
+  # per-violation line diff: main legitimately carries contract debt (~490
+  # pre-existing retired-surface references), and judging by exit code alone
+  # would refuse every candidate the moment that debt was folded into discovery.
+  - name: contract-checks
+    command: [".venv/bin/python", "-c", "import glob,subprocess,sys;
+      fails=[s for s in sorted(glob.glob('scripts/security/check_*.py'))
+      if subprocess.run([sys.executable,s],capture_output=True,text=True).returncode];
+      print('\\n'.join(fails)); sys.exit(1 if fails else 0)"]
+    tier: fast
+    timeout: 60
+    baseline_timeout: 180
+    compare: lines
+
+  # ── the au queue's `targeted-tests` step ─────────────────────────────────
+  # `compare: pytest-ids` is the ID-level differential: a failing id is permitted
+  # ONLY when that EXACT id already fails on the base. Never by file, module,
+  # pattern or count -- an id-level compare is the only shape that cannot be
+  # gamed into masking a real regression.
+  #
+  # on_timeout: defer reproduces the published contract -- exceeding the ceiling
+  # hands the run to the post-merge suite rather than holding it against the
+  # candidate, because a queue that hangs is a queue that gets bypassed.
+  - name: targeted-tests
+    command: [".venv/bin/python", "-m", "pytest", "-q", "-p", "no:randomly", "-rfE",
+              "--timeout", "120", "tests/unit"]
+    tier: fast
+    timeout: 120
+    baseline_timeout: 240
+    compare: pytest-ids
+    on_timeout: defer
+    when_changed: ['*.py', '**/*.py']
+
+  - name: ruff
+    command: [".venv/bin/python", "-m", "ruff", "check", "--output-format", "concise", "."]
+    tier: fast
+    timeout: 120
+    compare: lines
+    when_changed: ['*.py', '**/*.py']
+
+  # Deliberately outside the queue: at 43 minutes the full suite makes the queue
+  # diverge at any concurrency (D-OP-4/D-KCI-6 -- a gate whose cost exceeds its
+  # value gets bypassed). Declared so this file remains the single description of
+  # what guards the repo.
+  - name: full-suite
+    command: [".venv/bin/python", "-m", "pytest", "-q", "tests"]
+    tier: slow
+    timeout: 3600
+    compare: pytest-ids
+
+# ── regenerate-on-land (behaviour 3) ────────────────────────────────────────
+# With ~76 candidates converging on one base, nearly every candidate that
+# touched one of these -- or merely added a CONCEPT: marker, changing a count --
+# conflicts on it, even though there is no real disagreement: both sides just
+# hold a stale copy of a purely-derived file. Regenerating from the
+# ALREADY-MERGED source of truth is the correct resolution; `checkout --theirs`
+# silently drops whichever side lost.
+#
+# Order matters: gen_docs.py reads docs/concepts.yaml (must be fresh first), and
+# gen_agents_md.py writes both AGENTS.md and docs/project_structure.md last.
+generated_files:
+  - docs/concepts.yaml
+  - README.md
+  - AGENTS.md
+  - docs/project_structure.md
+regenerate:
+  - [".venv/bin/python", "scripts/build_concepts_yaml.py"]
+  - [".venv/bin/python", "scripts/gen_docs.py", "--write"]
+  - [".venv/bin/python", "scripts/gen_agents_md.py"]

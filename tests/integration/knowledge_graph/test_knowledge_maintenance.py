@@ -189,6 +189,7 @@ def test_backfill_entity_embeddings_no_backend_returns_zeros():
         "scanned": 0,
         "embedded": 0,
         "indexed": 0,
+        "errored": 0,
         "skipped_no_text": 0,
         "deferred_no_text": 0,
         "conflicted": 0,
@@ -259,6 +260,7 @@ def test_backfill_native_query_avoids_properties_function_and_persists_progress(
         "scanned": 2,
         "embedded": 2,
         "indexed": 2,
+        "errored": 0,
         "skipped_no_text": 0,
         "deferred_no_text": 0,
         "conflicted": 0,
@@ -267,6 +269,7 @@ def test_backfill_native_query_avoids_properties_function_and_persists_progress(
         "scanned": 2,
         "embedded": 2,
         "indexed": 2,
+        "errored": 0,
         "skipped_no_text": 0,
         "deferred_no_text": 0,
         "conflicted": 0,
@@ -357,3 +360,193 @@ def test_backfill_rejects_invalid_vectors_before_any_property_write(vectors):
 
     assert all(node.get("embedding") is None for node in backend.nodes.values())
     assert backend.indexed == []
+
+
+# ---------------------------------------------------------------------------
+# D-CDX-101: never swallow the atomic-commit failure cause.
+# ---------------------------------------------------------------------------
+
+
+def test_backfill_captures_full_cause_chain_on_atomic_commit_failure(caplog):
+    """Reproduces the LIVE production shape: the backend's atomic
+    property+ANN commit raises (the exact ``RuntimeError`` the live engine
+    raised when ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` was unset). The prior
+    version of this code caught the exception, logged ONLY
+    ``type(exc).__name__`` ("RuntimeError") -- discarding the actual message
+    -- and silently ``continue``d with no distinct counter, so the final
+    report was indistinguishable from an ordinary run that embedded nothing
+    because there was nothing to embed. This test fails against that
+    restored bug on BOTH assertions: ``report["errored"]`` does not exist on
+    the old result dict (KeyError), and the real message never reaches the
+    log record.
+    """
+
+    class _RaisingBackend(_NativeBackfillBackend):
+        def compare_and_set_node_embedding(
+            self, node_id, conditions, updates, embedding
+        ):
+            raise RuntimeError(
+                "transaction durability requires EPISTEMIC_GRAPH_ENCRYPTION_KEY "
+                "to be configured"
+            )
+
+    backend = _RaisingBackend()
+    backend.nodes = {"node-0": backend.nodes["node-0"]}
+    engine = MagicMock(backend=backend)
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
+            return_value=lambda texts: [_embedding(1.0) for _ in texts],
+        ),
+        caplog.at_level("WARNING"),
+    ):
+        report = GraphMaintainer(engine).backfill_entity_embeddings(limit=1)
+
+    assert report["embedded"] == 0
+    assert report["indexed"] == 0
+    assert report["errored"] == 1
+    assert report["conflicted"] == 0  # NOT folded into the OCC-conflict bucket
+    assert backend.nodes["node-0"].get("embedding") is None
+    assert backend.indexed == []
+
+    warning_text = " ".join(record.getMessage() for record in caplog.records)
+    assert "EPISTEMIC_GRAPH_ENCRYPTION_KEY" in warning_text, (
+        "the real exception message must reach the log, not just the "
+        "exception's class name"
+    )
+    assert "RuntimeError" in warning_text
+    assert "node-0" in warning_text
+
+
+def test_backfill_isolates_one_failing_node_from_the_rest_of_the_batch():
+    """A per-node atomic-commit failure must not abort the other N-1 rows
+    already staged in this batch -- the documented per-node retry design.
+    Partial success is a real, expected outcome (task point 4 / D-CDX-9) and
+    must stay visible, not collapse into an all-or-nothing batch."""
+
+    class _OneNodeRaisesBackend(_NativeBackfillBackend):
+        def compare_and_set_node_embedding(
+            self, node_id, conditions, updates, embedding
+        ):
+            if node_id == "node-1":
+                raise RuntimeError("simulated ANN staging failure for node-1 only")
+            return super().compare_and_set_node_embedding(
+                node_id, conditions, updates, embedding
+            )
+
+    backend = _OneNodeRaisesBackend()
+    engine = MagicMock(backend=backend)
+
+    with patch(
+        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
+        return_value=lambda texts: [_embedding(float(len(text))) for text in texts],
+    ):
+        report = GraphMaintainer(engine).backfill_entity_embeddings(limit=4)
+
+    assert report["scanned"] == 4
+    assert report["embedded"] == 3
+    assert report["indexed"] == 3
+    assert report["errored"] == 1
+    assert [node_id for node_id, _ in backend.indexed] == [
+        "node-0",
+        "node-2",
+        "node-3",
+    ]
+    assert backend.nodes["node-1"].get("embedding") is None
+
+
+# ---------------------------------------------------------------------------
+# D-CDX-102: exclude secret-bearing nodes from embedding candidacy BY
+# CONSTRUCTION (sourced from secrets_client's own constants), never by a
+# maintained denylist.
+# ---------------------------------------------------------------------------
+
+
+class _SecretsAwareBackend:
+    """Engine-shaped store that actually HONORS the D-CDX-102 exclusion
+    params the caller must pass, unlike ``_NativeBackfillBackend`` (which
+    ignores everything but ``limit``) -- this is what proves the exclusion
+    clause is real, not merely constructed and discarded."""
+
+    def __init__(self, nodes: dict[str, dict]):
+        self.nodes = nodes
+        self._graph = self
+        self.indexed: list[str] = []
+
+    def execute(self, query, props=None):
+        params = props or {}
+        assert "embedding_backfill_excluded_graph" in params, (
+            "D-CDX-102 regression: the candidate query must always pass the "
+            "secrets-exclusion params, not merely construct them"
+        )
+        assert "embedding_backfill_excluded_label" in params
+        excluded_graph = params["embedding_backfill_excluded_graph"]
+        excluded_label = params["embedding_backfill_excluded_label"]
+        limit = int(params["limit"])
+        rows = [
+            {"id": node_id}
+            for node_id, props_ in sorted(self.nodes.items())
+            if props_.get("embedding") is None
+            and props_.get("_embedding_backfill_state") is None
+            and props_.get("graph_name") != excluded_graph
+            and props_.get("node_type") != excluded_label
+        ]
+        return rows[:limit]
+
+    def _get_node_properties_batch(self, node_ids):
+        return {node_id: dict(self.nodes[node_id]) for node_id in node_ids}
+
+    def compare_and_set_node_fields(self, node_id, conditions, updates):
+        node = self.nodes[node_id]
+        if any(node.get(field) != expected for field, expected in conditions.items()):
+            return False
+        node.update(updates)
+        return True
+
+    def compare_and_set_node_embedding(self, node_id, conditions, updates, embedding):
+        if not self.compare_and_set_node_fields(node_id, conditions, updates):
+            return False
+        self.indexed.append(node_id)
+        return True
+
+
+def test_backfill_excludes_secrets_graph_and_secret_label_by_construction():
+    from agent_utilities.security.secrets_client import SECRET_LABEL, SECRETS_GRAPH
+
+    backend = _SecretsAwareBackend(
+        {
+            "safe-1": {
+                "id": "safe-1",
+                "name": "widget",
+                "graph_name": "code:some-repo",
+            },
+            "secret-manifest-1": {
+                "id": "secret-manifest-1",
+                "source_uri": "/au/agent_utilities/prompts/python_programmer.json",
+                "category": "prompt_base",
+                "graph_name": SECRETS_GRAPH,
+                "node_type": "IngestManifest",
+            },
+            "secret-node-2": {
+                "id": "secret-node-2",
+                "name": "some credential",
+                "node_type": SECRET_LABEL,
+            },
+        }
+    )
+    engine = MagicMock(backend=backend)
+
+    with patch(
+        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
+        return_value=lambda texts: [_embedding() for _ in texts],
+    ):
+        report = GraphMaintainer(engine).backfill_entity_embeddings(limit=10)
+
+    # Only the non-secret node was ever a candidate: the secrets-graph
+    # manifest and the directly-labeled Secret node never entered `scanned`.
+    assert report["scanned"] == 1
+    assert report["embedded"] == 1
+    assert backend.indexed == ["safe-1"]
+    assert "secret-manifest-1" not in backend.indexed
+    assert "secret-node-2" not in backend.indexed

@@ -2277,16 +2277,20 @@ def _resolve_agent_from_kg(
     return meta
 
 
-def _bind_explicit_tool_server(
+def _catalog_toolset_binding(
     engine: IntelligenceGraphEngine,
-    skill_meta: dict[str, Any],
-    tool_server: str,
-    skill_name: str,
-    allowed_tools: list[str] | None,
+    toolset_id: str,
+    *,
+    allowed_tools: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Bind one exact fleet catalog to an already-validated ingested skill."""
+    """Resolve one exact server/tool contract from the durable catalog only.
 
-    server_name = str(tool_server or "").strip()
+    This is deliberately NOT a transport health check: it creates no
+    ``MCPToolset``, bearer-auth refresh loop, or MCP session. The eventual
+    delegated execution remains the sole owner of the live session, so its
+    schema/list-changed notifications and teardown stay in one lifecycle.
+    """
+    server_name = str(toolset_id or "").strip()
     if not server_name:
         raise ValueError("tool_server is required")
     server_meta = _resolve_agent_from_kg(engine, server_name)
@@ -2305,6 +2309,22 @@ def _bind_explicit_tool_server(
             "allowed_tools contains tools outside the configured server catalog: "
             + ", ".join(unknown)
         )
+    return server_meta
+
+
+def _bind_explicit_tool_server(
+    engine: IntelligenceGraphEngine,
+    skill_meta: dict[str, Any],
+    tool_server: str,
+    skill_name: str,
+    allowed_tools: list[str] | None,
+) -> dict[str, Any]:
+    """Bind one exact fleet catalog to an already-validated ingested skill."""
+
+    server_name = str(tool_server or "").strip()
+    server_meta = _catalog_toolset_binding(
+        engine, server_name, allowed_tools=allowed_tools
+    )
 
     combined = dict(server_meta)
     for key in (

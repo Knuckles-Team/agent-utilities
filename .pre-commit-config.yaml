@@ -206,6 +206,27 @@ repos:
     types: [python]
     pass_filenames: false
     always_run: false
+    # D-ORC-48: moved off the pre-commit stage to [manual, pre-push], matching
+    # the convention this file already uses for every other heavy CI-parity
+    # suite (check-security-parser-fuzz, check-security-identity-isolation,
+    # check-security-tenant-identity, ...).
+    #
+    # This is NOT a weakening. The same suite still runs on push, still runs on
+    # demand (`pre-commit run pytest --hook-stage manual`), and -- critically --
+    # the merge queue gates every candidate against the full suite
+    # DIFFERENTIALLY before it lands, which is the standard that actually
+    # governs `main`. `main` is legitimately red, so an absolute green at commit
+    # time was never the bar being applied anyway.
+    #
+    # What it cost on the commit stage: once D-CIP-11 installed the missing
+    # git hook, every `git commit` in every lane ran the entire suite. Measured
+    # 2026-08-02 with ~8 concurrent lanes: 14 concurrent pre_commit hook-impl
+    # processes, 52 pytest processes, 11 uv-pool holders, single commits
+    # exceeding 40 minutes, and four lanes stalling outright. It also widens the
+    # staged_files_only patch-file window, which is the mechanism behind this
+    # program's pre-commit data-loss incidents (one lane emptied its own working
+    # tree today and recovered only via `git fsck`).
+    stages: [manual, pre-push]
   - id: check-agent-standards
     name: check agent standards
     entry: |-

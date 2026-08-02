@@ -55,6 +55,7 @@ names directly.
 import importlib
 import importlib.metadata
 import warnings
+from contextlib import AsyncExitStack
 from types import ModuleType
 from typing import Any
 
@@ -195,7 +196,157 @@ def install_mcp_v2_bridge() -> None:
                 continue
             setattr(cls, camel, _make_property(cls.__name__, camel, snake))
 
+    _install_pydantic_ai_v2_read_bridge()
+
     _installed = True
+
+
+#: The exact `pydantic-ai-slim` release this D-CDX-69 patch was written and
+#: verified against (see `_install_pydantic_ai_v2_read_bridge`'s docstring).
+#: Deliberately an EXACT match, not a floor: `MCPToolset.__aenter__`/`get_tools`
+#: are copied verbatim below with three reads corrected, so a body that has
+#: since changed upstream must not silently receive a stale patch.
+_PATCHED_PYDANTIC_AI_VERSION = "2.21.0"
+
+_toolset_reads_patched = False
+
+
+def _install_pydantic_ai_v2_read_bridge() -> None:
+    """D-CDX-69: stop `pydantic_ai.mcp.MCPToolset` from ever performing the three
+    deprecated camelCase reads that trip `fastmcp._compat`'s OWN shim.
+
+    Unlike the gaps `install_mcp_v2_bridge` closes above (fields `fastmcp._compat`
+    does not cover at all, so a plain property never shadows anything real),
+    `InitializeResult.serverInfo` and `Tool.inputSchema` / `Tool.outputSchema` ARE
+    already covered by `fastmcp._compat` — that shim is exactly what emits the
+    `FastMCPDeprecationWarning` the live ServiceNow probe observed. The warning is
+    correct: `pydantic_ai.mcp.MCPToolset.__aenter__` (line ~1086) and `.get_tools`
+    (lines ~1149/1155) really do read `init_result.serverInfo` /
+    `mcp_tool.inputSchema` / `mcp_tool.outputSchema` instead of the SDK v2
+    `server_info` / `input_schema` / `output_schema` names.
+
+    Because the warning is real and not a false positive, silencing it (a
+    `warnings` filter, or overwriting `fastmcp`'s shim property with a
+    non-warning one — which would ALSO hide the same warning for any other,
+    genuinely-not-yet-migrated caller sharing the same process-wide `mcp_types`
+    classes) would be exactly the "suppress instead of fix" anti-pattern this
+    item's acceptance criteria rules out. The only fix that removes the warning
+    without touching its detection machinery is to stop `MCPToolset` from making
+    the deprecated read at all — so this replaces its two owning methods with a
+    byte-for-byte copy of the installed `pydantic-ai-slim` 2.21.0 source with
+    exactly those three attribute reads corrected to the v2 names (plus the
+    pre-existing `ToolExecution.taskSupport` -> `task_support` read, which
+    `install_mcp_v2_bridge` above already bridges but still emits its own
+    warn-once `DeprecationWarning` on every read otherwise).
+
+    Idempotent, and version-pinned defensively: if the installed
+    `pydantic-ai-slim` is not exactly `_PATCHED_PYDANTIC_AI_VERSION`, this emits
+    one `RuntimeWarning` and returns WITHOUT patching, because copied method
+    bodies silently applied to a since-changed upstream method would be a much
+    worse failure mode (subtly wrong behavior with no signal) than leaving the
+    original (merely noisy) upstream method in place. Bump the pin, re-diff
+    `pydantic_ai.mcp.MCPToolset.__aenter__`/`.get_tools` against this copy, and
+    update both together when `pydantic-ai-slim` ships a new release.
+    """
+    global _toolset_reads_patched
+    if _toolset_reads_patched:
+        return
+
+    try:
+        installed_version = importlib.metadata.version("pydantic-ai-slim")
+    except importlib.metadata.PackageNotFoundError:  # noqa: BLE001 — pydantic-ai-slim (the `[mcp]` extra) is genuinely optional; its absence means there is nothing for this bridge to patch, not a failure to surface
+        return
+
+    if installed_version != _PATCHED_PYDANTIC_AI_VERSION:
+        warnings.warn(
+            "agent-utilities: the D-CDX-69 pydantic-ai MCP v2-attribute-read "
+            f"bridge is pinned to pydantic-ai-slim=={_PATCHED_PYDANTIC_AI_VERSION} "
+            f"(the exact source `MCPToolset.__aenter__`/`.get_tools` were copied "
+            f"from); {installed_version} is installed, so the bridge is SKIPPED. "
+            "MCPToolset will read whichever attribute names its own installed "
+            "mcp.py uses, and a FastMCPDeprecationWarning may reappear. Re-diff "
+            "the two methods against the new release, update the copy in "
+            "protocol_compat.py, and bump _PATCHED_PYDANTIC_AI_VERSION.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return
+
+    import pydantic_ai.mcp as _pydantic_ai_mcp
+
+    async def _v2_aenter(self: Any) -> Any:
+        async with self._enter_lock:
+            if self._running_count == 0:
+                async with AsyncExitStack() as exit_stack:
+                    await exit_stack.enter_async_context(self.client)
+                    init_result = self.client.initialize_result
+                    assert init_result is not None, (
+                        "FastMCP Client initialization returned no result"
+                    )
+                    server_info = init_result.server_info  # v2 name (was `.serverInfo`)
+                    server_capabilities = (
+                        _pydantic_ai_mcp.ServerCapabilities.from_mcp_sdk(
+                            init_result.capabilities
+                        )
+                    )
+                    instructions = init_result.instructions
+                    if self.log_level is not None:
+                        await self.client.session.set_logging_level(self.log_level)
+                    self._exit_stack = exit_stack.pop_all()
+                    self._server_info = server_info
+                    self._server_capabilities = server_capabilities
+                    self._instructions = instructions
+            self._running_count += 1
+        return self
+
+    async def _v2_get_tools(self: Any, ctx: Any) -> dict[str, Any]:
+        max_retries = (
+            self.max_retries if self.max_retries is not None else ctx.max_retries
+        )
+        tools: dict[str, Any] = {}
+        for mcp_tool in await self.list_tools():
+            task_support = (
+                mcp_tool.execution.task_support if mcp_tool.execution else None
+            )  # v2 name
+            tools[mcp_tool.name] = _pydantic_ai_mcp.ToolsetTool(
+                toolset=self,
+                tool_def=_pydantic_ai_mcp.ToolDefinition(
+                    name=mcp_tool.name,
+                    description=mcp_tool.description,
+                    parameters_json_schema=mcp_tool.input_schema,  # v2 name (was `.inputSchema`)
+                    metadata={
+                        "meta": mcp_tool.meta,
+                        "annotations": mcp_tool.annotations.model_dump()
+                        if mcp_tool.annotations
+                        else None,
+                        "task": task_support in ("required", "optional"),
+                    },
+                    return_schema=mcp_tool.output_schema
+                    or None,  # v2 name (was `.outputSchema`)
+                    include_return_schema=self.include_return_schema,
+                ),
+                max_retries=max_retries,
+                args_validator=_pydantic_ai_mcp.TOOL_SCHEMA_VALIDATOR,
+            )
+        return tools
+
+    # Assign through a deliberately `Any`-typed alias of the class, not
+    # `_pydantic_ai_mcp.MCPToolset.__aenter__ = _v2_aenter` directly: mypy's
+    # `[method-assign]` check treats a direct attribute assignment on a class
+    # it has full knowledge of as reassigning a KNOWN method to an
+    # incompatible signature, which is exactly wrong here (this IS the
+    # intentional replacement) but is otherwise a useful check elsewhere, so
+    # it is silenced only for this one deliberate, guarded, runtime override
+    # of third-party code -- not globally and not via a suppression comment.
+    # (Plain `setattr(cls, "name", value)` was tried first and rejected: it
+    # dodges mypy the same way but trips Ruff's B010, which is right that
+    # `setattr` with a literal name is never safer than assignment in
+    # general -- it just doesn't know this specific assignment is the one
+    # mypy needs steered away from.)
+    toolset_cls: Any = _pydantic_ai_mcp.MCPToolset
+    toolset_cls.__aenter__ = _v2_aenter
+    toolset_cls.get_tools = _v2_get_tools
+    _toolset_reads_patched = True
 
 
 def _make_property(cls_name: str, camel: str, snake: str) -> property:

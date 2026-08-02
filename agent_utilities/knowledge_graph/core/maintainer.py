@@ -126,15 +126,22 @@ class GraphMaintainer:
         ingest-time embedding path handles newly-added text normally.
 
         Returns ``{"scanned": N, "embedded": N, "indexed": N,
-        "skipped_no_text": N, "deferred_no_text": N, "conflicted": N}``.
-        ``embedded`` counts durable node-property updates; ``indexed`` counts
-        immediate ANN registrations; ``conflicted`` counts rows whose text or
-        embedding state changed after hydration and therefore lost their CAS.
+        "skipped_no_text": N, "deferred_no_text": N, "conflicted": N,
+        "errored": N}``. ``embedded`` counts durable node-property updates;
+        ``indexed`` counts immediate ANN registrations; ``conflicted`` counts
+        rows whose text or embedding state changed after hydration and
+        therefore lost their CAS (an ordinary, expected concurrent-writer
+        outcome); ``errored`` counts rows whose atomic commit raised instead
+        of returning — a BACKEND/infra failure (e.g. an unmet transaction
+        precondition), never silently folded into ``conflicted`` (D-CDX-101:
+        a run that raises for every row must never be indistinguishable from
+        one that lost an ordinary OCC race).
         """
         result = {
             "scanned": 0,
             "embedded": 0,
             "indexed": 0,
+            "errored": 0,
             "skipped_no_text": 0,
             "deferred_no_text": 0,
             "conflicted": 0,
@@ -142,13 +149,22 @@ class GraphMaintainer:
         if not self.engine.backend:
             return result
 
+        from ..enrichment.semantic import embedding_backfill_eligibility_clause
+
+        exclusion_clause, exclusion_params = embedding_backfill_eligibility_clause()
         query = (
             "MATCH (n) WHERE n.embedding IS NULL "
             f"AND n.{EMBEDDING_BACKFILL_STATE_FIELD} IS NULL "
+            f"{exclusion_clause} "
             "RETURN n.id AS id "
             "ORDER BY n.id LIMIT $limit"
         )
-        rows = self.engine.backend.execute(query, {"limit": int(limit)}) or []
+        rows = (
+            self.engine.backend.execute(
+                query, {"limit": int(limit), **exclusion_params}
+            )
+            or []
+        )
         result["scanned"] = len(rows)
         if not rows:
             return result
@@ -244,12 +260,46 @@ class GraphMaintainer:
                         vector,
                     )
                 )
-            except Exception as exc:  # noqa: BLE001 - neither side committed
-                logger.warning(
-                    "Atomic embedding commit deferred for %s: %s",
-                    node_id,
-                    type(exc).__name__,
-                )
+            except Exception as exc:
+                # D-CDX-101: this ISOLATES one node's atomic commit failure so
+                # it cannot abort the other N-1 rows already staged in this
+                # batch (the documented per-node retry design — a later
+                # bounded run revisits this node since neither side
+                # committed). What must NEVER happen again is discarding the
+                # cause: the prior version logged only ``type(exc).__name__``
+                # ("RuntimeError") and dropped the message, so an operator
+                # saw scanned=200 embedded=0 with no actionable detail. Count
+                # it under its OWN bucket — ``errored`` is a backend/infra
+                # failure, never merged into ``conflicted`` (an ordinary lost
+                # OCC race), so "every row raised the same RuntimeError" stays
+                # visibly distinct from "every row lost a race to another
+                # writer". The caller (``scripts/backfill_embeddings.py``)
+                # turns a nonzero ``errored`` count with zero durable
+                # ``embedded`` progress into a NONZERO process exit — this
+                # method itself stays row-isolating and never raises.
+                #
+                # Pass ``exc``/``cause`` as logging ARGS (never pre-flattened
+                # into the message string) so agent_utilities' process-wide
+                # log-privacy factory (``core/log_privacy.py``) renders each
+                # as its own ``"Type: sanitized message"`` — that factory
+                # already exists precisely to stop this exact "collapsed to
+                # class name" regression; duplicating its "Type: " prefix
+                # here would only double it.
+                result["errored"] += 1
+                cause = exc.__cause__
+                if cause is not None:
+                    logger.warning(
+                        "Atomic embedding commit failed for %s: %s (caused by %s)",
+                        node_id,
+                        exc,
+                        cause,
+                    )
+                else:
+                    logger.warning(
+                        "Atomic embedding commit failed for %s: %s",
+                        node_id,
+                        exc,
+                    )
                 continue
             if not applied:
                 result["conflicted"] += 1
@@ -258,13 +308,14 @@ class GraphMaintainer:
             result["indexed"] += 1
         logger.info(
             "Entity embedding backfill: scanned=%d embedded=%d indexed=%d "
-            "skipped_no_text=%d deferred_no_text=%d conflicted=%d",
+            "skipped_no_text=%d deferred_no_text=%d conflicted=%d errored=%d",
             result["scanned"],
             result["embedded"],
             result["indexed"],
             result["skipped_no_text"],
             result["deferred_no_text"],
             result["conflicted"],
+            result["errored"],
         )
         return result
 

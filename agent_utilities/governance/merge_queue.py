@@ -397,10 +397,18 @@ def enqueue(
         "enqueued": True,
         **candidate.to_record(),
         "note": (
-            "queued != landed. Nothing drives this queue automatically (D-ORC-20) "
-            "— a human or scheduler must run `agent-utilities merge-queue run` "
-            f"before {branch!r} lands on {base!r}. Check `agent-utilities "
-            "merge-queue status` to see whether it has drained."
+            "queued != landed. D-MQR-7: this note used to say nothing drives "
+            "the queue automatically (D-ORC-20) -- that was true when D-ORC-20 "
+            "was open and is false now. `merge-queue-runner.timer` drains this "
+            "queue automatically (~every 5 minutes, across agent-packages/, "
+            "services/, images/, and the infra roots): it gates the candidate "
+            "DIFFERENTIALLY against the base, lands it, and prunes the "
+            "worktree/branch. You do not need to run anything yourself — "
+            "check `agent-utilities merge-queue status` to see whether it has "
+            "drained. Do NOT hand-drain with `merge-queue run`: concurrent "
+            "lanes share one reconciliation-merge lease and a manual drain "
+            f"races the scheduler for no benefit before {branch!r} lands on "
+            f"{base!r}."
         ),
         "queue_depth": depth,
     }
@@ -507,10 +515,15 @@ def _candidate_age_seconds(candidate: Candidate, *, now: datetime) -> float | No
 def queue_report(path: Path | str | None = None) -> dict[str, Any]:
     """Everything an operator or a waiting lane needs: depth, order, terminal outcomes.
 
-    D-ORC-20: ``stale_queue_warning`` fires when the OLDEST queued candidate has
-    waited past :data:`STALE_QUEUE_THRESHOLD_SECONDS` with nothing having drained
-    it — the queue has no automatic runner, so a candidate that old is not "about
-    to be picked up", it is waiting on an operator to run ``merge-queue run``.
+    ``stale_queue_warning`` fires when the OLDEST queued candidate has waited
+    past :data:`STALE_QUEUE_THRESHOLD_SECONDS`. D-MQR-7: this used to claim the
+    queue "has no automatic runner" (true under D-ORC-20, false since
+    ``merge-queue-runner.timer`` started draining every ~5 minutes) — an age
+    over the threshold now means either the runner is stuck/erroring on this
+    repo (check ``reports/lane-logs/merge-queue-runner.log`` for an ERROR line
+    naming it — e.g. a corrupted canonical checkout, D-MQR-5/6) or every batch
+    that reached this candidate was refused; it is not evidence that nothing is
+    watching the queue.
     """
     everything = _all_candidates(path)
     pending = queued(path)
@@ -522,9 +535,14 @@ def queue_report(path: Path | str | None = None) -> dict[str, Any]:
         if age is not None and age > STALE_QUEUE_THRESHOLD_SECONDS:
             stale_warning = (
                 f"{oldest.branch!r} has been queued for {age:.0f}s "
-                f"(> {STALE_QUEUE_THRESHOLD_SECONDS}s threshold) with no runner "
-                "draining it (D-ORC-20) — the queue has no automated driver; run "
-                "`agent-utilities merge-queue run` to land it."
+                f"(> {STALE_QUEUE_THRESHOLD_SECONDS}s threshold). "
+                "merge-queue-runner.timer normally drains this queue every ~5 "
+                "minutes -- this age means either the runner is stuck/erroring "
+                "on this repo (check reports/lane-logs/merge-queue-runner.log "
+                "for an ERROR line naming it) or every batch that reached this "
+                "candidate was refused. It is not evidence that nothing is "
+                "watching the queue; if it needs manual attention, `agent-"
+                "utilities merge-queue run` will drain it directly."
             )
     return {
         "depth": len(pending),
