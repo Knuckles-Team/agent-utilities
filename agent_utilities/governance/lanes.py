@@ -271,6 +271,7 @@ class PartitionedPaths:
     cargo_target_dir: Path
     pytest_basetemp: Path
     scratch_dir: Path
+    precommit_home: Path
     stash_ref: str
 
 
@@ -318,10 +319,27 @@ def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
     them. A per-lane ref makes concurrent stashing safe, and is the only reason
     the blanket never-stash rule can ever be relaxed.
 
-    ``pytest_basetemp``/``scratch_dir`` resolve under ``_lane_temp_root()``, a
-    short ``~/.al/<token>`` path outside any repo's ``.git`` — see that
-    function's docstring for why (D-ORC-16: AF_UNIX ``sun_path`` overflow +
-    a git-identity leak that both traced to the same `.git`-nested location).
+    ``pytest_basetemp``/``scratch_dir``/``precommit_home`` resolve under
+    ``_lane_temp_root()``, a short ``~/.al/<token>`` path outside any repo's
+    ``.git`` — see that function's docstring for why (D-ORC-16: AF_UNIX
+    ``sun_path`` overflow + a git-identity leak that both traced to the same
+    `.git`-nested location).
+
+    ``precommit_home`` is why: pre-commit's own store (``PRE_COMMIT_HOME``, or
+    ``XDG_CACHE_HOME/pre-commit`` when unset — verified in
+    ``pre_commit/store.py``) is where ``staged_files_only._unstaged_changes_cleared``
+    writes a lane's UNSTAGED changes to a ``patch<epoch>-<pid>`` file before
+    ``git checkout``-ing them away, restoring them by ``git apply`` in a
+    ``finally`` (verified: ``pre_commit/commands/run.py`` passes
+    ``store.directory`` — the very directory holding pre-commit's SQLite
+    ``db.db`` — as that patch_dir). ``PRE_COMMIT_HOME`` is exported nowhere in
+    this codebase, so every lane shared ONE store, producing two independent
+    hazards: a killed/OOMed/power-lost pre-commit strands a lane's unstaged
+    work as an orphaned patch file nobody replays (D-OB-12; see
+    :func:`orphaned_precommit_patches`), and the shared ``db.db`` raised
+    ``OperationalError: database is locked`` under concurrent lanes
+    (lane-concept-docs-0801). Partitioning the store removes both: each lane's
+    patches and SQLite state are invisible to every other lane's pre-commit.
     """
     scope = lane_scope(path)
     temp_root = _lane_temp_root(scope)
@@ -329,8 +347,156 @@ def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
         cargo_target_dir=scope.tree / "target-isolated",
         pytest_basetemp=temp_root / "pytest",
         scratch_dir=temp_root / "scratch",
+        precommit_home=temp_root / "precommit",
         stash_ref=f"refs/lane/{scope.lane}/stash",
     )
+
+
+_PRECOMMIT_PATCH_RE = re.compile(r"^patch(\d+)-(\d+)$")
+
+
+def _pid_alive(pid: int) -> bool:
+    """Best-effort liveness check for a recorded pid (see ``_holder_is_live``)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Owned by another user but real: still alive.
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _classify_precommit_patch(patch_path: Path, scope: LaneScope) -> dict[str, Any]:
+    """Classify one ``patch<epoch>-<pid>`` file honestly (see caller's docstring)."""
+    name = patch_path.name
+    try:
+        size: int | None = patch_path.stat().st_size
+    except OSError:
+        size = None
+    match = _PRECOMMIT_PATCH_RE.match(name)
+    if not match:
+        return {
+            "path": str(patch_path),
+            "state": "unknown",
+            "bytes": size,
+            "recorded_at": None,
+            "pid": None,
+            "reason": (
+                f"filename {name!r} does not match pre-commit's "
+                "patch<epoch>-<pid> shape — cannot decide"
+            ),
+            "replay": f"git apply {patch_path}",
+        }
+    epoch, pid = int(match.group(1)), int(match.group(2))
+    recorded_at = datetime.fromtimestamp(epoch, tz=UTC).isoformat()
+    if _pid_alive(pid):
+        return {
+            "path": str(patch_path),
+            "state": "in-progress",
+            "bytes": size,
+            "recorded_at": recorded_at,
+            "pid": pid,
+            "reason": (
+                f"pid {pid} is still alive — pre-commit may still be mid-run "
+                "(the pid may also belong to an unrelated process that reused it)"
+            ),
+        }
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["git", "apply", "--check", "--reverse", str(patch_path)],
+            cwd=str(scope.tree),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return {
+            "path": str(patch_path),
+            "state": "unknown",
+            "bytes": size,
+            "recorded_at": recorded_at,
+            "pid": pid,
+            "reason": f"could not run `git apply --check --reverse`: {exc}",
+            "replay": f"git apply {patch_path}",
+        }
+    if proc.returncode == 0:
+        return {
+            "path": str(patch_path),
+            "state": "restored",
+            "bytes": size,
+            "recorded_at": recorded_at,
+            "pid": pid,
+            "reason": (
+                "`git apply --check --reverse` succeeded: this patch's content "
+                "is already present in the tree"
+            ),
+        }
+    detail = (proc.stderr.strip() or proc.stdout.strip())[:300]
+    return {
+        "path": str(patch_path),
+        "state": "ORPHANED",
+        "bytes": size,
+        "recorded_at": recorded_at,
+        "pid": pid,
+        "reason": (
+            "`git apply --check --reverse` failed: this patch's content is NOT "
+            f"in the tree — data-loss incident (D-OB-12). git said: {detail}"
+        ),
+        "replay": f"git apply {patch_path}",
+    }
+
+
+def orphaned_precommit_patches(path: Path | str | None = None) -> list[dict[str, Any]]:
+    """Classify every patch file in this lane's PARTITIONed pre-commit store.
+
+    pre-commit's ``_unstaged_changes_cleared`` writes a lane's unstaged changes
+    to ``<patch_dir>/patch<epoch>-<pid>``, ``git checkout``s them away, and
+    restores them by ``git apply`` in a ``finally``. Crucially, **pre-commit
+    never deletes a patch file, even on success** — so "a patch file exists" is
+    not, by itself, evidence of anything. This function tells the difference:
+
+    - filename doesn't parse as ``patch<epoch>-<pid>`` -> ``"unknown"``.
+    - the recorded pid is still alive -> ``"in-progress"`` (note: the pid may
+      have been reused by an unrelated process — the reason says so).
+    - dead pid: ask git whether the patch is already applied —
+      ``git apply --check --reverse <patch>`` in this lane's tree. Exit 0 means
+      the content IS in the tree -> ``"restored"``. Non-zero means it is NOT ->
+      ``"ORPHANED"`` — a real data-loss incident (D-OB-12).
+    - git itself unusable, or any other undecidable outcome -> ``"unknown"``,
+      **never** ``"restored"``: an unreadable answer must never be reported as
+      clean.
+
+    Returns newest-first. ``[]`` means the store directory genuinely does not
+    exist (or holds no patch files); a directory that exists but cannot be
+    listed yields one ``"unknown"`` entry naming the problem instead of a
+    silent ``[]``. Never raises.
+    """
+    scope = lane_scope(path)
+    precommit_home = partitioned_paths(scope.tree).precommit_home
+    if not precommit_home.exists():
+        return []
+    try:
+        candidates = sorted(precommit_home.glob("patch*"))
+    except OSError as exc:
+        return [
+            {
+                "path": str(precommit_home),
+                "state": "unknown",
+                "bytes": None,
+                "recorded_at": None,
+                "pid": None,
+                "reason": f"could not list {precommit_home}: {exc}",
+                "replay": None,
+            }
+        ]
+    results = [
+        _classify_precommit_patch(p, scope) for p in candidates if p.is_file()
+    ]
+    results.sort(key=lambda r: r.get("recorded_at") or "", reverse=True)
+    return results
 
 
 CARGO_CONFIG_MARKER = "# CONCEPT:AU-OS.governance.lane-partitioned-resources"
@@ -779,6 +945,7 @@ def lane_report(path: Path | str | None = None) -> dict[str, Any]:
             "cargo_target_dir": str(parts.cargo_target_dir),
             "pytest_basetemp": str(parts.pytest_basetemp),
             "scratch_dir": str(parts.scratch_dir),
+            "precommit_home": str(parts.precommit_home),
             "stash_ref": parts.stash_ref,
         },
         "leases": {
@@ -786,5 +953,12 @@ def lane_report(path: Path | str | None = None) -> dict[str, Any]:
             for rule in resource_rules()
             if rule.arbitration is ArbitrationClass.LEASE
         },
+        # Only the states worth an operator's attention — a clean lane sees an
+        # empty list, a crashed one sees the exact path loudly (D-OB-12).
+        "orphaned_precommit_patches": [
+            p
+            for p in orphaned_precommit_patches(scope.tree)
+            if p["state"] in ("ORPHANED", "unknown")
+        ],
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
