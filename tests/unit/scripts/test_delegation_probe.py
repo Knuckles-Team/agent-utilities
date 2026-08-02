@@ -273,7 +273,7 @@ def test_required_tool_accepts_ok_summary_and_exact_successful_provenance() -> N
     probe = _probe()
     args = argparse.Namespace(require_tool=True, tool="servicenow_get_incidents")
 
-    assert probe._required_tool_summary_failure(args, {"outcome": "ok"}) is None
+    assert probe._required_tool_summary_failure(args, {"outcome": "ok"}, "done") is None
     assert (
         probe._required_tool_provenance_failure(
             args,
@@ -301,6 +301,19 @@ def test_required_tool_rejects_wrong_tool_and_unsuccessful_match() -> None:
 
     assert wrong is not None and "observed" in wrong
     assert failed is not None and "statuses" in failed
+
+
+def test_required_tool_rejects_empty_response_and_failed_runtrace() -> None:
+    probe = _probe()
+    args = argparse.Namespace(require_tool=True, tool="servicenow_get_incidents")
+
+    empty = probe._required_tool_summary_failure(args, {"outcome": "ok"}, "  ")
+    failed_trace = probe._required_run_trace_failure(
+        args, [{"id": "trace:test", "status": "failed"}]
+    )
+
+    assert empty is not None and "no returned response" in empty
+    assert failed_trace is not None and "no completed RunTrace" in failed_trace
 
 
 def test_delegate_stage_raises_after_printing_degraded_required_summary(
