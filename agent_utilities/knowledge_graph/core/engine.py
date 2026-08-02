@@ -342,6 +342,25 @@ class IntelligenceGraphEngine(
         launchers. It executes at most once under the process lock. Public
         routes and background services use this method instead of constructing
         overlapping clients ad hoc.
+
+        D-03 observability: the MCP server's own boot path
+        (``kg_server.py``'s ``_start_engine_bootstrap``) always supplies
+        ``factory=`` with ``defer_background_start=True``, closing the
+        materialization-wait race for that entrypoint. Every OTHER
+        ``get_or_create()`` caller across the package (~25 sites cataloged as
+        of this writing — CLI tools, background workers, standalone
+        processes) omits ``factory=`` entirely, which constructs the engine
+        with ``defer_background_start`` defaulting to ``False``. That is
+        correct for those callers today (they have no bootstrap step to later
+        un-defer background work), but if one of them ever raced the MCP
+        server's own bootstrap for the SAME process-wide singleton, it would
+        silently win the construction without the deferred-start invariant
+        and no one would know. Rather than changing the default (a
+        higher-blast-radius call this item's own investigation deliberately
+        deferred pending a full reachability trace), this logs — once, at the
+        one call site that actually wins the singleton race — exactly which
+        caller constructed without it, so a real violation is now VISIBLE
+        instead of requiring another manual sweep to even suspect it.
         """
         active = cls._ACTIVE_ENGINE
         if active is not None:
@@ -350,6 +369,21 @@ class IntelligenceGraphEngine(
             active = cls._ACTIVE_ENGINE
             if active is not None:
                 return active
+            if factory is None and not kwargs.get("defer_background_start"):
+                import inspect
+
+                caller = inspect.stack()[1]
+                logger.warning(
+                    "IntelligenceGraphEngine.get_or_create() constructing the "
+                    "process-wide engine WITHOUT defer_background_start=True "
+                    "(caller=%s:%s in %s) -- correct for a standalone "
+                    "CLI/worker entrypoint with no later bootstrap step, but "
+                    "a bug if this raced the MCP server's own deferred boot "
+                    "(D-03).",
+                    caller.filename,
+                    caller.lineno,
+                    caller.function,
+                )
             created = factory() if factory is not None else cls(**kwargs)
             registered = cls._ACTIVE_ENGINE
             if registered is None:
