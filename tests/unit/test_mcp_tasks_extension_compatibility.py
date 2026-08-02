@@ -137,6 +137,46 @@ def test_tasks_extension_degrades_gracefully_when_fastmcp_server_extensions_is_a
         sys.modules.pop("agent_utilities.mcp.server_factory", None)
 
 
+def test_tasks_error_path_uses_v1_error_data_shape(monkeypatch) -> None:
+    """SDK v1's McpError receives one ErrorData model on a real Tasks error path."""
+    from types import SimpleNamespace
+
+    from mcp.shared import exceptions as mcp_exceptions
+
+    import agent_utilities.mcp.kg_server as kg
+    import agent_utilities.mcp.protocol_compat as protocol_compat
+    from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
+
+    class _ErrorData:
+        def __init__(self, *, code, message, data=None):
+            self.code = code
+            self.message = message
+            self.data = data
+
+    class _V1Error(BaseException):
+        def __init__(self, error):
+            self.error = error
+
+    monkeypatch.delattr(mcp_exceptions, "MCPError", raising=False)
+    monkeypatch.setattr(mcp_exceptions, "McpError", _V1Error, raising=False)
+    monkeypatch.setattr(
+        protocol_compat,
+        "mcp_types_module",
+        lambda: SimpleNamespace(ErrorData=_ErrorData),
+    )
+    monkeypatch.setattr(kg, "_get_engine", lambda: None)
+
+    with pytest.raises(_V1Error) as exc_info:
+        WorkItemTasksExtension._engine()
+
+    assert isinstance(exc_info.value.error, _ErrorData)
+    assert (
+        exc_info.value.error.code,
+        exc_info.value.error.message,
+        exc_info.value.error.data,
+    ) == (-32603, "IntelligenceGraphEngine not active.", None)
+
+
 @pytest.mark.asyncio
 async def test_graph_jobs_cancel_uses_the_dispatched_work_item(monkeypatch) -> None:
     import json
