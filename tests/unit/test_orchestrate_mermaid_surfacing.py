@@ -161,7 +161,16 @@ async def test_forced_pydantic_graph_routes_named_skill_and_required_tools(
             "invoker_allowed_tools": ["get_change"],
         },
     )
-    monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
+    # D-CDX-103: do NOT no-op `_record_execution_trace` here — `_persist_tool_calls`
+    # is invoked from *inside* it (the portable fallback path, reached when the
+    # `engine=object()` sentinel below has no native `batch_typed_mutations`), so
+    # stubbing the outer function out entirely made the ToolCall-persistence
+    # assertion below unreachable (IndexError on an always-empty `persisted`,
+    # not a real regression in the persistence code). Let the real function run
+    # against the harmless `object()` engine sentinel: every native graph-write
+    # attempt inside it is already broad-except-guarded, so it degrades to the
+    # `_persist_tool_calls` fallback exactly like a real backend without the
+    # native batch capability would.
     persisted: list[dict] = []
     monkeypatch.setattr(
         agent_runner,

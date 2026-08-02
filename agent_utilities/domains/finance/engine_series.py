@@ -38,6 +38,8 @@ except ImportError as e:  # pragma: no cover - finance extra not installed
         "Finance extra dependencies missing. Please install agent-utilities[finance]"
     ) from e
 
+from agent_utilities.domains.finance.errors import InvalidIntervalError
+
 logger = logging.getLogger(__name__)
 _LEGACY_INTERVAL_ALIAS = re.compile(r"(?P<count>\d*)(?P<unit>[HT])\Z")
 
@@ -64,7 +66,17 @@ def _to_ns(index: pd.Index) -> list[int]:
 
 
 def _normalize_step(step: str | int | pd.Timedelta) -> pd.Timedelta:
-    """Return a canonical interval without NumPy's deprecated generic unit."""
+    """Return a canonical, strictly positive interval.
+
+    Raises:
+        InvalidIntervalError: ``step`` is empty, malformed, zero, or negative.
+        Checked here — before ``gap_fill_series``/``asof_align`` touch either
+        the engine or the pandas fallback — so every caller sees the same
+        typed, documented error at the API boundary instead of a downstream
+        ``ZeroDivisionError`` from a zero-frequency grid or a bare pandas
+        parser ``ValueError`` (D-CDX-96).
+    """
+    original = step
     if isinstance(step, str):
         legacy_alias = _LEGACY_INTERVAL_ALIAS.fullmatch(step)
         if legacy_alias is not None:
@@ -73,12 +85,25 @@ def _normalize_step(step: str | int | pd.Timedelta) -> pd.Timedelta:
             step = f"{count}{unit}"
         # The vector parser preserves the unit encoded in a frequency string and
         # avoids pandas' scalar path through NumPy's generic timedelta unit.
-        return pd.to_timedelta([step])[0]
-    if isinstance(step, Integral) and not isinstance(step, bool):
+        try:
+            normalized = pd.to_timedelta([step])[0]
+        except ValueError as e:
+            raise InvalidIntervalError(
+                f"Invalid gap-fill interval {original!r}: not a recognized "
+                "pandas frequency/interval string"
+            ) from e
+    elif isinstance(step, Integral) and not isinstance(step, bool):
         # ``pd.Timedelta(int)`` historically means nanoseconds; keep that contract
         # explicit so newer NumPy versions never infer the deprecated generic unit.
-        return pd.Timedelta(int(step), unit="ns")
-    return pd.Timedelta(step)
+        normalized = pd.Timedelta(int(step), unit="ns")
+    else:
+        normalized = pd.Timedelta(step)
+    if pd.isna(normalized) or normalized <= pd.Timedelta(0):
+        raise InvalidIntervalError(
+            f"Invalid gap-fill interval {original!r}: must resolve to a "
+            f"positive duration, got {normalized!r}"
+        )
+    return normalized
 
 
 def _utc_series(series: pd.Series) -> pd.Series:
@@ -113,10 +138,10 @@ def gap_fill_series(
     a UTC-indexed Series. The function falls back to pandas reindex+ffill only when
     no engine is reachable (so callers always get a result).
     """
+    normalized_step = _normalize_step(step)
     series = _utc_series(series)
     if series.empty:
         return series
-    normalized_step = _normalize_step(step)
     client = client or _client()
     if client is None:
         # No engine — degrade to the pandas equivalent so the caller still works.

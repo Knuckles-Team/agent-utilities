@@ -170,3 +170,54 @@ def test_gap_fill_normalizes_new_york_dst_to_utc_with_engine_fallback_parity(
 
     pd.testing.assert_series_equal(accelerated, expected, check_freq=False)
     pd.testing.assert_series_equal(fallback, expected, check_freq=False)
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        pytest.param("", id="empty-string"),
+        pytest.param("nonsense", id="malformed-string"),
+        pytest.param("0H", id="zero-legacy-hour"),
+        pytest.param("0min", id="zero-canonical-minute"),
+        pytest.param(0, id="zero-nanoseconds"),
+        pytest.param("-1h", id="negative-hour"),
+        pytest.param(-1, id="negative-nanoseconds"),
+    ],
+)
+def test_gap_fill_rejects_malformed_or_non_positive_intervals_before_any_work(
+    monkeypatch: pytest.MonkeyPatch, step: str | int
+) -> None:
+    """D-CDX-96: every invalid interval form raises one typed error, pre-engine.
+
+    Regression for the split where ``"nonsense"``/``""`` already raised but
+    ``"0H"`` slipped through ``_normalize_step`` and only failed later as a
+    ``ZeroDivisionError`` out of zero-frequency grid construction. Every form
+    here must raise ``InvalidIntervalError`` before the engine client is even
+    consulted (proven by a client whose methods explode if touched) and before
+    the pandas fallback route runs.
+    """
+    index = pd.date_range("2026-01-01", periods=2, freq="h", tz="UTC")
+    series = pd.Series([10.0, 20.0], index=index, name="close")
+
+    class _ExplodingClient:
+        """Any access proves the invalid interval reached the engine path."""
+
+        def __getattr__(self, name: str):  # noqa: D105
+            raise AssertionError(
+                f"engine client.{name} must never be touched for an invalid interval"
+            )
+
+    with pytest.raises(engine_series.InvalidIntervalError):
+        engine_series.gap_fill_series(series, step, client=_ExplodingClient())
+
+    monkeypatch.setattr(engine_series, "_client", lambda: None)
+    with pytest.raises(engine_series.InvalidIntervalError):
+        engine_series.gap_fill_series(series, step)
+
+
+def test_gap_fill_rejects_invalid_interval_even_for_an_empty_series() -> None:
+    """The interval is validated at the API boundary regardless of the data."""
+    series = pd.Series([], index=pd.DatetimeIndex([], tz="UTC"), name="close", dtype=float)
+
+    with pytest.raises(engine_series.InvalidIntervalError):
+        engine_series.gap_fill_series(series, "0H")
