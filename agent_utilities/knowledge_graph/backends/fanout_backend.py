@@ -149,6 +149,18 @@ def _is_permanent_apply_error(exc: BaseException) -> bool:
     return any(marker in msg for marker in _PERMANENT_APPLY_ERROR_MARKERS)
 
 
+def _overrides_backend_method(backend: GraphBackend, method_name: str) -> bool:
+    """Return whether ``backend`` implements an optional base capability.
+
+    Optional GraphBackend methods deliberately raise ``NotImplementedError``.
+    A callable check therefore reports false capabilities for ordinary mirrors
+    such as PostgreSQL and Neo4j that simply inherit the default method.
+    """
+    return getattr(type(backend), method_name, None) is not getattr(
+        GraphBackend, method_name, None
+    )
+
+
 @dataclass
 class _MirrorState:
     """Live per-mirror counters surfaced by :meth:`durability_stats`."""
@@ -650,12 +662,36 @@ class FanOutBackend(GraphBackend):
             raise RuntimeError(
                 "fan-out authority does not support atomic embedding updates"
             )
+        get_properties = getattr(self._authority, "get_node_properties", None)
+        if self._mirrors and not callable(get_properties):
+            raise RuntimeError(
+                "fan-out authority cannot snapshot an atomic embedding update"
+            )
         vector = list(embedding)
         with self._producer(), self._mutation_lock(node_id):
             applied = bool(atomic_update(node_id, conditions, updates, vector))
             if not applied:
                 return False
             self._authority_writes += 1
+            properties: dict[str, Any] = {}
+            label = ""
+            if self._mirrors:
+                snapshot = get_properties(node_id)
+                if not isinstance(snapshot, dict):
+                    raise RuntimeError(
+                        "fan-out authority node disappeared after atomic embedding update"
+                    )
+                properties = dict(snapshot)
+                label = str(
+                    properties.get("node_type")
+                    or properties.get("label")
+                    or properties.get("type")
+                    or ""
+                ).strip()
+                if not label:
+                    raise RuntimeError(
+                        "fan-out atomic embedding update requires a typed authority node"
+                    )
             self._enqueue(
                 "compare_and_set_node_embedding",
                 {
@@ -663,6 +699,8 @@ class FanOutBackend(GraphBackend):
                     "conditions": dict(conditions),
                     "updates": dict(updates),
                     "embedding": vector,
+                    "label": label,
+                    "properties": properties,
                 },
             )
             return True
@@ -717,8 +755,8 @@ class FanOutBackend(GraphBackend):
         elif op == "add_embedding":
             backend.add_embedding(p["node_id"], p["embedding"])
         elif op == "compare_and_set_node_embedding":
-            atomic_update = getattr(backend, "compare_and_set_node_embedding", None)
-            if callable(atomic_update):
+            if _overrides_backend_method(backend, "compare_and_set_node_embedding"):
+                atomic_update = backend.compare_and_set_node_embedding
                 try:
                     applied = bool(
                         atomic_update(
@@ -738,26 +776,47 @@ class FanOutBackend(GraphBackend):
             # authority is the only read source, so replay is allowed to converge
             # the mirror in two idempotent steps. If a prior replay crashed after
             # its field CAS, matching updates prove it is safe to retry ANN add.
-            applied = backend.compare_and_set_node_fields(
-                p["node_id"],
-                p.get("conditions") or {},
-                p.get("updates") or {},
-            )
-            if not applied:
-                get_properties = getattr(backend, "get_node_properties", None)
-                current = (
-                    get_properties(p["node_id"]) if callable(get_properties) else None
-                )
-                applied = isinstance(current, dict) and all(
-                    current.get(field) == expected
-                    for field, expected in (p.get("updates") or {}).items()
-                )
-            if applied:
-                backend.add_embedding(p["node_id"], p["embedding"])
-            else:
+            if _overrides_backend_method(backend, "compare_and_set_node_fields"):
+                try:
+                    applied = backend.compare_and_set_node_fields(
+                        p["node_id"],
+                        p.get("conditions") or {},
+                        p.get("updates") or {},
+                    )
+                except NotImplementedError:
+                    applied = False
+                if not applied:
+                    get_properties = getattr(backend, "get_node_properties", None)
+                    current = (
+                        get_properties(p["node_id"])
+                        if callable(get_properties)
+                        else None
+                    )
+                    applied = isinstance(current, dict) and all(
+                        current.get(field) == expected
+                        for field, expected in (p.get("updates") or {}).items()
+                    )
+                if applied:
+                    backend.add_embedding(p["node_id"], p["embedding"])
+                    return
+
+            # Standard mirrors do not implement either optional CAS contract.
+            # Replay the authority's full post-commit node snapshot through the
+            # existing dialect-aware writer, then project the vector.  This is
+            # idempotent and lets the cursor advance instead of poison-retrying
+            # an inherited NotImplementedError forever.
+            properties = p.get("properties")
+            label = str(p.get("label") or "").strip()
+            if not isinstance(properties, dict) or not label:
                 raise RuntimeError(
-                    "mirror atomic embedding replay could not establish field state"
+                    "mirror atomic embedding replay lacks an authority snapshot"
                 )
+            self._node_writer(backend)._upsert_node(
+                label,
+                p["node_id"],
+                properties,
+            )
+            backend.add_embedding(p["node_id"], p["embedding"])
         elif op == "create_schema":
             backend.create_schema()
         elif op == "prune":

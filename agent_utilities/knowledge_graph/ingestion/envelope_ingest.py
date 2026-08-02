@@ -808,6 +808,23 @@ def _node_properties(client: Any, node_id: str) -> dict[str, Any]:
     return {}
 
 
+def _node_properties_verified(client: Any, node_id: str) -> dict[str, Any]:
+    """Point-hydrate one node, rejecting ambiguous malformed responses."""
+    value = client.nodes.properties(node_id)
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return _json_value(value)
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("node property hydration returned malformed JSON") from exc
+        if isinstance(decoded, dict):
+            return decoded
+    raise RuntimeError("node property hydration returned an invalid payload")
+
+
 def _node_properties_batch(
     client: Any, node_ids: list[str]
 ) -> dict[str, dict[str, Any]]:
@@ -816,10 +833,18 @@ def _node_properties_batch(
         return {}
     properties_batch = getattr(client.nodes, "properties_batch", None)
     if not callable(properties_batch):
-        return {node_id: _node_properties(client, node_id) for node_id in node_ids}
+        return {
+            node_id: _node_properties_verified(client, node_id) for node_id in node_ids
+        }
     raw = properties_batch(node_ids)
     if not isinstance(raw, dict):
-        return {}
+        # A malformed/degraded batch response is not evidence that every node is
+        # absent.  Falling through as ``{}`` makes a partial non-text upsert look
+        # like a new entity and clears a healthy vector.  Bound the compatibility
+        # fallback to exactly the requested IDs and fail closed via point reads.
+        return {
+            node_id: _node_properties_verified(client, node_id) for node_id in node_ids
+        }
     result: dict[str, dict[str, Any]] = {}
     for node_id, properties in raw.items():
         if isinstance(properties, dict):
@@ -828,8 +853,16 @@ def _node_properties_batch(
             try:
                 decoded = json.loads(properties)
             except (TypeError, ValueError):
-                decoded = {}
-            result[str(node_id)] = decoded if isinstance(decoded, dict) else {}
+                decoded = None
+            if isinstance(decoded, dict):
+                result[str(node_id)] = decoded
+        elif properties is None:
+            result[str(node_id)] = {}
+    # A partial batch response is equally ambiguous: hydrate omitted requested
+    # IDs individually instead of treating them as non-existent nodes.
+    for node_id in node_ids:
+        if node_id not in result:
+            result[node_id] = _node_properties_verified(client, node_id)
     return result
 
 
@@ -1808,6 +1841,7 @@ def _prepare_embedding_envelopes(
     """
     from ..enrichment.semantic import (
         EMBEDDING_BACKFILL_STATE_FIELD,
+        EMBEDDING_INDEX_READY_FIELD,
         derive_entity_text,
     )
 
@@ -1841,6 +1875,7 @@ def _prepare_embedding_envelopes(
             # also passes through null first, then becomes visible atomically with
             # its ANN replacement after the source envelope commits.
             payload["embedding"] = None
+            payload[EMBEDDING_INDEX_READY_FIELD] = False
             if incoming_embedding:
                 supplied[position] = (list(incoming_embedding), new_text)
             continue
@@ -1855,6 +1890,7 @@ def _prepare_embedding_envelopes(
         # embedder is unavailable the source write still lands, but the obsolete
         # ANN candidate is rejected because its durable vector property is null.
         payload["embedding"] = None
+        payload[EMBEDDING_INDEX_READY_FIELD] = False
         if new_text:
             pending.append((position, new_text))
 
@@ -1896,10 +1932,10 @@ def _commit_embedded_vectors(
     ``node_ids`` is deliberately ``str | None``-valued: callers build it from a
     result payload's ``node_id``, which is absent for a skipped/failed record.
     The source envelope has already committed the effective text with a null
-    embedding. Each successful cross-modal CAS now makes the vector property and
-    native ANN replacement visible in one durable transaction. A text change
-    between generation and this transaction loses the exact-field CAS and applies
-    neither side.
+    embedding. Each successful cross-modal CAS commits the vector property and
+    native ANN replacement durably, with served visibility fenced until ANN
+    projection completes. A text change between generation and this transaction
+    loses the exact-field CAS and applies neither side.
     """
     compute = getattr(authority, "compute", None)
     atomic_embedding = getattr(compute, "compare_and_set_node_embedding", None)
@@ -1911,6 +1947,7 @@ def _commit_embedded_vectors(
         return
     from ..enrichment.semantic import (
         EMBEDDING_BACKFILL_STATE_FIELD,
+        EMBEDDING_INDEX_READY_FIELD,
         derive_entity_text_snapshot,
     )
 
@@ -1932,6 +1969,7 @@ def _commit_embedded_vectors(
         conditions = {
             "embedding": None,
             EMBEDDING_BACKFILL_STATE_FIELD: None,
+            EMBEDDING_INDEX_READY_FIELD: False,
             **text_conditions,
         }
         updates = {

@@ -35,6 +35,11 @@ _EMBED_MAX_BATCH = 256
 # so a formerly textless entity becomes eligible when its content evolves.
 EMBEDDING_BACKFILL_STATE_FIELD = "_embedding_backfill_state"
 EMBEDDING_BACKFILL_NO_TEXT = "no_text"
+# Served-read publication fence for cross-modal embedding replacements.  A
+# literal ``False`` means the durable vector property has not yet been projected
+# into the engine ANN.  Missing remains readable for legacy records; writers set
+# False before replacement and flip it to True only after ANN commit returns.
+EMBEDDING_INDEX_READY_FIELD = "_embedding_index_ready"
 
 
 def configured_embedding_dimension() -> int:

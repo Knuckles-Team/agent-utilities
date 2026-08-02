@@ -216,6 +216,36 @@ def test_atomic_embedding_update_replays_one_idempotent_mirror_operation(
         fan.close()
 
 
+def test_atomic_embedding_replay_converges_mirror_without_cas_and_unblocks_tail(
+    tmp_path, monkeypatch
+):
+    """Standard mirrors without optional CAS still converge and advance cursor."""
+    authority = StatefulBackend("authority")
+    mirror = RecordingBackend("mirror-without-cas")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    vector = [1.0, 2.0]
+    try:
+        assert fan.compare_and_set_node_embedding(
+            "node-1",
+            {"embedding": None, "name": "billing"},
+            {"embedding": vector},
+            vector,
+        )
+        fan.execute("CREATE (tail)", is_write=True)
+        assert fan.flush_mirrors(timeout=2.0)
+
+        assert ("add_embedding", "node-1") in mirror.writes
+        assert ("execute", "CREATE (tail)") in mirror.writes
+        assert fan._outbox.lag("mirror") == 0
+    finally:
+        fan.close()
+
+
 def test_independent_typed_writes_overlap_authority_rpcs(tmp_path, monkeypatch):
     """D-BFR-7: unrelated entities must not share one authority-RPC lock."""
 

@@ -313,6 +313,8 @@ class EpistemicGraphBackend(GraphBackend):
                 for node_id in node_ids
             }
 
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
         results: list[dict[str, Any]] = []
         for node_id, score in parsed_hits:
             data = properties.get(node_id, {})
@@ -320,6 +322,8 @@ class EpistemicGraphBackend(GraphBackend):
             # GraphComputeEngine's bounded stale-ANN fence.  The durable node
             # property is the source of truth while older engines lack an atomic
             # vector-only removal operation.
+            if data.get(EMBEDDING_INDEX_READY_FIELD) is False:
+                continue
             embedding = data.get("embedding")
             if not isinstance(embedding, list | tuple) or not embedding:
                 continue
@@ -327,11 +331,29 @@ class EpistemicGraphBackend(GraphBackend):
         return results
 
     def hydrate_engine_embeddings(self, batch_log_every: int = 5000) -> int:
-        """Run the one-time persisted-state embedding-index migration."""
+        """Run the persisted-state embedding-index migration and fence repair."""
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
         count = 0
         for node_id, props in self._graph._get_all_nodes_with_properties():
             embedding = (props or {}).get("embedding")
             if not embedding:
+                continue
+            if (props or {}).get(EMBEDDING_INDEX_READY_FIELD) is False:
+                # A process can stop after the durable cross-modal transaction
+                # committed but before the served-read readiness CAS. Re-run the
+                # idempotent transaction so startup hydration repairs that safe,
+                # intentionally hidden state instead of hiding it forever.
+                if self._graph.compare_and_set_node_embedding(
+                    node_id,
+                    {
+                        "embedding": list(embedding),
+                        EMBEDDING_INDEX_READY_FIELD: False,
+                    },
+                    {"embedding": list(embedding)},
+                    list(embedding),
+                ):
+                    count += 1
                 continue
             self._graph.add_embedding(node_id, list(embedding))
             count += 1

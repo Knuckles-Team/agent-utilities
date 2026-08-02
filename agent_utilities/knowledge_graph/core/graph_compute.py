@@ -2403,21 +2403,29 @@ class GraphComputeEngine:
         ``TxnCas`` captures the node fingerprint before the explicit point read.
         Reading after staging proves the caller's field conditions matched that
         captured snapshot; any mutation after either operation fails transaction
-        OCC at commit. ``TxnAddEmbedding`` and the CAS updates then land in the
-        engine's one cross-modal durable transaction, so readers cannot observe a
-        ready property paired with an older ANN vector.
+        OCC at commit. The transaction publishes the durable vector with a
+        fail-closed readiness marker. Once ``TxnAddEmbedding`` has completed its
+        ANN projection, a second exact CAS opens served visibility. This fences
+        the engine's current graph-before-ANN in-memory publication order.
         """
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
         vector = [float(value) for value in embedding]
         if updates.get("embedding") != vector:
             raise ValueError(
                 "atomic embedding updates must store the same vector in node fields"
             )
 
+        staged_updates = {
+            **updates,
+            "embedding": vector,
+            EMBEDDING_INDEX_READY_FIELD: False,
+        }
         txn = self._client.txn
         txn_id = txn.begin()
         commit_started = False
         try:
-            if not txn.cas(txn_id, node_id, conditions, updates):
+            if not txn.cas(txn_id, node_id, conditions, staged_updates):
                 txn.rollback(txn_id)
                 return False
 
@@ -2436,7 +2444,18 @@ class GraphComputeEngine:
                 return False
 
             commit_started = True
-            return bool(txn.commit(txn_id))
+            if not bool(txn.commit(txn_id)):
+                return False
+            return bool(
+                self._client.nodes.compare_and_set(
+                    node_id,
+                    {
+                        "embedding": vector,
+                        EMBEDDING_INDEX_READY_FIELD: False,
+                    },
+                    {EMBEDDING_INDEX_READY_FIELD: True},
+                )
+            )
         except BaseException:
             if not commit_started:
                 try:
@@ -2635,10 +2654,15 @@ class GraphComputeEngine:
             if node_id:
                 hits.append((node_id, float(item[1])))
 
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
         properties = self._get_node_properties_batch([node_id for node_id, _ in hits])
         current: list[tuple[str, float]] = []
         for node_id, score in hits:
-            embedding = properties.get(node_id, {}).get("embedding")
+            node_properties = properties.get(node_id, {})
+            if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
+                continue
+            embedding = node_properties.get("embedding")
             if isinstance(embedding, list | tuple) and embedding:
                 current.append((node_id, score))
                 if len(current) >= n_results:

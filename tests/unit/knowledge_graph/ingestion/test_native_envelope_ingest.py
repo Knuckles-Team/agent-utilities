@@ -231,9 +231,25 @@ class _Compute:
     ) -> bool:
         if self.atomic_embedding_hook is not None:
             self.atomic_embedding_hook(node_id, conditions, updates, embedding)
-        if not self.client.nodes.compare_and_set(node_id, conditions, updates):
+        staged_updates = {
+            **updates,
+            "embedding": list(embedding),
+            "_embedding_index_ready": False,
+        }
+        if not self.client.nodes.compare_and_set(
+            node_id, conditions, staged_updates
+        ):
             return False
         self.embedding_index[node_id] = list(embedding)
+        if not self.client.nodes.compare_and_set(
+            node_id,
+            {
+                "embedding": list(embedding),
+                "_embedding_index_ready": False,
+            },
+            {"_embedding_index_ready": True},
+        ):
+            return False
         self.atomic_embedding_calls.append(
             (node_id, dict(conditions), dict(updates), list(embedding))
         )
@@ -1397,6 +1413,81 @@ def test_partial_non_text_upsert_preserves_current_embedding(
     stored = compute.client.nodes.properties("object-1")
     assert stored["active"] is False
     assert stored["name"] == "Stable source text"
+    assert stored["embedding"] == current_embedding
+    assert _fake_embed_fn == []
+
+
+def test_partial_non_text_upsert_preserves_embedding_when_batch_hydration_degrades(
+    monkeypatch: pytest.MonkeyPatch, _fake_embed_fn
+) -> None:
+    """Malformed batch hydration falls back safely instead of assuming no node."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_ingest_auto_embed", False, raising=False)
+    compute = _Compute("graph-degraded-hydration")
+    current_embedding = [0.25] * TEST_EMBEDDING_DIMENSION
+    compute.client.nodes.values["object-1"] = {
+        "id": "object-1",
+        "node_type": "FixtureRecord",
+        "name": "Stable source text",
+        "embedding": current_embedding,
+        "classification": "INTERNAL",
+        "active": True,
+    }
+    compute.client.nodes.properties_batch = lambda _ids: ["malformed"]
+    envelope = _envelope(
+        source_version="2",
+        checkpoint="2",
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "active": False,
+        },
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["active"] is False
+    assert stored["embedding"] == current_embedding
+    assert _fake_embed_fn == []
+
+
+def test_partial_upsert_fails_closed_when_all_property_hydration_is_malformed(
+    monkeypatch: pytest.MonkeyPatch, _fake_embed_fn
+) -> None:
+    """Ambiguous hydration aborts before a healthy vector can be cleared."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_ingest_auto_embed", False, raising=False)
+    compute = _Compute("graph-invalid-hydration")
+    current_embedding = [0.25] * TEST_EMBEDDING_DIMENSION
+    compute.client.nodes.values["object-1"] = {
+        "id": "object-1",
+        "node_type": "FixtureRecord",
+        "name": "Stable source text",
+        "embedding": current_embedding,
+        "active": True,
+    }
+    compute.client.nodes.properties_batch = lambda _ids: ["malformed"]
+    compute.client.nodes.properties = lambda _node_id: ["also-malformed"]
+    envelope = _envelope(
+        source_version="2",
+        checkpoint="2",
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "active": False,
+        },
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "failed"
+    assert result["error"] == "RuntimeError"
+    stored = compute.client.nodes.values["object-1"]
+    assert stored["active"] is True
     assert stored["embedding"] == current_embedding
     assert _fake_embed_fn == []
 

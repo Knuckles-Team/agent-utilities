@@ -8,6 +8,7 @@ pre-existing `embedding` node properties.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import pytest
@@ -30,6 +31,7 @@ class _FakeGraph:
         self._nodes = nodes or {}
         self._add_raises = add_raises
         self.property_batch_calls = 0
+        self.atomic_repaired: list[str] = []
 
     def add_embedding(self, nid: str, emb: list[float]) -> None:
         if self._add_raises:
@@ -50,6 +52,24 @@ class _FakeGraph:
 
     def has_node(self, nid: str) -> bool:
         return nid in self._nodes
+
+    def compare_and_set_node_embedding(
+        self,
+        nid: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        props = self._nodes.get(nid)
+        if props is None or any(
+            props.get(field) != expected for field, expected in conditions.items()
+        ):
+            return False
+        props.update(updates)
+        self.add_embedding(nid, embedding)
+        props["_embedding_index_ready"] = True
+        self.atomic_repaired.append(nid)
+        return True
 
     def _get_all_nodes_with_properties(self) -> list[tuple[str, dict[str, Any]]]:
         return list(self._nodes.items())
@@ -114,6 +134,26 @@ def test_semantic_search_excludes_invalidated_native_ann_candidate() -> None:
     ]
 
 
+def test_backend_semantic_search_excludes_not_ready_vector_property() -> None:
+    g = _FakeGraph(
+        hits=[("projecting", 0.99), ("ready", 0.8)],
+        nodes={
+            "projecting": {
+                "embedding": [0.9, 0.9],
+                "_embedding_index_ready": False,
+            },
+            "ready": {
+                "embedding": [0.1, 0.2],
+                "_embedding_index_ready": True,
+            },
+        },
+    )
+
+    assert [row["id"] for row in _backend(g).semantic_search([0.1, 0.2], 5)] == [
+        "ready"
+    ]
+
+
 def test_semantic_search_does_not_scan_a_local_cache_when_engine_is_empty() -> None:
     g = _FakeGraph(hits=[], nodes={"n1": {"name": "A"}})
     b = _backend(g)
@@ -132,6 +172,22 @@ def test_hydrate_indexes_node_embedding_properties() -> None:
     indexed = b.hydrate_engine_embeddings()
     assert indexed == 2
     assert sorted(nid for nid, _ in g.added) == ["n1", "n3"]
+
+
+def test_hydrate_repairs_committed_embedding_left_not_ready() -> None:
+    g = _FakeGraph(
+        nodes={
+            "n1": {
+                "embedding": [0.1, 0.2],
+                "_embedding_index_ready": False,
+            }
+        }
+    )
+    b = _backend(g)
+
+    assert b.hydrate_engine_embeddings() == 1
+    assert g.atomic_repaired == ["n1"]
+    assert g._nodes["n1"]["_embedding_index_ready"] is True
 
 
 def test_graph_compute_wrappers_call_engine_client() -> None:
@@ -200,6 +256,11 @@ def test_atomic_embedding_cas_stages_guard_before_read_and_vector_commit() -> No
             events.append("read")
             return {"name": "current", "embedding": None}
 
+        @staticmethod
+        def compare_and_set(_node_id, _conditions, _updates) -> bool:
+            events.append("ready")
+            return True
+
     class _Client:
         txn = _Txn()
         nodes = _Nodes()
@@ -213,7 +274,7 @@ def test_atomic_embedding_cas_stages_guard_before_read_and_vector_commit() -> No
         {"embedding": [0.1]},
         [0.1],
     )
-    assert events == ["begin", "cas", "read", "vector", "commit"]
+    assert events == ["begin", "cas", "read", "vector", "commit", "ready"]
 
 
 def test_atomic_embedding_cas_rolls_back_before_vector_when_snapshot_mismatches() -> (
@@ -267,3 +328,106 @@ def test_atomic_embedding_cas_rolls_back_before_vector_when_snapshot_mismatches(
         [0.1],
     )
     assert events == ["begin", "cas", "read", "rollback"]
+
+
+def test_semantic_search_rejects_property_until_txn_ann_projection_is_ready() -> None:
+    """Durable txn publishes graph before ANN; readiness keeps that window dark."""
+    property_published = threading.Event()
+    release_ann_projection = threading.Event()
+    result: list[bool] = []
+
+    class _Nodes:
+        def __init__(self) -> None:
+            self.props: dict[str, Any] = {
+                "name": "new text",
+                "embedding": None,
+            }
+
+        def properties(self, _node_id: str) -> dict[str, Any]:
+            return dict(self.props)
+
+        def properties_batch(self, _node_ids: list[str]) -> dict[str, Any]:
+            return {"n1": dict(self.props)}
+
+        def compare_and_set(self, _node_id, conditions, updates) -> bool:
+            if any(self.props.get(key) != value for key, value in conditions.items()):
+                return False
+            self.props.update(updates)
+            return True
+
+    class _Graph:
+        def __init__(self) -> None:
+            self.score = 0.2  # old ANN vector against the new query/text
+
+        def semantic_search(self, _query, _limit):
+            return [("n1", self.score)]
+
+    nodes = _Nodes()
+    graph_ns = _Graph()
+
+    class _Txn:
+        def __init__(self) -> None:
+            self.updates: dict[str, Any] = {}
+
+        @staticmethod
+        def begin() -> str:
+            return "txn-visibility"
+
+        def cas(self, _txn, _node, _conditions, updates) -> bool:
+            self.updates = dict(updates)
+            return True
+
+        @staticmethod
+        def add_embedding(_txn, _node, _embedding) -> bool:
+            return True
+
+        def commit(self, _txn) -> bool:
+            # Mirrors the engine's current served-publication order: graph
+            # properties first, SemanticStore replacement second.
+            nodes.props.update(self.updates)
+            property_published.set()
+            assert release_ann_projection.wait(timeout=5.0)
+            graph_ns.score = 0.9
+            return True
+
+        @staticmethod
+        def rollback(_txn) -> bool:
+            return True
+
+    class _Client:
+        def __init__(self) -> None:
+            self.nodes = nodes
+            self.graph = graph_ns
+            self.txn = _Txn()
+
+    compute = GraphComputeEngine.__new__(GraphComputeEngine)
+    compute._client = _Client()
+
+    worker = threading.Thread(
+        target=lambda: result.append(
+            compute.compare_and_set_node_embedding(
+                "n1",
+                {"name": "new text", "embedding": None},
+                {"embedding": [0.9]},
+                [0.9],
+            )
+        )
+    )
+    worker.start()
+    try:
+        assert property_published.wait(timeout=5.0)
+        assert nodes.props["embedding"] == [0.9]
+        assert nodes.props["_embedding_index_ready"] is False
+        assert graph_ns.score == 0.2
+        assert compute.semantic_search([0.9], 1) == []
+        assert worker.is_alive()
+
+        release_ann_projection.set()
+        worker.join(timeout=5.0)
+        assert not worker.is_alive()
+        assert result == [True]
+        assert nodes.props["_embedding_index_ready"] is True
+        assert compute.semantic_search([0.9], 1) == [("n1", 0.9)]
+    finally:
+        release_ann_projection.set()
+        worker.join(timeout=5.0)
