@@ -790,7 +790,15 @@ class FanOutBackend(GraphBackend):
         elif op == "execute_batch":
             backend.execute_batch(p["query"], p.get("batch") or [])
         elif op == "add_embedding":
+            if getattr(backend, "supports_native_vector_search", True) is False:
+                return
+            if not _overrides_backend_method(backend, "verify_node_embedding"):
+                raise RuntimeError(
+                    "mirror embedding replay lacks read-after-write verification"
+                )
             backend.add_embedding(p["node_id"], p["embedding"])
+            if not backend.verify_node_embedding(p["node_id"], p["embedding"]):
+                raise RuntimeError("mirror embedding replay was not verified")
         elif op == "compare_and_set_node_embedding":
             if _overrides_backend_method(backend, "compare_and_set_node_embedding"):
                 atomic_update = backend.compare_and_set_node_embedding

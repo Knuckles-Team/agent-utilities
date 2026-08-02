@@ -349,6 +349,81 @@ def test_sparql_process_local_vector_caches_are_declared_graph_only() -> None:
     assert StardogSparqlBackend.supports_native_vector_search is False
 
 
+def test_direct_embedding_replay_skips_graph_only_mirror(tmp_path, monkeypatch):
+    """A graph-only capability advances without touching an ephemeral cache."""
+
+    class _GraphOnlyMirror(RecordingBackend):
+        supports_native_vector_search = False
+
+        def add_embedding(self, node_id, embedding):
+            raise AssertionError("graph-only mirror received a vector write")
+
+        def verify_node_embedding(self, node_id, embedding):
+            raise AssertionError("ephemeral vector cache was treated as durable")
+
+    authority = RecordingBackend("authority")
+    mirror = _GraphOnlyMirror("graph-only")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    try:
+        fan.add_embedding("node-1", [1.0, 2.0])
+
+        assert fan.flush_mirrors(timeout=2.0)
+        assert authority.writes.count(("add_embedding", "node-1")) == 1
+        assert mirror.writes == []
+        assert fan._outbox.lag("mirror") == 0
+    finally:
+        fan.close()
+
+
+def test_direct_embedding_replay_requires_durable_verification(
+    tmp_path, monkeypatch
+):
+    """A vector mirror retains lag until read-after-write verification succeeds."""
+
+    class _DurableVectorMirror(RecordingBackend):
+        supports_native_vector_search = True
+
+        def __init__(self, name: str) -> None:
+            super().__init__(name)
+            self.verification_enabled = False
+            self.verification_calls = 0
+
+        def verify_node_embedding(self, node_id, embedding):
+            del embedding
+            self.verification_calls += 1
+            return self.verification_enabled and (
+                "add_embedding",
+                node_id,
+            ) in self.writes
+
+    authority = RecordingBackend("authority")
+    mirror = _DurableVectorMirror("durable-vector")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    try:
+        fan.add_embedding("node-1", [1.0, 2.0])
+
+        assert not fan.flush_mirrors(timeout=0.5)
+        assert fan._outbox.lag("mirror") == 1
+        assert mirror.verification_calls > 0
+
+        mirror.verification_enabled = True
+        assert fan.flush_mirrors(timeout=2.0)
+        assert ("add_embedding", "node-1") in mirror.writes
+        assert fan._outbox.lag("mirror") == 0
+    finally:
+        fan.close()
+
+
 def test_graph_only_mirror_never_acks_vector_from_ephemeral_cache(
     tmp_path, monkeypatch
 ):
