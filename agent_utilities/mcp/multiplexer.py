@@ -2240,15 +2240,15 @@ class MCPMultiplexer:
         old_tools: dict[str, MCPTool],
         new_tools: dict[str, MCPTool],
     ) -> set[str]:
-        """Replace changed exposed schemas without ever removing their fallback.
+        """Atomically replace changed exposed schemas in FastMCP's registry.
 
-        FastMCP owns the client-visible JSON schema.  Rebuilding only the
-        changed names keeps an equivalent provider reconnect free of provider
-        registration churn while retaining progressive-disclosure visibility.
-        Its normal duplicate policy replaces an existing provider component,
-        so register a replacement *before* removing a deleted name.  A failed
-        ``add_tool`` therefore leaves the old real FastMCP tool and all mux
-        routing state intact; map mutations happen only after this returns.
+        FastMCP 4.0.0b1 has no public batch-registration primitive: each
+        ``add_tool`` immediately replaces a duplicate in its local provider.
+        A two-tool recovery can therefore accept one replacement and fail the
+        next.  Stage the complete component registry first, and retain an
+        exact SDK-component snapshot so a partial native registration is
+        restored with one provider-registry swap rather than a doomed series
+        of ``add_tool`` rollback calls.
         """
         exposed = set(old_tools) & self._exposed
         changed = {
@@ -2263,26 +2263,47 @@ class MCPMultiplexer:
 
         replacements = sorted(name for name in changed if name in new_tools)
         removed = sorted(changed - set(replacements))
-        replaced: list[str] = []
+        host = self._host_mcp
+        provider = getattr(host, "_local_provider", None)
+        components = getattr(provider, "_components", None)
+        if not isinstance(components, dict):
+            raise RuntimeError("FastMCP local component registry is unavailable")
+
+        # ``FunctionTool`` construction validates every child schema before
+        # the live registry is touched.  Keep these real SDK objects in the
+        # staged mapping — protocol ``Tool`` models are not executable host
+        # components and cannot safely stand in for them.
+        forwarders = {
+            name: _forwarder_component(self, new_tools[name]) for name in replacements
+        }
+        previous_components = dict(components)
+        staged_components = dict(previous_components)
+        changed_names = set(changed)
+        for key, component in tuple(staged_components.items()):
+            if isinstance(component, FunctionTool) and component.name in changed_names:
+                staged_components.pop(key)
+        for forwarder in forwarders.values():
+            staged_components[forwarder.key] = forwarder
+
         try:
-            for name in replacements:
-                _register_forwarder(self._host_mcp, self, new_tools[name], replace=True)
-                replaced.append(name)
-            for name in removed:
-                self._remove_host_forwarder(name)
+            # Preserve FastMCP's native registration path and any validation
+            # it performs.  It is synchronous, so another served request
+            # cannot observe an intermediate component map on this event-loop
+            # turn.  If a later add fails, restore the exact prior registry
+            # below without asking that same failed API to accept a rollback.
+            for forwarder in forwarders.values():
+                host.add_tool(forwarder)
         except Exception:
-            # The aggregation maps below have not changed.  Restore anything
-            # that did reach the host, but preserve the primary exception: a
-            # host whose ``add_tool`` is persistently failing still retains the
-            # old component because it was never removed before its first add.
-            for name in [*replaced, *removed]:
-                try:
-                    _register_forwarder(
-                        self._host_mcp, self, old_tools[name], replace=True
-                    )
-                except Exception:  # noqa: BLE001 - best-effort host rollback
-                    logger.error("Could not restore prior MCP forwarding schema")
+            # LocalProvider resolves lookups directly from this mapping in
+            # FastMCP 4.0.0b1.  Replacing it restores the prior executable
+            # FunctionTool objects atomically even when ``add_tool`` remains
+            # unavailable, leaving mux maps untouched below.
+            provider._components = previous_components
             raise
+        # A removal is committed in the same one-step replacement, so no
+        # client can be left with a half-refreshed forwarded tool set.
+        provider._components = staged_components
+        self._exposed.difference_update(removed)
         return changed
 
     def _queue_tools_changed(self, changed_names: set[str]) -> None:
@@ -3805,28 +3826,30 @@ def _tool_is_verbose(tool: MCPTool) -> bool:
     return "verbose" in tags
 
 
-def _register_forwarder(
-    mcp, mux: MCPMultiplexer, tool: MCPTool, *, replace: bool = False
-) -> bool:
+def _forwarder_component(mux: MCPMultiplexer, tool: MCPTool) -> FunctionTool:
+    """Build the executable FastMCP component for one aggregated child tool."""
+    schema = tool.input_schema or {"type": "object", "properties": {}}
+    return FunctionTool(
+        name=tool.name,
+        description=tool.description or "",
+        parameters=schema,
+        fn=_make_forwarder(mux, tool.name),
+    )
+
+
+def _register_forwarder(mcp, mux: MCPMultiplexer, tool: MCPTool) -> bool:
     """Register ONE aggregated child tool as a live FastMCP forwarding tool.
 
     Idempotent via ``mux._exposed`` so lazy mounts never double-register.
-    ``replace=True`` uses FastMCP's native duplicate-replace behavior for an
-    already exposed tool; it never clears the mux marker before the new host
-    tool has been accepted. Returns True if FastMCP was asked to register a
-    tool. Shared by eager startup and the dynamic ``load_tools`` meta-tool.
+    Schema replacement is deliberately handled by
+    :meth:`MCPMultiplexer._replace_exposed_forwarders`, where the complete
+    FastMCP registry can be staged atomically. Returns True if FastMCP was
+    asked to register a tool. Shared by eager startup and the dynamic
+    ``load_tools`` meta-tool.
     """
-    if tool.name in mux._exposed and not replace:
+    if tool.name in mux._exposed:
         return False
-    schema = tool.input_schema or {"type": "object", "properties": {}}
-    mcp.add_tool(
-        FunctionTool(
-            name=tool.name,
-            description=tool.description or "",
-            parameters=schema,
-            fn=_make_forwarder(mux, tool.name),
-        )
-    )
+    mcp.add_tool(_forwarder_component(mux, tool))
     mux._exposed.add(tool.name)
     return True
 
@@ -4086,6 +4109,12 @@ class SessionVisibilityMiddleware(Middleware):
         # Before the dispatch gate: a client that calls an always-load tool
         # without a preceding tools/list must still find it dispatchable.
         await self._ensure_always_loaded()
+        # A detached recovery can remove a tool between the client's cached
+        # tools/list and this call.  Send that session's queued standard
+        # invalidation before the gate rejects the stale name; otherwise the
+        # ToolError would skip this method's later notification point and
+        # strand the client on the obsolete catalog indefinitely.
+        await self.mux.notify_pending_tools_changed()
         name = getattr(context.message, "name", None)
         # A tool this session hasn't loaded behaves as "unknown" until load_tools.
         if name and not self.mux.tool_dispatchable(name):

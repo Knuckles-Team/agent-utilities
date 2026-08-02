@@ -491,6 +491,101 @@ async def test_schema_refresh_failure_fails_closed_without_stranding_transport(
     await mux.aclose()
 
 
+async def test_schema_refresh_rolls_back_partial_host_registration_atomically(
+    tmp_path, monkeypatch
+):
+    """A later persistent add failure cannot strand an earlier fresh schema.
+
+    FastMCP 4.0.0b1 replaces a duplicate directly in its local provider.  That
+    means a two-tool reconnect can accept the first replacement and reject the
+    second one.  The multiplexer must restore the exact pre-refresh SDK
+    component registry without calling the now-failing ``add_tool`` path.
+    """
+    from fastmcp import FastMCP
+
+    server_name = "schema-mcp"
+    mux = MCPMultiplexer(
+        _write_config(
+            tmp_path,
+            {server_name: {"command": "schema-child", "args": []}},
+        )
+    )
+    stale = _SchemaGenerationSession(
+        [
+            _schema_tool("query", "legacy_query"),
+            _schema_tool("search", "legacy_search"),
+        ],
+        fail_calls=True,
+        tag="legacy",
+    )
+    recovered = _SchemaGenerationSession(
+        [
+            _schema_tool("query", "fresh_query"),
+            _schema_tool("search", "fresh_search"),
+        ],
+        tag="recovered",
+    )
+    generations = [stale, recovered]
+
+    async def fake_open_one_session(*_args):
+        return generations.pop(0)
+
+    mux._open_one_session = AsyncMock(side_effect=fake_open_one_session)  # type: ignore[method-assign]
+    host = FastMCP("schema-refresh-host")
+    mux._host_mcp = host
+    mounted = await mux.mount_child(server_name)
+    prefixed_by_original = {
+        original: prefixed
+        for prefixed, (_server, original) in mux.tool_to_server.items()
+    }
+    for tool in mounted:
+        _register_forwarder(host, mux, tool)
+
+    before_components = dict(host._local_provider._components)
+    original_add_tool = host.add_tool
+    add_calls = 0
+
+    def accept_one_then_fail_forever(tool):
+        nonlocal add_calls
+        add_calls += 1
+        if add_calls == 1:
+            return original_add_tool(tool)
+        raise RuntimeError("synthetic persistent FastMCP add_tool failure")
+
+    # This reproduces FastMCP's actual duplicate-replace behavior for the
+    # first forwarded component, followed by a host registration path that is
+    # unavailable for every subsequent attempt (including a naive rollback).
+    monkeypatch.setattr(host, "add_tool", accept_one_then_fail_forever)
+    runtime = mux.children[server_name]
+    runtime.restart_backoff_base = 0.005
+    runtime.restart_backoff_cap = 0.005
+
+    result = await mux.call_proxied_tool(prefixed_by_original["query"], {})
+
+    assert result.is_error is True
+    assert result.content[0].text == "schema_refresh_failed"
+    # Two attempted replacements only: the rollback is a single registry swap,
+    # not a third doomed add_tool call.
+    assert add_calls == 2
+    assert set(host._local_provider._components) == set(before_components)
+    for key, component in before_components.items():
+        assert host._local_provider._components[key] is component
+    for original, property_name in {
+        "query": "legacy_query",
+        "search": "legacy_search",
+    }.items():
+        prefixed = prefixed_by_original[original]
+        assert (await host.get_tool(prefixed)).parameters["properties"] == {
+            property_name: {"type": "string"}
+        }
+        assert mux.tool_object(prefixed).input_schema["properties"] == {
+            property_name: {"type": "string"}
+        }
+        assert mux.tool_to_server[prefixed] == (server_name, original)
+        assert prefixed in mux._exposed
+    await mux.aclose()
+
+
 async def test_detached_schema_refresh_notifies_the_affected_session_on_next_request(
     tmp_path, monkeypatch
 ):
@@ -559,6 +654,72 @@ async def test_detached_schema_refresh_notifies_the_affected_session_on_next_req
         return []
 
     assert await middleware.on_list_tools(SimpleNamespace(), call_next) == []
+    assert len(context.notifications) == 1
+    assert context.notifications[0].method == "notifications/tools/list_changed"
+    assert session_key not in mux._pending_tool_list_changes
+    assert session_key not in mux._session_loaded
+    await mux.aclose()
+
+
+async def test_removed_cached_tool_notifies_before_session_gate(tmp_path, monkeypatch):
+    """A stale cached call gets its list-changed notice before ToolError."""
+    from fastmcp import FastMCP
+
+    server_name = "schema-mcp"
+    session_key = "connected-client"
+    mux = MCPMultiplexer(
+        _write_config(
+            tmp_path,
+            {server_name: {"command": "schema-child", "args": []}},
+        )
+    )
+    original = _SchemaGenerationSession([_schema_tool("query", "legacy")], tag="legacy")
+
+    async def fake_open_one_session(*_args):
+        return original
+
+    mux._open_one_session = AsyncMock(side_effect=fake_open_one_session)  # type: ignore[method-assign]
+    host = FastMCP("schema-refresh-host")
+    mux._host_mcp = host
+    mounted = await mux.mount_child(server_name)
+    prefixed_name = mounted[0].name
+    _register_forwarder(host, mux, mounted[0])
+    mux.session_loaded(session_key).add(prefixed_name)
+
+    runtime = mux.children[server_name]
+    await mux._refresh_child_tools(
+        server_name,
+        runtime,
+        mux.load_catalog()[server_name],
+        mux._catalog_epoch,
+        [],
+    )
+    assert mux._pending_tool_list_changes[session_key] == 1
+    assert mux._session_loaded[session_key] == set()
+
+    class _LiveContext:
+        session_id = session_key
+        request_context = SimpleNamespace(meta={})
+        message = SimpleNamespace(name=prefixed_name)
+
+        def __init__(self) -> None:
+            self.notifications: list[object] = []
+
+        async def send_notification(self, notification) -> None:
+            self.notifications.append(notification)
+
+    context = _LiveContext()
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_http_request", lambda: object()
+    )
+    monkeypatch.setattr("fastmcp.server.dependencies.get_context", lambda: context)
+    middleware = SessionVisibilityMiddleware(mux, host)
+
+    async def should_not_dispatch(_context):
+        pytest.fail("a removed tool must be rejected by the session gate")
+
+    with pytest.raises(ToolError, match="not loaded in this session"):
+        await middleware.on_call_tool(context, should_not_dispatch)
     assert len(context.notifications) == 1
     assert context.notifications[0].method == "notifications/tools/list_changed"
     assert session_key not in mux._pending_tool_list_changes
