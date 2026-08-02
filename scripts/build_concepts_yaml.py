@@ -40,8 +40,10 @@ EXTERNAL_PATH = ROOT / "docs" / "external_concepts.yaml"
 # generator, the validator (check_concepts.py), and the allocator never drift.
 # Adding ROOT lets this resolve to the local source even without an install.
 sys.path.insert(0, str(ROOT))
-from agent_utilities.governance.concept_allocator import MARKER_RE  # noqa: E402
-from agent_utilities.governance.concept_hierarchy import parse_okf_id  # noqa: E402
+from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
+    iter_okf_markers,
+    parse_okf_id,
+)
 
 _PRIVATE_DOC_PATTERNS = (
     re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
@@ -86,11 +88,11 @@ def collect() -> dict[str, dict]:
         except (UnicodeDecodeError, OSError):
             continue
         rel = path.relative_to(ROOT).as_posix()
-        for m in MARKER_RE.finditer(content):
-            cid = m.group("id")
-            # The shared marker regex captures only the id; the trailing
-            # descriptive text is the remainder of the same line.
-            rest = content[m.end() :].split("\n", 1)[0]
+        for marker in iter_okf_markers(content):
+            cid = marker.id
+            # The marker parser consumes any adjacent slash/underscore/uppercase
+            # tail; descriptive text begins only after the complete marker span.
+            rest = content[marker.end :].split("\n", 1)[0]
             doc = _clean_doc(rest)
             parsed = parse_okf_id(cid)
             pillar = f"{parsed.slug}-{parsed.pillar}"

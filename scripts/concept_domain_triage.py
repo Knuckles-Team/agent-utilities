@@ -94,14 +94,14 @@ import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
-    OKF_MARKER_RE,
+    iter_okf_markers,
     parse_okf_id,
 )
 from agent_utilities.governance.concept_lineage import (  # noqa: E402
@@ -110,8 +110,6 @@ from agent_utilities.governance.concept_lineage import (  # noqa: E402
     parse_lineage,
 )
 from scripts.check_concept_governance import (  # noqa: E402
-    DESIGN_DIR,
-    MERGED_AUDIT_BASELINE,
     all_registered_concepts,
     has_design_doc,
     read_baseline,
@@ -187,7 +185,9 @@ class Site:
     def kind(self) -> str:
         if self.path.startswith(("tests/", "test/")):
             return "test"
-        if self.path.endswith((".md", ".txt")) or self.path.startswith((".specify/", "docs/")):
+        if self.path.endswith((".md", ".txt")) or self.path.startswith(
+            (".specify/", "docs/")
+        ):
             return "doc"
         return "source"
 
@@ -263,8 +263,8 @@ def collect_sites(domain_prefix: str, concepts: set[str]) -> dict[str, list[Site
         path, lineno, text = parts[0], parts[1], parts[2]
         if not lineno.isdigit():
             continue
-        for match in OKF_MARKER_RE.finditer(text):
-            cid = match.group("id")
+        for marker in iter_okf_markers(text):
+            cid = marker.id
             if cid not in concepts:
                 continue
             out[cid].append(Site(path=path, line=int(lineno), text=text.strip()))
@@ -280,14 +280,10 @@ def detect_truncation(sites: list[Site], concept: str) -> str:
     recorded id is then an artifact of the regex, not a name — combined with a
     weak id, the strongest available retire signal.
     """
-    token = f"CONCEPT:{concept}"
     for site in sites:
-        idx = site.text.find(token)
-        while idx != -1:
-            tail = site.text[idx + len(token) :]
-            if tail[:1] in {"/", "_"} or (tail[:1].isalpha() and tail[:1].isupper()):
+        for marker in iter_okf_markers(site.text):
+            if marker.id == concept and marker.tail:
                 return site.text
-            idx = site.text.find(token, idx + 1)
     return ""
 
 
@@ -319,8 +315,8 @@ def git_archaeology(domain_prefix: str, concepts: set[str]) -> dict[str, Evidenc
             continue
         if not line.startswith("+") or line.startswith("+++"):
             continue
-        for match in OKF_MARKER_RE.finditer(line):
-            cid = match.group("id")
+        for marker in iter_okf_markers(line):
+            cid = marker.id
             if cid not in concepts:
                 continue
             first[cid] = (commit, date, subject)
@@ -488,7 +484,10 @@ def suggest(
             why = f"clusters with {len(members) - 1} sibling(s) around {candidate}"
             if shared:
                 why += f"; shares {', '.join(shared[:3])}"
-            if ev.introduced_commit and ev.introduced_commit == evidence[candidate].introduced_commit:
+            if (
+                ev.introduced_commit
+                and ev.introduced_commit == evidence[candidate].introduced_commit
+            ):
                 why += f"; both introduced by {ev.introduced_commit[:8]} ({ev.introduced_subject[:60]})"
             if evidence[candidate].has_doc:
                 why += "; the candidate parent already has a design document"
@@ -594,7 +593,10 @@ def cmd_propose(domain_prefix: str, *, refresh_suggestions: bool = True) -> int:
 
     dropped = sorted(set(existing) - set(concepts_out))
     for cid in dropped:
-        if (existing[cid] or {}).get("decision", "PENDING") not in {"PENDING", "retire"}:
+        if (existing[cid] or {}).get("decision", "PENDING") not in {
+            "PENDING",
+            "retire",
+        }:
             print(
                 f"WARNING: {cid} carried decision "
                 f"{existing[cid]['decision']!r} but is no longer a live concept — "
@@ -607,7 +609,7 @@ def cmd_propose(domain_prefix: str, *, refresh_suggestions: bool = True) -> int:
         path,
         {
             "domain": domain_prefix,
-            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "generator": "scripts/concept_domain_triage.py",
             "how_to_use": (
                 "Set `decision` on each concept to one of: document | parent | retire | "
@@ -712,9 +714,13 @@ def _apply_retirement(concept: str, sites: list[Site], *, write: bool) -> list[s
             ending = "\n" if lines[idx].endswith("\n") else ""
             new_text, degenerate = _strip_marker(lines[idx].rstrip("\n"), concept)
             if degenerate:
-                edits.append(f"  MANUAL {path}:{site.line} — line is only the marker: {site.text[:80]}")
+                edits.append(
+                    f"  MANUAL {path}:{site.line} — line is only the marker: {site.text[:80]}"
+                )
                 continue
-            edits.append(f"  edit   {path}:{site.line}\n    -{site.text[:100]}\n    +{new_text.strip()[:100]}")
+            edits.append(
+                f"  edit   {path}:{site.line}\n    -{site.text[:100]}\n    +{new_text.strip()[:100]}"
+            )
             lines[idx] = new_text + ending
             changed = True
         if changed and write:
@@ -749,7 +755,9 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
                 problems.append(f"{cid}: decision 'keep' requires a reason")
             continue
         if decision not in DECISIONS:
-            problems.append(f"{cid}: unknown decision {decision!r} (expected one of {DECISIONS})")
+            problems.append(
+                f"{cid}: unknown decision {decision!r} (expected one of {DECISIONS})"
+            )
             continue
         if decision == "document":
             # NOT a blocker: "this earns its own document" is a classification,
@@ -774,7 +782,10 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
                     f"{cid} -> {parent} (waiting on the parent's design document)"
                 )
                 continue
-            parents[cid] = {"parent": parent, "rationale": (entry.get("rationale") or "").strip()}
+            parents[cid] = {
+                "parent": parent,
+                "rationale": (entry.get("rationale") or "").strip(),
+            }
             edits.append(f"  lineage parent  {cid} -> {parent}")
             continue
         if decision == "retire":
@@ -798,7 +809,9 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
     try:
         parse_lineage(candidate)
     except LineageError as exc:
-        raise SystemExit(f"the resulting lineage registry would be invalid: {exc}") from exc
+        raise SystemExit(
+            f"the resulting lineage registry would be invalid: {exc}"
+        ) from exc
 
     # Only NOW touch the tree. `apply` is all-or-nothing on purpose: a run that
     # is going to refuse to write the registry must not have already deleted
@@ -809,7 +822,9 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
             _apply_retirement(cid, evidence[cid].sites, write=write and not problems)
         )
 
-    print(f"{domain_prefix}: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    print(
+        f"{domain_prefix}: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+    )
     if owed:
         print(
             f"\n{len(owed)} concept(s) are classified 'document' but nobody has "
@@ -829,7 +844,9 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
         for msg in problems:
             print(f"  - {msg}")
     if edits:
-        print(f"\n{'APPLYING' if write else 'DRY RUN — would apply'} {len(edits)} edit(s):")
+        print(
+            f"\n{'APPLYING' if write else 'DRY RUN — would apply'} {len(edits)} edit(s):"
+        )
         for msg in edits:
             print(msg)
     if problems:
@@ -864,7 +881,9 @@ def _write_lineage(parents: dict, retired: dict) -> None:
         allow_unicode=True,
         width=100,
     )
-    LINEAGE_PATH.write_text("\n".join(header_lines).rstrip() + "\n\n" + body, encoding="utf-8")
+    LINEAGE_PATH.write_text(
+        "\n".join(header_lines).rstrip() + "\n\n" + body, encoding="utf-8"
+    )
 
 
 def _best_marker_lines(ev: Evidence, limit: int = 2) -> list[str]:
@@ -988,7 +1007,9 @@ def cmd_domains(limit: int) -> int:
         parsed = parse_okf_id(cid)
         groups[f"{parsed.slug}-{parsed.pillar}.{parsed.domain}"].append(cid)
     ranked = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-    print(f"{len(ranked)} domain group(s), {sum(len(v) for v in groups.values())} concepts:")
+    print(
+        f"{len(ranked)} domain group(s), {sum(len(v) for v in groups.values())} concepts:"
+    )
     for name, members in ranked[:limit]:
         triaged = proposal_path(name).exists()
         print(f"  {len(members):4d}  {name}{'  [proposal exists]' if triaged else ''}")
@@ -1002,18 +1023,29 @@ def cmd_status(domain_prefix: str) -> int:
     counts: dict[str, int] = defaultdict(int)
     for entry in (data.get("concepts") or {}).values():
         counts[(entry or {}).get("decision", "PENDING")] += 1
-    print(json.dumps({"domain": domain_prefix, "decisions": dict(sorted(counts.items()))}, indent=2))
+    print(
+        json.dumps(
+            {"domain": domain_prefix, "decisions": dict(sorted(counts.items()))},
+            indent=2,
+        )
+    )
     return 0
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p_domains = sub.add_parser("domains", help="list undocumented-concept domain groups")
+    p_domains = sub.add_parser(
+        "domains", help="list undocumented-concept domain groups"
+    )
     p_domains.add_argument("--limit", type=int, default=100)
 
-    p_propose = sub.add_parser("propose", help="write/refresh a domain's triage proposal")
+    p_propose = sub.add_parser(
+        "propose", help="write/refresh a domain's triage proposal"
+    )
     p_propose.add_argument("domain", help="e.g. AU-KG.compute")
     p_propose.add_argument(
         "--keep-suggestions",
@@ -1021,9 +1053,13 @@ def main() -> int:
         help="do not recompute suggestions for concepts already in the proposal",
     )
 
-    p_apply = sub.add_parser("apply", help="apply the confirmed decisions (dry run by default)")
+    p_apply = sub.add_parser(
+        "apply", help="apply the confirmed decisions (dry run by default)"
+    )
     p_apply.add_argument("domain")
-    p_apply.add_argument("--write", action="store_true", help="actually write the edits")
+    p_apply.add_argument(
+        "--write", action="store_true", help="actually write the edits"
+    )
 
     p_packet = sub.add_parser(
         "packet", help="emit a compact adjudication packet (only the undecided residue)"

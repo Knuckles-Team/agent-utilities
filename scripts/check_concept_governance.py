@@ -127,8 +127,8 @@ MERGED_AUDIT_BASELINE = ROOT / "scripts" / "concept_design_doc_baseline.txt"
 
 sys.path.insert(0, str(ROOT))
 from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
-    OKF_MARKER_RE,
     is_valid_domain,
+    iter_okf_markers,
     load_slug_registry,
     parse_okf_id,
 )
@@ -136,8 +136,6 @@ from agent_utilities.governance.concept_lineage import (  # noqa: E402
     Lineage,
     load_lineage,
 )
-
-CONCEPT_RE = OKF_MARKER_RE
 
 
 def _git(*args: str) -> str:
@@ -220,7 +218,7 @@ def new_concepts(base: str) -> list[str]:
     added: set[str] = set()
     for line in diff.splitlines():
         if line.startswith("+") and not line.startswith("+++"):
-            added.update(CONCEPT_RE.findall(line))
+            added.update(marker.id for marker in iter_okf_markers(line))
     # Keep only concepts that did NOT already exist at the base (reject churn).
     return sorted(c for c in added if not _exists_at_base(c, base))
 
@@ -266,7 +264,7 @@ def all_registered_concepts(root: Path = ROOT) -> list[str]:
             content = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        found.update(CONCEPT_RE.findall(content))
+        found.update(marker.id for marker in iter_okf_markers(content))
     return sorted(found)
 
 
@@ -378,7 +376,10 @@ def audit_merged(
             for msg in broken_links:
                 print(f"  - {msg}", file=sys.stderr)
             for cid, reason in revived:
-                print(f"  - {cid} was retired ({reason}) but has a live marker again", file=sys.stderr)
+                print(
+                    f"  - {cid} was retired ({reason}) but has a live marker again",
+                    file=sys.stderr,
+                )
             return 1
         write_baseline(undocumented, baseline_path)
         print(
@@ -478,7 +479,9 @@ def audit_merged(
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--base", help="explicit base ref to diff against (default: nearest trunk)")
+    ap.add_argument(
+        "--base", help="explicit base ref to diff against (default: nearest trunk)"
+    )
     ap.add_argument(
         "--audit-merged",
         action="store_true",
@@ -498,7 +501,9 @@ def main() -> int:
     if args.audit_merged:
         return audit_merged(update=args.update_baseline)
     if args.update_baseline:
-        print("ERROR: --update-baseline only applies with --audit-merged", file=sys.stderr)
+        print(
+            "ERROR: --update-baseline only applies with --audit-merged", file=sys.stderr
+        )
         return 2
 
     base = resolve_base(args.base)
@@ -552,7 +557,9 @@ def main() -> int:
         )
         return 1
 
-    print(f"All {len(concepts)} new concept(s) have design documents. Governance check passed.")
+    print(
+        f"All {len(concepts)} new concept(s) have design documents. Governance check passed."
+    )
     return 0
 
 

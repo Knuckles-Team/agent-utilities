@@ -21,10 +21,9 @@ SRC_DIR = ROOT / "agent_utilities"
 CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
 
 # Single source of the marker grammar — shared with build_concepts_yaml.py and
-# the allocator so the three scanners can never drift. ``findall`` returns the
-# id (the one capturing group) for each match.
+# the allocator so the three scanners can never drift.
 sys.path.insert(0, str(ROOT))
-from agent_utilities.governance.concept_allocator import MARKER_RE  # noqa: E402
+from agent_utilities.governance.concept_hierarchy import iter_okf_markers  # noqa: E402
 
 
 def markers_in_code() -> dict[str, list[str]]:
@@ -40,8 +39,8 @@ def markers_in_code() -> dict[str, list[str]]:
         except (UnicodeDecodeError, OSError):
             continue
         rel = path.relative_to(ROOT).as_posix()
-        for cid in MARKER_RE.findall(content):
-            found.setdefault(cid, []).append(rel)
+        for marker in iter_okf_markers(content):
+            found.setdefault(marker.id, []).append(rel)
     return found
 
 
