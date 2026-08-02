@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-549 typed fields · 361 runtime-only call-site inputs.
+549 typed fields · 362 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -865,6 +865,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_LLM_PRIORITY_RESERVE` | 1 |
 | `KG_LLM_PRIORITY_RESERVE_FRACTION` | 1 |
 | `KG_MEDIA_TENANT_ISOLATED_BLOBS` | 1 |
+| `KG_MIN_LEXICAL_RELEVANCE_THRESHOLD` | 1 |
 | `KG_MIN_RELEVANCE_THRESHOLD` | 1 |
 | `KG_PARSE_BATCH` | 1 |
 | `KG_POOL_MEMORY_GEN_CAP` | 1 |

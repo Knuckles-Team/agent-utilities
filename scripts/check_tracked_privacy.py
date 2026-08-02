@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import os
 import pwd
 import re
@@ -133,9 +134,21 @@ class Violation:
     path: str
     line: int
     category: str
+    content_hash: str
+    ordinal: int
 
     def render(self) -> str:
         return f"{self.path}:{self.line}: {self.category}"
+
+
+def _content_hash(text: str) -> str:
+    """Irreversible fingerprint of a line's content, never the value itself.
+
+    A SHA-256 digest cannot be inverted back to the sensitive substring that
+    produced it, so it is safe to persist in the baseline file even though
+    ``render()``/every printed message still withholds the matched value.
+    """
+    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:16]
 
 
 def _is_credential_placeholder(secret: str) -> bool:
@@ -476,20 +489,33 @@ def _author_metadata_lines(path: Path, lines: list[str]) -> list[int]:
     return violations
 
 
+def _next_ordinal(counts: dict[tuple[str, str, str], int], group: tuple[str, str, str]) -> int:
+    ordinal = counts.get(group, 0)
+    counts[group] = ordinal + 1
+    return ordinal
+
+
 def scan(root: Path = ROOT) -> list[Violation]:
     identifiers = derive_local_identifiers(root)
     violations: list[Violation] = []
+    # (path, category, content_hash) -> count so far, i.e. an ordinal
+    # disambiguating two genuinely-identical lines in the same file/category —
+    # never the line number, which drifts under unrelated edits and would
+    # otherwise report a moved (not new) leak as a phantom NEW finding.
+    ordinals: dict[tuple[str, str, str], int] = {}
     for path in _tracked_artifacts(root):
         if not path.is_file():
             continue
         relative = path.relative_to(root)
+        rel_str = relative.as_posix()
         deployment_doc = _is_deployment_doc(relative)
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         for number in _author_metadata_lines(path, lines):
+            category = "non-neutral package author identity"
+            content_hash = _content_hash(lines[number - 1])
+            ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
             violations.append(
-                Violation(
-                    relative.as_posix(), number, "non-neutral package author identity"
-                )
+                Violation(rel_str, number, category, content_hash, ordinal)
             )
         for number, line in enumerate(lines, 1):
             for category in classify_line(
@@ -497,28 +523,34 @@ def scan(root: Path = ROOT) -> list[Violation]:
                 identifiers=identifiers,
                 deployment_doc=deployment_doc,
             ):
+                content_hash = _content_hash(line)
+                ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
                 violations.append(
-                    Violation(relative.as_posix(), number, category)
+                    Violation(rel_str, number, category, content_hash, ordinal)
                 )
     for path in _runtime_source_artifacts(root):
         if not path.is_file():
             continue
         relative = path.relative_to(root)
+        rel_str = relative.as_posix()
         if _is_bundled_connector_profile(relative):
+            category = "bundled environment-specific connector profile"
+            # Whole-file finding, not line-anchored: hash the path itself so
+            # it stays stable regardless of the file's own line churn.
+            content_hash = _content_hash(rel_str)
+            ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
             violations.append(
-                Violation(
-                    relative.as_posix(),
-                    1,
-                    "bundled environment-specific connector profile",
-                )
+                Violation(rel_str, 1, category, content_hash, ordinal)
             )
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         for number, line in enumerate(lines, 1):
             for category in classify_runtime_source_line(
                 line, identifiers=identifiers
             ):
+                content_hash = _content_hash(line)
+                ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
                 violations.append(
-                    Violation(relative.as_posix(), number, category)
+                    Violation(rel_str, number, category, content_hash, ordinal)
                 )
     return violations
 
@@ -528,11 +560,23 @@ BASELINE = Path(__file__).resolve().parent / "tracked_privacy_baseline.txt"
 _BASELINE_SEP = "\t"
 
 
-def _baseline_key(violation: Violation) -> tuple[str, int, str]:
-    return (violation.path, violation.line, violation.category)
+# BaselineKey: (path, category, content_hash, ordinal) — stable under pure
+# line motion elsewhere in the file. ``content_hash`` fingerprints the
+# offending line itself (irreversibly — see ``_content_hash``), so a leak
+# that merely shifted line number because unrelated code was inserted above
+# it keys identically before and after the shift. ``ordinal`` only
+# disambiguates two genuinely-identical lines in the same file/category.
+# Same scheme as ``check_swallowed_errors.py``'s ``HandlerKey`` (D-SWG-1) and
+# ``check_wiring.py``'s ``_finding_key`` (D-OP-11) — canonical across every
+# gate baseline in this repo, not a bespoke third scheme.
+BaselineKey = tuple[str, str, str, int]
 
 
-def _load_baseline() -> set[tuple[str, int, str]]:
+def _baseline_key(violation: Violation) -> BaselineKey:
+    return (violation.path, violation.category, violation.content_hash, violation.ordinal)
+
+
+def _load_baseline() -> set[BaselineKey]:
     """Pre-existing leaks this gate newly *sees* but did not previously report.
 
     A missing baseline file is an EMPTY baseline — stricter, never laxer — so a
@@ -541,22 +585,27 @@ def _load_baseline() -> set[tuple[str, int, str]]:
     """
     if not BASELINE.exists():
         return set()
-    out: set[tuple[str, int, str]] = set()
+    out: set[BaselineKey] = set()
     for raw in BASELINE.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         fields = line.split(_BASELINE_SEP)
-        if len(fields) < 3 or not fields[1].isdigit():
+        if len(fields) < 5 or not fields[4].isdigit():
             continue
-        out.add((fields[0], int(fields[1]), fields[2]))
+        # fields: path, line(informational), category, content_hash, ordinal
+        out.add((fields[0], fields[2], fields[3], int(fields[4])))
     return out
 
 
 def _write_baseline(violations: list[Violation]) -> None:
     lines = [
         f"{v.path}{_BASELINE_SEP}{v.line}{_BASELINE_SEP}{v.category}"
-        for v in sorted(violations, key=lambda v: (v.path, v.line, v.category))
+        f"{_BASELINE_SEP}{v.content_hash}{_BASELINE_SEP}{v.ordinal}"
+        for v in sorted(
+            violations,
+            key=lambda v: (v.path, v.category, v.content_hash, v.ordinal),
+        )
     ]
     BASELINE.write_text(
         "# Frozen baseline of pre-existing privacy leaks that D-CIP-10's scope\n"
@@ -576,11 +625,16 @@ def _write_baseline(violations: list[Violation]) -> None:
         "# paths. GitHub is public-facing and gets STRICT standards, so this file\n"
         "# must reach zero before the repository is pushed.\n"
         "#\n"
-        "# TAB-separated: path\\tline\\tcategory. Line numbers drift as the\n"
-        "# codebase changes -- expected; re-run --update-baseline to re-anchor.\n"
-        "# A NEW leak (not listed here) FAILS the gate. Fixing a listed site\n"
-        "# shrinks this file on the next --update-baseline; never hand-add an\n"
-        "# entry to make a real leak disappear.\n"
+        "# TAB-separated: path\\tline\\tcategory\\tcontent_hash\\tordinal. The KEY is\n"
+        "# (path, category, content_hash, ordinal) -- content_hash is an\n"
+        "# irreversible fingerprint of the offending line, so the entry is stable\n"
+        "# under pure line motion elsewhere in the file (D-W2P: this file used to\n"
+        "# key on line number alone and reported moved-not-new leaks as phantom\n"
+        "# NEW findings). `line` is informational only, for a human to locate the\n"
+        "# site; it is never compared. A NEW leak (not listed here) FAILS the\n"
+        "# gate. Fixing a listed site shrinks this file on the next\n"
+        "# --update-baseline; never hand-add an entry to make a real leak\n"
+        "# disappear.\n"
         + "\n".join(lines)
         + ("\n" if lines else ""),
         encoding="utf-8",

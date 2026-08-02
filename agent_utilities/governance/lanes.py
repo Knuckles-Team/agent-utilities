@@ -325,28 +325,48 @@ def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
     ``sun_path`` overflow + a git-identity leak that both traced to the same
     `.git`-nested location).
 
-    ``precommit_home`` is why: pre-commit's own store (``PRE_COMMIT_HOME``, or
-    ``XDG_CACHE_HOME/pre-commit`` when unset — verified in
-    ``pre_commit/store.py``) is where ``staged_files_only._unstaged_changes_cleared``
-    writes a lane's UNSTAGED changes to a ``patch<epoch>-<pid>`` file before
-    ``git checkout``-ing them away, restoring them by ``git apply`` in a
-    ``finally`` (verified: ``pre_commit/commands/run.py`` passes
-    ``store.directory`` — the very directory holding pre-commit's SQLite
-    ``db.db`` — as that patch_dir). ``PRE_COMMIT_HOME`` is exported nowhere in
-    this codebase, so every lane shared ONE store, producing two independent
-    hazards: a killed/OOMed/power-lost pre-commit strands a lane's unstaged
-    work as an orphaned patch file nobody replays (D-OB-12; see
-    :func:`orphaned_precommit_patches`), and the shared ``db.db`` raised
-    ``OperationalError: database is locked`` under concurrent lanes
-    (lane-concept-docs-0801). Partitioning the store removes both: each lane's
-    patches and SQLite state are invisible to every other lane's pre-commit.
+    ``temp_root`` is created here (``mkdir(parents=True, exist_ok=True)``),
+    mirroring :func:`workspace_arbitration_dir`'s same pattern for the other
+    host-wide resource root. Without it, a freshly-hashed token's directory
+    does not exist yet, and pytest's own ``TempPathFactory.getbasetemp()``
+    creates only ``--basetemp`` itself (``mkdir(exist_ok=True)``, no
+    ``parents=True``) — so the very first ``pytest`` invocation under a new
+    lane's exported ``PYTEST_ADDOPTS`` failed with a raw
+    ``FileNotFoundError`` on ``<temp_root>/pytest``, one lane env call before
+    any test code ran.
+
+    ``precommit_home`` is the pre-commit store (D-ORC-37). ``PRE_COMMIT_HOME``,
+    or ``XDG_CACHE_HOME/pre-commit`` when unset (verified in
+    ``pre_commit/store.py``), is where
+    ``staged_files_only._unstaged_changes_cleared`` writes a lane's UNSTAGED
+    changes to a ``patch<epoch>-<pid>`` file before ``git checkout``-ing them
+    away, restoring them by ``git apply`` in a ``finally`` (verified:
+    ``pre_commit/commands/run.py`` passes ``store.directory`` — the very
+    directory holding pre-commit's SQLite ``db.db`` — as that patch_dir).
+    ``PRE_COMMIT_HOME`` was exported nowhere in this codebase, so every lane
+    shared ONE store, producing two independent hazards: a killed/OOMed/
+    power-lost pre-commit strands a lane's unstaged work as an orphaned patch
+    file nobody replays (D-OB-12; see :func:`orphaned_precommit_patches`), and
+    the shared ``db.db`` raised ``OperationalError: database is locked`` under
+    concurrent lanes (lane-concept-docs-0801). Partitioning the store removes
+    both: each lane's patches and SQLite state are invisible to every other
+    lane's pre-commit. It is NOT created here — pre-commit's own ``Store``
+    creates its directory, and :func:`orphaned_precommit_patches` treats a
+    missing directory as the genuine "this lane has never run pre-commit".
     """
     scope = lane_scope(path)
     temp_root = _lane_temp_root(scope)
+    temp_root.mkdir(parents=True, exist_ok=True)
+    scratch_dir = temp_root / "scratch"
+    # Unlike pytest_basetemp (pytest creates that leaf itself, exist_ok=True,
+    # once its parent exists), TMPDIR has no such self-creating consumer —
+    # every ordinary tempfile.mkstemp()/mkdtemp() caller assumes the
+    # directory it names already exists.
+    scratch_dir.mkdir(parents=True, exist_ok=True)
     return PartitionedPaths(
         cargo_target_dir=scope.tree / "target-isolated",
         pytest_basetemp=temp_root / "pytest",
-        scratch_dir=temp_root / "scratch",
+        scratch_dir=scratch_dir,
         precommit_home=temp_root / "precommit",
         stash_ref=f"refs/lane/{scope.lane}/stash",
     )

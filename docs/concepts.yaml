@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1144
+total_concepts: 1145
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2325,6 +2325,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/cypher_scoping.py
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/materialization.py
   - agent_utilities/knowledge_graph/core/secured_reads.py
   - agent_utilities/knowledge_graph/core/tenant_sharing.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
@@ -4854,6 +4855,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/object_centric_derivation.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: object-centric
 - id: AU-KG.mining.ocel-lossless-roundtrip
   name: the inverse of
@@ -6590,13 +6592,14 @@ concepts:
   - agent_utilities/mcp/tools/query_tools.py
   doc: a retriever that *walks* a document
 - id: AU-KG.retrieval.triviality-gate
-  name: social-closer / triviality gate
+  name: HybridRetriever._lexical_fallback
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
-  doc: social-closer / triviality gate
+  - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py
+  doc: HybridRetriever._lexical_fallback
 - id: AU-KG.retrieval.unified-capability-contract
   name: a resolved
   pillar: AU-KG
@@ -8425,6 +8428,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/core/schedule_engine.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_package.py
   doc: the fleet MCP tool-schema probe
@@ -9148,6 +9152,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/merge_queue.py
   doc: see
+- id: AU-OS.governance.merge-queue-regenerate-on-land
+  name: AU-OS.governance.merge-queue-regenerate-on-land
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/merge_queue.py
+  doc: AU-OS.governance.merge-queue-regenerate-on-land
 - id: AU-OS.governance.merged-tree-verification
   name: the whole merge is computed as
   pillar: AU-OS
