@@ -162,11 +162,40 @@ def _iter_added_lines(patch_lines: list[str]):
         yield current_commit or "?", current_file or "?", line[1:]
 
 
+#: This scanner's own source and baseline necessarily CONTAIN the credential
+#: shapes it hunts for -- `aws_access_key_id`, `private_key_block` and friends
+#: are regex literals here, and the baseline records real past hits verbatim.
+#: Scanning them flags the DETECTOR as the leak: on its very first queue run
+#: this gate rejected its OWN branch with 5 "credential-shaped" hits, every one
+#: of them its own pattern table or baseline.
+#:
+#: Excluding them is not a weakening. A scanner cannot meaningfully audit itself
+#: -- any finding is by construction a definition, not a secret -- and both
+#: `check_tracked_privacy.py` and `check_wheel_privacy.py` already exclude
+#: `scripts/` for exactly this reason ("the scanners live there").
+#:
+#: Scoped to THESE TWO FILES ONLY, deliberately: a blanket `scripts/security/`
+#: exclusion would blind the gate to a real credential committed into any other
+#: gate in that directory.
+_SELF_PATHS = (
+    "scripts/security/check_secret_history.py",
+    "scripts/security/secret_history_baseline.txt",
+)
+
+
+def _is_self(file_: str) -> bool:
+    """True for this scanner's own source or baseline (git patch `b/` prefix)."""
+    normalized = file_[2:] if file_.startswith(("a/", "b/")) else file_
+    return normalized in _SELF_PATHS
+
+
 def scan_credentials(patch_lines: list[str]) -> list[dict]:
     hits: list[dict] = []
     seen: set[tuple[str, str, str]] = set()
     for commit, file_, content in _iter_added_lines(patch_lines):
         if SANITIZER_MARKER in content:
+            continue
+        if _is_self(file_):
             continue
         for name, pattern in CREDENTIAL_PATTERNS.items():
             if not pattern.search(content):
@@ -192,6 +221,8 @@ def scan_entropy(patch_lines: list[str]) -> list[dict]:
     current_file_for_lockfile_check: str | None = None
     for commit, file_, content in _iter_added_lines(patch_lines):
         current_file_for_lockfile_check = file_
+        if _is_self(file_):
+            continue
         if file_ != "?" and any(
             file_.endswith(suffix) for suffix in _LOCKFILE_SUFFIXES
         ):
