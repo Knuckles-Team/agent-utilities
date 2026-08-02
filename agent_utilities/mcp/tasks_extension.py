@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ConfigDict, Field
 
-from agent_utilities.mcp.protocol_compat import mcp_protocol_error
+from agent_utilities.mcp.protocol_compat import mcp_protocol_exception
 
 # MCP SDK v2 (which the `fastmcp>=4.0.0b1` floor pulls in) renamed
 # `McpError` -> `MCPError`. The fleet is EXPLICITLY mixed-version: child images
@@ -46,9 +46,8 @@ from agent_utilities.mcp.protocol_compat import mcp_protocol_error
 # down. `mcp_protocol_error()` binds whichever spelling the installed SDK
 # exposes and raises loudly if neither does — it never degrades to a benign
 # default, because a silently-unbound error type made `is_session_dead` return
-# False for every exception once already. `child_resilience.py` binds it the
-# same way; this is that established shim, not a new mechanism.
-MCPError: type[BaseException] = mcp_protocol_error()
+# False for every exception once already. Errors this extension emits are built
+# through the same resolver, preserving the installed SDK's wire exception.
 
 # CONCEPT:AU-ECO.mcp.tasks-workitem-bridge -- the fleet is EXPLICITLY mixed
 # fastmcp-version (D-SH-3: child images still ship fastmcp 3.4.4 while the
@@ -71,7 +70,7 @@ MCPError: type[BaseException] = mcp_protocol_error()
 # up rather than fixing it (observed live: 58 pods cleared the extensions
 # import and then died on `mcp_types`). ONE guard, ONE failure mode, ONE flag —
 # every fastmcp-4-only symbol this module needs is bound here or not at all.
-try:
+if TYPE_CHECKING:
     from fastmcp.server.extensions import (
         MethodBinding,
         ServerExtension,
@@ -80,61 +79,74 @@ try:
     from mcp_types import RequestParams, Result
     from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
     from mcp_types.version import MODERN_PROTOCOL_VERSIONS
-except ImportError as _fastmcp_extensions_import_error:
-    TASKS_EXTENSION_AVAILABLE = False
-    _TASKS_EXTENSION_IMPORT_ERROR: ImportError | None = _fastmcp_extensions_import_error
 
-    # Stand-ins for the `mcp_types` symbols. `RequestParams`/`Result` are only
-    # ever used as pydantic base classes for the private `_GetTaskParams` /
-    # `_GetTaskResult` shapes below, so a BaseModel keeps those class
-    # definitions valid; the constants only need a value that never matches.
-    from pydantic import BaseModel as _CompatBaseModel
-
-    class RequestParams(_CompatBaseModel):  # type: ignore[no-redef]
-        """Stand-in for ``mcp_types.RequestParams`` (fastmcp<4)."""
-
-    class Result(_CompatBaseModel):  # type: ignore[no-redef]
-        """Stand-in for ``mcp_types.Result`` (fastmcp<4)."""
-
-    # -32002 is the SDK's own code for this condition; the value is inert here
-    # because every path that reads it is gated behind TASKS_EXTENSION_AVAILABLE.
-    MISSING_REQUIRED_CLIENT_CAPABILITY = -32002
-    # Empty, so `_TASK_METHOD_VERSIONS` matches no protocol version at all —
-    # the Tasks methods are correctly invisible on an image that cannot serve them.
-    MODERN_PROTOCOL_VERSIONS: tuple[str, ...] = ()
-
-    # Fallback stand-ins so `class WorkItemTasksExtension(ServerExtension)`
-    # below still defines cleanly (it overrides `methods()` itself, so the
-    # real base class's behavior is never needed on this path). Neither is
-    # ever exercised for real: `server_factory.create_mcp_server` checks
-    # `TASKS_EXTENSION_AVAILABLE` before calling `mcp.add_extension(...)`, so
-    # `methods()` -- the only place `MethodBinding`/
-    # `read_client_extension_settings` are used -- is never invoked. If some
-    # other caller ever does instantiate the extension directly on a
-    # fastmcp-3 image and reach that path, this raises the ORIGINAL
-    # ModuleNotFoundError (chained, not swallowed) instead of a confusing
-    # `NameError`.
-    class ServerExtension:  # type: ignore[no-redef]
-        """Stand-in for ``fastmcp.server.extensions.ServerExtension`` (fastmcp<4)."""
-
-        __slots__ = ()
-
-    class MethodBinding:  # type: ignore[no-redef]
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            raise ModuleNotFoundError(
-                "fastmcp.server.extensions.MethodBinding requires fastmcp>=4.0.0b1"
-            ) from _TASKS_EXTENSION_IMPORT_ERROR
-
-    def read_client_extension_settings(  # type: ignore[no-redef]
-        *_args: Any, **_kwargs: Any
-    ) -> Any:
-        raise ModuleNotFoundError(
-            "fastmcp.server.extensions.read_client_extension_settings requires "
-            "fastmcp>=4.0.0b1"
-        ) from _TASKS_EXTENSION_IMPORT_ERROR
-else:
     TASKS_EXTENSION_AVAILABLE = True
-    _TASKS_EXTENSION_IMPORT_ERROR = None
+    _TASKS_EXTENSION_IMPORT_ERROR: ImportError | None = None
+else:
+    try:
+        from fastmcp.server.extensions import (
+            MethodBinding,
+            ServerExtension,
+            read_client_extension_settings,
+        )
+        from mcp_types import RequestParams, Result
+        from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
+        from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+    except ImportError as _fastmcp_extensions_import_error:
+        TASKS_EXTENSION_AVAILABLE = False
+        _TASKS_EXTENSION_IMPORT_ERROR: ImportError | None = (
+            _fastmcp_extensions_import_error
+        )
+
+        # Stand-ins for the `mcp_types` symbols. `RequestParams`/`Result` are only
+        # ever used as pydantic base classes for the private `_GetTaskParams` /
+        # `_GetTaskResult` shapes below, so a BaseModel keeps those class
+        # definitions valid; the constants only need a value that never matches.
+        from pydantic import BaseModel as _CompatBaseModel
+
+        class RequestParams(_CompatBaseModel):
+            """Stand-in for ``mcp_types.RequestParams`` (fastmcp<4)."""
+
+        class Result(_CompatBaseModel):
+            """Stand-in for ``mcp_types.Result`` (fastmcp<4)."""
+
+        # -32002 is the SDK's own code for this condition; the value is inert here
+        # because every path that reads it is gated behind TASKS_EXTENSION_AVAILABLE.
+        MISSING_REQUIRED_CLIENT_CAPABILITY = -32002
+        # Empty, so `_TASK_METHOD_VERSIONS` matches no protocol version at all —
+        # the Tasks methods are correctly invisible on an image that cannot serve them.
+        MODERN_PROTOCOL_VERSIONS: tuple[str, ...] = ()
+
+        # Fallback stand-ins so `class WorkItemTasksExtension(ServerExtension)`
+        # below still defines cleanly (it overrides `methods()` itself, so the
+        # real base class's behavior is never needed on this path). Neither is
+        # ever exercised for real: `server_factory.create_mcp_server` checks
+        # `TASKS_EXTENSION_AVAILABLE` before calling `mcp.add_extension(...)`, so
+        # `methods()` -- the only place `MethodBinding`/
+        # `read_client_extension_settings` are used -- is never invoked. If some
+        # other caller ever does instantiate the extension directly on a
+        # fastmcp-3 image and reach that path, this raises the ORIGINAL
+        # ModuleNotFoundError (chained, not swallowed) instead of a confusing
+        # `NameError`.
+        class ServerExtension:
+            """Stand-in for ``fastmcp.server.extensions.ServerExtension`` (fastmcp<4)."""
+
+            __slots__ = ()
+
+        class MethodBinding:
+            def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+                raise ModuleNotFoundError(
+                    "fastmcp.server.extensions.MethodBinding requires fastmcp>=4.0.0b1"
+                ) from _TASKS_EXTENSION_IMPORT_ERROR
+
+        def read_client_extension_settings(*_args: Any, **_kwargs: Any) -> Any:
+            raise ModuleNotFoundError(
+                "fastmcp.server.extensions.read_client_extension_settings requires "
+                "fastmcp>=4.0.0b1"
+            ) from _TASKS_EXTENSION_IMPORT_ERROR
+    else:
+        TASKS_EXTENSION_AVAILABLE = True
+        _TASKS_EXTENSION_IMPORT_ERROR = None
 
 if TYPE_CHECKING:
     from mcp.server.context import ServerRequestContext
@@ -284,14 +296,14 @@ class WorkItemTasksExtension(ServerExtension):
     def _require_tasks_capability(self, ctx: ServerRequestContext[Any, Any]) -> None:
         """SEP-2663: reject a task method the client did not opt into this request."""
         if read_client_extension_settings(ctx, TASKS_EXTENSION_ID) is None:
-            raise MCPError(
-                code=MISSING_REQUIRED_CLIENT_CAPABILITY,
-                message=(
+            raise mcp_protocol_exception(
+                MISSING_REQUIRED_CLIENT_CAPABILITY,
+                (
                     f"This request targets the tasks extension "
                     f"({TASKS_EXTENSION_ID}); the client did not declare it "
                     "for this request."
                 ),
-                data={"requiredCapabilities": {"extensions": {TASKS_EXTENSION_ID: {}}}},
+                {"requiredCapabilities": {"extensions": {TASKS_EXTENSION_ID: {}}}},
             )
 
     @staticmethod
@@ -300,7 +312,7 @@ class WorkItemTasksExtension(ServerExtension):
 
         engine = kg_server._get_engine()
         if engine is None:
-            raise MCPError(code=-32603, message="IntelligenceGraphEngine not active.")
+            raise mcp_protocol_exception(-32603, "IntelligenceGraphEngine not active.")
         return getattr(engine, "_work_item_engine", engine)
 
     @staticmethod
@@ -350,7 +362,7 @@ class WorkItemTasksExtension(ServerExtension):
 
         item_id = _wi.orchestrator_work_item_id(params.task_id)
         if not _wi.cancel_work_item(self._engine(), item_id):
-            raise MCPError(code=-32602, message="Failed to cancel task")
+            raise mcp_protocol_exception(-32602, "Failed to cancel task")
         return _AckResult()
 
     async def _handle_update(
@@ -368,7 +380,7 @@ class WorkItemTasksExtension(ServerExtension):
             tenant=session.tenant,
             response=params.input_responses,
         ):
-            raise MCPError(code=-32602, message="Failed to submit task input")
+            raise mcp_protocol_exception(-32602, "Failed to submit task input")
         return _AckResult()
 
     def _project(self, task_id: str) -> _GetTaskResult:
@@ -377,7 +389,7 @@ class WorkItemTasksExtension(ServerExtension):
         item_id = _wi.orchestrator_work_item_id(task_id)
         item = _wi.get_work_item(self._engine(), item_id)
         if item is None:
-            raise MCPError(code=-32602, message="Unknown task")
+            raise mcp_protocol_exception(-32602, "Unknown task")
         raw_status = str(item.get("status") or "").lower()
         metadata = item.get("metadata")
         pending = (
@@ -396,7 +408,7 @@ class WorkItemTasksExtension(ServerExtension):
         elif raw_status == "cancelled":
             status = "cancelled"
         else:
-            raise MCPError(code=-32603, message="Unknown WorkItem status")
+            raise mcp_protocol_exception(-32603, "Unknown WorkItem status")
         result = _GetTaskResult(
             task_id=task_id,
             status=status,

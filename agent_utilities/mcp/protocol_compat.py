@@ -103,6 +103,11 @@ def mcp_protocol_error() -> type[BaseException]:
     )
 
 
+def mcp_protocol_exception(code: int, message: str, data: Any = None) -> BaseException:
+    """Construct the installed MCP protocol error using its shared wire shape."""
+    return mcp_protocol_error()(code, message, data)
+
+
 def mcp_types_module() -> ModuleType:
     """Return the MCP wire-protocol types module for the *installed* MCP SDK line.
 
