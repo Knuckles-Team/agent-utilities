@@ -218,6 +218,12 @@ class HybridRetriever:
         self._embed_model: Any = None
         self._embed_model_initialized = False
 
+        # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — D-DPF-3: once a
+        # UNWIND+variable-length probe fails against this instance's backend, don't
+        # retry the batched shape per traversal; degrade straight to the (already
+        # batched) BFS fallback for the remainder of this retriever's lifetime.
+        self._varlen_batch_unsupported = False
+
     @property
     def embed_model(self):
         """Lazy-initialized embedding model — only connects to LM Studio on first search."""
@@ -512,6 +518,69 @@ class HybridRetriever:
                         type(e).__name__,
                         e,
                     )
+        return out
+
+    def _varlen_neighbors_batch(
+        self, ids: list[str], depth: int
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Variable-length neighbourhood (``-[*1..depth]-``) for many base nodes, in ONE round trip.
+
+        CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch (D-DPF-3) — the
+        base-node loop in :meth:`retrieve_hybrid` used to issue this exact
+        ``MATCH (n {id:$id})-[*1..N]-(m) RETURN m`` probe once PER base node
+        (measured live: 22 calls totaling 35.05s, avg 1.59s/call — the dominant
+        grounding-latency term once D-EGP-1's projection-cache fix and the
+        properties_batch/neighbors N+1s were addressed). The native engine's
+        Cypher parser/executor supports both ``UNWIND`` (``ReadStage::Unwind``)
+        and variable-length patterns (``EdgePat.var_len`` → ``bfs_reachable``) on
+        the read path — confirmed live against the production engine (not just
+        by reading the Rust source): a 10-base-node ``UNWIND $ids AS bid MATCH
+        (n {id:bid})-[*1..2]-(m) RETURN bid AS base_id, m`` returns the SAME row
+        set as the 10 individual per-node calls it replaces, in one round trip.
+
+        So this collapses N round trips into 1 by moving the ``UNWIND`` up front
+        of the pattern instead of substituting a literal id per call — the
+        engine does the fan-out, not a Python loop.
+
+        Returns ``{}`` for an id that has no matches (empty neighbourhood is a
+        valid result, distinct from "unresolved" — same contract as the
+        surrounding BFS fallback, which callers already trigger on an empty
+        result for a base node). If the batched shape itself is rejected by the
+        backend (e.g. a fake/older backend without UNWIND or varlen support),
+        the failure is logged once and cached on this instance
+        (``_varlen_batch_unsupported``) so every remaining base node in this AND
+        later ``retrieve_hybrid`` calls degrades straight to the already-batched
+        BFS fallback, instead of re-attempting (and re-failing) the batched
+        Cypher call once per node.
+        """
+        wanted = [nid for nid in dict.fromkeys(ids) if nid]
+        if not wanted or not self.engine.backend or self._varlen_batch_unsupported:
+            return {}
+        query_str = (
+            "UNWIND $ids AS base_id MATCH (n {id: base_id})-[*1.."
+            f"{depth}]-(m) RETURN base_id, m"
+        )
+        try:
+            rows = self.engine.backend.execute(query_str, {"ids": wanted})
+        except Exception as e:  # noqa: BLE001 — capability probe, degrades to the BFS fallback path
+            self._varlen_batch_unsupported = True
+            logger.debug(
+                "UNWIND+variable-length neighbour batch unsupported by this "
+                "backend (%s: %s) — falling back to per-base-node BFS "
+                "traversal for the remainder of this retriever instance",
+                type(e).__name__,
+                e,
+            )
+            return {}
+        out: dict[str, list[dict[str, Any]]] = {}
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            base_id = row.get("base_id")
+            m = row.get("m")
+            if base_id is None or not m or not isinstance(m, dict):
+                continue
+            out.setdefault(str(base_id), []).append(m)
         return out
 
     def _compute_positional_interactions(self, pos_a: int, pos_b: int) -> list[float]:
@@ -865,6 +934,17 @@ class HybridRetriever:
             else {}
         )
 
+        # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch (D-DPF-3) — the
+        # loop below used to issue one `MATCH (n {id:$id})-[*1..N]-(m) RETURN m`
+        # Cypher round trip PER base node. Collapse that into ONE `UNWIND`-driven
+        # call across every base node up front; the loop then looks results up
+        # from this dict instead of calling the backend itself.
+        _varlen_neighbors_by_base = (
+            self._varlen_neighbors_batch(_base_ids, multi_hop_depth)
+            if _base_ids
+            else {}
+        )
+
         _expansion_budget = [_MAX_NEIGHBOR_EXPANSIONS - len(_neighbors)]
 
         def _expand(ids: list[str]) -> None:
@@ -913,31 +993,24 @@ class HybridRetriever:
             if node_id in visited:
                 continue
 
-            # Fetch immediate neighborhood using backend Cypher
+            # Immediate (1..multi_hop_depth) neighborhood, from the ONE
+            # UNWIND-batched Cypher call issued for every base node up front
+            # (D-DPF-3) — never a per-node backend round trip.
             context_nodes: list[dict[str, Any]] = []
-            if self.engine.backend:
-                # Get 1 to multi_hop_depth neighbors
-                query_str = (
-                    f"MATCH (n {{id: $id}})-[*1..{multi_hop_depth}]-(m) RETURN m"
-                )
-                neighbors = self.engine.backend.execute(query_str, {"id": node_id})
+            for m in _varlen_neighbors_by_base.get(node_id, []):
+                if m.get("id") not in visited:
+                    # Apply backlink boost during context assembly (CONCEPT:AU-KG.ingest.engineering-rules)
+                    if self._boost_strategy == "context_only":
+                        m_id = m.get("id", "")
+                        boost = self._backlink_boost(m_id)
+                        m["_context_boost"] = boost
+                    visited.add(m["id"])
+                    context_nodes.append(m)
 
-                for n_row in neighbors:
-                    if not isinstance(n_row, dict):
-                        continue
-                    m = n_row.get("m")
-                    if m and isinstance(m, dict) and m.get("id") not in visited:
-                        # Apply backlink boost during context assembly (CONCEPT:AU-KG.ingest.engineering-rules)
-                        if self._boost_strategy == "context_only":
-                            m_id = m.get("id", "")
-                            boost = self._backlink_boost(m_id)
-                            m["_context_boost"] = boost
-                        visited.add(m["id"])
-                        context_nodes.append(m)
-
-            # The epistemic-graph backend cannot evaluate variable-length path
-            # patterns, so yielding no usable neighbors is not authoritative —
-            # fall through to the resident-graph BFS traversal in that case.
+            # A backend that rejects the batched UNWIND+variable-length shape
+            # (`_varlen_batch_unsupported`) is not authoritative for "no
+            # neighbors" either — fall through to the resident-graph BFS
+            # traversal in that case, same as an empty-but-supported result.
             if context_nodes:
                 assembled_subgraph.append(node)
                 assembled_subgraph.extend(context_nodes)
