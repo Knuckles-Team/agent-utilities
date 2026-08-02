@@ -2285,7 +2285,7 @@ class MCPMultiplexer:
         host = self._host_mcp
         provider = getattr(host, "_local_provider", None)
         components = getattr(provider, "_components", None)
-        if not isinstance(components, dict):
+        if provider is None or not isinstance(components, dict):
             raise RuntimeError("FastMCP local component registry is unavailable")
 
         # ``FunctionTool`` construction validates every child schema before
