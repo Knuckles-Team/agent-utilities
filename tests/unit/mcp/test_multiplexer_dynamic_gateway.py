@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import mcp.types
@@ -73,6 +74,53 @@ def _fake_tool(
     return tool
 
 
+class _SchemaGenerationSession:
+    """Small child-session fake for recovery/catalog-refresh regressions."""
+
+    def __init__(
+        self,
+        tools: list[mcp.types.Tool],
+        *,
+        fail_calls: bool = False,
+        tag: str,
+    ) -> None:
+        self.tools = tools
+        self.fail_calls = fail_calls
+        self.tag = tag
+        self.listed = 0
+        self.calls: list[str] = []
+
+    async def list_tools(self) -> SimpleNamespace:
+        self.listed += 1
+        return SimpleNamespace(tools=self.tools)
+
+    async def call_tool(self, name: str, arguments: dict) -> mcp.types.CallToolResult:
+        self.calls.append(name)
+        if self.fail_calls:
+            raise ConnectionResetError("synthetic child transport reset")
+        return mcp.types.CallToolResult(
+            content=[mcp.types.TextContent(type="text", text=f"{self.tag}:{name}")]
+        )
+
+
+def _schema_tool(name: str, property_name: str) -> mcp.types.Tool:
+    return mcp.types.Tool(
+        name=name,
+        description=f"{property_name} schema",
+        inputSchema={
+            "type": "object",
+            "properties": {property_name: {"type": "string"}},
+        },
+    )
+
+
+async def _wait_for_condition(predicate, timeout: float = 1.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not predicate():
+        assert asyncio.get_running_loop().time() < deadline, "condition not reached"
+        await asyncio.sleep(0.005)
+
+
 def _mux_with_children(tmp_path, tool_map: dict[str, list[tuple[str, str]]]):
     """Build a mux whose ``_start_child`` yields the given ``server -> [(tool,
     desc)]`` map instead of spawning real processes."""
@@ -105,14 +153,27 @@ def test_load_catalog_excludes_self_and_disabled(tmp_path):
     assert mux.load_catalog() is catalog
 
 
-def test_reload_catalog_drops_stale_routing_and_reparses(tmp_path):
+async def test_reload_catalog_drops_stale_routing_and_reparses(tmp_path):
+    from fastmcp import FastMCP
+
     config_path = _write_config(
         tmp_path,
         {"first": {"command": "first-server"}},
     )
     mux = MCPMultiplexer(config_path)
     assert set(mux.load_catalog()) == {"first"}
-    mux.tool_to_server["first__query"] = ("first", "query")
+    mounted = mux._register_child_result(
+        "first",
+        AsyncMock(),
+        [_schema_tool("query", "legacy")],
+        mux.load_catalog()["first"],
+    )
+    host = FastMCP("reload-host")
+    mux._host_mcp = host
+    _register_forwarder(host, mux, mounted[0])
+    mux.session_loaded("session-a").add(mounted[0].name)
+    mux._always_load_done["session-a"] = {"mounted_servers": ["first"]}
+    assert await host.get_tool(mounted[0].name) is not None
 
     config_path.write_text(
         json.dumps({"mcpServers": {"second": {"command": "second-server"}}})
@@ -121,6 +182,11 @@ def test_reload_catalog_drops_stale_routing_and_reparses(tmp_path):
 
     assert set(catalog) == {"second"}
     assert mux.tool_to_server == {}
+    assert mux._exposed == set()
+    assert mux._always_load_done == {}
+    assert mux.session_loaded("session-a") == set()
+    assert await host.get_tool(mounted[0].name) is None
+    await mux.aclose()
 
 
 def test_load_catalog_auto_registers_native_langfuse_mcp(tmp_path, monkeypatch):
@@ -257,6 +323,141 @@ async def test_mount_child_lazy_and_idempotent(tmp_path):
     again = await mux.mount_child(CNT)
     assert [t.name for t in again] == [CNT_PREFIXED]
     assert mux._start_child.await_count == 1
+
+
+async def test_recovered_child_replaces_exposed_schema_without_catalog_polling(
+    tmp_path,
+):
+    """A reconnect must refresh one changed schema from its handshake only.
+
+    This is the deployed service-reload path: the first child session dies,
+    its replacement advertises a changed ``tools/list`` schema, and the same
+    forwarded tool remains client-visible with the fresh schema.  A further
+    equivalent recycle proves ordinary calls and no-op generations do not
+    cause provider introspection or cache churn.
+    """
+    from fastmcp import FastMCP
+
+    server_name = "schema-mcp"
+    config_path = _write_config(
+        tmp_path,
+        {server_name: {"command": "schema-child", "args": []}},
+    )
+    legacy = _SchemaGenerationSession(
+        [_schema_tool("query", "legacy")], fail_calls=True, tag="legacy"
+    )
+    refreshed = _SchemaGenerationSession(
+        [_schema_tool("query", "fresh")], tag="recovered"
+    )
+    equivalent = _SchemaGenerationSession(
+        [_schema_tool("query", "fresh")], tag="equivalent"
+    )
+    generations = [legacy, refreshed, equivalent]
+    mux = MCPMultiplexer(config_path)
+
+    async def fake_open_one_session(*_args):
+        return generations.pop(0)
+
+    mux._open_one_session = AsyncMock(side_effect=fake_open_one_session)  # type: ignore[method-assign]
+    host = FastMCP("schema-refresh-host")
+    mux._host_mcp = host
+    mounted = await mux.mount_child(server_name)
+    assert len(mounted) == 1
+    prefixed_name = mounted[0].name
+    _register_forwarder(host, mux, mounted[0])
+    assert (await host.get_tool(prefixed_name)).parameters["properties"] == {
+        "legacy": {"type": "string"}
+    }
+
+    # A changed generation must invalidate derived discovery/embedding state,
+    # but it must not add a second tools/list to the ordinary call path.
+    mux._probe_cache[server_name] = {"tools": ["legacy"]}
+    mux._tool_embeddings[f"{server_name}::query"] = [0.1, 0.2]
+    runtime = mux.children[server_name]
+    runtime.restart_backoff_base = 0.005
+    runtime.restart_backoff_cap = 0.005
+    result = await mux.call_proxied_tool(prefixed_name, {})
+    assert result.content[0].text == "recovered:query"
+    assert mux.sessions[server_name] is refreshed
+    assert mux.tool_object(prefixed_name).input_schema["properties"] == {
+        "fresh": {"type": "string"}
+    }
+    assert (await host.get_tool(prefixed_name)).parameters["properties"] == {
+        "fresh": {"type": "string"}
+    }
+    assert server_name not in mux._probe_cache
+    assert f"{server_name}::query" not in mux._tool_embeddings
+    assert mux.status_snapshot()["children"][server_name]["catalog_revision"] == 2
+    assert legacy.listed == 1
+    assert refreshed.listed == 1
+
+    # An ordinary subsequent tool call reuses the recovered connection — no
+    # per-call list_tools probe is permitted on the hot delegation path.
+    again = await mux.call_proxied_tool(prefixed_name, {})
+    assert again.content[0].text == "recovered:query"
+    assert refreshed.listed == 1
+
+    # Cache state survives an equivalent planned recycle.  The child already
+    # paid for one tools/list in that generation, and the digest proves it is
+    # the same schema without touching host registrations or probe caches.
+    mux._probe_cache[server_name] = {"tools": ["fresh"]}
+    mux._tool_embeddings[f"{server_name}::query"] = [0.3, 0.4]
+    runtime.request_recycle()
+    await _wait_for_condition(lambda: runtime.state == "up" and equivalent.listed == 1)
+    assert mux.sessions[server_name] is equivalent
+    assert mux.status_snapshot()["children"][server_name]["catalog_revision"] == 2
+    assert mux._probe_cache[server_name] == {"tools": ["fresh"]}
+    assert mux._tool_embeddings[f"{server_name}::query"] == [0.3, 0.4]
+    assert (await host.get_tool(prefixed_name)).parameters["properties"] == {
+        "fresh": {"type": "string"}
+    }
+    await mux.aclose()
+
+
+async def test_schema_refresh_failure_fails_closed_without_stranding_transport(
+    tmp_path,
+):
+    """A host-schema failure rejects that child, not its healthy reconnect."""
+    server_name = "schema-mcp"
+    mux = MCPMultiplexer(
+        _write_config(
+            tmp_path,
+            {server_name: {"command": "schema-child", "args": []}},
+        )
+    )
+    stale = _SchemaGenerationSession(
+        [_schema_tool("query", "legacy")], fail_calls=True, tag="legacy"
+    )
+    recovered = _SchemaGenerationSession(
+        [_schema_tool("query", "fresh")], tag="recovered"
+    )
+    generations = [stale, recovered]
+
+    async def fake_open_one_session(*_args):
+        return generations.pop(0)
+
+    mux._open_one_session = AsyncMock(side_effect=fake_open_one_session)  # type: ignore[method-assign]
+    mounted = await mux.mount_child(server_name)
+    prefixed_name = mounted[0].name
+    # Simulate a legacy FastMCP host whose local provider cannot remove an
+    # already exposed forwarder.  The recovered child is healthy, but its
+    # outer declaration is now untrustworthy and must fail closed.
+    mux._host_mcp = object()
+    mux._exposed.add(prefixed_name)
+    runtime = mux.children[server_name]
+    runtime.restart_backoff_base = 0.005
+    runtime.restart_backoff_cap = 0.005
+
+    result = await mux.call_proxied_tool(prefixed_name, {})
+    assert result.is_error is True
+    assert result.content[0].text == "schema_refresh_failed"
+    assert runtime.state == "up"
+    assert mux.sessions[server_name] is recovered
+    assert (
+        mux.status_snapshot()["children"][server_name]["catalog_refresh_error"]
+        == "schema_refresh_failed"
+    )
+    await mux.aclose()
 
 
 async def test_mount_child_unknown_server(tmp_path):

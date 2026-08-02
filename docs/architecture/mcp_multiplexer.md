@@ -31,6 +31,18 @@ failure is isolated and returned as a typed error; it cannot block GraphOS
 startup or remove unrelated capabilities. Child transports may be stdio,
 streamable HTTP, or SSE as declared by AgentConfig.
 
+When a recovered child reconnects, its required handshake `tools/list` is also
+used to compare the newly advertised forwarding catalog with the bounded digest
+already exposed by GraphOS. A changed schema replaces only the affected
+FastMCP forwarders before the recovered generation accepts calls, invalidates
+that child's derived discovery/embedding caches, and asks the active client to
+refresh its tool list. An equivalent reconnect does not probe the provider
+again or churn host registrations. If a forwarding-schema replacement fails,
+only that child is fail-closed with a stable health category; sibling children
+and their calls remain available. A hot catalog reload removes mux-owned
+forwarders and per-session eager-load results before mounting the revised
+catalog, so same-named tools cannot retain obsolete schemas.
+
 KG live metadata discovery does not construct a second MCP client. It calls the
 same bounded one-shot probe used by the fleet gateway. Consequently every
 transport resolves named TLS references through AgentConfig, denies redirects,
