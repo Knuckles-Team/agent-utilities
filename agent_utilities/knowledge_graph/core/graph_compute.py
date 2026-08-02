@@ -2391,6 +2391,62 @@ class GraphComputeEngine:
         """
         return bool(self._client.nodes.compare_and_set(node_id, conditions, updates))
 
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Atomically condition node fields and replace its native ANN vector.
+
+        ``TxnCas`` captures the node fingerprint before the explicit point read.
+        Reading after staging proves the caller's field conditions matched that
+        captured snapshot; any mutation after either operation fails transaction
+        OCC at commit. ``TxnAddEmbedding`` and the CAS updates then land in the
+        engine's one cross-modal durable transaction, so readers cannot observe a
+        ready property paired with an older ANN vector.
+        """
+        vector = [float(value) for value in embedding]
+        if updates.get("embedding") != vector:
+            raise ValueError(
+                "atomic embedding updates must store the same vector in node fields"
+            )
+
+        txn = self._client.txn
+        txn_id = txn.begin()
+        commit_started = False
+        try:
+            if not txn.cas(txn_id, node_id, conditions, updates):
+                txn.rollback(txn_id)
+                return False
+
+            # TxnCas captures its OCC fingerprint at stage time but deliberately
+            # does not evaluate conditions until commit. Read AFTER staging: if
+            # this snapshot mismatches, rollback before a vector is staged; if it
+            # changes later, commit's fingerprint validation rejects everything.
+            current = self._get_node_properties(node_id)
+            if any(
+                current.get(field) != expected for field, expected in conditions.items()
+            ):
+                txn.rollback(txn_id)
+                return False
+            if not txn.add_embedding(txn_id, node_id, vector):
+                txn.rollback(txn_id)
+                return False
+
+            commit_started = True
+            return bool(txn.commit(txn_id))
+        except BaseException:
+            if not commit_started:
+                try:
+                    txn.rollback(txn_id)
+                except Exception:  # noqa: BLE001 - preserve the staging failure
+                    logger.debug(
+                        "atomic embedding transaction rollback failed", exc_info=True
+                    )
+            raise
+
     def create_node_if_absent(
         self, node_id: str, properties: Any = None, **kwargs: Any
     ) -> bool:

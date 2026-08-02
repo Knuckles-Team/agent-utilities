@@ -163,3 +163,107 @@ def test_graph_compute_wrappers_call_engine_client() -> None:
     g.add_embedding("n1", [0.1])
     assert g._client.graph.added == ("n1", [0.1])
     assert g.semantic_search([0.1], 3) == [("n1", 0.5)]
+
+
+def test_atomic_embedding_cas_stages_guard_before_read_and_vector_commit() -> None:
+    events: list[str] = []
+
+    class _Txn:
+        @staticmethod
+        def begin() -> str:
+            events.append("begin")
+            return "txn-1"
+
+        @staticmethod
+        def cas(_txn, _node, _conditions, _updates) -> bool:
+            events.append("cas")
+            return True
+
+        @staticmethod
+        def add_embedding(_txn, _node, _embedding) -> bool:
+            events.append("vector")
+            return True
+
+        @staticmethod
+        def commit(_txn) -> bool:
+            events.append("commit")
+            return True
+
+        @staticmethod
+        def rollback(_txn) -> bool:
+            events.append("rollback")
+            return True
+
+    class _Nodes:
+        @staticmethod
+        def properties(_node_id: str) -> dict[str, Any]:
+            events.append("read")
+            return {"name": "current", "embedding": None}
+
+    class _Client:
+        txn = _Txn()
+        nodes = _Nodes()
+
+    graph = GraphComputeEngine.__new__(GraphComputeEngine)
+    graph._client = _Client()
+
+    assert graph.compare_and_set_node_embedding(
+        "n1",
+        {"name": "current", "embedding": None},
+        {"embedding": [0.1]},
+        [0.1],
+    )
+    assert events == ["begin", "cas", "read", "vector", "commit"]
+
+
+def test_atomic_embedding_cas_rolls_back_before_vector_when_snapshot_mismatches() -> (
+    None
+):
+    events: list[str] = []
+
+    class _Txn:
+        @staticmethod
+        def begin() -> str:
+            events.append("begin")
+            return "txn-1"
+
+        @staticmethod
+        def cas(*_args) -> bool:
+            events.append("cas")
+            return True
+
+        @staticmethod
+        def add_embedding(*_args) -> bool:
+            events.append("vector")
+            return True
+
+        @staticmethod
+        def commit(*_args) -> bool:
+            events.append("commit")
+            return True
+
+        @staticmethod
+        def rollback(*_args) -> bool:
+            events.append("rollback")
+            return True
+
+    class _Nodes:
+        @staticmethod
+        def properties(_node_id: str) -> dict[str, Any]:
+            events.append("read")
+            return {"name": "changed", "embedding": None}
+
+    class _Client:
+        txn = _Txn()
+        nodes = _Nodes()
+
+    graph = GraphComputeEngine.__new__(GraphComputeEngine)
+    graph._client = _Client()
+
+    assert not graph.compare_and_set_node_embedding(
+        "n1",
+        {"name": "expected", "embedding": None},
+        {"embedding": [0.1]},
+        [0.1],
+    )
+    assert events == ["begin", "cas", "read", "rollback"]

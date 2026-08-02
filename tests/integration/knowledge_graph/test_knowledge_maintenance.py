@@ -57,6 +57,12 @@ class DummyBackend:
     def add_embedding(self, node_id, embedding):
         self.queries.append({"action": "add_embedding", "id": node_id})
 
+    def compare_and_set_node_embedding(self, node_id, conditions, updates, embedding):
+        if not self.compare_and_set_node_fields(node_id, conditions, updates):
+            return False
+        self.add_embedding(node_id, embedding)
+        return True
+
 
 def test_prune_cron_logs():
     backend = DummyBackend()
@@ -227,6 +233,12 @@ class _NativeBackfillBackend:
     def add_embedding(self, node_id, embedding):
         self.indexed.append((node_id, embedding))
 
+    def compare_and_set_node_embedding(self, node_id, conditions, updates, embedding):
+        if not self.compare_and_set_node_fields(node_id, conditions, updates):
+            return False
+        self.add_embedding(node_id, embedding)
+        return True
+
 
 def test_backfill_native_query_avoids_properties_function_and_persists_progress():
     backend = _NativeBackfillBackend()
@@ -295,10 +307,13 @@ def test_backfill_textless_first_node_does_not_starve_next_invocation():
 
 def test_backfill_rejects_concurrent_text_mutation_before_embedding_write():
     class _MutatingBackend(_NativeBackfillBackend):
-        def compare_and_set_node_fields(self, node_id, conditions, updates):
-            if "embedding" in updates:
-                self.nodes[node_id]["name"] = "service changed concurrently"
-            return super().compare_and_set_node_fields(node_id, conditions, updates)
+        def compare_and_set_node_embedding(
+            self, node_id, conditions, updates, embedding
+        ):
+            self.nodes[node_id]["name"] = "service changed concurrently"
+            return super().compare_and_set_node_embedding(
+                node_id, conditions, updates, embedding
+            )
 
     backend = _MutatingBackend()
     backend.nodes = {"node-0": backend.nodes["node-0"]}

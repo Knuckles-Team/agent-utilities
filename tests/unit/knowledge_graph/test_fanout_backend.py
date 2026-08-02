@@ -13,6 +13,7 @@ Postgres/Neo4j/FalkorDB server required):
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 import time
 from inspect import signature
@@ -111,6 +112,12 @@ class StatefulBackend(RecordingBackend):
         node.update(updates)
         return True
 
+    def compare_and_set_node_embedding(self, node_id, conditions, updates, embedding):
+        if not self.compare_and_set_node_fields(node_id, conditions, updates):
+            return False
+        self.add_embedding(node_id, embedding)
+        return True
+
 
 @pytest.fixture(autouse=True)
 def _inert_epistemic_authority(monkeypatch):
@@ -166,6 +173,45 @@ def test_compare_and_set_updates_authority_and_mirror_only_for_winner(
         assert fan.flush_mirrors(timeout=10.0)
         assert len(mirror.writes) == writes_before
         assert authority.nodes["node-1"]["embedding"] == [1.0, 2.0]
+    finally:
+        fan.close()
+
+
+def test_atomic_embedding_update_replays_one_idempotent_mirror_operation(
+    tmp_path, monkeypatch
+):
+    authority = StatefulBackend("authority")
+    mirror = StatefulBackend("mirror")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    vector = [1.0, 2.0]
+    try:
+        assert fan.compare_and_set_node_embedding(
+            "node-1",
+            {"embedding": None, "name": "billing"},
+            {"embedding": vector},
+            vector,
+        )
+        assert fan.flush_mirrors(timeout=10.0)
+
+        assert authority.nodes["node-1"]["embedding"] == vector
+        assert mirror.nodes["node-1"]["embedding"] == vector
+        assert ("add_embedding", "node-1") in authority.writes
+        assert ("add_embedding", "node-1") in mirror.writes
+
+        mirror_writes = len(mirror.writes)
+        assert not fan.compare_and_set_node_embedding(
+            "node-1",
+            {"embedding": None},
+            {"embedding": [3.0, 4.0]},
+            [3.0, 4.0],
+        )
+        assert fan.flush_mirrors(timeout=10.0)
+        assert len(mirror.writes) == mirror_writes
     finally:
         fan.close()
 
@@ -559,6 +605,77 @@ def test_close_fences_producers_and_durably_hands_off_active_writer(
     finally:
         authority.release_write.set()
         writer.join(timeout=5.0)
+        closer.join(timeout=5.0)
+
+
+def test_close_waits_for_active_sqlite_append_then_retries_before_close(
+    tmp_path, monkeypatch
+):
+    """D-LRR-1: an in-flight failed append is retried before SQLite closes."""
+    mirror = RecordingBackend("mirror")
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    real_append = fan._outbox.append
+    real_close = fan._outbox.close
+    append_started = threading.Event()
+    release_first_append = threading.Event()
+    retry_completed = threading.Event()
+    outbox_closed = threading.Event()
+    append_after_close: list[str] = []
+    append_calls = 0
+
+    def _retrying_append(op, payload):
+        nonlocal append_calls
+        append_calls += 1
+        if outbox_closed.is_set():
+            append_after_close.append(op)
+        if append_calls == 1:
+            append_started.set()
+            assert release_first_append.wait(timeout=5.0)
+            raise sqlite3.OperationalError("injected transient append failure")
+        value = real_append(op, payload)
+        retry_completed.set()
+        return value
+
+    def _tracked_close():
+        outbox_closed.set()
+        return real_close()
+
+    fan._outbox.append = _retrying_append  # type: ignore[method-assign]
+    fan._outbox.close = _tracked_close  # type: ignore[method-assign]
+    fan.execute("CREATE (active-append)", is_write=True)
+    assert append_started.wait(timeout=5.0)
+    errors: list[BaseException] = []
+
+    def _close():
+        try:
+            fan.close()
+        except BaseException as exc:  # noqa: BLE001 - thread assertion relay
+            errors.append(exc)
+
+    closer = threading.Thread(target=_close)
+    closer.start()
+    try:
+        time.sleep(0.05)
+        assert closer.is_alive()
+        assert not outbox_closed.is_set()
+        assert not retry_completed.is_set()
+
+        release_first_append.set()
+        closer.join(timeout=5.0)
+        assert not closer.is_alive()
+        assert not errors
+        assert retry_completed.is_set()
+        assert append_calls == 2
+        assert append_after_close == []
+        assert outbox_closed.is_set()
+
+        reopened = GraphOutbox(tmp_path / "ob.db", ["mirror"])
+        try:
+            assert reopened.depth() >= 1
+        finally:
+            reopened.close()
+    finally:
+        release_first_append.set()
         closer.join(timeout=5.0)
 
 

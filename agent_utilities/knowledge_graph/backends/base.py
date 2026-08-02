@@ -233,6 +233,23 @@ class GraphBackend(ABC):
             f"{type(self).__name__} does not support compare_and_set_node_fields"
         )
 
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Atomically condition node fields and replace the served ANN vector.
+
+        Optional cross-modal capability. Implementations must commit the field
+        updates and vector together or apply neither; composing the ordinary CAS
+        and ``add_embedding`` methods is not a valid implementation.
+        """
+        raise NotImplementedError(  # ABSTRACT-OK - optional cross-modal CAS capability
+            f"{type(self).__name__} does not support compare_and_set_node_embedding"
+        )
+
     # ------------------------------------------------------------------
     # Vector / Embedding Support
     # ------------------------------------------------------------------

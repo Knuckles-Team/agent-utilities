@@ -461,6 +461,18 @@ class EpistemicGraphBackend(GraphBackend):
         """Apply an atomic native conditional field update."""
         return self._graph.compare_and_set_node_fields(node_id, conditions, updates)
 
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Condition fields and replace the ANN vector in one native transaction."""
+        return self._graph.compare_and_set_node_embedding(
+            node_id, conditions, updates, embedding
+        )
+
     def save_to_json(self, path: str) -> None:
         """Export an operator-requested snapshot without logging its location."""
         data = json.loads(self._graph.to_json())

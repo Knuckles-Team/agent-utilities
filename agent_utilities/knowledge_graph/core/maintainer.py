@@ -108,16 +108,17 @@ class GraphMaintainer:
         (:func:`~..enrichment.semantic.derive_entity_text`) the chokepoint
         uses.
 
-        Persists the generated vector with the engine authority's atomic
-        ``compare_and_set_node_fields`` before adding it to the ANN/HNSW index.
-        The field-level update preserves every existing ACL, classification,
+        Persists the generated vector with the engine authority's cross-modal
+        ``compare_and_set_node_embedding`` transaction, which conditions the
+        exact text snapshot and commits the property plus ANN/HNSW replacement
+        together. The field-level update preserves every existing ACL, classification,
         ownership and connector property; it deliberately does NOT re-upsert an
         existing entity through a new ``ChangeEnvelope`` carrying an invented
         policy. The durable property is also the progress ledger: a confirmed
         update removes the node from the next ``embedding IS NULL`` page, so
-        bounded operator chunks are disjoint and restart-safe. ANN registration
-        remains best-effort after that durable write because the existing
-        ``hydrate_engine_embeddings`` loop retries property-to-index hydration.
+        bounded operator chunks are disjoint and restart-safe. A transaction
+        conflict or ANN failure applies neither side, leaving the node eligible
+        for a later bounded retry without a property/index split.
 
         A textless legacy node is marked separately as ``no_text`` so it cannot
         pin the first ordered page forever; no placeholder embedding is written.
@@ -169,6 +170,13 @@ class GraphMaintainer:
             raise RuntimeError(
                 "embedding backfill requires atomic field updates to preserve "
                 "existing node governance"
+            )
+        compare_and_set_embedding = getattr(
+            self.engine.backend, "compare_and_set_node_embedding", None
+        )
+        if not callable(compare_and_set_embedding):
+            raise RuntimeError(
+                "embedding backfill requires atomic field+ANN transactions"
             )
 
         def _compare(
@@ -224,20 +232,30 @@ class GraphMaintainer:
                 result["conflicted"] += 1
 
         for (node_id, _, conditions), vector in zip(items, vectors, strict=True):
-            applied = _compare(node_id, conditions, {"embedding": vector})
+            try:
+                applied = bool(
+                    compare_and_set_embedding(
+                        node_id,
+                        conditions,
+                        {
+                            "embedding": vector,
+                            EMBEDDING_BACKFILL_STATE_FIELD: None,
+                        },
+                        vector,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - neither side committed
+                logger.warning(
+                    "Atomic embedding commit deferred for %s: %s",
+                    node_id,
+                    type(exc).__name__,
+                )
+                continue
             if not applied:
                 result["conflicted"] += 1
                 continue
             result["embedded"] += 1
-            try:
-                self.engine.backend.add_embedding(node_id, vector)
-                result["indexed"] += 1
-            except Exception as exc:  # noqa: BLE001 — the durable embedding property committed; the existing hydrate_engine_embeddings loop retries ANN registration
-                logger.warning(
-                    "Embedding property persisted but ANN indexing deferred for %s: %s",
-                    node_id,
-                    type(exc).__name__,
-                )
+            result["indexed"] += 1
         logger.info(
             "Entity embedding backfill: scanned=%d embedded=%d indexed=%d "
             "skipped_no_text=%d deferred_no_text=%d conflicted=%d",

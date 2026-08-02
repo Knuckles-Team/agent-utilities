@@ -637,6 +637,36 @@ class FanOutBackend(GraphBackend):
                 )
             return True
 
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Atomically update authority fields + ANN, then replay one mirror op."""
+        atomic_update = getattr(self._authority, "compare_and_set_node_embedding", None)
+        if not callable(atomic_update):
+            raise RuntimeError(
+                "fan-out authority does not support atomic embedding updates"
+            )
+        vector = list(embedding)
+        with self._producer(), self._mutation_lock(node_id):
+            applied = bool(atomic_update(node_id, conditions, updates, vector))
+            if not applied:
+                return False
+            self._authority_writes += 1
+            self._enqueue(
+                "compare_and_set_node_embedding",
+                {
+                    "node_id": node_id,
+                    "conditions": dict(conditions),
+                    "updates": dict(updates),
+                    "embedding": vector,
+                },
+            )
+            return True
+
     def create_schema(self) -> None:
         with self._producer():
             self._authority.create_schema()
@@ -686,6 +716,48 @@ class FanOutBackend(GraphBackend):
             backend.execute_batch(p["query"], p.get("batch") or [])
         elif op == "add_embedding":
             backend.add_embedding(p["node_id"], p["embedding"])
+        elif op == "compare_and_set_node_embedding":
+            atomic_update = getattr(backend, "compare_and_set_node_embedding", None)
+            if callable(atomic_update):
+                try:
+                    applied = bool(
+                        atomic_update(
+                            p["node_id"],
+                            p.get("conditions") or {},
+                            p.get("updates") or {},
+                            p["embedding"],
+                        )
+                    )
+                except NotImplementedError:
+                    applied = False
+                else:
+                    if applied:
+                        return
+
+            # Compatibility mirrors may not own a cross-modal transaction. The
+            # authority is the only read source, so replay is allowed to converge
+            # the mirror in two idempotent steps. If a prior replay crashed after
+            # its field CAS, matching updates prove it is safe to retry ANN add.
+            applied = backend.compare_and_set_node_fields(
+                p["node_id"],
+                p.get("conditions") or {},
+                p.get("updates") or {},
+            )
+            if not applied:
+                get_properties = getattr(backend, "get_node_properties", None)
+                current = (
+                    get_properties(p["node_id"]) if callable(get_properties) else None
+                )
+                applied = isinstance(current, dict) and all(
+                    current.get(field) == expected
+                    for field, expected in (p.get("updates") or {}).items()
+                )
+            if applied:
+                backend.add_embedding(p["node_id"], p["embedding"])
+            else:
+                raise RuntimeError(
+                    "mirror atomic embedding replay could not establish field state"
+                )
         elif op == "create_schema":
             backend.create_schema()
         elif op == "prune":
