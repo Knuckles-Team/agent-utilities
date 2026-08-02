@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
 from typing import Any, cast
 
 import pytest
@@ -409,11 +410,15 @@ def test_epistemic_backend_forwards_one_ordered_native_batch():
     assert backend._graph.batches == [operations]
 
 
-def test_fanout_batch_commits_once_then_enqueues_ordered_mirror_mutations():
+def test_fanout_batch_commits_once_then_enqueues_ordered_mirror_mutations(
+    tmp_path, monkeypatch
+):
     authority = _CoreBatchBackend()
-    backend = cast(Any, object.__new__(FanOutBackend))
-    backend._authority = authority
-    backend._authority_writes = 0
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.backends.fanout_backend._new_epistemic_authority",
+        lambda: authority,
+    )
+    backend = FanOutBackend({}, outbox_path=str(tmp_path / "fanout.sqlite"))
     enqueued: list[tuple[str, dict[str, object]]] = []
     backend._enqueue = lambda op, payload: enqueued.append((op, payload))  # type: ignore[method-assign]
     operations = [
@@ -437,11 +442,15 @@ def test_fanout_batch_commits_once_then_enqueues_ordered_mirror_mutations():
     assert [op for op, _ in enqueued] == ["upsert_node", "upsert_edge"]
 
 
-def test_fanout_handoff_error_marks_the_authority_as_already_committed():
+def test_fanout_handoff_error_marks_the_authority_as_already_committed(
+    tmp_path, monkeypatch
+):
     authority = _CoreBatchBackend()
-    backend = cast(Any, object.__new__(FanOutBackend))
-    backend._authority = authority
-    backend._authority_writes = 0
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.backends.fanout_backend._new_epistemic_authority",
+        lambda: authority,
+    )
+    backend = FanOutBackend({}, outbox_path=str(tmp_path / "fanout.sqlite"))
 
     def _raise_after_authority(*_args: object, **_kwargs: object) -> None:
         raise OSError("outbox unavailable")
@@ -464,3 +473,59 @@ def test_fanout_handoff_error_marks_the_authority_as_already_committed():
     assert raised.value.authority_committed is True
     assert len(authority.batches) == 1
     assert backend._authority_writes == 1
+
+
+def test_fanout_batch_holds_lifecycle_and_mutation_fences(tmp_path, monkeypatch):
+    apply_started = threading.Event()
+    release_apply = threading.Event()
+
+    class _BlockingAuthority(_CoreBatchBackend):
+        def apply_typed_batch(
+            self, operations: list[dict[str, object]]
+        ) -> dict[str, int]:
+            apply_started.set()
+            assert release_apply.wait(timeout=2)
+            return super().apply_typed_batch(operations)
+
+    authority = _BlockingAuthority()
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.backends.fanout_backend._new_epistemic_authority",
+        lambda: authority,
+    )
+    backend = FanOutBackend({}, outbox_path=str(tmp_path / "fanout.sqlite"))
+    node_id = "trace:fenced-batch"
+    stripe = backend._mutation_lock(node_id)
+    batch_done = threading.Event()
+    stripe_acquired = threading.Event()
+
+    def _write_batch() -> None:
+        backend.apply_typed_batch(
+            [
+                {
+                    "op": "upsert_node",
+                    "id": node_id,
+                    "properties": {"id": node_id, "node_type": "RunTrace"},
+                }
+            ]
+        )
+        batch_done.set()
+
+    def _competing_writer() -> None:
+        with stripe:
+            stripe_acquired.set()
+
+    writer = threading.Thread(target=_write_batch)
+    competitor = threading.Thread(target=_competing_writer)
+    writer.start()
+    assert apply_started.wait(timeout=2)
+    assert backend._active_producers == 1
+    competitor.start()
+    assert not stripe_acquired.wait(timeout=0.05)
+
+    release_apply.set()
+    writer.join(timeout=2)
+    competitor.join(timeout=2)
+
+    assert batch_done.is_set()
+    assert stripe_acquired.is_set()
+    assert backend._active_producers == 0
