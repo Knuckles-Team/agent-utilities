@@ -21,11 +21,11 @@ Safety model:
     is deliberate: embedding ~26,000 nodes is an expensive, outward-facing
     operation against a shared, already latency-contended engine (D-PERF-2)
     and must be sized/approved by an operator, not run unattended by a script.
-  * Writes ONLY to the engine's ANN/HNSW index via ``backend.add_embedding``
-    (GraphMaintainer.backfill_entity_embeddings) — never through the governed
-    ChangeEnvelope path, which would silently reset an existing entity's
-    classification/ACL to a default quarantined policy. See that method's
-    docstring for the full reasoning.
+  * Persists each vector with the engine's atomic field compare-and-set, which
+    preserves every existing classification/ACL/ownership property, then adds
+    it to ANN/HNSW. It never re-upserts the entity through a new ChangeEnvelope.
+    The durable ``embedding`` property makes repeated bounded chunks advance;
+    an ANN-side failure is recovered by the existing hydration loop.
   * Prints a cost estimate (measured throughput this run, extrapolated to the
     full remaining backlog) and the exact command to run the next chunk —
     it does NOT chain into further runs itself.
@@ -138,7 +138,9 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
         props_by_id: dict[str, dict[str, Any]] = (
             graph._get_node_properties_batch(ids) or {} if ids else {}
         )
-        rows = [{"id": node_id, "props": props_by_id.get(node_id) or {}} for node_id in ids]
+        rows = [
+            {"id": node_id, "props": props_by_id.get(node_id) or {}} for node_id in ids
+        ]
         from agent_utilities.knowledge_graph.enrichment.semantic import (
             derive_entity_text,
         )
@@ -162,6 +164,14 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
     print(f"elapsed: {elapsed:.1f}s", flush=True)
 
     embedded_this_run = report.get("embedded", 0)
+    indexed_this_run = report.get("indexed", 0)
+    if indexed_this_run < embedded_this_run:
+        print(
+            f"ANN registration deferred for "
+            f"{embedded_this_run - indexed_this_run} node(s); the background "
+            "property-to-index hydrator will retry them.",
+            flush=True,
+        )
     if embedded_this_run:
         per_node = elapsed / embedded_this_run
         remaining_after = max(0, remaining - report.get("scanned", 0))

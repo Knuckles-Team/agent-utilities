@@ -10,14 +10,38 @@ class DummyBackend:
         self.queries = []
         self.execute_results = execute_results or []
         self.idx = 0
+        self._props_by_id = {}
+        self._graph = self
 
     def execute(self, query: str, props: dict | None = None):
         self.queries.append({"query": query, "props": props})
         if self.idx < len(self.execute_results):
             res = self.execute_results[self.idx]
             self.idx += 1
+            self._props_by_id.update(
+                {
+                    str(row["id"]): dict(row.get("props") or {})
+                    for row in res
+                    if row.get("id")
+                }
+            )
             return res
         return []
+
+    def _get_node_properties_batch(self, node_ids):
+        return {node_id: self._props_by_id.get(node_id, {}) for node_id in node_ids}
+
+    def compare_and_set_node_fields(self, node_id, conditions, updates):
+        self.queries.append(
+            {
+                "action": "compare_and_set_node_fields",
+                "id": node_id,
+                "conditions": conditions,
+                "updates": updates,
+            }
+        )
+        self._props_by_id.setdefault(node_id, {}).update(updates)
+        return True
 
     def add_embedding(self, node_id, embedding):
         self.queries.append({"action": "add_embedding", "id": node_id})
@@ -144,4 +168,83 @@ def test_backfill_entity_embeddings_no_backend_returns_zeros():
     maintainer = GraphMaintainer(engine)
     report = maintainer.backfill_entity_embeddings()
 
-    assert report == {"scanned": 0, "embedded": 0, "skipped_no_text": 0}
+    assert report == {
+        "scanned": 0,
+        "embedded": 0,
+        "indexed": 0,
+        "skipped_no_text": 0,
+    }
+
+
+class _NativeBackfillBackend:
+    """Engine-shaped store that rejects the unsupported properties(n) query."""
+
+    def __init__(self):
+        self._graph = self
+        self.nodes = {
+            f"node-{index}": {
+                "id": f"node-{index}",
+                "name": f"service {index}",
+                "classification": "INTERNAL",
+            }
+            for index in range(4)
+        }
+        self.indexed = []
+
+    def execute(self, query, props=None):
+        assert "properties(n)" not in query
+        limit = int((props or {})["limit"])
+        return [
+            {"id": node_id}
+            for node_id, node_props in sorted(self.nodes.items())
+            if node_props.get("embedding") is None
+        ][:limit]
+
+    def _get_node_properties_batch(self, node_ids):
+        return {node_id: dict(self.nodes[node_id]) for node_id in node_ids}
+
+    def compare_and_set_node_fields(self, node_id, conditions, updates):
+        node = self.nodes[node_id]
+        if any(node.get(field) != expected for field, expected in conditions.items()):
+            return False
+        node.update(updates)
+        return True
+
+    def add_embedding(self, node_id, embedding):
+        self.indexed.append((node_id, embedding))
+
+
+def test_backfill_native_query_avoids_properties_function_and_persists_progress():
+    backend = _NativeBackfillBackend()
+    engine = MagicMock(backend=backend)
+
+    with patch(
+        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
+        return_value=lambda texts: [[float(len(text))] for text in texts],
+    ):
+        first = GraphMaintainer(engine).backfill_entity_embeddings(
+            limit=2, batch_size=2
+        )
+        second = GraphMaintainer(engine).backfill_entity_embeddings(
+            limit=2, batch_size=2
+        )
+
+    assert first == {
+        "scanned": 2,
+        "embedded": 2,
+        "indexed": 2,
+        "skipped_no_text": 0,
+    }
+    assert second == {
+        "scanned": 2,
+        "embedded": 2,
+        "indexed": 2,
+        "skipped_no_text": 0,
+    }
+    assert [node_id for node_id, _ in backend.indexed] == [
+        "node-0",
+        "node-1",
+        "node-2",
+        "node-3",
+    ]
+    assert all(node["classification"] == "INTERNAL" for node in backend.nodes.values())

@@ -100,8 +100,9 @@ class GraphGovernanceAgent:
         # D-EMB/D-PERF-5: this was a dead stub (import + bare `pass`) — the
         # governance cycle never actually ran any GraphMaintainer operation.
         # A small, bounded entity-embedding backfill batch each cycle is the
-        # SAFE (ANN-index-only, see backfill_entity_embeddings' docstring for
-        # why it never touches the governed ChangeEnvelope write path), self-
+        # SAFE (atomic embedding-field CAS + ANN indexing; see
+        # backfill_entity_embeddings's docstring for why this preserves the
+        # existing ACL and never re-upserts through ChangeEnvelope), self-
         # healing catch-up for legacy under-embedded nodes — this governance
         # loop already runs continuously in production
         # (`agent_utilities/server/app.py` starts `GraphGovernanceAgent`), so

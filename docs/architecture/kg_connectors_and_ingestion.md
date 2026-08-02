@@ -152,6 +152,28 @@ repo's `:calls`/`:dependsOn` in one parallel (`rayon`) pass off-reactor. The
 generic write-layer delta extends that same content-hash idea to every non-code
 connector.
 
+### Legacy embedding reconciliation
+
+New connector envelopes persist an embedding property and register the same
+vector in the engine ANN index. Legacy nodes are reconciled in bounded pages by
+`GraphMaintainer.backfill_entity_embeddings` and the operator-facing
+`scripts/backfill_embeddings.py`:
+
+```mermaid
+flowchart LR
+  Q["IDs where embedding is null<br/>bounded and ordered"] --> H["one batched property hydration"]
+  H --> E["one batched embedding request"]
+  E --> C["atomic compare-and-set<br/>embedding: null → vector"]
+  C --> A["register vector in ANN"]
+  A -.->|retry after index failure| R["background property-to-index hydrator"]
+```
+
+The compare-and-set changes only the embedding field, so existing connector
+properties, ownership, classification, and ACL state remain intact. Its durable
+success is also the progress ledger: the next page cannot select a completed
+node. ANN registration follows the property write; if it fails, the normal
+hydration loop retries without regenerating the vector.
+
 ---
 
 ## 4b. Ambient epistemics (valid-time + provenance, W3.4)

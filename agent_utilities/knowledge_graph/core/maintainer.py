@@ -104,30 +104,33 @@ class GraphMaintainer:
         (:func:`~..enrichment.semantic.derive_entity_text`) the chokepoint
         uses.
 
-        Deliberately writes ONLY to the engine's ANN/HNSW index via
-        ``backend.add_embedding`` — the same safe pattern
-        :meth:`enrich_embeddings` above already uses — never through the
-        governed ``ChangeEnvelope`` write path. Re-upserting an EXISTING,
-        already-governed entity through ChangeEnvelope with this call's own
-        (unknown, default-quarantined) ACL/classification would silently
-        REPLACE that entity's real access policy with a fail-closed default —
-        a data-governance regression, not a fix. Registering the vector in the
-        ANN index alone is enough for ``semantic_search`` (what "search_hybrid
-        returning 0 candidates" actually depends on) to find the entity; it
-        does not set the ``embedding`` node property, so this reconciliation
-        pass and the property-based population count (``n.embedding IS NOT
-        NULL``) intentionally stay separate signals — see the register entry
-        for this known limitation.
+        Persists the generated vector with the engine authority's atomic
+        ``compare_and_set_node_fields`` before adding it to the ANN/HNSW index.
+        The field-level update preserves every existing ACL, classification,
+        ownership and connector property; it deliberately does NOT re-upsert an
+        existing entity through a new ``ChangeEnvelope`` carrying an invented
+        policy. The durable property is also the progress ledger: a confirmed
+        update removes the node from the next ``embedding IS NULL`` page, so
+        bounded operator chunks are disjoint and restart-safe. ANN registration
+        remains best-effort after that durable write because the existing
+        ``hydrate_engine_embeddings`` loop retries property-to-index hydration.
 
-        Returns ``{"scanned": N, "embedded": N, "skipped_no_text": N}``.
+        Returns ``{"scanned": N, "embedded": N, "indexed": N,
+        "skipped_no_text": N}``. ``embedded`` counts durable node-property
+        updates; ``indexed`` counts immediate ANN registrations.
         """
-        result = {"scanned": 0, "embedded": 0, "skipped_no_text": 0}
+        result = {
+            "scanned": 0,
+            "embedded": 0,
+            "indexed": 0,
+            "skipped_no_text": 0,
+        }
         if not self.engine.backend:
             return result
 
         query = (
             "MATCH (n) WHERE n.embedding IS NULL "
-            "RETURN n.id AS id, properties(n) AS props "
+            "RETURN n.id AS id "
             "ORDER BY n.id LIMIT $limit"
         )
         rows = self.engine.backend.execute(query, {"limit": int(limit)}) or []
@@ -135,18 +138,24 @@ class GraphMaintainer:
         if not rows:
             return result
 
+        node_ids = [str(row["id"]) for row in rows if row.get("id")]
+        graph = getattr(self.engine.backend, "_graph", self.engine.backend)
+        batch_properties = getattr(graph, "_get_node_properties_batch", None)
+        if not callable(batch_properties):
+            raise RuntimeError(
+                "embedding backfill requires batched node-property hydration; "
+                f"{type(graph).__name__} does not expose _get_node_properties_batch"
+            )
+        properties_by_id = batch_properties(node_ids) or {}
+
         from ..enrichment.semantic import (
             derive_entity_text,
-            embed_and_store,
             make_embed_fn,
         )
 
         items: list[tuple[str, str]] = []
-        for row in rows:
-            node_id = row.get("id")
-            props = row.get("props") or {}
-            if not node_id:
-                continue
+        for node_id in node_ids:
+            props = properties_by_id.get(node_id) or {}
             text = derive_entity_text(props)
             if not text:
                 result["skipped_no_text"] += 1
@@ -157,11 +166,52 @@ class GraphMaintainer:
             return result
 
         embed_fn = make_embed_fn(batch_size=batch_size)
-        result["embedded"] = embed_and_store(self.engine.backend, items, embed_fn)
+        vectors = embed_fn([text for _, text in items])
+        if len(vectors) != len(items):
+            raise RuntimeError(
+                "embedding endpoint returned a vector count that does not match "
+                f"the request ({len(vectors)} != {len(items)})"
+            )
+
+        compare_and_set = getattr(
+            self.engine.backend, "compare_and_set_node_fields", None
+        )
+        if not callable(compare_and_set):
+            raise RuntimeError(
+                "embedding backfill requires atomic field updates to preserve "
+                "existing node governance"
+            )
+        for (node_id, _), vector in zip(items, vectors, strict=True):
+            try:
+                applied = bool(
+                    compare_and_set(
+                        node_id,
+                        {"embedding": None},
+                        {"embedding": list(vector)},
+                    )
+                )
+            except NotImplementedError as exc:
+                raise RuntimeError(
+                    "embedding backfill requires backend compare-and-set support"
+                ) from exc
+            if not applied:
+                continue
+            result["embedded"] += 1
+            try:
+                self.engine.backend.add_embedding(node_id, list(vector))
+                result["indexed"] += 1
+            except Exception as exc:  # noqa: BLE001 — the durable embedding property committed; the existing hydrate_engine_embeddings loop retries ANN registration
+                logger.warning(
+                    "Embedding property persisted but ANN indexing deferred for %s: %s",
+                    node_id,
+                    type(exc).__name__,
+                )
         logger.info(
-            "Entity embedding backfill: scanned=%d embedded=%d skipped_no_text=%d",
+            "Entity embedding backfill: scanned=%d embedded=%d indexed=%d "
+            "skipped_no_text=%d",
             result["scanned"],
             result["embedded"],
+            result["indexed"],
             result["skipped_no_text"],
         )
         return result
