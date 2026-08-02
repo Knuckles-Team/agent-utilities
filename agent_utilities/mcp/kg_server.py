@@ -693,6 +693,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_explain": "/graph/explain",
     "graph_observe": "/graph/observe",
     "graph_orchestrate": "/graph/orchestrate",
+    "graph_config": "/graph/config",
     "graph_configure": "/graph/configure",
     "graph_context": "/graph/context",
     "graph_feedback": "/graph/feedback",
@@ -3791,7 +3792,17 @@ def _build_server(
             "  • unload_tools(...) — retract tools to reclaim context\n"
             "  • multiplexer_status — health of mounted children\n"
             "Always discover (find_tools/list_catalog) before concluding a tool "
-            "doesn't exist."
+            "doesn't exist.\n\n"
+            "EXCEPTION — the always-load set (MCP_ALWAYS_LOAD / "
+            "MCP_ALWAYS_LOAD_TOOLS): a short operator-chosen list of core servers "
+            "and individual tools is mounted EAGERLY on your first request, so it "
+            "is already in your tool list and needs no find_tools/load_tools hop. "
+            "Its absence is therefore meaningful — if an always-load tool is NOT "
+            "listed, that server is genuinely degraded (eager mounting fails soft), "
+            "not merely undiscovered; multiplexer_status says which and why. "
+            "Everything OUTSIDE that set still follows the discover-first rule "
+            "above. Inspect or change the set with "
+            "graph_config(action='get'/'describe'/'set', key='MCP_ALWAYS_LOAD')."
         ),
         command_args=None if bootstrap else [],
         transport_choices=("stdio", "streamable-http"),
@@ -3872,6 +3883,7 @@ def _build_server(
         register_candidate_claim_tools,
         register_claim_tools,
         register_compliance_tools,
+        register_config_tools,
         register_domain_ops_tools,
         register_engine_surface_tools,
         register_engine_tools,
@@ -3916,6 +3928,7 @@ def _build_server(
             register_candidate_claim_tools,
             register_claim_tools,
             register_secret_tools,
+            register_config_tools,
             register_engine_tools,
             register_engine_surface_tools,
             register_domain_ops_tools,

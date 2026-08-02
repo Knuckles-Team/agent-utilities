@@ -426,7 +426,13 @@ def config_reference() -> list[dict[str, Any]]:
             grouped[section] = []
             order.append(section)
         type_name = getattr(info.annotation, "__name__", str(info.annotation))
-        default = info.default
+        # ``info.default`` is ``PydanticUndefined`` for a ``default_factory``
+        # field, which every consumer renders as "unset". That is a lie for any
+        # factory with a NON-empty default (e.g. ``MCP_ALWAYS_LOAD``, which
+        # ships four servers): the generated configuration catalog would tell an
+        # operator the list is empty. Resolve the factory so the reported
+        # default is the one the process actually starts with.
+        default = info.get_default(call_default_factory=True)
         try:
             json.dumps(default, default=str)
             default_repr = default
