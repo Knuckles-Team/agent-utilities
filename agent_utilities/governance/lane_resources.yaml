@@ -82,6 +82,27 @@ resources:
       sun_path/git-identity-leak defect (same `_lane_temp_root()` fix, same
       relocation to `~/.al/<hash(common_dir, lane)>/scratch`).
 
+  - name: precommit-home
+    class: partition
+    mechanism: partitioned_paths().precommit_home
+    evidence: >-
+      pre-commit's own store (`store.directory`, store.py:32 -> PRE_COMMIT_HOME or
+      XDG_CACHE_HOME/pre-commit) doubles as BOTH the patch_dir
+      `staged_files_only._unstaged_changes_cleared()` writes unstaged changes to
+      (commands/run.py:421 passes `store.directory` as patch_dir) and the directory
+      holding the SQLite `db.db` (store.py:64). PRE_COMMIT_HOME is exported
+      NOWHERE in agent-utilities, so every lane shared ONE `~/.cache/pre-commit`.
+      Two distinct hazards from that one shared dir: (1) a killed/OOMed/power-lost
+      pre-commit leaves the unstaged work ONLY as an orphaned patch file that
+      nobody ever replays back -- pre-commit never deletes a patch file even on
+      success, so a patch file existing is not itself proof of a crash (D-OB-12);
+      (2) the same dir's shared `db.db` produced
+      `OperationalError: database is locked` for lane-concept-docs-0801 under
+      concurrent lanes. Distinct from the `precommit-all-files` LEASE row below:
+      that one serializes `--all-files` runs; this row partitions the STORE
+      itself so no lane's patch files or SQLite state are ever visible to another
+      lane's pre-commit process. See D-ORC-37.
+
   - name: concept-reservations
     class: append-only
     mechanism: FragmentStore(docs/concept_reservations.d) folded to docs/concept_reservations.yaml

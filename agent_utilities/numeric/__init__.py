@@ -75,17 +75,67 @@ NDArray: TypeAlias = Any
 RandomGenerator: TypeAlias = Any
 
 # ---------------------------------------------------------------------------
-# Kernel loading — REQUIRED. The full epistemic-graph wheel owns the sole module.
+# Kernel loading — REQUIRED, and NOT an optional extra.
+#
+# The message below is load-bearing operator documentation, so it states the
+# deployment reality rather than a package name. The previous wording —
+# "pip install 'epistemic-graph[full]>=2.23.2,<3.0.0'" — sent every operator who
+# read it down a dead end three separate ways, and cost multiple sessions:
+#
+#   1. The pin was UNSATISFIABLE. PyPI's newest `epistemic-graph` is 2.23.0, so
+#      that command can only ever answer "No solution found".
+#   2. `pip install` is not how code reaches the fleet AT ALL. Every MCP pod
+#      hostPath-mounts the canonical working tree straight over its
+#      `site-packages/epistemic_graph`, so the mounted tree — not any installed
+#      distribution — decides what imports. Reinstalling changes nothing the
+#      mount does not immediately shadow.
+#   3. "[full]" implies an extra you can opt into. There is no optional path
+#      here: this module imports the kernel UNCONDITIONALLY, so the kernel is
+#      core. The honest report is "required and missing", not "extra not
+#      selected".
+#
+# What is actually missing is a COMPILED artifact: `numeric.abi3.so`, a pyo3
+# cdylib built from `crates/eg-numeric`. Pure-Python `.py` files propagate to
+# every pod for free over that mount; a `.so` does not exist in a source tree
+# until someone builds it there. Published wheels 2.14.0-2.23.0 also carry no
+# kernel (the `inject_numeric_kernel.py` graft was skipped), so a pip install
+# would not supply one either.
 # ---------------------------------------------------------------------------
 try:
     _KERNEL: Any = importlib.import_module("epistemic_graph.numeric")
 except ImportError as exc:
     raise ImportError(
-        "epistemic-graph full kernel required: "
-        "pip install 'epistemic-graph[full]>=2.23.2,<3.0.0'"
+        "epistemic-graph numeric kernel is REQUIRED and MISSING. It is core, not "
+        "an optional extra: this module imports it unconditionally.\n"
+        "\n"
+        "The kernel is a COMPILED extension — `epistemic_graph/numeric.abi3.so` — "
+        "not Python source, so it never arrives just by updating the tree.\n"
+        "\n"
+        "Check what you have:\n"
+        "    python -c 'import epistemic_graph, pathlib; "
+        "print(sorted(p.name for p in "
+        "pathlib.Path(epistemic_graph.__file__).parent.glob(\"numeric*\")))'\n"
+        "\n"
+        "If that list is empty, produce the kernel where this package resolves "
+        "`epistemic_graph` from:\n"
+        "  - Mounted/editable tree (how the MCP fleet runs — pods hostPath-mount "
+        "the working tree over site-packages, so `pip install` is a no-op there): "
+        "build it INTO that tree, which every pod then inherits:\n"
+        "        python scripts/build_numeric_kernel.py\n"
+        "    (in the epistemic-graph repo; verify with "
+        "`python scripts/check_mounted_kernel.py`)\n"
+        "  - Genuinely pip-installed consumer: install an epistemic-graph wheel "
+        "that actually contains the kernel. Published 2.14.0-2.23.0 do NOT — the "
+        "`inject_numeric_kernel.py` graft was skipped — so verify any wheel with "
+        "`scripts/check_wheel_completeness.py` before relying on it."
     ) from exc
 if getattr(_KERNEL, "__kernel__", None) != "eg-numeric":
-    raise ImportError("epistemic_graph.numeric is not the certified eg-numeric kernel")
+    raise ImportError(
+        "epistemic_graph.numeric is not the certified eg-numeric kernel "
+        f"(found __kernel__={getattr(_KERNEL, '__kernel__', None)!r} at "
+        f"{getattr(_KERNEL, '__file__', '<unknown>')}). Something else is "
+        "shadowing the kernel on the import path."
+    )
 
 # numpy is an INTERNAL dependency of the kernel (rust-numpy) — the kernel already imported
 # it, and re-exports ``numpy.ndarray``. Grab that module here so the shim can serve the

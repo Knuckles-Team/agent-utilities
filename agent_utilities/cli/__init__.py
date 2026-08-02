@@ -530,11 +530,13 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
         return lanes.lane_report(path)
     if action == "env":
         parts = lanes.partitioned_paths(path)
+        orphaned = lanes.orphaned_precommit_patches(path)
         return {
             "exports": {
                 "CARGO_TARGET_DIR": str(parts.cargo_target_dir),
                 "PYTEST_ADDOPTS": f"--basetemp={parts.pytest_basetemp}",
                 "TMPDIR": str(parts.scratch_dir),
+                "PRE_COMMIT_HOME": str(parts.precommit_home),
             },
             "stash_ref": parts.stash_ref,
             "note": (
@@ -543,6 +545,16 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
                 "`git show HEAD:<path>` (mutates nothing). To PARK work use a "
                 f"scratch commit on your branch, or `lane park` -> {parts.stash_ref}"
             ),
+            "precommit_home_note": (
+                "PRE_COMMIT_HOME is also per-lane: a shared pre-commit store "
+                "means a killed/OOMed/power-lost pre-commit orphans another "
+                "lane's uncommitted work as an unreplayed patch file (D-OB-12), "
+                "and the store's shared SQLite db.db raises `OperationalError: "
+                "database is locked` under concurrent lanes. See D-ORC-37."
+            ),
+            "orphaned_precommit_patches": [
+                p for p in orphaned if p["state"] in ("ORPHANED", "unknown")
+            ],
         }
     if action == "park":
         return lanes.park_worktree(path)

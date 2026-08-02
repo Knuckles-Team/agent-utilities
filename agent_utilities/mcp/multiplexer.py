@@ -41,13 +41,23 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import mcp.types
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools import FunctionTool, ToolResult
 from mcp import StdioServerParameters, stdio_client
-from mcp import types as mcp_types  # stable alias: the ``mcp`` param shadows the pkg
 from mcp.client.session import ClientSession
+
+from agent_utilities.mcp.protocol_compat import mcp_types_module
+
+# The SOLE handle on the MCP protocol types in this module, for two reasons that
+# both bite here. (1) MCP SDK v2 re-homed the whole `mcp.types` namespace into the
+# standalone `mcp_types` distribution, so `import mcp.types` raises ImportError at
+# module scope on an SDK v2 image — and this module is the fleet loader, so that
+# takes every child server down with it. `mcp_types_module()` binds whichever the
+# installed SDK ships. (2) `mcp` is also a common PARAMETER name in this file (see
+# `_register_forwarder`), where it shadows the package outright; a `mcp_types.X`
+# attribute chain there resolves against the parameter, not the SDK.
+mcp_types = mcp_types_module()
 
 # Remote transports. The MCP SDK v2 line (>=2.0.0, pulled in by the
 # `fastmcp>=4.0.0b1` floor of the `[mcp]` extra) renamed
@@ -1046,7 +1056,7 @@ class MCPMultiplexer:
         self.tool_to_server: dict[
             str, tuple[str, str]
         ] = {}  # prefixed_name -> (server_name, original_name)
-        self.aggregated_tools: list[mcp.types.Tool] = []
+        self.aggregated_tools: list[mcp_types.Tool] = []
         # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — dynamic tool gateway state. The catalog is the
         # full set of mountable servers parsed from config WITHOUT spawning
         # them, so find_tools/load_tools know what exists before any child is
@@ -1131,7 +1141,7 @@ class MCPMultiplexer:
 
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
-    ) -> mcp.types.CallToolResult:
+    ) -> mcp_types.CallToolResult:
         """Forward a prefixed tool call to the owning child server's session.
 
         Looks up the ``(server_name, original_name)`` mapping recorded during
@@ -1190,13 +1200,13 @@ class MCPMultiplexer:
                 type(e).__name__,
                 redact_for_log(e),
             )
-            return mcp.types.CallToolResult(
-                content=[mcp.types.TextContent(type="text", text=type(e).__name__)],
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(type="text", text=type(e).__name__)],
                 isError=True,
             )
         except Exception as e:
-            return mcp.types.CallToolResult(
-                content=[mcp.types.TextContent(type="text", text=public_error_text(e))],
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(type="text", text=public_error_text(e))],
                 isError=True,
             )
 
@@ -1204,8 +1214,8 @@ class MCPMultiplexer:
         self,
         server_name: str,
         policy: Any,
-        tools: list[mcp.types.Tool],
-    ) -> list[mcp.types.Tool]:
+        tools: list[mcp_types.Tool],
+    ) -> list[mcp_types.Tool]:
         """Apply live catalog admission and fingerprinting fail closed."""
 
         catalog = [
@@ -1601,7 +1611,7 @@ class MCPMultiplexer:
 
     async def _start_child(
         self, server_name: str, cfg: dict
-    ) -> tuple[str, ChildRuntime, list[mcp.types.Tool], dict] | None:
+    ) -> tuple[str, ChildRuntime, list[mcp_types.Tool], dict] | None:
         """Starts a single child server, registers its exit stack on success, and returns its tools and runtime."""
         try:
             cfg, runtime_policy = _prepare_runtime_child_policy(cfg)
@@ -1994,9 +2004,9 @@ class MCPMultiplexer:
         self,
         server_name: str,
         payload: Any,
-        tools: list[mcp.types.Tool],
+        tools: list[mcp_types.Tool],
         cfg: dict,
-    ) -> list[mcp.types.Tool]:
+    ) -> list[mcp_types.Tool]:
         """Record a freshly started child's runtime, session, and (filtered)
         tools into the aggregation maps. Returns the prefixed ``Tool`` objects
         that were registered for this child.
@@ -2026,7 +2036,7 @@ class MCPMultiplexer:
         disabled_tools = cfg.get("disabledTools", [])
         enabled_tools = cfg.get("enabledTools", None)
 
-        registered: list[mcp.types.Tool] = []
+        registered: list[mcp_types.Tool] = []
         for tool in tools:
             # 1. Whitelist Check (if enabledTools is defined)
             if enabled_tools is not None:
@@ -2055,7 +2065,7 @@ class MCPMultiplexer:
             # Preserve _meta (carries FastMCP tags) so downstream consumers — the
             # verbose-tool hold-back, visibility filtering — can read the child's
             # tags off the aggregated tool. (CONCEPT:AU-ECO.multiplexer.condensed-server-load)
-            prefixed_tool = mcp.types.Tool(
+            prefixed_tool = mcp_types.Tool(
                 name=prefixed_name,
                 description=tool.description or "",
                 input_schema=tool.input_schema,
@@ -2083,7 +2093,7 @@ class MCPMultiplexer:
             return []
         return await self._probe_skills(server_name, session)
 
-    async def mount_child(self, server_name: str) -> list[mcp.types.Tool]:
+    async def mount_child(self, server_name: str) -> list[mcp_types.Tool]:
         """Start ONE configured child on demand and register its tools
         (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
 
@@ -2106,7 +2116,7 @@ class MCPMultiplexer:
         s_name, payload, tools, r_cfg = result
         return self._register_child_result(s_name, payload, tools, r_cfg)
 
-    def prefixed_tools_for_server(self, server_name: str) -> list[mcp.types.Tool]:
+    def prefixed_tools_for_server(self, server_name: str) -> list[mcp_types.Tool]:
         """All aggregated prefixed tools currently owned by ``server_name``."""
         names = {
             pn for pn, (srv, _orig) in self.tool_to_server.items() if srv == server_name
@@ -3052,7 +3062,7 @@ class MCPMultiplexer:
             )
         return mounted, to_expose, failed
 
-    def tool_object(self, prefixed_name: str) -> mcp.types.Tool | None:
+    def tool_object(self, prefixed_name: str) -> mcp_types.Tool | None:
         """The aggregated ``Tool`` object for a prefixed name, if known."""
         for tool in self.aggregated_tools:
             if tool.name == prefixed_name:
@@ -3317,7 +3327,7 @@ def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
     return _forward
 
 
-def _tool_is_verbose(tool: mcp.types.Tool) -> bool:
+def _tool_is_verbose(tool: mcp_types.Tool) -> bool:
     """Whether a child tool is tagged ``verbose`` (FastMCP propagates tags in
     ``_meta``). Verbose 1:1 tools (e.g. graph-os's granular per-action surface)
     are kept in the catalog but NOT auto-exposed by an always-on child — they
@@ -3330,7 +3340,7 @@ def _tool_is_verbose(tool: mcp.types.Tool) -> bool:
     return "verbose" in tags
 
 
-def _register_forwarder(mcp, mux: MCPMultiplexer, tool: mcp.types.Tool) -> bool:
+def _register_forwarder(mcp, mux: MCPMultiplexer, tool: mcp_types.Tool) -> bool:
     """Register ONE aggregated child tool as a live FastMCP forwarding tool.
 
     Idempotent via ``mux._exposed`` so lazy mounts never double-register.
