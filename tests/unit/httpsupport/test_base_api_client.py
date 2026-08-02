@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.client (CONCEPT:AU-ECO.ui.fleet-http-client-library).
+"""Tests for agent_utilities.httpsupport.client (CONCEPT:AU-ECO.ui.fleet-http-client-library).
 
 All transport via httpx.MockTransport — no live calls. Pins the dockerhub-api
 envelope shape, rate-limit capture + bounded 429 backoff, error mapping,
@@ -17,7 +17,7 @@ from agent_utilities.core.exceptions import (
     ParameterError,
     UnauthorizedError,
 )
-from agent_utilities.http import (
+from agent_utilities.httpsupport import (
     AsyncBaseApiClient,
     AuthHeaderInjector,
     BaseApiClient,
@@ -177,7 +177,7 @@ def test_rate_limit_snapshot_attached_to_envelope():
 
 def test_429_bounded_backoff_then_success(monkeypatch):
     sleeps: list[float] = []
-    monkeypatch.setattr("agent_utilities.http.client.time.sleep", sleeps.append)
+    monkeypatch.setattr("agent_utilities.httpsupport.client.time.sleep", sleeps.append)
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -193,7 +193,7 @@ def test_429_bounded_backoff_then_success(monkeypatch):
 
 
 def test_429_exhaustion_raises_api_error_with_rate_context(monkeypatch):
-    monkeypatch.setattr("agent_utilities.http.client.time.sleep", lambda s: None)
+    monkeypatch.setattr("agent_utilities.httpsupport.client.time.sleep", lambda s: None)
     handler = lambda request: httpx.Response(  # noqa: E731
         429,
         headers={
@@ -209,7 +209,7 @@ def test_429_exhaustion_raises_api_error_with_rate_context(monkeypatch):
 
 def test_retry_after_cap_bounds_each_sleep(monkeypatch):
     sleeps: list[float] = []
-    monkeypatch.setattr("agent_utilities.http.client.time.sleep", sleeps.append)
+    monkeypatch.setattr("agent_utilities.httpsupport.client.time.sleep", sleeps.append)
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -364,7 +364,7 @@ async def test_async_429_backoff(monkeypatch):
     async def fake_sleep(seconds: float) -> None:
         sleeps.append(seconds)
 
-    monkeypatch.setattr("agent_utilities.http.client.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("agent_utilities.httpsupport.client.asyncio.sleep", fake_sleep)
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:

@@ -15,7 +15,7 @@ into one importable module:
 * caller-registered literal secret values.
 
 :class:`LogRedactor` is a :class:`logging.Filter` wired as the default filter
-for :class:`~agent_utilities.http.BaseApiClient` loggers, so credential
+for :class:`~agent_utilities.httpsupport.BaseApiClient` loggers, so credential
 material never reaches log sinks even when callers log raw responses.
 """
 

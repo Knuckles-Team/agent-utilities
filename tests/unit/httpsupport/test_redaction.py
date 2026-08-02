@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.redaction (CONCEPT:AU-ECO.ui.fleet-http-client-library).
+"""Tests for agent_utilities.httpsupport.redaction (CONCEPT:AU-ECO.ui.fleet-http-client-library).
 
 Pins the promoted security_sanitizer patterns: scheme credentials, DSN
 passwords, well-known token shapes, secret assignments, literal secrets,
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.http.redaction import REDACTED, LogRedactor, redact_text
+from agent_utilities.httpsupport.redaction import REDACTED, LogRedactor, redact_text
 
 # --------------------------------------------------------------------------- #
 # redact_text patterns

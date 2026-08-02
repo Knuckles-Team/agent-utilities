@@ -31,7 +31,7 @@ from agent_utilities.core.contextual_model import (
     create_context_agent,
     use_grounding_policy,
 )
-from agent_utilities.http.redaction import REDACTED
+from agent_utilities.httpsupport.redaction import REDACTED
 
 # ---------------------------------------------------------------------------
 # Live path: PII redaction (output)

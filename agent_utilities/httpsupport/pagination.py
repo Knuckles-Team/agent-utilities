@@ -25,8 +25,8 @@ translate 1:1.
 
 The iterators are transport-agnostic: they drive a ``fetch_page`` callable
 ``(endpoint, params) -> (data, headers)`` supplied by
-:meth:`agent_utilities.http.BaseApiClient.paginate` (sync) or
-:meth:`agent_utilities.http.AsyncBaseApiClient.paginate` (async), and are
+:meth:`agent_utilities.httpsupport.BaseApiClient.paginate` (sync) or
+:meth:`agent_utilities.httpsupport.AsyncBaseApiClient.paginate` (async), and are
 trivially fed by a fake in tests.
 """
 
@@ -283,7 +283,7 @@ class _PaginationConfig:
 class PaginationIterator(_PaginationConfig):
     """Iterate records across pages of a paginated HTTP collection.
 
-    Built by :meth:`agent_utilities.http.BaseApiClient.paginate`; iterating
+    Built by :meth:`agent_utilities.httpsupport.BaseApiClient.paginate`; iterating
     yields individual records lazily. After iteration, ``truncated``,
     ``pages_fetched``, ``items_yielded`` and ``next_cursor`` describe the
     sweep (Okta-style resume semantics).

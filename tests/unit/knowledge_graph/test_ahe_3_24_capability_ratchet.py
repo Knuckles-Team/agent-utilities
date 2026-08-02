@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 # APPEND (not insert(0, ...)): tests/unit/ contains a real `http/` package
-# (tests/unit/http/, covering agent_utilities/http's client). Inserting
+# (tests/unit/httpsupport/, covering agent_utilities/httpsupport's client). Inserting
 # tests/unit at sys.path[0] shadows the stdlib `http` package for the rest
 # of this pytest process -- any later `import http.server` (e.g. inside
 # agent_utilities.security.browser_auth, imported transitively by the

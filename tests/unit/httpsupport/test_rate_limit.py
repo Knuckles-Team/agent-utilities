@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.rate_limit (CONCEPT:AU-ECO.ui.fleet-http-client-library).
+"""Tests for agent_utilities.httpsupport.rate_limit (CONCEPT:AU-ECO.ui.fleet-http-client-library).
 
 Pins both header families (X-RateLimit-* and X-Rate-Limit-*), Retry-After
 parsing (seconds + HTTP-date), bounded backoff (okta/dockerhub semantics),
@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 
-from agent_utilities.http.rate_limit import (
+from agent_utilities.httpsupport.rate_limit import (
     RateLimitCapture,
     RateLimitSnapshot,
     backoff_seconds,

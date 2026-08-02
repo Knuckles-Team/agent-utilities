@@ -179,7 +179,7 @@ def backoff_seconds(
 class RateLimitCapture:
     """Stateful capture of the most recent rate-limit snapshot.
 
-    One instance lives on each :class:`~agent_utilities.http.BaseApiClient`;
+    One instance lives on each :class:`~agent_utilities.httpsupport.BaseApiClient`;
     :meth:`capture` is called on every response so the latest telemetry is
     always available (``client.rate_limit``) and attached to every envelope.
     """

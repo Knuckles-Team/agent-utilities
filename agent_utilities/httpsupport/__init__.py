@@ -1,4 +1,4 @@
-"""``agent_utilities.http`` — the shared fleet HTTP client library.
+"""``agent_utilities.httpsupport`` — the shared fleet HTTP client library.
 
 CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library
 
@@ -12,18 +12,18 @@ Components:
 
 * :class:`BaseApiClient` / :class:`AsyncBaseApiClient` — envelope-returning
   httpx clients with auth injection, 429 backoff, error mapping, redaction,
-  destructive gating and pagination (:mod:`agent_utilities.http.client`).
+  destructive gating and pagination (:mod:`agent_utilities.httpsupport.client`).
 * Auth strategies — :class:`TokenAuth` (``Bearer``/``SSWS``/bare; static or
   ``token_provider`` callable), :class:`BasicAuth`,
-  :class:`QueryApiKeyAuth` (:mod:`agent_utilities.http.auth`).
+  :class:`QueryApiKeyAuth` (:mod:`agent_utilities.httpsupport.auth`).
 * Rate-limit telemetry — :class:`RateLimitSnapshot` /
   :class:`RateLimitCapture` / :func:`backoff_seconds`
-  (:mod:`agent_utilities.http.rate_limit`).
+  (:mod:`agent_utilities.httpsupport.rate_limit`).
 * Pagination — :class:`PaginationIterator` / :class:`AsyncPaginationIterator`
   over cursor / page / offset / Link-header / since-id dialects
-  (:mod:`agent_utilities.http.pagination`).
+  (:mod:`agent_utilities.httpsupport.pagination`).
 * Log redaction — :class:`LogRedactor` / :func:`redact_text`
-  (:mod:`agent_utilities.http.redaction`).
+  (:mod:`agent_utilities.httpsupport.redaction`).
 
 HTTP transport failures are retried by
 :class:`~agent_utilities.orchestration.resilience.ResiliencePolicy` through
@@ -39,31 +39,31 @@ from agent_utilities.core.http_client import (
     create_http_client,
     http_retry_policy,
 )
-from agent_utilities.http.auth import (
+from agent_utilities.httpsupport.auth import (
     AuthHeaderInjector,
     BasicAuth,
     QueryApiKeyAuth,
     TokenAuth,
 )
-from agent_utilities.http.client import (
+from agent_utilities.httpsupport.client import (
     DEFAULT_ERROR_MAP,
     DEFAULT_MAX_RETRIES_429,
     AsyncBaseApiClient,
     BaseApiClient,
     DestructiveOperationError,
 )
-from agent_utilities.http.pagination import (
+from agent_utilities.httpsupport.pagination import (
     AsyncPaginationIterator,
     PaginationIterator,
 )
-from agent_utilities.http.rate_limit import (
+from agent_utilities.httpsupport.rate_limit import (
     DEFAULT_RETRY_AFTER_CAP_S,
     RateLimitCapture,
     RateLimitSnapshot,
     backoff_seconds,
     parse_rate_limit,
 )
-from agent_utilities.http.redaction import REDACTED, LogRedactor, redact_text
+from agent_utilities.httpsupport.redaction import REDACTED, LogRedactor, redact_text
 
 __all__ = [
     "DEFAULT_ERROR_MAP",
