@@ -1214,14 +1214,14 @@ def test_focused_tools_reply_budget_is_tighter_than_full() -> None:
 
 
 def test_cancelled_run_trace_write_survives_a_repeated_cancel() -> None:
-    """Regression (wave-0 gate, D-33): ``run_agent``'s CancelledError branch writes the
-    only durable RunTrace a timed-out run ever gets, and it MUST NOT be awaited.
+    """A cancelled ``run_agent`` uses the cancellation-resistant ordered boundary.
 
-    Lane 0.7's event-loop-isolation sweep routed that write through
-    ``asyncio.to_thread``; that introduces a suspension point AFTER cancellation has
-    already been delivered, so a second ``cancel()`` (a supervisor retrying, or
-    shutdown) re-raises through it and the write is lost — the exact failure the block
-    exists to prevent. This pins the synchronous shape by reproducing both variants.
+    Bare ``asyncio.to_thread`` introduces a suspension point after cancellation has
+    already been delivered, so a second ``cancel()`` can lose the write.  The ordered
+    helper is awaitable so it keeps the serving loop live, but shields and joins the
+    one started write before reporting repeated cancellation.  Runtime coverage in
+    ``test_run_summary`` proves that behavior; this guard prevents a regression back
+    to either a direct blocking write or a bare ``to_thread`` call at the branch.
     """
 
     import asyncio
@@ -1257,24 +1257,27 @@ def test_cancelled_run_trace_write_survives_a_repeated_cancel() -> None:
             pass
         return list(recorded)
 
-    # The synchronous shape (what agent_runner uses) always lands the trace...
+    # A synchronous write lands the trace but would block the serving loop...
     assert asyncio.run(_double_cancel(awaited=False)) == ["trace"]
-    # ...while the awaited shape silently loses it.
+    # ...while a bare awaited to_thread shape can silently lose it.
     assert asyncio.run(_double_cancel(awaited=True)) == []
 
-    # And the live code is the synchronous shape: the CancelledError branch must not
-    # await its _record_execution_trace call.
+    # The live branch uses the cancellation-resistant off-loop wrapper, and records
+    # the cheap timeout signal before its only suspension point.
     import inspect
 
     from agent_utilities.orchestration import agent_runner
 
     src = inspect.getsource(agent_runner.run_agent)
     branch = src.split("if isinstance(e, asyncio.CancelledError):", 1)[1]
-    branch = branch.split("_record_delegation_over_budget", 1)[0]
+    branch = branch.split("if isinstance(e, KeyboardInterrupt", 1)[0]
     # Comments in this branch legitimately NAME the helper to explain why it is not
     # used here, so compare against code lines only.
     code = "\n".join(
         line for line in branch.splitlines() if not line.lstrip().startswith("#")
     )
-    assert "_record_execution_trace(" in code
-    assert "_call_without_blocking" not in code
+    assert "await _record_execution_trace_ordered(" in code
+    assert "await asyncio.to_thread(" not in code
+    assert code.index("_record_delegation_over_budget(") < code.index(
+        "await _record_execution_trace_ordered("
+    )
