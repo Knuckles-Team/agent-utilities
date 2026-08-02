@@ -101,25 +101,31 @@ prefer that narrower form whenever you do not need every hook re-run.
 `agent-utilities lane env` remains the authority for the per-lane pytest
 `--basetemp`; pytest-xdist further gives each worker a child basetemp.  The
 root test `conftest.py` loads a `tmp_path` plugin that allocates each test below
-`t/<two SHA-1 hex digits + random origin + token group>/<two-character token
-slot>`.  The test shard is deterministic; the full random origin keeps fresh
-allocators distinct; and the origin-relative slot keeps reruns distinct.  All
-components are ASCII hex or URL-safe base64, so the resulting socket path is
-shorter than pytest's stock 31-byte temporary leaf, including non-ASCII test
-ids.  Each allocation parent has at most 1,024 possible leaf-directory names
-without changing pytest's basetemp lifecycle or the separate `tmp_path_factory`
-API.
+`t/<two SHA-1 hex digits>/<two URL-safe-base64 characters>/<...>`. The eleven
+characters of one fixed-width 64-bit allocation token form three three-character
+radix-tree parents, followed by a final two-character leaf. The deterministic
+test shard bounds `t/` itself at 256 direct children. Every lower
+allocator-managed parent has a hard cap of 262,144 children; the final ten-bit
+leaf group caps its leaves at 1,024. A random 64-bit origin selects a cyclic
+permutation of a separate 64-bit ordinal stream, so `origin + ordinal (mod
+2**64)` keeps fresh allocators collision-resistant without shortening the stream
+when the origin is high. All components are ASCII hex or URL-safe base64, and
+the resulting socket path remains shorter than pytest's stock 31-byte temporary
+leaf, including non-ASCII test ids. This leaves pytest's basetemp lifecycle and
+the separate `tmp_path_factory` API unchanged.
 
 The allocator avoids directory enumeration; it does not claim zero filesystem
-probes.  Each allocator begins a 64-bit counter at a random origin and encodes
-the origin and origin-relative counter as fixed-width URL-safe base64 tokens.
-Recovery therefore never relies on walking the old sequential-attempt namespace;
-`mkdir` remains the atomic cross-thread/process authority.  Each allocation
-makes at most four leaf `mkdir` probes and seven total `mkdir` calls (the `t`
-root, at most two allocation parents when the four candidates cross a 1,024-slot
-group boundary, and the fixed leaf probe budget).  If all four candidate names
-already exist, or the 64-bit token stream is exhausted, the fixture raises a
-clear `RuntimeError` and never reuses a retained directory.
+probes. Its ordinal always starts at zero and is bounded only after all `2**64`
+values have been consumed; the randomized origin only permutes the encoded
+token. Recovery therefore never relies on walking an old sequential-attempt
+namespace; `mkdir` remains the atomic cross-thread/process authority. An
+allocation makes at most four leaf `mkdir` probes and 21 total `mkdir` calls in
+the adversarial case where those candidates cross the modular boundary and each
+needs a distinct three-parent branch. Normal sequential allocation reuses cached
+upper branches. If all four candidate names already exist, or the 64-bit
+ordinal stream is exhausted, the fixture raises a clear `RuntimeError` and
+never reuses a retained directory.
+
 The reproducible measurements are deliberately split: the 4,000-allocation
 allocator measurement exercises fanout at suite scale, and the bounded 64-case
 child-pytest measurement exercises the public fixture, report hooks, and
