@@ -56,7 +56,7 @@ fail to exclude the actor that collides with you.
 | Resource | Class | Scope | Collision it prevents |
 |---|---|---|---|
 | cargo target dir | PARTITION | repo | A shared `CARGO_TARGET_DIR` serialises **and corrupts** concurrent builds |
-| pytest tmp | PARTITION | repo | ~28 concurrent pytest runs skewed a baseline into a near-false regression |
+| pytest tmp | PARTITION | repo | ~28 concurrent pytest runs skewed a baseline into a near-false regression; bounded-fanout `tmp_path` avoids quadratic allocation scans |
 | `refs/stash` | PARTITION | repo | One ref shared by 38 worktrees; six collisions + four reflexive violations in a day |
 | lane scratch | PARTITION | repo | Lanes overwrote each other's intermediate state |
 | concept reservations | APPEND-ONLY | repo | A mutable shared ledger rewritten whole-file by many sessions |
@@ -95,6 +95,16 @@ bare `pre-commit run` against specific files/hooks does not carry this risk the 
 prefer that narrower form whenever you do not need every hook re-run.
 
 ## PARTITION — supply the affordance, don't just ban the verb
+
+### Bounded pytest fixture allocation
+
+`agent-utilities lane env` remains the authority for the per-lane pytest
+`--basetemp`; pytest-xdist further gives each worker a child basetemp.  The
+root test `conftest.py` loads a `tmp_path` plugin that allocates each test below
+`t/<two SHA-1 hex digits>/<short-test-name>-<hash>-<attempt>`.  The layout keeps
+each leaf deterministic and debuggable, keeps reruns on distinct attempt paths,
+and bounds each directory fanout without changing pytest's basetemp lifecycle or
+the separate `tmp_path_factory` API.
 
 The `git stash` rule is the instructive one. It was stated prominently and
 violated anyway — **four times in one day, across two independent lanes** — by

@@ -9,6 +9,11 @@ from typing import Any
 # the absence of a ``tests/__init__.py``.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# The test suite's ``tmp_path`` fixture is a bounded-fanout plugin.  It keeps
+# pytest's existing per-lane/per-xdist-worker basetemp ownership while avoiding
+# a full directory scan for every test allocation (D-CDX-27).
+pytest_plugins = ("_tmp_path_allocator",)
+
 
 def _fail_fast_on_wrong_interpreter() -> None:
     """D-CC-6: a bare ``pytest``/``uv run pytest`` silently runs a stray
