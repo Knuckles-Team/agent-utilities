@@ -72,7 +72,30 @@ _SOURCE_INTERNAL_URL_RE = re.compile(
     r"\.svc\.cluster\.local\b)"
 )
 _PRIVATE_KEY_LINE_RE = re.compile(r"^\s*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----\s*$")
-_CREDENTIAL_URI_RE = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@")
+_CREDENTIAL_URI_RE = re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:(?P<secret>[^\s/@]+)@"
+)
+# D-CIP-15: a documented template placeholder (the repo's own convention --
+# see deploy_wizard.py's ``_warn_production_safety`` and
+# agent_utilities.observability.langfuse_trust's ``_CREDENTIAL_SENTINELS``)
+# is never a live credential, so a URI shaped like one must not be flagged as
+# though it were. Mirrors scripts/check_wheel_privacy.py's
+# ``_CREDENTIAL_PLACEHOLDER_TOKENS`` so the same words are safe everywhere.
+_CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
+    {
+        "changeme",
+        "change_me",
+        "example",
+        "masked",
+        "placeholder",
+        "redacted",
+        "your",
+        "xxxx",
+        "replace",
+        "todo",
+        "fixme",
+    }
+)
 _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
 _MACHINE_HOST_ID_RE = re.compile(
     r"(?i)(?<![a-z0-9])(?:rw?|host)[0-9]{3,}(?![a-z0-9])"
@@ -126,6 +149,16 @@ def _content_hash(text: str) -> str:
     ``render()``/every printed message still withholds the matched value.
     """
     return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
+def _is_credential_placeholder(secret: str) -> bool:
+    rendered = secret.strip()
+    if not rendered:
+        return True
+    if re.fullmatch(r"(?:\*+|#+|x{4,})", rendered, flags=re.IGNORECASE):
+        return True
+    tokens = set(re.findall(r"[a-z0-9]+", rendered.lower()))
+    return bool(tokens & _CREDENTIAL_PLACEHOLDER_TOKENS)
 
 
 def _identifier_from_path(value: str) -> set[str]:
@@ -230,8 +263,12 @@ def classify_line(
         categories.add("machine-specific host identifier")
     if deployment_doc and _INTERNAL_ENDPOINT_RE.search(line):
         categories.add("hard-coded internal endpoint")
-    if deployment_doc and _CREDENTIAL_URI_RE.search(line):
-        categories.add("credential-bearing URI")
+    if deployment_doc:
+        credential_match = _CREDENTIAL_URI_RE.search(line)
+        if credential_match and not _is_credential_placeholder(
+            credential_match.group("secret")
+        ):
+            categories.add("credential-bearing URI")
     if deployment_doc and _HOST_IDENTITY_RE.search(line):
         categories.add("hard-coded remote account")
     return frozenset(categories)
@@ -265,7 +302,10 @@ def classify_runtime_source_line(
         categories.add("local account or host identifier in runtime source")
     if _SOURCE_INTERNAL_URL_RE.search(line):
         categories.add("hard-coded internal endpoint in runtime source")
-    if _CREDENTIAL_URI_RE.search(line):
+    credential_match = _CREDENTIAL_URI_RE.search(line)
+    if credential_match and not _is_credential_placeholder(
+        credential_match.group("secret")
+    ):
         categories.add("credential-bearing URI in runtime source")
     if _PRIVATE_KEY_LINE_RE.fullmatch(line):
         categories.add("private key material in runtime source")

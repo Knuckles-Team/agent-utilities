@@ -297,7 +297,7 @@ def interview(tier: str) -> dict:
 
     section("7. Models (LLM gateway)")
     s["llm_base_url"] = ask(
-        "llm_base_url", s.get("llm_base_url") or "http://vllm.arpa/v1"
+        "llm_base_url", s.get("llm_base_url") or "http://vllm.example/v1"
     )
     s["model_id"] = ask("default model_id (blank = auto-route)", s.get("model_id"))
 
@@ -365,7 +365,7 @@ def build_config_json(s: dict) -> dict:
         "kafka_bootstrap_servers": s.get("kafka_bootstrap_servers"),
         "enable_otel": s["enable_otel"],
         "max_concurrent_agents": s["max_concurrent_agents"],
-        "llm_base_url": s.get("llm_base_url", "http://vllm.arpa/v1"),
+        "llm_base_url": s.get("llm_base_url", "http://vllm.example/v1"),
         "model_id": s.get("model_id"),
     }
     if s.get("oidc_config_url"):

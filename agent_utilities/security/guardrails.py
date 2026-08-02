@@ -24,6 +24,22 @@ diagram.
 ``PiiRedactionFilter`` logging filter in ``observability/audit_logger.py``,
 ``vector-mcp``'s API layer, and the guardrail guards in
 ``capabilities/content_guardrails.py``) and is kept.
+
+This module also carried ``EphemeralContext`` (a context manager that zeroed
+bytearrays/dicts/lists on exit) with zero live callers (D-PE-2). Three
+independent sweeps looked for a genuine transient-secret-handling call site
+that would justify wiring it in rather than deleting it: neither
+``security/oauth_client_credentials.py`` (the resolved ``client_secret`` must
+persist for the provider's whole lifetime, not scrub after one use) nor
+``security/credential_provider.py`` (returns long-lived ``SourceCredential``
+objects, nothing transient to scrub) nor ``security/secrets_client.py`` /
+``security/permissions_kernel.py``'s signing-key provisioning and rotation
+path (key material lives in ordinary short-lived locals already reclaimed by
+normal GC; no crash-dump/memory-forensics threat model is asserted anywhere
+else in this codebase that would justify explicit-scrub-over-GC here) turned
+up a fit. Deleted outright per the same ``AGENTS.md`` "No Legacy" precedent
+this module's ``PolicyEngine`` deletion (D-48) already documents above,
+rather than left as unreachable dead code.
 """
 
 
@@ -45,53 +61,6 @@ _PII_PATTERNS: dict[str, str] = {
     "credit_card": r"\b(?:\d{4}[-\s]?){3}\d{4}\b",
     "email": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
 }
-
-
-import gc
-
-
-class EphemeralContext:
-    """Context manager for securely cleaning up transient memory.
-
-    Zeroes out bytearrays and mutable collections, then runs GC.
-    """
-
-    def __init__(self, **kwargs) -> None:
-        self.transients = kwargs
-
-    def __enter__(self) -> dict[str, Any]:
-        return self.transients
-
-    def __exit__(self, _exc_type, _exc_val, _exc_tb) -> None:
-        self.scrub()
-
-    def scrub(self) -> None:
-        """Explicitly overwrite and clear transient data structures."""
-
-        def _clear(item: Any):
-            if isinstance(item, dict):
-                for k, v in list(item.items()):
-                    _clear(v)
-                    item[k] = None
-                item.clear()
-            elif isinstance(item, list):
-                for i in range(len(item)):
-                    _clear(item[i])
-                    item[i] = None
-                item.clear()
-            elif isinstance(item, bytearray):
-                for i in range(len(item)):
-                    item[i] = 0
-            elif hasattr(item, "__dict__"):
-                for k, v in list(item.__dict__.items()):
-                    _clear(v)
-                    setattr(item, k, None)
-
-        for key, val in list(self.transients.items()):
-            _clear(val)
-            self.transients[key] = None
-        self.transients.clear()
-        gc.collect()
 
 
 class PiiSanitizer:

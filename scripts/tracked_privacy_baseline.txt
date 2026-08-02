@@ -17,28 +17,24 @@
 #
 # TAB-separated: path\tline\tcategory\tcontent_hash\tordinal. The KEY is
 # (path, category, content_hash, ordinal) -- content_hash is an
-# irreversible fingerprint of the offending line, so the entry is stable
+# irreversible fingerprint of the offending line, so an entry is stable
 # under pure line motion elsewhere in the file (D-W2P: this file used to
-# key on line number alone and reported moved-not-new leaks as phantom
-# NEW findings). `line` is informational only, for a human to locate the
-# site; it is never compared. A NEW leak (not listed here) FAILS the
-# gate. Fixing a listed site shrinks this file on the next
+# key on (path, line, category) alone and reported moved-not-new leaks as
+# phantom NEW findings). `line` is informational only, for a human to
+# locate the site; it is never compared. A NEW leak (not listed here)
+# FAILS the gate. Fixing a listed site shrinks this file on the next
 # --update-baseline; never hand-add an entry to make a real leak
 # disappear.
-agent_utilities/base_utilities.py	270	hard-coded internal endpoint in runtime source	9e951b1b03d1786b	0
-agent_utilities/knowledge_graph/core/nl_planner.py	81	hard-coded internal endpoint in runtime source	20cf6856622ad65e	0
-agent_utilities/mcp/server_factory.py	555	hard-coded internal endpoint in runtime source	338f05cda27d15df	0
-agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	249	credential-bearing URI in runtime source	01f18ffb1a960644	0
-agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	86	credential-bearing URI in runtime source	38b499b00ae3a348	0
-agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	104	credential-bearing URI in runtime source	38b499b00ae3a348	1
-agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	300	hard-coded internal endpoint in runtime source	a3d5ded780f2743d	0
-agent_utilities/skills/skill_graphs/agent-utilities/deployment/scripts/deploy_wizard.py	368	hard-coded internal endpoint in runtime source	f5d22bb04cb1df33	0
-deploy/k8s/graphos-homelab-live-config-fix.yaml	136	hard-coded internal endpoint in runtime source	163fb9de1256dcc7	0
-deploy/k8s/graphos-homelab-live-config-fix.yaml	119	hard-coded internal endpoint in runtime source	221a7dde70866469	0
-deploy/k8s/graphos-homelab-live-config-fix.yaml	76	hard-coded internal endpoint in runtime source	456a676e733f46e2	0
-deploy/k8s/graphos-homelab-live-config-fix.yaml	135	hard-coded internal endpoint in runtime source	4bb4326070f84987	0
-deploy/k8s/graphos-homelab-live-config-fix.yaml	99	hard-coded internal endpoint in runtime source	53fe7036d4f1708b	0
-deploy/k8s/graphos-homelab-live-config-fix.yaml	116	hard-coded internal endpoint in runtime source	78b69079af3ce56e	0
-deploy/k8s/graphos-homelab-live-config-fix.yaml	129	hard-coded internal endpoint in runtime source	8a5be530deeb4d6e	0
-deploy/k8s/graphos-homelab-live-config-fix.yaml	117	hard-coded internal endpoint in runtime source	c815255e4a85d374	0
-deploy/k8s/graphos-homelab-live-config-fix.yaml	120	hard-coded internal endpoint in runtime source	d186c3c63e450b16	0
+#
+# Currently EMPTY (0 known leaks): the 17 entries this file carried were
+# all resolved by lane-push-0802 -- the 9 deploy/k8s/graphos-homelab-*
+# leaks were removed by relocating those two runbooks out of the public
+# repo, the remaining 8 hard-coded-endpoint/credential-URI sites in
+# base_utilities.py / nl_planner.py / server_factory.py / deploy_wizard.py
+# were fixed at the source, and deploy_wizard.py's remaining CHANGEME
+# template placeholders are now recognized as non-credentials by
+# _is_credential_placeholder() rather than flagged. Re-scanned after
+# merging both fixes: check_tracked_privacy.py reports 0 violations.
+# An empty file is still keyed on the scheme above -- the NEXT entry
+# written here (via --update-baseline) must follow it, not the old
+# (path, line, category) shape.

@@ -3,15 +3,35 @@
 # convention as scripts/security/cypher_write_subset_baseline.txt and
 # scripts/security/log_exception_redaction_baseline.txt).
 #
-# Registered as D-CIP-2 in the deferred registry. NOT a permanent
-# exemption: security.yml's sync is genuinely broken on a GitHub runner
-# and every gate in that workflow is consequently skipped. It is
-# baselined rather than fixed because the fix is a real trade-off the
-# operator has to pick (see check_ci_environment_contract.py's module
-# docstring and reports/ci-parity-matrix-0801.md section 2a): adding
-# guardrails.yml's --no-install-package flags makes the sync resolve but
-# then reds check_sbom_licenses.py, which raises LicenseAuditError for a
-# declared dependency it cannot find in the installed environment.
+# Registered as D-CIP-2 in the deferred registry.
+#
+# UPDATE (w2-push-0802, 2026-08-01): security.yml was fixed for real using
+# option 3 from reports/ci-parity-matrix-0801.md section 2a -- it now
+# `actions/checkout`s Knuckles-Team/epistemic-graph and
+# Knuckles-Team/langfuse-agent (both public) straight into
+# .uv-workspace-siblings/<name> as two extra steps BEFORE the sync, so the
+# distribution the sync needs genuinely exists on the runner, same as it
+# would on a full local workspace checkout. VERIFIED by hand against the
+# real network (not merely inspected): cloned both public sibling repos
+# into a tracked-only export of this tree and re-ran exactly
+# `uv sync --frozen --dry-run --group guardrails --extra agent-runtime`
+# there -- it resolves (rc=0), which means check_sbom_licenses.py's
+# license audit also has both packages installed for real (not excluded),
+# so the option-1 SBOM trade-off this comment used to describe no longer
+# applies; that trade-off was NOT the one chosen.
+#
+# This entry remains baselined anyway, and is expected to STAY baselined,
+# because check_ci_environment_contract.py deliberately never makes a
+# network call (documented budget: <2s, offline) and therefore cannot
+# replay the two checkout steps that make security.yml's sync resolve on
+# a real runner. Replaying only the bare `uv sync` against a tracked-only
+# export (no siblings materialized) reproduces the ORIGINAL 2026-07-28
+# failure shape every time, by design -- this is a known, accepted false
+# negative of the local tool, not evidence that CI is still broken. See
+# D-W2PU-1/D-W2PU-2 in the w2-push-0802 deferred-registry entries for the
+# adjacent findings this verification surfaced (a stale v2.1.1 tag already
+# on origin/main's tip, and the pypi-publish/docker-publish GitHub
+# environments not yet existing).
 #
 # TAB-separated: workflow\tcommand
 #

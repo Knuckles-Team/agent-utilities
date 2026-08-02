@@ -78,7 +78,7 @@ def is_llm_configured() -> bool:
         from agent_utilities.core.config import config
 
         # A configured fleet chat model (config.json ``chat_models`` — e.g. the local
-        # vLLM at ``http://vllm.arpa/v1``) IS a usable planner endpoint: ``create_model``
+        # vLLM at ``http://vllm.example/v1``) IS a usable planner endpoint: ``create_model``
         # routes an unmapped role to ``config.default_chat_model`` (see model_factory).
         # This is the SAME model delegation already uses, so recognize it here instead of
         # forcing the operator to also set the OPENAI_BASE_URL env var (config is the
