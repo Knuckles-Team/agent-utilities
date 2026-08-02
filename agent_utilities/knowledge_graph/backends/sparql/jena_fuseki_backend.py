@@ -42,7 +42,6 @@ from agent_utilities.knowledge_graph.core.event_backend import (
     EventBackend,
 )
 
-from ..base import embedding_values_match
 from .base import SparqlAdapter
 
 logger = logging.getLogger(__name__)
@@ -66,6 +65,11 @@ class JenaFusekiBackend(SparqlAdapter):
         - HTTP connection pooling via httpx
         - Automatic dataset creation if missing
     """
+
+    # ``_embeddings`` is only a process-local brute-force cache.  A fresh
+    # backend instance cannot recover it from Fuseki, so fan-out must treat this
+    # target as graph-only and never acknowledge vector replay from that cache.
+    supports_native_vector_search = False
 
     def __init__(
         self,
@@ -251,12 +255,6 @@ class JenaFusekiBackend(SparqlAdapter):
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Store embedding vector (client-side; Fuseki has no native vector index)."""
         self._embeddings[node_id] = embedding
-
-    def verify_node_embedding(
-        self, node_id: str, embedding: list[float]
-    ) -> bool:
-        """Confirm the process-local Fuseki mirror vector cache."""
-        return embedding_values_match(self._embeddings.get(node_id), embedding)
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5

@@ -21,14 +21,16 @@ Safety model:
     is deliberate: embedding ~26,000 nodes is an expensive, outward-facing
     operation against a shared, already latency-contended engine (D-PERF-2)
     and must be sized/approved by an operator, not run unattended by a script.
-  * Persists each vector with the engine's atomic field compare-and-set, which
-    preserves every existing classification/ACL/ownership property, then adds
-    it to ANN/HNSW. It never re-upserts the entity through a new ChangeEnvelope.
-    The CAS fences the exact entity-text snapshot, and every vector is validated
-    before a vector property is written. The durable ``embedding`` property
-    makes repeated bounded chunks advance; a textless node receives a separate
-    ``no_text`` maintenance state, never a placeholder embedding. An ANN-side
-    failure is recovered by the existing hydration loop.
+  * Persists each vector with one engine transaction that stages the exact-text
+    field compare-and-set and ANN/HNSW addition together while preserving every
+    existing classification/ACL/ownership property. It never re-upserts the
+    entity through a new ChangeEnvelope. Every vector is validated before the
+    transaction; an ANN staging/commit failure rolls back before the durable
+    ``embedding`` property and a later bounded backfill retries the node. After
+    commit, a served-read readiness CAS publishes the vector. The existing
+    hydration loop only repairs the post-commit crash gap where the property and
+    ANN vector exist but readiness remains false. A textless node receives a
+    separate ``no_text`` maintenance state, never a placeholder embedding.
   * Prints a cost estimate (measured throughput this run, extrapolated to the
     full remaining backlog) and the exact command to run the next chunk —
     it does NOT chain into further runs itself.

@@ -165,14 +165,17 @@ flowchart LR
   H --> T{"extractable text?"}
   T -->|no| D["CAS separate no-text state<br/>never a placeholder vector"]
   T -->|yes| E["one batched embedding request<br/>validate all vectors first"]
-  E --> C["atomic compare-and-set<br/>embedding + exact text snapshot"]
-  C --> A["register vector in ANN"]
-  A -.->|retry after index failure| R["background property-to-index hydrator"]
-  C --> F["fan-out winning full node<br/>to configured mirrors"]
+  E --> C["one cross-modal transaction<br/>exact-text CAS + ANN add"]
+  C -->|commit together| P["durable property + ANN vector"]
+  C -.->|staging or commit failure rolls back| B["later bounded backfill retries"]
+  P --> S["CAS served-read readiness true"]
+  P -.->|post-commit crash before readiness| R["periodic/operator hydration repair"]
+  P --> F["fan-out winning full node<br/>to configured mirrors"]
 ```
 
-The vector compare-and-set changes only the embedding field, so existing
-connector properties, ownership, classification, and ACL state remain intact.
+The vector transaction changes only the embedding and its maintenance/readiness
+fields, so existing connector properties, ownership, classification, and ACL
+state remain intact.
 It also fences the exact name/summary/fallback values used to construct the
 embedding input: a concurrent content update loses the CAS and is retried from a
 fresh property snapshot instead of receiving a stale vector. Every response
@@ -185,8 +188,12 @@ state, never a fake embedding, so it does not pin every later page; a normal ful
 entity upsert replaces that state when source data changes. In fan-out mode, a
 winning authority CAS reuses the structured full-node outbox path so mirrors
 receive the exact updated node without resetting ACL properties; a losing CAS
-emits no mirror entry. ANN registration follows the property write; if it fails,
-the normal hydration loop retries without regenerating the vector.
+emits no mirror entry. The conditional property update and ANN registration
+stage and commit in one engine transaction. An ANN staging or commit failure
+rolls back before the embedding property is durable, leaving the node eligible
+for a later bounded backfill. The periodic/operator hydrator repairs only the
+post-commit gap where the property and ANN vector exist but the served-read
+readiness CAS did not complete; it does not repair a rolled-back transaction.
 
 ---
 

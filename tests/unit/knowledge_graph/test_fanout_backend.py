@@ -336,6 +336,66 @@ def test_atomic_embedding_node_property_mirror_writes_vector_once(
         fan.close()
 
 
+def test_sparql_process_local_vector_caches_are_declared_graph_only() -> None:
+    """Ephemeral SPARQL caches must not advertise durable vector projection."""
+    from agent_utilities.knowledge_graph.backends.sparql.jena_fuseki_backend import (
+        JenaFusekiBackend,
+    )
+    from agent_utilities.knowledge_graph.backends.sparql.stardog_backend import (
+        StardogSparqlBackend,
+    )
+
+    assert JenaFusekiBackend.supports_native_vector_search is False
+    assert StardogSparqlBackend.supports_native_vector_search is False
+
+
+def test_graph_only_mirror_never_acks_vector_from_ephemeral_cache(
+    tmp_path, monkeypatch
+):
+    """Fan-out acknowledges the graph snapshot without touching a local cache."""
+
+    class _GraphOnlySparqlMirror(RecordingBackend):
+        supports_native_vector_search = False
+
+        def __init__(self, name: str) -> None:
+            super().__init__(name)
+            self.embeddings: dict[str, list[float]] = {}
+            self.verification_calls = 0
+
+        def add_embedding(self, node_id, embedding):
+            self.embeddings[node_id] = list(embedding)
+            super().add_embedding(node_id, embedding)
+
+        def verify_node_embedding(self, node_id, embedding):
+            del node_id, embedding
+            self.verification_calls += 1
+            return True
+
+    authority = StatefulBackend("authority")
+    mirror = _GraphOnlySparqlMirror("graph-only-sparql")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    try:
+        assert fan.compare_and_set_node_embedding(
+            "node-1",
+            {"embedding": None, "name": "billing"},
+            {"embedding": [1.0, 2.0]},
+            [1.0, 2.0],
+        )
+
+        assert fan.flush_mirrors(timeout=2.0)
+        assert mirror.embeddings == {}
+        assert mirror.verification_calls == 0
+        assert all("embedding" not in params for params in mirror.execute_params)
+        assert fan._outbox.lag("mirror") == 0
+    finally:
+        fan.close()
+
+
 def test_independent_typed_writes_overlap_authority_rpcs(tmp_path, monkeypatch):
     """D-BFR-7: unrelated entities must not share one authority-RPC lock."""
 
