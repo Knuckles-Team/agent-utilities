@@ -61,7 +61,10 @@ from agent_utilities.core.http_client import (
     create_http_client,
 )
 from agent_utilities.httpsupport.auth import AuthHeaderInjector
-from agent_utilities.httpsupport.pagination import AsyncPaginationIterator, PaginationIterator
+from agent_utilities.httpsupport.pagination import (
+    AsyncPaginationIterator,
+    PaginationIterator,
+)
 from agent_utilities.httpsupport.rate_limit import (
     DEFAULT_RETRY_AFTER_CAP_S,
     RateLimitCapture,
