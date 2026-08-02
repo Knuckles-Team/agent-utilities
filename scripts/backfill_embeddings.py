@@ -34,6 +34,18 @@ Safety model:
   * Prints a cost estimate (measured throughput this run, extrapolated to the
     full remaining backlog) and the exact command to run the next chunk —
     it does NOT chain into further runs itself.
+  * NEVER embeds a secret-bearing node (D-CDX-102): every candidate query
+    (population snapshot, dry-run preview, and the real backfill) excludes
+    ``graph_name == secrets_client.SECRETS_GRAPH`` and
+    ``node_type == secrets_client.SECRET_LABEL`` — sourced from the SAME
+    constants that define the encrypted secrets store, not a maintained
+    denylist. A semantic vector index is queried by similarity and its hits
+    are returned to agents, so embedding a secret-graph node (even a
+    bookkeeping record ABOUT one) is a disclosure vector.
+  * ZERO durable progress is a FAILURE, not a quiet no-op (D-CDX-101): if
+    ``--execute`` scans real (text-bearing) candidates but embeds none of
+    them, the process exits nonzero and prints the full cause of every
+    failed atomic commit — never just an exception's class name.
 """
 
 from __future__ import annotations
@@ -43,6 +55,24 @@ import asyncio
 import sys
 import time
 from typing import Any
+
+
+def _is_zero_progress_failure(report: dict[str, int]) -> bool:
+    """True when real candidates were attempted but NONE were durably embedded.
+
+    D-CDX-101: pure and unconditional on cause — a run that lost every row to
+    ``errored`` (a backend/infra failure, e.g. an unmet transaction
+    precondition on the live engine) and a run that lost every row to
+    ``conflicted`` (an ordinary concurrent-writer OCC race) are both "zero
+    durable progress" and must both fail the process, not just log text a
+    caller may never read. A run with NO real (text-bearing) candidates this
+    page (``attempted_with_text == 0``, e.g. every row was textless) is NOT a
+    failure — there was nothing to embed.
+    """
+    skipped_no_text = max(0, int(report.get("skipped_no_text", 0)))
+    attempted_with_text = max(0, int(report.get("scanned", 0)) - skipped_no_text)
+    embedded_this_run = max(0, int(report.get("embedded", 0)))
+    return attempted_with_text > 0 and embedded_this_run == 0
 
 
 def _cost_estimate(
@@ -87,6 +117,16 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
     backend = engine.backend
     print(f"backend: {type(backend).__name__}", flush=True)
 
+    # D-CDX-102: the SAME construction-time secrets exclusion the real
+    # backfill and the dry-run discovery below use, so the population
+    # snapshot's "eligible now" count never overstates the candidate set by
+    # including nodes this script will never actually embed.
+    from agent_utilities.knowledge_graph.enrichment.semantic import (
+        embedding_backfill_eligibility_clause,
+    )
+
+    exclusion_clause, exclusion_params = embedding_backfill_eligibility_clause()
+
     # ---- current population snapshot (same counts the diagnosis used) ----
     total = embedded = with_text = eligible = 0
     try:
@@ -106,7 +146,9 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
         eligible = (
             backend.execute(
                 "MATCH (n) WHERE n.embedding IS NULL "
-                "AND n._embedding_backfill_state IS NULL RETURN count(n) AS c"
+                "AND n._embedding_backfill_state IS NULL "
+                f"{exclusion_clause} RETURN count(n) AS c",
+                exclusion_params,
             )
             or [{}]
         )[0].get("c", 0)
@@ -160,8 +202,9 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
                 backend.execute(
                     "MATCH (n) WHERE n.embedding IS NULL "
                     "AND n._embedding_backfill_state IS NULL "
+                    f"{exclusion_clause} "
                     "RETURN n.id AS id ORDER BY n.id LIMIT $limit",
-                    {"limit": limit},
+                    {"limit": limit, **exclusion_params},
                 )
                 or []
             )
@@ -200,6 +243,23 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
     indexed_this_run = report.get("indexed", 0)
     deferred_no_text = report.get("deferred_no_text", 0)
     conflicted = report.get("conflicted", 0)
+    errored = report.get("errored", 0)
+    skipped_no_text = report.get("skipped_no_text", 0)
+    attempted_with_text = max(0, report.get("scanned", 0) - skipped_no_text)
+
+    if _is_zero_progress_failure(report):
+        print(
+            f"\n=== ZERO PROGRESS: FAILING ===\n"
+            f"{attempted_with_text} node(s) had extractable text and were "
+            f"attempted, but NONE were durably embedded this run "
+            f"(errored={errored}, conflicted={conflicted}). "
+            "See the 'Atomic embedding commit failed for ...' warning(s) "
+            "above for the full cause of each failure — this script no "
+            "longer suppresses it.",
+            flush=True,
+        )
+        sys.exit(1)
+
     if indexed_this_run < embedded_this_run:
         print(
             f"ANN registration deferred for "

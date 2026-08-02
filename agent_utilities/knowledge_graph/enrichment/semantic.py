@@ -42,6 +42,58 @@ EMBEDDING_BACKFILL_NO_TEXT = "no_text"
 EMBEDDING_INDEX_READY_FIELD = "_embedding_index_ready"
 
 
+def embedding_backfill_eligibility_clause(*, alias: str = "n") -> tuple[str, dict[str, Any]]:
+    """Cypher ``AND``-clause + params excluding secret-bearing nodes from
+    embedding-backfill candidacy (D-CDX-102).
+
+    A semantic vector index is queried by SIMILARITY and its hits are handed
+    back to agents — embedding a node is a disclosure surface, not a neutral
+    read. This is the ONE place the legacy entity-embedding backfill decides
+    what is eligible, so every caller (the real backfill, the operator dry
+    run, the population/eligible-count snapshot) shares an IDENTICAL,
+    construction-time exclusion instead of three copies that can silently
+    drift apart:
+
+    * ``graph_name`` — excludes :data:`~agent_utilities.security.
+      secrets_client.SECRETS_GRAPH` (``__secrets__``), the dedicated
+      engine-encrypted graph secret VALUES live in. Bookkeeping records
+      (``IngestManifest`` rows) that merely reference it still carry
+      ``graph_name="__secrets__"`` and are excluded too — a manifest of
+      *which* prompt/credential file was ingested is itself sensitive
+      metadata a similarity search should never surface.
+    * ``node_type`` — excludes :data:`~agent_utilities.security.
+      secrets_client.SECRET_LABEL` (``Secret``) node labels directly, as
+      defense in depth if a future unified-read path ever makes an actual
+      ``:Secret`` node reachable from a cross-graph query.
+
+    This is intentionally NOT a maintained denylist of node ids/patterns —
+    it is sourced from the SAME constants ``secrets_client`` uses to define
+    the secrets store, so it can only drift if that store's own identity
+    changes (in which case this clause changes with it, by construction).
+
+    Deliberately ``IS NULL OR <>`` rather than ``coalesce(...) <> $x``:
+    ``coalesce()`` (like ``properties(n)`` elsewhere in this module's
+    callers) is NOT in the native engine's supported Cypher subset and is
+    REJECTED outright (``CypherEngineError(..., error_type=RuntimeError)``,
+    empirically confirmed against the live engine) rather than merely
+    behaving unexpectedly — so this uses only primitives already proven live
+    (``IS NULL``, ``<>``, parameterized literals, ``AND``/``OR``).
+    """
+    from agent_utilities.security.secrets_client import SECRET_LABEL, SECRETS_GRAPH
+
+    clause = (
+        f"AND ({alias}.graph_name IS NULL OR {alias}.graph_name <> "
+        "$embedding_backfill_excluded_graph) "
+        f"AND ({alias}.node_type IS NULL OR {alias}.node_type <> "
+        "$embedding_backfill_excluded_label)"
+    )
+    params: dict[str, Any] = {
+        "embedding_backfill_excluded_graph": SECRETS_GRAPH,
+        "embedding_backfill_excluded_label": SECRET_LABEL,
+    }
+    return clause, params
+
+
 def configured_embedding_dimension() -> int:
     """Return the positive vector dimension declared for the active KG schema."""
     from agent_utilities.core.config import config
