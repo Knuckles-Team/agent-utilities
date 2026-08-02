@@ -79,10 +79,13 @@ async def verify_openai_model(
             error="openai client unavailable",
         )
 
-    client_kwargs: dict[str, str] = {"api_key": api_key}
     if base_url:
-        client_kwargs["base_url"] = base_url
-    client = AsyncOpenAI(**client_kwargs)
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    else:
+        # Preserve the SDK's default endpoint for both ``None`` and an empty
+        # configuration value. Passing ``base_url=""`` creates a relative,
+        # unusable client instead of selecting the OpenAI default.
+        client = AsyncOpenAI(api_key=api_key)
     try:
         record = await client.models.retrieve(model_id)
     except Exception as exc:  # noqa: BLE001 - DELIBERATELY type-name-only: an

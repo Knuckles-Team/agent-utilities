@@ -380,7 +380,10 @@ class OAuth2Credential(SourceCredential):
                     timeout=self.timeout,
                     **trust.httpx_kwargs(),
                 ) as client:
-                    resp = client.post(self.token_url, data=data, auth=auth)
+                    if auth is None:
+                        resp = client.post(self.token_url, data=data)
+                    else:
+                        resp = client.post(self.token_url, data=data, auth=auth)
                     resp.raise_for_status()
                     payload = resp.json()
             finally:

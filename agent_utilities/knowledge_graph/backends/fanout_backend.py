@@ -57,7 +57,7 @@ import os
 import queue
 import re
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -815,7 +815,10 @@ class FanOutBackend(GraphBackend):
                 "fan-out authority does not support atomic embedding updates"
             )
         get_properties = getattr(authority, "get_node_properties", None)
-        if self._mirrors and not callable(get_properties):
+        snapshotter: Callable[[str], Any] | None = (
+            get_properties if callable(get_properties) else None
+        )
+        if self._mirrors and snapshotter is None:
             raise RuntimeError(
                 "fan-out authority cannot snapshot an atomic embedding update"
             )
@@ -828,7 +831,8 @@ class FanOutBackend(GraphBackend):
             properties: dict[str, Any] = {}
             label = ""
             if self._mirrors:
-                snapshot = get_properties(node_id)
+                assert snapshotter is not None
+                snapshot = snapshotter(node_id)
                 if not isinstance(snapshot, dict):
                     raise RuntimeError(
                         "fan-out authority node disappeared after atomic embedding update"

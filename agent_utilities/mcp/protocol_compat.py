@@ -265,7 +265,12 @@ def _declared_extra_floor(distribution: str, package: str, extra: str) -> Any | 
         reqs = importlib.metadata.requires(distribution) or []
     except importlib.metadata.PackageNotFoundError:
         return None
-    env = {**default_environment(), "extra": extra}
+    env: dict[str, str] = {}
+    for environment_name, environment_value in default_environment().items():
+        if not isinstance(environment_value, str):
+            return None
+        env[environment_name] = environment_value
+    env["extra"] = extra
     for raw in reqs:
         try:
             req = Requirement(raw)

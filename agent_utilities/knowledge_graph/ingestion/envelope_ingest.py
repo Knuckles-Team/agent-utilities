@@ -45,6 +45,7 @@ import random
 import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from importlib.resources import files
@@ -823,7 +824,9 @@ def _node_properties_verified(client: Any, node_id: str) -> dict[str, Any]:
         try:
             decoded = json.loads(value)
         except (TypeError, ValueError) as exc:
-            raise RuntimeError("node property hydration returned malformed JSON") from exc
+            raise RuntimeError(
+                "node property hydration returned malformed JSON"
+            ) from exc
         if isinstance(decoded, dict):
             return decoded
     raise RuntimeError("node property hydration returned an invalid payload")
@@ -1946,10 +1949,13 @@ def _commit_embedded_vectors(
     scoped_atomic_embedding = getattr(
         publisher, "compare_and_set_node_embedding_for_graph", None
     )
+    atomic_embedding: (
+        Callable[[str, dict[str, Any], dict[str, Any], list[float]], bool] | None
+    )
     if callable(scoped_atomic_embedding):
         graph_name = str(getattr(compute, "graph_name", "") or "")
 
-        def atomic_embedding(
+        def _scoped_atomic_embedding(
             node_id: str,
             conditions: dict[str, Any],
             updates: dict[str, Any],
@@ -1961,8 +1967,11 @@ def _commit_embedded_vectors(
                 )
             )
 
+        atomic_embedding = _scoped_atomic_embedding
+
     else:
-        atomic_embedding = getattr(compute, "compare_and_set_node_embedding", None)
+        candidate = getattr(compute, "compare_and_set_node_embedding", None)
+        atomic_embedding = candidate if callable(candidate) else None
     if not callable(atomic_embedding):
         logger.warning(
             "ingest-time embedding remains unavailable: authority lacks atomic "
@@ -1975,12 +1984,18 @@ def _commit_embedded_vectors(
         derive_entity_text_snapshot,
     )
 
+    client = getattr(compute, "client", None)
+    if client is None:
+        logger.warning(
+            "ingest-time embedding remains unavailable: authority lacks a native client"
+        )
+        return
     positioned_ids = {
         position: str(node_id)
         for position, node_id in node_ids.items()
         if node_id and position in vectors
     }
-    properties = _node_properties_batch(compute.client, list(positioned_ids.values()))
+    properties = _node_properties_batch(client, list(positioned_ids.values()))
     for position, (vector, expected_text) in vectors.items():
         node_id = node_ids.get(position)
         if not node_id:

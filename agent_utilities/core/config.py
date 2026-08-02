@@ -6264,7 +6264,7 @@ def _fetch_registry_from_kg() -> tuple[MCPAgentRegistryModel, bool]:
     tools = _fetch_tools(engine, errors)
     agents.extend(_synthesize_partition_agents(tools, {a.name for a in agents}))
 
-    return MCPAgentRegistryModel(agents=agents, tools=tools), not errors
+    return MCPAgentRegistryModel(agents=agents, tools=tuple(tools)), not errors
 
 
 def _fetch_prompt_agents(

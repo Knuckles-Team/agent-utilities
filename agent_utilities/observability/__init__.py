@@ -32,13 +32,16 @@ REAL spans and metric instruments, never a placeholder/no-op facade.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from agent_utilities.core.config import setting
 from agent_utilities.security.persistence_privacy import (
     PersistencePrivacyGuard,
     persistence_reference,
 )
+
+if TYPE_CHECKING:
+    from opentelemetry.sdk.trace.export import SpanExporter
 
 logger = logging.getLogger(__name__)
 
@@ -468,17 +471,20 @@ class TelemetryEngine:
             tracer_provider = TracerProvider(resource=resource)
             tracer_provider.add_span_processor(
                 BatchSpanProcessor(
-                    _LoudFailureSpanExporter(
-                        _MetadataOnlySpanExporter(
-                            OTLPSpanExporter(
-                                endpoint=traces_endpoint,
-                                headers=trace_headers,
-                                session=trace_session,
+                    cast(
+                        "SpanExporter",
+                        _LoudFailureSpanExporter(
+                            _MetadataOnlySpanExporter(
+                                OTLPSpanExporter(
+                                    endpoint=traces_endpoint,
+                                    headers=trace_headers,
+                                    session=trace_session,
+                                ),
+                                service_ref=service_ref,
                             ),
-                            service_ref=service_ref,
+                            endpoint=traces_endpoint,
                         ),
-                        endpoint=traces_endpoint,
-                    )
+                    ),
                 )
             )
 

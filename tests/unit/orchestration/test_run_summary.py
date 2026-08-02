@@ -56,7 +56,15 @@ def test_extract_failure_text_falls_back_to_results_output() -> None:
 
 
 def test_extract_failure_text_never_empty_even_with_no_signal() -> None:
-    for junk in ({}, {"results": {}}, {"metadata": {}}, None, "", 42):
+    junk_values: tuple[object, ...] = (
+        {},
+        {"results": {}},
+        {"metadata": {}},
+        None,
+        "",
+        42,
+    )
+    for junk in junk_values:
         text = _extract_failure_text(junk)
         assert isinstance(text, str) and text.strip()
 
@@ -315,6 +323,7 @@ async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenanc
     assert payload["run_summary"]["execution_mode"] == "single_server_agent"
     assert "without recorded ToolCall provenance" in payload["output"]
     assert "repository-manager-mcp" not in payload["run_summary"]["route"]["servers"]
+    assert execute_server.await_args is not None
     assert execute_server.await_args.kwargs["agent_name"] == "github-mcp"
     _, trace_kwargs = mock_trace.call_args
     assert trace_kwargs["status"] == "degraded"
