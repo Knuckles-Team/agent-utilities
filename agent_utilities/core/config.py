@@ -6382,7 +6382,52 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
         tool_rows = engine.backend.execute(
             "MATCH (t:Tool) RETURN t.name, t.description, t.mcp_server, t.relevance_score, t.tags, t.requires_approval"
         )
-        for row in tool_rows:
+    except Exception as exc:  # noqa: BLE001 — backend details may contain credentials; report only the exception class
+        # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
+        # (see _fetch_prompt_agents above) — a failure here additionally drops
+        # all dynamically-synthesized partition agents (they're derived from
+        # `tools`), so it is especially important this isn't cached as
+        # "complete" for the process's whole lifetime.
+        logger.warning(
+            "Failed to fetch Tool nodes (registry cache may go stale) (%s)",
+            type(exc).__name__,
+        )
+        if errors is not None:
+            errors.append(f"tools: query failed ({type(exc).__name__})")
+        return tools
+
+    try:
+        row_iterator = iter(tool_rows)
+    except Exception as exc:  # noqa: BLE001 — backend iteration details may contain secrets; report only the exception class
+        logger.warning(
+            "Tool query returned a non-iterable result (%s); registry will retry",
+            type(exc).__name__,
+        )
+        if errors is not None:
+            errors.append(f"tools: result is not iterable ({type(exc).__name__})")
+        return tools
+
+    rejected_rows = 0
+    row_index = 0
+    while True:
+        try:
+            row = next(row_iterator)
+        except StopIteration:
+            break
+        except Exception as exc:  # noqa: BLE001 — lazy backend errors are sanitized and make the registry explicitly incomplete
+            logger.warning(
+                "Tool row stream failed after %d row(s) (%s); registry will retry",
+                row_index,
+                type(exc).__name__,
+            )
+            if errors is not None:
+                errors.append(
+                    f"tools: row stream failed after {row_index} row(s) "
+                    f"({type(exc).__name__})"
+                )
+            return tools
+
+        try:
             tools.append(
                 MCPToolInfo(
                     name=row.get("t.name", ""),
@@ -6393,15 +6438,20 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
                     requires_approval=row.get("t.requires_approval", False),
                 )
             )
-    except Exception as e:
-        # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
-        # (see _fetch_prompt_agents above) — a failure here additionally drops
-        # all dynamically-synthesized partition agents (they're derived from
-        # `tools`), so it is especially important this isn't cached as
-        # "complete" for the process's whole lifetime.
-        logger.warning(f"Failed to fetch Tool nodes (registry cache may go stale): {e}")
-        if errors is not None:
-            errors.append(f"tools: {e}")
+        except Exception:  # noqa: BLE001 — quarantine untrusted row objects without evaluating or logging their contents
+            rejected_rows += 1
+        finally:
+            row_index += 1
+
+    if rejected_rows:
+        logger.warning(
+            "Rejected %d malformed Tool row(s); registry will retry",
+            rejected_rows,
+        )
+    if rejected_rows and errors is not None:
+        # Preserve valid tools for this request, but keep the assembled registry
+        # out of the process-lifetime cache until the bad graph rows are fixed.
+        errors.append(f"tools: rejected {rejected_rows} malformed row(s)")
     return tools
 
 
