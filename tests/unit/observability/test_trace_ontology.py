@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -15,7 +15,11 @@ from agent_utilities.knowledge_graph.core.company_brain_runtime import (
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
 from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
-from agent_utilities.models.graph import GraphExecutionEvidence
+from agent_utilities.models.graph import (
+    GraphExecutionEvidence,
+    GraphTaskEvidence,
+    GraphTransitionEvidence,
+)
 from agent_utilities.models.schema_definition import SCHEMA
 from agent_utilities.observability.trace_ontology import (
     TRACE_PRODUCED_OUTCOME_EDGE,
@@ -36,20 +40,22 @@ _GRAPH_EVIDENCE = GraphExecutionEvidence(
     runtime_version="2.21.0",
     node_sequence=["router", "dispatcher", "__end__"],
     transitions=[
-        {
-            "sequence": 1,
-            "scheduled_tasks": [{"node_id": "router", "task_id": "task:router"}],
-        },
-        {
-            "sequence": 2,
-            "scheduled_tasks": [
-                {"node_id": "dispatcher", "task_id": "task:dispatcher"}
+        GraphTransitionEvidence(
+            sequence=1,
+            scheduled_tasks=[
+                GraphTaskEvidence(node_id="router", task_id="task:router")
             ],
-        },
-        {
-            "sequence": 3,
-            "scheduled_tasks": [{"node_id": "__end__", "task_id": "task:end"}],
-        },
+        ),
+        GraphTransitionEvidence(
+            sequence=2,
+            scheduled_tasks=[
+                GraphTaskEvidence(node_id="dispatcher", task_id="task:dispatcher")
+            ],
+        ),
+        GraphTransitionEvidence(
+            sequence=3,
+            scheduled_tasks=[GraphTaskEvidence(node_id="__end__", task_id="task:end")],
+        ),
     ],
     checkpoint_ids=["ckpt:fixture:1"],
 )
@@ -67,12 +73,43 @@ class _TraceBackend:
         return list(self.rows)
 
 
-class _TraceQueryHarness(QueryMixin):
-    """Minimal QueryMixin host for the temporal consumer's real read path."""
+class _TraceQueryHarness:
+    """Minimal host that invokes the production ``QueryMixin`` read path."""
 
     def __init__(self, backend: _TraceBackend) -> None:
-        self.backend = backend
+        # The test backend deliberately implements only the governed read seam;
+        # the production mixin's broader engine protocol is not exercised here.
+        self.backend: Any = backend
         self.control_backend = None
+
+    def query_cypher(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        clearance_level: int = 999,
+        as_of: str | None = None,
+        *,
+        session: GraphSession | None = None,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        return QueryMixin.query_cypher(
+            cast(QueryMixin, self),
+            query,
+            params,
+            clearance_level,
+            as_of,
+            session=session,
+            include_epistemic=include_epistemic,
+        )
+
+    def retrieve_orthogonal_context(
+        self,
+        query: str,
+        views: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return QueryMixin.retrieve_orthogonal_context(
+            cast(QueryMixin, self), query, views
+        )
 
 
 @pytest.fixture
@@ -93,7 +130,8 @@ def test_temporal_view_returns_ordered_canonical_traces_under_tenant_scope(
     trace_brain,
 ) -> None:
     """The active consumer keeps its result rows and governed query boundary."""
-    rows = [
+    trace_ids = ("trace:latest", "trace:middle", "trace:earliest")
+    rows: list[dict[str, dict[str, Any]]] = [
         {
             "r": {
                 "id": "trace:latest",
@@ -116,10 +154,10 @@ def test_temporal_view_returns_ordered_canonical_traces_under_tenant_scope(
             }
         },
     ]
-    for row in rows:
+    for node_id in trace_ids:
         trace_brain.permissions.set_acl(
             NodeACL(
-                node_id=row["r"]["id"],
+                node_id=node_id,
                 classification=DataClassification.PUBLIC,
             )
         )
