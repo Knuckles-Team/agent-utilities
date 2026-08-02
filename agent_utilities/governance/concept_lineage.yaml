@@ -165,6 +165,13 @@ parents:
     parent: AU-KG.compute.first-class-action-conditioned
     rationale: the MCP action that forward-simulates the parent's learned model; an exposure surface,
       not a modelling choice
+renamed:
+  AU-KG.history.scoped-conversation-search:
+    reason: history was never registered in the KG pillar closed vocabulary (agent_utilities/governance/domain_vocab.yaml)
+      and check_domain_vocab.py fails the build on it (D-CC-9); the marker names a real decision (scope-aware
+      conversation-history traversal) that survives whole under a legal domain — retrieval already lists
+      search/recall as signals and is the closest existing home for a search-shaped decision.
+    to: AU-KG.retrieval.scoped-conversation-search
 retired:
   AU-KG.compute.automates:
     reason: a single generic verb naming an ontology EDGE TYPE (AUTOMATES), not a decision; the connector-to-skill
