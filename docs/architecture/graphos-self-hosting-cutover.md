@@ -130,6 +130,24 @@ take it:
    Total KG-down window: stop (near-instant) + new-engine-load — the same ballpark
    as today's engine `Recreate` restarts (an eg cutover on 2026-07-22 measured
    ~2.5 min end-to-end for a comparable stop/reload).
+
+   ⚠ **This estimate no longer holds at current store size (D-CDX-65, open).**
+   A governed rollout on 2026-08-02 (main `3329180d`) measured the old pod
+   terminated at `11:10:48Z`, the engine logging "Acquired the configured
+   single-writer persistence lock" at `11:11:38Z`, then **no further progress
+   for 5m26s** (only `redb: catalog-loaded 87 graph(s) from 4 shard(s) —
+   lazy startup, no node/edge data read` at `11:17:04Z`) before the sidecar's
+   startupProbe passed and serving containers started at `11:17:05-06Z` — a
+   measured **~6m17s** end-to-end KG-down window against an ~11GB persist-dir
+   (4 shards: 532MB/5.0GB/4.0GB/1.2GB), not the ~45s-2min this section
+   originally scoped for. The startup budget (`failureThreshold: 200,
+   periodSeconds: 3` = 600s) already accounts for this being slow, but gives
+   operators and connecting clients no progress signal during the wait —
+   only connection-refused. D-CDX-65 (open) owns instrumenting per-shard
+   phase/bytes/records/duration so this is a visible, honest progress signal
+   instead of a silent multi-minute gap, and profiling whether the "lazy,
+   no node/edge data read" catalog load can be made to actually cost close
+   to nothing, as its own log line claims it should.
 5. Verify (checklist below), THEN delete the old epistemic-graph/Service, or leave
    them scaled to 0 for a rollback window before deleting.
 ```

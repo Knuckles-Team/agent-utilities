@@ -1,5 +1,27 @@
 # graph-os Horizontal Scaling — the HPA Blocker, Precisely
 
+> ⚠ **SUPERSEDED as of 2026-07-26 for the currently deployed topology
+> (D-CDX-63).** The "live fact" table in §1 below was captured 2026-07-25
+> against the **`out-of-process-shared`** shape (Shape 2: a separate,
+> horizontally-scaled `epistemic-graph` Deployment + `RollingUpdate
+> (maxSurge:1, maxUnavailable:0)` `graph-os` client Deployment). The very
+> next day, [`graphos-self-hosting-cutover.md`](graphos-self-hosting-cutover.md)
+> was **executed** against production, replacing that topology with Shape 1
+> (`unified-in-process`: engine + graph-os co-located in one pod, `replicas:
+> 1`, `strategy: Recreate` — a HARD requirement there, not a regression; see
+> that document's "The pod spec" section). Nobody returned to correct this
+> page's "live fact" table after the pivot, so it kept asserting a rollout
+> strategy (`RollingUpdate`) the live `platform/graph-os` Deployment has not
+> run since 2026-07-26 — confirmed still current via `kubectl get deploy
+> graph-os -n platform -o yaml` as of 2026-08-02 (`strategy.type: Recreate`).
+> **This page's content below is retained for reference only** — it documents
+> real, previously-live infrastructure (engine TLS, HPA mechanics) that would
+> need to be re-established if Shape 2 is ever re-adopted for true
+> zero-downtime rolling updates, which Shape 1 deliberately traded away for a
+> much simpler single-writer-lock model. Do not treat §1's table as
+> describing the current Deployment; read
+> [`graphos-self-hosting-cutover.md`](graphos-self-hosting-cutover.md) for that.
+
 > Scope: the **`out-of-process-shared`** engine topology only — a single (optionally
 > Raft-clustered) `epistemic-graph` engine served to **N independent graph-os client
 > pods**, scaled with a k8s `HorizontalPodAutoscaler` (the "hyperscaling" shape in
