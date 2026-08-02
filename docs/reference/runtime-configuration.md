@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-552 typed fields · 362 runtime-only call-site inputs.
+552 typed fields · 363 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -982,6 +982,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `PROMETHEUS_MULTIPROC_DIR` | 1 |
 | `PROVIDER` | 2 |
 | `PYTEST_CURRENT_TEST` | 1 |
+| `PYTHONPATH` | 1 |
 | `QUERY_ROUTER_L1_THRESHOLD` | 1 |
 | `QUERY_ROUTER_STRATEGY` | 1 |
 | `QWEN_IMAGE_URL` | 1 |
