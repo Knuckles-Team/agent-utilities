@@ -33,11 +33,22 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from mcp.shared.exceptions import MCPError
-from mcp_types import RequestParams, Result
-from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
-from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import ConfigDict, Field
+
+from agent_utilities.mcp.protocol_compat import mcp_protocol_error
+
+# MCP SDK v2 (which the `fastmcp>=4.0.0b1` floor pulls in) renamed
+# `McpError` -> `MCPError`. The fleet is EXPLICITLY mixed-version: child images
+# still ship fastmcp 3.x / SDK v1 while hostPath-mounting THIS working tree over
+# their own site-packages, so a hard `from mcp.shared.exceptions import MCPError`
+# raises ImportError at MODULE scope on every one of them (D-W2C2-3). That is the
+# same class of break as the `fastmcp.server.extensions` guard below, one SDK
+# down. `mcp_protocol_error()` binds whichever spelling the installed SDK
+# exposes and raises loudly if neither does — it never degrades to a benign
+# default, because a silently-unbound error type made `is_session_dead` return
+# False for every exception once already. `child_resilience.py` binds it the
+# same way; this is that established shim, not a new mechanism.
+MCPError: type[BaseException] = mcp_protocol_error()
 
 # CONCEPT:AU-ECO.mcp.tasks-workitem-bridge -- the fleet is EXPLICITLY mixed
 # fastmcp-version (D-SH-3: child images still ship fastmcp 3.4.4 while the
@@ -52,15 +63,45 @@ from pydantic import ConfigDict, Field
 # optional middlewares in `server_factory._configure_middleware`: guard the
 # import, degrade to a no-op capability, and log loudly so an operator can
 # tell "Tasks extension unavailable on this image" from "server broken".
+#
+# ★ The guard covers `mcp_types` too. `mcp_types` is a fastmcp-4/SDK-v2-only
+# distribution, so on a fastmcp-3 image `from mcp_types import ...` fails at
+# module scope for exactly the same reason and with exactly the same blast
+# radius. Guarding only `fastmcp.server.extensions` moved the crash three lines
+# up rather than fixing it (observed live: 58 pods cleared the extensions
+# import and then died on `mcp_types`). ONE guard, ONE failure mode, ONE flag —
+# every fastmcp-4-only symbol this module needs is bound here or not at all.
 try:
     from fastmcp.server.extensions import (
         MethodBinding,
         ServerExtension,
         read_client_extension_settings,
     )
+    from mcp_types import RequestParams, Result
+    from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
+    from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 except ImportError as _fastmcp_extensions_import_error:
     TASKS_EXTENSION_AVAILABLE = False
     _TASKS_EXTENSION_IMPORT_ERROR: ImportError | None = _fastmcp_extensions_import_error
+
+    # Stand-ins for the `mcp_types` symbols. `RequestParams`/`Result` are only
+    # ever used as pydantic base classes for the private `_GetTaskParams` /
+    # `_GetTaskResult` shapes below, so a BaseModel keeps those class
+    # definitions valid; the constants only need a value that never matches.
+    from pydantic import BaseModel as _CompatBaseModel
+
+    class RequestParams(_CompatBaseModel):  # type: ignore[no-redef]
+        """Stand-in for ``mcp_types.RequestParams`` (fastmcp<4)."""
+
+    class Result(_CompatBaseModel):  # type: ignore[no-redef]
+        """Stand-in for ``mcp_types.Result`` (fastmcp<4)."""
+
+    # -32002 is the SDK's own code for this condition; the value is inert here
+    # because every path that reads it is gated behind TASKS_EXTENSION_AVAILABLE.
+    MISSING_REQUIRED_CLIENT_CAPABILITY = -32002
+    # Empty, so `_TASK_METHOD_VERSIONS` matches no protocol version at all —
+    # the Tasks methods are correctly invisible on an image that cannot serve them.
+    MODERN_PROTOCOL_VERSIONS: tuple[str, ...] = ()
 
     # Fallback stand-ins so `class WorkItemTasksExtension(ServerExtension)`
     # below still defines cleanly (it overrides `methods()` itself, so the
