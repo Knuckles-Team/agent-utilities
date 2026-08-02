@@ -36,6 +36,13 @@ def test_required_grounding_rejects_retrieval_quality_failure() -> None:
     assert reason == "retrieval_quality_gate_failed"
 
 
+def test_quality_gate_failure_aggregates_every_completed_sample() -> None:
+    probe = _probe()
+
+    assert probe._any_retrieval_quality_gate_failed([True, False, False]) is True
+    assert probe._any_retrieval_quality_gate_failed([False, False, False]) is False
+
+
 @pytest.mark.parametrize("grounding", ["best_effort", "none"])
 def test_nonrequired_grounding_continues_after_measurement_failure(
     grounding: str,
@@ -77,3 +84,45 @@ def test_run_returns_stage_four_for_required_grounding_failure(monkeypatch) -> N
     )
 
     assert asyncio.run(probe.run(args)) == 4
+
+
+def test_best_effort_run_reaches_and_passes_grounding_stage(monkeypatch) -> None:
+    probe = _probe()
+    reached: list[str] = []
+
+    def _stage(name: str):
+        async def _pass(*_args, **_kwargs):
+            reached.append(name)
+            return "ok"
+
+        return _pass
+
+    async def _grounding(*_args, **_kwargs):
+        assert _args[-1] == "best_effort"
+        reached.append("grounding")
+        return "measurement retained"
+
+    monkeypatch.setattr(probe, "_stage_config", _stage("config"))
+    monkeypatch.setattr(probe, "_stage_identity", _stage("identity"))
+    monkeypatch.setattr(probe, "_stage_engine", _stage("engine"))
+    monkeypatch.setattr(probe, "_stage_grounding", _grounding)
+    monkeypatch.setattr(probe, "_stage_model", _stage("model"))
+    monkeypatch.setattr(probe, "_stage_skill", _stage("skill"))
+    monkeypatch.setattr(probe, "_stage_toolset", _stage("toolset"))
+    monkeypatch.setattr(probe, "_stage_delegate", _stage("delegate"))
+    monkeypatch.setattr(probe, "_stage_provenance", _stage("provenance"))
+    args = argparse.Namespace(
+        skill="skill",
+        server="server",
+        tool="tool",
+        mode="auto",
+        identity_mode="process",
+        transport="streamable-http",
+        stop_after=None,
+        model_class="standard",
+        grounding_budget=90.0,
+        grounding="best_effort",
+    )
+
+    assert asyncio.run(probe.run(args)) == 0
+    assert reached == probe.STAGES

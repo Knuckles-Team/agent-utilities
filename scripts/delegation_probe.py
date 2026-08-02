@@ -219,6 +219,11 @@ def _required_grounding_failure(
     return "; ".join(failures) or None
 
 
+def _any_retrieval_quality_gate_failed(sample_failures: list[bool]) -> bool:
+    """Fail required grounding when any completed evidence compile was rejected."""
+    return any(sample_failures)
+
+
 def _grounding_gate_failure(
     grounding: str, samples: list[float], budget: float, quality_gate_failed: Any
 ) -> str | None:
@@ -256,22 +261,29 @@ async def _stage_grounding(
     ]
 
     samples: list[float] = []
-    last: Any = None
+    sample_quality_failures: list[bool] = []
     for _ in range(3):
         t0 = time.monotonic()
         try:
-            last = await asyncio.wait_for(
+            compiled = await asyncio.wait_for(
                 asyncio.to_thread(cm._compiled_evidence_and_bundle, messages, model_name),
                 timeout=budget_s,
             )
             samples.append(time.monotonic() - t0)
+            bundle = (
+                compiled[1]
+                if isinstance(compiled, tuple) and len(compiled) > 1
+                else None
+            )
+            sample_quality_failures.append(
+                bool(getattr(bundle, "retrieval_quality_gate_failed", False))
+            )
         except TimeoutError:
             samples.append(float("inf"))
             break
 
     _STATE["grounding_samples"] = samples
-    bundle = last[1] if isinstance(last, tuple) and len(last) > 1 else None
-    gate_failed = getattr(bundle, "retrieval_quality_gate_failed", None)
+    gate_failed = _any_retrieval_quality_gate_failed(sample_quality_failures)
     over = sum(1 for s in samples if s > budget)
     rendered = ", ".join("timeout" if s == float("inf") else f"{s:.2f}s" for s in samples)
     required_failure = _grounding_gate_failure(
