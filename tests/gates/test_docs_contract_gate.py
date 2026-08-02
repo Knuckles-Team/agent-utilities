@@ -3,11 +3,38 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _isolated_git_env() -> dict[str, str]:
+    """D-LGI-1: an explicit, belt-and-suspenders env for git calls that
+    target a throwaway fixture repo (``tmp_path``), not this repository.
+
+    ``tests/conftest.py``'s ``_strip_inherited_git_repository_env()`` already
+    does this once, session-wide, at collection time -- this is the specific
+    site the incident was found at: a real ``git commit`` exports
+    ``GIT_DIR``/``GIT_INDEX_FILE`` into the hooks it runs (including
+    ``guardrail-gate-meta-tests``, which runs this test), and ``git -C
+    <tmp_path> ...`` does **not** override them. Without this, `add -A`
+    below wrote its fixture's file list into the REAL repository's index
+    instead of the throwaway one it was pointed at.
+    """
+    env = dict(os.environ)
+    for name in (
+        "GIT_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_WORK_TREE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_COMMON_DIR",
+        "GIT_NAMESPACE",
+    ):
+        env.pop(name, None)
+    return env
 
 
 def _load_script(name: str):
@@ -297,11 +324,14 @@ def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path)
     pin — the vacuous-gate shape this suite exists to prevent. With a real repo,
     the old diff-scoped code sees an empty ``git diff`` and returns ``[]``.
     """
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    git_env = _isolated_git_env()
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, env=git_env)
     leaked = tmp_path / "docker" / "build-job.yaml"
     leaked.parent.mkdir(parents=True)
     leaked.write_text("            path: /home/someone/state/tree\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "-A"], check=True, env=git_env
+    )
     subprocess.run(
         [
             "git",
@@ -317,6 +347,7 @@ def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path)
             "committed leak",
         ],
         check=True,
+        env=git_env,
     )
     # Nothing is staged or modified now: `git diff` and `git diff --cached` are
     # both empty, and `ls-files --others` lists nothing.
@@ -326,6 +357,7 @@ def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path)
             capture_output=True,
             text=True,
             check=True,
+            env=git_env,
         ).stdout.strip()
         == ""
     )
