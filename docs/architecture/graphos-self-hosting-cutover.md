@@ -197,9 +197,11 @@ Mirrors the two techniques that already prevented outages in this exact system
 ## The pod spec
 
 Both containers reference the **same** unified image
-(`<REGISTRY>/graph-os-unified:<tag>` — the validated `latest`/`w-c-validation`, not the
-`:langfuse` follow-up validation tag from `graphos-unified-kaniko-job.yaml` unless that
-work has separately been promoted). Deltas from today's live `graph-os` Deployment are
+(`<REGISTRY>/graph-os-unified:<tag>` — the validated `latest`/`w-c-validation`, not a
+`:langfuse`-style follow-up validation tag unless that work has separately been promoted).
+As of D-IMG-2/D-CDX-18/D-EIMG-5 (2026-08-02), that tag is produced by the
+`homelab/containers/images/graph-os-unified` GitLab CI pipeline (see `docker/README.md`
+§5), not a hand-applied Kaniko Job. Deltas from today's live `graph-os` Deployment are
 called out inline; everything not mentioned (au-config/au-src/eg-wheel mounts,
 `graph-os-env`/`graph-os-secrets`, probes, resources, the existing `graph-os`
 Service/Ingress) is **unchanged**.
