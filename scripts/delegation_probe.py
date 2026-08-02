@@ -462,6 +462,27 @@ async def _stage_toolset(server: str, tool: str) -> str:
 # ---------------------------------------------------------------------------
 # Stage 7 — delegate
 # ---------------------------------------------------------------------------
+def _required_tool_summary_failure(
+    a: argparse.Namespace, summary: dict[str, Any], output: object = ""
+) -> str | None:
+    """Fail closed when a tool-required governed run is not successful."""
+    if not getattr(a, "require_tool", False):
+        return None
+    requested = str(getattr(a, "tool", "") or "")
+    if not requested:
+        return "--require-tool requires an explicit --tool"
+    outcome = str(summary.get("outcome") or "missing").lower()
+    if outcome == "ok":
+        if str(output or "").strip():
+            return None
+        return f"required tool {requested!r} produced no returned response"
+    failure = summary.get("failure")
+    return (
+        f"required tool {requested!r} did not complete successfully: "
+        f"outcome={outcome!r} failure={failure!r}"
+    )
+
+
 async def _stage_delegate(a: argparse.Namespace) -> str:
     import uuid
 
@@ -548,6 +569,9 @@ async def _stage_delegate(a: argparse.Namespace) -> str:
     print(
         "\n  RUN SUMMARY: " + json.dumps(summary, default=str)[:900] + "\n", flush=True
     )
+    required_failure = _required_tool_summary_failure(a, summary, payload.get("output"))
+    if required_failure:
+        raise RuntimeError(required_failure)
     return (
         f"[{dt:.2f}s] run={payload.get('run_id') or run_id} "
         f"route={summary.get('route')} outcome={summary.get('outcome')} "
@@ -573,7 +597,7 @@ _PROVENANCE_QUERIES: tuple[tuple[str, str], ...] = (
     ),
     (
         "tool_calls_by_run",
-        "MATCH (c:ToolCall) WHERE c.run_id = $run_id "
+        "MATCH (c:ToolCall) WHERE c.run_id = $trace_id "
         "RETURN c.id AS id, c.tool_name AS tool, c.status AS status LIMIT 20",
     ),
     (
@@ -582,6 +606,50 @@ _PROVENANCE_QUERIES: tuple[tuple[str, str], ...] = (
         "RETURN s.name AS skill, s.node_type AS node_type LIMIT 5",
     ),
 )
+
+
+_SUCCESSFUL_TOOL_STATUSES = frozenset({"ok", "success", "succeeded", "completed"})
+
+
+def _required_tool_provenance_failure(
+    a: argparse.Namespace, rows: list[dict[str, Any]]
+) -> str | None:
+    """Require one successful, exact-name ToolCall for ``--require-tool``."""
+    if not getattr(a, "require_tool", False):
+        return None
+    requested = str(getattr(a, "tool", "") or "")
+    if not requested:
+        return "--require-tool requires an explicit --tool"
+    matching = [row for row in rows if str(row.get("tool") or "") == requested]
+    if not matching:
+        observed = sorted({str(row.get("tool") or "") for row in rows})
+        return (
+            f"required ToolCall {requested!r} is absent from provenance; "
+            f"observed={observed!r}"
+        )
+    statuses = [str(row.get("status") or "missing").lower() for row in matching]
+    if not any(status in _SUCCESSFUL_TOOL_STATUSES for status in statuses):
+        return (
+            f"required ToolCall {requested!r} has no successful provenance row; "
+            f"statuses={statuses!r}"
+        )
+    return None
+
+
+def _required_run_trace_failure(
+    a: argparse.Namespace, rows: list[dict[str, Any]]
+) -> str | None:
+    """Require a successful terminal RunTrace for a tool-required probe."""
+    if not getattr(a, "require_tool", False):
+        return None
+    if not rows:
+        return "required tool execution has no RunTrace provenance row"
+    statuses = [str(row.get("status") or "missing").lower() for row in rows]
+    if not any(status in _SUCCESSFUL_TOOL_STATUSES for status in statuses):
+        return (
+            f"required tool execution has no completed RunTrace; statuses={statuses!r}"
+        )
+    return None
 
 
 async def _stage_provenance(a: argparse.Namespace) -> str:
@@ -619,10 +687,17 @@ async def _stage_provenance(a: argparse.Namespace) -> str:
             f"no :RunTrace readable for run_id={run_id!r} — the delegation produced "
             f"output but left no durable provenance, so the run is unverifiable"
         )
-    return (
-        f"RunTrace={found['run_trace']['rows'][0]} "
-        f"tool_calls={len(found.get('tool_calls', {}).get('rows', []) or found.get('tool_calls_by_run', {}).get('rows', []))}"
-    )
+    run_trace_rows = list(found["run_trace"].get("rows", []))
+    required_failure = _required_run_trace_failure(a, run_trace_rows)
+    if required_failure:
+        raise RuntimeError(required_failure)
+    tool_rows = list(found.get("tool_calls", {}).get("rows", []))
+    if not tool_rows:
+        tool_rows = list(found.get("tool_calls_by_run", {}).get("rows", []))
+    required_failure = _required_tool_provenance_failure(a, tool_rows)
+    if required_failure:
+        raise RuntimeError(required_failure)
+    return f"RunTrace={found['run_trace']['rows'][0]} tool_calls={len(tool_rows)}"
 
 
 # ---------------------------------------------------------------------------
