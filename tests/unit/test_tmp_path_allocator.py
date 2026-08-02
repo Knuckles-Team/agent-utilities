@@ -6,9 +6,16 @@ import hashlib
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from _tmp_path_allocator import BoundedTempPathAllocator
+import pytest
+from _tmp_path_allocator import (
+    _ALLOCATION_TOKEN_LIMIT,
+    _MAX_LEAF_MKDIR_PROBES,
+    _MAX_MKDIR_CALLS_PER_ALLOCATION,
+    BoundedTempPathAllocator,
+)
 
 pytest_plugins = ("pytester",)
 
@@ -156,20 +163,111 @@ def test_allocator_uses_deterministic_bounded_fanout(tmp_path: Path) -> None:
     assert set(tmp_path.iterdir()) == {tmp_path / "t"}
 
 
-def test_allocator_keeps_reruns_and_fresh_instances_isolated(tmp_path: Path) -> None:
+def test_allocator_keeps_reruns_and_fresh_instances_isolated(
+    tmp_path: Path, monkeypatch
+) -> None:
     node_id = "tests/unit/test_case.py::test_same_name"
+    token_origins = iter((0, 0))
+    monkeypatch.setattr(
+        "_tmp_path_allocator.secrets.randbits", lambda _: next(token_origins)
+    )
     allocator = BoundedTempPathAllocator(tmp_path)
     first = allocator.allocate(node_id)
     second = allocator.allocate(node_id)
     recovered = BoundedTempPathAllocator(tmp_path).allocate(node_id)
 
     assert first.parent == second.parent == recovered.parent
-    assert [path.name.rsplit("-", 1)[-1] for path in (first, second, recovered)] == [
-        "0",
-        "1",
-        "2",
-    ]
     assert len({first, second, recovered}) == 3
+
+
+def test_allocator_bounds_fresh_recovery_after_many_retained_attempts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A fresh allocator does not walk every retained attempt by ``mkdir``."""
+    node_id = "tests/unit/test_case.py::test_retained_attempts"
+    token_origins = iter((0, 1 << 63))
+    monkeypatch.setattr(
+        "_tmp_path_allocator.secrets.randbits", lambda _: next(token_origins)
+    )
+    retained_allocator = BoundedTempPathAllocator(tmp_path)
+    retained_paths = [retained_allocator.allocate(node_id) for _ in range(2_048)]
+    fresh_allocator = BoundedTempPathAllocator(tmp_path)
+    leaf_mkdir_calls: list[Path] = []
+    original_mkdir = Path.mkdir
+    bucket = retained_paths[0].parent
+
+    def observe_mkdir(path: Path, *args, **kwargs) -> None:
+        if path.parent == bucket:
+            leaf_mkdir_calls.append(path)
+        original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", observe_mkdir)
+    allocated = fresh_allocator.allocate(node_id)
+
+    assert len(retained_paths) == 2_048
+    assert allocated not in retained_paths
+    assert leaf_mkdir_calls == [allocated]
+    assert len(leaf_mkdir_calls) <= _MAX_LEAF_MKDIR_PROBES
+
+
+def test_allocator_keeps_independent_allocators_concurrently_unique(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Independent locks emulate the atomic mkdir boundary used by processes."""
+    token_origins = iter([0] * _MAX_LEAF_MKDIR_PROBES)
+    monkeypatch.setattr(
+        "_tmp_path_allocator.secrets.randbits", lambda _: next(token_origins)
+    )
+    node_id = "tests/unit/test_case.py::test_independent_allocators"
+    allocators = [
+        BoundedTempPathAllocator(tmp_path) for _ in range(_MAX_LEAF_MKDIR_PROBES)
+    ]
+
+    with ThreadPoolExecutor(max_workers=_MAX_LEAF_MKDIR_PROBES) as executor:
+        paths = list(
+            executor.map(lambda allocator: allocator.allocate(node_id), allocators)
+        )
+
+    assert len(paths) == len(set(paths)) == _MAX_LEAF_MKDIR_PROBES
+    assert all(path.is_dir() for path in paths)
+
+
+def test_allocator_refuses_after_its_fixed_collision_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A saturated candidate window fails explicitly after a constant six mkdirs."""
+    node_id = "tests/unit/test_case.py::test_collision_budget"
+    token_origins = iter((0, 0))
+    monkeypatch.setattr(
+        "_tmp_path_allocator.secrets.randbits", lambda _: next(token_origins)
+    )
+    retained_allocator = BoundedTempPathAllocator(tmp_path)
+    retained_paths = [
+        retained_allocator.allocate(node_id) for _ in range(_MAX_LEAF_MKDIR_PROBES)
+    ]
+    fresh_allocator = BoundedTempPathAllocator(tmp_path)
+    mkdir_calls: list[Path] = []
+    original_mkdir = Path.mkdir
+
+    def observe_mkdir(path: Path, *args, **kwargs) -> None:
+        mkdir_calls.append(path)
+        original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", observe_mkdir)
+    with pytest.raises(RuntimeError, match="collision probe budget exhausted"):
+        fresh_allocator.allocate(node_id)
+
+    assert all(path.is_dir() for path in retained_paths)
+    assert len(mkdir_calls) == _MAX_MKDIR_CALLS_PER_ALLOCATION
+
+
+def test_allocator_refuses_token_stream_overflow(tmp_path: Path) -> None:
+    """A counter overflow is explicit rather than silently wrapping or reusing."""
+    allocator = BoundedTempPathAllocator(tmp_path)
+    allocator._next_token = _ALLOCATION_TOKEN_LIMIT
+
+    with pytest.raises(RuntimeError, match="token space exhausted"):
+        allocator.allocate("tests/unit/test_case.py::test_token_stream_overflow")
 
 
 def test_allocator_creates_each_active_bucket_once(tmp_path: Path, monkeypatch) -> None:
@@ -231,14 +329,20 @@ def test_tmp_path_factory_api_remains_pytest_owned(tmp_path_factory) -> None:
 
 def test_allocator_preserves_pytest_unix_socket_path_budget(tmp_path_factory) -> None:
     basetemp = tmp_path_factory.getbasetemp()
-    allocated = BoundedTempPathAllocator(basetemp).allocate(
-        "tests/unit/test_really_long_module_name.py::test_really_long_case_name"
-    )
+    allocator = BoundedTempPathAllocator(basetemp)
+    allocated_paths = [
+        allocator.allocate(
+            "tests/unit/test_really_long_module_name.py::test_really_long_case_name"
+        ),
+        allocator.allocate("tests/unit/test_case.py::"),
+    ]
     socket_name = "eg-12345678.sock"
     stock_longest_leaf = basetemp / ("x" * 30 + "0") / socket_name
 
-    assert len(os.fsencode(str(allocated / socket_name))) <= len(
-        os.fsencode(str(stock_longest_leaf))
+    assert all(
+        len(os.fsencode(str(allocated / socket_name)))
+        <= len(os.fsencode(str(stock_longest_leaf)))
+        for allocated in allocated_paths
     )
 
 
@@ -309,14 +413,19 @@ from pathlib import Path
 import pytest
 
 
+_attempt = 0
+
+
 @pytest.mark.retry_once
 def test_retried_tmp_path(tmp_path: Path) -> None:
+    global _attempt
     record_directory = Path(os.environ["BOUNDED_TMP_PATH_RECORD_DIRECTORY"])
-    attempt = tmp_path.name.rsplit("-", 1)[-1]
+    attempt = _attempt
+    _attempt += 1
     (record_directory / f"retry-{attempt}.json").write_text(
         json.dumps({"attempt": attempt, "path": str(tmp_path)}), encoding="utf-8"
     )
-    assert len(list(record_directory.glob("retry-*.json"))) == 2
+    assert _attempt == 2
 """
 
 

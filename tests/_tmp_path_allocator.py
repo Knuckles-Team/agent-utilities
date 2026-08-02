@@ -10,8 +10,10 @@ places a deterministic test-id directory under one of 256 bounded buckets.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import re
+import secrets
 import shutil
 import threading
 from collections.abc import Generator
@@ -22,9 +24,16 @@ import pytest
 _BUCKET_DIRECTORY = "t"
 _BUCKET_WIDTH = 2
 # The bucket/hash components consume the same path budget pytest normally gives
-# its 30-character test-name leaf.  Keeping this at 15 protects Unix-socket
-# fixtures that already depend on the lane's short basetemp contract.
-_DISPLAY_NAME_LIMIT = 15
+# its 30-character test-name leaf.  The 64-bit allocation token needs 11
+# URL-safe base64 characters; keeping five display characters preserves the
+# Unix-socket path budget supplied by the lane's short basetemp contract.
+_DISPLAY_NAME_LIMIT = 5
+_ALLOCATION_TOKEN_BITS = 64
+_ALLOCATION_TOKEN_LIMIT = 1 << _ALLOCATION_TOKEN_BITS
+_MAX_LEAF_MKDIR_PROBES = 4
+# A new bucket performs one mkdir for ``t`` and one for the bucket, followed by
+# the fixed leaf budget.  pytest owns the already-existing basetemp itself.
+_MAX_MKDIR_CALLS_PER_ALLOCATION = _MAX_LEAF_MKDIR_PROBES + 2
 _NODE_NAME_UNSAFE = re.compile(r"[\W]")
 _test_result_key = pytest.StashKey[dict[str, bool]]()
 
@@ -33,41 +42,65 @@ class BoundedTempPathAllocator:
     """Allocate unique test paths without directory enumeration.
 
     The hash is deterministic for a test node id, which makes a failed test's
-    path easy to locate.  The per-node attempt counter keeps reruns isolated;
-    a fresh allocator advances past an existing attempt with ``mkdir`` collision
-    probes rather than enumerating the bucket.  Xdist workers already receive
-    separate pytest basetemps, so their bucket trees remain isolated by pytest's
-    normal worker contract.
+    path easy to locate.  Each allocator starts a 64-bit counter at a random
+    origin instead of ``0``, so recovery never relies on walking the retained
+    ``-0``, ``-1``, ... namespace.  Atomic ``mkdir`` remains the authority
+    across threads and processes: four distinct token candidates are attempted
+    before the allocator raises rather than reusing an existing test directory.
+    Xdist workers already receive separate pytest basetemps, so their bucket
+    trees remain isolated by pytest's normal worker contract.
     """
 
     def __init__(self, basetemp: Path) -> None:
         self._root = basetemp / _BUCKET_DIRECTORY
-        self._attempts: dict[str, int] = {}
+        self._next_token = secrets.randbits(_ALLOCATION_TOKEN_BITS)
         self._created_buckets: set[Path] = set()
         self._lock = threading.Lock()
+
+    def _take_allocation_token(self) -> str:
+        """Return one distinct fixed-width token from this allocator's stream."""
+        if self._next_token >= _ALLOCATION_TOKEN_LIMIT:
+            raise RuntimeError(
+                "bounded tmp_path allocation token space exhausted; "
+                "start a fresh pytest basetemp"
+            )
+
+        token = (
+            base64.urlsafe_b64encode(
+                self._next_token.to_bytes(_ALLOCATION_TOKEN_BITS // 8, "big")
+            )
+            .decode("ascii")
+            .rstrip("=")
+        )
+        self._next_token += 1
+        return token
 
     def allocate(self, node_id: str) -> Path:
         """Create and return an empty, unique path for ``node_id``."""
         digest = hashlib.sha1(node_id.encode(), usedforsecurity=False).hexdigest()
         bucket = self._root / digest[:_BUCKET_WIDTH]
         display_name = _NODE_NAME_UNSAFE.sub("_", node_id.rsplit("::", 1)[-1])
-        display_name = display_name[:_DISPLAY_NAME_LIMIT] or "test"
+        display_name = display_name[:_DISPLAY_NAME_LIMIT] or "tmp"
         stem = f"{display_name}-{digest[_BUCKET_WIDTH:10]}"
 
         with self._lock:
             if bucket not in self._created_buckets:
-                bucket.mkdir(parents=True, exist_ok=True)
+                self._root.mkdir(mode=0o700, exist_ok=True)
+                bucket.mkdir(mode=0o700, exist_ok=True)
                 self._created_buckets.add(bucket)
-            attempt = self._attempts.get(node_id, 0)
-            while True:
-                path = bucket / f"{stem}-{attempt}"
+
+            for _ in range(_MAX_LEAF_MKDIR_PROBES):
+                path = bucket / f"{stem}-{self._take_allocation_token()}"
                 try:
                     path.mkdir(mode=0o700)
                 except FileExistsError:
-                    attempt += 1
                     continue
-                self._attempts[node_id] = attempt + 1
                 return path
+
+            raise RuntimeError(
+                "bounded tmp_path allocation collision probe budget exhausted "
+                f"for {node_id!r}; no existing test directory was reused"
+            )
 
 
 @pytest.fixture(scope="session")
