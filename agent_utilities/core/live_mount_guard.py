@@ -61,7 +61,7 @@ _IN_POD_ENV_VAR = "KUBERNETES_SERVICE_HOST"
 
 
 def _is_bind_mounted(path: Path) -> bool | None:
-    """Return True/False if *path* is a mount point per this mount namespace.
+    """Return whether *path* is under a non-root active source mount.
 
     Returns ``None`` when the answer cannot be determined (no
     ``/proc/self/mountinfo``, e.g. a non-Linux container runtime) rather
@@ -72,7 +72,17 @@ def _is_bind_mounted(path: Path) -> bool | None:
             mount_points = {line.split()[4] for line in handle if len(line.split()) > 4}
     except OSError:
         return None
-    return str(path) in mount_points
+
+    # A source mount commonly targets ``/au`` while Python imports the package
+    # below it.  Walk from the package directory upward so the deepest active
+    # mount ancestor wins; the filesystem root is always mounted and therefore
+    # cannot prove that this package comes from live source.
+    candidate = path
+    while candidate != candidate.parent:
+        if str(candidate) in mount_points:
+            return True
+        candidate = candidate.parent
+    return False
 
 
 def check_live_mount(*, package_dir: Path | None = None) -> bool | None:
@@ -101,7 +111,7 @@ def check_live_mount(*, package_dir: Path | None = None) -> bool | None:
     if not mounted:
         logger.critical(
             "agent_utilities.live_mount_guard: this package was imported from a "
-            "directory that is NOT an active bind mount inside this pod. If this "
+            "directory that is NOT under an active source mount inside this pod. If this "
             "Deployment declares an agent_utilities hostPath live-mount volume, "
             "its mountPath pythonX.Y does not match this image's actual "
             "interpreter version -- the mount landed on a path nothing reads, "
