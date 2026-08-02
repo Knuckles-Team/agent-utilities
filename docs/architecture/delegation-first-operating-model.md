@@ -185,6 +185,23 @@ The goal is to orchestrate **completely off the harness**: the local LLM + graph
 the work, you handle the shrinking set of exceptions, and each exception you resolve
 shrinks that set further.
 
+## Delegation probe ownership and migration
+
+`scripts/delegation_probe.py` is the versioned agent-utilities ownership point for the
+direct, in-process delegation gate. It calls the orchestration core and imports
+agent-utilities internals, so its stage exit status is an agent-utilities release
+criterion. Operators and automation must invoke this tracked script from an
+agent-utilities checkout; the workspace-root `scripts/delegation_probe.py` is an
+unversioned compatibility copy and must not receive independent behavior changes.
+
+Its `grounding` stage is a gate only for `--grounding=required`: a production latency
+budget overrun or `retrieval_quality_gate_failed` stops the probe at stage 4 (exit 4).
+`best_effort` and `none` retain the same measurements but deliberately continue, so their
+output can be used to investigate degraded operation without claiming a required-mode
+pass. The bounded measurement still uses `wait_for(to_thread(...))`; its known
+non-cancelling worker/shutdown-tail limitation is D-CDX-22 and is intentionally not
+changed by this gate behavior.
+
 ## Related docs
 
 - [`orchestration-execution-seam.md`](orchestration-execution-seam.md) — how an ingested
