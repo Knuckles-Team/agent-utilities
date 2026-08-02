@@ -17,7 +17,7 @@ import logging
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import urlsplit, urlunsplit
 
 from eunomia_core import enums, schemas
@@ -31,6 +31,17 @@ from fastmcp.tools.base import Tool
 from fastmcp.utilities.components import FastMCPComponent
 
 from agent_utilities.mcp.protocol_compat import mcp_types_module
+
+if TYPE_CHECKING:
+    from mcp_types import (
+        CallToolRequestParams,
+        GetPromptRequestParams,
+        ListPromptsRequest,
+        ListResourcesRequest,
+        ListResourceTemplatesRequest,
+        ListToolsRequest,
+        ReadResourceRequestParams,
+    )
 
 # NOT `from mcp import types`. The fleet is EXPLICITLY mixed-SDK: most images ship
 # fastmcp 3.x / MCP SDK v1 (where the protocol types live at `mcp.types`), while
@@ -54,6 +65,7 @@ _MAX_POLICY_BYTES = 1024 * 1024
 _MAX_AUDIT_VALUE = 256
 _MAX_COMPONENTS_PER_LIST = 10_000
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_.:/-]{1,256}$")
+_ComponentT = TypeVar("_ComponentT", bound=FastMCPComponent)
 
 
 def _safe_text(value: Any, *, default: str = "unknown") -> str:
@@ -520,8 +532,8 @@ class JwtPrincipalEunomiaMiddleware(Middleware):
     async def _authorize_listing(
         self,
         context: MiddlewareContext[Any],
-        components: Sequence[FastMCPComponent],
-    ) -> list[FastMCPComponent]:
+        components: Sequence[_ComponentT],
+    ) -> list[_ComponentT]:
         selected = list(components)
         if not selected:
             return []
@@ -541,7 +553,7 @@ class JwtPrincipalEunomiaMiddleware(Middleware):
         if len(responses) != len(selected):
             logger.warning("MCP authorization response was misaligned")
             return []
-        allowed: list[FastMCPComponent] = []
+        allowed: list[_ComponentT] = []
         for response, component, resource in zip(
             responses, selected, resources, strict=True
         ):
@@ -558,8 +570,8 @@ class JwtPrincipalEunomiaMiddleware(Middleware):
 
     async def on_call_tool(
         self,
-        context: MiddlewareContext[types.CallToolRequestParams],
-        call_next: CallNext[types.CallToolRequestParams, Any],
+        context: MiddlewareContext[CallToolRequestParams],
+        call_next: CallNext[CallToolRequestParams, Any],
     ) -> Any:
         tool = await self._server(context).get_tool(context.message.name)
         await self._authorize_execution(context, tool)
@@ -567,8 +579,8 @@ class JwtPrincipalEunomiaMiddleware(Middleware):
 
     async def on_read_resource(
         self,
-        context: MiddlewareContext[types.ReadResourceRequestParams],
-        call_next: CallNext[types.ReadResourceRequestParams, Any],
+        context: MiddlewareContext[ReadResourceRequestParams],
+        call_next: CallNext[ReadResourceRequestParams, Any],
     ) -> Any:
         resource = await self._server(context).get_resource(str(context.message.uri))
         await self._authorize_execution(context, resource)
@@ -576,8 +588,8 @@ class JwtPrincipalEunomiaMiddleware(Middleware):
 
     async def on_get_prompt(
         self,
-        context: MiddlewareContext[types.GetPromptRequestParams],
-        call_next: CallNext[types.GetPromptRequestParams, Any],
+        context: MiddlewareContext[GetPromptRequestParams],
+        call_next: CallNext[GetPromptRequestParams, Any],
     ) -> Any:
         prompt = await self._server(context).get_prompt(context.message.name)
         await self._authorize_execution(context, prompt)
@@ -585,31 +597,29 @@ class JwtPrincipalEunomiaMiddleware(Middleware):
 
     async def on_list_tools(
         self,
-        context: MiddlewareContext[types.ListToolsRequest],
-        call_next: CallNext[types.ListToolsRequest, Sequence[Tool]],
+        context: MiddlewareContext[ListToolsRequest],
+        call_next: CallNext[ListToolsRequest, Sequence[Tool]],
     ) -> Sequence[Tool]:
         return await self._authorize_listing(context, await call_next(context))
 
     async def on_list_resources(
         self,
-        context: MiddlewareContext[types.ListResourcesRequest],
-        call_next: CallNext[types.ListResourcesRequest, Sequence[Resource]],
+        context: MiddlewareContext[ListResourcesRequest],
+        call_next: CallNext[ListResourcesRequest, Sequence[Resource]],
     ) -> Sequence[Resource]:
         return await self._authorize_listing(context, await call_next(context))
 
     async def on_list_resource_templates(
         self,
-        context: MiddlewareContext[types.ListResourceTemplatesRequest],
-        call_next: CallNext[
-            types.ListResourceTemplatesRequest, Sequence[ResourceTemplate]
-        ],
+        context: MiddlewareContext[ListResourceTemplatesRequest],
+        call_next: CallNext[ListResourceTemplatesRequest, Sequence[ResourceTemplate]],
     ) -> Sequence[ResourceTemplate]:
         return await self._authorize_listing(context, await call_next(context))
 
     async def on_list_prompts(
         self,
-        context: MiddlewareContext[types.ListPromptsRequest],
-        call_next: CallNext[types.ListPromptsRequest, Sequence[Prompt]],
+        context: MiddlewareContext[ListPromptsRequest],
+        call_next: CallNext[ListPromptsRequest, Sequence[Prompt]],
     ) -> Sequence[Prompt]:
         return await self._authorize_listing(context, await call_next(context))
 

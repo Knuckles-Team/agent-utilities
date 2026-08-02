@@ -195,6 +195,29 @@ def test_mcp_protocol_error_raises_when_neither_spelling_exists(monkeypatch):
         mcp_protocol_error()
 
 
+def test_mcp_protocol_exception_uses_v2_constructor_shape(monkeypatch):
+    """SDK v2 receives code/message/data directly, never an ErrorData wrapper."""
+    from mcp.shared import exceptions as mcp_exceptions
+
+    from agent_utilities.mcp.protocol_compat import mcp_protocol_exception
+
+    class _V2Error(BaseException):
+        def __init__(self, code, message, data=None):
+            self.code = code
+            self.message = message
+            self.data = data
+
+    monkeypatch.setattr(mcp_exceptions, "MCPError", _V2Error, raising=False)
+    error = mcp_protocol_exception(-32602, "invalid task", {"task": "one"})
+
+    assert isinstance(error, _V2Error)
+    assert (error.code, error.message, error.data) == (
+        -32602,
+        "invalid task",
+        {"task": "one"},
+    )
+
+
 def test_fleet_loader_attach_failure_is_fatal_not_swallowed(monkeypatch):
     """A failed attach must abort startup, not serve a silently wrong surface.
 

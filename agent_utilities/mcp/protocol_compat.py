@@ -103,6 +103,23 @@ def mcp_protocol_error() -> type[BaseException]:
     )
 
 
+def mcp_protocol_exception(code: int, message: str, data: Any = None) -> BaseException:
+    """Construct the installed SDK's protocol error without signature guessing.
+
+    SDK v2's ``MCPError`` accepts ``(code, message, data)`` directly. SDK v1's
+    ``McpError`` instead accepts one ``mcp.types.ErrorData`` model. Select from
+    the same exported class name used by :func:`mcp_protocol_error`; do not
+    retry on ``TypeError``, because that would hide a real constructor defect.
+    """
+    from mcp.shared import exceptions as mcp_exceptions
+
+    error_type = mcp_protocol_error()
+    if getattr(mcp_exceptions, "MCPError", None) is error_type:
+        return error_type(code, message, data)
+    error_data = mcp_types_module().ErrorData(code=code, message=message, data=data)
+    return error_type(error_data)
+
+
 def mcp_types_module() -> ModuleType:
     """Return the MCP wire-protocol types module for the *installed* MCP SDK line.
 
