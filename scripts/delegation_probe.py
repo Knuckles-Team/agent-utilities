@@ -466,7 +466,7 @@ async def _stage_delegate(a: argparse.Namespace) -> str:
     # wrapper. Pin an explicit run_id AND ask for the run summary so the run is
     # addressable: without both, a delegation is unverifiable after the fact —
     # you cannot read its RunTrace back out of the graph.
-    run_id = a.run_id or f"probe-{uuid.uuid4().hex[:12]}"
+    run_id = a.run_id or f"probe-{uuid.uuid4().hex}"
     _STATE["run_id"] = run_id
     print(f"  ...  delegate  run_id={run_id}", flush=True)
 
