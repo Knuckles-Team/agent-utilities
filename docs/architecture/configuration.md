@@ -367,6 +367,8 @@ greenfield). Resolved through `AgentConfig.langfuse_host` / `langfuse_public_key
 |---|---|---|
 | `AGENT_UTILITIES_TESTING` | `False` | test-mode guard (read in ~8 places — centralize) |
 | `AGENT_UTILITIES_GWT_STRICT` | `""` | global-workspace strict test mode |
+| `AGENT_UTILITIES_SKIP_LIVE_MOUNT_CHECK` | `False` | skip the D-EGK-1 hostPath live-mount drift assertion (`core/live_mount_guard.py`) — escape hatch for an environment that intentionally runs this package from a plain pip install inside a pod |
+| `KUBERNETES_SERVICE_HOST` | `""` | not user-set — Kubernetes injects it into every pod unconditionally; `core/live_mount_guard.py` reads its presence as the "running inside a pod" signal that gates the D-EGK-1 check |
 
 ## G. Complete `AgentConfig` inventory — platform fields beyond the KG/graph flag audit
 
