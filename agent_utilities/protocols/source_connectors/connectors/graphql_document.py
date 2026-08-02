@@ -26,9 +26,11 @@ from graphql.language import (
     ArgumentNode,
     FieldNode,
     FragmentDefinitionNode,
+    InlineFragmentNode,
     Node,
     OperationDefinitionNode,
     OperationType,
+    SelectionNode,
     VariableNode,
 )
 
@@ -286,11 +288,10 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
     ):
         raise GraphQLDocumentError("GraphQL operation contains unsupported definitions")
 
-    selections = []
+    selections: list[SelectionNode] = []
     for definition in document.definitions:
-        selection_set = getattr(definition, "selection_set", None)
-        if selection_set is not None:
-            selections.extend(selection_set.selections)
+        if isinstance(definition, OperationDefinitionNode | FragmentDefinitionNode):
+            selections.extend(definition.selection_set.selections)
     while selections:
         selection = selections.pop()
         if (
@@ -301,9 +302,10 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
             raise GraphQLDocumentError(
                 "GraphQL introspection is not an ingest operation"
             )
-        selection_set = getattr(selection, "selection_set", None)
-        if selection_set is not None:
-            selections.extend(selection_set.selections)
+        if isinstance(selection, FieldNode | InlineFragmentNode):
+            selection_set = selection.selection_set
+            if selection_set is not None:
+                selections.extend(selection_set.selections)
     return query
 
 
