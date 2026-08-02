@@ -34,15 +34,24 @@ field-vector model:
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import hashlib
+import inspect
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
+
+from agent_utilities.core.event_loop import run_blocking_ordered
 
 from .base import TimeSeriesBackend, TimeSeriesDataPoint
 
 logger = logging.getLogger(__name__)
+
+
+_DurabilityCall = Callable[[], object]
 
 
 def _cypher_string(value: str) -> str:
@@ -93,6 +102,12 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         self._client = client
         # series_id -> ordered metric field names (decode key for reads)
         self._fields: dict[str, list[str]] = {}
+        # A series's tail task is its durability fence: later writes await it
+        # before invoking the engine.  Keep every task strongly referenced too;
+        # otherwise a register task hidden behind a later append could disappear
+        # before it has completed or been cancelled during ``close()``.
+        self._pending_writes: dict[str, asyncio.Task[bool]] = {}
+        self._background_writes: set[asyncio.Task[bool]] = set()
 
     def initialize(self) -> None:
         if self._client is not None:
@@ -118,24 +133,187 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
             self.initialize()
         return self._client
 
+    @staticmethod
+    def _report_durability_failure(
+        operation: str,
+        reason: str,
+        error: BaseException | None = None,
+    ) -> None:
+        """Make best-effort write loss observable without exposing payloads."""
+        if error is None:
+            logger.warning(
+                "time-series durability write dropped: operation=%s reason=%s",
+                operation,
+                reason,
+            )
+            return
+        logger.warning(
+            "time-series durability write dropped: operation=%s reason=%s "
+            "error_type=%s",
+            operation,
+            reason,
+            type(error).__name__,
+        )
+
+    @staticmethod
+    def _close_unowned_awaitable(value: Awaitable[object]) -> None:
+        """Close a raw coroutine that cannot safely be scheduled from this thread."""
+        if inspect.iscoroutine(value):
+            value.close()
+
+    def _write_without_running_loop(
+        self,
+        operation: str,
+        call: _DurabilityCall,
+    ) -> bool:
+        """Preserve synchronous clients while rejecting raw async clients safely.
+
+        The default GraphComputeEngine client is its synchronous facade, so this
+        path retains its established synchronous success/error semantics.  A raw
+        async client, however, has no owner loop in a synchronous caller.  Do
+        not create a private blocking loop for best-effort telemetry: close the
+        newly-created coroutine, make the drop observable, and let the caller
+        continue without a warning leak.
+        """
+        try:
+            result = call()
+        except Exception as exc:  # noqa: BLE001 - preserve the sync client contract
+            self._report_durability_failure(operation, "failed", exc)
+            raise
+        if not inspect.isawaitable(result):
+            return True
+        self._close_unowned_awaitable(cast(Awaitable[object], result))
+        self._report_durability_failure(operation, "no_running_loop")
+        return False
+
+    async def _run_durability_write(
+        self,
+        previous: asyncio.Task[bool] | None,
+        operation: str,
+        call: _DurabilityCall,
+        async_callable: bool,
+    ) -> bool:
+        """Run one write after its per-series predecessor without blocking the loop."""
+        if previous is not None:
+            try:
+                previous_succeeded = await asyncio.shield(previous)
+            except asyncio.CancelledError:
+                current = asyncio.current_task()
+                if previous.cancelled() and (
+                    current is None or current.cancelling() == 0
+                ):
+                    self._report_durability_failure(operation, "prerequisite_cancelled")
+                    return False
+                self._report_durability_failure(operation, "cancelled")
+                raise
+            if not previous_succeeded:
+                self._report_durability_failure(operation, "prerequisite_failed")
+                return False
+
+        try:
+            # The default engine client exposes a synchronous facade that waits
+            # on its private engine loop.  Calling it directly from GraphOS's
+            # serving loop would stall that loop, so offload it while retaining
+            # cancellation completion ordering.  Native async clients run on
+            # the current loop directly.
+            if async_callable:
+                result = call()
+            else:
+                result = await run_blocking_ordered(call)
+            if inspect.isawaitable(result):
+                await cast(Awaitable[object], result)
+        except asyncio.CancelledError:
+            self._report_durability_failure(operation, "cancelled")
+            raise
+        except Exception as exc:  # noqa: BLE001 - telemetry is best-effort
+            self._report_durability_failure(operation, "failed", exc)
+            return False
+        return True
+
+    def _finish_durability_write(
+        self,
+        series_id: str,
+        completed: asyncio.Task[bool],
+    ) -> None:
+        self._background_writes.discard(completed)
+        if self._pending_writes.get(series_id) is completed:
+            self._pending_writes.pop(series_id, None)
+
+    def _queue_durability_write(
+        self,
+        series_id: str,
+        operation: str,
+        call: _DurabilityCall,
+        *,
+        async_callable: bool,
+    ) -> bool:
+        """Submit a write without letting time-series telemetry stall GraphOS.
+
+        In a running event loop, all writes are represented by per-series tasks:
+        the sync engine facade runs in a worker and native async clients are
+        awaited directly.  The tail-task fence preserves register-before-append
+        ordering even when callers submit multiple batches rapidly.  In a plain
+        synchronous caller, preserve the existing sync-client behavior instead.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return self._write_without_running_loop(operation, call)
+
+        previous = self._pending_writes.get(series_id)
+        if previous is not None and previous.get_loop() is not loop:
+            if previous.done():
+                self._pending_writes.pop(series_id, None)
+                previous = None
+            else:
+                self._report_durability_failure(operation, "different_event_loop")
+                return False
+
+        runner = self._run_durability_write(
+            previous,
+            operation,
+            call,
+            async_callable,
+        )
+        try:
+            task = loop.create_task(runner, name=f"time-series-{operation}")
+        except RuntimeError as exc:
+            runner.close()
+            self._report_durability_failure(operation, "scheduling_failed", exc)
+            return False
+        self._pending_writes[series_id] = task
+        self._background_writes.add(task)
+        task.add_done_callback(
+            functools.partial(self._finish_durability_write, series_id)
+        )
+        return True
+
     def _register(
         self,
         series_id: str,
         symbol: str,
         fields: list[str],
         tags: dict[str, str] | None,
-    ) -> None:
+    ) -> bool:
         """Register the series + its field-name decode key (idempotent)."""
         client = self._ensure_client()
-        self._fields[series_id] = fields
-        client.timeseries.register_series(
+        field_names = list(fields)
+        self._fields[series_id] = field_names
+        register = client.timeseries.register_series
+        return self._queue_durability_write(
             series_id,
-            entity_id=f"symbol:{symbol}",
-            field_names=fields,
-            metadata={
-                "symbol": symbol,
-                "tags_json": json.dumps(tags) if tags else "",
-            },
+            "register",
+            functools.partial(
+                register,
+                series_id,
+                entity_id=f"symbol:{symbol}",
+                field_names=field_names,
+                metadata={
+                    "symbol": symbol,
+                    "tags_json": json.dumps(tags) if tags else "",
+                },
+            ),
+            async_callable=inspect.iscoroutinefunction(register),
         )
 
     def _field_names_for(self, series_id: str) -> list[str]:
@@ -152,22 +330,54 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         if not points:
             return
         client = self._ensure_client()
-        # Group points by (symbol, tags) -> series, with a stable metric-field order.
+        # Group raw points before encoding their vectors.  A series has one field
+        # schema for the entire append batch, so an earlier sparse point must be
+        # widened when a later point introduces another metric.  Encoding during
+        # this discovery pass would otherwise produce mixed-width vectors that a
+        # strict engine append rejects as one failed durability batch (D-CDX-67).
+        grouped: dict[str, list[TimeSeriesDataPoint]] = {}
+        for point in points:
+            grouped.setdefault(_series_id(point.symbol, point.tags), []).append(point)
+
         by_series: dict[str, list[tuple[int, list[float]]]] = {}
         meta: dict[str, tuple[str, list[str], dict[str, str] | None]] = {}
-        for p in points:
-            fields = sorted(p.metrics.keys())
-            sid = _series_id(p.symbol, p.tags)
-            known = self._fields.get(sid)
-            if known is not None:
-                fields = known + [f for f in fields if f not in known]
-            meta[sid] = (p.symbol, fields, p.tags)
-            vec = [float(p.metrics.get(f, 0.0)) for f in fields]
-            by_series.setdefault(sid, []).append((_to_ns(p.timestamp), vec))
+        for sid, series_points in grouped.items():
+            known = list(self._fields.get(sid, ()))
+            discovered = {
+                field
+                for point in series_points
+                for field in point.metrics
+                if field not in known
+            }
+            fields = [*known, *sorted(discovered)]
+            first = series_points[0]
+            meta[sid] = (first.symbol, fields, first.tags)
+            by_series[sid] = [
+                (
+                    _to_ns(point.timestamp),
+                    [float(point.metrics.get(field, 0.0)) for field in fields],
+                )
+                for point in series_points
+            ]
+        registered: set[str] = set()
         for sid, (symbol, fields, tags) in meta.items():
-            self._register(sid, symbol, fields, tags)
+            if self._register(sid, symbol, fields, tags):
+                registered.add(sid)
         for sid, batch in by_series.items():
-            client.timeseries.append(sid, batch, field_names=self._fields.get(sid))
+            if sid not in registered:
+                continue
+            append = client.timeseries.append
+            self._queue_durability_write(
+                sid,
+                "append",
+                functools.partial(
+                    append,
+                    sid,
+                    batch,
+                    field_names=self._fields.get(sid),
+                ),
+                async_callable=inspect.iscoroutinefunction(append),
+            )
 
     def query(
         self,
@@ -233,4 +443,15 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
 
     def close(self) -> None:
         """Release this backend's view; the process graph client remains open."""
+        pending = tuple(self._background_writes)
+        self._background_writes.clear()
+        self._pending_writes.clear()
+        for task in pending:
+            loop = task.get_loop()
+            if loop.is_closed() or task.done():
+                continue
+            try:
+                loop.call_soon_threadsafe(task.cancel)
+            except RuntimeError as exc:
+                self._report_durability_failure("close", "cancellation_failed", exc)
         self._client = None
