@@ -508,6 +508,21 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual, pre-push]
+  # D-CIP-7: pipeline.yml's build-wheel job builds TWICE, requires
+  # byte-identical sha256 digests, and runs check_release_wheel.py +
+  # check_wheel_privacy.py against BOTH candidates before publishing. The
+  # plain `uv build` above only proves the package builds at all — it does
+  # not catch a non-reproducible build, a release-surface contract drift, or
+  # a privacy leak baked into the wheel, all of which are CI-detectable and
+  # were previously locally invisible. Run it via:
+  #   pre-commit run wheel-build-reproducibility --hook-stage manual --all-files
+  - id: wheel-build-reproducibility
+    name: CI parity — wheel reproducibility + release contract + privacy (pipeline.yml)
+    entry: python3 scripts/release/check_wheel_build_reproducibility.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   # D-CIP-13: the not-yet-pushed commit range is public the moment it is
   # pushed, and git history is not a hiding place — a credential deleted in a
   # later commit is still leaked. This was scratchpad tooling a human had to
