@@ -1950,16 +1950,66 @@ def land(repo: Path, commit: str, *, base: str, scope: LaneScope) -> dict[str, A
     over. Deferring is the correct outcome; the candidates stay queued.
     """
     canonical = scope.main_tree
-    current = _require_git(["rev-parse", base], repo)
+    # Qualify the ref. A bare `rev-parse main` can resolve a TAG or a
+    # remote-tracking ref, so the batch could be built on one object and landed
+    # against another. (D-RMD-1 / D-RMQ-2)
+    base_ref = f"refs/heads/{base}"
+    current = _require_git(["rev-parse", base_ref], repo)
+
+    # ★ D-RMD-1: land onto the DECLARED base ref, never onto whatever HEAD
+    # happens to be. `merge --ff-only` writes to HEAD, so it lands correctly
+    # only while the canonical checkout happens to sit on `base` — true for
+    # agent-utilities, and false the moment this queue drives another repo, a
+    # release branch, or a checkout left mid-bisect. The failure was SILENT AND
+    # POSITIVE: it reported `landed`, and the guarded prune then deleted the
+    # branch as landed, leaving the work on a ref nobody reads.
+    head_branch = _run_git(["symbolic-ref", "--quiet", "--short", "HEAD"], canonical)
+    on_base = head_branch.ok and head_branch.out.strip() == base
+
     with guarded_tree_mutation(
         canonical, operation=f"land merge-queue batch onto {base}", owner=scope.lane
     ):
-        res = _run_git(["merge", "--ff-only", commit], canonical)
+        if on_base:
+            # Preferred path: git updates the ref AND the working tree in one
+            # atomic operation. Keep it — a ref-only write here would leave the
+            # canonical tree stale, and fleet pods hostPath-mount that tree.
+            res = _run_git(["merge", "--ff-only", commit], canonical)
+        else:
+            # The base is not checked out here. Refuse if some OTHER worktree
+            # holds it: `update-ref` would move the branch out from under that
+            # tree's own HEAD. Git forbids this for `checkout`/`branch -f` but
+            # NOT for `update-ref`, so the refusal has to be ours — and with
+            # hundreds of live worktrees this is a real configuration.
+            held = _run_git(["worktree", "list", "--porcelain"], repo)
+            if held.ok and f"branch {base_ref}" in held.out:
+                raise MergeQueueError(
+                    f"{base} is checked out in another worktree; refusing to move "
+                    f"{base_ref} underneath it. Land from that worktree, or detach it."
+                )
+            # Compare-and-swap: only advance if the ref still holds what the
+            # batch was built on. `update-ref` will happily REWIND, so the
+            # expected-old argument is what enforces fast-forward-only here.
+            res = _run_git(["update-ref", base_ref, commit, current], repo)
         if not res.ok:
             raise MergeQueueError(
-                f"fast-forward of {base} to {commit[:12]} refused by git: "
+                f"fast-forward of {base} to {commit[:12]} refused: "
                 f"{res.err or res.out} — {base} moved after the batch was built; "
                 "the candidates stay queued and the next run rebuilds against it"
+            )
+
+        # ★ THE POST-CONDITION, and the durable half of this fix. Re-read the ref
+        # and refuse unless it actually holds the computed commit. This catches a
+        # wrong write target BY ITSELF — it would have caught D-RMD-1 even with
+        # the buggy `merge --ff-only` still in place — and it catches the next
+        # variant of the same mistake. Never report `landed` on an unverified write.
+        landed_at = _run_git(["rev-parse", base_ref], repo)
+        if not landed_at.ok or landed_at.out.strip() != commit:
+            raise MergeQueueError(
+                f"POST-CONDITION FAILED: {base_ref} holds "
+                f"{(landed_at.out or '<unreadable>').strip()[:12]}, expected "
+                f"{commit[:12]}. The merge was computed but NOT landed on the "
+                "declared base; refusing to report success so the candidates stay "
+                "queued and nothing is pruned as landed."
             )
     return {"base": base, "from": current, "to": commit}
 
