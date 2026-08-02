@@ -247,6 +247,84 @@ def _native_artifact_cache_root() -> Path:
     return Path.home() / ".cache" / "epistemic-graph" / "native-artifacts" / "v1"
 
 
+# D-ORC-33: the binding constraint on parallelism measured on this host is disk
+# I/O and swap, not the subagent/lane cap -- at the peak of a 13-20 lane wave,
+# load average hit ~26 on 24 cores, swap was 100% exhausted (7/7 GB), and a bare
+# `git add` died with "Bus error (core dumped)" (D-ORC-9). Several lanes were
+# running `uv sync` simultaneously against the SAME 112 GB shared `~/.cache/uv`
+# on the SAME /home spindle; one lane's sync stalled at 0% CPU for 17+ minutes
+# and never recovered, forcing it to fall back to unreplicated evidence
+# (D-ORC-32). Concurrent `uv sync` invocations are correctness-safe (each
+# worktree+selection already gets its own partitioned `.venv`, see
+# `environment_path()`), but they are NOT free: they contend for the same
+# on-disk cache and download/build bandwidth. Capping concurrent heavy syncs
+# to a small pool -- independent of however many lanes are running in total --
+# keeps that contention bounded without serializing it to one lane at a time
+# (an exclusive lease would defeat the very partitioning this module exists
+# to provide, since 20 lanes could genuinely each need a sync at once and each
+# request is legitimate).
+_DEPENDENCY_SYNC_POOL_CAPACITY = 4
+
+
+def _dependency_sync_pool_dir() -> Path:
+    """Host-wide, so the cap holds across every worktree of every repo, not
+    just this one -- the shared uv cache and spindle are contended workspace
+    -wide, exactly like `dependency-lock` and `epistemic-graph-daemon` in
+    agent_utilities/governance/lane_resources.yaml."""
+    root = _user_state_root() / "heavy-lane-pool"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+@contextmanager
+def _dependency_sync_slot() -> Iterator[None]:
+    """Block until one of ``_DEPENDENCY_SYNC_POOL_CAPACITY`` slots is free.
+
+    A flock-based counting semaphore, deliberately NOT
+    ``agent_utilities.governance.lanes.hold_lease`` (which this bootstrap-time
+    launcher cannot safely import: importing the very package this script
+    exists to sync/prepare the environment for, before that environment
+    exists, is circular -- and would risk resolving against whichever
+    ``agent_utilities`` happens to be importable from the ambient interpreter,
+    the same "poisoned interpreter" trap ``uv run pytest`` fell into). Each
+    slot is its own lock file; mutual exclusion per slot is `flock`, capacity
+    is the number of slot files tried. A heavy step WAITS for a slot rather
+    than failing -- unlike the exclusive leases in lanes.py, which raise so
+    the caller can defer explicitly, a sync step has nothing useful to do
+    but wait its turn, and forcing every caller to hand-roll a retry loop
+    would just re-implement this blocking wait one layer up.
+    """
+    pool_dir = _dependency_sync_pool_dir()
+    acquired: tuple[int, int] | None = None
+    try:
+        for index in range(_DEPENDENCY_SYNC_POOL_CAPACITY):
+            slot = pool_dir / f"slot-{index}.lock"
+            handle = os.open(str(slot), os.O_CREAT | os.O_WRONLY, 0o644)
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                os.close(handle)
+                continue
+            acquired = (handle, index)
+            break
+        if acquired is None:
+            # Every slot busy right now: block on slot 0 rather than refuse.
+            # Guarantees eventual acquisition (flock queues waiters FIFO per
+            # kernel) without an unbounded number of processes polling.
+            slot = pool_dir / "slot-0.lock"
+            handle = os.open(str(slot), os.O_CREAT | os.O_WRONLY, 0o644)
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            acquired = (handle, 0)
+        yield
+    finally:
+        if acquired is not None:
+            handle, _index = acquired
+            try:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+            finally:
+                os.close(handle)
+
+
 @contextmanager
 def _shadow_materialization_lock(shadow: Path) -> Iterator[None]:
     """Serialize materialization of *shadow* across concurrent invocations.
@@ -539,6 +617,7 @@ class UvPlan(NamedTuple):
     selection: tuple[str, ...]
     selection_recognized: bool
     command_name: str | None
+    execute_is_heavy_sync: bool = False
 
 
 def uv_plan(
@@ -600,6 +679,16 @@ def uv_plan(
     environment.pop("PYTHONPATH", None)
     environment["UV_PROJECT_ENVIRONMENT"] = str(directory)
     environment[_NATIVE_ARTIFACT_CACHE_ENV] = str(_native_artifact_cache_root())
+    # D-ORC-33: `prepare`'s own sync step is always pool-gated (see run_uv()).
+    # This flag covers the OTHER shape -- no separate `prepare` step, but the
+    # final `execute` command itself still resolves/downloads/writes against
+    # the shared uv cache: a bare `sync`/`lock` subcommand, or a `run` whose
+    # selection this launcher did not recognize (so it falls through to a
+    # plain `uv run` with no `--no-sync`, which performs its own implicit
+    # sync as a side effect).
+    execute_is_heavy_sync = subcommand in {"sync", "lock"} or (
+        subcommand == "run" and not recognized
+    )
     return UvPlan(
         prepare=tuple(prepare),
         execute=tuple(command),
@@ -608,6 +697,7 @@ def uv_plan(
         selection=normalized_selection(selection),
         selection_recognized=recognized,
         command_name=command_name,
+        execute_is_heavy_sync=execute_is_heavy_sync,
     )
 
 
@@ -684,6 +774,7 @@ def run_uv(
     prepare: Sequence[Sequence[str]] = (),
     environment_path: Path | None = None,
     command_name: str | None = None,
+    execute_is_heavy_sync: bool = False,
 ) -> int:
     """Execute uv and prove neither authoritative nor generated inputs changed.
 
@@ -694,6 +785,17 @@ def run_uv(
     ``environment_path`` and ``command_name`` enable the interpreter guard, which
     runs between the two: the environment is final by then, so the check sees
     exactly what the child would.
+
+    D-ORC-33: every ``prepare`` step is a `uv sync` and always runs inside
+    ``_dependency_sync_slot()`` -- it is by construction the resource-heavy
+    operation this pool caps. ``execute_is_heavy_sync`` additionally pool-gates
+    the final command when there was no separate ``prepare`` step but
+    ``execute`` itself still syncs (bare ``uv sync``/``uv lock``, or a `run`
+    whose selection this launcher did not recognise). The ordinary
+    `run --no-sync ...` execute path (the actual test/build the caller asked
+    for) is deliberately left OUTSIDE the pool: capping that too would cap
+    general lane parallelism, not just the disk/cache contention this item
+    measured.
     """
     protected = (
         workspace / "pyproject.toml",
@@ -711,12 +813,13 @@ def run_uv(
             )
 
     for step in prepare:
-        step_result = subprocess.run(
-            list(step),
-            cwd=worktree,
-            env=environment,
-            check=False,
-        )
+        with _dependency_sync_slot():
+            step_result = subprocess.run(
+                list(step),
+                cwd=worktree,
+                env=environment,
+                check=False,
+            )
         _assert_unchanged()
         if step_result.returncode != 0:
             return step_result.returncode
@@ -733,12 +836,21 @@ def run_uv(
                 f"{command_name!r} (for the test suite: --all-extras), or invoke it "
                 "as 'python -m' so it can only resolve inside the environment."
             )
-    result = subprocess.run(
-        command,
-        cwd=worktree,
-        env=environment,
-        check=False,
-    )
+    if execute_is_heavy_sync:
+        with _dependency_sync_slot():
+            result = subprocess.run(
+                command,
+                cwd=worktree,
+                env=environment,
+                check=False,
+            )
+    else:
+        result = subprocess.run(
+            command,
+            cwd=worktree,
+            env=environment,
+            check=False,
+        )
     _assert_unchanged()
     return result.returncode
 
@@ -791,6 +903,7 @@ def main(argv: list[str] | None = None) -> int:
         prepare=plan.prepare,
         environment_path=plan.environment_path,
         command_name=plan.command_name,
+        execute_is_heavy_sync=plan.execute_is_heavy_sync,
     )
     _describe_environment(plan.environment_path, plan.selection)
     return returncode

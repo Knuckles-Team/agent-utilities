@@ -161,6 +161,22 @@ resources:
       must cover every tree-mutating verb, held under one lease across the whole
       check-then-mutate so the tree cannot go dirty in between.
 
+  # NOTE on `heavy-lane-pool` (D-ORC-33): the capped-concurrency pool for `uv
+  # sync` lives in scripts/uv_workspace.py's own `_dependency_sync_slot()`, a
+  # self-contained flock-based counting semaphore -- NOT a row here, and
+  # deliberately not `hold_lease()`. This file's own header rule is "each
+  # class has exactly one mechanism"; `uv_workspace.py` is a bootstrap-time
+  # launcher that runs BEFORE the environment it prepares exists, so it
+  # cannot safely import `agent_utilities.governance.lanes` (circular, and
+  # it would risk resolving against whichever `agent_utilities` happens to be
+  # on the ambient interpreter's path -- the "poisoned interpreter" trap `uv
+  # run pytest` fell into). Classifying it `lease` here anyway would invite
+  # `agent-utilities lane lease --resource heavy-lane-pool` to silently guard
+  # nothing: that CLI path writes to a *different* lock file than
+  # `_dependency_sync_slot()` reads, so the two would never contend with each
+  # other. See `_dependency_sync_slot()`'s docstring for the real mechanism
+  # and evidence.
+
   - name: workspace-scripts
     class: lease
     scope: workspace   # /home/apps/workspace/scripts/ is not a git worktree of any
