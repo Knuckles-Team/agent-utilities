@@ -13,7 +13,18 @@ if typing.TYPE_CHECKING:
     from .._engine_protocol import _EngineProtocol
     from ..core.session import GraphSession
 
-    _Base = _EngineProtocol
+    # D-CDX-71: a plain `_Base = _EngineProtocol` variable assignment is not
+    # valid as a mypy base-class expression once the defining module is
+    # outside the checked import graph (e.g. an isolated
+    # `--follow-imports=skip` run on this file alone) -- mypy cannot resolve
+    # what the variable's *value* names as a class in that mode, even though
+    # a real class statement referencing the same name resolves fine either
+    # way. Declaring an actual TYPE_CHECKING-only class named `_Base` (rather
+    # than assigning a variable) gives mypy a structural definition it can
+    # always see, so both the isolated and the fully-configured (import
+    # following) runs agree. This branch never executes at runtime.
+    class _Base(_EngineProtocol):
+        pass
 else:
     _Base = object
 
