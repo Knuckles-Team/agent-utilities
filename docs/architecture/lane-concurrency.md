@@ -116,6 +116,10 @@ resulting socket path remains shorter than pytest's stock 31-byte temporary leaf
 including non-ASCII test ids. This leaves pytest's basetemp lifecycle and the
 separate `tmp_path_factory` API unchanged.
 
+The fixture's result tracker uses pytest's first-priority report-wrapper ordering,
+so retention cleanup observes report transformations from lower-priority wrappers
+before deciding whether a temporary directory should remain.
+
 The allocator avoids directory enumeration; it does not claim zero filesystem
 probes. Its ordinal always starts at zero and is bounded only after all `2**64`
 values have been consumed; the randomized origin only permutes the encoded

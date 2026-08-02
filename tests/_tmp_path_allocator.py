@@ -191,12 +191,12 @@ def tmp_path(
         del request.node.stash[_test_result_key]
 
 
-@pytest.hookimpl(wrapper=True, trylast=True)
+@pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_runtest_makereport(
     item: pytest.Item,
     call: pytest.CallInfo[object],
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
-    """Record test-phase status for matching retention-policy cleanup."""
+    """Record final phase status with pytest's own retention-hook ordering."""
     report = yield
     item.stash.setdefault(_test_result_key, {})[report.when] = report.passed
     return report

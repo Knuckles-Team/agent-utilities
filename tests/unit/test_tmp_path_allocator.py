@@ -172,6 +172,29 @@ def test_setup_failure(broken_after_tmp_path: None) -> None:
     pass
 """
 
+_OUTCOME_REWRITE_CONFTEST = """
+import pytest
+
+
+@pytest.hookimpl(wrapper=True, trylast=True)
+def pytest_runtest_makereport(item, call):
+    report = yield
+    if report.when == "call" and report.failed:
+        report.outcome = "passed"
+    return report
+"""
+
+_OUTCOME_REWRITE_SUITE = """
+import os
+from pathlib import Path
+
+
+def test_rewritten_failure(tmp_path: Path) -> None:
+    record_path = Path(os.environ["BOUNDED_TMP_PATH_RECORD_DIRECTORY"]) / "path.txt"
+    record_path.write_text(str(tmp_path), encoding="utf-8")
+    assert False, "the report hook rewrites this outcome to passed"
+"""
+
 
 def _run_retention_suite(
     pytester,
@@ -645,6 +668,53 @@ def test_tmp_path_fixture_matches_pytest_retention_contract(
         stock_presence = {case: path.is_dir() for case, path in stock_paths.items()}
         assert custom_presence == stock_presence == expected
         _assert_bounded_fixture_paths(custom_paths)
+
+
+def test_tmp_path_fixture_matches_stock_after_outcome_rewrite(
+    pytester, monkeypatch
+) -> None:
+    """Retention reads the final report after another wrapper rewrites its outcome."""
+    _prepare_child_pytest(pytester, monkeypatch)
+    custom_directory = pytester.path / "custom_outcome_rewrite"
+    stock_directory = pytester.path / "stock_outcome_rewrite"
+    pytester.makefile(
+        ".py",
+        **{
+            "custom_outcome_rewrite/conftest": (
+                'pytest_plugins = ("_tmp_path_allocator",)\n'
+                + _OUTCOME_REWRITE_CONFTEST
+            ),
+            "stock_outcome_rewrite/conftest": _OUTCOME_REWRITE_CONFTEST,
+            "custom_outcome_rewrite/test_outcome_rewrite": _OUTCOME_REWRITE_SUITE,
+            "stock_outcome_rewrite/test_outcome_rewrite": _OUTCOME_REWRITE_SUITE,
+        },
+    )
+
+    retained_paths: dict[str, Path] = {}
+    for label, directory in (
+        ("custom", custom_directory),
+        ("stock", stock_directory),
+    ):
+        record_directory = pytester.path / f"{label}-outcome-rewrite-records"
+        record_directory.mkdir()
+        monkeypatch.setenv(_RECORD_DIRECTORY_ENV, str(record_directory))
+        result = pytester.runpytest_subprocess(
+            "-q",
+            "-p",
+            "no:asyncio",
+            "-o",
+            "tmp_path_retention_policy=failed",
+            directory,
+            timeout=60,
+        )
+
+        result.assert_outcomes(passed=1)
+        retained_paths[label] = Path(
+            (record_directory / "path.txt").read_text(encoding="utf-8")
+        )
+
+    assert not retained_paths["stock"].exists()
+    assert not retained_paths["custom"].exists()
 
 
 _RETRY_CONFTEST = """
