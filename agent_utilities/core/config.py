@@ -6393,8 +6393,37 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
             errors.append(f"tools: {e}")
         return tools
 
+    try:
+        row_iterator = iter(tool_rows)
+    except TypeError as exc:
+        logger.warning(
+            "Tool query returned a non-iterable result (%s); registry will retry",
+            type(exc).__name__,
+        )
+        if errors is not None:
+            errors.append(f"tools: result is not iterable ({type(exc).__name__})")
+        return tools
+
     rejected_rows = 0
-    for row_index, row in enumerate(tool_rows):
+    row_index = 0
+    while True:
+        try:
+            row = next(row_iterator)
+        except StopIteration:
+            break
+        except Exception as exc:
+            logger.warning(
+                "Tool row stream failed after %d row(s) (%s); registry will retry",
+                row_index,
+                type(exc).__name__,
+            )
+            if errors is not None:
+                errors.append(
+                    f"tools: row stream failed after {row_index} row(s) "
+                    f"({type(exc).__name__})"
+                )
+            return tools
+
         try:
             tools.append(
                 MCPToolInfo(
@@ -6406,14 +6435,16 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
                     requires_approval=row.get("t.requires_approval", False),
                 )
             )
-        except (AttributeError, TypeError, ValueError) as exc:
+        except (AttributeError, TypeError, ValueError):
             rejected_rows += 1
-            logger.warning(
-                "Rejected malformed Tool row %d (%s); registry will retry",
-                row_index,
-                type(exc).__name__,
-            )
+        finally:
+            row_index += 1
 
+    if rejected_rows:
+        logger.warning(
+            "Rejected %d malformed Tool row(s); registry will retry",
+            rejected_rows,
+        )
     if rejected_rows and errors is not None:
         # Preserve valid tools for this request, but keep the assembled registry
         # out of the process-lifetime cache until the bad graph rows are fixed.

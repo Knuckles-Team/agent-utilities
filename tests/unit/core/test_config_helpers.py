@@ -14,7 +14,7 @@ import logging
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -852,6 +852,15 @@ def test_tool_relevance_score_preserves_canonical_bounds() -> None:
     )
     assert legacy.relevance_score == 100
 
+    rounded_down = MCPToolInfo(
+        name="rounded-down", description="", mcp_server="srv", relevance_score=0.005
+    )
+    rounded_up = MCPToolInfo(
+        name="rounded-up", description="", mcp_server="srv", relevance_score=0.015
+    )
+    assert rounded_down.relevance_score == 0
+    assert rounded_up.relevance_score == 2
+
     with pytest.raises(ValidationError):
         MCPToolInfo(
             name="too-high", description="", mcp_server="srv", relevance_score=101
@@ -874,6 +883,113 @@ def test_tool_relevance_score_preserves_canonical_bounds() -> None:
             mcp_server="srv",
             relevance_score=80.0,
         )
+
+
+def test_tool_relevance_score_validates_assignment() -> None:
+    """Nested registry models cannot be corrupted after construction."""
+    tool = MCPToolInfo(
+        name="canonical", description="", mcp_server="srv", relevance_score=75
+    )
+
+    tool.relevance_score = cast(int, 0.5)
+    assert tool.relevance_score == 50
+
+    invalid_values: tuple[Any, ...] = (1.5, 101, -1, True, "50")
+    for invalid in invalid_values:
+        with pytest.raises(ValidationError):
+            tool.relevance_score = invalid
+        assert tool.relevance_score == 50
+
+
+def test_tool_row_stream_failure_retains_valid_rows_without_caching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lazy backend failure degrades the request without losing prior rows."""
+
+    def interrupted_rows():
+        yield {
+            "t.name": "before-failure",
+            "t.description": "valid row",
+            "t.mcp_server": "srv",
+            "t.relevance_score": 60,
+            "t.tags": [],
+            "t.requires_approval": False,
+        }
+        raise RuntimeError("sensitive backend detail")
+
+    interrupted_engine = MagicMock()
+    interrupted_engine.backend.execute.side_effect = [[], [], interrupted_rows()]
+    _install_fake_engine(monkeypatch, interrupted_engine)
+
+    degraded = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in degraded.tools] == [
+        ("before-failure", 60)
+    ]
+    assert ch._RegistryCache._registry is None
+
+    healthy_engine = MagicMock()
+    healthy_engine.backend.execute.side_effect = [
+        [],
+        [],
+        [
+            {
+                "t.name": "after-retry",
+                "t.description": "valid row",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 90,
+                "t.tags": [],
+                "t.requires_approval": False,
+            }
+        ],
+    ]
+    _install_fake_engine(monkeypatch, healthy_engine)
+
+    repaired = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in repaired.tools] == [
+        ("after-retry", 90)
+    ]
+    assert ch._RegistryCache._registry is repaired
+
+
+@pytest.mark.parametrize("bad_result", [None, 42])
+def test_noniterable_tool_query_result_is_degraded_not_cached(
+    monkeypatch: pytest.MonkeyPatch, bad_result: object
+) -> None:
+    engine = MagicMock()
+    engine.backend.execute.side_effect = [[], [], bad_result]
+    _install_fake_engine(monkeypatch, engine)
+
+    result = ch.get_discovery_registry()
+    assert result.tools == []
+    assert ch._RegistryCache._registry is None
+
+
+def test_nonmapping_tool_row_is_quarantined_without_losing_valid_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = MagicMock()
+    engine.backend.execute.side_effect = [
+        [],
+        [],
+        [
+            object(),
+            {
+                "t.name": "valid",
+                "t.description": "valid row",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 40,
+                "t.tags": [],
+                "t.requires_approval": False,
+            },
+        ],
+    ]
+    _install_fake_engine(monkeypatch, engine)
+
+    result = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in result.tools] == [
+        ("valid", 40)
+    ]
+    assert ch._RegistryCache._registry is None
 
 
 def test_missing_backend_is_treated_as_degraded_not_cached(

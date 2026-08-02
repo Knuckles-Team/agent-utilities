@@ -1,7 +1,7 @@
 import time
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SpecialistTier = Literal["light", "medium", "heavy", "reasoning"]
 
@@ -62,6 +62,8 @@ class MCPAgent(BaseModel):
 
 
 class MCPToolInfo(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     name: str = Field(description="Full tool name")
     description: str = Field(description="Tool description")
     tag: str | None = Field(
