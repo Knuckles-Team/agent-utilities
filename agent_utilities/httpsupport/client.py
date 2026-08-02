@@ -24,10 +24,10 @@ What every fleet client now gets for free:
 * a typed error-mapping hook (status → exception class, override via
   ``error_map`` or :meth:`_map_error`) raising the canonical
   :mod:`agent_utilities.core.exceptions` types;
-* pluggable auth strategies (:mod:`agent_utilities.http.auth`) with one
+* pluggable auth strategies (:mod:`agent_utilities.httpsupport.auth`) with one
   transparent retry after 401 when the strategy exposes ``invalidate()``;
 * log redaction by default — the module logger carries a
-  :class:`~agent_utilities.http.LogRedactor`, and error messages are
+  :class:`~agent_utilities.httpsupport.LogRedactor`, and error messages are
   redacted before they are raised;
 * destructive-action gating (:meth:`guard_destructive`);
 * pagination (:meth:`paginate`) over five dialects.
@@ -60,15 +60,15 @@ from agent_utilities.core.http_client import (
     create_async_http_client,
     create_http_client,
 )
-from agent_utilities.http.auth import AuthHeaderInjector
-from agent_utilities.http.pagination import AsyncPaginationIterator, PaginationIterator
-from agent_utilities.http.rate_limit import (
+from agent_utilities.httpsupport.auth import AuthHeaderInjector
+from agent_utilities.httpsupport.pagination import AsyncPaginationIterator, PaginationIterator
+from agent_utilities.httpsupport.rate_limit import (
     DEFAULT_RETRY_AFTER_CAP_S,
     RateLimitCapture,
     RateLimitSnapshot,
     backoff_seconds,
 )
-from agent_utilities.http.redaction import LogRedactor, redact_text
+from agent_utilities.httpsupport.redaction import LogRedactor, redact_text
 
 if TYPE_CHECKING:
     from agent_utilities.orchestration.resilience import ResiliencePolicy
@@ -279,7 +279,7 @@ class BaseApiClient(_ApiClientCore):
 
     Args:
         base_url: Root URL all relative endpoints join under.
-        auth: An :class:`~agent_utilities.http.AuthHeaderInjector` strategy
+        auth: An :class:`~agent_utilities.httpsupport.AuthHeaderInjector` strategy
             (token / basic / query API key / callable provider). ``None``
             means anonymous access.
         headers: Extra default headers merged over :meth:`default_headers`.

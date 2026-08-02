@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.pagination (CONCEPT:AU-ECO.ui.fleet-http-client-library).
+"""Tests for agent_utilities.httpsupport.pagination (CONCEPT:AU-ECO.ui.fleet-http-client-library).
 
 Drives the iterators with fake page fetchers across all five dialects:
 cursor, page/page_size, offset, Link-header, since-id.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.http.pagination import AsyncPaginationIterator, PaginationIterator
+from agent_utilities.httpsupport.pagination import AsyncPaginationIterator, PaginationIterator
 
 # --------------------------------------------------------------------------- #
 # helpers

@@ -17,7 +17,7 @@ strategy here instead of a hand-rolled ``_build_headers`` per repo:
   extension point for bespoke schemes.
 
 Strategies expose :meth:`~AuthHeaderInjector.secrets` so the client can feed
-its :class:`~agent_utilities.http.LogRedactor`, and may define an
+its :class:`~agent_utilities.httpsupport.LogRedactor`, and may define an
 ``invalidate()`` method to opt in to one transparent retry after a 401
 (the client duck-types for it).
 """
