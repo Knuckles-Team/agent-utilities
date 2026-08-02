@@ -6,7 +6,7 @@ import argparse
 import asyncio
 import importlib.util
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -41,6 +41,45 @@ def test_quality_gate_failure_aggregates_every_completed_sample() -> None:
 
     assert probe._any_retrieval_quality_gate_failed([True, False, False]) is True
     assert probe._any_retrieval_quality_gate_failed([False, False, False]) is False
+
+
+def test_stage_aggregates_quality_failure_across_real_sample_bundles(
+    monkeypatch,
+) -> None:
+    probe = _probe()
+    from agent_utilities.core import contextual_model, model_factory
+
+    bundles = iter(
+        [
+            SimpleNamespace(retrieval_quality_gate_failed=True),
+            SimpleNamespace(retrieval_quality_gate_failed=False),
+        ]
+    )
+    calls = 0
+
+    def _compile(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return object(), next(bundles)
+
+    monkeypatch.setattr(contextual_model, "_CONTEXT_COMPILE_TIMEOUT_S", 60.0)
+    monkeypatch.setattr(
+        contextual_model, "_compiled_evidence_and_bundle", _compile
+    )
+    monkeypatch.setattr(
+        model_factory,
+        "create_model",
+        lambda **_kwargs: SimpleNamespace(model_name="test-model"),
+    )
+
+    with pytest.raises(RuntimeError, match="retrieval_quality_gate_failed"):
+        asyncio.run(
+            probe._stage_grounding(
+                "standard", 1.0, "required", 2, "benchmark"
+            )
+        )
+
+    assert calls == 2
 
 
 @pytest.mark.parametrize(
@@ -117,7 +156,38 @@ def test_run_returns_stage_four_for_required_grounding_failure(monkeypatch) -> N
     assert asyncio.run(probe.run(args)) == 4
 
 
-def test_best_effort_run_reaches_and_passes_grounding_stage(monkeypatch) -> None:
+def test_programmatic_required_zero_samples_returns_stage_four(monkeypatch) -> None:
+    probe = _probe()
+
+    async def _pass(*_args, **_kwargs):
+        return "ok"
+
+    monkeypatch.setattr(probe, "_stage_config", _pass)
+    monkeypatch.setattr(probe, "_stage_identity", _pass)
+    monkeypatch.setattr(probe, "_stage_engine", _pass)
+    args = argparse.Namespace(
+        skill="",
+        server="",
+        tool="",
+        mode="auto",
+        identity_mode="process",
+        transport="streamable-http",
+        stop_after=None,
+        model_class="standard",
+        grounding_budget=90.0,
+        grounding="required",
+        grounding_samples=0,
+        grounding_sample_mode="functional",
+        traceback=False,
+    )
+
+    assert asyncio.run(probe.run(args)) == 4
+
+
+@pytest.mark.parametrize("grounding", ["best_effort", "none"])
+def test_degraded_run_reaches_and_passes_grounding_stage(
+    monkeypatch, grounding: str
+) -> None:
     probe = _probe()
     reached: list[str] = []
 
@@ -129,7 +199,7 @@ def test_best_effort_run_reaches_and_passes_grounding_stage(monkeypatch) -> None
         return _pass
 
     async def _grounding(*_args, **_kwargs):
-        assert _args[2:] == ("best_effort", 0, "functional")
+        assert _args[2:] == (grounding, 0, "functional")
         reached.append("grounding")
         return "synthetic compile skipped; proceeding to real delegation"
 
@@ -142,7 +212,7 @@ def test_best_effort_run_reaches_and_passes_grounding_stage(monkeypatch) -> None
     monkeypatch.setattr(probe, "_stage_toolset", _stage("toolset"))
     monkeypatch.setattr(probe, "_stage_delegate", _stage("delegate"))
     monkeypatch.setattr(probe, "_stage_provenance", _stage("provenance"))
-    sample_count, sample_mode = probe._grounding_sample_plan("best_effort", None)
+    sample_count, sample_mode = probe._grounding_sample_plan(grounding, None)
     args = argparse.Namespace(
         skill="skill",
         server="server",
@@ -153,7 +223,7 @@ def test_best_effort_run_reaches_and_passes_grounding_stage(monkeypatch) -> None
         stop_after=None,
         model_class="standard",
         grounding_budget=90.0,
-        grounding="best_effort",
+        grounding=grounding,
         grounding_samples=sample_count,
         grounding_sample_mode=sample_mode,
         live_model=False,

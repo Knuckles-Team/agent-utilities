@@ -269,6 +269,8 @@ async def _stage_grounding(
     Here it runs with a deliberately generous ceiling so we learn the true
     distribution instead of only "it exceeded 10s".
     """
+    if sample_count <= 0:
+        _grounding_sample_plan(grounding, sample_count)
     if sample_count == 0:
         _STATE["grounding_samples"] = []
         return (
