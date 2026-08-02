@@ -33,6 +33,8 @@ uses only privacy-safe opaque references.
 """
 
 import asyncio
+import concurrent.futures
+import contextvars
 import logging
 import threading
 import time
@@ -63,6 +65,8 @@ __all__ = [
     "create_context_agent",
     "current_grounding_policy",
     "disable_context_agent_instrumentation",
+    "drain_inflight_compiles",
+    "inflight_compile_count",
     "grounding_snapshot",
     "instrument_context_agents",
     "set_context_compiler_engine",
@@ -128,6 +132,122 @@ _grounding_outcome: ContextVar[dict[str, Any] | None] = ContextVar(
 # rather than a new env knob. ~10s sits below typical delegation/model timeouts
 # while still letting a genuinely-slow-but-progressing retrieval complete.
 _CONTEXT_COMPILE_TIMEOUT_S = 10.0
+
+# D-CDX-22 — evidence-compile workers still running past their timeout budget.
+# ``asyncio.wait_for`` cancelling the AWAITING coroutine cannot stop the
+# underlying blocking call: the eg client's ``sync_wrapper``/``future.result()``
+# hop the compile blocks on has no per-call timeout of its own, so a
+# timed-out compile keeps issuing engine work in the background. Tracked here
+# so a caller can bound-wait/observe stragglers (:func:`drain_inflight_compiles`,
+# :func:`inflight_compile_count`) instead of silently racing the next
+# measurement/stage against an abandoned worker — the exact contamination
+# this defect is about. Guarded by its own lock (not reused for anything else
+# on this module's hot path).
+_inflight_compiles: dict[str, concurrent.futures.Future] = {}
+_inflight_compiles_lock = threading.Lock()
+
+
+def _pop_inflight_compile(token: str) -> None:
+    with _inflight_compiles_lock:
+        _inflight_compiles.pop(token, None)
+
+
+def _run_isolated(fn: Any, *args: Any) -> concurrent.futures.Future:
+    """Run ``fn(*args)`` on a fresh DAEMON thread; return its ``Future``.
+
+    D-CDX-22: ``asyncio.to_thread`` (what this replaces for the bounded
+    compile) submits to the process-wide DEFAULT ``ThreadPoolExecutor``, whose
+    worker threads are deliberately non-daemon so CPython's global
+    ``concurrent.futures.thread._python_exit`` atexit hook — and, inside an
+    ``asyncio.run()``, ``loop.shutdown_default_executor()`` — can join them
+    cleanly on normal shutdown. That is exactly the mechanism that turned one
+    abandoned post-timeout compile into the profiled run's ~700s
+    ``_do_shutdown``/thread-join/thread-pool-shutdown teardown tail: shutdown
+    unconditionally blocked joining a thread that was still blocked deep in a
+    foreign-extension RPC call with no timeout of its own.
+    A plain ``threading.Thread(daemon=True)`` is NEVER joined by either
+    mechanism, so an abandoned compile can no longer hold up process/loop
+    teardown — the underlying RPC still keeps running until it naturally
+    returns (there is no way to force-kill a blocking foreign-extension call
+    short of full process isolation), but it can no longer corrupt
+    measurement of, or contend for teardown time with, whatever runs after it.
+    ``contextvars.copy_context()`` + ``ctx.run`` replicates exactly what
+    ``asyncio.to_thread`` does for context propagation, so the verified
+    ``GraphSession``/resource-priority class ambient state still reaches the
+    retriever unchanged.
+    """
+    ctx = contextvars.copy_context()
+    future: concurrent.futures.Future = concurrent.futures.Future()
+
+    def _target() -> None:
+        if not future.set_running_or_notify_cancel():
+            return
+        try:
+            result = ctx.run(fn, *args)
+        except BaseException as exc:  # noqa: BLE001 — propagated via the Future, never swallowed
+            future.set_exception(exc)
+        else:
+            future.set_result(result)
+
+    threading.Thread(target=_target, name="ctx-compile-isolated", daemon=True).start()
+    return future
+
+
+async def _compile_isolated_bounded(fn: Any, *args: Any, timeout_s: float) -> Any:
+    """Await ``fn(*args)`` run via :func:`_run_isolated`, bounded by ``timeout_s``.
+
+    Tracks the future in :data:`_inflight_compiles` for the duration so a
+    timeout leaves an observable, bound-waitable record instead of silently
+    dropping all reference to the still-running worker. Raises
+    ``TimeoutError`` on expiry (same alias ``asyncio.wait_for`` raises) —
+    callers keep their existing ``except TimeoutError`` handling.
+    """
+    future = _run_isolated(fn, *args)
+    token = f"{id(future):x}-{time.monotonic_ns()}"
+    with _inflight_compiles_lock:
+        _inflight_compiles[token] = future
+
+    def _on_done(_f: concurrent.futures.Future) -> None:
+        _pop_inflight_compile(token)
+
+    future.add_done_callback(_on_done)
+    return await asyncio.wait_for(asyncio.wrap_future(future), timeout=timeout_s)
+
+
+async def drain_inflight_compiles(timeout: float = 0.0) -> dict[str, Any]:
+    """Best-effort bounded wait for evidence-compile workers still running
+    past their timeout budget (D-CDX-22).
+
+    Never blocks longer than ``timeout`` regardless of whether the underlying
+    worker(s) finish — there is no way to force an uncooperative blocking RPC
+    thread to return early, so this can only report, never guarantee,
+    completion. A caller that needs the NEXT measurement/stage to start
+    without an in-flight straggler contaminating it (the delegation probe
+    harness between stages; an orchestration boundary between runs) should
+    await this first and treat ``remaining > 0`` as "a compile from a prior
+    timeout is STILL not done" rather than silently proceeding.
+
+    Returns ``{"remaining": <int>, "waited_s": <float>}``.
+    """
+    start = time.monotonic()
+    with _inflight_compiles_lock:
+        futures = list(_inflight_compiles.values())
+    if futures and timeout > 0:
+        await asyncio.get_running_loop().run_in_executor(
+            None,
+            lambda: concurrent.futures.wait(futures, timeout=timeout),
+        )
+    with _inflight_compiles_lock:
+        remaining = len(_inflight_compiles)
+    return {"remaining": remaining, "waited_s": time.monotonic() - start}
+
+
+def inflight_compile_count() -> int:
+    """Synchronous count of evidence-compile workers still running past a
+    timeout budget (D-CDX-22 observability) — see :data:`_inflight_compiles`."""
+    with _inflight_compiles_lock:
+        return len(_inflight_compiles)
+
 
 # CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker — per-process breaker over
 # the bounded compile call (:func:`_compiled_evidence_and_bundle_bounded`). Paying
@@ -858,9 +978,14 @@ async def _compiled_evidence_and_bundle_bounded(
         return _degrade_for_policy(messages, model_name, reason="circuit_breaker_open")
 
     try:
-        result = await asyncio.wait_for(
-            asyncio.to_thread(_compiled_evidence_and_bundle, messages, model_name),
-            timeout=_CONTEXT_COMPILE_TIMEOUT_S,
+        # D-CDX-22: an isolated DAEMON-thread worker (not asyncio.to_thread's
+        # shared default executor) so an abandoned post-timeout compile can
+        # never block loop/process teardown — see _run_isolated's docstring.
+        result = await _compile_isolated_bounded(
+            _compiled_evidence_and_bundle,
+            messages,
+            model_name,
+            timeout_s=_CONTEXT_COMPILE_TIMEOUT_S,
         )
     except (
         TimeoutError
@@ -868,8 +993,13 @@ async def _compiled_evidence_and_bundle_bounded(
         logger.warning(
             "[CONCEPT:AU-KG.retrieval.context-compiler] evidence compilation exceeded "
             "%.1fs and was abandoned; applying the grounding policy instead of "
-            "silently sending this model request without compiled evidence.",
+            "silently sending this model request without compiled evidence. The "
+            "worker keeps running in the background on an isolated daemon thread "
+            "(inflight_compile_count()=%d) -- it cannot be force-stopped, but it "
+            "can no longer hold up teardown or silently contaminate the next "
+            "measurement (D-CDX-22).",
             _CONTEXT_COMPILE_TIMEOUT_S,
+            inflight_compile_count(),
         )
         _record_retrieval_degraded("timeout", model_name)
         _ctx_compile_note_degradation()

@@ -295,14 +295,28 @@ async def _stage_grounding(
 
     samples: list[float] = []
     sample_quality_failures: list[bool] = []
+    timed_out = False
     for _ in range(sample_count):
         t0 = time.monotonic()
         try:
-            compiled = await asyncio.wait_for(
-                asyncio.to_thread(
-                    cm._compiled_evidence_and_bundle, messages, model_name
-                ),
-                timeout=budget_s,
+            # D-CDX-22: route through the SAME isolated-daemon-thread primitive
+            # production uses (contextual_model._compile_isolated_bounded), not
+            # a hand-rolled asyncio.wait_for(asyncio.to_thread(...)). The
+            # previous direct-to_thread version abandoned its worker on the
+            # shared DEFAULT executor on a timeout and immediately `break`,
+            # leaving that worker running in the background while later
+            # stages/samples proceeded — the exact "contaminates the next
+            # measurement" defect, and the reason a single incomplete timed-out
+            # sample (~90s) was once mistaken for a real completed-sample
+            # regression against a prior 90s->147s comparison. See
+            # `drain_inflight_compiles` below: cleanup wall time is now
+            # reported SEPARATELY from stage time instead of being silently
+            # folded into (or omitted from) whatever ran next.
+            compiled = await cm._compile_isolated_bounded(
+                cm._compiled_evidence_and_bundle,
+                messages,
+                model_name,
+                timeout_s=budget_s,
             )
             samples.append(time.monotonic() - t0)
             bundle = (
@@ -315,9 +329,34 @@ async def _stage_grounding(
             )
         except TimeoutError:
             samples.append(float("inf"))
+            timed_out = True
             break
 
     _STATE["grounding_samples"] = samples
+
+    cleanup_s = 0.0
+    inflight_after_drain = 0
+    if timed_out:
+        # Bound-wait (never indefinitely — there is no way to force an
+        # uncooperative blocking RPC thread to return early) for the abandoned
+        # worker before this stage hands control to the next one, and report
+        # how long that took as its OWN number — never folded into a stage's
+        # own timing, and never silently skipped.
+        drain_t0 = time.monotonic()
+        drain_result = await cm.drain_inflight_compiles(timeout=min(budget_s, 5.0))
+        cleanup_s = time.monotonic() - drain_t0
+        inflight_after_drain = int(drain_result.get("remaining", 0))
+        if inflight_after_drain:
+            print(
+                f"  WARN grounding   {inflight_after_drain} evidence-compile "
+                f"worker(s) still running {cleanup_s:.2f}s after the "
+                f"{budget_s:.1f}s sample timeout (drained up to "
+                f"{min(budget_s, 5.0):.1f}s) — any stage timing recorded after "
+                "this point may still be contended by it; treat it as suspect, "
+                "not independent."[:600],
+                flush=True,
+            )
+
     gate_failed = _any_retrieval_quality_gate_failed(sample_quality_failures)
     over = sum(1 for s in samples if s > budget)
     rendered = ", ".join(
@@ -332,10 +371,16 @@ async def _stage_grounding(
         if over
         else f"within the {budget:.1f}s production budget"
     )
+    cleanup_note = (
+        f" cleanup_s={cleanup_s:.2f} inflight_after_drain={inflight_after_drain}"
+        if timed_out
+        else ""
+    )
     return (
         f"synthetic_compile={sample_mode} requested={sample_count} "
         f"completed={len(sample_quality_failures)} compile={rendered} "
         f"budget={budget:.1f}s quality_gate_failed={gate_failed} => {verdict}"
+        f"{cleanup_note}"
     )
 
 
