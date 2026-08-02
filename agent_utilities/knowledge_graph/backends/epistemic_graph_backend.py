@@ -161,6 +161,15 @@ class EpistemicGraphBackend(GraphBackend):
         """Return the non-owning process graph view."""
         return self._graph
 
+    def apply_typed_batch(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+        """Commit ordered native typed upserts in one authoritative transaction.
+
+        This is intentionally narrower than a public generic batch surface: callers
+        that already own typed node/edge preparation can collapse their durable
+        writes without bypassing this backend's graph-scoped authority.
+        """
+        return self._graph.batch_update(operations)
+
     @staticmethod
     def _inline_cypher_params(
         query: str,

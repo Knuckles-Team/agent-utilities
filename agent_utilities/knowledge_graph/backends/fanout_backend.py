@@ -58,7 +58,7 @@ import queue
 import re
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -67,6 +67,18 @@ from .base import is_write as _is_write
 from .outbox import GraphOutbox, OutboxEntry
 
 logger = logging.getLogger(__name__)
+
+
+class AuthorityCommittedMirrorHandoffError(RuntimeError):
+    """A native authority batch committed before its mirror handoff failed.
+
+    The authoritative graph remains the durable acknowledgement source.  Callers
+    must not retry the same batch as though it were atomic rejection, but the
+    handoff failure stays explicit so the mirror reconciler/operator can repair
+    the eventual projection.
+    """
+
+    authority_committed = True
 
 
 def _auto_handoff_capacity() -> int:
@@ -535,6 +547,106 @@ class FanOutBackend(GraphBackend):
             result = self._authority.execute_batch(query, batch)
             self._authority_writes += 1
             self._enqueue("execute_batch", {"query": query, "batch": batch})
+            return result
+
+    def apply_typed_batch(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+        """Commit native typed upserts once, then enqueue ordered mirror replay.
+
+        The authority's ``BatchUpdate`` validates the complete operation list and
+        commits it atomically.  Prepare every mirror payload *before* that commit
+        so an unsupported operation cannot leave an authority-only mutation.
+        Mirrors keep their established per-mutation outbox ordering; their durable
+        replay remains eventual, while the authority remains the read/write ack
+        source of truth.
+        """
+        prepared: list[tuple[str, dict[str, Any]]] = []
+        copied_operations: list[dict[str, Any]] = []
+        mutation_keys: list[str] = []
+        for operation in operations:
+            if not isinstance(operation, dict):
+                raise ValueError("typed batch operations must be mappings")
+            copied = dict(operation)
+            props = copied.get("properties")
+            if not isinstance(props, dict):
+                raise ValueError("typed batch operation properties must be a mapping")
+            copied["properties"] = dict(props)
+            op = str(copied.get("op") or "")
+            if op == "upsert_node":
+                node_id = str(copied.get("id") or "").strip()
+                node_type = str(copied["properties"].get("node_type") or "").strip()
+                if not node_id or not node_type:
+                    raise ValueError("typed node batch requires id and node_type")
+                payload = {"id": node_id, **copied["properties"]}
+                prepared.append(
+                    (
+                        "upsert_node",
+                        {
+                            "node_id": node_id,
+                            "label": node_type,
+                            "properties": payload,
+                        },
+                    )
+                )
+                mutation_keys.append(node_id)
+            elif op == "upsert_edge":
+                source_id = str(copied.get("source") or "").strip()
+                target_id = str(copied.get("target") or "").strip()
+                relationship = str(
+                    copied["properties"].get("relationship") or ""
+                ).strip()
+                if not source_id or not target_id or not relationship:
+                    raise ValueError(
+                        "typed edge batch requires source, target, and relationship"
+                    )
+                prepared.append(
+                    (
+                        "upsert_edge",
+                        {
+                            "source_id": source_id,
+                            "target_id": target_id,
+                            "rel_type": relationship,
+                            "props": copied["properties"],
+                        },
+                    )
+                )
+                mutation_keys.append(
+                    f"edge\x00{source_id}\x00{target_id}\x00{relationship}"
+                )
+            else:
+                raise ValueError(f"unsupported typed batch operation: {op!r}")
+            copied_operations.append(copied)
+
+        apply = getattr(self._authority, "apply_typed_batch", None)
+        if not callable(apply):
+            raise RuntimeError(
+                "fan-out authority does not support typed batch mutations"
+            )
+        # Match the lifecycle and same-mutation ordering contract of the scalar
+        # typed methods.  Acquire every touched stripe in index order so
+        # overlapping batches cannot deadlock, and retain the producer fence
+        # through the last mirror handoff so close() cannot seal the outbox in
+        # the authority-committed window.
+        stripe_indexes = sorted(
+            {hash(key) % len(self._mutation_locks) for key in mutation_keys}
+        )
+        with ExitStack() as stack:
+            stack.enter_context(self._producer())
+            for stripe_index in stripe_indexes:
+                stack.enter_context(self._mutation_locks[stripe_index])
+            result = apply(copied_operations)
+            self._authority_writes += 1
+            try:
+                for op, payload in prepared:
+                    self._enqueue(op, payload)
+            except Exception as exc:  # noqa: BLE001 — authority has already committed; reconciliation is now required for mirrors
+                logger.critical(
+                    "FanOutBackend: authority committed typed batch but mirror handoff "
+                    "failed; reconciliation required: %s",
+                    exc,
+                )
+                raise AuthorityCommittedMirrorHandoffError(
+                    "authority committed typed batch but mirror handoff failed"
+                ) from exc
             return result
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
