@@ -183,6 +183,46 @@ def test_engine_daemon_lease_defers_a_second_lanes_full_suite(canonical: Path) -
     assert lanes.lease_status("epistemic-graph-daemon", canonical) is None
 
 
+def test_workspace_scripts_lease_is_workspace_scoped(canonical: Path) -> None:
+    """D-ORC-28: /home/apps/workspace/scripts/ is not a git worktree of any repo
+    and cannot be PARTITIONed like cargo/pytest/scratch — it is one directory
+    every lane on the host invokes, so its edit lease must be workspace-scoped
+    like the shared venv and the engine daemon, not repo-scoped."""
+    assert lanes.resource_scope("workspace-scripts") == "workspace"
+    assert lanes.resource_class("workspace-scripts") is lanes.ArbitrationClass.LEASE
+    repo_leases = lanes.lane_scope(canonical).arbitration_dir / "leases"
+    with lanes.hold_lease(
+        "workspace-scripts", operation="editing scripts/deferred_registry.py",
+        path=canonical,
+    ):
+        assert not (repo_leases / "workspace-scripts.lease").exists()
+        assert (
+            lanes.workspace_arbitration_dir() / "leases" / "workspace-scripts.lease"
+        ).exists()
+    assert lanes.lease_status("workspace-scripts", canonical) is None
+
+
+def test_workspace_scripts_lease_defers_a_racing_editor(canonical: Path) -> None:
+    """The exact D-ORC-28 incident: two lanes editing scripts/deferred_registry.py
+    at once left a broken intermediate state (consumption code referencing an
+    argparse attribute that did not exist yet) visible to every lane's CLI
+    invocation. The lease must make a second, concurrent editor defer instead
+    of racing the first one's in-progress edit."""
+    lane = _add_worktree(canonical, "lane-scripts")
+    with lanes.hold_lease(
+        "workspace-scripts", operation="lane-a editing deferred_registry.py",
+        path=canonical,
+    ):
+        with pytest.raises(lanes.LeaseUnavailable, match="defer, do not proceed"):
+            with lanes.hold_lease(
+                "workspace-scripts",
+                operation="lane-b editing deferred_registry.py",
+                path=lane,
+            ):
+                pytest.fail("a second lane's edit acquired a held lease")
+    assert lanes.lease_status("workspace-scripts", canonical) is None
+
+
 def test_guarded_tree_mutation_refuses_and_releases(canonical: Path) -> None:
     """One choke point: lease held across the whole check-then-mutate."""
     lane = _add_worktree(canonical, "lane-guarded")
@@ -477,6 +517,7 @@ def test_every_known_collision_resource_is_classified() -> None:
     assert classified["dependency-lock"] is lanes.ArbitrationClass.LEASE
     assert classified["reconciliation-merge"] is lanes.ArbitrationClass.LEASE
     assert classified["epistemic-graph-daemon"] is lanes.ArbitrationClass.LEASE
+    assert classified["workspace-scripts"] is lanes.ArbitrationClass.LEASE
     assert classified["canonical-checkout"] is lanes.ArbitrationClass.READ_ONLY
     assert all(r.evidence.strip() for r in lanes.resource_rules())
 

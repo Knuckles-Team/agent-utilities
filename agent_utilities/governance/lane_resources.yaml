@@ -161,6 +161,38 @@ resources:
       must cover every tree-mutating verb, held under one lease across the whole
       check-then-mutate so the tree cannot go dirty in between.
 
+  - name: workspace-scripts
+    class: lease
+    scope: workspace   # /home/apps/workspace/scripts/ is not a git worktree of any
+                        # repo, so it cannot be PARTITIONed the way cargo/pytest/
+                        # scratch are -- it is one directory every lane on the host
+                        # invokes (deferred_registry.py, merge_queue_runner.sh,
+                        # delegation_probe.py, converge_worktrees.py,
+                        # snapshot_workspace_state.sh).
+    mechanism: hold_lease("workspace-scripts") — `agent-utilities lane lease --resource workspace-scripts -- <edit command>`
+    evidence: >-
+      D-ORC-28: two lanes raced on editing deferred_registry.py to add
+      `--detail-file`/`--evidence-file`. One lane had landed the CONSUMPTION
+      code (`a.detail_file`) but not yet the argparse declarations; in that
+      window EVERY `close` call across all 13 concurrently-running lanes
+      failed with `AttributeError: Namespace object has no attribute
+      evidence_file`. A second actor then tried to unblock by adding the
+      missing `add_argument` lines directly -- and the original lane's own
+      edit landed in the same window, producing
+      `argparse.ArgumentError: conflicting option string: --detail-file` and
+      breaking the CLI a second time, for every lane, including `selftest`.
+      Unlike every other row here, this resource cannot be made PARTITION —
+      it is deliberately ONE shared script tree, not per-lane state — so the
+      fix is LEASE: announce an edit with
+      `agent-utilities lane lease --resource workspace-scripts --operation
+      "editing scripts/deferred_registry.py" -- <your edit/test command>`
+      before mutating a file under `scripts/`, so a concurrent editor defers
+      (exit 75) instead of racing. Read-only invocation (running
+      `deferred_registry.py open/close/show`) does not need the lease — only
+      an in-place edit does, since a mid-edit *read* of a Python file at
+      process-start either sees the whole old file or the whole new one, but
+      a mid-edit *edit* is the state that produced both incidents above.
+
   - name: epistemic-graph-daemon
     class: lease
     scope: workspace   # engine_resolver's share-running-local/autostart-shared-supervised
