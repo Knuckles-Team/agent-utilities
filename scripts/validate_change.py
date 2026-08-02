@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Diff-scoped change validator — the agent's fast inner loop (CONCEPT:AU-OS.deployment.os-2).
+"""Diff-scoped change validator — the agent's fast inner loop.
 
 Runs the quality bar on **only what this change touched**, turning the minutes-long
 full pre-commit into a seconds-long loop: ruff on the changed Python files, the

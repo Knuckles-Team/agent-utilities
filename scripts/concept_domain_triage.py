@@ -315,8 +315,8 @@ def git_archaeology(domain_prefix: str, concepts: set[str]) -> dict[str, Evidenc
             continue
         if not line.startswith("+") or line.startswith("+++"):
             continue
-        for marker in iter_okf_markers(line):
-            cid = marker.id
+        for mk in iter_okf_markers(line):
+            cid = mk.id
             if cid not in concepts:
                 continue
             first[cid] = (commit, date, subject)

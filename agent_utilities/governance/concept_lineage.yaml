@@ -19,6 +19,51 @@
 # a human confirms each decision; `... apply` does the typing.
 
 parents:
+  AU-ECO.mcp.intent-surface-cpd-ranking:
+    parent: AU-ECO.mcp.intent-surface-condensed-collapse
+    rationale: Named directly in docs/architecture/intent-surface.md's own concept list as the CPD-backed
+      resolver-ranking phase of the same six-verb intent surface documented there; realised at intent_tools.py:343,
+      not an independent decision.
+  AU-ECO.mcp.intent-surface-delegation-shape:
+    parent: AU-ECO.mcp.intent-surface-condensed-collapse
+    rationale: A structural regex fingerprint (intent_tools.py:466) the SAME resolver uses to detect an
+      explicit skill-delegation phrasing; part of the intent-surface resolver's routing logic documented
+      in docs/architecture/intent-surface.md, not a separate architectural choice.
+  AU-ECO.mcp.intent-surface-outcome-learning:
+    parent: AU-ECO.mcp.intent-surface-condensed-collapse
+    rationale: The calibrated-outcomes learning loop is explicitly named as Phase 4/5 of the same intent-surface
+      program in docs/architecture/intent-surface.md's concept list; realised inside intent_tools.py alongside
+      the resolver it learns from.
+  AU-ECO.mcp.intent-surface-resolution-cache:
+    parent: AU-ECO.mcp.intent-surface-condensed-collapse
+    rationale: Bounded resolution caching is explicitly named as one of the six intent-surface concepts
+      in docs/architecture/intent-surface.md's own list; implemented at intent_tools.py:164-293 as an
+      optimisation of the SAME resolver dispatch path.
+  AU-ECO.mcp.intent-surface-tool-lifecycle:
+    parent: AU-ECO.mcp.intent-surface-condensed-collapse
+    rationale: The load->use->auto-unload session lifecycle for gated tools (multiplexer.py:1187) is the
+      mechanism that reveals the granular tools the SAME intent resolver dispatches to; documented as
+      one concept in docs/architecture/intent-surface.md.
+  AU-ECO.mcp.skills-over-mcp-provider:
+    parent: AU-ECO.mcp.cross-process-skill-harvest
+    rationale: Registers the skills-over-MCP provider that exposes harvested fleet skill bodies as runnable
+      capabilities; multiplexer.py:106,2509 consume the SAME harvest pipeline change_publisher and source_sync.py:497
+      already document at .specify/design/cross-process-skill-harvest/design.md.
+  AU-ECO.mcp.two-surfaces-mcp-rest:
+    parent: AU-ECO.mcp.intent-surface-condensed-collapse
+    rationale: The REST twin for each intent verb is wired automatically by the generic ACTION_TOOL_ROUTES
+      loop, exactly like every other tool the intent-surface diagram in docs/architecture/intent-surface.md
+      depicts converging on the same _execute_tool core and REST gateway.
+  AU-ECO.mcp.usage-cost-observability-surface:
+    parent: AU-ECO.mcp.client-side-chat-session
+    rationale: The usage/cost API (gateway/usage_api.py, gateway_client/client.py:148) reports on exactly
+      the session/turn/tool-call rows client-side chat ingestion writes; it is the read side of the same
+      ingestion pipeline, not an independent choice.
+  AU-ECO.mcp.verbose-auto-wire:
+    parent: AU-ECO.mcp.fleet-wide-verbose-auto
+    rationale: Names the dynamic/runtime half of the SAME autowire_verbose_from_condensed function (verbose_tools.py:514-622)
+      that fleet-wide-verbose-auto's document covers end to end -- one function, two concept ids on its
+      docstring.
   AU-KG.compute.audiobookshelf-libraries-books-authors:
     parent: AU-KG.compute.mcp-backed-dedicated-trackers
     rationale: one of twelve per-source entity-type declarations under the single decision that a dedicated
@@ -165,6 +210,26 @@ parents:
     parent: AU-KG.compute.first-class-action-conditioned
     rationale: the MCP action that forward-simulates the parent's learned model; an exposure surface,
       not a modelling choice
+  AU-OS.deployment.concept-2:
+    parent: AU-OS.deployment.standard-repo-templates
+    rationale: 'Names the generalized, reusable GitLab CI templates half of the SAME module (repo_templates.py:3,205,550)
+      whose docstring cites both ids together as one decision: standard operator-owned private repos plus
+      CI templates.'
+  AU-OS.deployment.flagging-repos:
+    parent: AU-OS.deployment.connector-coverage-check
+    rationale: The repo-ingestion freshness check (doctor.py:3489, coverage.py) is the original half of
+      the SAME doctor coverage-and-freshness pattern that connector_coverage's own docstring calls itself
+      'the connector analogue of' at doctor.py:3582, comparing against the same DeltaManifest watermarks.
+  AU-OS.deployment.report-resolved-mode:
+    parent: AU-OS.deployment.engine-resolver-auto-provision
+    rationale: doctor.py:1486's engine check reports the RESOLVED connection mode (remote/shared/autostart)
+      that engine_resolver.resolve_engine decides; it is the reporting surface for that resolver's own
+      precedence decision, not a separate choice.
+  AU-OS.deployment.vault-seed-service:
+    parent: AU-OS.deployment.vault-first-routine-genesis
+    rationale: analysis_tools.py:2655 is a caller of the SAME read-existing-then-seed vault_sync routine
+      (secrets_client.py:776) that vault-first-routine-genesis documents; the comment literally restates
+      vault_sync's own 'read-existing + seed' contract at a second call site.
 retired:
   AU-KG.compute.automates:
     reason: a single generic verb naming an ontology EDGE TYPE (AUTOMATES), not a decision; the connector-to-skill
@@ -201,3 +266,34 @@ retired:
   AU-KG.compute.when-exposes-native:
     reason: the same sentence fragment one clause later, on the server-side entity-resolution escalation;
       same decision, same document
+  AU-OS.deployment.blueprint-library:
+    reason: 'Names no implemented decision: the only ''source'' hit is a hardcoded string key in synergy_engine.py''s
+      _KNOWN_BRIDGES cross-pillar report table (itself explicitly ''hardcoded from architecture docs'');
+      every other site is prose in docs/journey.md and the derived pillars/*.md walkthrough describing
+      a speculative ''Infrastructure Blueprint Library'' component distinct from the REAL, code-backed
+      AU-OS.deployment.infrastructure-blueprint-library model. scripts/consolidate_concepts.py already
+      lists this id among ones slated for consolidation elsewhere, confirming it was never meant to stand
+      alone.'
+  AU-OS.deployment.infra-orchestration:
+    reason: 'Same shape as blueprint-library: sourced only from the docs/journey.md narrative walkthrough
+      and its derived pillar-summary docs, plus one hardcoded string key in synergy_engine.py''s documentation-derived
+      bridge table; no code path implements a ''Company Infrastructure Orchestration layer'' distinct
+      from the already-documented, code-backed decisions it merely narrates over.'
+  AU-OS.deployment.os-2:
+    reason: Bare legacy pillar-numbering citation (OS-2), attached to TWO unrelated pieces of code (scripts/scaffold_graph_action.py's
+      tool-action scaffolder and scripts/validate_change.py's diff-scoped validator) that share no decision
+      in common beyond both once having lived under the old OS-2 pillar number -- an id glued on by the
+      OKF-CIS migration, not a name anyone chose for either.
+  AU-OS.deployment.os-4:
+    reason: Bare legacy pillar-numbering citation (OS-4), migrated onto _check_workspace_config's workspace.yml
+      validation by the OKF-CIS cutover commit as a citation of the old numbering rather than a chosen
+      name; the underlying behaviour (validate through the same loader used elsewhere) is a minor, non-standalone
+      instance of the general doctor-check-reuses-canonical-parsers pattern, not an independent architectural
+      decision worth its own id.
+  AU-OS.deployment.platform-journey:
+    reason: 'The id is internally inconsistent about what it even names: docs/journey.md''s prose associates
+      it with an ''OS-Level Hardened WASM Sandbox Executor'' (itself a citation of the separately-documented
+      AU-OS.governance.wasm-micro-agent-sandbox concept), while synergy_engine.py''s _KNOWN_BRIDGES table
+      and scripts/consolidate_concepts.py both instead associate it with the unrelated ''Guardrail Engine''
+      concept. An id that two of the repo''s own generation scripts disagree on the meaning of names no
+      single decision.'
