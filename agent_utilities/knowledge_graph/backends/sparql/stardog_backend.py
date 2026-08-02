@@ -49,6 +49,7 @@ from urllib.parse import quote
 
 from agent_utilities.core.config import setting
 
+from ..base import embedding_values_match
 from ..mirror_target import (
     LEVEL_DATABASE,
     LEVEL_GRAPH,
@@ -440,6 +441,12 @@ class StardogSparqlBackend(SparqlAdapter):
     # ------------------------------------------------------------------
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         self._embeddings[node_id] = list(embedding)
+
+    def verify_node_embedding(
+        self, node_id: str, embedding: list[float]
+    ) -> bool:
+        """Confirm the process-local Stardog mirror vector cache."""
+        return embedding_values_match(self._embeddings.get(node_id), embedding)
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5

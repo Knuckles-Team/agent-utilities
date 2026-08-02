@@ -36,6 +36,7 @@ class RecordingBackend(GraphBackend):
         self.down = False
         self._lock = threading.Lock()
         self.writes: list[tuple[str, Any]] = []
+        self.execute_params: list[dict[str, Any]] = []
 
     def _check(self) -> None:
         if self.down:
@@ -45,6 +46,7 @@ class RecordingBackend(GraphBackend):
         self._check()
         with self._lock:
             self.writes.append(("execute", query))
+            self.execute_params.append(dict(params or {}))
         return [{"backend": self.name}]
 
     def execute_batch(self, query, batch):
@@ -61,6 +63,11 @@ class RecordingBackend(GraphBackend):
         self._check()
         with self._lock:
             self.writes.append(("add_embedding", node_id))
+
+    def verify_node_embedding(self, node_id, embedding):
+        self._check()
+        del embedding
+        return ("add_embedding", node_id) in self.writes
 
     def semantic_search(self, query_embedding, n_results=5):
         return [{"backend": self.name}]
@@ -240,8 +247,91 @@ def test_atomic_embedding_replay_converges_mirror_without_cas_and_unblocks_tail(
         assert fan.flush_mirrors(timeout=2.0)
 
         assert ("add_embedding", "node-1") in mirror.writes
+        assert mirror.writes.count(("add_embedding", "node-1")) == 1
+        assert all("embedding" not in params for params in mirror.execute_params)
         assert ("execute", "CREATE (tail)") in mirror.writes
         assert fan._outbox.lag("mirror") == 0
+    finally:
+        fan.close()
+
+
+def test_atomic_embedding_replay_does_not_ack_swallowed_mirror_writes(
+    tmp_path, monkeypatch
+):
+    """A silent operational failure keeps the durable cursor behind the entry."""
+
+    class _SwallowingMirror(RecordingBackend):
+        def execute(self, query, params=None, *, include_epistemic=False):
+            del query, params, include_epistemic
+            return []
+
+        def add_embedding(self, node_id, embedding):
+            del node_id, embedding
+
+        def verify_node_embedding(self, node_id, embedding):
+            del node_id, embedding
+            return False
+
+    authority = StatefulBackend("authority")
+    mirror = _SwallowingMirror("swallowing-mirror")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    try:
+        assert fan.compare_and_set_node_embedding(
+            "node-1",
+            {"embedding": None, "name": "billing"},
+            {"embedding": [1.0, 2.0]},
+            [1.0, 2.0],
+        )
+
+        assert not fan.flush_mirrors(timeout=1.0)
+        assert fan._outbox.lag("mirror") == 1
+        assert mirror.writes == []
+    finally:
+        fan.close()
+
+
+def test_atomic_embedding_node_property_mirror_writes_vector_once(
+    tmp_path, monkeypatch
+):
+    """Node-property mirrors verify the upsert without a duplicate add call."""
+
+    class _NodePropertyMirror(RecordingBackend):
+        embedding_is_node_property = True
+
+        def verify_node_embedding(self, node_id, embedding):
+            del node_id
+            return sum(
+                1 for params in self.execute_params if params.get("embedding") == embedding
+            ) == 1
+
+    authority = StatefulBackend("authority")
+    mirror = _NodePropertyMirror("node-property-mirror")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    try:
+        assert fan.compare_and_set_node_embedding(
+            "node-1",
+            {"embedding": None, "name": "billing"},
+            {"embedding": [1.0, 2.0]},
+            [1.0, 2.0],
+        )
+
+        assert fan.flush_mirrors(timeout=2.0)
+        assert ("add_embedding", "node-1") not in mirror.writes
+        assert sum(
+            1
+            for params in mirror.execute_params
+            if params.get("embedding") == [1.0, 2.0]
+        ) == 1
     finally:
         fan.close()
 

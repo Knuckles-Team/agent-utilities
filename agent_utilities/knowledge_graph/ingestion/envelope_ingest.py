@@ -645,7 +645,11 @@ def _resolve_native_authority(engine: Any) -> _NativeAuthority:
     authority_backend = getattr(backend, "_authority", backend)
     compute = getattr(authority_backend, "graph", None)
     if _has_change_client(compute):
-        return _NativeAuthority(compute, authority_backend)
+        # Keep the OUTER backend as the publication seam. In a fan-out topology
+        # ``authority_backend`` is intentionally unwrapped only to reach the
+        # native ChangeEnvelope client; later embedding publication must traverse
+        # the outer fan-out so its mirror outbox receives the committed vector.
+        return _NativeAuthority(compute, backend)
 
     # A compute scratch graph is not an authority when another backend exists.
     if backend is None:
@@ -1938,7 +1942,27 @@ def _commit_embedded_vectors(
     loses the exact-field CAS and applies neither side.
     """
     compute = getattr(authority, "compute", None)
-    atomic_embedding = getattr(compute, "compare_and_set_node_embedding", None)
+    publisher = getattr(authority, "backend", None)
+    scoped_atomic_embedding = getattr(
+        publisher, "compare_and_set_node_embedding_for_graph", None
+    )
+    if callable(scoped_atomic_embedding):
+        graph_name = str(getattr(compute, "graph_name", "") or "")
+
+        def atomic_embedding(
+            node_id: str,
+            conditions: dict[str, Any],
+            updates: dict[str, Any],
+            vector: list[float],
+        ) -> bool:
+            return bool(
+                scoped_atomic_embedding(
+                    graph_name, node_id, conditions, updates, vector
+                )
+            )
+
+    else:
+        atomic_embedding = getattr(compute, "compare_and_set_node_embedding", None)
     if not callable(atomic_embedding):
         logger.warning(
             "ingest-time embedding remains unavailable: authority lacks atomic "

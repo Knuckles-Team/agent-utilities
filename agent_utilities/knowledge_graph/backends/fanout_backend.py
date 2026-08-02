@@ -657,12 +657,49 @@ class FanOutBackend(GraphBackend):
         embedding: list[float],
     ) -> bool:
         """Atomically update authority fields + ANN, then replay one mirror op."""
-        atomic_update = getattr(self._authority, "compare_and_set_node_embedding", None)
+        return self._compare_and_set_node_embedding_with_authority(
+            self._authority,
+            node_id,
+            conditions,
+            updates,
+            embedding,
+        )
+
+    def compare_and_set_node_embedding_for_graph(
+        self,
+        graph_name: str,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Publish a graph-scoped native embedding update through fan-out."""
+        scoped = getattr(self._authority, "for_graph", None)
+        if not callable(scoped):
+            raise RuntimeError("fan-out authority does not expose graph-scoped views")
+        return self._compare_and_set_node_embedding_with_authority(
+            scoped(graph_name),
+            node_id,
+            conditions,
+            updates,
+            embedding,
+        )
+
+    def _compare_and_set_node_embedding_with_authority(
+        self,
+        authority: GraphBackend,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Apply one scoped authority update and enqueue its mirror snapshot."""
+        atomic_update = getattr(authority, "compare_and_set_node_embedding", None)
         if not callable(atomic_update):
             raise RuntimeError(
                 "fan-out authority does not support atomic embedding updates"
             )
-        get_properties = getattr(self._authority, "get_node_properties", None)
+        get_properties = getattr(authority, "get_node_properties", None)
         if self._mirrors and not callable(get_properties):
             raise RuntimeError(
                 "fan-out authority cannot snapshot an atomic embedding update"
@@ -797,7 +834,18 @@ class FanOutBackend(GraphBackend):
                         for field, expected in (p.get("updates") or {}).items()
                     )
                 if applied:
-                    backend.add_embedding(p["node_id"], p["embedding"])
+                    if getattr(backend, "supports_native_vector_search", True) is False:
+                        return
+                    if not backend.embedding_is_node_property:
+                        backend.add_embedding(p["node_id"], p["embedding"])
+                    if not _overrides_backend_method(
+                        backend, "verify_node_embedding"
+                    ) or not backend.verify_node_embedding(
+                        p["node_id"], p["embedding"]
+                    ):
+                        raise RuntimeError(
+                            "mirror embedding replay was not verified"
+                        )
                     return
 
             # Standard mirrors do not implement either optional CAS contract.
@@ -811,12 +859,35 @@ class FanOutBackend(GraphBackend):
                 raise RuntimeError(
                     "mirror atomic embedding replay lacks an authority snapshot"
                 )
+            # PostgreSQL/Ladybug/Neo4j store the vector as the node property, so
+            # the full snapshot upsert is their ONE vector write. Side-index
+            # backends omit it structurally and perform ONE add_embedding call.
+            # Either storage mode must verify before cursor advance.
+            structural_properties = {
+                field: value
+                for field, value in properties.items()
+                if field != "embedding"
+            }
+            replay_properties = (
+                properties
+                if backend.embedding_is_node_property
+                else structural_properties
+            )
             self._node_writer(backend)._upsert_node(
                 label,
                 p["node_id"],
-                properties,
+                replay_properties,
             )
-            backend.add_embedding(p["node_id"], p["embedding"])
+            if getattr(backend, "supports_native_vector_search", True) is False:
+                return
+            if not backend.embedding_is_node_property:
+                backend.add_embedding(p["node_id"], p["embedding"])
+            if not _overrides_backend_method(backend, "verify_node_embedding"):
+                raise RuntimeError(
+                    "mirror embedding replay lacks read-after-write verification"
+                )
+            if not backend.verify_node_embedding(p["node_id"], p["embedding"]):
+                raise RuntimeError("mirror embedding replay was not verified")
         elif op == "create_schema":
             backend.create_schema()
         elif op == "prune":

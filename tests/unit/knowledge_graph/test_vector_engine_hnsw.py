@@ -362,6 +362,10 @@ def test_semantic_search_rejects_property_until_txn_ann_projection_is_ready() ->
         def semantic_search(self, _query, _limit):
             return [("n1", self.score)]
 
+    class _Query:
+        def unified(self, _plan):
+            return [{"id": "n1", "score": graph_ns.score}]
+
     nodes = _Nodes()
     graph_ns = _Graph()
 
@@ -398,6 +402,7 @@ def test_semantic_search_rejects_property_until_txn_ann_projection_is_ready() ->
         def __init__(self) -> None:
             self.nodes = nodes
             self.graph = graph_ns
+            self.query = _Query()
             self.txn = _Txn()
 
     compute = GraphComputeEngine.__new__(GraphComputeEngine)
@@ -420,6 +425,13 @@ def test_semantic_search_rejects_property_until_txn_ann_projection_is_ready() ->
         assert nodes.props["_embedding_index_ready"] is False
         assert graph_ns.score == 0.2
         assert compute.semantic_search([0.9], 1) == []
+        assert compute.query_unified(
+            [
+                {"Scan": {"label": "Fixture"}},
+                {"Rank": {"query": [0.9]}},
+                {"Limit": {"k": 1}},
+            ]
+        ) == []
         assert worker.is_alive()
 
         release_ann_projection.set()
@@ -428,6 +440,14 @@ def test_semantic_search_rejects_property_until_txn_ann_projection_is_ready() ->
         assert result == [True]
         assert nodes.props["_embedding_index_ready"] is True
         assert compute.semantic_search([0.9], 1) == [("n1", 0.9)]
+        ready_rows = compute.query_unified(
+            [
+                {"Scan": {"label": "Fixture"}},
+                {"Rank": {"query": [0.9]}},
+                {"Limit": {"k": 1}},
+            ]
+        )
+        assert [(row["id"], row["score"]) for row in ready_rows] == [("n1", 0.9)]
     finally:
         release_ann_projection.set()
         worker.join(timeout=5.0)

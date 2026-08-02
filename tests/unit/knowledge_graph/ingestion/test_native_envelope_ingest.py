@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextvars
 import threading
+from types import SimpleNamespace
 
 import msgpack
 import pytest
@@ -1490,6 +1491,63 @@ def test_partial_upsert_fails_closed_when_all_property_hydration_is_malformed(
     assert stored["active"] is True
     assert stored["embedding"] == current_embedding
     assert _fake_embed_fn == []
+
+
+def test_native_embedding_publication_uses_outer_fanout_seam(_fake_embed_fn) -> None:
+    """Native ChangeEnvelope publication must enqueue mirrors through fanout."""
+    compute = _Compute("graph-fanout-publication")
+
+    class _FanoutPublisher:
+        def __init__(self) -> None:
+            self._authority = SimpleNamespace(graph=compute)
+            self.calls: list[
+                tuple[
+                    str,
+                    str,
+                    dict[str, object],
+                    dict[str, object],
+                    list[float],
+                ]
+            ] = []
+
+        def compare_and_set_node_embedding_for_graph(
+            self,
+            graph_name: str,
+            node_id: str,
+            conditions: dict[str, object],
+            updates: dict[str, object],
+            embedding: list[float],
+        ) -> bool:
+            self.calls.append(
+                (
+                    graph_name,
+                    node_id,
+                    dict(conditions),
+                    dict(updates),
+                    list(embedding),
+                )
+            )
+            return compute.compare_and_set_node_embedding(
+                node_id, conditions, updates, embedding
+            )
+
+    publisher = _FanoutPublisher()
+    engine = SimpleNamespace(backend=publisher)
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "A record that must be mirrored",
+        }
+    )
+
+    result = module.ingest_envelope(engine, envelope)
+
+    assert result["status"] == "success"
+    assert len(publisher.calls) == 1
+    assert publisher.calls[0][0] == "fixture-graph"
+    assert publisher.calls[0][1] == "object-1"
+    assert len(compute.atomic_embedding_calls) == 1
 
 
 def test_replacement_embedding_is_property_invisible_until_atomic_ann_commit(

@@ -342,8 +342,8 @@ class EpistemicGraphBackend(GraphBackend):
             if (props or {}).get(EMBEDDING_INDEX_READY_FIELD) is False:
                 # A process can stop after the durable cross-modal transaction
                 # committed but before the served-read readiness CAS. Re-run the
-                # idempotent transaction so startup hydration repairs that safe,
-                # intentionally hidden state instead of hiding it forever.
+                # idempotent transaction so the periodic/operator maintenance
+                # pass eventually repairs that safe, intentionally hidden state.
                 if self._graph.compare_and_set_node_embedding(
                     node_id,
                     {

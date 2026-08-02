@@ -2676,7 +2676,7 @@ class GraphComputeEngine:
         reorder_filter_selectivity: float | None = None,
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Run ONE cross-modal unified plan in a single costed round-trip.
+        """Run one native cross-modal plan with bounded served-read fencing.
 
         ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
         ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
@@ -2690,6 +2690,9 @@ class GraphComputeEngine:
 
         Requires an engine built with the ``query`` feature; on a build without it
         the call raises a clear engine error — there is no O(N) Python fallback.
+        Until the engine publishes GraphCore and SemanticStore under one served
+        barrier, Rank-bearing plans add one bounded property-batch round-trip to
+        reject not-ready/stale vector rows.
 
         Args:
             include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
@@ -2723,6 +2726,35 @@ class GraphComputeEngine:
                     "is dropped, not silently honored."
                 )
             rows = unified_fn(plan) or []
+        if rows and any(
+            isinstance(operation, dict) and "Rank" in operation
+            for operation in plan
+        ):
+            # The engine currently publishes GraphCore fields before its
+            # SemanticStore projection inside a cross-modal transaction.  Rank
+            # rows therefore require the same bounded durable-property fence as
+            # semantic_search: a literal not-ready marker or missing vector
+            # cannot escape through the unified surface preferred by hybrid and
+            # capability retrieval.
+            from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
+            ranked_ids = [
+                str(row["id"])
+                for row in rows
+                if isinstance(row, dict) and row.get("id") is not None
+            ]
+            properties = self._get_node_properties_batch(ranked_ids)
+            current_rows: list[dict[str, Any]] = []
+            for row in rows:
+                if not isinstance(row, dict) or row.get("id") is None:
+                    continue
+                node_properties = properties.get(str(row["id"]), {})
+                if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
+                    continue
+                embedding = node_properties.get("embedding")
+                if isinstance(embedding, list | tuple) and embedding:
+                    current_rows.append(row)
+            rows = current_rows
         if include_epistemic:
             from .epistemic_row import attach_epistemic_rows
 

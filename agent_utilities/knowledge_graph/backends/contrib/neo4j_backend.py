@@ -17,7 +17,7 @@ from agent_utilities.core.transport_security import (
     resolve_configured_tls_profile,
 )
 
-from ..base import GraphBackend, coerce_cypher_property
+from ..base import GraphBackend, coerce_cypher_property, embedding_values_match
 from ..mirror_target import (
     MirrorTarget,
     cypher_target_has_data,
@@ -56,6 +56,8 @@ except ImportError:
 
 class Neo4jBackend(GraphBackend):
     """Neo4j backend for the unified graph."""
+
+    embedding_is_node_property = True
 
     def __init__(
         self,
@@ -350,6 +352,18 @@ class Neo4jBackend(GraphBackend):
         # its primary label (Code/Concept/Document/…).
         query = "MATCH (n {id: $id}) SET n:Embeddable, n.embedding = $embedding"
         self.execute(query, {"id": node_id, "embedding": embedding})
+
+    def verify_node_embedding(
+        self, node_id: str, embedding: list[float]
+    ) -> bool:
+        """Confirm Neo4j's durable vector property after mirror replay."""
+        rows = self.execute_read(
+            "MATCH (n {id: $id}) RETURN n.embedding AS embedding",
+            {"id": node_id},
+        )
+        return bool(rows) and embedding_values_match(
+            rows[0].get("embedding"), embedding
+        )
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5

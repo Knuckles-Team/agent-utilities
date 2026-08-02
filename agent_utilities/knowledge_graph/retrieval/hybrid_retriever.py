@@ -322,7 +322,7 @@ class HybridRetriever:
         *,
         label: str | None = None,
     ) -> list[tuple[str, float]]:
-        """Return ``(id, score)`` from the engine's vector index — ONE round-trip.
+        """Return ``(id, score)`` from the engine's vector index.
 
         When a ``label`` is given, the ranking is the unified plan
         ``Scan(label) |> Rank(query) |> Limit`` — the engine
@@ -332,6 +332,10 @@ class HybridRetriever:
         engine error (e.g. a build without the ``query`` feature, or no engine
         reachable) it degrades to the native ANN, then to ``[]`` — never a Python
         cosine scan.
+
+        The native unified rank is one costed plan; GraphCompute currently adds
+        one bounded property-batch readiness fence until the engine provides a
+        single served-publication barrier for graph fields and ANN projection.
         """
         qvec = [float(x) for x in query_emb]
         if label:
